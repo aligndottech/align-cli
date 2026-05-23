@@ -50,11 +50,15 @@ export async function runPersonalImport(
   }
 
   let total = 0;
+  let relatedCount = 0;
   for (let i = 0; i < batches.length; i++) {
     const spinner = ora(`Importing batch ${i + 1}/${batches.length}...`).start();
     try {
       const result = await client.ingestBatch(batches[i]);
       total += result.snapshots.length;
+      for (const s of result.snapshots) {
+        relatedCount += s.analysis?.relatedDecisions?.length ?? 0;
+      }
       spinner.succeed(`Batch ${i + 1}/${batches.length} done (${result.snapshots.length} decisions)`);
     } catch (err) {
       spinner.fail(`Batch ${i + 1} failed: ${(err as Error).message}`);
@@ -63,7 +67,11 @@ export async function runPersonalImport(
 
   console.log('');
   console.log(chalk.green(`${total} decisions captured from ${opts.label}.`));
+  if (relatedCount > 0) {
+    console.log(chalk.cyan(`${relatedCount} connections found with existing decisions in your graph.`));
+  }
+  console.log(chalk.dim('Relationships across all your imported tools are detected automatically in the background.'));
   console.log(chalk.dim(`View at: ${opts.appUrl}/decisions`));
-  console.log(chalk.dim('Tip: re-running adds new items. Use `align decisions list` to see all.'));
+  console.log(chalk.dim('Tip: import more tools to build a richer cross-tool decision graph.'));
   console.log('');
 }

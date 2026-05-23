@@ -105,7 +105,19 @@ export interface BatchIngestItem {
 }
 
 export interface BatchIngestResult {
-  snapshots: Array<{ id: string; title: string; summary: string }>;
+  snapshots: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    analysis?: {
+      relatedDecisions: Array<{
+        id: string;
+        title: string;
+        relationship: string;
+        confidence: number;
+      }>;
+    };
+  }>;
 }
 
 export class GatewayError extends Error {

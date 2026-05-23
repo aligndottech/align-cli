@@ -84,6 +84,38 @@ describe('runPersonalImport', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it('shows cross-tool connection count when relatedDecisions are returned', async () => {
+    const ingestBatch = vi.fn().mockResolvedValue({
+      snapshots: [{
+        id: '1', title: 'T', summary: 'S',
+        analysis: {
+          relatedDecisions: [
+            { id: '2', title: 'Related', relationship: 'relates', confidence: 0.8 },
+            { id: '3', title: 'Also related', relationship: 'refines', confidence: 0.7 },
+          ],
+        },
+      }],
+    });
+    const client = makeClient({ ingestBatch });
+    await runPersonalImport(makeItems(1), client, { label: 'test', approve: true, appUrl: 'http://app' });
+    const output = consoleLog.mock.calls.map(c => String(c[0])).join('\n');
+    expect(output).toMatch(/2 connections/);
+  });
+
+  it('does not mention connections when relatedDecisions is empty', async () => {
+    const client = makeClient();
+    await runPersonalImport(makeItems(1), client, { label: 'test', approve: true, appUrl: 'http://app' });
+    const output = consoleLog.mock.calls.map(c => String(c[0])).join('\n');
+    expect(output).not.toMatch(/connections found/);
+  });
+
+  it('mentions background relationship detection in output', async () => {
+    const client = makeClient();
+    await runPersonalImport(makeItems(1), client, { label: 'test', approve: true, appUrl: 'http://app' });
+    const output = consoleLog.mock.calls.map(c => String(c[0])).join('\n');
+    expect(output).toMatch(/background/);
+  });
+
   beforeEach(() => {
     consoleLog.mockClear();
   });

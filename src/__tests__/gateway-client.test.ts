@@ -126,4 +126,24 @@ describe('gateway client', () => {
       }),
     );
   });
+
+  it('ingestBatch captures relatedDecisions from the gateway response', async () => {
+    const snapshots = [{
+      id: 'snap-1',
+      title: 'Auth decision',
+      summary: 'We chose JWT',
+      analysis: {
+        relatedDecisions: [
+          { id: 'snap-2', title: 'Session design', relationship: 'relates', confidence: 0.8 },
+        ],
+      },
+    }];
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ snapshots }) });
+    const result = await createGatewayClient(localEnv).ingestBatch([
+      { source_url: 'https://slack.com/x', platform: 'slack', raw_text: 'auth discussion' },
+    ]);
+    expect(result.snapshots[0].analysis?.relatedDecisions).toHaveLength(1);
+    expect(result.snapshots[0].analysis?.relatedDecisions[0].relationship).toBe('relates');
+    expect(result.snapshots[0].analysis?.relatedDecisions[0].confidence).toBe(0.8);
+  });
 });
