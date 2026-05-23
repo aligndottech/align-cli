@@ -1,6 +1,6 @@
 # Align CLI
 
-Capture decisions, check alignment, and query your decision graph from the terminal.
+[Align](https://align.tech) captures the decisions your team makes every day - in git commits, PRs, Jira tickets, Slack threads - and builds a searchable decision graph you can query from the terminal or from AI assistants via MCP.
 
 ```
 npm install -g @align/cli
@@ -10,17 +10,22 @@ Node 20+ required.
 
 ## Quick start
 
+1. Create a free account at **[app.align.tech](https://app.align.tech)**
+2. Install the CLI and log in:
+
 ```bash
-# 1. Log in (opens your browser to generate an API token)
+npm install -g @align/cli
+
+# Log in - opens app.align.tech to generate an API token
 align login
 
-# 2. Populate your graph from local git history
+# Populate your graph from local git history (no connectors needed)
 align import git
 
-# 3. Search decisions
+# Search decisions
 align search "authentication strategy"
 
-# 4. Browse recent decisions
+# Browse recent decisions
 align decisions list
 ```
 
@@ -35,7 +40,7 @@ align whoami                 # verify current session
 align logout                 # clear stored credentials
 ```
 
-Tokens are stored locally in your OS config directory. To create one manually, go to **Settings → API Tokens** in the Align web app.
+Tokens are stored locally in your OS config directory. To create one manually, go to **Settings → API Tokens** at [app.align.tech](https://app.align.tech).
 
 ## Importing decisions
 
