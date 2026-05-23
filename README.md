@@ -2,7 +2,7 @@
 
 **AI agents are shipping code from decisions they can't see.**
 
-Align is the decision graph that gives every agent and every engineer the same source of truth. Decisions get made across the tools your team already uses - then disappear. Align captures them, links them across tools, and surfaces conflicts and changes in direction in real time.
+[Align](https://align.tech) is the decision graph that gives every agent and every engineer the same source of truth. Decisions get made across the tools your team already uses - then disappear. Align captures them, links them across tools, and surfaces conflicts and changes in direction in real time.
 
 Agents are probabilistic by design. Their outputs are only as reliable as the inputs they get. Code, docs, and APIs already feed in as structured context. The reasoning behind every engineering choice does not. Align is the deterministic decision layer upstream of every agent in your stack.
 
