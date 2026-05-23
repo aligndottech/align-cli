@@ -1,12 +1,38 @@
 # Align CLI
 
-[Align](https://align.tech) captures the decisions your team makes every day - in git commits, PRs, Jira tickets, Slack threads - and builds a searchable decision graph you can query from the terminal or from AI assistants via MCP.
+AI assistants like Claude and Cursor are only as good as the context they have. When they don't know what your team decided - and why - they guess. [Align](https://align.tech) fixes that: it captures decisions from git, Slack, Jira, GitHub, and more into a shared graph that your AI tools can query directly via MCP.
+
+The result is AI suggestions grounded in what your team actually decided, not hallucinated from general knowledge.
 
 ```
 npm install -g @align/cli
 ```
 
 Node 20+ required.
+
+## AI context via MCP
+
+Wire Align into Claude, Cursor, or any MCP-compatible assistant so it can look up decisions before it suggests code or architecture changes:
+
+```bash
+align mcp
+```
+
+Add to your MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "align": {
+      "command": "align",
+      "args": ["mcp"],
+      "env": { "ALIGN_TOKEN": "algt_..." }
+    }
+  }
+}
+```
+
+Once connected, your AI assistant can answer questions like "what did we decide about authentication?" or "why are we using Postgres?" using your team's actual decisions as the source of truth.
 
 ## Quick start
 
@@ -29,7 +55,7 @@ align search "authentication strategy"
 align decisions list
 ```
 
-That's it. No admin setup, no connectors required - `align import git` works anywhere you have a git repo.
+No admin setup, no connectors required - `align import git` works anywhere you have a git repo.
 
 ## Authentication
 
@@ -104,28 +130,6 @@ Example GitHub Actions step:
 ```
 
 Pass the token via `ALIGN_TOKEN` env var or `--token` flag.
-
-## MCP server
-
-Run Align as an MCP server so AI assistants (Claude, Cursor, etc.) can query your decision graph directly.
-
-```bash
-align mcp
-```
-
-Add to your MCP client config:
-
-```json
-{
-  "mcpServers": {
-    "align": {
-      "command": "align",
-      "args": ["mcp"],
-      "env": { "ALIGN_TOKEN": "algt_..." }
-    }
-  }
-}
-```
 
 ## Environment variables
 
