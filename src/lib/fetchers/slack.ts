@@ -41,11 +41,12 @@ export async function fetchSlackItems(opts: {
 
   const items: PersonalImportItem[] = [];
 
-  for (const channel of channels) {
+  for (let channelIndex = 0; channelIndex < channels.length; channelIndex++) {
+    const channel = channels[channelIndex];
     if (items.length >= limit) break;
     try {
-      // 3-second delay between every channel to stay under Tier 2 rate limit (20 req/min)
-      await new Promise(r => setTimeout(r, 3000));
+      // 3-second delay between channels to stay under Tier 2 rate limit (20 req/min)
+      if (channelIndex > 0) await new Promise(r => setTimeout(r, 3000));
       const hist = await slackGet('conversations.history', opts.token, {
         channel: channel.id,
         oldest,

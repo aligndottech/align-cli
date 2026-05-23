@@ -1,16 +1,6 @@
 # Align CLI
 
-AI assistants like Claude and Cursor are only as good as the context they have. When they don't know what your team decided - and why - they guess. <a href="https://align.tech" target="_blank">Align</a> fixes that: it captures decisions from git, Slack, Jira, GitHub, and more into a shared graph that your AI tools can query directly via MCP.
-
-The result is AI suggestions grounded in what your team actually decided, not hallucinated from general knowledge.
-
-## How it works
-
-When you import from any source, Align runs semantic analysis against your entire decision graph - not just the current batch. That means every new import is automatically cross-referenced against everything already in the graph, regardless of when or where it came from.
-
-So you can import Slack today, Jira next week, and GitHub after that. As each arrives, Align finds the relationships: the Slack thread where your team debated database options gets linked to the Jira ticket that tracked the decision and the PR that implemented it - even though they were imported separately and live in different tools.
-
-No manual tagging or linking required. The graph gets richer every time you add a new source. The result is typed edges between decisions - implements, supersedes, conflicts-with, references - so when your AI assistant asks "why are we using Postgres?", it gets the full chain, not just the commit message.
+Capture decisions, check alignment, and query your decision graph from the terminal.
 
 ```
 npm install -g @align/cli
@@ -18,58 +8,23 @@ npm install -g @align/cli
 
 Node 20+ required.
 
-## AI context via MCP
-
-Wire Align into Claude, Cursor, or any MCP-compatible assistant so it can look up decisions before it suggests code or architecture changes:
-
-```bash
-align mcp
-```
-
-Add to your MCP client config:
-
-```json
-{
-  "mcpServers": {
-    "align": {
-      "command": "align",
-      "args": ["mcp"],
-      "env": { "ALIGN_TOKEN": "algt_..." }
-    }
-  }
-}
-```
-
-Once connected, your AI assistant can answer questions like "what did we decide about authentication?" or "why are we using Postgres?" using your team's actual decisions as the source of truth.
-
 ## Quick start
 
-1. Create a free account at **[app.align.tech](https://app.align.tech)**
-2. Install the CLI and log in:
-
 ```bash
-npm install -g @align/cli
+# 1. Log in (opens your browser to generate an API token)
+align login
 
-align login  # opens app.align.tech to generate an API token
+# 2. Populate your graph from local git history
+align import git
+
+# 3. Search decisions
+align search "authentication strategy"
+
+# 4. Browse recent decisions
+align decisions list
 ```
 
-3. Pull in decisions from wherever your team actually makes them:
-
-```bash
-align import slack  --token xoxp-...      # threads where decisions happened
-align import linear --token lin_api_...   # issues and specs
-align import github --token ghp_...       # PRs and review discussions
-align import jira   --host yourco.atlassian.net --email you@co.com --token ...
-```
-
-4. Ask questions your AI couldn't answer before:
-
-```bash
-align search "why did we move off Redis"
-align search "what was the reasoning behind the monorepo decision"
-```
-
-Now wire it into Claude or Cursor via MCP and those answers are available inside your editor automatically - sourced from the actual Slack thread or Jira ticket where the decision was made, not guessed from the codebase.
+That's it. No admin setup, no connectors required - `align import git` works anywhere you have a git repo.
 
 ## Authentication
 
@@ -80,7 +35,7 @@ align whoami                 # verify current session
 align logout                 # clear stored credentials
 ```
 
-Tokens are stored locally in your OS config directory. To create one manually, go to **Settings → API Tokens** at [app.align.tech](https://app.align.tech).
+Tokens are stored locally in your OS config directory. To create one manually, go to **Settings → API Tokens** in the Align web app.
 
 ## Importing decisions
 
@@ -94,10 +49,10 @@ align import git --approve   # skip confirmation prompt
 
 # Personal connectors (use your own credentials, no admin required)
 align import github   --token ghp_...
-align import gitlab   --token glpat_...
+align import gitlab   --token glpat-...
 align import linear   --token lin_api_...
-align import jira     --host yourco.atlassian.net --email you@co.com --token ...
-align import confluence --host yourco.atlassian.net --email you@co.com --token ...
+align import jira     --domain yourco.atlassian.net --email you@co.com --token ...
+align import confluence --domain yourco.atlassian.net --email you@co.com --token ...
 align import slack    --token xoxp-...
 align import notion   --token secret_...
 ```
@@ -145,11 +100,44 @@ Example GitHub Actions step:
 
 Pass the token via `ALIGN_TOKEN` env var or `--token` flag.
 
+## MCP server
+
+Run Align as an MCP server so AI assistants (Claude, Cursor, etc.) can query your decision graph directly.
+
+```bash
+align mcp
+```
+
+Add to your MCP client config:
+
+```json
+{
+  "mcpServers": {
+    "align": {
+      "command": "align",
+      "args": ["mcp"],
+      "env": { "ALIGN_TOKEN": "algt_..." }
+    }
+  }
+}
+```
+
+## Environments
+
+By default the CLI targets `prod` (`api.align.tech`). Use `--env` or set a sticky default:
+
+```bash
+align env set preview          # stick to preview for this machine
+align env get                  # show current default
+align --env local <command>    # one-off override
+```
+
 ## Environment variables
 
 | Variable | Purpose |
 |---|---|
 | `ALIGN_TOKEN` | API token (alternative to `align login`) |
+| `ALIGN_ENV` | Default environment (`prod`, `preview`, `local`) |
 | `ALIGN_GATEWAY_URL` | Override gateway URL (self-hosted) |
 | `ALIGN_TENANT_ID` | Override tenant ID (self-hosted / CI) |
 
@@ -158,5 +146,7 @@ Pass the token via `ALIGN_TOKEN` env var or `--token` flag.
 Point the CLI at your own instance:
 
 ```bash
+align login --env local --token algt_...
+# or
 ALIGN_GATEWAY_URL=https://api.yourco.com align decisions list
 ```
