@@ -122,22 +122,11 @@ Add to your MCP client config:
 }
 ```
 
-## Environments
-
-By default the CLI targets `prod` (`api.align.tech`). Use `--env` or set a sticky default:
-
-```bash
-align env set preview          # stick to preview for this machine
-align env get                  # show current default
-align --env local <command>    # one-off override
-```
-
 ## Environment variables
 
 | Variable | Purpose |
 |---|---|
 | `ALIGN_TOKEN` | API token (alternative to `align login`) |
-| `ALIGN_ENV` | Default environment (`prod`, `preview`, `local`) |
 | `ALIGN_GATEWAY_URL` | Override gateway URL (self-hosted) |
 | `ALIGN_TENANT_ID` | Override tenant ID (self-hosted / CI) |
 
@@ -146,7 +135,5 @@ align --env local <command>    # one-off override
 Point the CLI at your own instance:
 
 ```bash
-align login --env local --token algt_...
-# or
 ALIGN_GATEWAY_URL=https://api.yourco.com align decisions list
 ```
