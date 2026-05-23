@@ -3,7 +3,7 @@
 Capture decisions, check alignment, and query your decision graph from the terminal.
 
 ```
-npm install -g @align/cli
+npm install -g @aligndottech/cli
 ```
 
 Node 20+ required.
