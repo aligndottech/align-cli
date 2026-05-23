@@ -42,20 +42,26 @@ Once connected, your AI assistant can answer questions like "what did we decide 
 ```bash
 npm install -g @align/cli
 
-# Log in - opens app.align.tech to generate an API token
-align login
-
-# Populate your graph from local git history (no connectors needed)
-align import git
-
-# Search decisions
-align search "authentication strategy"
-
-# Browse recent decisions
-align decisions list
+align login  # opens app.align.tech to generate an API token
 ```
 
-No admin setup, no connectors required - `align import git` works anywhere you have a git repo.
+3. Pull in decisions from wherever your team actually makes them:
+
+```bash
+align import slack  --token xoxp-...      # threads where decisions happened
+align import linear --token lin_api_...   # issues and specs
+align import github --token ghp_...       # PRs and review discussions
+align import jira   --host yourco.atlassian.net --email you@co.com --token ...
+```
+
+4. Ask questions your AI couldn't answer before:
+
+```bash
+align search "why did we move off Redis"
+align search "what was the reasoning behind the monorepo decision"
+```
+
+Now wire it into Claude or Cursor via MCP and those answers are available inside your editor automatically - sourced from the actual Slack thread or Jira ticket where the decision was made, not guessed from the codebase.
 
 ## Authentication
 
