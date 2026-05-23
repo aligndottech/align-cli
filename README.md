@@ -1,6 +1,6 @@
 # Align CLI
 
-AI assistants like Claude and Cursor are only as good as the context they have. When they don't know what your team decided - and why - they guess. [Align](https://align.tech) fixes that: it captures decisions from git, Slack, Jira, GitHub, and more into a shared graph that your AI tools can query directly via MCP.
+AI assistants like Claude and Cursor are only as good as the context they have. When they don't know what your team decided - and why - they guess. <a href="https://align.tech" target="_blank">Align</a> fixes that: it captures decisions from git, Slack, Jira, GitHub, and more into a shared graph that your AI tools can query directly via MCP.
 
 The result is AI suggestions grounded in what your team actually decided, not hallucinated from general knowledge.
 
