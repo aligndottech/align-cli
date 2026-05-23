@@ -4,6 +4,12 @@ AI assistants like Claude and Cursor are only as good as the context they have. 
 
 The result is AI suggestions grounded in what your team actually decided, not hallucinated from general knowledge.
 
+## How it works
+
+When you import from any source, Align doesn't just store the content - it automatically detects relationships between decisions across tools. A Slack thread where your team debated database options, the Jira ticket that tracked the decision, and the PR that implemented it get linked into a single decision node with full context from all three.
+
+This happens automatically using semantic analysis on the content - no manual tagging or linking required. The result is a typed decision graph: nodes are decisions, edges are relationships (implements, supersedes, conflicts-with, references). When your AI assistant asks "why are we using Postgres?", it gets the full chain - not just the commit message, but the conversation behind it.
+
 ```
 npm install -g @align/cli
 ```
