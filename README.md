@@ -29,32 +29,82 @@ That's it. No admin setup, no connectors required - `align import git` works any
 ## Authentication
 
 ```bash
-align login                  # opens browser → paste token
+align login                  # opens browser, paste token when prompted
 align login --token algt_... # non-interactive, good for CI
 align whoami                 # verify current session
 align logout                 # clear stored credentials
 ```
 
-Tokens are stored locally in your OS config directory. To create one manually, go to **Settings → API Tokens** in the Align web app.
+Tokens are stored locally in your OS config directory. To create one manually, go to **Settings > API Tokens** in the Align web app.
 
 ## Importing decisions
 
 Pull your existing work into the decision graph.
 
-```bash
-# Git commits (no credentials needed)
-align import git
-align import git --limit 200 --from 2024-01-01 --branch main
-align import git --approve   # skip confirmation prompt
+### Git
 
-# Personal connectors (use your own credentials, no admin required)
-align import github   --token ghp_...
-align import gitlab   --token glpat-...
-align import linear   --token lin_api_...
-align import jira     --domain yourco.atlassian.net --email you@co.com --token ...
-align import confluence --domain yourco.atlassian.net --email you@co.com --token ...
-align import slack    --token xoxp-...
-align import notion   --token secret_...
+```bash
+align import git
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--limit` | `100` | Max commits to import |
+| `--branch` | current branch | Git branch to scan |
+| `--from` | - | Start date (ISO, e.g. `2025-01-01`) |
+| `--to` | - | End date (ISO) |
+| `--approve` | - | Skip confirmation prompt |
+
+### GitHub / GitLab
+
+```bash
+align import github --token ghp_...
+align import gitlab --token glpat-...
+```
+
+### Jira
+
+```bash
+align import jira \
+  --token <your-jira-api-token> \
+  --email your@email.com \
+  --domain yourorg.atlassian.net
+```
+
+### Linear
+
+```bash
+align import linear --token <your-linear-api-key>
+```
+
+### Confluence
+
+```bash
+align import confluence \
+  --token <your-confluence-api-token> \
+  --email your@email.com \
+  --domain yourorg.atlassian.net
+```
+
+### Slack (experimental)
+
+> **Note:** `align import slack` requires a Slack **user** token (`xoxp-...`), not a bot token.
+>
+> To get one: go to [api.slack.com/apps](https://api.slack.com/apps), create an app, add these User Token Scopes under OAuth & Permissions: `channels:read`, `channels:history`, `groups:read`, `groups:history`. Install to your workspace and copy the OAuth User Token.
+
+```bash
+align import slack --token xoxp-<your-slack-user-token>
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--limit` | `50` | Max threads to import |
+| `--days-back` | `90` | How many days back to scan |
+
+### Notion
+
+```bash
+align import notion --token <your-notion-integration-token>
 ```
 
 All import commands preview what will be imported and ask for confirmation before sending anything.
@@ -98,17 +148,17 @@ Example GitHub Actions step:
     ALIGN_TOKEN: ${{ secrets.ALIGN_TOKEN }}
 ```
 
-Pass the token via `ALIGN_TOKEN` env var or `--token` flag.
-
 ## MCP server
 
-Run Align as an MCP server so AI assistants (Claude, Cursor, etc.) can query your decision graph directly.
+Run Align as a local [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server so AI assistants (Claude, Cursor, etc.) can query your decision graph directly.
 
 ```bash
 align mcp
 ```
 
-Add to your MCP client config:
+### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 ```json
 {
@@ -122,6 +172,24 @@ Add to your MCP client config:
 }
 ```
 
+### Cursor
+
+Add to your Cursor MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "align": {
+      "command": "align",
+      "args": ["mcp"],
+      "env": { "ALIGN_TOKEN": "algt_..." }
+    }
+  }
+}
+```
+
+Once configured, your AI assistant can call tools like `align_search`, `align_capture`, and `align_check_drift` to query and update your decision graph.
+
 ## Environments
 
 By default the CLI targets `prod` (`api.align.tech`). Use `--env` or set a sticky default:
@@ -134,8 +202,8 @@ align --env local <command>    # one-off override
 
 ## Environment variables
 
-| Variable | Purpose |
-|---|---|
+| Variable | Description |
+|----------|-------------|
 | `ALIGN_TOKEN` | API token (alternative to `align login`) |
 | `ALIGN_ENV` | Default environment (`prod`, `preview`, `local`) |
 | `ALIGN_GATEWAY_URL` | Override gateway URL (self-hosted) |
@@ -149,4 +217,30 @@ Point the CLI at your own instance:
 align login --env local --token algt_...
 # or
 ALIGN_GATEWAY_URL=https://api.yourco.com align decisions list
+```
+
+## Common commands
+
+```
+align login                  Authenticate with Align
+align logout                 Remove stored credentials
+align whoami                 Show current authenticated user
+align capture                Capture a decision interactively
+align check                  Check alignment against existing decisions
+align import git             Import from Git commit history
+align import github          Import from GitHub
+align import gitlab          Import from GitLab
+align import jira            Import from Jira
+align import linear          Import from Linear
+align import confluence      Import from Confluence
+align import slack           Import from Slack (experimental)
+align import notion          Import from Notion
+align search <query>         Search your decision graph
+align decisions list         List decisions in your graph
+align drift                  Check for decision drift
+align links                  Show related decisions
+align spaces                 Manage decision spaces
+align env set <name>         Set default environment
+align env get                Show current environment
+align mcp                    Start local MCP server
 ```
