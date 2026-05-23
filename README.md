@@ -2,11 +2,11 @@
 
 **AI agents are shipping code from decisions they can't see.**
 
-Align is the decision graph that gives every agent and every engineer the same source of truth. Decisions get made across Slack, Jira, GitHub, Confluence, Linear, and Notion - then disappear. Align captures them, links them across tools, and surfaces conflicts and changes in direction in real time.
+Align is the decision graph that gives every agent and every engineer the same source of truth. Decisions get made across the tools your team already uses - then disappear. Align captures them, links them across tools, and surfaces conflicts and changes in direction in real time.
 
 Agents are probabilistic by design. Their outputs are only as reliable as the inputs they get. Code, docs, and APIs already feed in as structured context. The reasoning behind every engineering choice does not. Align is the deterministic decision layer upstream of every agent in your stack.
 
-The CLI lets you import your decision history, search it semantically, and run Align as a local MCP server - so Claude, Cursor, and Copilot have authoritative context inline. Think of it as `CLAUDE.md` for your whole org.
+The CLI lets you import your decision history, search it semantically, and run Align as a local MCP server - so your AI assistants have authoritative context inline. Think of it as `CLAUDE.md` for your whole org.
 
 ```
 npm install -g @aligndottech/cli
