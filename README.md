@@ -18,18 +18,20 @@ Node 20+ required.
 align setup
 ```
 
-Guided onboarding: login check, source selection, token collection, imports, cross-tool relationship detection, and MCP configuration - all in one command.
+Guided onboarding: login check, source selection, token collection, imports, AI provider setup, cross-tool relationship detection, and MCP configuration - all in one command.
 
 Or step by step:
 
 ```bash
 align login                              # authenticate
 align import git                         # pull commit history - no token needed
-align ask "how does our auth work"       # query your graph in plain English
+align ask "how does our auth work"       # natural language answer from your graph
 align import linear --token lin_api_...  # add more sources for richer context
 ```
 
-## Querying your graph
+## Asking questions
+
+`align ask` retrieves the most relevant decisions from your graph and synthesises a concise natural language answer:
 
 ```bash
 align ask "why do we use postgres"
@@ -38,7 +40,29 @@ align ask "what was decided about caching"
 align ask "do we use redis"
 ```
 
-Question prefixes are normalised automatically - `align ask "do we use postgres"` and `align ask "use postgres"` return the same results. The richer your graph (more sources imported), the better the answers.
+Question prefixes are normalised automatically - `align ask "why do we use postgres"` and `align ask "use postgres"` search the same way.
+
+### AI provider for align ask
+
+`align ask` needs an AI model to synthesise answers. It tries the following in order:
+
+1. Provider configured via `align config ai set` (stored locally)
+2. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, or `MISTRAL_API_KEY` env vars
+3. Ollama running locally (auto-detected)
+4. Align's hosted AI (for users on a paid Align plan)
+5. Formatted decision summaries (always works - no AI required)
+
+**Note:** A Claude.ai or ChatGPT subscription is not the same as an API key. You need a separate API account. [Groq](https://console.groq.com/keys) offers a free tier with no credit card required and is the fastest option.
+
+Configure a provider interactively:
+
+```bash
+align config ai set    # pick a provider and paste your key
+align config ai        # show current provider
+align config ai clear  # remove stored key
+```
+
+Or run `align setup` - it includes this step automatically.
 
 ## Authentication
 
@@ -136,14 +160,16 @@ align capture https://yourco.atlassian.net/browse/ENG-123 --platform jira
 ## Searching and browsing
 
 ```bash
-align ask "any question in plain English"  # natural language Q&A
-align search "authentication strategy"     # keyword/semantic search
+align ask "any question in plain English"  # natural language answer
+align search "authentication strategy"     # keyword/semantic search - returns a list
 align decisions list
 align decisions list --space backend
 align decisions show <id>
 align links list                           # cross-tool decision relationships
 align drift                                # decisions that may be out of date
 ```
+
+`align ask` synthesises an answer. `align search` returns a ranked list - useful when you want to browse.
 
 ## CI alignment check
 
@@ -218,6 +244,12 @@ align --env local <command>    # one-off override
 | `ALIGN_ENV` | Default environment (`prod`, `preview`, `local`) |
 | `ALIGN_GATEWAY_URL` | Override gateway URL (self-hosted) |
 | `ALIGN_TENANT_ID` | Override tenant ID (self-hosted / CI) |
+| `ANTHROPIC_API_KEY` | Anthropic API key for `align ask` synthesis |
+| `OPENAI_API_KEY` | OpenAI API key for `align ask` synthesis |
+| `GEMINI_API_KEY` | Google Gemini API key for `align ask` synthesis |
+| `GROQ_API_KEY` | Groq API key for `align ask` synthesis |
+| `MISTRAL_API_KEY` | Mistral API key for `align ask` synthesis |
+| `OLLAMA_HOST` | Ollama host (default: `http://localhost:11434`) |
 
 ## Self-hosted
 
@@ -230,12 +262,12 @@ ALIGN_GATEWAY_URL=https://api.yourco.com align decisions list
 ## Command reference
 
 ```
-align setup                  Guided onboarding: connect tools and configure MCP
+align setup                  Guided onboarding: connect tools, configure AI + MCP
 align login                  Authenticate with Align
 align logout                 Remove stored credentials
 align whoami                 Show current authenticated user
-align ask <question>         Ask a natural language question about your graph
-align search <query>         Keyword/semantic search across decisions
+align ask <question>         Ask a natural language question - get a synthesised answer
+align search <query>         Keyword/semantic search - returns a ranked list
 align capture                Capture a decision from a URL
 align check                  Check alignment against existing decisions
 align import git             Import from Git commit history
@@ -252,6 +284,9 @@ align links list             Show cross-tool decision relationships
 align spaces                 Manage decision spaces
 align env set <name>         Set default environment
 align env get                Show current environment
+align config ai              Show configured AI provider
+align config ai set          Configure an AI provider for align ask
+align config ai clear        Remove stored AI provider
 align mcp                    Start local MCP server
 align mcp --setup            Auto-configure editors to use Align as MCP server
 ```
