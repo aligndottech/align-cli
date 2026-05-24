@@ -33,26 +33,28 @@ align login
 align import git
 
 # 3. Ask questions in plain English
-align why "why do we use postgres"
-align why "how does our auth work"
+align ask "why do we use postgres"
+align ask "how does our auth work"
 
 # 4. Add more sources for cross-tool context
 align import linear --token lin_api_...
 align import jira --email you@co.com --token atl_... --domain co.atlassian.net
 ```
 
-## The `align why` command
+## The `align ask` command
 
 Ask any question about your codebase and get answers from your decision graph:
 
 ```bash
-align why "why do we use postgres"
-align why "how does the auth module work"
-align why "what was decided about caching"
-align why "do we use redis"
+align ask "why do we use postgres"
+align ask "how does the auth module work"
+align ask "what was decided about caching"
+align ask "do we use redis"
 ```
 
-Question prefixes like "why", "how does", "what is", "do we" are normalised automatically - `align why "do we use postgres"` and `align why "use postgres"` return the same results.
+Question prefixes like "why", "how does", "what is", "do we" are normalised automatically - `align ask "do we use postgres"` and `align ask "use postgres"` return the same results.
+
+`align why` is also accepted as an alias.
 
 The richer your graph (more sources imported), the better the answers.
 
@@ -160,7 +162,7 @@ align capture https://yourco.atlassian.net/browse/ENG-123 --platform jira
 ## Searching and browsing
 
 ```bash
-align why "any question in plain English"  # natural language Q&A over your graph
+align ask "any question in plain English"  # natural language Q&A over your graph
 align search "authentication strategy"     # keyword/semantic search
 align decisions list
 align decisions list --space backend
@@ -265,7 +267,7 @@ align setup                  Guided onboarding: connect tools and configure MCP
 align login                  Authenticate with Align
 align logout                 Remove stored credentials
 align whoami                 Show current authenticated user
-align why <question>         Ask a natural language question about your graph
+align ask <question>         Ask a natural language question about your graph
 align search <query>         Keyword/semantic search across decisions
 align capture                Capture a decision from a URL
 align check                  Check alignment against existing decisions
