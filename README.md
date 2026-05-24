@@ -140,7 +140,7 @@ align ask "any question in plain English"  # natural language Q&A
 align search "authentication strategy"     # keyword/semantic search
 align decisions list
 align decisions list --space backend
-align decisions get <id>
+align decisions show <id>
 align links list                           # cross-tool decision relationships
 align drift                                # decisions that may be out of date
 ```
