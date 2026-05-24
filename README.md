@@ -2,11 +2,9 @@
 
 **AI agents are shipping code from decisions they can't see.**
 
-[Align](https://align.tech) is the decision graph that gives every agent and every engineer the same source of truth. Decisions get made across the tools your team already uses - then disappear. Align captures them, links them across tools, and surfaces conflicts and changes in direction in real time.
+[Align](https://align.tech) captures the reasoning behind every engineering choice - across Git, Jira, Linear, Slack, Notion, Confluence, GitHub, and GitLab - links them into a decision graph, and surfaces that context to every agent and engineer on your team.
 
-Agents are probabilistic by design. Their outputs are only as reliable as the inputs they get. Code, docs, and APIs already feed in as structured context. The reasoning behind every engineering choice does not. Align is the deterministic decision layer upstream of every agent in your stack.
-
-The CLI lets you import your decision history, ask questions about it in plain English, and run Align as a local MCP server - so your AI assistants have authoritative context inline. Think of it as `CLAUDE.md` for your whole org.
+The CLI lets you import your decision history, query it in plain English, and run Align as a local MCP server so your AI assistants have authoritative context inline.
 
 ```
 npm install -g @aligndottech/cli
@@ -16,53 +14,31 @@ Node 20+ required.
 
 ## Quick start
 
-The fastest way to go from zero to a populated decision graph:
-
 ```bash
-# Guided setup: connects your tools, imports decisions, configures MCP in one flow
 align setup
 ```
+
+Guided onboarding: login check, source selection, token collection, imports, cross-tool relationship detection, and MCP configuration - all in one command.
 
 Or step by step:
 
 ```bash
-# 1. Log in (opens your browser to generate an API token)
-align login
-
-# 2. Import from your git history - no token needed
-align import git
-
-# 3. Ask questions in plain English
-align why "why do we use postgres"
-align why "how does our auth work"
-
-# 4. Add more sources for cross-tool context
-align import linear --token lin_api_...
-align import jira --email you@co.com --token atl_... --domain co.atlassian.net
+align login                              # authenticate
+align import git                         # pull commit history - no token needed
+align ask "how does our auth work"       # query your graph in plain English
+align import linear --token lin_api_...  # add more sources for richer context
 ```
 
-## The `align why` command
-
-Ask any question about your codebase and get answers from your decision graph:
+## Querying your graph
 
 ```bash
-align why "why do we use postgres"
-align why "how does the auth module work"
-align why "what was decided about caching"
-align why "do we use redis"
+align ask "why do we use postgres"
+align ask "how does the auth module work"
+align ask "what was decided about caching"
+align ask "do we use redis"
 ```
 
-Question prefixes like "why", "how does", "what is", "do we" are normalised automatically - `align why "do we use postgres"` and `align why "use postgres"` return the same results.
-
-The richer your graph (more sources imported), the better the answers.
-
-## Setup wizard
-
-```bash
-align setup
-```
-
-Walks through: login check, source selection, token collection, imports, cross-tool relationship detection, and MCP configuration - all in one command. Takes about 10 minutes.
+Question prefixes are normalised automatically - `align ask "do we use postgres"` and `align ask "use postgres"` return the same results. The richer your graph (more sources imported), the better the answers.
 
 ## Authentication
 
@@ -160,12 +136,12 @@ align capture https://yourco.atlassian.net/browse/ENG-123 --platform jira
 ## Searching and browsing
 
 ```bash
-align why "any question in plain English"  # natural language Q&A over your graph
+align ask "any question in plain English"  # natural language Q&A
 align search "authentication strategy"     # keyword/semantic search
 align decisions list
 align decisions list --space backend
 align decisions get <id>
-align links list                           # view cross-tool decision relationships
+align links list                           # cross-tool decision relationships
 align drift                                # decisions that may be out of date
 ```
 
@@ -176,9 +152,7 @@ align check                    # check staged diff against decision graph
 align check --branch main      # check current branch vs main
 ```
 
-Returns exit code 1 when alignment issues are found, making it easy to fail a pipeline step.
-
-Example GitHub Actions step:
+Returns exit code 1 when alignment issues are found.
 
 ```yaml
 - name: Check alignment
@@ -189,19 +163,16 @@ Example GitHub Actions step:
 
 ## MCP server
 
-Run Align as a local [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server so AI assistants (Claude, Cursor, Windsurf, etc.) can query your decision graph directly.
+Run Align as a local [Model Context Protocol](https://modelcontextprotocol.io) server so AI assistants (Claude, Cursor, Windsurf) can query your decision graph inline.
 
 ```bash
-# Auto-configure detected editors (Claude Desktop, Claude Code, Cursor)
-align mcp --setup
-
-# Or start the server directly
-align mcp
+align mcp --setup   # auto-configure detected editors
+align mcp           # start the server directly
 ```
 
 ### Manual configuration
 
-**Claude Desktop** - add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/Claude/claude_desktop_config.json` (Linux):
+**Claude Desktop** - `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `~/.config/Claude/claude_desktop_config.json` (Linux):
 
 ```json
 {
@@ -215,7 +186,7 @@ align mcp
 }
 ```
 
-**Claude Code** - add to `~/.claude.json` or your workspace `.mcp.json`:
+**Claude Code** - `~/.claude.json` or your workspace `.mcp.json`:
 
 ```json
 {
@@ -225,9 +196,9 @@ align mcp
 }
 ```
 
-**Cursor** - add to `~/.cursor/mcp.json`.
+**Cursor** - `~/.cursor/mcp.json` (same format as Claude Code above).
 
-Once configured, your AI assistant can call tools including `align_search`, `align_ask`, `align_capture`, `align_check_drift`, and `align_get_related_decisions` to query and update your decision graph in context.
+Once configured, your AI assistant can call `align_search`, `align_ask`, `align_capture`, `align_check_drift`, and `align_get_related_decisions` to query and update your decision graph in context.
 
 ## Environments
 
@@ -250,8 +221,6 @@ align --env local <command>    # one-off override
 
 ## Self-hosted
 
-Point the CLI at your own instance:
-
 ```bash
 align login --env local --token algt_...
 # or
@@ -265,7 +234,7 @@ align setup                  Guided onboarding: connect tools and configure MCP
 align login                  Authenticate with Align
 align logout                 Remove stored credentials
 align whoami                 Show current authenticated user
-align why <question>         Ask a natural language question about your graph
+align ask <question>         Ask a natural language question about your graph
 align search <query>         Keyword/semantic search across decisions
 align capture                Capture a decision from a URL
 align check                  Check alignment against existing decisions
