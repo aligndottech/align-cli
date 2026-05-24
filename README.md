@@ -40,8 +40,6 @@ align ask "do we use redis"
 
 Question prefixes are normalised automatically - `align ask "do we use postgres"` and `align ask "use postgres"` return the same results. The richer your graph (more sources imported), the better the answers.
 
-`align why` is accepted as an alias.
-
 ## Authentication
 
 ```bash
