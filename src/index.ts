@@ -13,6 +13,8 @@ import { registerSpacesCommand } from './commands/spaces.js';
 import { registerLinksCommand } from './commands/links.js';
 import { registerDriftCommand } from './commands/drift.js';
 import { registerEnvCommand } from './commands/env.js';
+import { registerAskCommand } from './commands/why.js';
+import { registerSetupCommand } from './commands/setup.js';
 
 const program = new Command();
 
@@ -24,15 +26,17 @@ program
 // Environment targeting
 registerEnvCommand(program);
 
-// Auth
+// Auth + onboarding
 registerLoginCommands(program);
+registerSetupCommand(program);
 
 // Customer: decision capture + import
 registerCaptureCommand(program);
 registerImportCommand(program);
 
-// Customer: search + browse
+// Customer: search + query
 registerSearchCommand(program);
+registerAskCommand(program);
 registerDecisionsCommand(program);
 registerSpacesCommand(program);
 registerLinksCommand(program);

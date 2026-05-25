@@ -29,7 +29,7 @@ export function registerDriftCommand(program: Command): void {
           console.log(chalk.green('\nNo drift detected.\n'));
           return;
         }
-        console.log(chalk.bold(`\nDrift Summary (${summary.length} decisions)\n`));
+        console.log(chalk.bold(`\nDrift Summary (${summary.length} decision${summary.length === 1 ? '' : 's'})\n`));
         renderTable(
           [
             { header: 'SEVERITY', width: 12 },
@@ -47,6 +47,8 @@ export function registerDriftCommand(program: Command): void {
             ];
           }),
         );
+        console.log(chalk.dim('\n  Drift caught early. Teams get this as an automated CI gate with align check.'));
+        console.log(chalk.dim('  https://align.tech/pricing\n'));
       } catch (err) {
         spinner.fail(chalk.red((err as Error).message));
         process.exit(1);

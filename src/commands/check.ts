@@ -58,30 +58,39 @@ export function registerCheckCommand(program: Command): void {
         spinner.stop();
 
         if (result.status === 'aligned') {
-          console.log(chalk.green('\nAligned with decision graph.\n'));
+          console.log(chalk.green('\n  Aligned with decision graph.\n'));
           for (const d of result.relevant_decisions.slice(0, 3)) {
-            console.log(chalk.dim(`  - ${d.title} (${d.id})`));
-          }
-          if (result.relevant_decisions.length) console.log('');
-        } else if (result.status === 'conflicting') {
-          console.log(chalk.red('\nConflicts with decision graph:\n'));
-          for (const c of result.conflicts ?? []) {
-            const icon = c.severity === 'critical'
-              ? chalk.bgRed.white(' CRITICAL ')
-              : chalk.yellow(' WARNING ');
-            console.log(`  ${icon} ${c.title}`);
-            console.log(chalk.dim(`         ${c.reason}`));
-            if (c.suggested_resolution) {
-              console.log(chalk.dim(`         Suggestion: ${c.suggested_resolution}`));
+            console.log(`  ${chalk.green('+')} ${chalk.bold(d.title)}`);
+            if (d.summary) {
+              const snippet = d.summary.slice(0, 120).replace(/\n/g, ' ');
+              console.log(chalk.dim(`    "${snippet}${d.summary.length > 120 ? '...' : ''}"`));
             }
+            if (d.url) console.log(chalk.dim(`    ${d.url}`));
             console.log('');
           }
-          const hasCritical = result.conflicts?.some(c => c.severity === 'critical');
-          // Hook mode only blocks on critical conflicts to avoid false positives
+        } else if (result.status === 'conflicting') {
+          const conflicts = result.conflicts ?? [];
+          console.log(chalk.red(`\n  ${conflicts.length} conflict${conflicts.length > 1 ? 's' : ''} with your decision graph:\n`));
+          for (const c of conflicts) {
+            const badge = c.severity === 'critical'
+              ? chalk.bgRed.white(' CRITICAL ')
+              : chalk.bgYellow.black(' WARNING  ');
+            console.log(`  ${badge}  ${chalk.bold(c.title)}`);
+            if (c.summary) {
+              const snippet = c.summary.slice(0, 160).replace(/\n/g, ' ');
+              console.log(chalk.dim(`           "${snippet}${c.summary.length > 160 ? '...' : ''}"`));
+            }
+            if (c.reason && c.reason !== 'Conflicts with an existing team decision') {
+              console.log(`           ${chalk.yellow(c.reason)}`);
+            }
+            if (c.url) console.log(chalk.dim(`           ${c.url}`));
+            console.log('');
+          }
+          const hasCritical = conflicts.some(c => c.severity === 'critical');
           if (opts.hook && !hasCritical) process.exit(0);
           process.exit(1);
         } else {
-          if (!opts.hook) console.log(chalk.dim('\nNo related decisions found.\n'));
+          if (!opts.hook) console.log(chalk.dim('\n  No related decisions found in your graph.\n'));
         }
       } catch (err) {
         spinner.fail(chalk.red((err as Error).message));
