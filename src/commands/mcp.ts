@@ -3,8 +3,12 @@ import type { Command } from 'commander';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import * as p from '@clack/prompts';
+import chalk from 'chalk';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
+import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
+import { normaliseWhyQuery } from '../lib/why-normalise.js';
 
 const TOOL_SCHEMAS = [
   {
@@ -17,6 +21,18 @@ const TOOL_SCHEMAS = [
         limit: { type: 'number', description: 'Max results (default: 10)', default: 10 },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'align_ask',
+    description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "why", "how", "what was decided about", or any question about past decisions. Prefer this over align_search for natural language questions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'Natural language question about decisions (e.g. "why do we use postgres", "how does auth work", "what was decided about caching")' },
+        limit: { type: 'number', description: 'Max answers (default: 8)', default: 8 },
+      },
+      required: ['question'],
     },
   },
   {
@@ -93,6 +109,7 @@ export function registerMcpCommand(program: Command): void {
     .command('mcp')
     .description('Run Align as an MCP server for Claude Code, Cursor, or Windsurf')
     .option('--env <env>', 'Environment')
+    .option('--setup', 'Interactively configure editors (Claude, Cursor) to use Align as an MCP server')
     .addHelpText('after', `
 Claude Code config (~/.claude.json or workspace .mcp.json):
   {
@@ -101,9 +118,15 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
     }
   }
 `)
-    .action(async (opts: { env: EnvName }) => {
+    .action(async (opts: { env: EnvName; setup?: boolean }) => {
+      if (opts.setup) {
+        await runMcpSetup(opts.env);
+        return;
+      }
+
       const config = createConfigStore();
-      const env = config.getEnvironment(resolveEnv(opts.env));
+      const resolvedEnv = resolveEnv(opts.env);
+      const env = config.getEnvironment(resolvedEnv);
       const client = createGatewayClient(env);
 
       const server = new Server(
@@ -120,6 +143,12 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
         switch (name) {
           case 'align_search':
             result = await client.searchDecisions(args?.['query'] as string, args?.['limit'] as number | undefined);
+            break;
+          case 'align_ask':
+            result = await client.searchDecisions(
+              normaliseWhyQuery(args?.['question'] as string),
+              (args?.['limit'] as number | undefined) ?? 8,
+            );
             break;
           case 'align_capture': {
             const input = args?.['input'] as string;
@@ -170,9 +199,52 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
       });
 
       // MCP protocol requires clean stdout; log startup to stderr
-      process.stderr.write(`align mcp server started (env: ${opts.env}, gateway: ${env.gatewayUrl})\n`);
+      process.stderr.write(`align mcp server started (env: ${resolvedEnv}, gateway: ${env.gatewayUrl})\n`);
+      process.stderr.write('Want your whole team to have this context? https://align.tech/pricing\n');
 
       const transport = new StdioServerTransport();
       await server.connect(transport);
     });
+}
+
+async function runMcpSetup(env?: EnvName): Promise<void> {
+  p.intro(chalk.bgBlue.white(' align mcp --setup '));
+
+  const editors = detectEditors();
+  if (!editors.length) {
+    const envArgs = env && env !== 'prod' ? `, "--env", "${env}"` : '';
+    p.log.warn(
+      'No editors detected automatically.\n' +
+      'Add this config manually to your editor\'s MCP settings:\n\n' +
+      `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
+    );
+    p.outro('Done.');
+    return;
+  }
+
+  p.log.info(`Detected ${editors.length} editor${editors.length > 1 ? 's' : ''}:`);
+  for (const e of editors) p.log.info(`  ${e.name} - ${e.configPath}`);
+  console.log('');
+
+  const selected = await p.multiselect({
+    message: 'Which editors should use Align as an MCP server?',
+    options: editors.map(e => ({ value: e.name, label: e.name })),
+    required: true,
+  });
+  if (p.isCancel(selected)) { p.cancel('Cancelled.'); process.exit(0); }
+
+  for (const name of selected as string[]) {
+    const target = editors.find(e => e.name === name)!;
+    const spinner = p.spinner();
+    spinner.start(`Configuring ${name}...`);
+    try {
+      writeMcpConfig(target, env === 'prod' || !env ? undefined : env);
+      spinner.stop(`${name}: align added to MCP servers`);
+    } catch (err) {
+      spinner.stop(`${name}: failed - ${(err as Error).message}`);
+    }
+  }
+
+  const outroText = `${chalk.green('Done.\n\n')}Restart your editor, then ask:\n${chalk.dim('  "What has my team decided about authentication?"\n\n')}${chalk.dim('Want your whole team to have this context? https://align.tech/pricing')}`;
+  p.outro(outroText);
 }

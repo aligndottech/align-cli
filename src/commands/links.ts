@@ -53,6 +53,10 @@ export function registerLinksCommand(program: Command): void {
             ];
           }),
         );
+        if (items.length >= 5) {
+          console.log(chalk.dim('\n  Teams get this as a shared graph with CI drift detection.'));
+          console.log(chalk.dim('  https://align.tech/pricing\n'));
+        }
       } catch (err) {
         spinner.fail(chalk.red((err as Error).message));
         process.exit(1);

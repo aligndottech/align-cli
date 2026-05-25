@@ -14,6 +14,8 @@ import { registerImportLinearCommand } from './import/linear.js';
 import { registerImportJiraCommand } from './import/jira.js';
 import { registerImportConfluenceCommand } from './import/confluence.js';
 import { registerImportSlackCommand } from './import/slack.js';
+import { registerImportTeamsCommand } from './import/teams.js';
+import { registerImportZoomCommand } from './import/zoom.js';
 import { registerImportNotionCommand } from './import/notion.js';
 
 interface ProgressState {
@@ -309,5 +311,7 @@ export function registerImportCommand(program: Command): void {
   registerImportJiraCommand(importCmd);
   registerImportConfluenceCommand(importCmd);
   registerImportSlackCommand(importCmd);
+  registerImportTeamsCommand(importCmd);
+  registerImportZoomCommand(importCmd);
   registerImportNotionCommand(importCmd);
 }

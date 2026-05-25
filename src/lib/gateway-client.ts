@@ -35,13 +35,15 @@ export interface SearchResults {
 export interface AlignmentResult {
   status: 'aligned' | 'conflicting' | 'no-context';
   confidence: number;
-  relevant_decisions: Array<{ id: string; title: string; summary: string; similarity: number }>;
+  relevant_decisions: Array<{ id: string; title: string; summary: string; similarity: number; url?: string }>;
   conflicts?: Array<{
     decision_id: string;
     title: string;
+    summary?: string;
+    url?: string;
     reason: string;
+    reasons?: string[];
     severity: 'warning' | 'critical';
-    suggested_resolution?: string;
   }>;
   message: string;
 }
@@ -143,7 +145,14 @@ export function createGatewayClient(env: EnvironmentConfig) {
         ...options,
         headers: { ...buildHeaders(), ...(options.headers as Record<string, string> ?? {}) },
       });
-      if (!res.ok) throw new GatewayError(`Gateway returned ${res.status} for ${path}`, res.status);
+      if (!res.ok) {
+        let detail = '';
+        try { const body = await res.json() as any; detail = body?.detail || body?.error || ''; } catch (_) { /* non-JSON error body */ }
+        throw new GatewayError(
+          detail ? `Gateway returned ${res.status} for ${path}: ${detail}` : `Gateway returned ${res.status} for ${path}`,
+          res.status,
+        );
+      }
       return res.json() as Promise<T>;
     } catch (err) {
       if (err instanceof GatewayError) throw err;
