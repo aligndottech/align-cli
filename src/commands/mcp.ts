@@ -1,5 +1,7 @@
 import { resolveEnv } from '../lib/resolve-env.js';
 import type { Command } from 'commander';
+import pkg from '../../package.json' with { type: 'json' };
+const { version } = pkg;
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -130,7 +132,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
       const client = createGatewayClient(env);
 
       const server = new Server(
-        { name: 'align', version: '0.1.0' },
+        { name: 'align', version },
         { capabilities: { tools: {} } },
       );
 
