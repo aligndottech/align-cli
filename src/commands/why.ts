@@ -1,4 +1,5 @@
 import { resolveEnv } from '../lib/resolve-env.js';
+import { existsSync } from 'node:fs';
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -21,35 +22,49 @@ function wrapText(text: string, indent: string, maxWidth: number): string[] {
   return lines;
 }
 
+function isFilePath(arg: string): boolean {
+  return arg.startsWith('./') || arg.startsWith('../') || arg.includes('/') || existsSync(arg);
+}
+
 export function registerAskCommand(program: Command): void {
   program
     .command('ask <query>')
     .alias('why')
-    .description('Ask a question about your decision graph in plain English')
+    .description('Ask a question about your decision graph, or pass a file path to find related decisions')
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max answers', '8')
     .action(async (query: string, opts: { env?: EnvName; limit: string }) => {
       const config = createConfigStore();
       const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env)));
 
-      const normalised = normaliseWhyQuery(query);
+      const filePath = isFilePath(query);
+      const searchQuery = filePath ? query : normaliseWhyQuery(query);
       const spinner = ora('').start();
 
       try {
-        const results = await client.searchDecisions(normalised, parseInt(opts.limit, 10));
+        const results = await client.searchDecisions(searchQuery, parseInt(opts.limit, 10));
         spinner.stop();
 
         if (!results.results.length) {
           console.log('');
-          console.log(chalk.dim('  No decisions found. Build your graph first:'));
-          console.log(chalk.dim('    align import git'));
+          if (filePath) {
+            console.log(chalk.dim(`  No decisions found for ${query}.`));
+            console.log(chalk.dim('  Import from more sources to build context:'));
+          } else {
+            console.log(chalk.dim('  No decisions found. Build your graph first:'));
+            console.log(chalk.dim('    align import git'));
+          }
           console.log(chalk.dim('    align import linear   # or jira, slack, notion, confluence'));
           console.log('');
           return;
         }
 
-        const count = results.count;
-        console.log(chalk.bold(`\n  ${count} decision${count === 1 ? '' : 's'} in your graph\n`));
+        if (filePath) {
+          console.log(chalk.bold(`\n  Decisions related to ${query}\n`));
+        } else {
+          const count = results.count;
+          console.log(chalk.bold(`\n  ${count} decision${count === 1 ? '' : 's'} in your graph\n`));
+        }
 
         for (const d of results.results) {
           const score = d.similarity !== undefined
@@ -71,7 +86,7 @@ export function registerAskCommand(program: Command): void {
           console.log('');
         }
 
-        // Contextual commercial hooks based on result count
+        const count = results.count;
         if (count > 0 && count < 5) {
           console.log(chalk.dim('  Add more sources for richer cross-tool context:'));
           console.log(chalk.dim('    align import linear   # or jira, slack, notion, confluence'));
