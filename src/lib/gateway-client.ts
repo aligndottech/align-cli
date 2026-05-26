@@ -195,6 +195,12 @@ export function createGatewayClient(env: EnvironmentConfig) {
       return { authUrl: data.auth_url };
     },
 
+    // GET /oauth/cli-start/:key?port=PORT&nonce=NONCE - authenticated, returns browser OAuth URL for CLI flow
+    async startCliOAuth(key: string, port: number, nonce: string): Promise<{ authUrl: string }> {
+      const data = await request<{ auth_url: string }>(`/oauth/cli-start/${key}?port=${port}&nonce=${nonce}`);
+      return { authUrl: data.auth_url };
+    },
+
     async disableConnector(key: string): Promise<void> {
       await request(`/integrations/${key}/disable`, { method: 'POST', body: '{}' });
     },
@@ -232,6 +238,18 @@ export function createGatewayClient(env: EnvironmentConfig) {
           content: diff.slice(0, 8000),
           context: context?.slice(0, 1000),
         }),
+      });
+    },
+
+    async resolveConflict(params: {
+      decision_id: string;
+      resolution_type: 'honored' | 'overridden' | 'context_changed';
+      resolution_note?: string;
+      context?: string;
+    }): Promise<{ recorded: boolean }> {
+      return request<{ recorded: boolean }>('/alignment/conflicts/resolve', {
+        method: 'POST',
+        body: JSON.stringify(params),
       });
     },
 

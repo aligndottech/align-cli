@@ -2,12 +2,15 @@ import { resolveEnv } from '../lib/resolve-env.js';
 import type { Command } from 'commander';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
+import open from 'open';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport } from '../lib/personal-import.js';
 import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import { isGitRepo } from '../lib/git.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
+import { CLI_CALLBACK_PORTS, waitForCallback } from '../lib/cli-oauth.js';
+import { AuthExpiredError } from '../lib/errors.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -17,6 +20,7 @@ interface SetupSource {
   id: string;
   label: string;
   description: string;
+  oauthKey?: string;  // If set, uses browser OAuth flow via /oauth/cli-start/:key
   tokenLabel?: string;
   tokenHint?: string;
   extraFields?: Array<{ key: string; label: string; hint?: string; secret?: boolean }>;
@@ -43,8 +47,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'github',
       label: 'GitHub',
       description: 'Your PRs and issues',
-      tokenLabel: 'Personal access token (ghp_...)',
-      tokenHint: 'github.com/settings/tokens/new - tick "repo" scope',
+      oauthKey: 'github',
       fetch: async (t) => {
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
         return fetchGitHubItems({ token: t['token']!, limit: 100 });
@@ -54,38 +57,27 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'jira',
       label: 'Jira',
       description: 'Your issues',
-      tokenLabel: 'Atlassian API token',
-      tokenHint: 'id.atlassian.com/manage-profile/security/api-tokens',
-      extraFields: [
-        { key: 'email', label: 'Atlassian email' },
-        { key: 'domain', label: 'Jira domain (e.g. company.atlassian.net)' },
-      ],
+      oauthKey: 'jira',
       fetch: async (t) => {
         const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
-        return fetchJiraItems({ email: t['email']!, token: t['token']!, domain: t['domain']!, limit: 100 });
+        return fetchJiraItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: 100 });
       },
     },
     {
       id: 'confluence',
       label: 'Confluence',
       description: 'Your pages and documentation',
-      tokenLabel: 'Atlassian API token (same as Jira)',
-      tokenHint: 'id.atlassian.com/manage-profile/security/api-tokens',
-      extraFields: [
-        { key: 'email', label: 'Atlassian email' },
-        { key: 'domain', label: 'Confluence domain (e.g. company.atlassian.net)' },
-      ],
+      oauthKey: 'confluence',
       fetch: async (t) => {
         const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
-        return fetchConfluenceItems({ email: t['email']!, token: t['token']!, domain: t['domain']!, limit: 50 });
+        return fetchConfluenceItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: 50 });
       },
     },
     {
       id: 'slack',
       label: 'Slack',
       description: 'Decision threads from your channels [experimental]',
-      tokenLabel: 'User OAuth token (xoxp-...)',
-      tokenHint: 'api.slack.com/apps - OAuth & Permissions - User Token Scopes: channels:read, channels:history, groups:read, groups:history',
+      oauthKey: 'slack',
       fetch: async (t) => {
         const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
         return fetchSlackItems({ token: t['token']!, limit: 50, daysBack: 90 });
@@ -95,8 +87,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'teams',
       label: 'Microsoft Teams',
       description: 'Channel messages and decisions from your teams',
-      tokenLabel: 'Graph API delegated access token',
-      tokenHint: 'Get a delegated token with ChannelMessage.Read.All scope - requires admin consent in most orgs',
+      oauthKey: 'teams',
       fetch: async (t) => {
         const { fetchTeamsItems } = await import('../lib/fetchers/teams.js');
         return fetchTeamsItems({ token: t['token']!, limit: 50 });
@@ -106,8 +97,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'zoom',
       label: 'Zoom',
       description: 'Cloud recording transcripts from your meetings',
-      tokenLabel: 'Zoom OAuth access token',
-      tokenHint: 'marketplace.zoom.us/develop/apps - create OAuth app, authorize, copy access token',
+      oauthKey: 'zoom',
       fetch: async (t) => {
         const { fetchZoomItems } = await import('../lib/fetchers/zoom.js');
         return fetchZoomItems({ token: t['token']!, limit: 30 });
@@ -182,6 +172,80 @@ async function collectTokens(source: SetupSource): Promise<Record<string, string
 }
 
 // ---------------------------------------------------------------------------
+// OAuth browser flow helper for connectors
+// ---------------------------------------------------------------------------
+
+async function collectTokensViaOAuth(
+  source: SetupSource,
+  client: ReturnType<typeof createGatewayClient>,
+  config: ReturnType<typeof createConfigStore>,
+  envName: EnvName,
+  reset = false,
+): Promise<Record<string, string> | null> {
+  const key = source.oauthKey!;
+
+  if (!reset) {
+    const cached = config.getConnectorToken(envName, key);
+    if (cached) {
+      p.log.info(chalk.dim(`  ${source.label}: using cached OAuth token (run align setup --reset to re-auth)`));
+      const cachedCloudId = config.getConnectorCloudId(envName, key);
+      const cachedSiteBase = config.getConnectorSiteBase(envName, key);
+      return {
+        token: cached,
+        ...(cachedCloudId ? { cloudId: cachedCloudId } : {}),
+        ...(cachedSiteBase ? { siteBase: cachedSiteBase } : {}),
+      };
+    }
+  }
+
+  const spinner = p.spinner();
+  spinner.start(`Opening browser for ${source.label} OAuth...`);
+
+  let authUrl = '';
+  const callbackPromise = waitForCallback({
+    ports: CLI_CALLBACK_PORTS,
+    timeoutMs: 120_000,
+    onBound: async (port, nonce) => {
+      try {
+        const result = await client.startCliOAuth(key, port, nonce);
+        authUrl = result.authUrl;
+        await open(authUrl).catch(() => {});
+        spinner.stop(`Browser opened for ${source.label}. If nothing happened, visit:\n  ${chalk.bold(authUrl)}`);
+        p.log.info('Waiting for you to approve in the browser (2 min timeout)...');
+      } catch (e) {
+        spinner.stop(`Could not start OAuth for ${source.label}: ${(e as Error).message}`);
+      }
+    },
+  });
+
+  let result: { data: Record<string, unknown>; port: number };
+  try {
+    result = await callbackPromise;
+  } catch (e) {
+    p.log.warn(`${source.label} OAuth timed out or failed: ${(e as Error).message}`);
+    return null;
+  }
+
+  const credentials = result.data['credentials'] as Record<string, unknown> | undefined;
+  const accessToken = credentials?.['access_token'] as string | undefined;
+
+  if (!accessToken) {
+    p.log.warn(`${source.label} OAuth did not return an access token.`);
+    return null;
+  }
+
+  config.setConnectorToken(envName, key, accessToken);
+
+  // Persist Atlassian cloudId and human site base so future runs (and align import) can use OAuth
+  const cloudId = credentials?.['site_id'] as string | undefined;
+  if (cloudId) config.setConnectorCloudId(envName, key, cloudId);
+  const siteBase = credentials?.['base'] as string | undefined;
+  if (siteBase) config.setConnectorSiteBase(envName, key, siteBase);
+
+  return { token: accessToken, ...(cloudId ? { cloudId } : {}), ...(siteBase ? { siteBase } : {}) };
+}
+
+// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
@@ -191,7 +255,8 @@ export function registerSetupCommand(program: Command): void {
     .description('Guided onboarding: connect your tools and configure MCP in one command')
     .option('--env <env>', 'Environment')
     .option('--approve', 'Skip confirmation prompts (for scripted use)')
-    .action(async (opts: { env?: EnvName; approve?: boolean }) => {
+    .option('--reset', 'Clear cached OAuth tokens and re-authenticate all connectors')
+    .action(async (opts: { env?: EnvName; approve?: boolean; reset?: boolean }) => {
       const config = createConfigStore();
       const envName = resolveEnv(opts.env);
       const env = config.getEnvironment(envName);
@@ -252,15 +317,22 @@ export function registerSetupCommand(program: Command): void {
         console.log('');
         p.log.step(chalk.bold(source.label));
 
-        // Collect tokens
+        // Collect tokens - OAuth browser flow for supported connectors, manual paste otherwise
         let tokens: Record<string, string> = {};
-        if (source.tokenLabel || (source.extraFields?.length ?? 0) > 0) {
+        if (source.oauthKey) {
+          const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false);
+          if (!collected) {
+            p.log.warn(`Skipping ${source.label} - no token obtained.`);
+            continue;
+          }
+          tokens = collected;
+        } else if (source.tokenLabel || (source.extraFields?.length ?? 0) > 0) {
           const collected = await collectTokens(source);
           if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
           tokens = collected;
         }
 
-        // Fetch items
+        // Fetch items (with one inline re-auth retry on auth expiry)
         const fetchSpinner = p.spinner();
         fetchSpinner.start(`Fetching from ${source.label}...`);
         let items: PersonalImportItem[] = [];
@@ -268,9 +340,34 @@ export function registerSetupCommand(program: Command): void {
           items = await source.fetch(tokens);
           fetchSpinner.stop(`Found ${items.length} items`);
         } catch (err) {
-          fetchSpinner.stop(`Skipped ${source.label} - ${(err as Error).message}`);
-          p.log.warn(`You can run ${chalk.bold(`align import ${source.id}`)} later to retry.`);
-          continue;
+          if (err instanceof AuthExpiredError && source.oauthKey) {
+            fetchSpinner.stop(`${source.label} token expired.`);
+            const reauth = await p.confirm({ message: `Reconnect ${source.label} now?` });
+            if (!p.isCancel(reauth) && reauth) {
+              const fresh = await collectTokensViaOAuth(source, client, config, envName, true);
+              if (fresh) {
+                try {
+                  fetchSpinner.start(`Retrying ${source.label}...`);
+                  items = await source.fetch(fresh);
+                  fetchSpinner.stop(`Found ${items.length} items`);
+                  tokens = fresh;
+                } catch (retryErr) {
+                  fetchSpinner.stop(`Still failed: ${(retryErr as Error).message}`);
+                  continue;
+                }
+              } else {
+                p.log.warn(`Skipping ${source.label} - re-auth cancelled or failed.`);
+                continue;
+              }
+            } else {
+              p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align setup')} to reconnect.`);
+              continue;
+            }
+          } else {
+            fetchSpinner.stop(`Skipped ${source.label} - ${(err as Error).message}`);
+            p.log.warn(`You can run ${chalk.bold(`align import ${source.id}`)} later to retry.`);
+            continue;
+          }
         }
 
         if (!items.length) {
