@@ -195,6 +195,12 @@ export function createGatewayClient(env: EnvironmentConfig) {
       return { authUrl: data.auth_url };
     },
 
+    // GET /oauth/cli-start/:key?port=PORT&nonce=NONCE - authenticated, returns browser OAuth URL for CLI flow
+    async startCliOAuth(key: string, port: number, nonce: string): Promise<{ authUrl: string }> {
+      const data = await request<{ auth_url: string }>(`/oauth/cli-start/${key}?port=${port}&nonce=${nonce}`);
+      return { authUrl: data.auth_url };
+    },
+
     async disableConnector(key: string): Promise<void> {
       await request(`/integrations/${key}/disable`, { method: 'POST', body: '{}' });
     },
