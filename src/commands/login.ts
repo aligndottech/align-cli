@@ -5,7 +5,7 @@ import chalk from 'chalk';
 import open from 'open';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { resolveAppUrl } from '../lib/env-resolver.js';
+import { CLI_CALLBACK_PORTS, waitForCallback } from '../lib/cli-oauth.js';
 
 export function registerLoginCommands(program: Command): void {
   program
@@ -25,37 +25,57 @@ export function registerLoginCommands(program: Command): void {
       }
 
       p.intro(chalk.bgMagenta.white(' align login '));
-      const appUrl = resolveAppUrl(env);
-      const loginUrl = `${appUrl}/settings?tab=api-tokens`;
-
-      p.note(
-        `To authenticate:\n1. Visit ${chalk.bold(loginUrl)}\n2. Click "Generate token", copy the token\n3. Paste it below`,
-        'Get your token',
-      );
-
-      await open(loginUrl).catch(() => {
-        // Browser open is best-effort
-      });
-
-      const token = await p.password({
-        message: 'Paste your API token:',
-        validate: (v) => v.length < 10 ? 'Token too short' : undefined,
-      });
-      if (p.isCancel(token)) { p.cancel('Cancelled.'); process.exit(0); }
-
       const spinner = p.spinner();
-      spinner.start('Verifying token...');
+      spinner.start('Opening browser for login...');
+
+      // Start local callback server; onBound fires as soon as the port is bound
+      // so we can immediately fetch the browser URL and open it.
+      let loginUrl = '';
+      const callbackPromise = waitForCallback({
+        ports: CLI_CALLBACK_PORTS,
+        timeoutMs: 120_000,
+        onBound: async (port, nonce) => {
+          try {
+            const res = await fetch(`${env.gatewayUrl}/auth/cli-init?port=${port}&nonce=${nonce}`);
+            if (!res.ok) throw new Error(`Gateway returned ${res.status}`);
+            const body = await res.json() as { url: string };
+            loginUrl = body.url;
+            await open(loginUrl).catch(() => {});
+            spinner.stop(`Browser opened. If nothing happened, visit:\n  ${chalk.bold(loginUrl)}`);
+            p.log.info('Waiting for you to log in (2 min timeout)...');
+          } catch (e) {
+            spinner.stop(`Could not open browser: ${(e as Error).message}`);
+          }
+        },
+      });
+
+      let result: { data: Record<string, unknown>; port: number };
       try {
-        const client = createGatewayClient({ ...env, authToken: token as string });
+        result = await callbackPromise;
+      } catch (e) {
+        p.log.error(`Login failed: ${(e as Error).message}`);
+        process.exit(1);
+      }
+
+      const token = result.data['token'] as string | undefined;
+      if (!token) {
+        p.log.error('No token received. Try again or use: align login --token <token>');
+        process.exit(1);
+      }
+
+      const verifySpinner = p.spinner();
+      verifySpinner.start('Verifying token...');
+      try {
+        const client = createGatewayClient({ ...env, authToken: token });
         const me = await client.whoami();
-        config.setAuthToken(envName, token as string);
+        config.setAuthToken(envName, token);
         if (me.tenant?.id) config.setTenantId(envName, me.tenant.id);
-        spinner.stop(`Logged in as ${me.user.email} (${me.tenant.name}) [${envName}]`);
-        p.outro(chalk.green('Ready. Run: align whoami'));
+        verifySpinner.stop(`Logged in as ${me.user.email} (${me.tenant.name}) [${envName}]`);
+        p.outro(chalk.green('Ready. Run: align why <question>'));
       } catch {
-        spinner.stop('Could not verify token - token saved anyway');
+        verifySpinner.stop('Token saved (gateway unreachable for verification)');
+        config.setAuthToken(envName, token);
         p.log.warn('Check the gateway is reachable with: align dev status');
-        config.setAuthToken(envName, token as string);
       }
     });
 

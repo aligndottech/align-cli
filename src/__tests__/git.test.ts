@@ -70,8 +70,8 @@ describe('isDecisionCommit', () => {
     expect(isDecisionCommit('fix typo')).toBe(false);
   });
 
-  it('rejects subjects starting with fix:', () => {
-    expect(isDecisionCommit('fix: correct null check in auth middleware')).toBe(false);
+  it('accepts fix: commits (a bug fix is a decision about how to solve a problem)', () => {
+    expect(isDecisionCommit('fix: correct null check in auth middleware')).toBe(true);
   });
 
   it('rejects subjects starting with chore:', () => {

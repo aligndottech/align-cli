@@ -16,7 +16,8 @@ export function registerCheckCommand(program: Command): void {
     .option('--all', 'Check full HEAD diff, not just staged changes')
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
-    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; ci: boolean }) => {
+    .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
+    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; ci: boolean; resolve?: string }) => {
       if (!await isGitRepo()) {
         if (!opts.ci) console.error(chalk.red('Not in a git repository'));
         process.exit(1);
@@ -85,6 +86,21 @@ export function registerCheckCommand(program: Command): void {
             }
             if (c.url) console.log(chalk.dim(`           ${c.url}`));
             console.log('');
+          }
+          if (opts.resolve) {
+            const colonIdx = opts.resolve.indexOf(':');
+            const decisionId = colonIdx > 0 ? opts.resolve.slice(0, colonIdx) : opts.resolve;
+            const resolutionType = colonIdx > 0 ? opts.resolve.slice(colonIdx + 1) : 'honored';
+            try {
+              await client.resolveConflict({
+                decision_id: decisionId,
+                resolution_type: resolutionType as 'honored' | 'overridden' | 'context_changed',
+                context: `align check on branch ${branch}`,
+              });
+              console.log(chalk.green(`\n  Resolution recorded for ${decisionId} (${resolutionType})\n`));
+            } catch {
+              console.log(chalk.dim('  (Could not record resolution - continuing)'));
+            }
           }
           const hasCritical = conflicts.some(c => c.severity === 'critical');
           if (opts.hook && !hasCritical) process.exit(0);

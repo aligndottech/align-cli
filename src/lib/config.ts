@@ -17,9 +17,9 @@ const DEFAULTS: Record<EnvName, EnvironmentConfig> = {
 };
 
 export function createConfigStore() {
-  const store = new Conf<{ environments: Record<string, Partial<EnvironmentConfig>>; defaultEnv: EnvName }>({
+  const store = new Conf<{ environments: Record<string, Partial<EnvironmentConfig>>; defaultEnv: EnvName; connectorTokens: Record<string, string> }>({
     projectName: 'align-cli',
-    defaults: { environments: {}, defaultEnv: 'prod' },
+    defaults: { environments: {}, defaultEnv: 'prod', connectorTokens: {} },
   });
 
   const getEnvs = () => store.get('environments') as Record<string, Partial<EnvironmentConfig>>;
@@ -53,6 +53,14 @@ export function createConfigStore() {
     },
     setDefaultEnv(env: EnvName) { store.set('defaultEnv', env); },
     getDefaultEnv(): EnvName { return store.get('defaultEnv') as EnvName; },
+    getConnectorToken(env: EnvName, connectorKey: string): string | null {
+      const tokens = store.get('connectorTokens') as Record<string, string>;
+      return tokens[`${env}:${connectorKey}`] ?? null;
+    },
+    setConnectorToken(env: EnvName, connectorKey: string, token: string) {
+      const tokens = store.get('connectorTokens') as Record<string, string>;
+      store.set('connectorTokens', { ...tokens, [`${env}:${connectorKey}`]: token });
+    },
     clear(env: EnvName) {
       const envs = getEnvs();
       const { [env]: _, ...rest } = envs;

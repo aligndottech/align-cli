@@ -16,35 +16,55 @@ export async function getCommitHistory(opts: {
   branch?: string;
 }): Promise<GitCommit[]> {
   const SEP = '\x1f';
-  const args = [`--format=%H${SEP}%s${SEP}%aN${SEP}%aI`, '--no-merges', '-n', String(opts.limit ?? 100)];
+  const MARKER = `COMMIT${SEP}`;
+
+  // --name-only fetches metadata + file list in one git invocation,
+  // replacing the previous O(N) approach of one git show --stat per commit.
+  const args = [
+    `--format=COMMIT${SEP}%H${SEP}%s${SEP}%aN${SEP}%aI`,
+    '--no-merges',
+    '--name-only',
+    '-n', String(opts.limit ?? 500),
+  ];
   if (opts.branch) args.push(opts.branch);
   if (opts.from) args.push(`--after=${opts.from}`);
   if (opts.to) args.push(`--before=${opts.to}`);
 
   const { stdout } = await execa('git', ['log', ...args]);
-  const lines = stdout.split('\n').filter(Boolean);
 
   const commits: GitCommit[] = [];
-  for (const line of lines) {
-    const [sha, subject, author, date] = line.split(SEP);
-    if (!sha || !subject) continue;
-    if (!isDecisionCommit(subject)) continue;
+  let sha = '', subject = '', author = '', date = '';
+  let files: string[] = [];
+  let active = false;
 
-    const { stdout: stat } = await execa('git', ['show', '--stat', '--format=', sha]);
-    const filesChanged = stat.split('\n')
-      .filter(l => l.includes('|') || /^\s+\S+.*\|/.test(l))
-      .map(l => l.trim().split('|')[0].trim())
-      .filter(Boolean)
-      .slice(0, 10);
+  const flush = () => {
+    if (active && sha && isDecisionCommit(subject)) {
+      commits.push({ sha, subject, body: '', author, date, filesChanged: files.slice(0, 10) });
+    }
+  };
 
-    commits.push({ sha, subject, body: '', author: author ?? '', date: date ?? '', filesChanged });
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith(MARKER)) {
+      flush();
+      const parts = line.split(SEP);
+      sha = parts[1] ?? '';
+      subject = parts[2] ?? '';
+      author = parts[3] ?? '';
+      date = parts[4] ?? '';
+      files = [];
+      active = true;
+    } else if (active && line.trim()) {
+      files.push(line.trim());
+    }
   }
+  flush();
+
   return commits;
 }
 
 export function isDecisionCommit(subject: string): boolean {
   if (subject.length < 20) return false;
-  return !/^(fix|chore|wip|merge|revert|bump|update deps|release|typo)/i.test(subject.trim());
+  return !/^(chore|wip|merge|revert|bump|update deps|release|typo)/i.test(subject.trim());
 }
 
 export async function getRemoteUrl(): Promise<string | null> {

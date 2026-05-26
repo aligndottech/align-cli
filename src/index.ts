@@ -17,6 +17,7 @@ import { registerDriftCommand } from './commands/drift.js';
 import { registerEnvCommand } from './commands/env.js';
 import { registerAskCommand } from './commands/why.js';
 import { registerSetupCommand } from './commands/setup.js';
+import { registerExportCommand } from './commands/export.js';
 
 const program = new Command();
 
@@ -40,6 +41,7 @@ registerImportCommand(program);
 registerSearchCommand(program);
 registerAskCommand(program);
 registerDecisionsCommand(program);
+registerExportCommand(program);
 registerSpacesCommand(program);
 registerLinksCommand(program);
 registerDriftCommand(program);
