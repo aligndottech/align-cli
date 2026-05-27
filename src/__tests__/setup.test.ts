@@ -9,6 +9,8 @@ const mockWhoami = vi.hoisted(() => vi.fn().mockResolvedValue({
 }));
 const mockIngestBatch = vi.hoisted(() => vi.fn().mockResolvedValue({ snapshots: [] }));
 const mockListDecisionLinks = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+const mockStartCliOAuth = vi.hoisted(() => vi.fn().mockResolvedValue({ authUrl: 'https://github.com/login/oauth/authorize?state=abc' }));
+// mockStartCliOAuth accepts (key, port, nonce) - the mock ignores nonce but tests still pass
 
 const mockMultiselect = vi.hoisted(() => vi.fn().mockResolvedValue(['git']));
 const mockConfirm = vi.hoisted(() => vi.fn().mockResolvedValue(false));
@@ -19,15 +21,31 @@ const mockSpinner = vi.hoisted(() => vi.fn(() => ({
   fail: vi.fn(),
 })));
 
+const mockWaitForCallback = vi.hoisted(() => vi.fn().mockResolvedValue({
+  data: { connector: 'github', credentials: { access_token: 'ghu_oauth_token' } },
+  port: 7654,
+}));
+
 // ---- Mocks ----------------------------------------------------------------
+
+vi.mock('../lib/cli-oauth.js', () => ({
+  waitForCallback: mockWaitForCallback,
+  CLI_CALLBACK_PORTS: [7654, 7655],
+}));
+
+vi.mock('open', () => ({ default: vi.fn().mockResolvedValue(undefined) }));
 
 vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({
     whoami: mockWhoami,
     ingestBatch: mockIngestBatch,
     listDecisionLinks: mockListDecisionLinks,
+    startCliOAuth: mockStartCliOAuth,
   })),
 }));
+
+const mockGetConnectorToken = vi.hoisted(() => vi.fn().mockReturnValue(null));
+const mockSetConnectorToken = vi.hoisted(() => vi.fn());
 
 vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
@@ -35,6 +53,12 @@ vi.mock('../lib/config.js', () => ({
     getDefaultEnv: vi.fn().mockReturnValue('prod'),
     setAuthToken: vi.fn(),
     setTenantId: vi.fn(),
+    getConnectorToken: mockGetConnectorToken,
+    setConnectorToken: mockSetConnectorToken,
+    getConnectorCloudId: vi.fn().mockReturnValue(null),
+    setConnectorCloudId: vi.fn(),
+    getConnectorSiteBase: vi.fn().mockReturnValue(null),
+    setConnectorSiteBase: vi.fn(),
   })),
 }));
 
@@ -77,6 +101,12 @@ vi.mock('ora', () => ({
     fail: vi.fn().mockReturnThis(),
     stop: vi.fn().mockReturnThis(),
   })),
+}));
+
+vi.mock('../lib/fetchers/github.js', () => ({
+  fetchGitHubItems: vi.fn().mockResolvedValue([
+    { source_url: 'https://github.com/org/repo/pull/1', title: 'PR: add feature', raw_text: 'add feature', type: 'pull_request' },
+  ]),
 }));
 
 vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -193,6 +223,50 @@ describe('align setup', () => {
     await expect(
       makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
     ).resolves.not.toThrow();
+  });
+
+  describe('OAuth browser flow for connectors', () => {
+    it('uses waitForCallback for GitHub instead of prompting for a token', async () => {
+      mockMultiselect.mockResolvedValueOnce(['github']);
+      mockWaitForCallback.mockResolvedValueOnce({
+        data: { connector: 'github', credentials: { access_token: 'ghu_oauth_token' } },
+        port: 7654,
+      });
+      const { password } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      expect(mockWaitForCallback).toHaveBeenCalled();
+      expect(password).not.toHaveBeenCalled();
+    });
+
+    it('passes OAuth access_token to the GitHub fetcher', async () => {
+      mockMultiselect.mockResolvedValueOnce(['github']);
+      mockWaitForCallback.mockResolvedValueOnce({
+        data: { connector: 'github', credentials: { access_token: 'ghu_from_oauth' } },
+        port: 7654,
+      });
+      const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'ghu_from_oauth' }));
+    });
+
+    it('caches the OAuth token and skips browser flow on repeat run', async () => {
+      mockMultiselect.mockResolvedValue(['github']);
+      mockGetConnectorToken.mockReturnValueOnce('ghu_cached_token');
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      expect(mockWaitForCallback).not.toHaveBeenCalled();
+      const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+      expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'ghu_cached_token' }));
+    });
+
+    it('saves the OAuth token to config after successful OAuth', async () => {
+      mockMultiselect.mockResolvedValueOnce(['github']);
+      mockWaitForCallback.mockResolvedValueOnce({
+        data: { connector: 'github', credentials: { access_token: 'ghu_new_token' } },
+        port: 7654,
+      });
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'github', 'ghu_new_token');
+    });
   });
 
   it('calls cancel and exits when source selection is cancelled', async () => {

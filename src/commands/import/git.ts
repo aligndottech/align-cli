@@ -20,7 +20,7 @@ export function registerImportGitCommand(importCmd: Command): void {
   importCmd
     .command('git')
     .description('Import local git commit history (no auth required)')
-    .option('--limit <n>', 'Max commits to import', '100')
+    .option('--limit <n>', 'Max commits to import', '500')
     .option('--from <date>', 'Start date (ISO e.g. 2025-01-01)')
     .option('--to <date>', 'End date (ISO)')
     .option('--branch <name>', 'Branch to scan (default: current)')

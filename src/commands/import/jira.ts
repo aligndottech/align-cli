@@ -6,11 +6,12 @@ import { resolveEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchJiraItems } from '../../lib/fetchers/jira.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { AuthExpiredError } from '../../lib/errors.js';
 
 interface JiraImportOpts {
-  email: string;
-  token: string;
-  domain: string;
+  email?: string;
+  token?: string;
+  domain?: string;
   limit: string;
   approve?: boolean;
   env?: EnvName;
@@ -19,10 +20,10 @@ interface JiraImportOpts {
 export function registerImportJiraCommand(importCmd: Command): void {
   importCmd
     .command('jira')
-    .description('Import your Jira issues (Atlassian API token)')
-    .requiredOption('--email <email>', 'Your Atlassian account email')
-    .requiredOption('--token <token>', 'Atlassian API token (from id.atlassian.com/manage-profile/security/api-tokens)')
-    .requiredOption('--domain <domain>', 'Your Jira domain (e.g. company.atlassian.net)')
+    .description('Import your Jira issues')
+    .option('--email <email>', 'Atlassian account email (for API token auth)')
+    .option('--token <token>', 'Atlassian API token (or uses cached OAuth token from align setup)')
+    .option('--domain <domain>', 'Jira domain, e.g. company.atlassian.net (for API token auth)')
     .option('--limit <n>', 'Max items to import', '100')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
@@ -32,13 +33,29 @@ export function registerImportJiraCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
+      // Resolve auth: explicit flags take priority, then cached OAuth token from align setup
+      const token = opts.token ?? config.getConnectorToken(envName, 'jira');
+      const cloudId = !opts.token ? config.getConnectorCloudId(envName, 'jira') ?? undefined : undefined;
+      const siteBase = !opts.token ? config.getConnectorSiteBase(envName, 'jira') ?? undefined : undefined;
+
+      if (!token) {
+        p.log.error('No Jira credentials found. Run align setup to connect Jira via OAuth, or pass --email, --token, and --domain.');
+        process.exit(1);
+      }
+      if (!cloudId && (!opts.email || !opts.domain)) {
+        p.log.error('OAuth metadata incomplete. Run align setup --reset to reconnect Jira via OAuth, or pass --email, --token, and --domain.');
+        process.exit(1);
+      }
+
       p.intro('align import jira');
       const spinner = p.spinner();
       spinner.start('Fetching your Jira issues...');
       try {
         const items = await fetchJiraItems({
+          token,
+          cloudId,
+          siteBase,
           email: opts.email,
-          token: opts.token,
           domain: opts.domain,
           limit: parseInt(opts.limit, 10),
         });
@@ -46,7 +63,11 @@ export function registerImportJiraCommand(importCmd: Command): void {
         await runPersonalImport(items, client, { label: 'Jira', approve: opts.approve, appUrl: resolveAppUrl(env) });
       } catch (err) {
         spinner.stop('');
-        p.log.error((err as Error).message);
+        if (err instanceof AuthExpiredError) {
+          p.log.error(err.message);
+        } else {
+          p.log.error((err as Error).message);
+        }
         process.exit(1);
       }
     });

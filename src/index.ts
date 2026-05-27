@@ -17,6 +17,7 @@ import { registerDriftCommand } from './commands/drift.js';
 import { registerEnvCommand } from './commands/env.js';
 import { registerAskCommand } from './commands/why.js';
 import { registerSetupCommand } from './commands/setup.js';
+import { registerExportCommand } from './commands/export.js';
 
 const program = new Command();
 
@@ -40,6 +41,7 @@ registerImportCommand(program);
 registerSearchCommand(program);
 registerAskCommand(program);
 registerDecisionsCommand(program);
+registerExportCommand(program);
 registerSpacesCommand(program);
 registerLinksCommand(program);
 registerDriftCommand(program);
@@ -50,10 +52,10 @@ registerCheckCommand(program);
 // Customer: MCP server
 registerMcpCommand(program);
 
-// Internal: connector management
-registerConnectorCommands(program);
-
-// Internal: local dev
-registerDevCommands(program);
+// Internal: only registered when ALIGN_INTERNAL=1 (Align team local dev)
+if (process.env.ALIGN_INTERNAL === '1') {
+  registerConnectorCommands(program);
+  registerDevCommands(program);
+}
 
 program.parse();
