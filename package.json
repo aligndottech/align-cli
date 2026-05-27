@@ -1,6 +1,6 @@
 {
   "name": "@aligndottech/cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "Align CLI - capture decisions, check alignment, and manage connectors",
   "bin": {
