@@ -112,6 +112,7 @@ export function registerMcpCommand(program: Command): void {
     .description('Run Align as an MCP server for Claude Code, Cursor, or Windsurf')
     .option('--env <env>', 'Environment')
     .option('--setup', 'Interactively configure editors (Claude, Cursor) to use Align as an MCP server')
+    .option('--install', 'Configure editors - alias for --setup')
     .addHelpText('after', `
 Claude Code config (~/.claude.json or workspace .mcp.json):
   {
@@ -120,8 +121,8 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
     }
   }
 `)
-    .action(async (opts: { env: EnvName; setup?: boolean }) => {
-      if (opts.setup) {
+    .action(async (opts: { env: EnvName; setup?: boolean; install?: boolean }) => {
+      if (opts.setup || opts.install) {
         await runMcpSetup(opts.env);
         return;
       }

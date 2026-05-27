@@ -60,4 +60,23 @@ describe('config store', () => {
     c.clear('prod');
     expect(c.getEnvironment('prod').authToken).toBeNull();
   });
+
+  it('saves and retrieves connector cloudId', () => {
+    const c = createConfigStore();
+    c.setConnectorCloudId('prod', 'jira', 'a1b2c3-cloud-id');
+    expect(c.getConnectorCloudId('prod', 'jira')).toBe('a1b2c3-cloud-id');
+  });
+
+  it('returns null for unknown connector cloudId', () => {
+    const c = createConfigStore();
+    expect(c.getConnectorCloudId('prod', 'confluence')).toBeNull();
+  });
+
+  it('cloudId is scoped per env and connector', () => {
+    const c = createConfigStore();
+    c.setConnectorCloudId('prod', 'jira', 'prod-cloud-id');
+    c.setConnectorCloudId('preview', 'jira', 'preview-cloud-id');
+    expect(c.getConnectorCloudId('prod', 'jira')).toBe('prod-cloud-id');
+    expect(c.getConnectorCloudId('preview', 'jira')).toBe('preview-cloud-id');
+  });
 });
