@@ -29,7 +29,6 @@ function isFilePath(arg: string): boolean {
 export function registerAskCommand(program: Command): void {
   program
     .command('ask <query>')
-    .alias('why')
     .description('Ask a question about your decision graph, or pass a file path to find related decisions')
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max answers', '8')

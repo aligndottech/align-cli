@@ -27,11 +27,11 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'align_ask',
-    description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "why", "how", "what was decided about", or any question about past decisions. Prefer this over align_search for natural language questions.',
+    description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "how", "what was decided about", or any question about past decisions. Prefer this over align_search for natural language questions.',
     inputSchema: {
       type: 'object',
       properties: {
-        question: { type: 'string', description: 'Natural language question about decisions (e.g. "why do we use postgres", "how does auth work", "what was decided about caching")' },
+        question: { type: 'string', description: 'Natural language question about decisions (e.g. "do we use postgres", "how does auth work", "what was decided about caching")' },
         limit: { type: 'number', description: 'Max answers (default: 8)', default: 8 },
       },
       required: ['question'],
