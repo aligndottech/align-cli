@@ -7,6 +7,24 @@ import type { BatchIngestItem, createGatewayClient } from './gateway-client.js';
 export type PersonalImportItem = BatchIngestItem;
 
 const BATCH_SIZE = 20;
+const BATCH_CONCURRENCY = 3;
+
+async function runWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  concurrency: number,
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(tasks.length);
+  let next = 0;
+  async function worker() {
+    while (next < tasks.length) {
+      const i = next++;
+      try { results[i] = { status: 'fulfilled', value: await tasks[i]() }; }
+      catch (reason) { results[i] = { status: 'rejected', reason }; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
+  return results;
+}
 
 export async function runPersonalImport(
   items: PersonalImportItem[],
@@ -51,22 +69,39 @@ export async function runPersonalImport(
 
   let total = 0;
   let relatedCount = 0;
-  for (let i = 0; i < batches.length; i++) {
-    const spinner = ora(`Importing batch ${i + 1}/${batches.length}...`).start();
-    try {
-      const result = await client.ingestBatch(batches[i]);
-      total += result.snapshots.length;
-      for (const s of result.snapshots) {
-        relatedCount += s.analysis?.relatedDecisions?.length ?? 0;
+  let done = 0;
+  const failures: string[] = [];
+  const spinner = ora(`Importing 0/${batches.length} batches...`).start();
+
+  type BatchResult = Awaited<ReturnType<typeof client.ingestBatch>>;
+  const results = await runWithConcurrency<BatchResult>(
+    batches.map((batch) => async () => {
+      try {
+        return await client.ingestBatch(batch);
+      } finally {
+        spinner.text = `Importing ${++done}/${batches.length} batches...`;
       }
-      spinner.succeed(`Batch ${i + 1}/${batches.length} done (${result.snapshots.length} decisions)`);
-    } catch (err) {
-      spinner.fail(`Batch ${i + 1} failed: ${(err as Error).message}`);
+    }),
+    BATCH_CONCURRENCY,
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r.status === 'fulfilled') {
+      total += r.value.snapshots.length;
+      for (const s of r.value.snapshots) relatedCount += s.analysis?.relatedDecisions?.length ?? 0;
+    } else {
+      failures.push(`Batch ${i + 1}: ${(r.reason as Error).message}`);
     }
   }
 
-  console.log('');
-  console.log(chalk.green(`${total} decisions captured from ${opts.label}.`));
+  if (failures.length === 0) {
+    spinner.succeed(`Imported ${total} decisions from ${opts.label}`);
+  } else {
+    spinner.warn(`Imported ${total} decisions (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`);
+    for (const f of failures) p.log.warn(f);
+  }
+
   if (relatedCount > 0) {
     console.log(chalk.cyan(`${relatedCount} connections found with existing decisions in your graph.`));
   }

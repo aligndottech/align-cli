@@ -9,12 +9,6 @@ interface JiraIssue {
       content?: Array<{ content?: Array<{ text?: string }> }>;
     } | null;
     status?: { name: string };
-    comment?: {
-      comments: Array<{
-        author?: { displayName?: string };
-        body?: { content?: Array<{ content?: Array<{ text?: string }> }> };
-      }>;
-    };
   };
 }
 
@@ -44,9 +38,12 @@ export async function fetchJiraItems(opts: {
 
   const limit = opts.limit ?? 100;
   const jql = 'assignee = currentUser() OR reporter = currentUser() ORDER BY updated DESC';
-  const url = `${base}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=${limit}&fields=summary,description,comment,status,key`;
 
-  const res = await fetch(url, { headers });
+  const res = await fetch(`${base}/rest/api/3/search/jql`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jql, maxResults: limit, fields: ['summary', 'description', 'status', 'key'] }),
+  });
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw new AuthExpiredError('Jira');
     const text = await res.text();
@@ -60,14 +57,6 @@ export async function fetchJiraItems(opts: {
     : base;
 
   return data.issues.map(issue => {
-    const comments = (issue.fields.comment?.comments ?? [])
-      .slice(-3)
-      .map(c => {
-        const text = extractAdfText(c.body);
-        return `${c.author?.displayName ?? 'Unknown'}: ${text}`;
-      })
-      .filter(c => c.trim().length > 0)
-      .join('\n');
     const desc = extractAdfText(issue.fields.description);
     return {
       source_url: `${browseBase}/browse/${issue.key}`,
@@ -76,7 +65,6 @@ export async function fetchJiraItems(opts: {
         `[${issue.key}] ${issue.fields.summary}`,
         desc,
         issue.fields.status?.name ? `Status: ${issue.fields.status.name}` : '',
-        comments ? `Comments:\n${comments}` : '',
       ].filter(Boolean).join('\n\n'),
       title: `[${issue.key}] ${issue.fields.summary}`,
     };

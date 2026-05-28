@@ -49,7 +49,7 @@ export function registerLinksCommand(program: Command): void {
               l.from_decision.title,
               color(l.relation),
               l.to_decision.title,
-              l.confidence.toFixed(1),
+              Number(l.confidence ?? 0).toFixed(1),
             ];
           }),
         );
