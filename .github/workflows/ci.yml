@@ -4,10 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 jobs:
-  test:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,3 +26,6 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Build
+        run: npm run build
