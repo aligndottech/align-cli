@@ -3,6 +3,7 @@ import type { Command } from 'commander';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import open from 'open';
+import { execa } from 'execa';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport } from '../lib/personal-import.js';
@@ -23,6 +24,7 @@ interface SetupSource {
   oauthKey?: string;  // If set, uses browser OAuth flow via /oauth/cli-start/:key
   tokenLabel?: string;
   tokenHint?: string;
+  tokenUrl?: string | ((tokens: Record<string, string>) => string);  // If set, auto-opens this URL in the browser before prompting for the token
   extraFields?: Array<{ key: string; label: string; hint?: string; secret?: boolean }>;
   fetch: (tokens: Record<string, string>) => Promise<PersonalImportItem[]>;
 }
@@ -37,7 +39,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Commit history from this repo - no token needed',
       fetch: async () => {
         const { fetchGitItems } = await import('../lib/fetchers/git.js');
-        return fetchGitItems({ limit: 100 });
+        return fetchGitItems({ limit: 500 });
       },
     });
   }
@@ -47,7 +49,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'github',
       label: 'GitHub',
       description: 'Your PRs and issues',
-      oauthKey: 'github',
+      oauthKey: 'github-personal',
       fetch: async (t) => {
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
         return fetchGitHubItems({ token: t['token']!, limit: 100 });
@@ -108,7 +110,11 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'GitLab',
       description: 'Your merge requests',
       tokenLabel: 'Personal access token',
-      tokenHint: 'gitlab.com/-/user_settings/personal_access_tokens - tick "read_api"',
+      tokenHint: 'Tick "read_api" on the page that opens',
+      tokenUrl: (t) => {
+        const base = t['domain'] ? `https://${t['domain']}` : 'https://gitlab.com';
+        return `${base}/-/user_settings/personal_access_tokens`;
+      },
       extraFields: [
         { key: 'domain', label: 'GitLab domain (leave blank for gitlab.com)' },
       ],
@@ -122,7 +128,8 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'Linear',
       description: 'Your issues and project discussions',
       tokenLabel: 'Personal API key (lin_api_...)',
-      tokenHint: 'linear.app/settings/api - Personal API keys',
+      tokenHint: 'Copy a Personal API key from the page that opens',
+      tokenUrl: 'https://linear.app/settings/api',
       fetch: async (t) => {
         const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
         return fetchLinearItems({ token: t['token']!, limit: 100 });
@@ -133,7 +140,8 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'Notion',
       description: 'Your pages and databases',
       tokenLabel: 'Integration secret (secret_...)',
-      tokenHint: 'notion.so/my-integrations - New integration - show Internal Integration Secret',
+      tokenHint: 'Create a new integration and copy the Internal Integration Secret from the page that opens',
+      tokenUrl: 'https://www.notion.so/my-integrations',
       fetch: async (t) => {
         const { fetchNotionItems } = await import('../lib/fetchers/notion.js');
         return fetchNotionItems({ token: t['token']!, limit: 50 });
@@ -160,8 +168,13 @@ async function collectTokens(source: SetupSource): Promise<Record<string, string
 
   // Main token
   if (source.tokenLabel) {
+    if (source.tokenUrl) {
+      const url = typeof source.tokenUrl === 'function' ? source.tokenUrl(tokens) : source.tokenUrl;
+      p.log.info(chalk.dim(`  Opening ${source.label} in browser...`));
+      await open(url).catch(() => {});
+    }
     if (source.tokenHint) {
-      p.log.info(chalk.dim(`  Get your token: ${source.tokenHint}`));
+      p.log.info(chalk.dim(`  ${source.tokenHint}`));
     }
     const token = await p.password({ message: `  ${source.tokenLabel}:` });
     if (p.isCancel(token)) return null;
@@ -263,9 +276,6 @@ export function registerSetupCommand(program: Command): void {
       const client = createGatewayClient(env);
 
       p.intro(chalk.bgMagenta.white(' align setup '));
-      p.log.info('Building your decision graph from the tools your team already uses.');
-      p.log.info('Takes about 10 minutes. Ctrl+C to cancel at any step.');
-      console.log('');
 
       // ---- Step 1: Auth check ----
       const authSpinner = p.spinner();
@@ -279,45 +289,94 @@ export function registerSetupCommand(program: Command): void {
         process.exit(1);
       }
 
-      // Snapshot pre-import link count so we can report the delta after imports
-      let preImportLinkCount = 0;
+      // ---- Step 2: PATH check ----
       try {
-        const existing = await client.listDecisionLinks();
-        preImportLinkCount = existing.length;
+        await execa('which', ['align']);
       } catch {
-        // Non-fatal - delta will just be the post-import total
+        p.log.warn(
+          `The ${chalk.bold('align')} command is not on your PATH. ` +
+          `Editor MCP configs won't work until you run: ${chalk.bold('npm install -g @aligndottech/cli')}`,
+        );
       }
 
-      // ---- Step 2: Source selection ----
+      // ---- Step 3: MCP editor config (before import - this is the payoff) ----
       console.log('');
-      const gitAvailable = await isGitRepo();
-      const allSources = buildSources(gitAvailable);
+      const editors = detectEditors();
+      if (editors.length > 0) {
+        p.log.info(`Detected ${editors.length} editor${editors.length === 1 ? '' : 's'}: ${editors.map(e => e.name).join(', ')}`);
+        let selectedEditors: string[] = editors.map(e => e.name);
+        if (editors.length > 1) {
+          const sel = await p.multiselect({
+            message: 'Which editors to configure?',
+            options: editors.map(e => ({ value: e.name, label: e.name })),
+          });
+          if (!p.isCancel(sel)) selectedEditors = sel as string[];
+        }
+        for (const name of selectedEditors) {
+          const target = editors.find(e => e.name === name)!;
+          try {
+            writeMcpConfig(target, envName === 'prod' ? undefined : envName);
+            p.log.success(`${name}: align MCP connected`);
+          } catch (err) {
+            p.log.warn(`${name}: ${(err as Error).message}`);
+          }
+        }
+      } else {
+        p.log.info(`No editors detected. Run ${chalk.bold('align mcp --setup')} after installing Claude Code or Cursor.`);
+      }
 
-      const sourceOptions = allSources.map(s => ({
-        value: s.id,
-        label: s.label,
-        hint: s.description,
-      }));
-
-      const selectedIds = await p.multiselect({
-        message: 'Which sources do you want to import? (space to select, enter to confirm)',
-        options: sourceOptions,
-        required: true,
-        initialValues: gitAvailable ? ['git'] : [],
-      });
-      if (p.isCancel(selectedIds)) { p.cancel('Cancelled.'); process.exit(0); }
-
-      const selectedSources = allSources.filter(s => (selectedIds as string[]).includes(s.id));
-
-      // ---- Step 3: Token collection + import per source ----
+      // ---- Step 4: Git auto-import (zero-auth baseline graph seed) ----
       let totalDecisions = 0;
       const sourcesImported: string[] = [];
+      const gitAvailable = await isGitRepo();
 
+      if (gitAvailable) {
+        console.log('');
+        const gitSpinner = p.spinner();
+        gitSpinner.start('Importing decisions from git history...');
+        try {
+          const gitSource = buildSources(true).find(s => s.id === 'git')!;
+          const items = await gitSource.fetch({});
+          if (items.length) {
+            const ingested = await runPersonalImport(items, client, {
+              label: 'Git',
+              approve: true,
+              appUrl: resolveAppUrl(env),
+            });
+            totalDecisions += ingested;
+            if (ingested > 0) sourcesImported.push('Git');
+            gitSpinner.stop(`${ingested} decisions from git history`);
+          } else {
+            gitSpinner.stop('No decisions found in git history');
+          }
+        } catch {
+          gitSpinner.stop('Git import skipped');
+        }
+      }
+
+      // ---- Step 5: First-query prompt ----
+      if (editors.length > 0) {
+        console.log('');
+        p.log.info(chalk.dim('Your agent is connected. Try asking:'));
+        p.log.info(chalk.bold('  "What decisions exist in this codebase?"'));
+      }
+
+      // ---- Step 6: Optional connectors ----
+      console.log('');
+      const connectorSources = buildSources(false).filter(s => s.id !== 'git');
+      const selectedIds = await p.multiselect({
+        message: 'Connect more sources for richer context? (skip to finish)',
+        options: connectorSources.map(s => ({ value: s.id, label: s.label, hint: s.description })),
+        required: false,
+      });
+      if (p.isCancel(selectedIds)) { p.cancel('Cancelled.'); process.exit(0); }
+      const selectedSources = connectorSources.filter(s => (selectedIds as string[]).includes(s.id));
+
+      // ---- Step 7: Token collection + import per connector ----
       for (const source of selectedSources) {
         console.log('');
         p.log.step(chalk.bold(source.label));
 
-        // Collect tokens - OAuth browser flow for supported connectors, manual paste otherwise
         let tokens: Record<string, string> = {};
         if (source.oauthKey) {
           const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false);
@@ -332,7 +391,6 @@ export function registerSetupCommand(program: Command): void {
           tokens = collected;
         }
 
-        // Fetch items (with one inline re-auth retry on auth expiry)
         const fetchSpinner = p.spinner();
         fetchSpinner.start(`Fetching from ${source.label}...`);
         let items: PersonalImportItem[] = [];
@@ -375,7 +433,6 @@ export function registerSetupCommand(program: Command): void {
           continue;
         }
 
-        // Import (always --approve inside setup to avoid double-confirmation)
         const ingested = await runPersonalImport(items, client, {
           label: source.label,
           approve: true,
@@ -386,85 +443,21 @@ export function registerSetupCommand(program: Command): void {
         if (ingested > 0) sourcesImported.push(source.label);
       }
 
-      if (!totalDecisions) {
-        p.log.warn('No decisions imported. Run individual align import commands to try specific sources.');
-        p.outro('Setup complete (no data imported).');
-        return;
-      }
-
-      // ---- Step 4: Relationship count (delta from pre-import baseline) ----
-      console.log('');
-      const linkSpinner = p.spinner();
-      linkSpinner.start('Mapping cross-tool relationships...');
-      await new Promise<void>(r => setTimeout(r, 4000));
-      let linkCount = 0;
-      try {
-        const links = await client.listDecisionLinks();
-        linkCount = Math.max(0, links.length - preImportLinkCount);
-        if (linkCount > 0) {
-          linkSpinner.stop(`${linkCount} new cross-tool link${linkCount === 1 ? '' : 's'} found`);
-        } else {
-          linkSpinner.stop('Relationship mapping running in background - check align links list shortly');
-        }
-      } catch {
-        linkSpinner.stop('Check align links list for cross-tool relationships');
-      }
-
-      // ---- Step 5: MCP setup ----
-      console.log('');
-      const editors = detectEditors();
-      if (editors.length > 0) {
-        p.log.info(`Detected ${editors.length} editor${editors.length === 1 ? '' : 's'}: ${editors.map(e => e.name).join(', ')}`);
-
-        const setupMcp = await p.confirm({ message: 'Configure MCP so Claude/Cursor can query your graph inline?' });
-
-        if (!p.isCancel(setupMcp) && setupMcp) {
-          let selected: string[] = editors.map(e => e.name);
-
-          if (editors.length > 1) {
-            const sel = await p.multiselect({
-              message: 'Which editors to configure?',
-              options: editors.map(e => ({ value: e.name, label: e.name })),
-            });
-            if (!p.isCancel(sel)) selected = sel as string[];
-          }
-
-          for (const name of selected) {
-            const target = editors.find(e => e.name === name)!;
-            try {
-              writeMcpConfig(target, envName === 'prod' ? undefined : envName);
-              p.log.success(`${name}: align added to MCP servers`);
-            } catch (err) {
-              p.log.warn(`${name}: ${(err as Error).message}`);
-            }
-          }
-
-          console.log('');
-          p.log.info(chalk.dim('Restart your editor, then ask:'));
-          p.log.info(chalk.dim(`  "What has my team decided about ${sourcesImported[0] ? `our ${sourcesImported[0].toLowerCase()} workflow` : 'authentication'}?"`));
-        }
-      } else {
-        p.log.info(
-          `To use Align inside Claude or Cursor, run: ${chalk.bold('align mcp --setup')}`,
-        );
-      }
-
       // ---- Outro ----
-      const linkLine = linkCount > 0
-        ? `  ${linkCount} cross-tool link${linkCount === 1 ? '' : 's'} found\n`
-        : '';
+      const decisionsLine = totalDecisions > 0
+        ? `  ${totalDecisions} decisions in your graph`
+        : `  No decisions yet - run ${chalk.bold('align import')} to load your history`;
       const sourceLine = sourcesImported.length > 0
-        ? `  ${sourcesImported.length} source${sourcesImported.length === 1 ? '' : 's'}: ${sourcesImported.join(', ')}\n`
+        ? `\n  Sources: ${sourcesImported.join(', ')}`
         : '';
 
       const outroText = [
         chalk.bold('Setup complete.\n'),
-        `  ${totalDecisions} decisions captured`,
-        sourceLine ? `\n${sourceLine}` : '',
-        linkLine ? `\n${linkLine}` : '',
-        `\n  Run: ${chalk.bold('align ask "any question about your codebase"')}\n`,
-        chalk.dim('\n  Want your whole team to have a shared decision graph?'),
-        chalk.dim('\n  https://align.tech/pricing'),
+        decisionsLine,
+        sourceLine,
+        `\n\n  Run: ${chalk.bold('align ask "any question about your codebase"')}`,
+        chalk.dim('\n\n  Want your whole team to have a shared decision graph?'),
+        chalk.dim('\n  https://app.align.tech/pricing'),
       ].join('');
       p.outro(outroText);
     });

@@ -26,7 +26,11 @@ const mockWaitForCallback = vi.hoisted(() => vi.fn().mockResolvedValue({
   port: 7654,
 }));
 
+const mockExeca = vi.hoisted(() => vi.fn().mockResolvedValue({ stdout: '/usr/local/bin/align' }));
+
 // ---- Mocks ----------------------------------------------------------------
+
+vi.mock('execa', () => ({ execa: mockExeca }));
 
 vi.mock('../lib/cli-oauth.js', () => ({
   waitForCallback: mockWaitForCallback,
@@ -81,10 +85,20 @@ vi.mock('../lib/mcp-setup.js', () => ({
   writeMcpConfig: vi.fn(),
 }));
 
+// Mock all fetchers so setup tests don't make real network calls
+// Mock fetchers that have no more-specific mock below to prevent real network calls in tests
+vi.mock('../lib/fetchers/jira.js', () => ({ fetchJiraItems: vi.fn().mockResolvedValue([]) }));
+vi.mock('../lib/fetchers/confluence.js', () => ({ fetchConfluenceItems: vi.fn().mockResolvedValue([]) }));
+vi.mock('../lib/fetchers/slack.js', () => ({ fetchSlackItems: vi.fn().mockResolvedValue([]) }));
+vi.mock('../lib/fetchers/teams.js', () => ({ fetchTeamsItems: vi.fn().mockResolvedValue([]) }));
+vi.mock('../lib/fetchers/zoom.js', () => ({ fetchZoomItems: vi.fn().mockResolvedValue([]) }));
+vi.mock('../lib/fetchers/gitlab.js', () => ({ fetchGitLabItems: vi.fn().mockResolvedValue([]) }));
+vi.mock('../lib/fetchers/notion.js', () => ({ fetchNotionItems: vi.fn().mockResolvedValue([]) }));
+
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
   outro: vi.fn(),
-  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), step: vi.fn() },
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), step: vi.fn(), success: vi.fn() },
   spinner: mockSpinner,
   confirm: mockConfirm,
   multiselect: mockMultiselect,
@@ -106,6 +120,12 @@ vi.mock('ora', () => ({
 vi.mock('../lib/fetchers/github.js', () => ({
   fetchGitHubItems: vi.fn().mockResolvedValue([
     { source_url: 'https://github.com/org/repo/pull/1', title: 'PR: add feature', raw_text: 'add feature', type: 'pull_request' },
+  ]),
+}));
+
+vi.mock('../lib/fetchers/linear.js', () => ({
+  fetchLinearItems: vi.fn().mockResolvedValue([
+    { source_url: 'https://linear.app/team/issue/ISS-1', title: 'Issue: fix bug', raw_text: 'fix bug', type: 'issue' },
   ]),
 }));
 
@@ -135,8 +155,9 @@ describe('align setup', () => {
     mockWhoami.mockResolvedValue({ user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } });
     mockIngestBatch.mockResolvedValue({ snapshots: [{ id: 'snap1', analysis: { relatedDecisions: [] } }] });
     mockListDecisionLinks.mockResolvedValue([]);
-    mockMultiselect.mockResolvedValue(['git']);
+    mockMultiselect.mockResolvedValue([]);
     mockConfirm.mockResolvedValue(false);
+    mockExeca.mockResolvedValue({ stdout: '/usr/local/bin/align' });
   });
 
   afterEach(() => {
@@ -167,62 +188,80 @@ describe('align setup', () => {
     exitSpy.mockRestore();
   });
 
-  it('calls multiselect to collect source selection', async () => {
+  it('shows the connector multiselect with a "connect more sources" message', async () => {
     const { multiselect } = await import('@clack/prompts');
     await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
     expect(multiselect).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('source') }),
+      expect.objectContaining({ message: expect.stringContaining('Connect more sources') }),
     );
   });
 
-  it('runs ingestBatch when git is selected', async () => {
-    mockMultiselect.mockResolvedValueOnce(['git']);
+  it('auto-imports git commits without showing git in the connector multiselect', async () => {
     await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
     expect(mockIngestBatch).toHaveBeenCalled();
+    // git should not appear as an option in the connector multiselect
+    const { multiselect } = await import('@clack/prompts');
+    const connectorCall = (multiselect as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c: any[]) => c[0]?.message?.includes('Connect more sources'),
+    );
+    const options = connectorCall?.[0]?.options ?? [];
+    expect(options.every((o: { value: string }) => o.value !== 'git')).toBe(true);
   });
 
-  it('snapshots pre-import link count before importing', async () => {
-    mockListDecisionLinks
-      .mockResolvedValueOnce([{ id: 'existing' }]) // pre-import baseline
-      .mockResolvedValueOnce([{ id: 'existing' }, { id: 'new' }]); // post-import
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-    // listDecisionLinks should be called at least twice: once before imports, once after
-    expect(mockListDecisionLinks.mock.calls.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('calls detectEditors after imports to offer MCP setup', async () => {
-    const { detectEditors } = await import('../lib/mcp-setup.js');
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-    expect(detectEditors).toHaveBeenCalled();
-  });
-
-  it('writes MCP config when an editor is detected and user confirms', async () => {
+  it('detects editors and writes MCP config before import', async () => {
     const { detectEditors, writeMcpConfig } = await import('../lib/mcp-setup.js');
     (detectEditors as ReturnType<typeof vi.fn>).mockReturnValueOnce([
-      { name: 'Claude Desktop', configPath: '/tmp/test.json', configKey: 'mcpServers' },
+      { name: 'Claude Code', configPath: '/tmp/.claude.json', configKey: 'mcpServers' },
     ]);
-    mockConfirm.mockResolvedValueOnce(true);
     await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
     expect(writeMcpConfig).toHaveBeenCalled();
   });
 
-  it('skips import and warns when no items are returned from a source', async () => {
-    const { log } = await import('@clack/prompts');
+  it('git import skips silently when no commits found', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     (getCommitHistory as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
-    mockMultiselect.mockResolvedValueOnce(['git']);
     await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('No items found'));
+    expect(mockIngestBatch).not.toHaveBeenCalled();
   });
 
-  it('continues setup when a source fetch throws', async () => {
+  it('continues setup when git fetch throws', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     (getCommitHistory as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('no git'));
-    mockMultiselect.mockResolvedValueOnce(['git']);
-    // Should not throw - wizard continues to outro
     await expect(
       makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
     ).resolves.not.toThrow();
+  });
+
+  it('completes setup without calling startCliOAuth when no connectors are selected', async () => {
+    mockMultiselect.mockResolvedValue([]);
+    await expect(
+      makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
+    ).resolves.not.toThrow();
+    expect(mockStartCliOAuth).not.toHaveBeenCalled();
+  });
+
+  it('shows pricing link in outro regardless of import count', async () => {
+    mockMultiselect.mockResolvedValue([]);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    const { outro } = await import('@clack/prompts');
+    expect((outro as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('app.align.tech/pricing');
+  });
+
+  describe('PATH check', () => {
+    it('warns with install command when align is not on PATH', async () => {
+      mockExeca.mockRejectedValueOnce(new Error('not found'));
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('npm install -g @aligndottech/cli'));
+    });
+
+    it('does not warn about PATH when align is found', async () => {
+      mockExeca.mockResolvedValueOnce({ stdout: '/usr/local/bin/align' });
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      const warnCalls = (log.warn as ReturnType<typeof vi.fn>).mock.calls as string[][];
+      expect(warnCalls.every(c => !String(c[0]).includes('npm install -g'))).toBe(true);
+    });
   });
 
   describe('OAuth browser flow for connectors', () => {
@@ -265,7 +304,46 @@ describe('align setup', () => {
         port: 7654,
       });
       await makeProgram().parseAsync(['node', 'align', 'setup']);
-      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'github', 'ghu_new_token');
+      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'github-personal', 'ghu_new_token');
+    });
+  });
+
+  describe('token-paste connectors auto-open browser', () => {
+    it('opens the Linear token URL in the browser before prompting for the token', async () => {
+      const open = (await import('open')).default;
+      mockMultiselect.mockResolvedValueOnce(['linear']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(open).toHaveBeenCalledWith('https://linear.app/settings/api');
+    });
+
+    it('opens the Notion integrations URL in the browser before prompting for the token', async () => {
+      const open = (await import('open')).default;
+      mockMultiselect.mockResolvedValueOnce(['notion']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(open).toHaveBeenCalledWith('https://www.notion.so/my-integrations');
+    });
+
+    it('opens gitlab.com token URL when no custom domain entered', async () => {
+      const open = (await import('open')).default;
+      mockMultiselect.mockResolvedValueOnce(['gitlab']);
+      // text() for domain field returns empty string, password() for the token
+      const { text } = await import('@clack/prompts');
+      (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(open).toHaveBeenCalledWith(
+        expect.stringContaining('gitlab.com/-/user_settings/personal_access_tokens'),
+      );
+    });
+
+    it('opens self-managed GitLab token URL when custom domain is entered', async () => {
+      const open = (await import('open')).default;
+      mockMultiselect.mockResolvedValueOnce(['gitlab']);
+      const { text } = await import('@clack/prompts');
+      (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('gitlab.mycompany.com');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(open).toHaveBeenCalledWith(
+        'https://gitlab.mycompany.com/-/user_settings/personal_access_tokens',
+      );
     });
   });
 
