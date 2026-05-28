@@ -71,7 +71,7 @@ export function registerLoginCommands(program: Command): void {
         config.setAuthToken(envName, token);
         if (me.tenant?.id) config.setTenantId(envName, me.tenant.id);
         verifySpinner.stop(`Logged in as ${me.user.email} (${me.tenant.name}) [${envName}]`);
-        p.outro(chalk.green('Ready. Run: align why <question>'));
+        p.outro(chalk.green('Ready. Run: align setup'));
       } catch {
         verifySpinner.stop('Token saved (gateway unreachable for verification)');
         config.setAuthToken(envName, token);
