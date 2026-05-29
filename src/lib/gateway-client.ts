@@ -130,11 +130,7 @@ export class GatewayError extends Error {
   }
 }
 
-export function createGatewayClient(env: EnvironmentConfig): any {
-  if (env.mode === 'local-embedded') {
-    return createLocalGatewayClient(env.localDbPath ?? ':memory:');
-  }
-
+function buildHttpGatewayClient(env: EnvironmentConfig) {
   const { gatewayUrl, authToken, tenantId } = env;
 
   function buildHeaders(): Record<string, string> {
@@ -362,4 +358,11 @@ export function createGatewayClient(env: EnvironmentConfig): any {
       return `${gatewayUrl}/import/jobs/${jobId}/stream`;
     },
   };
+}
+
+export function createGatewayClient(env: EnvironmentConfig): ReturnType<typeof buildHttpGatewayClient> {
+  if (env.mode === 'local-embedded') {
+    return createLocalGatewayClient(env.localDbPath ?? ':memory:') as unknown as ReturnType<typeof buildHttpGatewayClient>;
+  }
+  return buildHttpGatewayClient(env);
 }
