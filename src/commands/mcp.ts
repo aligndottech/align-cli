@@ -155,16 +155,20 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
             break;
           case 'align_capture': {
             const input = args?.['input'] as string;
-            let platform = 'web';
+            let platform = 'cli';
             try {
               const url = new URL(input);
+              platform = 'web';
               if (/slack\.com/.test(url.hostname)) platform = 'slack';
               else if (/atlassian\.net\/browse/.test(input)) platform = 'jira';
               else if (/atlassian\.net\/wiki/.test(input)) platform = 'confluence';
               else if (/github\.com/.test(url.hostname)) platform = 'github';
               else if (/linear\.app/.test(url.hostname)) platform = 'linear';
             } catch {
-              throw new Error('align_capture requires a URL. Raw text capture is not supported.');
+              if (env.mode !== 'local-embedded') {
+                throw new Error('align_capture requires a URL. Raw text capture is not supported in cloud mode.');
+              }
+              // Local mode: accept plain text directly
             }
             result = await client.captureDecision(input, platform);
             break;

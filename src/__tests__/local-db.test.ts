@@ -1,0 +1,68 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createLocalDb } from '../lib/local-db.js';
+
+describe('local-db', () => {
+  let dbPath: string;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `align-test-${Date.now()}.db`);
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+  });
+
+  it('creates schema on init and returns empty decisions list', () => {
+    const db = createLocalDb(dbPath);
+    expect(db.listDecisions()).toEqual([]);
+  });
+
+  it('inserts and retrieves a decision', () => {
+    const db = createLocalDb(dbPath);
+    const id = db.insertDecision({
+      title: 'Use Postgres for production',
+      summary: 'We decided to use PostgreSQL as the primary database',
+      sourceUrl: null,
+      platform: 'cli',
+    });
+    const decisions = db.listDecisions();
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]!.id).toBe(id);
+    expect(decisions[0]!.title).toBe('Use Postgres for production');
+  });
+
+  it('stores and retrieves an embedding blob', () => {
+    const db = createLocalDb(dbPath);
+    const id = db.insertDecision({ title: 'T', summary: 'S', sourceUrl: null, platform: 'cli' });
+    const embedding = new Float32Array(384).fill(0.5);
+    db.setEmbedding(id, embedding);
+    const retrieved = db.getEmbedding(id);
+    expect(retrieved).not.toBeNull();
+    expect(retrieved!.length).toBe(384);
+    expect(retrieved![0]).toBeCloseTo(0.5);
+  });
+
+  it('inserts and lists conflict links', () => {
+    const db = createLocalDb(dbPath);
+    const id1 = db.insertDecision({ title: 'Use Postgres', summary: 'Postgres', sourceUrl: null, platform: 'cli' });
+    const id2 = db.insertDecision({ title: 'Use MySQL', summary: 'MySQL instead', sourceUrl: null, platform: 'cli' });
+    db.insertLink({ sourceId: id1, targetId: id2, relation: 'conflicts_with', confidence: 0.82 });
+    const links = db.listLinks({ relation: 'conflicts_with' });
+    expect(links).toHaveLength(1);
+    expect(links[0]!.sourceId).toBe(id1);
+    expect(links[0]!.targetId).toBe(id2);
+    expect(links[0]!.relation).toBe('conflicts_with');
+  });
+
+  it('getStats returns counts', () => {
+    const db = createLocalDb(dbPath);
+    db.insertDecision({ title: 'T', summary: 'S', sourceUrl: null, platform: 'cli' });
+    const stats = db.getStats();
+    expect(stats.decisions).toBe(1);
+    expect(stats.embeddings).toBe(0);
+    expect(stats.conflicts).toBe(0);
+  });
+});

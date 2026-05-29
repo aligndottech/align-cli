@@ -8,6 +8,7 @@ import { registerImportCommand } from './commands/import.js';
 import { registerSearchCommand } from './commands/search.js';
 import { registerCheckCommand } from './commands/check.js';
 import { registerMcpCommand } from './commands/mcp.js';
+import { registerLocalCommand } from './commands/local.js';
 import { registerDecisionsCommand } from './commands/decisions/index.js';
 import { registerConnectorCommands } from './commands/connector/index.js';
 import { registerDevCommands } from './commands/dev/index.js';
@@ -51,6 +52,9 @@ registerCheckCommand(program);
 
 // Customer: MCP server
 registerMcpCommand(program);
+
+// Customer: local-first mode (no cloud account required)
+registerLocalCommand(program);
 
 // Internal: only registered when ALIGN_INTERNAL=1 (Align team local dev)
 if (process.env.ALIGN_INTERNAL === '1') {

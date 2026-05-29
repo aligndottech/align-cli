@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../lib/local-gateway-client.js', () => ({
+  createLocalGatewayClient: vi.fn().mockReturnValue({ whoami: vi.fn() }),
+}));
+
 import { createGatewayClient } from '../lib/gateway-client.js';
+import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -125,6 +131,18 @@ describe('gateway client', () => {
         headers: expect.objectContaining({ Authorization: 'Bearer algt_abc123' }),
       }),
     );
+  });
+
+  it('dispatches to local client when mode is local-embedded', () => {
+    const env = {
+      gatewayUrl: 'local-embedded',
+      mode: 'local-embedded' as const,
+      authToken: null,
+      tenantId: null,
+      localDbPath: '/tmp/phase4-test.db',
+    };
+    createGatewayClient(env);
+    expect(createLocalGatewayClient).toHaveBeenCalledWith('/tmp/phase4-test.db');
   });
 
   it('ingestBatch captures relatedDecisions from the gateway response', async () => {

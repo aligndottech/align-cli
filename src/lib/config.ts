@@ -7,7 +7,8 @@ export interface EnvironmentConfig {
   authToken: string | null;
   tenantId: string | null;
   ngrokUrl?: string;
-  mode: 'demo' | 'auth';
+  mode: 'demo' | 'auth' | 'local-embedded';
+  localDbPath?: string;
 }
 
 const DEFAULTS: Record<EnvName, EnvironmentConfig> = {
@@ -76,6 +77,17 @@ export function createConfigStore() {
     setConnectorSiteBase(env: EnvName, connectorKey: string, siteBase: string) {
       const tokens = store.get('connectorTokens') as Record<string, string>;
       store.set('connectorTokens', { ...tokens, [`${env}:${connectorKey}:siteBase`]: siteBase });
+    },
+    setLocalMode(dbPath: string) {
+      const envs = getEnvs();
+      store.set('environments', { ...envs, local: { ...(envs['local'] ?? {}), mode: 'local-embedded', localDbPath: dbPath } });
+    },
+    clearLocalMode() {
+      const envs = getEnvs();
+      const updated: Partial<EnvironmentConfig> = { ...(envs['local'] ?? {}) };
+      delete updated.localDbPath;
+      updated.mode = 'demo';
+      store.set('environments', { ...envs, local: updated });
     },
     clear(env: EnvName) {
       const envs = getEnvs();

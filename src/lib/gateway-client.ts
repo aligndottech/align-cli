@@ -1,4 +1,5 @@
 import type { EnvironmentConfig } from './config.js';
+import { createLocalGatewayClient } from './local-gateway-client.js';
 
 export interface ConnectorInfo {
   key: string;
@@ -129,7 +130,11 @@ export class GatewayError extends Error {
   }
 }
 
-export function createGatewayClient(env: EnvironmentConfig) {
+export function createGatewayClient(env: EnvironmentConfig): any {
+  if (env.mode === 'local-embedded') {
+    return createLocalGatewayClient(env.localDbPath ?? ':memory:');
+  }
+
   const { gatewayUrl, authToken, tenantId } = env;
 
   function buildHeaders(): Record<string, string> {
