@@ -14,12 +14,12 @@ const mockStartCliOAuth = vi.hoisted(() => vi.fn().mockResolvedValue({ authUrl: 
 
 const mockMultiselect = vi.hoisted(() => vi.fn().mockResolvedValue(['git']));
 const mockConfirm = vi.hoisted(() => vi.fn().mockResolvedValue(false));
-const mockSpinner = vi.hoisted(() => vi.fn(() => ({
-  start: vi.fn(),
-  stop: vi.fn(),
-  succeed: vi.fn(),
-  fail: vi.fn(),
-})));
+const spinnerInstances = vi.hoisted(() => [] as Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; succeed: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> }>);
+const mockSpinner = vi.hoisted(() => vi.fn(() => {
+  const inst = { start: vi.fn(), stop: vi.fn(), succeed: vi.fn(), fail: vi.fn() };
+  spinnerInstances.push(inst);
+  return inst;
+}));
 
 const mockWaitForCallback = vi.hoisted(() => vi.fn().mockResolvedValue({
   data: { connector: 'github', credentials: { access_token: 'ghu_oauth_token' } },
@@ -206,6 +206,27 @@ describe('align setup', () => {
     );
     const options = connectorCall?.[0]?.options ?? [];
     expect(options.every((o: { value: string }) => o.value !== 'git')).toBe(true);
+  });
+
+  it('stops the git spinner before batch import begins (no overlapping spinners)', async () => {
+    spinnerInstances.length = 0;
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+    // The git phase uses a clack spinner; runPersonalImport uses its own ora spinner.
+    // Find the git-phase spinner by its start/stop message.
+    const gitSpinner = spinnerInstances.find(s =>
+      s.start.mock.calls.some((c: unknown[]) => /git/i.test(String(c[0]))) ||
+      s.stop.mock.calls.some((c: unknown[]) => /git/i.test(String(c[0]))),
+    );
+    expect(gitSpinner).toBeDefined();
+    expect(gitSpinner!.stop).toHaveBeenCalled();
+    expect(mockIngestBatch).toHaveBeenCalled();
+
+    // The git spinner must stop BEFORE batch import (ingestBatch) runs - otherwise
+    // runPersonalImport's ora spinner overlaps it and the terminal line flickers.
+    const spinnerStopOrder = gitSpinner!.stop.mock.invocationCallOrder[0];
+    const firstIngestOrder = mockIngestBatch.mock.invocationCallOrder[0];
+    expect(spinnerStopOrder).toBeLessThan(firstIngestOrder);
   });
 
   it('detects editors and writes MCP config before import', async () => {

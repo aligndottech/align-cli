@@ -333,11 +333,14 @@ export function registerSetupCommand(program: Command): void {
       if (gitAvailable) {
         console.log('');
         const gitSpinner = p.spinner();
-        gitSpinner.start('Importing decisions from git history...');
+        gitSpinner.start('Scanning git history...');
         try {
           const gitSource = buildSources(true).find(s => s.id === 'git')!;
           const items = await gitSource.fetch({});
+          // Stop the scan spinner before runPersonalImport - it starts its own
+          // progress spinner, and two animated spinners on one line flicker.
           if (items.length) {
+            gitSpinner.stop(`Found ${items.length} commits worth importing`);
             const ingested = await runPersonalImport(items, client, {
               label: 'Git',
               approve: true,
@@ -345,7 +348,6 @@ export function registerSetupCommand(program: Command): void {
             });
             totalDecisions += ingested;
             if (ingested > 0) sourcesImported.push('Git');
-            gitSpinner.stop(`${ingested} decisions from git history`);
           } else {
             gitSpinner.stop('No decisions found in git history');
           }
