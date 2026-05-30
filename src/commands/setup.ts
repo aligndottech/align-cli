@@ -9,6 +9,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport } from '../lib/personal-import.js';
 import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import { isGitRepo } from '../lib/git.js';
+import { initLocalMode } from '../lib/local-mode.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { CLI_CALLBACK_PORTS, waitForCallback } from '../lib/cli-oauth.js';
 import { AuthExpiredError } from '../lib/errors.js';
@@ -262,20 +263,89 @@ async function collectTokensViaOAuth(
 // Command registration
 // ---------------------------------------------------------------------------
 
+// Solo / local-embedded onboarding: no account, no cloud, no OAuth.
+// Initializes the local graph, wires editor MCP configs to --env local, and
+// seeds the graph from git history - all on the user's machine.
+async function runSoloSetup(): Promise<void> {
+  const { dbPath } = await initLocalMode({ quiet: false });
+  p.log.success('Local graph ready - no account needed, your data stays on this machine.');
+
+  const config = createConfigStore();
+  const localEnv = config.getEnvironment('local');
+  const localClient = createGatewayClient(localEnv);
+
+  if (await isGitRepo()) {
+    console.log('');
+    p.log.info(chalk.dim('First import downloads a small local embedding model (~90MB), one time.'));
+    const gitSpinner = p.spinner();
+    gitSpinner.start('Scanning git history...');
+    try {
+      const gitSource = buildSources(true).find(s => s.id === 'git')!;
+      const items = await gitSource.fetch({});
+      if (items.length) {
+        gitSpinner.stop(`Found ${items.length} commits worth importing`);
+        await runPersonalImport(items, localClient, {
+          label: 'Git',
+          approve: true,
+          appUrl: resolveAppUrl(localEnv),
+        });
+      } else {
+        gitSpinner.stop('No decisions found in git history');
+      }
+    } catch {
+      gitSpinner.stop('Git import skipped');
+    }
+  }
+
+  p.outro(
+    `${chalk.green('You are set up in local mode.')}\n` +
+    `  Graph: ${chalk.dim(dbPath)}\n` +
+    `  Ask your agent: ${chalk.bold('"What decisions exist in this codebase?"')}\n` +
+    `  ${chalk.dim('align local status')} shows stats; ${chalk.dim('align local reset')} wipes it.`,
+  );
+}
+
 export function registerSetupCommand(program: Command): void {
   program
     .command('setup')
     .description('Guided onboarding: connect your tools and configure MCP in one command')
     .option('--env <env>', 'Environment')
     .option('--approve', 'Skip confirmation prompts (for scripted use)')
+    .option('--local', 'Set up local-only mode (no account, no cloud)')
     .option('--reset', 'Clear cached OAuth tokens and re-authenticate all connectors')
-    .action(async (opts: { env?: EnvName; approve?: boolean; reset?: boolean }) => {
+    .action(async (opts: { env?: EnvName; approve?: boolean; local?: boolean; reset?: boolean }) => {
       const config = createConfigStore();
       const envName = resolveEnv(opts.env);
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
       p.intro(chalk.bgMagenta.white(' align setup '));
+
+      // ---- Step 0: Solo (local) vs team (cloud) ----
+      // --local forces solo; --approve keeps the legacy team flow for scripts;
+      // otherwise ask, defaulting to the zero-friction local path.
+      let mode: 'solo' | 'team';
+      if (opts.local) {
+        mode = 'solo';
+      } else if (opts.approve) {
+        mode = 'team';
+      } else {
+        const choice = await p.select({
+          message: 'How are you using Align?',
+          options: [
+            { value: 'solo', label: 'Just me - local, no account needed', hint: 'zero cloud, stays on your machine' },
+            { value: 'team', label: 'My team - shared cloud graph', hint: 'connect Slack, Jira, GitHub, ...' },
+          ],
+          initialValue: 'solo',
+        });
+        if (p.isCancel(choice)) { p.cancel('Cancelled.'); process.exit(0); }
+        mode = choice as 'solo' | 'team';
+      }
+
+      if (mode === 'solo') {
+        await runSoloSetup();
+        return;
+      }
 
       // ---- Step 1: Auth check ----
       const authSpinner = p.spinner();

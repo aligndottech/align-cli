@@ -13,6 +13,10 @@ const mockStartCliOAuth = vi.hoisted(() => vi.fn().mockResolvedValue({ authUrl: 
 // mockStartCliOAuth accepts (key, port, nonce) - the mock ignores nonce but tests still pass
 
 const mockMultiselect = vi.hoisted(() => vi.fn().mockResolvedValue(['git']));
+// Intent prompt: default to 'team' in tests so the existing cloud-flow tests
+// (which call `align setup` without --approve) keep exercising the team path.
+const mockSelect = vi.hoisted(() => vi.fn().mockResolvedValue('team'));
+const mockInitLocalMode = vi.hoisted(() => vi.fn().mockResolvedValue({ dbPath: '/tmp/local.db' }));
 const mockConfirm = vi.hoisted(() => vi.fn().mockResolvedValue(false));
 const spinnerInstances = vi.hoisted(() => [] as Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; succeed: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> }>);
 const mockSpinner = vi.hoisted(() => vi.fn(() => {
@@ -80,6 +84,10 @@ vi.mock('../lib/git.js', () => ({
   formatCommitAsText: vi.fn().mockReturnValue('feat: add thing'),
 }));
 
+vi.mock('../lib/local-mode.js', () => ({
+  initLocalMode: mockInitLocalMode,
+}));
+
 vi.mock('../lib/mcp-setup.js', () => ({
   detectEditors: vi.fn().mockReturnValue([]),
   writeMcpConfig: vi.fn(),
@@ -102,6 +110,7 @@ vi.mock('@clack/prompts', () => ({
   spinner: mockSpinner,
   confirm: mockConfirm,
   multiselect: mockMultiselect,
+  select: mockSelect,
   text: vi.fn().mockResolvedValue('test-value'),
   password: vi.fn().mockResolvedValue('test-token'),
   isCancel: vi.fn().mockReturnValue(false),
@@ -251,6 +260,35 @@ describe('align setup', () => {
     await expect(
       makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
     ).resolves.not.toThrow();
+  });
+
+  describe('solo / local mode', () => {
+    it('--local sets up local mode without cloud auth or connector prompts, and imports git', async () => {
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      expect(mockInitLocalMode).toHaveBeenCalled();
+      // Zero-account: solo path never calls whoami (no cloud login required)
+      expect(mockWhoami).not.toHaveBeenCalled();
+      // No cloud connector multiselect
+      const connectorCall = mockMultiselect.mock.calls.find(
+        (c: any[]) => c[0]?.message?.includes('Connect more sources'),
+      );
+      expect(connectorCall).toBeUndefined();
+      // Git history still imported (into the local graph)
+      expect(mockIngestBatch).toHaveBeenCalled();
+    });
+
+    it('defaults the intent prompt to solo when not --approve and not --local', async () => {
+      mockSelect.mockResolvedValueOnce('solo');
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      expect(mockInitLocalMode).toHaveBeenCalled();
+      expect(mockWhoami).not.toHaveBeenCalled();
+    });
+
+    it('--approve keeps the legacy team flow (no local mode, auth checked)', async () => {
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(mockInitLocalMode).not.toHaveBeenCalled();
+      expect(mockWhoami).toHaveBeenCalled();
+    });
   });
 
   it('completes setup without calling startCliOAuth when no connectors are selected', async () => {
