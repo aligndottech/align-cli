@@ -248,15 +248,39 @@ async function collectTokensViaOAuth(
     return null;
   }
 
-  config.setConnectorToken(envName, key, accessToken);
+  // accessToken being truthy guarantees credentials is defined
+  persistConnectorCreds(config, envName, key, credentials as Record<string, unknown>);
 
-  // Persist Atlassian cloudId and human site base so future runs (and align import) can use OAuth
+  // Atlassian: Jira and Confluence share one OAuth app, so a single consent
+  // returns the sibling's credentials too. Persist them so the sibling
+  // connector's own iteration finds a cached token and skips a second browser flow.
+  const siblingConnector = result.data['siblingConnector'] as string | undefined;
+  const siblingCreds = result.data['siblingCredentials'] as Record<string, unknown> | undefined;
+  if (siblingConnector && siblingCreds?.['access_token']) {
+    persistConnectorCreds(config, envName, siblingConnector, siblingCreds);
+    p.log.info(chalk.dim(`  Also connected ${siblingConnector} (shared Atlassian app - no second sign-in needed)`));
+  }
+
   const cloudId = credentials?.['site_id'] as string | undefined;
-  if (cloudId) config.setConnectorCloudId(envName, key, cloudId);
   const siteBase = credentials?.['base'] as string | undefined;
-  if (siteBase) config.setConnectorSiteBase(envName, key, siteBase);
-
   return { token: accessToken, ...(cloudId ? { cloudId } : {}), ...(siteBase ? { siteBase } : {}) };
+}
+
+// Persist a connector's OAuth token plus Atlassian cloudId/site base so future
+// runs (and `align import`) can reuse the credentials without re-auth.
+function persistConnectorCreds(
+  config: ReturnType<typeof createConfigStore>,
+  envName: EnvName,
+  key: string,
+  credentials: Record<string, unknown>,
+): void {
+  const accessToken = credentials['access_token'] as string | undefined;
+  if (!accessToken) return;
+  config.setConnectorToken(envName, key, accessToken);
+  const cloudId = credentials['site_id'] as string | undefined;
+  if (cloudId) config.setConnectorCloudId(envName, key, cloudId);
+  const siteBase = credentials['base'] as string | undefined;
+  if (siteBase) config.setConnectorSiteBase(envName, key, siteBase);
 }
 
 // ---------------------------------------------------------------------------
