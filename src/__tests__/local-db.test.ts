@@ -45,6 +45,22 @@ describe('local-db', () => {
     expect(retrieved![0]).toBeCloseTo(0.5);
   });
 
+  it('stores an embedding that is a view into a larger buffer (offset != 0)', () => {
+    const db = createLocalDb(dbPath);
+    const id = db.insertDecision({ title: 'T', summary: 'S', sourceUrl: null, platform: 'cli' });
+    // Simulate a pooled tensor: a 384-element view starting partway into a bigger buffer
+    const backing = new Float32Array(1000);
+    for (let i = 0; i < 1000; i++) backing[i] = i;
+    const view = backing.subarray(100, 484); // length 384, byteOffset 400
+    expect(view.length).toBe(384);
+    db.setEmbedding(id, view);
+    const retrieved = db.getEmbedding(id);
+    expect(retrieved).not.toBeNull();
+    expect(retrieved!.length).toBe(384);
+    expect(retrieved![0]).toBeCloseTo(100);
+    expect(retrieved![383]).toBeCloseTo(483);
+  });
+
   it('inserts and lists conflict links', () => {
     const db = createLocalDb(dbPath);
     const id1 = db.insertDecision({ title: 'Use Postgres', summary: 'Postgres', sourceUrl: null, platform: 'cli' });

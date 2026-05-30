@@ -78,7 +78,7 @@ export function createLocalDb(dbPath: string) {
     setEmbedding(decisionId: string, embedding: Float32Array): void {
       db.prepare(
         `INSERT OR REPLACE INTO decision_embeddings (decision_id, embedding) VALUES (?, ?)`
-      ).run(decisionId, Buffer.from(embedding.buffer));
+      ).run(decisionId, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength));
     },
 
     getEmbedding(decisionId: string): Float32Array | null {

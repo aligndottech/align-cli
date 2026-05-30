@@ -20,7 +20,11 @@ export async function initLocalMode(opts: { quiet?: boolean } = {}) {
   const dbPath = getLocalDbPath();
   const config = createConfigStore();
   config.setLocalMode(dbPath);
-  config.setDefaultEnv('local');
+  // Do NOT flip the global default env to 'local'. The MCP server is wired to
+  // local mode via the '--env local' flag written into each editor's MCP config
+  // (see writeMcpConfig below), so the agent uses local mode without hijacking
+  // every other `align` command - those would hit a local client that does not
+  // implement cloud-only methods and crash.
 
   // Initialize schema (idempotent)
   const db = createLocalDb(dbPath);

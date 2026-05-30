@@ -60,6 +60,12 @@ export function registerLocalCommand(program: Command): void {
         const db = createLocalDb(env.localDbPath);
         db.dropAll();
         db.close();
+        // Remove the DB file and its WAL sidecars (-wal/-shm) for a true wipe
+        const { existsSync, rmSync } = await import('node:fs');
+        for (const suffix of ['', '-wal', '-shm']) {
+          const f = `${env.localDbPath}${suffix}`;
+          if (existsSync(f)) rmSync(f);
+        }
       }
       config.clearLocalMode();
       console.log('Local graph wiped. Run `align local start` to reinitialize.');

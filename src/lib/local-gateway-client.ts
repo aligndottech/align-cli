@@ -2,6 +2,9 @@ import { createLocalDb } from './local-db.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 
 export const CONFLICT_THRESHOLD = 0.65;
+// Below this similarity between a decision and new content, the content is
+// considered to have drifted from the decision.
+export const DRIFT_THRESHOLD = 0.5;
 
 export function createLocalGatewayClient(dbPath: string) {
   const db = createLocalDb(dbPath);
@@ -38,7 +41,10 @@ export function createLocalGatewayClient(dbPath: string) {
       } catch { /* plain text - use as-is */ }
 
       const id = db.insertDecision({ title, summary, sourceUrl, platform });
-      const embedding = await getEmbedding(summary);
+      // Embed title + summary so URL captures (whose summary is just "Captured
+      // from <host>") still carry the path-derived title's semantic content.
+      const embedText = title === summary ? summary : `${title}. ${summary}`;
+      const embedding = await getEmbedding(embedText);
       db.setEmbedding(id, embedding);
 
       // Conflict detection: similarity >= CONFLICT_THRESHOLD -> conflicts_with
@@ -85,7 +91,7 @@ export function createLocalGatewayClient(dbPath: string) {
       if (!decisionEmbedding) return { decisionId, score: null, drifted: null, note: 'Decision not found or not yet embedded.' };
       const contentEmbedding = await getEmbedding(content);
       const score = cosineSimilarity(decisionEmbedding, contentEmbedding);
-      return { decisionId, score, drifted: score < 0.5 };
+      return { decisionId, score, drifted: score < DRIFT_THRESHOLD };
     },
 
     async getImpact(decisionId: string) {

@@ -32,9 +32,9 @@ describe('initLocalMode', () => {
     expect(mockSetLocalMode).toHaveBeenCalledWith(expect.stringMatching(/\.db$/));
   });
 
-  it('calls setDefaultEnv with "local"', async () => {
+  it('does not flip the global default env (would hijack non-MCP commands to a local client that lacks their methods)', async () => {
     await initLocalMode({ quiet: true });
-    expect(mockSetDefaultEnv).toHaveBeenCalledWith('local');
+    expect(mockSetDefaultEnv).not.toHaveBeenCalled();
   });
 
   it('writes MCP configs for each detected editor when not quiet', async () => {

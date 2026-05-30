@@ -362,7 +362,24 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
 
 export function createGatewayClient(env: EnvironmentConfig): ReturnType<typeof buildHttpGatewayClient> {
   if (env.mode === 'local-embedded') {
-    return createLocalGatewayClient(env.localDbPath ?? ':memory:') as unknown as ReturnType<typeof buildHttpGatewayClient>;
+    const local = createLocalGatewayClient(env.localDbPath ?? ':memory:');
+    // Local mode implements the MCP-tool subset (capture, search, alignment, drift,
+    // impact, conflicts). Any other method is cloud-only - surface a clear message
+    // instead of an opaque "x is not a function" TypeError if a command reaches it.
+    return new Proxy(local, {
+      get(target, prop, receiver) {
+        if (prop in target || typeof prop !== 'string' || prop === 'then') {
+          return Reflect.get(target, prop, receiver);
+        }
+        return () => {
+          throw new Error(
+            `'${prop}' is not available in local mode. Local mode supports the MCP tools ` +
+            `(capture, search, alignment, drift, impact, conflicts). ` +
+            `Use a cloud environment (e.g. --env preview or --env prod) for this command.`,
+          );
+        };
+      },
+    }) as unknown as ReturnType<typeof buildHttpGatewayClient>;
   }
   return buildHttpGatewayClient(env);
 }

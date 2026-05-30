@@ -145,6 +145,19 @@ describe('gateway client', () => {
     expect(createLocalGatewayClient).toHaveBeenCalledWith('/tmp/phase4-test.db');
   });
 
+  it('local-embedded client throws a clear error for cloud-only methods instead of TypeError', () => {
+    const env = {
+      gatewayUrl: 'local-embedded',
+      mode: 'local-embedded' as const,
+      authToken: null,
+      tenantId: null,
+      localDbPath: '/tmp/phase4-test.db',
+    };
+    // Mocked local client only implements whoami; listDecisions is cloud-only
+    const client = createGatewayClient(env) as unknown as { listDecisions: () => unknown };
+    expect(() => client.listDecisions()).toThrow(/local mode/i);
+  });
+
   it('ingestBatch captures relatedDecisions from the gateway response', async () => {
     const snapshots = [{
       id: 'snap-1',
