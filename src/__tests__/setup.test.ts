@@ -13,9 +13,10 @@ const mockStartCliOAuth = vi.hoisted(() => vi.fn().mockResolvedValue({ authUrl: 
 // mockStartCliOAuth accepts (key, port, nonce) - the mock ignores nonce but tests still pass
 
 const mockMultiselect = vi.hoisted(() => vi.fn().mockResolvedValue(['git']));
-// Intent prompt: default to 'team' in tests so the existing cloud-flow tests
-// (which call `align setup` without --approve) keep exercising the team path.
-const mockSelect = vi.hoisted(() => vi.fn().mockResolvedValue('team'));
+// Intent prompt: default to 'cloud' in tests so the existing cloud-flow tests
+// (which call `align setup` without --approve) keep exercising the cloud path.
+// Solo now means personal cloud tenant; local is the opt-in --local escape hatch.
+const mockSelect = vi.hoisted(() => vi.fn().mockResolvedValue('cloud'));
 const mockInitLocalMode = vi.hoisted(() => vi.fn().mockResolvedValue({ dbPath: '/tmp/local.db' }));
 const mockConfirm = vi.hoisted(() => vi.fn().mockResolvedValue(false));
 const spinnerInstances = vi.hoisted(() => [] as Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; succeed: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> }>);
@@ -86,6 +87,11 @@ vi.mock('../lib/git.js', () => ({
 
 vi.mock('../lib/local-mode.js', () => ({
   initLocalMode: mockInitLocalMode,
+}));
+
+const mockLoginInteractive = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+vi.mock('../lib/login-flow.js', () => ({
+  loginInteractive: mockLoginInteractive,
 }));
 
 vi.mock('../lib/mcp-setup.js', () => ({
@@ -186,7 +192,7 @@ describe('align setup', () => {
     expect(mockWhoami).toHaveBeenCalled();
   });
 
-  it('exits with a warning when whoami fails (unauthenticated)', async () => {
+  it('exits with a warning when whoami fails under --approve (scripted, no inline login)', async () => {
     mockWhoami.mockRejectedValueOnce(new Error('401'));
     const { log } = await import('@clack/prompts');
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
@@ -194,7 +200,30 @@ describe('align setup', () => {
       makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
     ).rejects.toThrow();
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align login'));
+    expect(mockLoginInteractive).not.toHaveBeenCalled();
     exitSpy.mockRestore();
+  });
+
+  it('logs in inline (interactive) when unauthenticated, then continues setup', async () => {
+    // First auth check fails; user confirms "Log in now?"; inline login succeeds;
+    // second whoami (after re-creating the client) succeeds and setup proceeds.
+    mockWhoami.mockRejectedValueOnce(new Error('401'));
+    mockConfirm.mockResolvedValueOnce(true);
+    mockLoginInteractive.mockResolvedValueOnce(true);
+    await makeProgram().parseAsync(['node', 'align', 'setup']);
+    expect(mockLoginInteractive).toHaveBeenCalled();
+    // Proceeded past auth into the cloud flow (git import ran)
+    expect(mockIngestBatch).toHaveBeenCalled();
+    expect(mockInitLocalMode).not.toHaveBeenCalled();
+  });
+
+  it('falls back to local mode when interactive login is declined', async () => {
+    mockWhoami.mockRejectedValueOnce(new Error('401'));
+    mockConfirm.mockResolvedValueOnce(false); // decline "Log in now?"
+    mockConfirm.mockResolvedValueOnce(true);   // accept "Set up local instead?"
+    await makeProgram().parseAsync(['node', 'align', 'setup']);
+    expect(mockLoginInteractive).not.toHaveBeenCalled();
+    expect(mockInitLocalMode).toHaveBeenCalled();
   });
 
   it('shows the connector multiselect with a "connect more sources" message', async () => {
@@ -203,6 +232,31 @@ describe('align setup', () => {
     expect(multiselect).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining('Connect more sources') }),
     );
+  });
+
+  it('orders connectors personal-frictionless first, then site-scoped, then workspace-admin', async () => {
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    const connectorCall = mockMultiselect.mock.calls.find(
+      (c: any[]) => c[0]?.message?.includes('Connect more sources'),
+    );
+    expect(connectorCall).toBeDefined();
+    const ids = connectorCall![0].options.map((o: { value: string }) => o.value);
+    // personal-frictionless connectors precede site-scoped Atlassian, which precede workspace-admin
+    const lastPersonal = Math.max(ids.indexOf('github'), ids.indexOf('gitlab'), ids.indexOf('linear'), ids.indexOf('notion'), ids.indexOf('zoom'));
+    const firstSite = Math.min(ids.indexOf('jira'), ids.indexOf('confluence'));
+    const firstWorkspace = Math.min(ids.indexOf('slack'), ids.indexOf('teams'));
+    expect(lastPersonal).toBeLessThan(firstSite);
+    expect(firstSite).toBeLessThan(firstWorkspace);
+  });
+
+  it('labels Slack and Teams as needing workspace/org admin', async () => {
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    const connectorCall = mockMultiselect.mock.calls.find(
+      (c: any[]) => c[0]?.message?.includes('Connect more sources'),
+    );
+    const byId = (id: string) => connectorCall![0].options.find((o: { value: string }) => o.value === id);
+    expect(byId('slack').hint).toMatch(/workspace|admin/i);
+    expect(byId('teams').hint).toMatch(/workspace|admin/i);
   });
 
   it('auto-imports git commits without showing git in the connector multiselect', async () => {
@@ -262,11 +316,11 @@ describe('align setup', () => {
     ).resolves.not.toThrow();
   });
 
-  describe('solo / local mode', () => {
+  describe('cloud (default) / local (--local) mode', () => {
     it('--local sets up local mode without cloud auth or connector prompts, and imports git', async () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
       expect(mockInitLocalMode).toHaveBeenCalled();
-      // Zero-account: solo path never calls whoami (no cloud login required)
+      // Local escape hatch never calls whoami (no cloud login required)
       expect(mockWhoami).not.toHaveBeenCalled();
       // No cloud connector multiselect
       const connectorCall = mockMultiselect.mock.calls.find(
@@ -277,17 +331,25 @@ describe('align setup', () => {
       expect(mockIngestBatch).toHaveBeenCalled();
     });
 
-    it('defaults the intent prompt to solo when not --approve and not --local', async () => {
-      mockSelect.mockResolvedValueOnce('solo');
+    it('defaults the interactive intent prompt to the cloud personal path (not local)', async () => {
+      // mockSelect default is 'cloud'
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      expect(mockWhoami).toHaveBeenCalled();
+      expect(mockInitLocalMode).not.toHaveBeenCalled();
+    });
+
+    it('routes to local mode when the user selects "local" in the intent prompt', async () => {
+      mockSelect.mockResolvedValueOnce('local');
       await makeProgram().parseAsync(['node', 'align', 'setup']);
       expect(mockInitLocalMode).toHaveBeenCalled();
       expect(mockWhoami).not.toHaveBeenCalled();
     });
 
-    it('--approve keeps the legacy team flow (no local mode, auth checked)', async () => {
+    it('--approve runs the cloud path non-interactively (no prompt, no local mode, auth checked)', async () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
       expect(mockInitLocalMode).not.toHaveBeenCalled();
       expect(mockWhoami).toHaveBeenCalled();
+      expect(mockSelect).not.toHaveBeenCalled();
     });
   });
 
@@ -304,6 +366,16 @@ describe('align setup', () => {
     await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
     const { outro } = await import('@clack/prompts');
     expect((outro as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('app.align.tech/pricing');
+  });
+
+  it('cloud outro mentions upgrading to a team and notes connectors re-auth after joining', async () => {
+    mockMultiselect.mockResolvedValue([]);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    const { outro } = await import('@clack/prompts');
+    const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    // Upgrade path is the web join flow; decisions carry over, connectors do not.
+    expect(text).toMatch(/team/i);
+    expect(text).toMatch(/reconnect|re-?auth|connect.*again/i);
   });
 
   describe('PATH check', () => {
