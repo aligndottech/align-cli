@@ -10,6 +10,7 @@ import { type PersonalImportItem, runPersonalImport } from '../lib/personal-impo
 import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import { isGitRepo } from '../lib/git.js';
 import { initLocalMode } from '../lib/local-mode.js';
+import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { CLI_CALLBACK_PORTS, waitForCallback } from '../lib/cli-oauth.js';
 import { AuthExpiredError } from '../lib/errors.js';
@@ -18,10 +19,19 @@ import { AuthExpiredError } from '../lib/errors.js';
 // Source definitions
 // ---------------------------------------------------------------------------
 
+// Connector OAuth scope tier, used to order the multiselect so a solo dev hits
+// the frictionless personal-account connectors first:
+//  - 'personal':  connect your own account, no admin (GitHub, GitLab, Linear, Notion, Zoom)
+//  - 'site':      Atlassian 3LO - per-user consent, scoped to sites you belong to (Jira, Confluence)
+//  - 'workspace': needs a workspace/org admin install (Slack, Teams)
+type ConnectorTier = 'personal' | 'site' | 'workspace';
+const TIER_ORDER: Record<ConnectorTier, number> = { personal: 0, site: 1, workspace: 2 };
+
 interface SetupSource {
   id: string;
   label: string;
   description: string;
+  tier?: ConnectorTier;
   oauthKey?: string;  // If set, uses browser OAuth flow via /oauth/cli-start/:key
   tokenLabel?: string;
   tokenHint?: string;
@@ -50,6 +60,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'github',
       label: 'GitHub',
       description: 'Your PRs and issues',
+      tier: 'personal',
       oauthKey: 'github-personal',
       fetch: async (t) => {
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
@@ -60,6 +71,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'jira',
       label: 'Jira',
       description: 'Your issues',
+      tier: 'site',
       oauthKey: 'jira',
       fetch: async (t) => {
         const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
@@ -70,6 +82,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'confluence',
       label: 'Confluence',
       description: 'Your pages and documentation',
+      tier: 'site',
       oauthKey: 'confluence',
       fetch: async (t) => {
         const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
@@ -79,7 +92,8 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     {
       id: 'slack',
       label: 'Slack',
-      description: 'Decision threads from your channels [experimental]',
+      description: 'Decision threads from your channels - may need workspace admin [experimental]',
+      tier: 'workspace',
       oauthKey: 'slack',
       fetch: async (t) => {
         const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
@@ -89,7 +103,8 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     {
       id: 'teams',
       label: 'Microsoft Teams',
-      description: 'Channel messages and decisions from your teams',
+      description: 'Channel messages and decisions - may need org/workspace admin consent',
+      tier: 'workspace',
       oauthKey: 'teams',
       fetch: async (t) => {
         const { fetchTeamsItems } = await import('../lib/fetchers/teams.js');
@@ -100,6 +115,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'zoom',
       label: 'Zoom',
       description: 'Cloud recording transcripts from your meetings',
+      tier: 'personal',
       oauthKey: 'zoom',
       fetch: async (t) => {
         const { fetchZoomItems } = await import('../lib/fetchers/zoom.js');
@@ -110,6 +126,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'gitlab',
       label: 'GitLab',
       description: 'Your merge requests',
+      tier: 'personal',
       tokenLabel: 'Personal access token',
       tokenHint: 'Tick "read_api" on the page that opens',
       tokenUrl: (t) => {
@@ -128,6 +145,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'linear',
       label: 'Linear',
       description: 'Your issues and project discussions',
+      tier: 'personal',
       tokenLabel: 'Personal API key (lin_api_...)',
       tokenHint: 'Copy a Personal API key from the page that opens',
       tokenUrl: 'https://linear.app/settings/api',
@@ -140,6 +158,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'notion',
       label: 'Notion',
       description: 'Your pages and databases',
+      tier: 'personal',
       tokenLabel: 'Integration secret (secret_...)',
       tokenHint: 'Create a new integration and copy the Internal Integration Secret from the page that opens',
       tokenUrl: 'https://www.notion.so/my-integrations',
@@ -287,10 +306,12 @@ function persistConnectorCreds(
 // Command registration
 // ---------------------------------------------------------------------------
 
-// Solo / local-embedded onboarding: no account, no cloud, no OAuth.
+// Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth.
 // Initializes the local graph, wires editor MCP configs to --env local, and
-// seeds the graph from git history - all on the user's machine.
-async function runSoloSetup(): Promise<void> {
+// seeds the graph from git history - all on the user's machine. This is the
+// privacy/offline escape hatch; the default solo experience is a personal
+// cloud tenant (see the cloud path below).
+async function runLocalSetup(): Promise<void> {
   const { dbPath } = await initLocalMode({ quiet: false });
   p.log.success('Local graph ready - no account needed, your data stays on this machine.');
 
@@ -345,226 +366,274 @@ export function registerSetupCommand(program: Command): void {
 
       p.intro(chalk.bgMagenta.white(' align setup '));
 
-      // ---- Step 0: Solo (local) vs team (cloud) ----
-      // --local forces solo; --approve keeps the legacy team flow for scripts;
-      // otherwise ask, defaulting to the zero-friction local path.
-      let mode: 'solo' | 'team';
+      // ---- Step 0: Cloud (default) vs local (--local) ----
+      // Solo defaults to a personal CLOUD tenant: telemetry, the real cloud
+      // relationship classifier, backup, and a clean upgrade path to a team
+      // (reuses the personal->org join flow). --local is the opt-in offline
+      // escape hatch; --approve runs the cloud path non-interactively.
+      let mode: 'cloud' | 'local';
       if (opts.local) {
-        mode = 'solo';
+        mode = 'local';
       } else if (opts.approve) {
-        mode = 'team';
+        mode = 'cloud';
       } else {
         const choice = await p.select({
           message: 'How are you using Align?',
           options: [
-            { value: 'solo', label: 'Just me - local, no account needed', hint: 'zero cloud, stays on your machine' },
-            { value: 'team', label: 'My team - shared cloud graph', hint: 'connect Slack, Jira, GitHub, ...' },
+            { value: 'cloud', label: 'Cloud (recommended) - your personal decision graph', hint: 'syncs, backed up, upgradeable to a team' },
+            { value: 'local', label: 'Local only - private, offline, no account', hint: 'stays on this machine (--local)' },
           ],
-          initialValue: 'solo',
+          initialValue: 'cloud',
         });
         if (p.isCancel(choice)) { p.cancel('Cancelled.'); process.exit(0); }
-        mode = choice as 'solo' | 'team';
+        mode = choice as 'cloud' | 'local';
       }
 
-      if (mode === 'solo') {
-        await runSoloSetup();
+      if (mode === 'local') {
+        await runLocalSetup();
         return;
       }
 
-      // ---- Step 1: Auth check ----
-      const authSpinner = p.spinner();
-      authSpinner.start('Checking authentication...');
-      try {
-        const me = await client.whoami();
-        authSpinner.stop(`Logged in as ${me.user.email} (${me.tenant?.name ?? envName})`);
-      } catch {
-        authSpinner.stop('Not authenticated');
-        p.log.warn(`Run ${chalk.bold('align login')} first, then re-run ${chalk.bold('align setup')}.`);
+      await runCloudSetup({ opts, config, env, client, envName });
+    });
+}
+
+// Cloud (personal-tenant) onboarding: verify login, wire MCP, seed from git,
+// then offer personal-scoped connectors. A personal-email login lands on an
+// isolated personal tenant server-side; connectors auto-bind to it.
+async function runCloudSetup(ctx: {
+  opts: { approve?: boolean; reset?: boolean };
+  config: ReturnType<typeof createConfigStore>;
+  env: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
+  client: ReturnType<typeof createGatewayClient>;
+  envName: EnvName;
+}): Promise<void> {
+  const { opts, config, env, envName } = ctx;
+  let client = ctx.client;
+
+  // ---- Step 1: Auth check (inline login when interactive + unauthenticated) ----
+  const authSpinner = p.spinner();
+  authSpinner.start('Checking authentication...');
+  try {
+    const me = await client.whoami();
+    authSpinner.stop(`Logged in as ${me.user.email} (${me.tenant?.name ?? envName})`);
+  } catch {
+    authSpinner.stop('Not authenticated');
+
+    // Scripted runs (--approve) must not block on a browser; fail fast.
+    if (opts.approve) {
+      p.log.warn(`Run ${chalk.bold('align login')} first, then re-run ${chalk.bold('align setup')}.`);
+      process.exit(1);
+    }
+
+    const wantLogin = await p.confirm({ message: 'Log in to Align now? (your personal cloud graph)' });
+    if (!p.isCancel(wantLogin) && wantLogin) {
+      const ok = await loginInteractive(env, envName, config);
+      if (!ok) {
+        p.log.warn(`Login did not complete. Run ${chalk.bold('align login')} and re-run ${chalk.bold('align setup')}.`);
         process.exit(1);
       }
-
-      // ---- Step 2: PATH check ----
-      try {
-        await execa('which', ['align']);
-      } catch {
-        p.log.warn(
-          `The ${chalk.bold('align')} command is not on your PATH. ` +
-          `Editor MCP configs won't work until you run: ${chalk.bold('npm install -g @aligndottech/cli')}`,
-        );
+      // Re-create the client so it carries the freshly stored token.
+      client = createGatewayClient(config.getEnvironment(envName));
+    } else {
+      // Declined cloud login: offer the local escape hatch instead of failing.
+      const wantLocal = await p.confirm({ message: 'Set up local-only mode instead? (no account, stays on this machine)' });
+      if (!p.isCancel(wantLocal) && wantLocal) {
+        await runLocalSetup();
+        return;
       }
+      p.log.warn(`Run ${chalk.bold('align login')} when ready, then ${chalk.bold('align setup')}.`);
+      process.exit(1);
+    }
+  }
 
-      // ---- Step 3: MCP editor config (before import - this is the payoff) ----
-      console.log('');
-      const editors = detectEditors();
-      if (editors.length > 0) {
-        p.log.info(`Detected ${editors.length} editor${editors.length === 1 ? '' : 's'}: ${editors.map(e => e.name).join(', ')}`);
-        let selectedEditors: string[] = editors.map(e => e.name);
-        if (editors.length > 1) {
-          const sel = await p.multiselect({
-            message: 'Which editors to configure?',
-            options: editors.map(e => ({ value: e.name, label: e.name })),
-          });
-          if (!p.isCancel(sel)) selectedEditors = sel as string[];
-        }
-        for (const name of selectedEditors) {
-          const target = editors.find(e => e.name === name)!;
-          try {
-            writeMcpConfig(target, envName === 'prod' ? undefined : envName);
-            p.log.success(`${name}: align MCP connected`);
-          } catch (err) {
-            p.log.warn(`${name}: ${(err as Error).message}`);
-          }
-        }
-      } else {
-        p.log.info(`No editors detected. Run ${chalk.bold('align mcp --setup')} after installing Claude Code or Cursor.`);
-      }
+  // ---- Step 2: PATH check ----
+  try {
+    await execa('which', ['align']);
+  } catch {
+    p.log.warn(
+      `The ${chalk.bold('align')} command is not on your PATH. ` +
+      `Editor MCP configs won't work until you run: ${chalk.bold('npm install -g @aligndottech/cli')}`,
+    );
+  }
 
-      // ---- Step 4: Git auto-import (zero-auth baseline graph seed) ----
-      let totalDecisions = 0;
-      const sourcesImported: string[] = [];
-      const gitAvailable = await isGitRepo();
-
-      if (gitAvailable) {
-        console.log('');
-        const gitSpinner = p.spinner();
-        gitSpinner.start('Scanning git history...');
-        try {
-          const gitSource = buildSources(true).find(s => s.id === 'git')!;
-          const items = await gitSource.fetch({});
-          // Stop the scan spinner before runPersonalImport - it starts its own
-          // progress spinner, and two animated spinners on one line flicker.
-          if (items.length) {
-            gitSpinner.stop(`Found ${items.length} commits worth importing`);
-            const ingested = await runPersonalImport(items, client, {
-              label: 'Git',
-              approve: true,
-              appUrl: resolveAppUrl(env),
-            });
-            totalDecisions += ingested;
-            if (ingested > 0) sourcesImported.push('Git');
-          } else {
-            gitSpinner.stop('No decisions found in git history');
-          }
-        } catch {
-          gitSpinner.stop('Git import skipped');
-        }
-      }
-
-      // ---- Step 5: First-query prompt ----
-      if (editors.length > 0) {
-        console.log('');
-        p.log.info(chalk.dim('Your agent is connected. Try asking:'));
-        p.log.info(chalk.bold('  "What decisions exist in this codebase?"'));
-      }
-
-      // ---- Step 6: Optional connectors ----
-      console.log('');
-      const connectorSources = buildSources(false).filter(s => s.id !== 'git');
-      const selectedIds = await p.multiselect({
-        message: 'Connect more sources for richer context? (skip to finish)',
-        options: connectorSources.map(s => ({ value: s.id, label: s.label, hint: s.description })),
-        required: false,
+  // ---- Step 3: MCP editor config (before import - this is the payoff) ----
+  console.log('');
+  const editors = detectEditors();
+  if (editors.length > 0) {
+    p.log.info(`Detected ${editors.length} editor${editors.length === 1 ? '' : 's'}: ${editors.map(e => e.name).join(', ')}`);
+    let selectedEditors: string[] = editors.map(e => e.name);
+    if (editors.length > 1) {
+      const sel = await p.multiselect({
+        message: 'Which editors to configure?',
+        options: editors.map(e => ({ value: e.name, label: e.name })),
       });
-      if (p.isCancel(selectedIds)) { p.cancel('Cancelled.'); process.exit(0); }
-      const selectedSources = connectorSources.filter(s => (selectedIds as string[]).includes(s.id));
-
-      // ---- Step 7a: Collect all credentials up front (consents back-to-back) ----
-      // Interactive auth (browser OAuth, token paste) can only happen one at a
-      // time, so we gather every connector's creds first instead of interleaving
-      // a slow fetch+import between each sign-in.
-      const readyConnectors: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
-      for (const source of selectedSources) {
-        console.log('');
-        p.log.step(chalk.bold(source.label));
-
-        let tokens: Record<string, string> = {};
-        if (source.oauthKey) {
-          const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false);
-          if (!collected) {
-            p.log.warn(`Skipping ${source.label} - no token obtained.`);
-            continue;
-          }
-          tokens = collected;
-        } else if (source.tokenLabel || (source.extraFields?.length ?? 0) > 0) {
-          const collected = await collectTokens(source);
-          if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
-          tokens = collected;
-        }
-        readyConnectors.push({ source, tokens });
+      if (!p.isCancel(sel)) selectedEditors = sel as string[];
+    }
+    for (const name of selectedEditors) {
+      const target = editors.find(e => e.name === name)!;
+      try {
+        writeMcpConfig(target, envName === 'prod' ? undefined : envName);
+        p.log.success(`${name}: align MCP connected`);
+      } catch (err) {
+        p.log.warn(`${name}: ${(err as Error).message}`);
       }
+    }
+  } else {
+    p.log.info(`No editors detected. Run ${chalk.bold('align mcp --setup')} after installing Claude Code or Cursor.`);
+  }
 
-      // ---- Step 7b: Fetch + import each connector (sequential: each import has
-      // its own progress spinner, and concurrent spinners clobber the terminal) ----
-      for (const { source, tokens: collectedTokens } of readyConnectors) {
-        let tokens = collectedTokens;
-        const fetchSpinner = p.spinner();
-        fetchSpinner.start(`Fetching from ${source.label}...`);
-        let items: PersonalImportItem[] = [];
-        try {
-          items = await source.fetch(tokens);
-          fetchSpinner.stop(`Found ${items.length} items`);
-        } catch (err) {
-          if (err instanceof AuthExpiredError && source.oauthKey) {
-            fetchSpinner.stop(`${source.label} token expired.`);
-            const reauth = await p.confirm({ message: `Reconnect ${source.label} now?` });
-            if (!p.isCancel(reauth) && reauth) {
-              const fresh = await collectTokensViaOAuth(source, client, config, envName, true);
-              if (fresh) {
-                try {
-                  fetchSpinner.start(`Retrying ${source.label}...`);
-                  items = await source.fetch(fresh);
-                  fetchSpinner.stop(`Found ${items.length} items`);
-                  tokens = fresh;
-                } catch (retryErr) {
-                  fetchSpinner.stop(`Still failed: ${(retryErr as Error).message}`);
-                  continue;
-                }
-              } else {
-                p.log.warn(`Skipping ${source.label} - re-auth cancelled or failed.`);
-                continue;
-              }
-            } else {
-              p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align setup')} to reconnect.`);
-              continue;
-            }
-          } else {
-            fetchSpinner.stop(`Skipped ${source.label} - ${(err as Error).message}`);
-            p.log.warn(`You can run ${chalk.bold(`align import ${source.id}`)} later to retry.`);
-            continue;
-          }
-        }
+  // ---- Step 4: Git auto-import (zero-auth baseline graph seed) ----
+  let totalDecisions = 0;
+  const sourcesImported: string[] = [];
+  const gitAvailable = await isGitRepo();
 
-        if (!items.length) {
-          p.log.warn(`No items found in ${source.label}.`);
-          continue;
-        }
-
+  if (gitAvailable) {
+    console.log('');
+    const gitSpinner = p.spinner();
+    gitSpinner.start('Scanning git history...');
+    try {
+      const gitSource = buildSources(true).find(s => s.id === 'git')!;
+      const items = await gitSource.fetch({});
+      // Stop the scan spinner before runPersonalImport - it starts its own
+      // progress spinner, and two animated spinners on one line flicker.
+      if (items.length) {
+        gitSpinner.stop(`Found ${items.length} commits worth importing`);
         const ingested = await runPersonalImport(items, client, {
-          label: source.label,
+          label: 'Git',
           approve: true,
           appUrl: resolveAppUrl(env),
         });
-
         totalDecisions += ingested;
-        if (ingested > 0) sourcesImported.push(source.label);
+        if (ingested > 0) sourcesImported.push('Git');
+      } else {
+        gitSpinner.stop('No decisions found in git history');
       }
+    } catch {
+      gitSpinner.stop('Git import skipped');
+    }
+  }
 
-      // ---- Outro ----
-      const decisionsLine = totalDecisions > 0
-        ? `  ${totalDecisions} decisions in your graph`
-        : `  No decisions yet - run ${chalk.bold('align import')} to load your history`;
-      const sourceLine = sourcesImported.length > 0
-        ? `\n  Sources: ${sourcesImported.join(', ')}`
-        : '';
+  // ---- Step 5: First-query prompt ----
+  if (editors.length > 0) {
+    console.log('');
+    p.log.info(chalk.dim('Your agent is connected. Try asking:'));
+    p.log.info(chalk.bold('  "What decisions exist in this codebase?"'));
+  }
 
-      const outroText = [
-        chalk.bold('Setup complete.\n'),
-        decisionsLine,
-        sourceLine,
-        `\n\n  Run: ${chalk.bold('align ask "any question about your codebase"')}`,
-        chalk.dim('\n\n  Want your whole team to have a shared decision graph?'),
-        chalk.dim('\n  https://app.align.tech/pricing'),
-      ].join('');
-      p.outro(outroText);
+  // ---- Step 6: Optional connectors ----
+  // Order by OAuth scope tier so frictionless personal-account connectors come
+  // first, then Atlassian (site-scoped), then workspace-admin (Slack/Teams).
+  console.log('');
+  const connectorSources = buildSources(false)
+    .filter(s => s.id !== 'git')
+    .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
+  const selectedIds = await p.multiselect({
+    message: 'Connect more sources for richer context? (skip to finish)',
+    options: connectorSources.map(s => ({ value: s.id, label: s.label, hint: s.description })),
+    required: false,
+  });
+  if (p.isCancel(selectedIds)) { p.cancel('Cancelled.'); process.exit(0); }
+  const selectedSources = connectorSources.filter(s => (selectedIds as string[]).includes(s.id));
+
+  // ---- Step 7a: Collect all credentials up front (consents back-to-back) ----
+  // Interactive auth (browser OAuth, token paste) can only happen one at a
+  // time, so we gather every connector's creds first instead of interleaving
+  // a slow fetch+import between each sign-in.
+  const readyConnectors: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
+  for (const source of selectedSources) {
+    console.log('');
+    p.log.step(chalk.bold(source.label));
+
+    let tokens: Record<string, string> = {};
+    if (source.oauthKey) {
+      const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false);
+      if (!collected) {
+        p.log.warn(`Skipping ${source.label} - no token obtained.`);
+        continue;
+      }
+      tokens = collected;
+    } else if (source.tokenLabel || (source.extraFields?.length ?? 0) > 0) {
+      const collected = await collectTokens(source);
+      if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
+      tokens = collected;
+    }
+    readyConnectors.push({ source, tokens });
+  }
+
+  // ---- Step 7b: Fetch + import each connector (sequential: each import has
+  // its own progress spinner, and concurrent spinners clobber the terminal) ----
+  for (const { source, tokens: collectedTokens } of readyConnectors) {
+    let tokens = collectedTokens;
+    const fetchSpinner = p.spinner();
+    fetchSpinner.start(`Fetching from ${source.label}...`);
+    let items: PersonalImportItem[] = [];
+    try {
+      items = await source.fetch(tokens);
+      fetchSpinner.stop(`Found ${items.length} items`);
+    } catch (err) {
+      if (err instanceof AuthExpiredError && source.oauthKey) {
+        fetchSpinner.stop(`${source.label} token expired.`);
+        const reauth = await p.confirm({ message: `Reconnect ${source.label} now?` });
+        if (!p.isCancel(reauth) && reauth) {
+          const fresh = await collectTokensViaOAuth(source, client, config, envName, true);
+          if (fresh) {
+            try {
+              fetchSpinner.start(`Retrying ${source.label}...`);
+              items = await source.fetch(fresh);
+              fetchSpinner.stop(`Found ${items.length} items`);
+              tokens = fresh;
+            } catch (retryErr) {
+              fetchSpinner.stop(`Still failed: ${(retryErr as Error).message}`);
+              continue;
+            }
+          } else {
+            p.log.warn(`Skipping ${source.label} - re-auth cancelled or failed.`);
+            continue;
+          }
+        } else {
+          p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align setup')} to reconnect.`);
+          continue;
+        }
+      } else {
+        fetchSpinner.stop(`Skipped ${source.label} - ${(err as Error).message}`);
+        p.log.warn(`You can run ${chalk.bold(`align import ${source.id}`)} later to retry.`);
+        continue;
+      }
+    }
+
+    if (!items.length) {
+      p.log.warn(`No items found in ${source.label}.`);
+      continue;
+    }
+
+    const ingested = await runPersonalImport(items, client, {
+      label: source.label,
+      approve: true,
+      appUrl: resolveAppUrl(env),
     });
+
+    totalDecisions += ingested;
+    if (ingested > 0) sourcesImported.push(source.label);
+  }
+
+  // ---- Outro ----
+  const decisionsLine = totalDecisions > 0
+    ? `  ${totalDecisions} decisions in your graph`
+    : `  No decisions yet - run ${chalk.bold('align import')} to load your history`;
+  const sourceLine = sourcesImported.length > 0
+    ? `\n  Sources: ${sourcesImported.join(', ')}`
+    : '';
+
+  const outroText = [
+    chalk.bold('Setup complete.\n'),
+    decisionsLine,
+    sourceLine,
+    `\n\n  Run: ${chalk.bold('align ask "any question about your codebase"')}`,
+    chalk.dim('\n\n  Want your whole team on a shared decision graph?'),
+    chalk.dim('\n  Upgrade by accepting a team invite - your decisions come with you'),
+    chalk.dim('\n  (you reconnect your connectors once in the team workspace).'),
+    chalk.dim('\n  https://app.align.tech/pricing'),
+  ].join('');
+  p.outro(outroText);
 }
