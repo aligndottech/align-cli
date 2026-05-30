@@ -72,7 +72,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'Jira',
       description: 'Your issues',
       tier: 'site',
-      oauthKey: 'jira',
+      // Personal/CLI tier is read-only (no write:jira-work). The team/org
+      // comment bot keeps write via the `jira` key. See ALI-94.
+      oauthKey: 'jira-personal',
       fetch: async (t) => {
         const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
         return fetchJiraItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: 100 });
@@ -83,7 +85,8 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'Confluence',
       description: 'Your pages and documentation',
       tier: 'site',
-      oauthKey: 'confluence',
+      // Read-only personal/CLI tier. See ALI-94.
+      oauthKey: 'confluence-personal',
       fetch: async (t) => {
         const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
         return fetchConfluenceItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: 50 });
@@ -94,7 +97,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'Slack',
       description: 'Decision threads from your channels - may need workspace admin [experimental]',
       tier: 'workspace',
-      oauthKey: 'slack',
+      // Read-only personal/CLI tier (no chat:write). The team/org bot keeps
+      // chat:write via the `slack` key. See ALI-94.
+      oauthKey: 'slack-personal',
       fetch: async (t) => {
         const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
         return fetchSlackItems({ token: t['token']!, limit: 50, daysBack: 90 });
@@ -146,6 +151,10 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'Linear',
       description: 'Your issues and project discussions',
       tier: 'personal',
+      // TODO(ALI-94): switch to `oauthKey: 'linear'` (read-only) once the Linear
+      // OAuth app + LINEAR_CLIENT_ID/SECRET are configured per env. The gateway
+      // already supports the `linear` OAuth case; until the app exists, keep the
+      // API-key paste so this option keeps working.
       tokenLabel: 'Personal API key (lin_api_...)',
       tokenHint: 'Copy a Personal API key from the page that opens',
       tokenUrl: 'https://linear.app/settings/api',
