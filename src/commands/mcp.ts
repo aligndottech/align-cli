@@ -12,6 +12,15 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import { normaliseWhyQuery } from '../lib/why-normalise.js';
 
+// Heavy internal fields that bloat the model's context without helping it reason.
+// MCP responses go straight into the agent's context window, so we omit these and
+// serialize compactly (no pretty-print whitespace) - see "MCP context cost".
+const OMIT_RESULT_KEYS = new Set(['embedding', 'embeddings', 'vector', 'decision_json', 'raw_text']);
+
+export function serializeMcpResult(result: unknown): string {
+  return JSON.stringify(result, (key, value) => (OMIT_RESULT_KEYS.has(key) ? undefined : value));
+}
+
 const TOOL_SCHEMAS = [
   {
     name: 'align_search',
@@ -202,7 +211,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
             throw new Error(`Unknown tool: ${name}`);
         }
 
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: serializeMcpResult(result) }] };
       });
 
       // MCP protocol requires clean stdout; log startup to stderr
