@@ -39,7 +39,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'align_capture',
-    description: 'Capture a new decision. Accepts a URL (Slack/Jira/GitHub/Confluence/etc.) or raw text.',
+    description: 'Capture a decision from ANY tool - a Slack thread, Jira ticket, GitHub PR, Confluence/doc URL, or raw text. Call this whenever a decision gets made in conversation so the cross-tool decision graph stays current and relationships across tools can be detected.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -50,7 +50,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'align_check_alignment',
-    description: 'Check if a git diff or proposed change conflicts with existing decisions in the graph',
+    description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -94,7 +94,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'align_get_related_decisions',
-    description: 'Find decisions related to a file path, module, or code context',
+    description: 'BEFORE editing a file or module, call this to learn what was already decided about it across all the user\'s connected tools (not just code) - surfacing the cross-tool context an agent would otherwise miss.',
     inputSchema: {
       type: 'object',
       properties: {

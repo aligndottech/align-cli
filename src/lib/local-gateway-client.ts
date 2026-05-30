@@ -1,7 +1,11 @@
 import { createLocalDb } from './local-db.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
+import { classifyRelationship } from './local-relationship-classifier.js';
 
 export const CONFLICT_THRESHOLD = 0.65;
+// Embeddings flag a decision as a related CANDIDATE at/above this score; the
+// relationship type is then assigned lazily by the LLM classifier.
+export const RELATES_THRESHOLD = 0.45;
 // Below this similarity between a decision and new content, the content is
 // considered to have drifted from the decision.
 export const DRIFT_THRESHOLD = 0.5;
@@ -105,19 +109,47 @@ export function createLocalGatewayClient(dbPath: string) {
     },
 
     async checkAlignment(diff: string, _context?: string) {
+      // Stage 1: embeddings find candidate related decisions (free, local).
       const embedding = await getEmbedding(diff);
-      const similar = await findSimilar(embedding, 5, 0.3);
-      const matches = similar
+      const similar = await findSimilar(embedding, 5, RELATES_THRESHOLD);
+      const candidates = similar
         .map(s => {
           const row = db.getDecisionById(s.decisionId);
           return row ? { ...row, score: s.score } : null;
         })
         .filter((d): d is NonNullable<typeof d> => d !== null);
-      return {
-        status: matches.length > 0 ? 'decisions_found' : 'no_decisions',
-        matches,
-        note: 'Local mode: similarity-based match only. Set ANTHROPIC_API_KEY for AI-generated verdicts.',
-      };
+
+      if (!candidates.length) {
+        return { status: 'no_context' as const, conflicting_decisions: [], relevant_decisions: [], message: 'No related decisions found in your local graph.' };
+      }
+
+      // Stage 2: type each candidate against the proposed change (LLM, user's key,
+      // lazy - only the few candidates we surface here). Degrades to untyped.
+      const subject = { title: 'Proposed change', summary: diff.slice(0, 2000) };
+      const relevant_decisions = [];
+      for (const c of candidates) {
+        const rel = await classifyRelationship(subject, { title: c.title, summary: c.summary });
+        relevant_decisions.push({
+          id: c.id,
+          title: c.title,
+          platform: c.platform,
+          source_url: c.sourceUrl,
+          relationship: rel?.type ?? 'relates_to',
+          confidence: rel?.confidence ?? c.score,
+          typed: rel !== null,
+          ...(rel?.reason ? { reason: rel.reason } : {}),
+        });
+      }
+
+      const conflicting_decisions = relevant_decisions.filter(
+        d => d.relationship === 'conflicts_with' || d.relationship === 'contradicts',
+      );
+      const status = conflicting_decisions.length ? 'conflict' as const : 'related' as const;
+      const anyTyped = relevant_decisions.some(d => d.typed);
+      const message = status === 'conflict'
+        ? `This change conflicts with ${conflicting_decisions.length} existing decision(s) across your tools - review before proceeding.`
+        : `Found ${relevant_decisions.length} related decision(s) to review${anyTyped ? '' : ' (set ANTHROPIC_API_KEY or OPENAI_API_KEY to type these relationships)'}.`;
+      return { status, conflicting_decisions, relevant_decisions, message };
     },
 
     async checkDrift(decisionId: string, content: string, _sourceType?: string) {

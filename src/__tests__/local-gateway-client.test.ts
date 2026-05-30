@@ -8,8 +8,15 @@ vi.mock('../lib/local-embeddings.js', () => ({
   cosineSimilarity: vi.fn().mockReturnValue(0.0),
 }));
 
+vi.mock('../lib/local-relationship-classifier.js', () => ({
+  // Default: no LLM key -> degrade to untyped (returns null)
+  classifyRelationship: vi.fn().mockResolvedValue(null),
+  RELATIONSHIP_TYPES: ['supersedes', 'conflicts_with', 'contradicts', 'duplicates', 'refines', 'implements', 'depends_on', 'relates_to'],
+}));
+
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { cosineSimilarity } from '../lib/local-embeddings.js';
+import { classifyRelationship } from '../lib/local-relationship-classifier.js';
 
 describe('local-gateway-client', () => {
   let dbPath: string;
@@ -19,6 +26,7 @@ describe('local-gateway-client', () => {
     dbPath = path.join(os.tmpdir(), `align-lgc-test-${Date.now()}.db`);
     client = createLocalGatewayClient(dbPath);
     vi.mocked(cosineSimilarity).mockReturnValue(0.0);
+    vi.mocked(classifyRelationship).mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -67,10 +75,36 @@ describe('local-gateway-client', () => {
     expect(Array.isArray(result.downstream)).toBe(true);
   });
 
-  it('checkAlignment returns status and matches for a diff', async () => {
+  it('checkAlignment returns no_context when nothing is similar', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.0);
     const result = await client.checkAlignment('- use js\n+ use ts');
-    expect(result).toHaveProperty('status');
-    expect(result).toHaveProperty('matches');
+    expect(result.status).toBe('no_context');
+    expect(result.relevant_decisions).toEqual([]);
+  });
+
+  it('checkAlignment returns untyped "related" when no LLM key (classifier returns null)', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    await client.ingestBatch([
+      { source_url: 'https://jira/ABC-1', platform: 'jira', raw_text: 'Feature flag rollout', title: 'Rollout plan' },
+    ]);
+    const result = await client.checkAlignment('add a feature flag');
+    expect(result.status).toBe('related');
+    expect(result.relevant_decisions[0].relationship).toBe('relates_to');
+    expect(result.relevant_decisions[0].typed).toBe(false);
+    expect(result.relevant_decisions[0].platform).toBe('jira'); // cross-tool visible
+  });
+
+  it('checkAlignment flags a typed cross-tool conflict when the classifier types it', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship).mockResolvedValue({ type: 'conflicts_with', confidence: 0.9, reason: 'opposes prior choice' });
+    await client.ingestBatch([
+      { source_url: 'https://slack.com/x', platform: 'slack', raw_text: 'We standardised on MySQL', title: 'Standardise on MySQL' },
+    ]);
+    const result = await client.checkAlignment('migrate the database to Postgres');
+    expect(result.status).toBe('conflict');
+    expect(result.conflicting_decisions).toHaveLength(1);
+    expect(result.conflicting_decisions[0].platform).toBe('slack');
+    expect(result.conflicting_decisions[0].relationship).toBe('conflicts_with');
   });
 
   it('checkDrift returns score for a known decision', async () => {
