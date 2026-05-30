@@ -133,7 +133,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Your merge requests',
       tier: 'personal',
       tokenLabel: 'Personal access token',
-      tokenHint: 'Tick "read_api" on the page that opens',
+      // Read-only tier: steer users to the read-only scope. `api` would grant
+      // write; `read_api` is read-only and all Align's import needs. See ALI-98.
+      tokenHint: 'Select ONLY "read_api" (not "api") so the token stays read-only',
       tokenUrl: (t) => {
         const base = t['domain'] ? `https://${t['domain']}` : 'https://gitlab.com';
         return `${base}/-/user_settings/personal_access_tokens`;
@@ -169,7 +171,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Your pages and databases',
       tier: 'personal',
       tokenLabel: 'Integration secret (secret_...)',
-      tokenHint: 'Create a new integration and copy the Internal Integration Secret from the page that opens',
+      // Read-only tier: Align only reads. Notion integration capabilities are set
+      // at creation - keep it to "Read content" (no insert/update). See ALI-98.
+      tokenHint: 'Create an integration with ONLY "Read content" capability (no insert/update), then copy its Internal Integration Secret',
       tokenUrl: 'https://www.notion.so/my-integrations',
       fetch: async (t) => {
         const { fetchNotionItems } = await import('../lib/fetchers/notion.js');
