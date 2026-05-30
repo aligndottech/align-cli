@@ -442,20 +442,22 @@ describe('align setup', () => {
       mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']);
       mockWaitForCallback.mockResolvedValueOnce({
         data: {
-          connector: 'jira',
+          // Read-only personal tier: the gateway resolves the jira-personal alias
+          // and returns the confluence-personal sibling from the single consent.
+          connector: 'jira-personal',
           credentials: { access_token: 'atl_token', site_id: 'cloud-1', base: 'https://x.atlassian.net' },
-          siblingConnector: 'confluence',
+          siblingConnector: 'confluence-personal',
           siblingCredentials: { access_token: 'atl_token', site_id: 'cloud-1', base: 'https://x.atlassian.net' },
         },
         port: 7654,
       });
       // Once the sibling token is persisted, confluence's own iteration finds it cached
       mockGetConnectorToken.mockImplementation((_env: string, key: string) =>
-        key === 'confluence' ? 'atl_token' : null,
+        key === 'confluence-personal' ? 'atl_token' : null,
       );
       await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'jira', 'atl_token');
-      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'confluence', 'atl_token');
+      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'jira-personal', 'atl_token');
+      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'confluence-personal', 'atl_token');
       // Only ONE browser OAuth flow despite two Atlassian connectors selected
       expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
     });
