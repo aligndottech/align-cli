@@ -468,7 +468,11 @@ export function registerSetupCommand(program: Command): void {
       if (p.isCancel(selectedIds)) { p.cancel('Cancelled.'); process.exit(0); }
       const selectedSources = connectorSources.filter(s => (selectedIds as string[]).includes(s.id));
 
-      // ---- Step 7: Token collection + import per connector ----
+      // ---- Step 7a: Collect all credentials up front (consents back-to-back) ----
+      // Interactive auth (browser OAuth, token paste) can only happen one at a
+      // time, so we gather every connector's creds first instead of interleaving
+      // a slow fetch+import between each sign-in.
+      const readyConnectors: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
       for (const source of selectedSources) {
         console.log('');
         p.log.step(chalk.bold(source.label));
@@ -486,7 +490,13 @@ export function registerSetupCommand(program: Command): void {
           if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
           tokens = collected;
         }
+        readyConnectors.push({ source, tokens });
+      }
 
+      // ---- Step 7b: Fetch + import each connector (sequential: each import has
+      // its own progress spinner, and concurrent spinners clobber the terminal) ----
+      for (const { source, tokens: collectedTokens } of readyConnectors) {
+        let tokens = collectedTokens;
         const fetchSpinner = p.spinner();
         fetchSpinner.start(`Fetching from ${source.label}...`);
         let items: PersonalImportItem[] = [];

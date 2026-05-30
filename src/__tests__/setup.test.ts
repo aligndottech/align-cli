@@ -389,6 +389,25 @@ describe('align setup', () => {
     });
   });
 
+  describe('connector import ordering', () => {
+    it('collects all OAuth consents before fetching any connector data (consents back-to-back)', async () => {
+      mockMultiselect.mockResolvedValueOnce(['github', 'slack']);
+      mockWaitForCallback.mockResolvedValue({ data: { connector: 'x', credentials: { access_token: 'tok' } }, port: 7654 });
+      const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+      const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(mockWaitForCallback).toHaveBeenCalledTimes(2);
+      const lastConsent = Math.max(...mockWaitForCallback.mock.invocationCallOrder);
+      const fetchOrders = [
+        ...(fetchGitHubItems as ReturnType<typeof vi.fn>).mock.invocationCallOrder,
+        ...(fetchSlackItems as ReturnType<typeof vi.fn>).mock.invocationCallOrder,
+      ];
+      expect(fetchOrders.length).toBeGreaterThan(0);
+      // Every consent finishes before any data fetch starts
+      expect(lastConsent).toBeLessThan(Math.min(...fetchOrders));
+    });
+  });
+
   describe('token-paste connectors auto-open browser', () => {
     it('opens the Linear token URL in the browser before prompting for the token', async () => {
       const open = (await import('open')).default;
