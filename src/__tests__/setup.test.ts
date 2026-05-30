@@ -13,6 +13,10 @@ const mockStartCliOAuth = vi.hoisted(() => vi.fn().mockResolvedValue({ authUrl: 
 // mockStartCliOAuth accepts (key, port, nonce) - the mock ignores nonce but tests still pass
 
 const mockMultiselect = vi.hoisted(() => vi.fn().mockResolvedValue(['git']));
+// Intent prompt: default to 'team' in tests so the existing cloud-flow tests
+// (which call `align setup` without --approve) keep exercising the team path.
+const mockSelect = vi.hoisted(() => vi.fn().mockResolvedValue('team'));
+const mockInitLocalMode = vi.hoisted(() => vi.fn().mockResolvedValue({ dbPath: '/tmp/local.db' }));
 const mockConfirm = vi.hoisted(() => vi.fn().mockResolvedValue(false));
 const spinnerInstances = vi.hoisted(() => [] as Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; succeed: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> }>);
 const mockSpinner = vi.hoisted(() => vi.fn(() => {
@@ -80,6 +84,10 @@ vi.mock('../lib/git.js', () => ({
   formatCommitAsText: vi.fn().mockReturnValue('feat: add thing'),
 }));
 
+vi.mock('../lib/local-mode.js', () => ({
+  initLocalMode: mockInitLocalMode,
+}));
+
 vi.mock('../lib/mcp-setup.js', () => ({
   detectEditors: vi.fn().mockReturnValue([]),
   writeMcpConfig: vi.fn(),
@@ -102,6 +110,7 @@ vi.mock('@clack/prompts', () => ({
   spinner: mockSpinner,
   confirm: mockConfirm,
   multiselect: mockMultiselect,
+  select: mockSelect,
   text: vi.fn().mockResolvedValue('test-value'),
   password: vi.fn().mockResolvedValue('test-token'),
   isCancel: vi.fn().mockReturnValue(false),
@@ -253,6 +262,35 @@ describe('align setup', () => {
     ).resolves.not.toThrow();
   });
 
+  describe('solo / local mode', () => {
+    it('--local sets up local mode without cloud auth or connector prompts, and imports git', async () => {
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      expect(mockInitLocalMode).toHaveBeenCalled();
+      // Zero-account: solo path never calls whoami (no cloud login required)
+      expect(mockWhoami).not.toHaveBeenCalled();
+      // No cloud connector multiselect
+      const connectorCall = mockMultiselect.mock.calls.find(
+        (c: any[]) => c[0]?.message?.includes('Connect more sources'),
+      );
+      expect(connectorCall).toBeUndefined();
+      // Git history still imported (into the local graph)
+      expect(mockIngestBatch).toHaveBeenCalled();
+    });
+
+    it('defaults the intent prompt to solo when not --approve and not --local', async () => {
+      mockSelect.mockResolvedValueOnce('solo');
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      expect(mockInitLocalMode).toHaveBeenCalled();
+      expect(mockWhoami).not.toHaveBeenCalled();
+    });
+
+    it('--approve keeps the legacy team flow (no local mode, auth checked)', async () => {
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(mockInitLocalMode).not.toHaveBeenCalled();
+      expect(mockWhoami).toHaveBeenCalled();
+    });
+  });
+
   it('completes setup without calling startCliOAuth when no connectors are selected', async () => {
     mockMultiselect.mockResolvedValue([]);
     await expect(
@@ -326,6 +364,47 @@ describe('align setup', () => {
       });
       await makeProgram().parseAsync(['node', 'align', 'setup']);
       expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'github-personal', 'ghu_new_token');
+    });
+
+    it('enables both Jira and Confluence from a single Atlassian consent (sibling payload)', async () => {
+      mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']);
+      mockWaitForCallback.mockResolvedValueOnce({
+        data: {
+          connector: 'jira',
+          credentials: { access_token: 'atl_token', site_id: 'cloud-1', base: 'https://x.atlassian.net' },
+          siblingConnector: 'confluence',
+          siblingCredentials: { access_token: 'atl_token', site_id: 'cloud-1', base: 'https://x.atlassian.net' },
+        },
+        port: 7654,
+      });
+      // Once the sibling token is persisted, confluence's own iteration finds it cached
+      mockGetConnectorToken.mockImplementation((_env: string, key: string) =>
+        key === 'confluence' ? 'atl_token' : null,
+      );
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'jira', 'atl_token');
+      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'confluence', 'atl_token');
+      // Only ONE browser OAuth flow despite two Atlassian connectors selected
+      expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('connector import ordering', () => {
+    it('collects all OAuth consents before fetching any connector data (consents back-to-back)', async () => {
+      mockMultiselect.mockResolvedValueOnce(['github', 'slack']);
+      mockWaitForCallback.mockResolvedValue({ data: { connector: 'x', credentials: { access_token: 'tok' } }, port: 7654 });
+      const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+      const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(mockWaitForCallback).toHaveBeenCalledTimes(2);
+      const lastConsent = Math.max(...mockWaitForCallback.mock.invocationCallOrder);
+      const fetchOrders = [
+        ...(fetchGitHubItems as ReturnType<typeof vi.fn>).mock.invocationCallOrder,
+        ...(fetchSlackItems as ReturnType<typeof vi.fn>).mock.invocationCallOrder,
+      ];
+      expect(fetchOrders.length).toBeGreaterThan(0);
+      // Every consent finishes before any data fetch starts
+      expect(lastConsent).toBeLessThan(Math.min(...fetchOrders));
     });
   });
 

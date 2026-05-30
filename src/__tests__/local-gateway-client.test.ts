@@ -78,4 +78,32 @@ describe('local-gateway-client', () => {
     const result = await client.checkDrift(captured.id, 'some content to compare', 'code');
     expect(result).toHaveProperty('score');
   });
+
+  it('ingestBatch persists each item and returns cloud-compatible snapshots', async () => {
+    const result = await client.ingestBatch([
+      { source_url: 'git://commit/a', platform: 'git', raw_text: 'Adopt Postgres', title: 'Adopt Postgres' },
+      { source_url: 'git://commit/b', platform: 'git', raw_text: 'Adopt Redis', title: 'Adopt Redis' },
+    ]);
+    expect(result.snapshots).toHaveLength(2);
+    expect(result.snapshots[0]).toHaveProperty('id');
+    expect(result.snapshots[0].title).toBe('Adopt Postgres');
+    expect(result.snapshots[0].analysis).toHaveProperty('relatedDecisions');
+    // Persisted: a search (with similarity above threshold) finds them back
+    vi.mocked(cosineSimilarity).mockReturnValue(0.75);
+    const found = await client.searchDecisions('database', 10);
+    expect(found.decisions.length).toBe(2);
+  });
+
+  it('ingestBatch records a conflicts_with relationship when items are similar', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.9); // above CONFLICT_THRESHOLD
+    const result = await client.ingestBatch([
+      { source_url: 'git://commit/a', platform: 'git', raw_text: 'Use MySQL', title: 'Use MySQL' },
+      { source_url: 'git://commit/b', platform: 'git', raw_text: 'Use Postgres', title: 'Use Postgres' },
+    ]);
+    // second item conflicts with the first
+    const related = result.snapshots[1].analysis?.relatedDecisions ?? [];
+    expect(related.length).toBeGreaterThan(0);
+    expect(related[0].relationship).toBe('conflicts_with');
+    expect(client.getConflicts()).resolves.toHaveProperty('links');
+  });
 });
