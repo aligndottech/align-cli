@@ -570,45 +570,67 @@ async function runCloudSetup(ctx: {
     readyConnectors.push({ source, tokens });
   }
 
-  // ---- Step 7b: Fetch + import each connector (sequential: each import has
-  // its own progress spinner, and concurrent spinners clobber the terminal) ----
-  for (const { source, tokens: collectedTokens } of readyConnectors) {
-    let tokens = collectedTokens;
-    const fetchSpinner = p.spinner();
-    fetchSpinner.start(`Fetching from ${source.label}...`);
-    let items: PersonalImportItem[] = [];
-    try {
-      items = await source.fetch(tokens);
-      fetchSpinner.stop(`Found ${items.length} items`);
-    } catch (err) {
-      if (err instanceof AuthExpiredError && source.oauthKey) {
-        fetchSpinner.stop(`${source.label} token expired.`);
-        const reauth = await p.confirm({ message: `Reconnect ${source.label} now?` });
-        if (!p.isCancel(reauth) && reauth) {
-          const fresh = await collectTokensViaOAuth(source, client, config, envName, true);
-          if (fresh) {
-            try {
-              fetchSpinner.start(`Retrying ${source.label}...`);
-              items = await source.fetch(fresh);
-              fetchSpinner.stop(`Found ${items.length} items`);
-              tokens = fresh;
-            } catch (retryErr) {
-              fetchSpinner.stop(`Still failed: ${(retryErr as Error).message}`);
-              continue;
-            }
-          } else {
-            p.log.warn(`Skipping ${source.label} - re-auth cancelled or failed.`);
-            continue;
-          }
-        } else {
-          p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align setup')} to reconnect.`);
-          continue;
+  // ---- Step 7b: Fetch every connector concurrently (independent network I/O),
+  // then import each result sequentially so per-connector output stays readable.
+  // Imports are already internally batch-parallel (see runPersonalImport). Auth
+  // (7a) stays sequential because interactive browser/paste must be one at a time. ----
+  type FetchResult =
+    | { source: SetupSource; items: PersonalImportItem[] }
+    | { source: SetupSource; authExpired: true }
+    | { source: SetupSource; error: Error };
+
+  const n = readyConnectors.length;
+  const fetchSpinner = p.spinner();
+  fetchSpinner.start(`Fetching from ${n} source${n === 1 ? '' : 's'}...`);
+
+  // Each task catches its own errors so one slow or failing connector never
+  // blocks the others. AuthExpiredError is flagged for interactive re-auth below.
+  const fetched = await Promise.all(
+    readyConnectors.map(async ({ source, tokens }): Promise<FetchResult> => {
+      try {
+        return { source, items: await source.fetch(tokens) };
+      } catch (err) {
+        if (err instanceof AuthExpiredError && source.oauthKey) {
+          return { source, authExpired: true };
         }
-      } else {
-        fetchSpinner.stop(`Skipped ${source.label} - ${(err as Error).message}`);
-        p.log.warn(`You can run ${chalk.bold(`align import ${source.id}`)} later to retry.`);
+        return { source, error: err as Error };
+      }
+    }),
+  );
+  fetchSpinner.stop(`Fetched ${n} source${n === 1 ? '' : 's'}`);
+
+  // Import in the original (tier-sorted) order. Resolve any expired-token
+  // connectors interactively here - rare, since 7a just minted fresh tokens.
+  for (const result of fetched) {
+    const source = result.source;
+    let items: PersonalImportItem[] | null = null;
+
+    if ('items' in result) {
+      items = result.items;
+    } else if ('authExpired' in result) {
+      const reauth = await p.confirm({ message: `${source.label} token expired. Reconnect now?` });
+      if (p.isCancel(reauth) || !reauth) {
+        p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align setup')} to reconnect.`);
         continue;
       }
+      const fresh = await collectTokensViaOAuth(source, client, config, envName, true);
+      if (!fresh) {
+        p.log.warn(`Skipping ${source.label} - re-auth cancelled or failed.`);
+        continue;
+      }
+      const retrySpinner = p.spinner();
+      retrySpinner.start(`Retrying ${source.label}...`);
+      try {
+        items = await source.fetch(fresh);
+        retrySpinner.stop(`Found ${items.length} items`);
+      } catch (retryErr) {
+        retrySpinner.stop(`Still failed: ${(retryErr as Error).message}`);
+        continue;
+      }
+    } else {
+      p.log.warn(`Skipped ${source.label} - ${result.error.message}`);
+      p.log.warn(`You can run ${chalk.bold(`align import ${source.id}`)} later to retry.`);
+      continue;
     }
 
     if (!items.length) {

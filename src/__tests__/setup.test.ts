@@ -480,6 +480,38 @@ describe('align setup', () => {
       // Every consent finishes before any data fetch starts
       expect(lastConsent).toBeLessThan(Math.min(...fetchOrders));
     });
+
+    it('fetches selected connectors concurrently, not one after another', async () => {
+      mockMultiselect.mockResolvedValueOnce(['github', 'slack']);
+      mockWaitForCallback.mockResolvedValue({ data: { connector: 'x', credentials: { access_token: 'tok' } }, port: 7654 });
+
+      const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+      const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
+      const order: string[] = [];
+      // GitHub fetch is slow; if fetches run concurrently, Slack starts before
+      // GitHub finishes. If they run sequentially, Slack only starts after
+      // GitHub has fully resolved.
+      (fetchGitHubItems as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        order.push('gh-start');
+        await new Promise((r) => setTimeout(r, 15));
+        order.push('gh-end');
+        return [];
+      });
+      (fetchSlackItems as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        order.push('slack-start');
+        return [];
+      });
+
+      try {
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+        expect(order).toContain('slack-start');
+        expect(order).toContain('gh-end');
+        expect(order.indexOf('slack-start')).toBeLessThan(order.indexOf('gh-end'));
+      } finally {
+        (fetchGitHubItems as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+        (fetchSlackItems as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      }
+    });
   });
 
   describe('token-paste connectors auto-open browser', () => {
