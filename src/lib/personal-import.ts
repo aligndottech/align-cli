@@ -9,7 +9,7 @@ export type PersonalImportItem = BatchIngestItem;
 const BATCH_SIZE = 20;
 const BATCH_CONCURRENCY = 3;
 
-async function runWithConcurrency<T>(
+export async function runWithConcurrency<T>(
   tasks: Array<() => Promise<T>>,
   concurrency: number,
 ): Promise<PromiseSettledResult<T>[]> {
@@ -29,28 +29,33 @@ async function runWithConcurrency<T>(
 export async function runPersonalImport(
   items: PersonalImportItem[],
   client: ReturnType<typeof createGatewayClient>,
-  opts: { label: string; approve?: boolean; appUrl: string },
+  opts: { label: string; approve?: boolean; appUrl: string; quiet?: boolean },
 ): Promise<number> {
   if (!items.length) {
     p.log.warn(`No items found from ${opts.label}.`);
     return 0;
   }
 
-  const preview = items.slice(0, 10);
-  const more = items.length - preview.length;
-  console.log(chalk.bold(`\nFound ${items.length} items from ${opts.label}\n`));
-  renderTable(
-    [
-      { header: 'SOURCE', width: 48 },
-      { header: 'TITLE', width: 50 },
-    ],
-    preview.map(i => [
-      i.source_url.replace(/https?:\/\//, '').slice(0, 46),
-      (i.title ?? i.raw_text.split('\n')[0]).slice(0, 48),
-    ]),
-  );
-  if (more > 0) console.log(chalk.dim(`  ...and ${more} more\n`));
-  else console.log('');
+  // Quiet mode (concurrent setup imports): skip the preview table, the animated
+  // spinner, and the multi-line footer - they clash when several imports run at
+  // once. A single compact completion line is printed at the end instead.
+  if (!opts.quiet) {
+    const preview = items.slice(0, 10);
+    const more = items.length - preview.length;
+    console.log(chalk.bold(`\nFound ${items.length} items from ${opts.label}\n`));
+    renderTable(
+      [
+        { header: 'SOURCE', width: 48 },
+        { header: 'TITLE', width: 50 },
+      ],
+      preview.map(i => [
+        i.source_url.replace(/https?:\/\//, '').slice(0, 46),
+        (i.title ?? i.raw_text.split('\n')[0]).slice(0, 48),
+      ]),
+    );
+    if (more > 0) console.log(chalk.dim(`  ...and ${more} more\n`));
+    else console.log('');
+  }
 
   if (!opts.approve) {
     const confirmed = await p.confirm({
@@ -71,7 +76,7 @@ export async function runPersonalImport(
   let relatedCount = 0;
   let done = 0;
   const failures: string[] = [];
-  const spinner = ora(`Importing 0/${batches.length} batches...`).start();
+  const spinner = opts.quiet ? null : ora(`Importing 0/${batches.length} batches...`).start();
 
   type BatchResult = Awaited<ReturnType<typeof client.ingestBatch>>;
   const results = await runWithConcurrency<BatchResult>(
@@ -79,7 +84,8 @@ export async function runPersonalImport(
       try {
         return await client.ingestBatch(batch);
       } finally {
-        spinner.text = `Importing ${++done}/${batches.length} batches...`;
+        done++;
+        if (spinner) spinner.text = `Importing ${done}/${batches.length} batches...`;
       }
     }),
     BATCH_CONCURRENCY,
@@ -95,10 +101,22 @@ export async function runPersonalImport(
     }
   }
 
+  // Quiet mode: one compact completion line; the shared footer is printed once
+  // by the caller after all concurrent imports finish.
+  if (opts.quiet) {
+    const conn = relatedCount > 0 ? `, ${relatedCount} connection${relatedCount === 1 ? '' : 's'}` : '';
+    const failNote = failures.length
+      ? chalk.yellow(` (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`)
+      : '';
+    console.log(`  ${chalk.green('✓')} ${opts.label}: ${total} decision${total === 1 ? '' : 's'}${conn}${failNote}`);
+    for (const f of failures) p.log.warn(f);
+    return total;
+  }
+
   if (failures.length === 0) {
-    spinner.succeed(`Imported ${total} decisions from ${opts.label}`);
+    spinner!.succeed(`Imported ${total} decisions from ${opts.label}`);
   } else {
-    spinner.warn(`Imported ${total} decisions (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`);
+    spinner!.warn(`Imported ${total} decisions (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`);
     for (const f of failures) p.log.warn(f);
   }
 

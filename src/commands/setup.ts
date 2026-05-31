@@ -6,7 +6,7 @@ import open from 'open';
 import { execa } from 'execa';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { type PersonalImportItem, runPersonalImport } from '../lib/personal-import.js';
+import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
 import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import { isGitRepo } from '../lib/git.js';
 import { initLocalMode } from '../lib/local-mode.js';
@@ -26,6 +26,10 @@ import { AuthExpiredError } from '../lib/errors.js';
 //  - 'workspace': needs a workspace/org admin install (Slack, Teams)
 type ConnectorTier = 'personal' | 'site' | 'workspace';
 const TIER_ORDER: Record<ConnectorTier, number> = { personal: 0, site: 1, workspace: 2 };
+
+// How many connectors import concurrently after auth. Each import is itself
+// batch-parallel (runPersonalImport), so this bounds total gateway load.
+const IMPORT_CONCURRENCY = 4;
 
 interface SetupSource {
   id: string;
@@ -733,14 +737,14 @@ async function runCloudSetup(ctx: {
   );
   fetchSpinner.stop(`Fetched ${n} source${n === 1 ? '' : 's'}`);
 
-  // Import in the original (tier-sorted) order. Resolve any expired-token
-  // connectors interactively here - rare, since 7a just minted fresh tokens.
+  // Resolve any expired-token connectors interactively first (sequential, and
+  // rare - 7a just minted fresh tokens), collecting everything ready to import.
+  const ready: Array<{ source: SetupSource; items: PersonalImportItem[] }> = [];
   for (const result of fetched) {
     const source = result.source;
-    let items: PersonalImportItem[] | null = null;
-
     if ('items' in result) {
-      items = result.items;
+      if (result.items.length) ready.push({ source, items: result.items });
+      else p.log.warn(`No items found in ${source.label}.`);
     } else if ('authExpired' in result) {
       const reauth = await p.confirm({ message: `${source.label} token expired. Reconnect now?` });
       if (p.isCancel(reauth) || !reauth) {
@@ -755,31 +759,49 @@ async function runCloudSetup(ctx: {
       const retrySpinner = p.spinner();
       retrySpinner.start(`Retrying ${source.label}...`);
       try {
-        items = await source.fetch(fresh);
+        const items = await source.fetch(fresh);
         retrySpinner.stop(`Found ${items.length} items`);
+        if (items.length) ready.push({ source, items });
+        else p.log.warn(`No items found in ${source.label}.`);
       } catch (retryErr) {
         retrySpinner.stop(`Still failed: ${(retryErr as Error).message}`);
-        continue;
       }
     } else {
       p.log.warn(`Skipped ${source.label} - ${result.error.message}`);
       p.log.warn(`You can run ${chalk.bold(`align import ${source.id}`)} later to retry.`);
-      continue;
     }
+  }
 
-    if (!items.length) {
-      p.log.warn(`No items found in ${source.label}.`);
-      continue;
+  // Import every ready connector CONCURRENTLY - the imports (gateway ingest +
+  // analysis) are the long pole, so they run in parallel (bounded) in quiet mode.
+  // Each prints one compact completion line; the shared footer prints once after.
+  if (ready.length) {
+    console.log('');
+    p.log.step(`Importing from ${ready.length} source${ready.length === 1 ? '' : 's'} in parallel...`);
+    const importResults = await runWithConcurrency(
+      ready.map(({ source, items }) => async () => {
+        const total = await runPersonalImport(items, client, {
+          label: source.label,
+          approve: true,
+          appUrl: resolveAppUrl(env),
+          quiet: true,
+        });
+        return { label: source.label, total };
+      }),
+      IMPORT_CONCURRENCY,
+    );
+    for (const r of importResults) {
+      if (r.status === 'fulfilled') {
+        totalDecisions += r.value.total;
+        if (r.value.total > 0) sourcesImported.push(r.value.label);
+      } else {
+        p.log.warn(`Import failed: ${(r.reason as Error).message}`);
+      }
     }
-
-    const ingested = await runPersonalImport(items, client, {
-      label: source.label,
-      approve: true,
-      appUrl: resolveAppUrl(env),
-    });
-
-    totalDecisions += ingested;
-    if (ingested > 0) sourcesImported.push(source.label);
+    console.log('');
+    console.log(chalk.dim('Relationships across all your imported tools are detected automatically in the background.'));
+    console.log(chalk.dim(`View at: ${resolveAppUrl(env)}/decisions`));
+    console.log('');
   }
 
   // ---- Outro ----

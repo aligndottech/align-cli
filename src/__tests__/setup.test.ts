@@ -554,6 +554,30 @@ describe('align setup', () => {
         (fetchSlackItems as ReturnType<typeof vi.fn>).mockResolvedValue([]);
       }
     });
+
+    it('imports all connected sources via the parallel import path (ALI-108)', async () => {
+      mockMultiselect.mockResolvedValueOnce(['github', 'linear']);
+      mockWaitForCallback.mockResolvedValue({ data: { connector: 'x', credentials: { access_token: 'tok' } }, port: 7654 });
+      // Set fetcher returns explicitly - other tests mutate these module mocks.
+      const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+      const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+      (fetchGitHubItems as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { source_url: 'https://github.com/org/repo/pull/1', title: 'PR', raw_text: 'x', type: 'pull_request' },
+      ]);
+      (fetchLinearItems as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { source_url: 'https://linear.app/team/issue/ISS-1', title: 'Issue', raw_text: 'x', type: 'issue' },
+      ]);
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      // The parallel import phase announces itself...
+      expect((log.step as ReturnType<typeof vi.fn>).mock.calls.some((c) => /parallel/i.test(String(c[0])))).toBe(true);
+      // ...and every connected source is ingested (github + linear items both sent).
+      const ingestedUrls = mockIngestBatch.mock.calls.flatMap(
+        (c) => (c[0] as Array<{ source_url: string }>).map((i) => i.source_url),
+      );
+      expect(ingestedUrls.some((u) => u.includes('github'))).toBe(true);
+      expect(ingestedUrls.some((u) => u.includes('linear'))).toBe(true);
+    });
   });
 
   describe('token-paste connectors auto-open browser', () => {
