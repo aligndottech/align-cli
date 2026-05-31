@@ -118,6 +118,22 @@ describe('runPersonalImport', () => {
     expect(output).toMatch(/background/);
   });
 
+  describe('quiet mode (concurrent setup imports)', () => {
+    it('still ingests and returns the total but suppresses the table + multi-line footer', async () => {
+      const client = makeClient();
+      const total = await runPersonalImport(makeItems(5), client, { label: 'Linear', approve: true, appUrl: 'http://app', quiet: true });
+      expect(client.ingestBatch).toHaveBeenCalled();
+      expect(total).toBeGreaterThan(0);
+      const output = consoleLog.mock.calls.map(c => String(c[0])).join('\n');
+      // The noisy bits (preview table header + multi-line footer) are suppressed
+      expect(output).not.toMatch(/Found 5 items from/);
+      expect(output).not.toMatch(/background/);
+      // A single compact completion line naming the source is printed instead
+      expect(output).toMatch(/Linear/);
+      expect(output).toMatch(/decision/);
+    });
+  });
+
   beforeEach(() => {
     consoleLog.mockClear();
   });
