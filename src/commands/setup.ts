@@ -414,6 +414,7 @@ async function runLocalSetup(): Promise<void> {
           label: 'Git',
           approve: true,
           appUrl: resolveAppUrl(localEnv),
+          local: true,
         });
       } else {
         gitSpinner.stop('No decisions found in git history');
@@ -453,6 +454,7 @@ async function runLocalSetup(): Promise<void> {
             label: source.label,
             approve: true,
             appUrl: resolveAppUrl(localEnv),
+            local: true,
           });
         }
       } catch (e) {
@@ -803,7 +805,7 @@ async function runCloudSetup(ctx: {
     }
     console.log('');
     console.log(chalk.dim('Relationships across all your imported tools are detected automatically in the background.'));
-    console.log(chalk.dim(`View at: ${resolveAppUrl(env)}/decisions`));
+    console.log(chalk.dim('Query your graph: align ask "..."  or  align decisions list'));
     console.log('');
   }
 
