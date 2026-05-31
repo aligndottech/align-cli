@@ -33,7 +33,16 @@ export async function fetchConfluenceItems(opts: {
 
   const res = await fetch(url, { headers });
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) throw new AuthExpiredError('Confluence');
+    // 401 = token genuinely expired/revoked -> re-auth helps. 403 = the token
+    // lacks Confluence scopes or this site has no Confluence -> re-auth will NOT
+    // help, so don't raise AuthExpiredError (which triggers a reconnect loop).
+    if (res.status === 401) throw new AuthExpiredError('Confluence');
+    if (res.status === 403) {
+      throw new Error(
+        'Confluence access denied (403): the token lacks Confluence scopes or this site has no Confluence. ' +
+          "Re-auth won't help - check the Atlassian app's Confluence API permissions (or skip Confluence).",
+      );
+    }
     throw new Error(`Confluence API failed (${res.status}). ${isOAuth ? 'Check your OAuth token.' : 'Check your email, token, and domain.'}`);
   }
   const data = await res.json() as { results: ConfluencePage[] };
