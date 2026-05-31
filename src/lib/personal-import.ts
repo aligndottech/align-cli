@@ -14,7 +14,7 @@ const BATCH_CONCURRENCY = 3;
 // parallel (align setup imports several connectors at once). Without this,
 // IMPORT_CONCURRENCY x BATCH_CONCURRENCY swamps the gateway's DB pool and
 // surfaces as 500 "timeout exceeded when trying to connect" (ALI-110).
-const GLOBAL_INGEST_CONCURRENCY = Number(process.env['ALIGN_INGEST_CONCURRENCY']) || 4;
+const GLOBAL_INGEST_CONCURRENCY = Number(process.env['ALIGN_INGEST_CONCURRENCY']) || 6;
 const INGEST_MAX_ATTEMPTS = 3;
 const INGEST_BACKOFF_MS = 250;
 
