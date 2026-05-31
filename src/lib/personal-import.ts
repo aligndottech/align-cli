@@ -2,12 +2,60 @@ import chalk from 'chalk';
 import ora from 'ora';
 import * as p from '@clack/prompts';
 import { renderTable } from './table.js';
+import { GatewayError } from './gateway-client.js';
 import type { BatchIngestItem, createGatewayClient } from './gateway-client.js';
 
 export type PersonalImportItem = BatchIngestItem;
 
 const BATCH_SIZE = 20;
 const BATCH_CONCURRENCY = 3;
+
+// Cap TOTAL concurrent /ingest/batch calls across all imports running in
+// parallel (align setup imports several connectors at once). Without this,
+// IMPORT_CONCURRENCY x BATCH_CONCURRENCY swamps the gateway's DB pool and
+// surfaces as 500 "timeout exceeded when trying to connect" (ALI-110).
+const GLOBAL_INGEST_CONCURRENCY = Number(process.env['ALIGN_INGEST_CONCURRENCY']) || 4;
+const INGEST_MAX_ATTEMPTS = 3;
+const INGEST_BACKOFF_MS = 250;
+
+let activeIngests = 0;
+const ingestWaiters: Array<() => void> = [];
+
+// Acquire one of the global ingest slots, run fn, release (waking the next
+// waiter). Shared across every concurrent runPersonalImport.
+async function withIngestSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeIngests >= GLOBAL_INGEST_CONCURRENCY) {
+    await new Promise<void>((resolve) => ingestWaiters.push(resolve));
+  }
+  activeIngests++;
+  try {
+    return await fn();
+  } finally {
+    activeIngests--;
+    ingestWaiters.shift()?.();
+  }
+}
+
+// A pool-connection timeout shows up as a 5xx; network failures as status 0.
+// Both are transient - retrying after a short backoff usually succeeds. 4xx
+// (bad request / auth) is not retried.
+function isTransientGatewayError(err: unknown): boolean {
+  return err instanceof GatewayError && (err.statusCode >= 500 || err.statusCode === 0);
+}
+
+async function ingestBatchResilient<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= INGEST_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await withIngestSlot(fn);
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientGatewayError(err) || attempt === INGEST_MAX_ATTEMPTS) throw err;
+      await new Promise((r) => setTimeout(r, INGEST_BACKOFF_MS * 2 ** (attempt - 1)));
+    }
+  }
+  throw lastErr;
+}
 
 export async function runWithConcurrency<T>(
   tasks: Array<() => Promise<T>>,
@@ -82,7 +130,7 @@ export async function runPersonalImport(
   const results = await runWithConcurrency<BatchResult>(
     batches.map((batch) => async () => {
       try {
-        return await client.ingestBatch(batch);
+        return await ingestBatchResilient(() => client.ingestBatch(batch));
       } finally {
         done++;
         if (spinner) spinner.text = `Importing ${done}/${batches.length} batches...`;
