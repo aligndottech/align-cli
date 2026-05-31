@@ -134,6 +134,26 @@ describe('runPersonalImport', () => {
     });
   });
 
+  describe('post-import footer (ALI-115)', () => {
+    it('cloud: does not link the web UI; points to the CLI instead', async () => {
+      const client = makeClient();
+      await runPersonalImport(makeItems(1), client, { label: 'GitHub', approve: true, appUrl: 'https://app.preview.align.tech' });
+      const output = consoleLog.mock.calls.map(c => String(c[0])).join('\n');
+      expect(output).not.toMatch(/\/decisions/);
+      expect(output).not.toContain('https://app.preview.align.tech');
+      expect(output).toMatch(/align ask/);
+    });
+
+    it('local: shows the local-graph hint, not a web URL or background job', async () => {
+      const client = makeClient();
+      await runPersonalImport(makeItems(1), client, { label: 'Git', approve: true, appUrl: 'http://localhost:5173', local: true });
+      const output = consoleLog.mock.calls.map(c => String(c[0])).join('\n');
+      expect(output).not.toMatch(/\/decisions/);
+      expect(output).not.toMatch(/background/);
+      expect(output).toMatch(/align local status/);
+    });
+  });
+
   describe('async ingest opt-in (ALI-114)', () => {
     it('passes deferEnrichment through to ingestBatch when requested', async () => {
       const ingestBatch = vi.fn().mockResolvedValue({ snapshots: [] });

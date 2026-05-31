@@ -77,7 +77,7 @@ export async function runWithConcurrency<T>(
 export async function runPersonalImport(
   items: PersonalImportItem[],
   client: ReturnType<typeof createGatewayClient>,
-  opts: { label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean },
+  opts: { label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean; local?: boolean },
 ): Promise<number> {
   if (!items.length) {
     p.log.warn(`No items found from ${opts.label}.`);
@@ -171,8 +171,16 @@ export async function runPersonalImport(
   if (relatedCount > 0) {
     console.log(chalk.cyan(`${relatedCount} connections found with existing decisions in your graph.`));
   }
-  console.log(chalk.dim('Relationships across all your imported tools are detected automatically in the background.'));
-  console.log(chalk.dim(`View at: ${opts.appUrl}/decisions`));
+  if (opts.local) {
+    // Local mode: on-device SQLite, no web UI and relationships are computed
+    // synchronously - don't claim a background job or a browser link.
+    console.log(chalk.dim('Stored locally - run `align local status` to inspect your graph.'));
+  } else {
+    // Cloud personal: CLI/MCP-native. Don't push the web UI (a team surface);
+    // point to the CLI instead.
+    console.log(chalk.dim('Relationships across all your imported tools are detected automatically in the background.'));
+    console.log(chalk.dim('Query your graph: align ask "..."  or  align decisions list'));
+  }
   console.log(chalk.dim('Tip: import more tools to build a richer cross-tool decision graph.'));
   console.log('');
   return total;
