@@ -83,16 +83,16 @@ describe('fetchConfluenceItems - OAuth mode (cloudId + access token)', () => {
     ).rejects.toBeInstanceOf(AuthExpiredError);
   });
 
-  it('should throw AuthExpiredError on 403', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 403,
-      text: async () => 'Forbidden',
-    });
+  it('throws a clear non-retryable error on 403 (no Confluence access / missing scopes), not AuthExpired', async () => {
+    // 403 means the token lacks Confluence scopes or the site has no Confluence -
+    // re-auth cannot fix it, so it must NOT be an AuthExpiredError (which would
+    // send setup into a pointless reconnect loop). See ALI-111.
+    mockFetch.mockResolvedValue({ ok: false, status: 403, text: async () => 'Forbidden' });
 
     const { AuthExpiredError } = await import('../../lib/errors.js');
-    await expect(
-      fetchConfluenceItems({ token: 'bad_token', cloudId: 'cloud-123' })
-    ).rejects.toBeInstanceOf(AuthExpiredError);
+    const err = await fetchConfluenceItems({ token: 'tok', cloudId: 'cloud-123' }).catch((e) => e);
+    expect(err).not.toBeInstanceOf(AuthExpiredError);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/403|access|scope|permission/i);
   });
 });

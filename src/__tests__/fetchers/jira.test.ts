@@ -97,14 +97,12 @@ describe('fetchJiraItems - OAuth mode (cloudId + access token)', () => {
     await expect(fetchJiraItems({ token: 'bad_token', cloudId: 'cloud-123' })).rejects.toBeInstanceOf(AuthExpiredError);
   });
 
-  it('should throw AuthExpiredError on 403', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 403,
-      text: async () => 'Forbidden',
-    });
+  it('throws a clear non-retryable error on 403 (no access / missing scopes), not AuthExpired', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 403, text: async () => 'Forbidden' });
 
     const { AuthExpiredError } = await import('../../lib/errors.js');
-    await expect(fetchJiraItems({ token: 'bad_token', cloudId: 'cloud-123' })).rejects.toBeInstanceOf(AuthExpiredError);
+    const err = await fetchJiraItems({ token: 'tok', cloudId: 'cloud-123' }).catch((e) => e);
+    expect(err).not.toBeInstanceOf(AuthExpiredError);
+    expect((err as Error).message).toMatch(/403|access|scope|permission/i);
   });
 });

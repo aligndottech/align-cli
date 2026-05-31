@@ -45,7 +45,15 @@ export async function fetchJiraItems(opts: {
     body: JSON.stringify({ jql, maxResults: limit, fields: ['summary', 'description', 'status', 'key'] }),
   });
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) throw new AuthExpiredError('Jira');
+    // 401 = expired/revoked (re-auth helps). 403 = lacks Jira scopes / no access
+    // (re-auth won't help) - don't trigger a reconnect loop.
+    if (res.status === 401) throw new AuthExpiredError('Jira');
+    if (res.status === 403) {
+      throw new Error(
+        "Jira access denied (403): the token lacks Jira scopes or access. Re-auth won't help - " +
+          "check the Atlassian app's Jira API permissions.",
+      );
+    }
     const text = await res.text();
     throw new Error(`Jira API failed (${res.status}): ${text.slice(0, 200)}`);
   }
