@@ -155,7 +155,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       tier: 'personal',
       // Read-only personal/CLI tier via browser OAuth (scope `read`), replacing the
       // full-access API-key paste. Requires the Linear OAuth app + sealed creds. See ALI-101.
-      oauthKey: 'linear',
+      oauthKey: 'linear-personal',
       fetch: async (t) => {
         const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
         return fetchLinearItems({ token: t['token']!, limit: 100 });

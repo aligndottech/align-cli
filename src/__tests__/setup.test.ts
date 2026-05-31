@@ -516,7 +516,7 @@ describe('align setup', () => {
 
   describe('token-paste connectors auto-open browser', () => {
     it('uses browser OAuth for Linear (read-only), not an API-key paste', async () => {
-      // Linear moved from API-key paste to oauthKey:'linear' (ALI-101): it should
+      // Linear moved from API-key paste to oauthKey:'linear-personal' (ALI-101): it should
       // start the CLI OAuth flow, not open the settings/API token page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['linear']);
