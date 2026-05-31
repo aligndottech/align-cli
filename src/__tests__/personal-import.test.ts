@@ -134,6 +134,15 @@ describe('runPersonalImport', () => {
     });
   });
 
+  describe('async ingest opt-in (ALI-114)', () => {
+    it('passes deferEnrichment through to ingestBatch when requested', async () => {
+      const ingestBatch = vi.fn().mockResolvedValue({ snapshots: [] });
+      const client = makeClient({ ingestBatch });
+      await runPersonalImport(makeItems(3), client, { label: 'Linear', approve: true, appUrl: 'http://app', quiet: true, deferEnrichment: true });
+      expect(ingestBatch).toHaveBeenCalledWith(expect.any(Array), { deferEnrichment: true });
+    });
+  });
+
   describe('transient ingest retry (ALI-110)', () => {
     it('retries a batch that fails with a transient 5xx, then counts it as imported', async () => {
       const { GatewayError } = await import('../lib/gateway-client.js');

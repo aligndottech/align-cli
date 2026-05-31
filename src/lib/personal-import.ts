@@ -77,7 +77,7 @@ export async function runWithConcurrency<T>(
 export async function runPersonalImport(
   items: PersonalImportItem[],
   client: ReturnType<typeof createGatewayClient>,
-  opts: { label: string; approve?: boolean; appUrl: string; quiet?: boolean },
+  opts: { label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean },
 ): Promise<number> {
   if (!items.length) {
     p.log.warn(`No items found from ${opts.label}.`);
@@ -130,7 +130,7 @@ export async function runPersonalImport(
   const results = await runWithConcurrency<BatchResult>(
     batches.map((batch) => async () => {
       try {
-        return await ingestBatchResilient(() => client.ingestBatch(batch));
+        return await ingestBatchResilient(() => client.ingestBatch(batch, { deferEnrichment: opts.deferEnrichment }));
       } finally {
         done++;
         if (spinner) spinner.text = `Importing ${done}/${batches.length} batches...`;
