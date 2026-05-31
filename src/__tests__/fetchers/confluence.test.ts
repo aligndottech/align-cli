@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 
 describe('fetchConfluenceItems - Basic auth mode (email + token + domain)', () => {
-  it('should fetch pages using Basic auth when domain is provided', async () => {
+  it('should fetch pages via the v2 API using Basic auth when domain is provided', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ results: [makeConfluencePage('Architecture Decision Records')] }),
@@ -31,7 +31,7 @@ describe('fetchConfluenceItems - Basic auth mode (email + token + domain)', () =
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('https://mycompany.atlassian.net/wiki/rest/api/content/search'),
+      expect.stringContaining('https://mycompany.atlassian.net/wiki/api/v2/pages'),
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: expect.stringMatching(/^Basic /),
@@ -58,7 +58,7 @@ describe('fetchConfluenceItems - OAuth mode (cloudId + access token)', () => {
 
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining(
-        'https://api.atlassian.com/ex/confluence/a1b2c3d4-e5f6-7890-abcd-ef1234567890/wiki/rest/api/content/search'
+        'https://api.atlassian.com/ex/confluence/a1b2c3d4-e5f6-7890-abcd-ef1234567890/wiki/api/v2/pages'
       ),
       expect.objectContaining({
         headers: expect.objectContaining({
