@@ -33,6 +33,10 @@ interface SetupSource {
   description: string;
   tier?: ConnectorTier;
   oauthKey?: string;  // If set, uses browser OAuth flow via /oauth/cli-start/:key
+  // When set, the connector uses OAuth (oauthKey) only if the named field is left
+  // blank (the SaaS default host); a non-blank value (a self-managed host) falls
+  // back to the token-paste path. GitLab: gitlab.com → OAuth, self-managed → PAT.
+  hostGatedOAuth?: { field: string };
   tokenLabel?: string;
   tokenHint?: string;
   tokenUrl?: string | ((tokens: Record<string, string>) => string);  // If set, auto-opens this URL in the browser before prompting for the token
@@ -132,6 +136,11 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'GitLab',
       description: 'Your merge requests',
       tier: 'personal',
+      // gitlab.com → read-only browser OAuth (scope read_api, ALI-102). A
+      // self-managed host (custom domain) can't use the fixed gitlab.com OAuth
+      // app, so it falls back to the read-only PAT path below.
+      oauthKey: 'gitlab-personal',
+      hostGatedOAuth: { field: 'domain' },
       tokenLabel: 'Personal access token',
       // Read-only tier: steer users to the read-only scope. `api` would grant
       // write; `read_api` is read-only and all Align's import needs. See ALI-98.
@@ -185,8 +194,13 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
 // Token collection helper
 // ---------------------------------------------------------------------------
 
-async function collectTokens(source: SetupSource): Promise<Record<string, string> | null> {
-  const tokens: Record<string, string> = {};
+async function collectTokens(
+  source: SetupSource,
+  seed: Record<string, string> = {},
+): Promise<Record<string, string> | null> {
+  // `seed` pre-populates already-known fields (e.g. a self-managed host gathered
+  // up front) so tokenUrl() resolves against the right host.
+  const tokens: Record<string, string> = { ...seed };
 
   // Extra fields first (email, domain for Jira/Confluence)
   for (const field of source.extraFields ?? []) {
@@ -555,7 +569,29 @@ async function runCloudSetup(ctx: {
     p.log.step(chalk.bold(source.label));
 
     let tokens: Record<string, string> = {};
-    if (source.oauthKey) {
+    if (source.oauthKey && source.hostGatedOAuth) {
+      // Host-gated: blank host field → OAuth (SaaS default); a self-managed host
+      // → token-paste fallback (the fixed OAuth app can't serve arbitrary hosts).
+      const gate = source.hostGatedOAuth.field;
+      const gateLabel = source.extraFields?.find((f) => f.key === gate)?.label ?? gate;
+      const host = await p.text({ message: `  ${gateLabel}:` });
+      if (p.isCancel(host)) { p.cancel('Cancelled.'); process.exit(0); }
+      if ((host as string).trim()) {
+        // self-managed → PAT. Seed the host so tokenUrl() targets it, and drop the
+        // gate field from extraFields so we don't re-ask it.
+        const patSource = { ...source, extraFields: source.extraFields?.filter((f) => f.key !== gate) };
+        const collected = await collectTokens(patSource, { [gate]: (host as string).trim() });
+        if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
+        tokens = collected;
+      } else {
+        const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false);
+        if (!collected) {
+          p.log.warn(`Skipping ${source.label} - no token obtained.`);
+          continue;
+        }
+        tokens = collected;
+      }
+    } else if (source.oauthKey) {
       const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false);
       if (!collected) {
         p.log.warn(`Skipping ${source.label} - no token obtained.`);
