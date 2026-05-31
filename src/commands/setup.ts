@@ -235,9 +235,10 @@ async function collectTokens(
 
   // Extra fields first (email, domain for Jira/Confluence)
   for (const field of source.extraFields ?? []) {
-    const val = await p.text({ message: `  ${field.label}:` });
+    // defaultValue '' so a blank submit renders empty, not the literal "undefined".
+    const val = await p.text({ message: `  ${field.label}:`, defaultValue: '' });
     if (p.isCancel(val)) return null;
-    tokens[field.key] = val as string;
+    tokens[field.key] = (val ?? '') as string;
   }
 
   // Main token
@@ -268,20 +269,39 @@ async function collectTokensViaOAuth(
   config: ReturnType<typeof createConfigStore>,
   envName: EnvName,
   reset = false,
+  connectedThisRun?: Set<string>,
 ): Promise<Record<string, string> | null> {
   const key = source.oauthKey!;
 
-  if (!reset) {
+  const readCachedTokens = (): Record<string, string> | null => {
     const cached = config.getConnectorToken(envName, key);
+    if (!cached) return null;
+    const cachedCloudId = config.getConnectorCloudId(envName, key);
+    const cachedSiteBase = config.getConnectorSiteBase(envName, key);
+    return {
+      token: cached,
+      ...(cachedCloudId ? { cloudId: cachedCloudId } : {}),
+      ...(cachedSiteBase ? { siteBase: cachedSiteBase } : {}),
+    };
+  };
+
+  // Connected earlier in THIS run (the Atlassian sibling: Jira and Confluence
+  // share one OAuth app + token, so one consent connects both). Reuse it even
+  // under --reset, which is meant to ignore STALE tokens from prior runs, not
+  // ones just obtained moments ago this run.
+  if (connectedThisRun?.has(key)) {
+    const reused = readCachedTokens();
+    if (reused) {
+      p.log.info(chalk.dim(`  ${source.label}: already connected via a shared sign-in this run`));
+      return reused;
+    }
+  }
+
+  if (!reset) {
+    const cached = readCachedTokens();
     if (cached) {
       p.log.info(chalk.dim(`  ${source.label}: using cached OAuth token (run align setup --reset to re-auth)`));
-      const cachedCloudId = config.getConnectorCloudId(envName, key);
-      const cachedSiteBase = config.getConnectorSiteBase(envName, key);
-      return {
-        token: cached,
-        ...(cachedCloudId ? { cloudId: cachedCloudId } : {}),
-        ...(cachedSiteBase ? { siteBase: cachedSiteBase } : {}),
-      };
+      return cached;
     }
   }
 
@@ -323,14 +343,17 @@ async function collectTokensViaOAuth(
 
   // accessToken being truthy guarantees credentials is defined
   persistConnectorCreds(config, envName, key, credentials as Record<string, unknown>);
+  connectedThisRun?.add(key);
 
   // Atlassian: Jira and Confluence share one OAuth app, so a single consent
-  // returns the sibling's credentials too. Persist them so the sibling
-  // connector's own iteration finds a cached token and skips a second browser flow.
+  // returns the sibling's credentials too. Persist them AND mark the sibling
+  // connected this run so its own iteration reuses the token and skips a second
+  // browser flow (even under --reset).
   const siblingConnector = result.data['siblingConnector'] as string | undefined;
   const siblingCreds = result.data['siblingCredentials'] as Record<string, unknown> | undefined;
   if (siblingConnector && siblingCreds?.['access_token']) {
     persistConnectorCreds(config, envName, siblingConnector, siblingCreds);
+    connectedThisRun?.add(siblingConnector);
     p.log.info(chalk.dim(`  Also connected ${siblingConnector} (shared Atlassian app - no second sign-in needed)`));
   }
 
@@ -633,6 +656,10 @@ async function runCloudSetup(ctx: {
   // time, so we gather every connector's creds first instead of interleaving
   // a slow fetch+import between each sign-in.
   const readyConnectors: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
+  // OAuth keys connected during this run, so an Atlassian sibling (Jira <->
+  // Confluence, one shared app + token) reuses the token instead of opening a
+  // second browser - even under --reset.
+  const connectedThisRun = new Set<string>();
   for (const source of selectedSources) {
     console.log('');
     p.log.step(chalk.bold(source.label));
@@ -643,7 +670,7 @@ async function runCloudSetup(ctx: {
       // → token-paste fallback (the fixed OAuth app can't serve arbitrary hosts).
       const gate = source.hostGatedOAuth.field;
       const gateLabel = source.extraFields?.find((f) => f.key === gate)?.label ?? gate;
-      const host = await p.text({ message: `  ${gateLabel}:` });
+      const host = await p.text({ message: `  ${gateLabel}:`, placeholder: 'gitlab.com', defaultValue: '' });
       if (p.isCancel(host)) { p.cancel('Cancelled.'); process.exit(0); }
       // p.text returns undefined on a blank submit (not ''), so coerce before trim.
       const hostValue = (typeof host === 'string' ? host : '').trim();
@@ -655,7 +682,7 @@ async function runCloudSetup(ctx: {
         if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
         tokens = collected;
       } else {
-        const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false);
+        const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false, connectedThisRun);
         if (!collected) {
           p.log.warn(`Skipping ${source.label} - no token obtained.`);
           continue;
@@ -663,7 +690,7 @@ async function runCloudSetup(ctx: {
         tokens = collected;
       }
     } else if (source.oauthKey) {
-      const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false);
+      const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false, connectedThisRun);
       if (!collected) {
         p.log.warn(`Skipping ${source.label} - no token obtained.`);
         continue;

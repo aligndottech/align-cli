@@ -483,6 +483,26 @@ describe('align setup', () => {
       // Only ONE browser OAuth flow despite two Atlassian connectors selected
       expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
     });
+
+    it('still reuses the Atlassian sibling under --reset (one consent, no second sign-in)', async () => {
+      // --reset must ignore STALE prior-run tokens but NOT force a second
+      // Atlassian sign-in for a sibling connected moments ago this run (ALI-106).
+      mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']);
+      mockWaitForCallback.mockResolvedValueOnce({
+        data: {
+          connector: 'jira-personal',
+          credentials: { access_token: 'atl_token', site_id: 'cloud-1', base: 'https://x.atlassian.net' },
+          siblingConnector: 'confluence-personal',
+          siblingCredentials: { access_token: 'atl_token', site_id: 'cloud-1', base: 'https://x.atlassian.net' },
+        },
+        port: 7654,
+      });
+      mockGetConnectorToken.mockImplementation((_env: string, key: string) =>
+        key === 'confluence-personal' ? 'atl_token' : null,
+      );
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+      expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('connector import ordering', () => {
