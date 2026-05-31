@@ -25,6 +25,10 @@ vi.mock('../lib/config.js', () => ({
 
 vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('prod') }));
 
+// Default null = no AI provider available -> list fallback (keeps the list-rendering tests valid).
+const mockSynthesise = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock('../lib/local-llm.js', () => ({ synthesiseLocally: mockSynthesise }));
+
 const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { output.push(args.join(' ')); });
 
@@ -45,6 +49,28 @@ describe('align ask', () => {
     await program.parseAsync(['node', 'align', 'ask','why do we use postgres']);
     const client = (createGatewayClient as ReturnType<typeof vi.fn>).mock.results[0].value as { searchDecisions: ReturnType<typeof vi.fn> };
     expect(client.searchDecisions).toHaveBeenCalledWith('why do we use postgres', 8);
+  });
+
+  it('prints a conversational synthesised answer when an AI provider is available', async () => {
+    mockSynthesise.mockResolvedValueOnce('Postgres was chosen for its JSONB and pgvector support.');
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
+    expect(output.some(l => l.includes('Postgres was chosen for its JSONB and pgvector support.'))).toBe(true);
+    // still cites sources for traceability
+    expect(output.some(l => l.toLowerCase().includes('source'))).toBe(true);
+    expect(output.some(l => l.includes('adr-003'))).toBe(true);
+  });
+
+  it('falls back to the decision list + a hint when no AI provider is configured', async () => {
+    mockSynthesise.mockResolvedValueOnce(null);
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
+    // the list still renders
+    expect(output.some(l => l.includes('Chose Postgres'))).toBe(true);
+    // and a one-line hint about enabling synthesis
+    expect(output.some(l => /ANTHROPIC_API_KEY|align config ai|conversational/i.test(l))).toBe(true);
   });
 
   it('prints decision titles', async () => {
