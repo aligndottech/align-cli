@@ -18,15 +18,15 @@ Node 20+ required.
 align setup
 ```
 
-Guided onboarding: login check, source selection, token collection, imports, AI provider setup, cross-tool relationship detection, and MCP configuration - all in one command.
+Guided onboarding: login check, source selection, read-only OAuth connection, imports, AI provider setup, cross-tool relationship detection, and MCP configuration - all in one command.
 
 Or step by step:
 
 ```bash
 align login                              # authenticate
+align setup                              # connect tools (read-only OAuth) + configure MCP
 align import git                         # pull commit history - no token needed
 align ask "how does our auth work"       # natural language answer from your graph
-align import linear --token lin_api_...  # add more sources for richer context
 ```
 
 ## Asking questions
@@ -75,9 +75,22 @@ align logout                 # clear stored credentials
 
 Tokens are stored locally in your OS config directory. To create one manually, go to **Settings > API Tokens** in the Align web app.
 
+## Cloud vs local mode
+
+`align setup` offers two modes:
+
+- **Personal cloud** (default) — your decision graph is hosted at Align: synced across machines, backed up, and upgradeable to a shared team workspace. Connectors connect via **read-only browser OAuth** (no tokens to paste), and `align ask` synthesis runs server-side. Nothing you connect can be modified by the CLI - it only reads.
+- **Local-only** (`align setup --local`) — fully **private and offline**: no account, no cloud, nothing leaves your machine. The graph, embeddings, and search all live in a local database. Seeds from your git history out of the box; other sources connect by pasting a **read-only personal token** (OAuth needs the hosted callback, so it isn't available offline). Run `align local status` to inspect it, `align local reset` to wipe it.
+
+Pick cloud for sync + team upgrade, local for maximum privacy. You can always start local and move to cloud later.
+
 ## Importing decisions
 
 Pull your existing work into the decision graph. The more sources you add, the richer the cross-tool relationship detection.
+
+**Easiest way: `align setup`.** It connects each source via a **read-only browser OAuth** consent - no tokens to create or paste. The CLI only ever *reads*; it can't modify your tools (write access lives only in the team/org bot apps). GitHub, Jira, Confluence, Slack, Microsoft Teams, Zoom, Linear, and GitLab (gitlab.com) all use OAuth. Notion and self-managed GitLab use a read-only token you paste.
+
+The `align import <source> --token ...` forms below are the manual / CI alternative (and how to connect self-managed hosts).
 
 ### Git
 
@@ -95,9 +108,11 @@ align import git
 
 ### GitHub / GitLab
 
+Prefer `align setup` - GitHub and gitlab.com connect via read-only OAuth (no token to create). Manual / self-managed alternative:
+
 ```bash
-align import github --token ghp_...
-align import gitlab --token glpat-...
+align import github --token ghp_...     # or connect via `align setup` (read-only OAuth)
+align import gitlab --token glpat-...    # self-managed GitLab: create a read_api (read-only) token
 ```
 
 ### Jira
@@ -110,6 +125,8 @@ align import jira \
 ```
 
 ### Linear
+
+Prefer `align setup` - Linear connects via read-only OAuth (scope `read`). Manual alternative:
 
 ```bash
 align import linear --token lin_api_...
@@ -126,7 +143,9 @@ align import confluence \
 
 ### Slack (experimental)
 
-> **Note:** `align import slack` requires a Slack **user** token (`xoxp-...`), not a bot token.
+Prefer `align setup` - Slack connects via read-only OAuth (read scopes only, no `chat:write`). Note: the Slack app must have public distribution enabled, or you authorize from its home workspace.
+
+> **Manual alternative:** `align import slack` requires a Slack **user** token (`xoxp-...`), not a bot token.
 >
 > To get one: go to [api.slack.com/apps](https://api.slack.com/apps), create an app, add these User Token Scopes under OAuth & Permissions: `channels:read`, `channels:history`, `groups:read`, `groups:history`. Install to your workspace and copy the OAuth User Token.
 
@@ -140,6 +159,8 @@ align import slack --token xoxp-<your-slack-user-token>
 | `--days-back` | `90` | How many days back to scan |
 
 ### Notion
+
+Create an internal integration with **only "Read content"** capability (no insert/update), then paste its secret:
 
 ```bash
 align import notion --token <your-notion-integration-token>
