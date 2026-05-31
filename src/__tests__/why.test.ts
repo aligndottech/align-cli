@@ -34,13 +34,17 @@ describe('align ask', () => {
   beforeEach(() => { output.length = 0; });
   afterEach(() => vi.clearAllMocks());
 
-  it('calls searchDecisions with normalised query', async () => {
+  it('passes the raw question through so the gateway can route it to semantic search', async () => {
+    // The gateway's smart-search strategy selector routes natural-language
+    // questions to semantic search. Stripping the question word (the old
+    // normalisation) turned a question into a long keyword phrase that matched
+    // nothing literally, so ask must pass the query through unchanged. See ALI-105.
     const { createGatewayClient } = await import('../lib/gateway-client.js');
     const program = new Command();
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask','why do we use postgres']);
     const client = (createGatewayClient as ReturnType<typeof vi.fn>).mock.results[0].value as { searchDecisions: ReturnType<typeof vi.fn> };
-    expect(client.searchDecisions).toHaveBeenCalledWith('use postgres', 8);
+    expect(client.searchDecisions).toHaveBeenCalledWith('why do we use postgres', 8);
   });
 
   it('prints decision titles', async () => {
@@ -75,13 +79,13 @@ describe('align ask', () => {
     expect(output.some(l => l.toLowerCase().includes('no decisions found'))).toBe(true);
   });
 
-  it('strips "do we" prefix so query is normalised', async () => {
+  it('does not strip question prefixes (no normalisation - gateway picks the strategy)', async () => {
     const { createGatewayClient } = await import('../lib/gateway-client.js');
     const program = new Command();
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask','do we use postgres']);
     const client = (createGatewayClient as ReturnType<typeof vi.fn>).mock.results[0].value as { searchDecisions: ReturnType<typeof vi.fn> };
-    expect(client.searchDecisions).toHaveBeenCalledWith('use postgres', 8);
+    expect(client.searchDecisions).toHaveBeenCalledWith('do we use postgres', 8);
   });
 });
 

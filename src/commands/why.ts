@@ -5,7 +5,6 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { normaliseWhyQuery } from '../lib/why-normalise.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -36,8 +35,12 @@ export function registerAskCommand(program: Command): void {
       const config = createConfigStore();
       const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env)));
 
+      // Pass the query through unchanged: the gateway's smart-search strategy
+      // selector routes natural-language questions to semantic search. Stripping
+      // the question word turned questions into keyword phrases that matched
+      // nothing (ALI-105). File paths were already passed through verbatim.
       const filePath = isFilePath(query);
-      const searchQuery = filePath ? query : normaliseWhyQuery(query);
+      const searchQuery = query;
       const spinner = ora('').start();
 
       try {
