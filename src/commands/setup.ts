@@ -66,6 +66,10 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Your PRs and issues',
       tier: 'personal',
       oauthKey: 'github-personal',
+      // Token-paste metadata is used only by local mode (cloud uses oauthKey/OAuth).
+      tokenLabel: 'Personal access token',
+      tokenHint: 'Use a fine-grained token, read-only: Contents, Issues, Pull requests = Read',
+      tokenUrl: 'https://github.com/settings/personal-access-tokens/new',
       fetch: async (t) => {
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
         return fetchGitHubItems({ token: t['token']!, limit: 100 });
@@ -79,6 +83,13 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       // Personal/CLI tier is read-only (no write:jira-work). The team/org
       // comment bot keeps write via the `jira` key. See ALI-94.
       oauthKey: 'jira-personal',
+      // Local-mode token paste (read-only Atlassian API token + email + site).
+      tokenLabel: 'API token',
+      tokenUrl: 'https://id.atlassian.com/manage-profile/security/api-tokens',
+      extraFields: [
+        { key: 'email', label: 'Atlassian account email' },
+        { key: 'domain', label: 'Atlassian domain (yourorg.atlassian.net)' },
+      ],
       fetch: async (t) => {
         const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
         return fetchJiraItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: 100 });
@@ -91,6 +102,13 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       tier: 'site',
       // Read-only personal/CLI tier. See ALI-94.
       oauthKey: 'confluence-personal',
+      // Local-mode token paste (read-only Atlassian API token + email + site).
+      tokenLabel: 'API token',
+      tokenUrl: 'https://id.atlassian.com/manage-profile/security/api-tokens',
+      extraFields: [
+        { key: 'email', label: 'Atlassian account email' },
+        { key: 'domain', label: 'Atlassian domain (yourorg.atlassian.net)' },
+      ],
       fetch: async (t) => {
         const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
         return fetchConfluenceItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: 50 });
@@ -104,6 +122,10 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       // Read-only personal/CLI tier (no chat:write). The team/org bot keeps
       // chat:write via the `slack` key. See ALI-94.
       oauthKey: 'slack-personal',
+      // Local-mode token paste: a Slack user token (xoxp-) with read scopes only.
+      tokenLabel: 'User token (xoxp-...)',
+      tokenHint: 'User token with read scopes only: channels:read, channels:history, groups:read, groups:history',
+      tokenUrl: 'https://api.slack.com/apps',
       fetch: async (t) => {
         const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
         return fetchSlackItems({ token: t['token']!, limit: 50, daysBack: 90 });
@@ -165,6 +187,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       // Read-only personal/CLI tier via browser OAuth (scope `read`), replacing the
       // full-access API-key paste. Requires the Linear OAuth app + sealed creds. See ALI-101.
       oauthKey: 'linear-personal',
+      // Local-mode token paste: a Linear personal API key (read-only graph).
+      tokenLabel: 'Personal API key (lin_api_...)',
+      tokenUrl: 'https://linear.app/settings/api',
       fetch: async (t) => {
         const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
         return fetchLinearItems({ token: t['token']!, limit: 100 });
@@ -362,6 +387,44 @@ async function runLocalSetup(): Promise<void> {
       }
     } catch {
       gitSpinner.stop('Git import skipped');
+    }
+  }
+
+  // Connectors: OAuth can't run offline (needs the hosted callback), so local mode
+  // connects via manual read-only token paste. Only sources with a tokenLabel are
+  // pasteable (Teams/Zoom have no personal token → excluded). See ALI-103.
+  const localConnectors = buildSources(false)
+    .filter((s) => s.id !== 'git' && s.tokenLabel)
+    .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
+  console.log('');
+  const selected = await p.multiselect({
+    message: 'Connect more sources with a read-only token? (skip to finish)',
+    options: localConnectors.map((s) => ({ value: s.id, label: s.label, hint: s.description })),
+    required: false,
+  });
+  if (!p.isCancel(selected)) {
+    for (const id of selected as string[]) {
+      const source = localConnectors.find((s) => s.id === id);
+      if (!source) continue;
+      console.log('');
+      p.log.step(chalk.bold(source.label));
+      const tokens = await collectTokens(source);
+      if (!tokens) continue;
+      const spinner = p.spinner();
+      spinner.start(`Fetching from ${source.label}...`);
+      try {
+        const items = await source.fetch(tokens);
+        spinner.stop(`Found ${items.length} items`);
+        if (items.length) {
+          await runPersonalImport(items, localClient, {
+            label: source.label,
+            approve: true,
+            appUrl: resolveAppUrl(localEnv),
+          });
+        }
+      } catch (e) {
+        spinner.stop(`Skipped ${source.label} - ${(e as Error).message}`);
+      }
     }
   }
 

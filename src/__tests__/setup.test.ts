@@ -317,18 +317,40 @@ describe('align setup', () => {
   });
 
   describe('cloud (default) / local (--local) mode', () => {
-    it('--local sets up local mode without cloud auth or connector prompts, and imports git', async () => {
+    it('--local sets up local mode without cloud auth, and imports git', async () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
       expect(mockInitLocalMode).toHaveBeenCalled();
-      // Local escape hatch never calls whoami (no cloud login required)
+      // Local escape hatch never calls whoami (no cloud login required) and never OAuths
       expect(mockWhoami).not.toHaveBeenCalled();
-      // No cloud connector multiselect
-      const connectorCall = mockMultiselect.mock.calls.find(
-        (c: any[]) => c[0]?.message?.includes('Connect more sources'),
-      );
-      expect(connectorCall).toBeUndefined();
+      expect(mockWaitForCallback).not.toHaveBeenCalled();
       // Git history still imported (into the local graph)
       expect(mockIngestBatch).toHaveBeenCalled();
+    });
+
+    it('--local offers read-only token-paste connectors and imports a selected one into the local graph (ALI-103)', async () => {
+      mockMultiselect.mockResolvedValueOnce(['linear']); // local connector step
+      const { password } = await import('@clack/prompts');
+      const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+      mockIngestBatch.mockClear();
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      // pasted a token (no OAuth) and fetched + imported into the local graph
+      expect(password).toHaveBeenCalled();
+      expect(fetchLinearItems).toHaveBeenCalled();
+      expect(mockIngestBatch).toHaveBeenCalled();
+      expect(mockWaitForCallback).not.toHaveBeenCalled();
+      expect(mockWhoami).not.toHaveBeenCalled();
+    });
+
+    it('--local does NOT offer Teams or Zoom (no personal token)', async () => {
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const connectorCall = mockMultiselect.mock.calls.find(
+        (c: any[]) => c[0]?.message?.toLowerCase().includes('read-only token'),
+      );
+      expect(connectorCall).toBeDefined();
+      const values = (connectorCall![0].options as Array<{ value: string }>).map((o) => o.value);
+      expect(values).not.toContain('teams');
+      expect(values).not.toContain('zoom');
+      expect(values).toEqual(expect.arrayContaining(['github', 'jira', 'linear', 'gitlab', 'notion']));
     });
 
     it('defaults the interactive intent prompt to the cloud personal path (not local)', async () => {
