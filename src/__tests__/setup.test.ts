@@ -529,27 +529,30 @@ describe('align setup', () => {
       expect(open).toHaveBeenCalledWith('https://www.notion.so/my-integrations');
     });
 
-    it('opens gitlab.com token URL when no custom domain entered', async () => {
+    it('uses browser OAuth for gitlab.com (blank domain), not a PAT paste', async () => {
+      // gitlab.com (blank domain) → host-gated OAuth (ALI-102), not the token page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['gitlab']);
-      // text() for domain field returns empty string, password() for the token
       const { text } = await import('@clack/prompts');
-      (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('');
+      (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce(''); // blank domain
       await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-      expect(open).toHaveBeenCalledWith(
-        expect.stringContaining('gitlab.com/-/user_settings/personal_access_tokens'),
+      expect(mockWaitForCallback).toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalledWith(
+        expect.stringContaining('/-/user_settings/personal_access_tokens'),
       );
     });
 
-    it('opens self-managed GitLab token URL when custom domain is entered', async () => {
+    it('falls back to a PAT paste for a self-managed GitLab host', async () => {
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['gitlab']);
       const { text } = await import('@clack/prompts');
       (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('gitlab.mycompany.com');
       await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      // self-managed → token page on that host, no OAuth callback
       expect(open).toHaveBeenCalledWith(
         'https://gitlab.mycompany.com/-/user_settings/personal_access_tokens',
       );
+      expect(mockWaitForCallback).not.toHaveBeenCalled();
     });
   });
 
