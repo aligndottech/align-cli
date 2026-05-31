@@ -549,11 +549,15 @@ describe('align setup', () => {
       expect(open).not.toHaveBeenCalledWith('https://linear.app/settings/api');
     });
 
-    it('opens the Notion integrations URL in the browser before prompting for the token', async () => {
+    it('uses browser OAuth for Notion (read-only), not an integration-secret paste', async () => {
+      // Notion moved from internal-integration-secret paste to
+      // oauthKey:'notion-personal' (ALI-104): cloud setup should start the CLI
+      // OAuth flow, not open the my-integrations page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['notion']);
       await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-      expect(open).toHaveBeenCalledWith('https://www.notion.so/my-integrations');
+      expect(mockWaitForCallback).toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalledWith('https://www.notion.so/my-integrations');
     });
 
     it('uses browser OAuth for gitlab.com (blank domain), not a PAT paste', async () => {

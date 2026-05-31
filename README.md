@@ -88,7 +88,7 @@ Pick cloud for sync + team upgrade, local for maximum privacy. You can always st
 
 Pull your existing work into the decision graph. The more sources you add, the richer the cross-tool relationship detection.
 
-**Easiest way: `align setup`.** It connects each source via a **read-only browser OAuth** consent - no tokens to create or paste. The CLI only ever *reads*; it can't modify your tools (write access lives only in the team/org bot apps). GitHub, Jira, Confluence, Slack, Microsoft Teams, Zoom, Linear, and GitLab (gitlab.com) all use OAuth. Notion and self-managed GitLab use a read-only token you paste.
+**Easiest way: `align setup`.** It connects each source via a **read-only browser OAuth** consent - no tokens to create or paste. The CLI only ever *reads*; it can't modify your tools (write access lives only in the team/org bot apps). GitHub, Jira, Confluence, Slack, Microsoft Teams, Zoom, Linear, GitLab (gitlab.com), and Notion all use OAuth. Self-managed GitLab (a custom domain) uses a read-only token you paste.
 
 The `align import <source> --token ...` forms below are the manual / CI alternative (and how to connect self-managed hosts).
 
