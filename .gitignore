@@ -4,3 +4,9 @@ dist/
 *.d.ts.map
 .env
 .env.local
+
+# Build artifacts from `npm pack` (local install/testing)
+*.tgz
+
+# This repo uses npm (package-lock.json); never commit a pnpm lockfile
+pnpm-lock.yaml
