@@ -40,7 +40,7 @@ align ask "what was decided about caching"
 align ask "do we use redis"
 ```
 
-Question prefixes are normalised automatically - `align ask "why do we use postgres"` and `align ask "use postgres"` search the same way.
+Ask in plain English - the graph picks keyword or semantic search automatically based on your phrasing, so full questions ("why do we use postgres") work as well as short terms ("postgres").
 
 ### AI provider for align ask
 

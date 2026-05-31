@@ -10,7 +10,6 @@ import chalk from 'chalk';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
-import { normaliseWhyQuery } from '../lib/why-normalise.js';
 
 // Heavy internal fields that bloat the model's context without helping it reason.
 // MCP responses go straight into the agent's context window, so we omit these and
@@ -157,8 +156,10 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
             result = await client.searchDecisions(args?.['query'] as string, args?.['limit'] as number | undefined);
             break;
           case 'align_ask':
+            // Pass the question through unchanged so the gateway's smart-search
+            // strategy selector can route it to semantic search. See ALI-105.
             result = await client.searchDecisions(
-              normaliseWhyQuery(args?.['question'] as string),
+              args?.['question'] as string,
               (args?.['limit'] as number | undefined) ?? 8,
             );
             break;
