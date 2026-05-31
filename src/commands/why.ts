@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
+import { synthesiseLocally } from '../lib/local-llm.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -61,6 +62,33 @@ export function registerAskCommand(program: Command): void {
           return;
         }
 
+        // Conversational synthesis for natural-language questions (not file paths).
+        // Uses the user's own AI provider (configured key / env var / local Ollama)
+        // via synthesiseLocally; returns null when none is available, in which case
+        // we fall through to the ranked decision list below.
+        if (!filePath) {
+          const answer = await synthesiseLocally(
+            query,
+            results.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
+          );
+          if (answer) {
+            console.log('');
+            for (const line of wrapText(answer, '  ', 76)) console.log(line);
+            console.log('');
+            console.log(chalk.dim('  Sources:'));
+            for (const d of results.results.slice(0, 5)) {
+              const statusLabel = d.status && d.status !== 'active' ? chalk.yellow(` [${d.status}]`) : '';
+              console.log(chalk.dim(`    - ${d.title} (${d.id})`) + statusLabel);
+            }
+            console.log('');
+            if (results.count >= 5) {
+              console.log(chalk.dim('  Share this graph with your team: https://align.tech/pricing'));
+              console.log('');
+            }
+            return;
+          }
+        }
+
         if (filePath) {
           console.log(chalk.bold(`\n  Decisions related to ${query}\n`));
         } else {
@@ -85,6 +113,13 @@ export function registerAskCommand(program: Command): void {
             ? chalk.yellow(` [${d.status}]`)
             : '';
           console.log(chalk.dim(`  id: ${d.id}`) + statusLabel);
+          console.log('');
+        }
+
+        // We only reach the list for a non-file query when synthesis was
+        // unavailable - nudge the user toward a conversational answer.
+        if (!filePath) {
+          console.log(chalk.dim('  Set ANTHROPIC_API_KEY (or OPENAI_API_KEY) for a conversational answer.'));
           console.log('');
         }
 
