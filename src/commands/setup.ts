@@ -153,13 +153,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'Linear',
       description: 'Your issues and project discussions',
       tier: 'personal',
-      // TODO(ALI-94): switch to `oauthKey: 'linear'` (read-only) once the Linear
-      // OAuth app + LINEAR_CLIENT_ID/SECRET are configured per env. The gateway
-      // already supports the `linear` OAuth case; until the app exists, keep the
-      // API-key paste so this option keeps working.
-      tokenLabel: 'Personal API key (lin_api_...)',
-      tokenHint: 'Copy a Personal API key from the page that opens',
-      tokenUrl: 'https://linear.app/settings/api',
+      // Read-only personal/CLI tier via browser OAuth (scope `read`), replacing the
+      // full-access API-key paste. Requires the Linear OAuth app + sealed creds. See ALI-101.
+      oauthKey: 'linear',
       fetch: async (t) => {
         const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
         return fetchLinearItems({ token: t['token']!, limit: 100 });
