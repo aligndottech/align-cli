@@ -515,11 +515,16 @@ describe('align setup', () => {
   });
 
   describe('token-paste connectors auto-open browser', () => {
-    it('opens the Linear token URL in the browser before prompting for the token', async () => {
+    it('uses browser OAuth for Linear (read-only), not an API-key paste', async () => {
+      // Linear moved from API-key paste to oauthKey:'linear-personal' (ALI-101): it should
+      // start the CLI OAuth flow, not open the settings/API token page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['linear']);
       await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-      expect(open).toHaveBeenCalledWith('https://linear.app/settings/api');
+      // OAuth path runs the browser callback flow; paste path would instead open
+      // the settings/API token page.
+      expect(mockWaitForCallback).toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalledWith('https://linear.app/settings/api');
     });
 
     it('opens the Notion integrations URL in the browser before prompting for the token', async () => {
