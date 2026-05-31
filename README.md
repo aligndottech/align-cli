@@ -75,6 +75,15 @@ align logout                 # clear stored credentials
 
 Tokens are stored locally in your OS config directory. To create one manually, go to **Settings > API Tokens** in the Align web app.
 
+## Cloud vs local mode
+
+`align setup` offers two modes:
+
+- **Personal cloud** (default) — your decision graph is hosted at Align: synced across machines, backed up, and upgradeable to a shared team workspace. Connectors connect via **read-only browser OAuth** (no tokens to paste), and `align ask` synthesis runs server-side. Nothing you connect can be modified by the CLI - it only reads.
+- **Local-only** (`align setup --local`) — fully **private and offline**: no account, no cloud, nothing leaves your machine. The graph, embeddings, and search all live in a local database. Seeds from your git history out of the box; other sources connect by pasting a **read-only personal token** (OAuth needs the hosted callback, so it isn't available offline). Run `align local status` to inspect it, `align local reset` to wipe it.
+
+Pick cloud for sync + team upgrade, local for maximum privacy. You can always start local and move to cloud later.
+
 ## Importing decisions
 
 Pull your existing work into the decision graph. The more sources you add, the richer the cross-tool relationship detection.
