@@ -200,6 +200,12 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       label: 'Notion',
       description: 'Your pages and databases',
       tier: 'personal',
+      // Read-only personal/CLI tier via browser OAuth (public integration),
+      // replacing the internal-integration-secret paste in cloud. Read-only is
+      // governed by the integration's capabilities (Read content), not scopes.
+      // Requires the Notion OAuth app + sealed creds. See ALI-104.
+      oauthKey: 'notion-personal',
+      // Local-mode token paste: a read-only internal integration secret.
       tokenLabel: 'Integration secret (secret_...)',
       // Read-only tier: Align only reads. Notion integration capabilities are set
       // at creation - keep it to "Read content" (no insert/update). See ALI-98.
