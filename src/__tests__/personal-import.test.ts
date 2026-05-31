@@ -134,6 +134,32 @@ describe('runPersonalImport', () => {
     });
   });
 
+  describe('transient ingest retry (ALI-110)', () => {
+    it('retries a batch that fails with a transient 5xx, then counts it as imported', async () => {
+      const { GatewayError } = await import('../lib/gateway-client.js');
+      let calls = 0;
+      const ingestBatch = vi.fn().mockImplementation(async () => {
+        calls++;
+        if (calls === 1) throw new GatewayError('timeout exceeded when trying to connect', 500);
+        return { snapshots: [{ id: '1', title: 'T', summary: 'S' }] };
+      });
+      const client = makeClient({ ingestBatch });
+      const total = await runPersonalImport(makeItems(5), client, { label: 'Linear', approve: true, appUrl: 'http://app', quiet: true });
+      expect(ingestBatch).toHaveBeenCalledTimes(2); // 1 transient failure + 1 retry success
+      expect(total).toBeGreaterThan(0);
+      const output = consoleLog.mock.calls.map(c => String(c[0])).join('\n');
+      expect(output).not.toMatch(/failed/); // recovered - no failure reported
+    });
+
+    it('does not retry a non-transient 4xx error', async () => {
+      const { GatewayError } = await import('../lib/gateway-client.js');
+      const ingestBatch = vi.fn().mockRejectedValue(new GatewayError('bad request', 400));
+      const client = makeClient({ ingestBatch });
+      await runPersonalImport(makeItems(5), client, { label: 'Linear', approve: true, appUrl: 'http://app', quiet: true });
+      expect(ingestBatch).toHaveBeenCalledTimes(1); // no retry on 4xx
+    });
+  });
+
   beforeEach(() => {
     consoleLog.mockClear();
   });
