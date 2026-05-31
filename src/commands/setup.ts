@@ -576,11 +576,13 @@ async function runCloudSetup(ctx: {
       const gateLabel = source.extraFields?.find((f) => f.key === gate)?.label ?? gate;
       const host = await p.text({ message: `  ${gateLabel}:` });
       if (p.isCancel(host)) { p.cancel('Cancelled.'); process.exit(0); }
-      if ((host as string).trim()) {
+      // p.text returns undefined on a blank submit (not ''), so coerce before trim.
+      const hostValue = (typeof host === 'string' ? host : '').trim();
+      if (hostValue) {
         // self-managed → PAT. Seed the host so tokenUrl() targets it, and drop the
         // gate field from extraFields so we don't re-ask it.
         const patSource = { ...source, extraFields: source.extraFields?.filter((f) => f.key !== gate) };
-        const collected = await collectTokens(patSource, { [gate]: (host as string).trim() });
+        const collected = await collectTokens(patSource, { [gate]: hostValue });
         if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
         tokens = collected;
       } else {

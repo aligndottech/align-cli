@@ -539,7 +539,7 @@ describe('align setup', () => {
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['gitlab']);
       const { text } = await import('@clack/prompts');
-      (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce(''); // blank domain
+      (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined); // blank submit returns undefined
       await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
       expect(mockWaitForCallback).toHaveBeenCalled();
       expect(open).not.toHaveBeenCalledWith(
