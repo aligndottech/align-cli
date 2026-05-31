@@ -347,10 +347,13 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return request('/drift-summary');
     },
 
-    async ingestBatch(items: BatchIngestItem[]): Promise<BatchIngestResult> {
+    async ingestBatch(items: BatchIngestItem[], opts?: { deferEnrichment?: boolean }): Promise<BatchIngestResult> {
+      // defer_enrichment (ALI-114): the gateway inserts snapshots with raw titles
+      // and runs synthesis + relationship analysis in the background, returning
+      // immediately. Older gateways ignore the unknown field (Zod strips it).
       return request<BatchIngestResult>('/ingest/batch', {
         method: 'POST',
-        body: JSON.stringify({ decisions: items }),
+        body: JSON.stringify({ decisions: items, ...(opts?.deferEnrichment ? { defer_enrichment: true } : {}) }),
       });
     },
 

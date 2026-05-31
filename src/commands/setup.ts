@@ -785,6 +785,9 @@ async function runCloudSetup(ctx: {
           approve: true,
           appUrl: resolveAppUrl(env),
           quiet: true,
+          // Async ingest (ALI-114): return at DB-write speed; titles + links
+          // enrich in the background. Connection counts show as 0 here and fill in later.
+          deferEnrichment: true,
         });
         return { label: source.label, total };
       }),
