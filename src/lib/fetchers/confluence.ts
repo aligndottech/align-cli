@@ -5,7 +5,7 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-interface ConfluencePage {
+interface ConfluencePageV2 {
   title: string;
   body?: { storage?: { value?: string } };
   _links?: { webui?: string };
@@ -28,8 +28,11 @@ export async function fetchConfluenceItems(opts: {
     : { Authorization: `Basic ${Buffer.from(`${opts.email}:${opts.token}`).toString('base64')}`, Accept: 'application/json' };
 
   const limit = opts.limit ?? 50;
-  const cql = encodeURIComponent('creator = currentUser() AND type = page ORDER BY lastModified DESC');
-  const url = `${base}/rest/api/content/search?cql=${cql}&limit=${limit}&expand=body.storage,version`;
+  // Confluence API v2. The classic v1 (/rest/api/content/search) rejects tokens
+  // granted only the granular *:confluence OAuth scopes with 401 "scope does not
+  // match"; v2 works with them. v2 has no creator=currentUser() filter, so this
+  // imports the pages the token can read (fine for a read-only personal import).
+  const url = `${base}/api/v2/pages?limit=${limit}&body-format=storage`;
 
   const res = await fetch(url, { headers });
   if (!res.ok) {
@@ -45,14 +48,18 @@ export async function fetchConfluenceItems(opts: {
     }
     throw new Error(`Confluence API failed (${res.status}). ${isOAuth ? 'Check your OAuth token.' : 'Check your email, token, and domain.'}`);
   }
-  const data = await res.json() as { results: ConfluencePage[] };
+  const data = await res.json() as { results: ConfluencePageV2[]; _links?: { base?: string } };
 
-  return data.results.map(page => {
+  // v2 page _links.webui is relative; prefer the response's top-level base
+  // (e.g. https://company.atlassian.net/wiki), else derive a human site URL.
+  const humanBase = isOAuth ? (opts.siteBase ?? `https://api.atlassian.com/ex/confluence/${opts.cloudId}`) : `https://${opts.domain}`;
+  const linkBase = data._links?.base ?? `${humanBase}/wiki`;
+
+  return (data.results ?? []).map(page => {
     const bodyHtml = page.body?.storage?.value ?? '';
     const bodyText = stripHtml(bodyHtml).slice(0, 2000);
-    // For OAuth mode use the human site base URL (e.g. https://company.atlassian.net)
-    const humanBase = isOAuth ? (opts.siteBase ?? `https://api.atlassian.com/ex/confluence/${opts.cloudId}`) : `https://${opts.domain}`;
-    const pageUrl = `${humanBase}/wiki${page._links?.webui ?? ''}`;
+    const webui = page._links?.webui ?? '';
+    const pageUrl = webui.startsWith('http') ? webui : `${linkBase}${webui}`;
     return {
       source_url: pageUrl,
       platform: 'confluence',
