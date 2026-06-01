@@ -11,6 +11,16 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 
+// Server-level instructions (ALI-120): surfaced to the agent so it reaches for
+// Align proactively - without the user prompting - the moment this MCP server is
+// connected. Kept well under the ~2KB Claude Code truncates server instructions to.
+export const ALIGN_MCP_INSTRUCTIONS = `Align is this team's decision graph - the source of truth for what was decided, why, and who decided it. Use these tools proactively, without being asked:
+
+- BEFORE writing or changing non-trivial code, call align_check_alignment with the proposed change. A "conflict" result means a past decision opposes the change - STOP and confirm with the user before proceeding.
+- When the user asks "why", "how does X work", or "what was decided about Y" - or you're unsure of a convention - call align_ask (or align_search) first. The answer, its status (active/conflicted), and the person who decided it are in the graph.
+- Use align_get_conflicts and align_get_related_decisions to understand context and surface who to talk to.
+- Prefer the graph over guessing: it reflects decisions made across Slack, Jira, GitHub, Linear and more that may not be in the code or docs.`;
+
 // Heavy internal fields that bloat the model's context without helping it reason.
 // MCP responses go straight into the agent's context window, so we omit these and
 // serialize compactly (no pretty-print whitespace) - see "MCP context cost".
@@ -142,7 +152,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
 
       const server = new Server(
         { name: 'align', version },
-        { capabilities: { tools: {} } },
+        { capabilities: { tools: {} }, instructions: ALIGN_MCP_INSTRUCTIONS },
       );
 
       server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_SCHEMAS }));
