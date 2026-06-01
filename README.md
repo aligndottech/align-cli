@@ -1,5 +1,10 @@
 # Align CLI
 
+[![npm version](https://img.shields.io/npm/v/@aligndottech/cli.svg)](https://www.npmjs.com/package/@aligndottech/cli)
+[![CI](https://github.com/aligndottech/align-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/aligndottech/align-cli/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/npm/l/@aligndottech/cli.svg)](./LICENSE)
+[![Node](https://img.shields.io/node/v/@aligndottech/cli.svg)](https://nodejs.org)
+
 **AI agents are shipping code from decisions they can't see.**
 
 [Align](https://align.tech) captures the reasoning behind every engineering choice - across Git, GitHub, GitLab, Jira, Confluence, Linear, Slack, Microsoft Teams, Zoom, and Notion - links them into a cross-tool decision graph, and surfaces that context to every agent and engineer on your team.
@@ -28,6 +33,23 @@ align setup                              # connect tools (read-only OAuth) + con
 align import git                         # pull commit history - no token needed
 align ask "how does our auth work"       # natural language answer from your graph
 ```
+
+## How it works
+
+```
+  Your tools                      Align                       Your agents & you
+  ──────────                   ───────────                  ───────────────────
+  Git, GitHub, GitLab  ─┐                                  ┌─ align ask "why…"
+  Jira, Confluence      ├─▶  import  ─▶  decision graph ─┐ ├─ MCP server (inline)
+  Linear, Notion        │    (read-only) (what/why/who)  ├─┤  PostToolUse hook
+  Slack, Teams, Zoom   ─┘                  + relationships┘ └─ align check (CI)
+```
+
+1. **Import** pulls the decisions out of the tools you already use - read-only, nothing is modified.
+2. Align links them into a **cross-tool decision graph**: what was decided, why, who decided it, and how decisions relate (supersedes, conflicts with, depends on).
+3. Your agents and you **query and check against** that graph - over MCP, a Claude Code hook, CI, or plain `align ask`.
+
+The CLI and MCP server are open source (this repo). The hosted graph + relationship detection is a separate commercial gateway; you can also run fully local with `--local`.
 
 ## Auto-alignment for AI agents
 
