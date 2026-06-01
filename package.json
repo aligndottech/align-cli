@@ -3,6 +3,7 @@
   "version": "0.1.4",
   "type": "module",
   "description": "Align CLI - capture decisions, check alignment, and manage connectors",
+  "license": "MIT",
   "bin": {
     "align": "./dist/index.js"
   },
