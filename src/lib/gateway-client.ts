@@ -28,7 +28,7 @@ export interface CapturedDecision {
 }
 
 export interface SearchResults {
-  results: Array<{ id: string; title: string; summary: string; status: string; similarity?: number; author?: DecisionAuthor | null }>;
+  results: Array<{ id: string; title: string; summary: string; status: string; similarity?: number; author?: DecisionAuthor | null; created_at?: string }>;
   count: number;
   strategy: 'semantic' | 'keyword';
 }

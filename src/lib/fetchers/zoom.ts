@@ -11,6 +11,7 @@ interface ZoomMeeting {
   uuid: string;
   topic: string;
   start_time: string;
+  host_email?: string;
   recording_files?: ZoomRecordingFile[];
 }
 
@@ -73,11 +74,16 @@ export async function fetchZoomItems(opts: {
       if (!transcript) continue;
 
       const date = meeting.start_time.slice(0, 10);
+      // Who to talk to (ALI-119): the meeting host.
+      const host = meeting.host_email
+        ? { name: meeting.host_email.split('@')[0], email: meeting.host_email }
+        : undefined;
       items.push({
         source_url: `https://zoom.us/recording/${encodeMeetingUuid(meeting.uuid)}`,
         platform: 'zoom',
         raw_text: `[${meeting.topic} - ${date}]\n${transcript}`.slice(0, 4000),
         title: `${meeting.topic} (${date})`.slice(0, 80),
+        ...(host ? { author: host } : {}),
       });
     } catch { /* skip recordings with inaccessible transcripts */ }
   }
