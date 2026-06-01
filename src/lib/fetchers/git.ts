@@ -11,6 +11,8 @@ export async function fetchGitItems(opts: { limit: number }): Promise<PersonalIm
       platform: 'git' as const,
       raw_text: formatCommitAsText(c, url),
       title: c.subject,
+      // Who to talk to (ALI-118): the commit author.
+      ...(c.author ? { author: { name: c.author } } : {}),
     };
   });
 }

@@ -12,6 +12,7 @@ interface TeamsMessage {
   subject?: string;
   webUrl?: string;
   body?: TeamsMessageBody;
+  from?: { user?: { displayName?: string; id?: string } };
   replies?: Array<{ body?: TeamsMessageBody }>;
 }
 
@@ -69,11 +70,14 @@ export async function fetchTeamsItems(opts: {
             ...replyTexts,
           ].filter(Boolean).join('\n');
 
+          const fromName = msg.from?.user?.displayName;
           items.push({
             source_url: msg.webUrl ?? 'https://teams.microsoft.com',
             platform: 'teams',
             raw_text,
             title: (msg.subject ?? mainText).slice(0, 80) || `Message in ${team.displayName}`,
+            // Who to talk to (ALI-118): the message author.
+            ...(fromName ? { author: { name: fromName } } : {}),
           });
         }
       } catch { /* skip inaccessible channels */ }

@@ -7,8 +7,31 @@ function stripHtml(html: string): string {
 
 interface ConfluencePageV2 {
   title: string;
+  authorId?: string;
   body?: { storage?: { value?: string } };
   _links?: { webui?: string };
+}
+
+/** Resolve a Confluence accountId to a display name (cached). Degrades to undefined
+ *  if the token lacks read:confluence-user or the lookup fails. */
+function makeConfluenceUserResolver(base: string, headers: Record<string, string>) {
+  const cache = new Map<string, { name: string; email?: string } | null>();
+  return async (accountId?: string): Promise<{ name: string; email?: string } | undefined> => {
+    if (!accountId) return undefined;
+    if (cache.has(accountId)) return cache.get(accountId) ?? undefined;
+    try {
+      const res = await fetch(`${base}/rest/api/user?accountId=${encodeURIComponent(accountId)}`, { headers });
+      if (!res.ok) { cache.set(accountId, null); return undefined; }
+      const u = (await res.json()) as { displayName?: string; publicName?: string; email?: string };
+      const name = u.displayName || u.publicName;
+      const resolved = name ? { name, ...(u.email ? { email: u.email } : {}) } : null;
+      cache.set(accountId, resolved);
+      return resolved ?? undefined;
+    } catch {
+      cache.set(accountId, null);
+      return undefined;
+    }
+  };
 }
 
 export async function fetchConfluenceItems(opts: {
@@ -54,17 +77,23 @@ export async function fetchConfluenceItems(opts: {
   // (e.g. https://company.atlassian.net/wiki), else derive a human site URL.
   const humanBase = isOAuth ? (opts.siteBase ?? `https://api.atlassian.com/ex/confluence/${opts.cloudId}`) : `https://${opts.domain}`;
   const linkBase = data._links?.base ?? `${humanBase}/wiki`;
+  const resolveUser = makeConfluenceUserResolver(base, headers);
 
-  return (data.results ?? []).map(page => {
+  const items: PersonalImportItem[] = [];
+  for (const page of data.results ?? []) {
     const bodyHtml = page.body?.storage?.value ?? '';
     const bodyText = stripHtml(bodyHtml).slice(0, 2000);
     const webui = page._links?.webui ?? '';
     const pageUrl = webui.startsWith('http') ? webui : `${linkBase}${webui}`;
-    return {
+    // Who to talk to (ALI-119): the page author (resolved from authorId).
+    const author = await resolveUser(page.authorId);
+    items.push({
       source_url: pageUrl,
       platform: 'confluence',
       raw_text: [page.title, bodyText].filter(Boolean).join('\n\n'),
       title: page.title,
-    };
-  });
+      ...(author ? { author } : {}),
+    });
+  }
+  return items;
 }

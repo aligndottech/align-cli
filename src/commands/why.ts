@@ -6,6 +6,7 @@ import ora from 'ora';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { synthesiseLocally } from '../lib/local-llm.js';
+import { formatWhen } from '../lib/format-date.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -78,7 +79,11 @@ export function registerAskCommand(program: Command): void {
             console.log(chalk.dim('  Sources:'));
             for (const d of results.results.slice(0, 5)) {
               const statusLabel = d.status && d.status !== 'active' ? chalk.yellow(` [${d.status}]`) : '';
-              console.log(chalk.dim(`    - ${d.title} (${d.id})`) + statusLabel);
+              // Who to talk to (ALI-118) + when (ALI-118 timestamps).
+              const who = d.author?.name ? chalk.cyan(` ← ${d.author.name}`) : '';
+              const when = formatWhen(d.created_at);
+              const whenLabel = when ? chalk.dim(` · ${when}`) : '';
+              console.log(chalk.dim(`    - ${d.title} (${d.id})`) + statusLabel + who + whenLabel);
             }
             console.log('');
             if (results.count >= 5) {
@@ -112,7 +117,10 @@ export function registerAskCommand(program: Command): void {
           const statusLabel = d.status && d.status !== 'active'
             ? chalk.yellow(` [${d.status}]`)
             : '';
-          console.log(chalk.dim(`  id: ${d.id}`) + statusLabel);
+          const when = formatWhen(d.created_at);
+          console.log(chalk.dim(`  id: ${d.id}`) + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
+          // Who to talk to (ALI-118).
+          if (d.author?.name) console.log(chalk.cyan(`  talk to: ${d.author.name}`));
           console.log('');
         }
 

@@ -14,6 +14,27 @@ interface SlackMessage {
   ts: string;
   text?: string;
   reply_count?: number;
+  user?: string;
+}
+
+/** Resolve a Slack user id to a display name (cached - one users.info call per unique user). */
+function makeUserResolver(token: string) {
+  const cache = new Map<string, { name: string; handle?: string; email?: string } | null>();
+  return async (userId: string | undefined): Promise<{ name: string; handle?: string; email?: string } | undefined> => {
+    if (!userId) return undefined;
+    if (cache.has(userId)) return cache.get(userId) ?? undefined;
+    try {
+      const data = await slackGet('users.info', token, { user: userId });
+      const u = (data.user ?? {}) as { name?: string; real_name?: string; profile?: { real_name?: string; display_name?: string; email?: string } };
+      const name = u.profile?.real_name || u.real_name || u.profile?.display_name || u.name || userId;
+      const resolved = { name, ...(u.name ? { handle: u.name } : {}), ...(u.profile?.email ? { email: u.profile.email } : {}) };
+      cache.set(userId, resolved);
+      return resolved;
+    } catch {
+      cache.set(userId, null); // don't retry a failed lookup
+      return undefined;
+    }
+  };
 }
 
 interface SlackChannel {
@@ -39,6 +60,7 @@ export async function fetchSlackItems(opts: {
   });
   const channels = (chanData.channels as SlackChannel[]) ?? [];
 
+  const resolveUser = makeUserResolver(opts.token);
   const items: PersonalImportItem[] = [];
 
   for (let channelIndex = 0; channelIndex < channels.length; channelIndex++) {
@@ -64,11 +86,14 @@ export async function fetchSlackItems(opts: {
           });
           const allMsgs = (replies.messages as SlackMessage[]) ?? [];
           const text = allMsgs.map(m => m.text ?? '').join('\n');
+          // Who to talk to (ALI-118): the thread starter (original poster).
+          const author = await resolveUser(allMsgs[0]?.user ?? thread.user);
           items.push({
             source_url: `https://slack.com/archives/${channel.id}/p${thread.ts.replace('.', '')}`,
             platform: 'slack',
             raw_text: `[#${channel.name}] Thread:\n${text}`,
             title: (thread.text ?? `Thread in #${channel.name}`).slice(0, 80),
+            ...(author ? { author } : {}),
           });
         } catch { /* skip individual thread errors */ }
       }

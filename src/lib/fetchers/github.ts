@@ -22,7 +22,7 @@ export async function fetchGitHubItems(opts: {
     { headers },
   );
   if (prRes.ok) {
-    const data = await prRes.json() as { items: Array<{ html_url: string; title: string; body: string | null; state: string; repository_url: string }> };
+    const data = await prRes.json() as { items: Array<{ html_url: string; title: string; body: string | null; state: string; repository_url: string; user?: { login: string; html_url: string } }> };
     for (const pr of data.items) {
       const repo = pr.repository_url.replace('https://api.github.com/repos/', '');
       items.push({
@@ -30,6 +30,7 @@ export async function fetchGitHubItems(opts: {
         platform: 'github',
         raw_text: `${pr.title}\n\n${pr.body ?? ''}\n\nStatus: ${pr.state}\nRepo: ${repo}`.trim(),
         title: pr.title,
+        ...(pr.user ? { author: { name: pr.user.login, handle: pr.user.login, url: pr.user.html_url } } : {}),
       });
     }
   }
@@ -41,13 +42,14 @@ export async function fetchGitHubItems(opts: {
       { headers },
     );
     if (issueRes.ok) {
-      const data = await issueRes.json() as { items: Array<{ html_url: string; title: string; body: string | null; state: string }> };
+      const data = await issueRes.json() as { items: Array<{ html_url: string; title: string; body: string | null; state: string; user?: { login: string; html_url: string } }> };
       for (const issue of data.items) {
         items.push({
           source_url: issue.html_url,
           platform: 'github',
           raw_text: `${issue.title}\n\n${issue.body ?? ''}\n\nStatus: ${issue.state}`.trim(),
           title: issue.title,
+          ...(issue.user ? { author: { name: issue.user.login, handle: issue.user.login, url: issue.user.html_url } } : {}),
         });
       }
     }

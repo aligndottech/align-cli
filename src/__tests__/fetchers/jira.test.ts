@@ -47,6 +47,37 @@ describe('fetchJiraItems - Basic auth mode (email + token + domain)', () => {
   });
 });
 
+describe('fetchJiraItems - author capture (ALI-118)', () => {
+  it('captures the issue reporter as the decision author', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        issues: [{
+          key: 'PROJ-9',
+          fields: {
+            summary: 'Use Postgres',
+            description: { content: [] },
+            status: { name: 'Done' },
+            reporter: { displayName: 'Sarah Lee', emailAddress: 'sarah@co.com', accountId: 'acc-1' },
+          },
+        }],
+      }),
+    });
+
+    const result = await fetchJiraItems({ token: 'tok', cloudId: 'cloud-1', limit: 10 });
+    expect(result[0].author).toEqual({ name: 'Sarah Lee', email: 'sarah@co.com' });
+  });
+
+  it('omits author when the issue has no reporter', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ issues: [makeJiraIssue('PROJ-10', 'No reporter')] }),
+    });
+    const result = await fetchJiraItems({ token: 'tok', cloudId: 'cloud-1', limit: 10 });
+    expect(result[0].author).toBeUndefined();
+  });
+});
+
 describe('fetchJiraItems - OAuth mode (cloudId + access token)', () => {
   it('should fetch issues using Bearer auth when cloudId is provided', async () => {
     mockFetch.mockResolvedValueOnce({
