@@ -8,6 +8,7 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
 import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
+import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { isGitRepo } from '../lib/git.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { loginInteractive } from '../lib/login-flow.js';
@@ -384,6 +385,29 @@ function persistConnectorCreds(
 }
 
 // ---------------------------------------------------------------------------
+// Deterministic auto-alignment (ALI-121)
+// ---------------------------------------------------------------------------
+
+// Write the project-local, committed agent-rules files (Claude Code PostToolUse hook +
+// CLAUDE.md nudge + Cursor rule) so alignment context fires regardless of model
+// discretion. Best-effort: a write failure (read-only dir, weird CWD) must never abort
+// onboarding, so we warn and continue.
+function writeAgentAlignment(envName: EnvName): void {
+  try {
+    const written = setupAgentAlignment({ cwd: process.cwd(), env: envName });
+    p.log.success(`Auto-alignment configured: ${written.join(', ')}`);
+    p.log.info(
+      chalk.dim(
+        '  A PostToolUse hook will check edits against your decision graph. Claude Code asks ' +
+        'once to approve project hooks - accept it to enable automatic alignment.',
+      ),
+    );
+  } catch (err) {
+    p.log.warn(`Could not write auto-alignment files: ${(err as Error).message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
@@ -395,6 +419,9 @@ function persistConnectorCreds(
 async function runLocalSetup(): Promise<void> {
   const { dbPath } = await initLocalMode({ quiet: false });
   p.log.success('Local graph ready - no account needed, your data stays on this machine.');
+
+  // Deterministic auto-alignment files target the local graph (advisory check runs --env local).
+  writeAgentAlignment('local');
 
   const config = createConfigStore();
   const localEnv = config.getEnvironment('local');
@@ -603,6 +630,9 @@ async function runCloudSetup(ctx: {
   } else {
     p.log.info(`No editors detected. Run ${chalk.bold('align mcp --setup')} after installing Claude Code or Cursor.`);
   }
+
+  // ---- Step 3b: Deterministic auto-alignment files (hook + nudges) ----
+  writeAgentAlignment(envName);
 
   // ---- Step 4: Git auto-import (zero-auth baseline graph seed) ----
   let totalDecisions = 0;
