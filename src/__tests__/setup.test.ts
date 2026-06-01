@@ -99,6 +99,13 @@ vi.mock('../lib/mcp-setup.js', () => ({
   writeMcpConfig: vi.fn(),
 }));
 
+const mockSetupAgentAlignment = vi.hoisted(() =>
+  vi.fn().mockReturnValue(['.claude/settings.json', 'CLAUDE.md', '.cursor/rules/align.md']),
+);
+vi.mock('../lib/agent-rules.js', () => ({
+  setupAgentAlignment: mockSetupAgentAlignment,
+}));
+
 // Mock all fetchers so setup tests don't make real network calls
 // Mock fetchers that have no more-specific mock below to prevent real network calls in tests
 vi.mock('../lib/fetchers/jira.js', () => ({ fetchJiraItems: vi.fn().mockResolvedValue([]) }));
@@ -290,6 +297,27 @@ describe('align setup', () => {
     const spinnerStopOrder = gitSpinner!.stop.mock.invocationCallOrder[0];
     const firstIngestOrder = mockIngestBatch.mock.invocationCallOrder[0];
     expect(spinnerStopOrder).toBeLessThan(firstIngestOrder);
+  });
+
+  describe('deterministic auto-alignment (ALI-121)', () => {
+    it('writes the PostToolUse hook + nudge files in the cloud path', async () => {
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(mockSetupAgentAlignment).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: expect.any(String), env: 'prod' }),
+      );
+    });
+
+    it('writes the hook + nudge files in the local path too', async () => {
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      expect(mockSetupAgentAlignment).toHaveBeenCalled();
+    });
+
+    it('does not abort setup if writing agent rules fails', async () => {
+      mockSetupAgentAlignment.mockImplementationOnce(() => { throw new Error('EACCES'); });
+      await expect(
+        makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
+      ).resolves.not.toThrow();
+    });
   });
 
   it('detects editors and writes MCP config before import', async () => {
