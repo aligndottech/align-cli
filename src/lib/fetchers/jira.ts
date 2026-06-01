@@ -9,6 +9,7 @@ interface JiraIssue {
       content?: Array<{ content?: Array<{ text?: string }> }>;
     } | null;
     status?: { name: string };
+    reporter?: { displayName?: string; emailAddress?: string; accountId?: string };
   };
 }
 
@@ -42,7 +43,7 @@ export async function fetchJiraItems(opts: {
   const res = await fetch(`${base}/rest/api/3/search/jql`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jql, maxResults: limit, fields: ['summary', 'description', 'status', 'key'] }),
+    body: JSON.stringify({ jql, maxResults: limit, fields: ['summary', 'description', 'status', 'key', 'reporter'] }),
   });
   if (!res.ok) {
     // 401 = expired/revoked (re-auth helps). 403 = lacks Jira scopes / no access
@@ -75,6 +76,10 @@ export async function fetchJiraItems(opts: {
         issue.fields.status?.name ? `Status: ${issue.fields.status.name}` : '',
       ].filter(Boolean).join('\n\n'),
       title: `[${issue.key}] ${issue.fields.summary}`,
+      // Who to talk to (ALI-118): the issue reporter.
+      ...(issue.fields.reporter?.displayName
+        ? { author: { name: issue.fields.reporter.displayName, ...(issue.fields.reporter.emailAddress ? { email: issue.fields.reporter.emailAddress } : {}) } }
+        : {}),
     };
   });
 }

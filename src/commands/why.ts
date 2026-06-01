@@ -78,7 +78,9 @@ export function registerAskCommand(program: Command): void {
             console.log(chalk.dim('  Sources:'));
             for (const d of results.results.slice(0, 5)) {
               const statusLabel = d.status && d.status !== 'active' ? chalk.yellow(` [${d.status}]`) : '';
-              console.log(chalk.dim(`    - ${d.title} (${d.id})`) + statusLabel);
+              // Who to talk to (ALI-118): show the source author when known.
+              const who = d.author?.name ? chalk.cyan(`  ← ${d.author.name}`) : '';
+              console.log(chalk.dim(`    - ${d.title} (${d.id})`) + statusLabel + who);
             }
             console.log('');
             if (results.count >= 5) {
@@ -113,6 +115,8 @@ export function registerAskCommand(program: Command): void {
             ? chalk.yellow(` [${d.status}]`)
             : '';
           console.log(chalk.dim(`  id: ${d.id}`) + statusLabel);
+          // Who to talk to (ALI-118).
+          if (d.author?.name) console.log(chalk.cyan(`  talk to: ${d.author.name}`));
           console.log('');
         }
 

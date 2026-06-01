@@ -10,11 +10,12 @@ query PersonalIssues($first: Int!) {
         id title description url
         state { name }
         team { name }
+        creator { name email }
         comments { nodes { body user { name } } }
       }
     }
     createdIssues(first: $first, orderBy: updatedAt) {
-      nodes { id title description url state { name } team { name } }
+      nodes { id title description url state { name } team { name } creator { name email } }
     }
   }
 }`;
@@ -26,6 +27,7 @@ interface LinearIssueNode {
   url: string;
   state?: { name: string };
   team?: { name: string };
+  creator?: { name?: string; email?: string };
   comments?: { nodes: Array<{ body: string; user?: { name: string } }> };
 }
 
@@ -67,6 +69,10 @@ export async function fetchLinearItems(opts: {
         comments ? `Comments:\n${comments}` : '',
       ].filter(Boolean).join('\n\n'),
       title: issue.title,
+      // Who to talk to (ALI-118): the issue creator.
+      ...(issue.creator?.name
+        ? { author: { name: issue.creator.name, ...(issue.creator.email ? { email: issue.creator.email } : {}) } }
+        : {}),
     });
   }
 

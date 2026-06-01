@@ -28,7 +28,7 @@ export interface CapturedDecision {
 }
 
 export interface SearchResults {
-  results: Array<{ id: string; title: string; summary: string; status: string; similarity?: number }>;
+  results: Array<{ id: string; title: string; summary: string; status: string; similarity?: number; author?: DecisionAuthor | null }>;
   count: number;
   strategy: 'semantic' | 'keyword';
 }
@@ -100,11 +100,20 @@ export interface DriftItem {
   checked_at: string;
 }
 
+/** The human behind a decision - "who to talk to" (ALI-118). */
+export interface DecisionAuthor {
+  name: string;
+  handle?: string;
+  email?: string;
+  url?: string;
+}
+
 export interface BatchIngestItem {
   source_url: string;
   platform: string;
   raw_text: string;
   title?: string;
+  author?: DecisionAuthor;
 }
 
 export interface BatchIngestResult {
