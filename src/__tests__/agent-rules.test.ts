@@ -37,6 +37,15 @@ describe('writeClaudeCodeHook', () => {
     expect(typeof cmd.timeout).toBe('number');
   });
 
+  it('also writes a PreToolUse hook matching Write|Edit (catch conflicts before the edit)', () => {
+    writeClaudeCodeHook(dir);
+    const groups = readJson('.claude/settings.json').hooks.PreToolUse;
+    expect(Array.isArray(groups)).toBe(true);
+    const group = groups.find((g: any) => g.matcher === 'Write|Edit');
+    expect(group).toBeDefined();
+    expect(group.hooks.find((h: any) => h.type === 'command').command).toContain('align check --advisory');
+  });
+
   it('encodes a non-prod env into the hook command', () => {
     writeClaudeCodeHook(dir, 'preview');
     const settings = readJson('.claude/settings.json');
@@ -50,14 +59,16 @@ describe('writeClaudeCodeHook', () => {
     expect(cmd).not.toContain('--env');
   });
 
-  it('is idempotent - re-running does not duplicate the align hook group', () => {
+  it('is idempotent - re-running does not duplicate the align hook group in either event', () => {
     writeClaudeCodeHook(dir);
     writeClaudeCodeHook(dir);
-    const groups = readJson('.claude/settings.json').hooks.PostToolUse;
-    const alignGroups = groups.filter((g: any) =>
-      g.hooks?.some((h: any) => String(h.command).includes('align check --advisory')),
-    );
-    expect(alignGroups).toHaveLength(1);
+    const { hooks } = readJson('.claude/settings.json');
+    for (const event of ['PreToolUse', 'PostToolUse']) {
+      const alignGroups = hooks[event].filter((g: any) =>
+        g.hooks?.some((h: any) => String(h.command).includes('align check --advisory')),
+      );
+      expect(alignGroups).toHaveLength(1);
+    }
   });
 
   it('preserves unrelated existing settings and hooks', () => {
