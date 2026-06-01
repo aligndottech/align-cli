@@ -42,16 +42,19 @@ export function writeClaudeCodeHook(cwd: string, env?: string): void {
   }
 
   const hooks = (settings['hooks'] ?? {}) as Record<string, unknown>;
-  // Strip any prior align-managed group so re-runs stay idempotent and pick up env changes.
-  const existing = (Array.isArray(hooks['PostToolUse']) ? hooks['PostToolUse'] : []) as unknown[];
-  const preserved = existing.filter((g) => !isAlignHookGroup(g));
-
-  preserved.push({
-    matcher: 'Write|Edit',
-    hooks: [{ type: 'command', command: advisoryCommand(env), timeout: HOOK_TIMEOUT_SECONDS }],
-  });
-
-  hooks['PostToolUse'] = preserved;
+  // The same advisory command goes in both events; it self-detects Pre vs Post from the
+  // hook payload on stdin. PreToolUse catches a conflict before the edit is written
+  // (ALI-122); PostToolUse is the backstop on the landed change (ALI-121). Strip any
+  // prior align-managed group from each so re-runs stay idempotent and pick up env changes.
+  for (const event of ['PreToolUse', 'PostToolUse'] as const) {
+    const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
+    const preserved = existing.filter((g) => !isAlignHookGroup(g));
+    preserved.push({
+      matcher: 'Write|Edit',
+      hooks: [{ type: 'command', command: advisoryCommand(env), timeout: HOOK_TIMEOUT_SECONDS }],
+    });
+    hooks[event] = preserved;
+  }
   settings['hooks'] = hooks;
 
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -70,7 +73,8 @@ function managedNudgeBlock(): string {
     '  (`align_check_alignment`, or run `align check`). A conflict means a past decision opposes',
     '  the change - reconcile it or confirm with the user before proceeding.',
     '- When unsure why something is the way it is, ask the graph first (`align_ask`).',
-    '- A PostToolUse hook also surfaces conflicting decisions automatically after edits.',
+    '- Claude Code hooks also surface conflicting decisions automatically: before an edit is',
+    '  written, and again after it lands.',
     ALIGN_NUDGE_END,
   ].join('\n');
 }

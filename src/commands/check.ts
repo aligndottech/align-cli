@@ -8,6 +8,8 @@ import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
+import { type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
+import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 
 // Advisory (PostToolUse hook) mode keeps a tight budget: a Write/Edit hook fires on
 // every agent file change, so a slow gateway must never stall the edit. If the check
@@ -21,15 +23,16 @@ export function registerCheckCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--all', 'Check full HEAD diff, not just staged changes')
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
-    .option('--advisory', 'PostToolUse hook mode: always exit 0, emit conflicting decisions as additionalContext JSON for the agent')
+    .option('--advisory', 'Claude Code hook mode: always exit 0, emit conflicting decisions as additionalContext JSON. Detects Pre vs PostToolUse from the hook payload on stdin')
+    .option('--block-on-critical', 'Advisory PreToolUse hook: deny an edit only on a CRITICAL conflict (default: never block, just surface context)')
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
-    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; ci: boolean; resolve?: string }) => {
-      // Advisory mode is the deterministic auto-alignment path (ALI-121): non-blocking,
-      // fail-open, machine-readable. It owns the whole flow, never touching the
-      // human-facing spinner/console output below.
+    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; ci: boolean; resolve?: string }) => {
+      // Advisory mode is the deterministic auto-alignment path (ALI-121/ALI-122):
+      // non-blocking, fail-open, machine-readable. It owns the whole flow, never
+      // touching the human-facing spinner/console output below.
       if (opts.advisory) {
-        await runAdvisory(opts.env);
+        await runAdvisory(opts.env, { blockOnCritical: opts.blockOnCritical });
         return;
       }
 
@@ -131,31 +134,55 @@ export function registerCheckCommand(program: Command): void {
     });
 }
 
-// Advisory (Claude Code PostToolUse) mode. Contract: ALWAYS exit 0 (never deny an
-// edit), and on a conflict print the Claude Code hook JSON so the conflicting
-// decisions land in the agent's context. Anything else (no repo, no diff, gateway
-// down/slow, aligned) stays silent. Fail-open is the whole point - a hook that blocks
-// or errors on every edit would get disabled.
-async function runAdvisory(env: EnvName): Promise<void> {
+// Advisory (Claude Code hook) mode. Contract: ALWAYS exit 0 (never error out an
+// edit), and on a conflict print the hook JSON so the conflicting decisions land in
+// the agent's context. One entrypoint serves both hook events, detected from the
+// payload Claude Code pipes on stdin:
+//   - PreToolUse  -> check the PROPOSED edit before it is written (ALI-122)
+//   - PostToolUse -> check the landed working-tree diff (ALI-121); also the path for
+//     a manual `align check --advisory` run with no piped payload.
+// Anything else (no repo, no diff, gateway down/slow, aligned) stays silent.
+// Fail-open is the whole point - a hook that blocks or errors on every edit gets disabled.
+async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean } = {}): Promise<void> {
   try {
-    if (!(await isGitRepo())) process.exit(0);
+    const payload = await readHookPayload();
+    const pre = payload?.hook_event_name === 'PreToolUse';
 
-    const diff = await getHeadDiff();
-    if (!diff.trim()) process.exit(0);
+    let text: string;
+    let context: string;
+    if (pre) {
+      text = proposedChangeText(payload?.tool_input);
+      if (!text.trim()) process.exit(0);
+      context = payload?.tool_input?.file_path ?? '';
+    } else {
+      if (!(await isGitRepo())) process.exit(0);
+      text = await getHeadDiff();
+      if (!text.trim()) process.exit(0);
+      context = await getCurrentBranch().catch(() => '');
+    }
 
     const envName: EnvName = resolveEnv(env);
     const config = createConfigStore();
     const client = createGatewayClient(config.getEnvironment(envName));
-    const branch = await getCurrentBranch().catch(() => '');
 
     // Race the check against a tight timeout so a slow gateway never stalls the edit.
     const result = await Promise.race<AlignmentResult | null>([
-      client.checkAlignment(diff, branch),
+      client.checkAlignment(text, context),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), ADVISORY_TIMEOUT_MS)),
     ]);
 
     if (result?.status === 'conflicting' && result.conflicts?.length) {
-      process.stdout.write(`${JSON.stringify(buildAdvisoryHookOutput(result.conflicts))}\n`);
+      // Drop conflicts the sibling hook already showed the agent moments ago.
+      const cwd = process.cwd();
+      const seen = recentlySurfaced(cwd);
+      const fresh = result.conflicts.filter((c) => !(c.decision_id && seen.has(c.decision_id)));
+      if (fresh.length) {
+        markSurfaced(cwd, fresh.map((c) => c.decision_id).filter((id): id is string => Boolean(id)));
+        const output = pre
+          ? buildPreToolUseOutput(fresh, opts.blockOnCritical ?? false)
+          : buildPostToolUseOutput(fresh);
+        process.stdout.write(`${JSON.stringify(output)}\n`);
+      }
     }
   } catch {
     // Fail open: swallow everything (gateway error, network, bad config).
@@ -165,20 +192,49 @@ async function runAdvisory(env: EnvName): Promise<void> {
 
 type AdvisoryConflict = NonNullable<AlignmentResult['conflicts']>[number];
 
-// Build the Claude Code PostToolUse hook payload. `additionalContext` is injected into
-// the agent's context, so it reads as a direct, actionable nudge - not a status dump.
-function buildAdvisoryHookOutput(conflicts: AdvisoryConflict[]): {
-  hookSpecificOutput: { hookEventName: 'PostToolUse'; additionalContext: string };
-} {
+// The proposed change from a PreToolUse payload: Write sends the full content, Edit a
+// new_string, MultiEdit a list of edits. We check the new text against the graph.
+function proposedChangeText(input?: HookToolInput): string {
+  if (!input) return '';
+  if (typeof input.content === 'string') return input.content;
+  if (Array.isArray(input.edits)) return input.edits.map((e) => e.new_string ?? '').join('\n');
+  if (typeof input.new_string === 'string') return input.new_string;
+  return '';
+}
+
+// Render conflicts as a concise, actionable nudge for the agent's context.
+function conflictContext(conflicts: AdvisoryConflict[], closing: string): string {
   const lines = conflicts.map((c) => {
     const reason = c.reason && c.reason !== 'Conflicts with an existing team decision' ? ` - ${c.reason}` : '';
     const url = c.url ? ` (${c.url})` : '';
     return `- [${c.severity}] ${c.title}${reason}${url}`;
   });
-  const additionalContext = [
+  return [
     `Align decision graph: this change may conflict with ${conflicts.length} prior decision${conflicts.length > 1 ? 's' : ''}:`,
     ...lines,
-    'Reconcile with these decisions or confirm with the user before continuing.',
+    closing,
   ].join('\n');
+}
+
+function buildPostToolUseOutput(conflicts: AdvisoryConflict[]): {
+  hookSpecificOutput: { hookEventName: 'PostToolUse'; additionalContext: string };
+} {
+  const additionalContext = conflictContext(conflicts, 'Reconcile with these decisions or confirm with the user before continuing.');
   return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext } };
+}
+
+// PreToolUse fires before the edit is written. By default we only enrich the agent's
+// context (no permissionDecision, so the normal permission flow is untouched). The
+// opt-in `--block-on-critical` is the only path that denies, and only on a CRITICAL
+// conflict - never block by default.
+type PreToolUseOutput =
+  | { hookSpecificOutput: { hookEventName: 'PreToolUse'; additionalContext: string } }
+  | { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } };
+
+function buildPreToolUseOutput(conflicts: AdvisoryConflict[], blockOnCritical: boolean): PreToolUseOutput {
+  const summary = conflictContext(conflicts, 'Reconcile with these decisions or confirm with the user before writing this change.');
+  if (blockOnCritical && conflicts.some((c) => c.severity === 'critical')) {
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: summary } };
+  }
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: summary } };
 }
