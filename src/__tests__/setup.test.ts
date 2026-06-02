@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
+import { AuthExpiredError } from '../lib/errors.js';
 
 // ---- Hoisted mock state (must be hoisted so vi.mock factories can reference them) ----
 
@@ -510,6 +511,39 @@ describe('align setup', () => {
       expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'confluence-personal', 'atl_token');
       // Only ONE browser OAuth flow despite two Atlassian connectors selected
       expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
+    });
+
+    it('on reconnect, a shared Atlassian sibling reuses the token (one OAuth, not two)', async () => {
+      mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']);
+      // Both start with cached tokens, so they are "ready" and get fetched...
+      mockGetConnectorToken.mockImplementation((_env: string, key: string) =>
+        key === 'jira-personal' || key === 'confluence-personal' ? 'atl_stale' : null,
+      );
+      // ...but the initial fetch reports the token expired -> the reconnect path.
+      const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
+      const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
+      vi.mocked(fetchJiraItems).mockRejectedValueOnce(new AuthExpiredError('Jira'));
+      vi.mocked(fetchConfluenceItems).mockRejectedValueOnce(new AuthExpiredError('Confluence'));
+      // A single reconnect consent returns BOTH connectors' creds (shared Atlassian app).
+      mockConfirm.mockResolvedValue(true);
+      mockWaitForCallback.mockResolvedValue({
+        data: {
+          connector: 'jira-personal',
+          credentials: { access_token: 'atl_fresh', site_id: 'c1', base: 'https://x.atlassian.net' },
+          siblingConnector: 'confluence-personal',
+          siblingCredentials: { access_token: 'atl_fresh', site_id: 'c1', base: 'https://x.atlassian.net' },
+        },
+        port: 7654,
+      });
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      // The sibling reconnected by the shared app must NOT open a second browser flow.
+      expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
+      // ...and the reconnect prompt names Atlassian (one consent = Jira + Confluence).
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('Atlassian (Jira & Confluence)') }),
+      );
     });
 
     it('still reuses the Atlassian sibling under --reset (one consent, no second sign-in)', async () => {
