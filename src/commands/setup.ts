@@ -268,6 +268,22 @@ async function collectTokens(
 // OAuth browser flow helper for connectors
 // ---------------------------------------------------------------------------
 
+// Jira and Confluence share a single Atlassian OAuth consent, so one browser
+// sign-in connects both. Present the flow as "Atlassian (Jira & Confluence)" so a
+// user connecting "Jira" isn't surprised that Confluence is connected too.
+const ATLASSIAN_OAUTH_KEYS = new Set(['jira-personal', 'confluence-personal']);
+function isAtlassianOAuth(source: SetupSource): boolean {
+  return !!source.oauthKey && ATLASSIAN_OAUTH_KEYS.has(source.oauthKey);
+}
+function oauthFlowLabel(source: SetupSource): string {
+  return isAtlassianOAuth(source) ? 'Atlassian (Jira & Confluence)' : source.label;
+}
+function connectorDisplayName(connectorKey: string): string {
+  if (connectorKey.startsWith('confluence')) return 'Confluence';
+  if (connectorKey.startsWith('jira')) return 'Jira';
+  return connectorKey;
+}
+
 async function collectTokensViaOAuth(
   source: SetupSource,
   client: ReturnType<typeof createGatewayClient>,
@@ -311,7 +327,7 @@ async function collectTokensViaOAuth(
   }
 
   const spinner = p.spinner();
-  spinner.start(`Opening browser for ${source.label} OAuth...`);
+  spinner.start(`Opening browser for ${oauthFlowLabel(source)} OAuth...`);
 
   let authUrl = '';
   const callbackPromise = waitForCallback({
@@ -322,7 +338,7 @@ async function collectTokensViaOAuth(
         const result = await client.startCliOAuth(key, port, nonce);
         authUrl = result.authUrl;
         await open(authUrl).catch(() => {});
-        spinner.stop(`Browser opened for ${source.label}. If nothing happened, visit:\n  ${chalk.bold(authUrl)}`);
+        spinner.stop(`Browser opened for ${oauthFlowLabel(source)}. If nothing happened, visit:\n  ${chalk.bold(authUrl)}`);
         p.log.info('Waiting for you to approve in the browser (2 min timeout)...');
       } catch (e) {
         spinner.stop(`Could not start OAuth for ${source.label}: ${(e as Error).message}`);
@@ -359,7 +375,7 @@ async function collectTokensViaOAuth(
   if (siblingConnector && siblingCreds?.['access_token']) {
     persistConnectorCreds(config, envName, siblingConnector, siblingCreds);
     connectedThisRun?.add(siblingConnector);
-    p.log.info(chalk.dim(`  Also connected ${siblingConnector} (shared Atlassian app - no second sign-in needed)`));
+    p.log.info(chalk.dim(`  Also connected ${connectorDisplayName(siblingConnector)} (shared Atlassian app - no second sign-in needed)`));
   }
 
   const cloudId = credentials?.['site_id'] as string | undefined;
@@ -784,7 +800,7 @@ async function runCloudSetup(ctx: {
       // and opening a second browser flow.
       const alreadyReconnected = source.oauthKey ? connectedThisRun.has(source.oauthKey) : false;
       if (!alreadyReconnected) {
-        const reauth = await p.confirm({ message: `${source.label} token expired. Reconnect now?` });
+        const reauth = await p.confirm({ message: `${oauthFlowLabel(source)} token expired. Reconnect now?` });
         if (p.isCancel(reauth) || !reauth) {
           p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align setup')} to reconnect.`);
           continue;

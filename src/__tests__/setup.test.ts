@@ -540,6 +540,10 @@ describe('align setup', () => {
 
       // The sibling reconnected by the shared app must NOT open a second browser flow.
       expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
+      // ...and the reconnect prompt names Atlassian (one consent = Jira + Confluence).
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('Atlassian (Jira & Confluence)') }),
+      );
     });
 
     it('still reuses the Atlassian sibling under --reset (one consent, no second sign-in)', async () => {
