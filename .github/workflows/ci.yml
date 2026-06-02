@@ -6,6 +6,7 @@ on:
   pull_request:
 
 jobs:
+  # Job name MUST stay "test" - main's branch protection requires the "test" context.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -24,8 +25,33 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
-        run: npm test
+      - name: Test + coverage (enforces thresholds)
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+
+  # Same gate on Node 22 (not a required context, runs for coverage of the newer runtime).
+  test-node22:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test + coverage (enforces thresholds)
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build

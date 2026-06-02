@@ -10,3 +10,6 @@ dist/
 
 # This repo uses npm (package-lock.json); never commit a pnpm lockfile
 pnpm-lock.yaml
+
+# test coverage
+coverage/
