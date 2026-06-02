@@ -100,21 +100,11 @@ export interface DriftItem {
   checked_at: string;
 }
 
-/** The human behind a decision - "who to talk to" (ALI-118). */
-export interface DecisionAuthor {
-  name: string;
-  handle?: string;
-  email?: string;
-  url?: string;
-}
-
-export interface BatchIngestItem {
-  source_url: string;
-  platform: string;
-  raw_text: string;
-  title?: string;
-  author?: DecisionAuthor;
-}
+// "Who to talk to" author (ALI-118) and the ingest item shape are the single
+// source of truth in @aligndottech/connector-core - imported + re-exported here
+// so the rest of the CLI keeps importing them from this module.
+import type { DecisionAuthor, FetcherItem as BatchIngestItem } from '@aligndottech/connector-core';
+export type { DecisionAuthor, BatchIngestItem };
 
 export interface BatchIngestResult {
   snapshots: Array<{
