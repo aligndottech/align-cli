@@ -778,12 +778,21 @@ async function runCloudSetup(ctx: {
       if (result.items.length) ready.push({ source, items: result.items });
       else p.log.warn(`No items found in ${source.label}.`);
     } else if ('authExpired' in result) {
-      const reauth = await p.confirm({ message: `${source.label} token expired. Reconnect now?` });
-      if (p.isCancel(reauth) || !reauth) {
-        p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align setup')} to reconnect.`);
-        continue;
+      // Jira + Confluence share one Atlassian OAuth app, so a single consent
+      // reconnects both. If a sibling already reconnected this connector earlier
+      // in this loop, its token is fresh - reuse it silently rather than prompting
+      // and opening a second browser flow.
+      const alreadyReconnected = source.oauthKey ? connectedThisRun.has(source.oauthKey) : false;
+      if (!alreadyReconnected) {
+        const reauth = await p.confirm({ message: `${source.label} token expired. Reconnect now?` });
+        if (p.isCancel(reauth) || !reauth) {
+          p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align setup')} to reconnect.`);
+          continue;
+        }
       }
-      const fresh = await collectTokensViaOAuth(source, client, config, envName, true);
+      // reset = !alreadyReconnected: force a fresh consent for the first connector,
+      // but reuse the shared token (no browser) for the sibling.
+      const fresh = await collectTokensViaOAuth(source, client, config, envName, !alreadyReconnected, connectedThisRun);
       if (!fresh) {
         p.log.warn(`Skipping ${source.label} - re-auth cancelled or failed.`);
         continue;

@@ -56,3 +56,17 @@ src/
 ## No em-dashes
 
 Use a regular hyphen or " - " in docs/comments, never the long dash.
+
+<!-- align:start (managed by `align setup` - do not edit) -->
+## Align decision graph
+
+This project is connected to Align - the decision graph of what was decided, why, and by whom,
+across Slack, Jira, GitHub, Linear and more (via the `align` MCP server).
+
+- BEFORE writing or changing non-trivial code, check it against prior decisions
+  (`align_check_alignment`, or run `align check`). A conflict means a past decision opposes
+  the change - reconcile it or confirm with the user before proceeding.
+- When unsure why something is the way it is, ask the graph first (`align_ask`).
+- Claude Code hooks also surface conflicting decisions automatically: before an edit is
+  written, and again after it lands.
+<!-- align:end -->
