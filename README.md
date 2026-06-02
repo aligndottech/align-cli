@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@aligndottech/cli.svg)](https://www.npmjs.com/package/@aligndottech/cli)
 [![CI](https://github.com/aligndottech/align-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/aligndottech/align-cli/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/npm/l/@aligndottech/cli.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Node](https://img.shields.io/node/v/@aligndottech/cli.svg)](https://nodejs.org)
 
 **AI agents are shipping code from decisions they can't see.**
