@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/aligndottech/align-cli/compare/cli-v0.2.0...cli-v0.3.0) (2026-06-02)
+
+
+### Features
+
+* **setup:** raise free-tier import limits to 250 (connector-core 0.2.0 pagination) ([#56](https://github.com/aligndottech/align-cli/issues/56)) ([1dfbbf2](https://github.com/aligndottech/align-cli/commit/1dfbbf22ce682333e56e1118122e774a71e9c0da))
+
 ## [0.2.0](https://github.com/aligndottech/align-cli/compare/cli-v0.1.4...cli-v0.2.0) (2026-06-02)
 
 
