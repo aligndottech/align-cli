@@ -103,7 +103,7 @@ export interface DriftItem {
 // "Who to talk to" author (ALI-118) and the ingest item shape are the single
 // source of truth in @aligndottech/connector-core - imported + re-exported here
 // so the rest of the CLI keeps importing them from this module.
-import type { DecisionAuthor, FetcherItem as BatchIngestItem } from '@aligndottech/connector-core';
+import type { FetcherItem as BatchIngestItem, DecisionAuthor } from '@aligndottech/connector-core';
 export type { DecisionAuthor, BatchIngestItem };
 
 export interface BatchIngestResult {

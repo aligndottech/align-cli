@@ -1,4 +1,4 @@
-import { JiraFetcher, FetcherAuthError } from '@aligndottech/connector-core';
+import { FetcherAuthError, JiraFetcher } from '@aligndottech/connector-core';
 import { AuthExpiredError } from '../errors.js';
 import type { PersonalImportItem } from '../personal-import.js';
 
