@@ -1,6 +1,6 @@
 {
   "name": "@aligndottech/cli",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "type": "module",
   "description": "Align CLI - capture decisions, check alignment, and manage connectors",
   "license": "MIT",
