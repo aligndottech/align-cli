@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/aligndottech/align-cli/compare/cli-v0.3.0...cli-v0.4.0) (2026-06-03)
+
+
+### Features
+
+* **llm:** provider-agnostic resolver - generic OpenAI-compatible base URL + Grok (ALI-133) ([#58](https://github.com/aligndottech/align-cli/issues/58)) ([64f0ec0](https://github.com/aligndottech/align-cli/commit/64f0ec0c4dea8bde3630337f3f3e64b087bb1694))
+
 ## [0.3.0](https://github.com/aligndottech/align-cli/compare/cli-v0.2.0...cli-v0.3.0) (2026-06-02)
 
 
