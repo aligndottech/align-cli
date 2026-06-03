@@ -6,22 +6,25 @@ import { createLocalDb } from '../lib/local-db.js';
 
 describe('local-db', () => {
   let dbPath: string;
+  let db: ReturnType<typeof createLocalDb> | undefined;
 
   beforeEach(() => {
     dbPath = path.join(os.tmpdir(), `align-test-${Date.now()}.db`);
   });
 
   afterEach(() => {
+    db?.close(); // release the SQLite handle so Windows can unlink the file (EBUSY otherwise)
+    db = undefined;
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
   });
 
   it('creates schema on init and returns empty decisions list', () => {
-    const db = createLocalDb(dbPath);
+    db = createLocalDb(dbPath);
     expect(db.listDecisions()).toEqual([]);
   });
 
   it('inserts and retrieves a decision', () => {
-    const db = createLocalDb(dbPath);
+    db = createLocalDb(dbPath);
     const id = db.insertDecision({
       title: 'Use Postgres for production',
       summary: 'We decided to use PostgreSQL as the primary database',
@@ -35,7 +38,7 @@ describe('local-db', () => {
   });
 
   it('stores and retrieves an embedding blob', () => {
-    const db = createLocalDb(dbPath);
+    db = createLocalDb(dbPath);
     const id = db.insertDecision({ title: 'T', summary: 'S', sourceUrl: null, platform: 'cli' });
     const embedding = new Float32Array(384).fill(0.5);
     db.setEmbedding(id, embedding);
@@ -46,7 +49,7 @@ describe('local-db', () => {
   });
 
   it('stores an embedding that is a view into a larger buffer (offset != 0)', () => {
-    const db = createLocalDb(dbPath);
+    db = createLocalDb(dbPath);
     const id = db.insertDecision({ title: 'T', summary: 'S', sourceUrl: null, platform: 'cli' });
     // Simulate a pooled tensor: a 384-element view starting partway into a bigger buffer
     const backing = new Float32Array(1000);
@@ -62,7 +65,7 @@ describe('local-db', () => {
   });
 
   it('inserts and lists conflict links', () => {
-    const db = createLocalDb(dbPath);
+    db = createLocalDb(dbPath);
     const id1 = db.insertDecision({ title: 'Use Postgres', summary: 'Postgres', sourceUrl: null, platform: 'cli' });
     const id2 = db.insertDecision({ title: 'Use MySQL', summary: 'MySQL instead', sourceUrl: null, platform: 'cli' });
     db.insertLink({ sourceId: id1, targetId: id2, relation: 'conflicts_with', confidence: 0.82 });
@@ -74,7 +77,7 @@ describe('local-db', () => {
   });
 
   it('getStats returns counts', () => {
-    const db = createLocalDb(dbPath);
+    db = createLocalDb(dbPath);
     db.insertDecision({ title: 'T', summary: 'S', sourceUrl: null, platform: 'cli' });
     const stats = db.getStats();
     expect(stats.decisions).toBe(1);
