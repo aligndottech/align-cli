@@ -22,10 +22,13 @@ describe('classifyRelationship', () => {
     vi.unstubAllGlobals();
   });
 
-  it('returns null when no LLM key is configured (degrade to untyped)', async () => {
+  it('returns null when no cloud key and no local Ollama (degrade to untyped)', async () => {
+    // No cloud provider keys (beforeEach) + Ollama unreachable. The shared resolver
+    // now probes local Ollama as a last resort, so it degrades to null only when
+    // that is also unavailable.
+    mockFetch.mockResolvedValue({ ok: false }); // Ollama /api/tags not ok
     const result = await classifyRelationship(A, B);
     expect(result).toBeNull();
-    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('types the relationship via Anthropic when ANTHROPIC_API_KEY is set', async () => {
