@@ -26,6 +26,7 @@ describe('conflict detection threshold', () => {
   });
 
   afterEach(() => {
+    client.close(); // release the SQLite handle so Windows can unlink the file (EBUSY otherwise)
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
     vi.clearAllMocks();
   });
