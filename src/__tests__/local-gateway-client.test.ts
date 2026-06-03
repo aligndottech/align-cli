@@ -30,6 +30,7 @@ describe('local-gateway-client', () => {
   });
 
   afterEach(() => {
+    client.close(); // release the SQLite handle so Windows can unlink the file (EBUSY otherwise)
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
   });
 

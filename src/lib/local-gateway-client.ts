@@ -63,6 +63,11 @@ export function createLocalGatewayClient(dbPath: string) {
   }
 
   return {
+    /** Release the underlying SQLite handle (required on Windows before deleting the file). */
+    close() {
+      db.close();
+    },
+
     async whoami() {
       return { email: 'local', tenantId: 'local', mode: 'local-embedded' };
     },

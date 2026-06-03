@@ -613,7 +613,8 @@ async function runCloudSetup(ctx: {
 
   // ---- Step 2: PATH check ----
   try {
-    await execa('which', ['align']);
+    // `which` is POSIX; Windows uses `where`.
+    await execa(process.platform === 'win32' ? 'where' : 'which', ['align']);
   } catch {
     p.log.warn(
       `The ${chalk.bold('align')} command is not on your PATH. ` +

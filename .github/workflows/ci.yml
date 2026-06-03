@@ -31,6 +31,34 @@ jobs:
       - name: Build
         run: npm run build
 
+  # Cross-platform: prove a fresh install (native deps build/prebuild), tests
+  # (exercise better-sqlite3 + the local DB), build, and the CLI binary all run on
+  # Windows + macOS. Kept separate so the required "test" context stays ubuntu-only.
+  cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke - CLI binary runs
+        run: node dist/index.js --version
+
   # Same gate on Node 22 (not a required context, runs for coverage of the newer runtime).
   test-node22:
     runs-on: ubuntu-latest
