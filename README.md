@@ -88,10 +88,16 @@ align ask src/auth/session.ts
 
 ### AI provider for conversational answers
 
-To synthesise a conversational answer, `align ask` uses **your own AI provider**. It looks, in order, for:
+Align is **provider-agnostic** - `align ask` (and local relationship typing) uses **your own AI provider**. It resolves one, in order:
 
-1. An API key in the environment: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `GROQ_API_KEY`, or `MISTRAL_API_KEY`.
-2. [Ollama](https://ollama.com) running locally (auto-detected on `localhost:11434`).
+1. A named provider via env key: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `GROQ_API_KEY`, `MISTRAL_API_KEY`, or `GROK_API_KEY` (or `XAI_API_KEY`). Each has an optional model override (`ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`).
+2. **Any OpenAI-compatible endpoint** via `ALIGN_LLM_BASE_URL` (+ `ALIGN_LLM_API_KEY`, `ALIGN_LLM_MODEL`) - covers OpenRouter, Together, DeepSeek, LM Studio, vLLM, or any self-hosted OpenAI-compatible server. Example:
+   ```bash
+   export ALIGN_LLM_BASE_URL=https://openrouter.ai/api/v1
+   export ALIGN_LLM_API_KEY=sk-or-...
+   export ALIGN_LLM_MODEL=anthropic/claude-3.5-sonnet
+   ```
+3. [Ollama](https://ollama.com) running locally (auto-detected on `localhost:11434`, override `OLLAMA_HOST`).
 
 If none is available, `align ask` still works - it prints a ranked list of the matching decisions instead of a synthesised paragraph. No key is ever required.
 
@@ -336,9 +342,11 @@ align --env local <command>    # one-off override
 | `GEMINI_API_KEY` | Google Gemini API key for `align ask` synthesis |
 | `GROQ_API_KEY` | Groq API key for `align ask` synthesis |
 | `MISTRAL_API_KEY` | Mistral API key for `align ask` synthesis |
+| `GROK_API_KEY` / `XAI_API_KEY` | xAI Grok API key for `align ask` synthesis |
+| `ALIGN_LLM_BASE_URL` | Any OpenAI-compatible endpoint (with `ALIGN_LLM_API_KEY`, `ALIGN_LLM_MODEL`) |
 | `OLLAMA_HOST` | Ollama host (default: `http://localhost:11434`) |
 
-Advanced: override the model per provider with `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, or `ALIGN_MISTRAL_MODEL`.
+Advanced: override the model per provider with `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, or `ALIGN_GROK_MODEL`.
 
 ## Self-hosted
 
