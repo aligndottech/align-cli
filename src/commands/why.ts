@@ -35,7 +35,7 @@ export function registerAskCommand(program: Command): void {
     .option('--limit <n>', 'Max answers', '8')
     .action(async (query: string, opts: { env?: EnvName; limit: string }) => {
       const config = createConfigStore();
-      const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env)));
+      const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true })));
 
       // Pass the query through unchanged: the gateway's smart-search strategy
       // selector routes natural-language questions to semantic search. Stripping

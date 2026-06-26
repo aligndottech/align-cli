@@ -30,7 +30,20 @@ export async function getCommitHistory(opts: {
   if (opts.from) args.push(`--after=${opts.from}`);
   if (opts.to) args.push(`--before=${opts.to}`);
 
-  const { stdout } = await execa('git', ['log', ...args]);
+  let stdout: string;
+  try {
+    ({ stdout } = await execa('git', ['log', ...args]));
+  } catch (err) {
+    // A freshly initialised repo with no commits makes `git log` exit 128
+    // ("does not have any commits yet"). Return [] so `align import git` /
+    // `align setup` degrade to "0 commits" instead of crashing on first run.
+    // Other git failures (e.g. a bad --branch) still surface.
+    const e = err as { exitCode?: number; stderr?: string };
+    if (e.exitCode === 128 && /does not have any commits|bad default revision/i.test(e.stderr ?? '')) {
+      return [];
+    }
+    throw err;
+  }
 
   const commits: GitCommit[] = [];
   let sha = '', subject = '', author = '', date = '';
