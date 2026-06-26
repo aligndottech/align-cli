@@ -45,7 +45,7 @@ export function registerCheckCommand(program: Command): void {
       const rc = existsSync(rcPath)
         ? (JSON.parse(readFileSync(rcPath, 'utf-8')) as { defaultEnv?: EnvName })
         : {};
-      const envName: EnvName = resolveEnv(opts.env ?? rc.defaultEnv);
+      const envName: EnvName = resolveEnv(opts.env ?? rc.defaultEnv, { preferLocalEmbedded: true });
 
       const config = createConfigStore();
       const client = createGatewayClient(config.getEnvironment(envName));
@@ -161,7 +161,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean } = {
       context = await getCurrentBranch().catch(() => '');
     }
 
-    const envName: EnvName = resolveEnv(env);
+    const envName: EnvName = resolveEnv(env, { preferLocalEmbedded: true });
     const config = createConfigStore();
     const client = createGatewayClient(config.getEnvironment(envName));
 

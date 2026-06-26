@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 export interface DecisionRow {
   id: string;
@@ -50,6 +52,12 @@ CREATE TABLE IF NOT EXISTS decision_links (
 `;
 
 export function createLocalDb(dbPath: string) {
+  // better-sqlite3 creates the DB file but not its parent directory, so on a clean
+  // machine (~/.config/align-cli absent) `align setup --local` crashed with "unable
+  // to open database file". Create the directory first. ':memory:' has no parent.
+  if (dbPath !== ':memory:') {
+    mkdirSync(dirname(dbPath), { recursive: true });
+  }
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.exec(SCHEMA);

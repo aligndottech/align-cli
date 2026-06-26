@@ -14,7 +14,7 @@ export function registerSearchCommand(program: Command): void {
     .option('--space <slug>', 'Filter by space')
     .action(async (query: string, opts: { env: EnvName; limit: string; space?: string }) => {
       const config = createConfigStore();
-      const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env)));
+      const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true })));
       const spinner = ora(`Searching "${query}"...`).start();
 
       try {

@@ -8,12 +8,13 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/**/__tests__/**', 'src/**/*.test.ts', 'src/index.ts'],
       // Ratchet floor - raise over time. Set safely below current so CI gates
-      // without flaking. (lines ~47%, branches ~76%, functions ~76% today.)
+      // without flaking. (lines/statements ~53%, branches ~77%, functions ~77% today,
+      // after the ALI-160 first-run launch-blocker fixes + tests.)
       thresholds: {
-        statements: 45,
-        branches: 70,
-        functions: 70,
-        lines: 45,
+        statements: 50,
+        branches: 72,
+        functions: 73,
+        lines: 50,
       },
     },
   },

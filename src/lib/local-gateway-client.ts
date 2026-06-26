@@ -1,6 +1,10 @@
 import { createLocalDb } from './local-db.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 import { classifyRelationship } from './local-relationship-classifier.js';
+// Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
+// local client returns the SAME shapes as the cloud client, so the CLI commands
+// (ask/search/check) work identically in local mode.
+import type { AlignmentResult, SearchResults } from './gateway-client.js';
 
 export const CONFLICT_THRESHOLD = 0.65;
 // Embeddings flag a decision as a related CANDIDATE at/above this score; the
@@ -101,19 +105,21 @@ export function createLocalGatewayClient(dbPath: string) {
       return { snapshots };
     },
 
-    async searchDecisions(query: string, limit = 10) {
+    async searchDecisions(query: string, limit = 10): Promise<SearchResults> {
       const embedding = await getEmbedding(query);
       const similar = await findSimilar(embedding, limit, 0.1);
-      const decisions = similar
+      const results = similar
         .map(s => {
           const row = db.getDecisionById(s.decisionId);
-          return row ? { ...row, score: s.score } : null;
+          return row
+            ? { id: row.id, title: row.title, summary: row.summary, status: 'active', similarity: s.score, created_at: row.createdAt }
+            : null;
         })
         .filter((d): d is NonNullable<typeof d> => d !== null);
-      return { decisions };
+      return { results, count: results.length, strategy: 'semantic' };
     },
 
-    async checkAlignment(diff: string, _context?: string) {
+    async checkAlignment(diff: string, _context?: string): Promise<AlignmentResult> {
       // Stage 1: embeddings find candidate related decisions (free, local).
       const embedding = await getEmbedding(diff);
       const similar = await findSimilar(embedding, 5, RELATES_THRESHOLD);
@@ -125,36 +131,47 @@ export function createLocalGatewayClient(dbPath: string) {
         .filter((d): d is NonNullable<typeof d> => d !== null);
 
       if (!candidates.length) {
-        return { status: 'no_context' as const, conflicting_decisions: [], relevant_decisions: [], message: 'No related decisions found in your local graph.' };
+        return { status: 'no-context', confidence: 0, relevant_decisions: [], conflicts: [], message: 'No related decisions found in your local graph.' };
       }
 
       // Stage 2: type each candidate against the proposed change (LLM, user's key,
       // lazy - only the few candidates we surface here). Degrades to untyped.
       const subject = { title: 'Proposed change', summary: diff.slice(0, 2000) };
-      const relevant_decisions = [];
+      const typed = [];
       for (const c of candidates) {
         const rel = await classifyRelationship(subject, { title: c.title, summary: c.summary });
-        relevant_decisions.push({
+        typed.push({
           id: c.id,
           title: c.title,
-          platform: c.platform,
-          source_url: c.sourceUrl,
+          summary: c.summary,
+          url: c.sourceUrl ?? undefined,
           relationship: rel?.type ?? 'relates_to',
           confidence: rel?.confidence ?? c.score,
           typed: rel !== null,
-          ...(rel?.reason ? { reason: rel.reason } : {}),
+          reason: rel?.reason,
+          similarity: c.score,
         });
       }
 
-      const conflicting_decisions = relevant_decisions.filter(
-        d => d.relationship === 'conflicts_with' || d.relationship === 'contradicts',
-      );
-      const status = conflicting_decisions.length ? 'conflict' as const : 'related' as const;
-      const anyTyped = relevant_decisions.some(d => d.typed);
-      const message = status === 'conflict'
-        ? `This change conflicts with ${conflicting_decisions.length} existing decision(s) across your tools - review before proceeding.`
+      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url }));
+      const conflicts = typed
+        .filter(t => t.relationship === 'conflicts_with' || t.relationship === 'contradicts')
+        .map(t => ({
+          decision_id: t.id,
+          title: t.title,
+          summary: t.summary,
+          url: t.url,
+          reason: t.reason ?? 'Conflicts with an existing decision in your local graph',
+          severity: (t.confidence >= 0.8 ? 'critical' : 'warning') as 'critical' | 'warning',
+        }));
+
+      const anyTyped = typed.some(t => t.typed);
+      const status: AlignmentResult['status'] = conflicts.length ? 'conflicting' : 'aligned';
+      const confidence = Math.max(...typed.map(t => t.confidence));
+      const message = conflicts.length
+        ? `This change conflicts with ${conflicts.length} existing decision(s) in your local graph - review before proceeding.`
         : `Found ${relevant_decisions.length} related decision(s) to review${anyTyped ? '' : ' (set ANTHROPIC_API_KEY or OPENAI_API_KEY to type these relationships)'}.`;
-      return { status, conflicting_decisions, relevant_decisions, message };
+      return { status, confidence, relevant_decisions, conflicts, message };
     },
 
     async checkDrift(decisionId: string, content: string, _sourceType?: string) {
