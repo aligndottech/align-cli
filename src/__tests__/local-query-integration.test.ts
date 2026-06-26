@@ -56,9 +56,13 @@ describe('ask/search against a real local-embedded graph (BUG-2 end-to-end)', ()
 
   afterEach(() => {
     vi.clearAllMocks();
+    // Best-effort cleanup: the command opens the local client but never closes it
+    // (in real use the process just exits), so on Windows the SQLite file is still
+    // locked here (EBUSY on unlink). The temp dir is reaped by the OS; don't fail
+    // the test on cleanup.
     for (const suffix of ['', '-wal', '-shm']) {
       const f = `${dbPath}${suffix}`;
-      if (fs.existsSync(f)) fs.unlinkSync(f);
+      try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch { /* Windows: handle still open */ }
     }
   });
 
