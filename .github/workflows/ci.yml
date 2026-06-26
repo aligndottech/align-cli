@@ -38,7 +38,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        # Pin Windows to 2022: `better-sqlite3` ships no win32 prebuild for this
+        # Node ABI, so `npm ci` compiles it via node-gyp - and node-gyp (bundled
+        # with Node 20) cannot detect the newer Visual Studio on `windows-latest`
+        # ("unknown version undefined at ...Visual Studio\18"). windows-2022 has
+        # a VS 2022 node-gyp recognises, so the native build succeeds.
+        os: [windows-2022, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
