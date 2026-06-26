@@ -7,7 +7,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
-import { createConfigStore, type EnvName } from '../lib/config.js';
+import { createConfigStore, type EnvironmentConfig, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 
@@ -28,6 +28,57 @@ const OMIT_RESULT_KEYS = new Set(['embedding', 'embeddings', 'vector', 'decision
 
 export function serializeMcpResult(result: unknown): string {
   return JSON.stringify(result, (key, value) => (OMIT_RESULT_KEYS.has(key) ? undefined : value));
+}
+
+// The MCP CallTool router: maps an agent's tool call to the gateway client. Exported
+// and pure so the routing - argument extraction, the align_capture URL->platform
+// classifier, the local-mode raw-text rule, and the unknown-tool guard - is testable
+// without standing up an MCP server. Returns the raw result; the caller serializes it.
+export async function dispatchTool(
+  name: string,
+  args: Record<string, unknown> | undefined,
+  client: ReturnType<typeof createGatewayClient>,
+  env: EnvironmentConfig,
+): Promise<unknown> {
+  switch (name) {
+    case 'align_search':
+      return client.searchDecisions(args?.['query'] as string, args?.['limit'] as number | undefined);
+    case 'align_ask':
+      // Pass the question through unchanged so the gateway's smart-search strategy
+      // selector can route it to semantic search. See ALI-105.
+      return client.searchDecisions(args?.['question'] as string, (args?.['limit'] as number | undefined) ?? 8);
+    case 'align_capture': {
+      const input = args?.['input'] as string;
+      let platform = 'cli';
+      try {
+        const url = new URL(input);
+        platform = 'web';
+        if (/slack\.com/.test(url.hostname)) platform = 'slack';
+        else if (/atlassian\.net\/browse/.test(input)) platform = 'jira';
+        else if (/atlassian\.net\/wiki/.test(input)) platform = 'confluence';
+        else if (/github\.com/.test(url.hostname)) platform = 'github';
+        else if (/linear\.app/.test(url.hostname)) platform = 'linear';
+      } catch {
+        if (env.mode !== 'local-embedded') {
+          throw new Error('align_capture requires a URL. Raw text capture is not supported in cloud mode.');
+        }
+        // Local mode: accept plain text directly (platform stays 'cli').
+      }
+      return client.captureDecision(input, platform);
+    }
+    case 'align_check_alignment':
+      return client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined);
+    case 'align_check_drift':
+      return client.checkDrift(args?.['decision_id'] as string, args?.['content'] as string, args?.['source_type'] as string | undefined);
+    case 'align_get_impact':
+      return client.getImpact(args?.['decision_id'] as string);
+    case 'align_get_conflicts':
+      return client.getConflicts();
+    case 'align_get_related_decisions':
+      return client.searchDecisions(`${args?.['file_path'] as string} ${args?.['context'] ?? ''}`, 5);
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
 }
 
 const TOOL_SCHEMAS = [
@@ -159,69 +210,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
 
       server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
-        let result: unknown;
-
-        switch (name) {
-          case 'align_search':
-            result = await client.searchDecisions(args?.['query'] as string, args?.['limit'] as number | undefined);
-            break;
-          case 'align_ask':
-            // Pass the question through unchanged so the gateway's smart-search
-            // strategy selector can route it to semantic search. See ALI-105.
-            result = await client.searchDecisions(
-              args?.['question'] as string,
-              (args?.['limit'] as number | undefined) ?? 8,
-            );
-            break;
-          case 'align_capture': {
-            const input = args?.['input'] as string;
-            let platform = 'cli';
-            try {
-              const url = new URL(input);
-              platform = 'web';
-              if (/slack\.com/.test(url.hostname)) platform = 'slack';
-              else if (/atlassian\.net\/browse/.test(input)) platform = 'jira';
-              else if (/atlassian\.net\/wiki/.test(input)) platform = 'confluence';
-              else if (/github\.com/.test(url.hostname)) platform = 'github';
-              else if (/linear\.app/.test(url.hostname)) platform = 'linear';
-            } catch {
-              if (env.mode !== 'local-embedded') {
-                throw new Error('align_capture requires a URL. Raw text capture is not supported in cloud mode.');
-              }
-              // Local mode: accept plain text directly
-            }
-            result = await client.captureDecision(input, platform);
-            break;
-          }
-          case 'align_check_alignment':
-            result = await client.checkAlignment(
-              args?.['diff'] as string,
-              args?.['context'] as string | undefined,
-            );
-            break;
-          case 'align_check_drift':
-            result = await client.checkDrift(
-              args?.['decision_id'] as string,
-              args?.['content'] as string,
-              args?.['source_type'] as string | undefined,
-            );
-            break;
-          case 'align_get_impact':
-            result = await client.getImpact(args?.['decision_id'] as string);
-            break;
-          case 'align_get_conflicts':
-            result = await client.getConflicts();
-            break;
-          case 'align_get_related_decisions':
-            result = await client.searchDecisions(
-              `${args?.['file_path'] as string} ${args?.['context'] ?? ''}`,
-              5,
-            );
-            break;
-          default:
-            throw new Error(`Unknown tool: ${name}`);
-        }
-
+        const result = await dispatchTool(name, args, client, env);
         return { content: [{ type: 'text', text: serializeMcpResult(result) }] };
       });
 
