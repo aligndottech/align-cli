@@ -462,8 +462,17 @@ async function runLocalSetup(): Promise<void> {
       } else {
         gitSpinner.stop('No decisions found in git history');
       }
-    } catch {
-      gitSpinner.stop('Git import skipped');
+    } catch (e) {
+      const msg = (e as Error).message;
+      // Surface a model/embedding failure distinctly rather than hiding it as a
+      // generic "skipped" - otherwise local setup looks successful but the graph is
+      // silently empty.
+      if (/embedding model|not installed on this platform/i.test(msg)) {
+        gitSpinner.stop('Local embedding model unavailable');
+        p.log.warn(msg);
+      } else {
+        gitSpinner.stop('Git import skipped');
+      }
     }
   }
 
