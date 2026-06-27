@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/aligndottech/align-cli/compare/cli-v0.4.1...cli-v0.4.2) (2026-06-27)
+
+
+### Bug Fixes
+
+* **ALI-169:** offer expired-token reconnect for all connectors, not just Atlassian ([#67](https://github.com/aligndottech/align-cli/issues/67)) ([ce0b729](https://github.com/aligndottech/align-cli/commit/ce0b72985ba1768a834158f03db24eea57a95f8c))
+
 ## [0.4.1](https://github.com/aligndottech/align-cli/compare/cli-v0.4.0...cli-v0.4.1) (2026-06-27)
 
 
