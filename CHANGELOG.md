@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/aligndottech/align-cli/compare/cli-v0.4.0...cli-v0.4.1) (2026-06-27)
+
+
+### Bug Fixes
+
+* **ALI-160:** repair CLI first-run launch-blockers (local mode, ask/search/check, import git) ([#62](https://github.com/aligndottech/align-cli/issues/62)) ([c2d67a0](https://github.com/aligndottech/align-cli/commit/c2d67a02a488bbbe778a8e48fe35be1be0dc772f))
+* **ALI-165:** make npm i -g robust (optional native ML dep) + OSS hygiene ([#65](https://github.com/aligndottech/align-cli/issues/65)) ([651bfa0](https://github.com/aligndottech/align-cli/commit/651bfa0a88a722d5713d07639e094d0deaf9941d))
+
 ## [0.4.0](https://github.com/aligndottech/align-cli/compare/cli-v0.3.0...cli-v0.4.0) (2026-06-03)
 
 
