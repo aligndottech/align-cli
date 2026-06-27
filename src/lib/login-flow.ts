@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import open from 'open';
-import { createGatewayClient } from './gateway-client.js';
+import { createGatewayClient, GatewayError } from './gateway-client.js';
 import { CLI_CALLBACK_PORTS, waitForCallback } from './cli-oauth.js';
 import type { createConfigStore, EnvironmentConfig, EnvName } from './config.js';
 
@@ -61,7 +61,17 @@ export async function loginInteractive(
     if (me.tenant?.id) config.setTenantId(envName, me.tenant.id);
     verifySpinner.stop(`Logged in as ${me.user.email} (${me.tenant.name}) [${envName}]`);
     return true;
-  } catch {
+  } catch (err) {
+    // A 401/403 means the gateway REJECTED the token - persisting it would leave the
+    // user "logged in" but failing on every later command. Only fail OPEN (save +
+    // warn) for a genuinely unreachable gateway (network error / status 0), where we
+    // can't verify now but the token is probably fine.
+    const status = err instanceof GatewayError ? err.statusCode : 0;
+    if (status === 401 || status === 403) {
+      verifySpinner.stop('Login failed: the gateway rejected that token.');
+      p.log.error('That token was not accepted. Run `align login` again.');
+      return false;
+    }
     verifySpinner.stop('Token saved (gateway unreachable for verification)');
     config.setAuthToken(envName, token);
     p.log.warn('Check the gateway is reachable with: align dev status');
