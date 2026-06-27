@@ -704,4 +704,175 @@ describe('align setup', () => {
     expect(cancel).toHaveBeenCalled();
     exitSpy.mockRestore();
   });
+
+  // ALI-169: the reconnect recovery must work for EVERY OAuth connector, not just
+  // Atlassian. Only jira/confluence map a 401 to AuthExpiredError; the other
+  // connector-core fetchers throw a generic Error carrying the 401 in the message,
+  // so before the isAuthExpiry fix they were silently skipped (the live-run bug:
+  // Zoom, GitLab, Linear, Teams all skipped without a reconnect prompt).
+  describe('expired-token reconnect (all OAuth connectors, not just Atlassian)', () => {
+    it('offers reconnect and re-imports when a non-Atlassian token is expired (Linear GraphQL auth error)', async () => {
+      mockMultiselect.mockResolvedValueOnce(['linear']);
+      mockGetConnectorToken.mockImplementation((_e: string, key: string) =>
+        key === 'linear-personal' ? 'lin_stale' : null,
+      );
+      const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+      // Linear 401s as an HTTP-200 GraphQL errors[] body, so connector-core throws
+      // the raw worded message (no status code) - the real-world path, not a 401 string.
+      vi.mocked(fetchLinearItems)
+        .mockRejectedValueOnce(new Error('Authentication required, not authenticated'))
+        .mockResolvedValueOnce([
+          { source_url: 'https://linear.app/team/issue/ISS-9', title: 'Issue: ship it', raw_text: 'ship it', type: 'issue' },
+        ]);
+      mockConfirm.mockResolvedValue(true);
+      mockWaitForCallback.mockResolvedValue({
+        data: { connector: 'linear-personal', credentials: { access_token: 'lin_fresh' } },
+        port: 7654,
+      });
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('Linear token expired') }),
+      );
+      expect(mockWaitForCallback).toHaveBeenCalled(); // re-OAuth happened
+      expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(2); // initial fail + retry
+      expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'linear-personal', 'lin_fresh');
+    });
+
+    it('offers reconnect for Zoom (one of the connectors that 401d in the live run)', async () => {
+      mockMultiselect.mockResolvedValueOnce(['zoom']);
+      mockGetConnectorToken.mockImplementation((_e: string, key: string) =>
+        key === 'zoom' ? 'zoom_stale' : null,
+      );
+      const { fetchZoomItems } = await import('../lib/fetchers/zoom.js');
+      vi.mocked(fetchZoomItems)
+        .mockRejectedValueOnce(new Error('Zoom API error 401: Access token is expired.'))
+        .mockResolvedValueOnce([
+          { source_url: 'https://zoom.us/rec/abc', title: 'Standup', raw_text: 'notes', type: 'transcript' },
+        ]);
+      mockConfirm.mockResolvedValue(true);
+      mockWaitForCallback.mockResolvedValue({
+        data: { connector: 'zoom', credentials: { access_token: 'zoom_fresh' } },
+        port: 7654,
+      });
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('Zoom token expired') }),
+      );
+      expect(vi.mocked(fetchZoomItems)).toHaveBeenCalledTimes(2);
+    });
+
+    it('skips cleanly when the user declines the reconnect prompt', async () => {
+      mockMultiselect.mockResolvedValueOnce(['linear']);
+      mockGetConnectorToken.mockImplementation((_e: string, key: string) =>
+        key === 'linear-personal' ? 'lin_stale' : null,
+      );
+      const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+      vi.mocked(fetchLinearItems).mockRejectedValueOnce(
+        new Error('Linear API failed (401). Check your personal API token.'),
+      );
+      mockConfirm.mockResolvedValue(false); // decline "Reconnect now?"
+      const { log } = await import('@clack/prompts');
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('Linear token expired') }),
+      );
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Skipping Linear'));
+      expect(mockWaitForCallback).not.toHaveBeenCalled(); // no re-OAuth after decline
+      expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(1); // no retry
+    });
+
+    it('reports a failed re-auth when the reconnect OAuth itself fails', async () => {
+      mockMultiselect.mockResolvedValueOnce(['linear']);
+      mockGetConnectorToken.mockImplementation((_e: string, key: string) =>
+        key === 'linear-personal' ? 'lin_stale' : null,
+      );
+      const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+      vi.mocked(fetchLinearItems).mockRejectedValueOnce(
+        new Error('Linear API failed (401). Check your personal API token.'),
+      );
+      mockConfirm.mockResolvedValue(true); // accept reconnect...
+      mockWaitForCallback.mockRejectedValue(new Error('callback timed out')); // ...but OAuth fails
+      const { log } = await import('@clack/prompts');
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('re-auth cancelled or failed'));
+      expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(1); // no successful retry
+    });
+
+    it('reports "still failed" when the retry fetch fails after a successful re-auth', async () => {
+      mockMultiselect.mockResolvedValueOnce(['linear']);
+      mockGetConnectorToken.mockImplementation((_e: string, key: string) =>
+        key === 'linear-personal' ? 'lin_stale' : null,
+      );
+      const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+      // fails on BOTH the initial fetch and the retry
+      vi.mocked(fetchLinearItems).mockRejectedValue(
+        new Error('Linear API failed (401). Check your personal API token.'),
+      );
+      mockConfirm.mockResolvedValue(true);
+      mockWaitForCallback.mockResolvedValue({
+        data: { connector: 'linear-personal', credentials: { access_token: 'lin_fresh' } },
+        port: 7654,
+      });
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(2); // initial + retry, both fail
+      expect(
+        spinnerInstances.some((s) => s.stop.mock.calls.some((c) => String(c[0] ?? '').includes('Still failed'))),
+      ).toBe(true);
+    });
+
+    it('does NOT prompt to reconnect on a non-auth failure (500) - skips with retry guidance', async () => {
+      mockMultiselect.mockResolvedValueOnce(['linear']);
+      mockGetConnectorToken.mockImplementation((_e: string, key: string) =>
+        key === 'linear-personal' ? 'lin_stale' : null,
+      );
+      const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+      vi.mocked(fetchLinearItems).mockRejectedValueOnce(new Error('Linear API failed (500). Server error.'));
+      const { log } = await import('@clack/prompts');
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      expect(mockConfirm).not.toHaveBeenCalled(); // no reconnect prompt for a 500
+      expect(mockWaitForCallback).not.toHaveBeenCalled();
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Skipped Linear - Linear API failed (500)'));
+    });
+
+    it('handles a mixed batch: one imports, one expired->reconnect, one with no items', async () => {
+      mockMultiselect.mockResolvedValueOnce(['github', 'linear', 'notion']);
+      mockGetConnectorToken.mockImplementation((_e: string, key: string) =>
+        ['github-personal', 'linear-personal', 'notion-personal'].includes(key) ? `${key}_cached` : null,
+      );
+      const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+      const { fetchNotionItems } = await import('../lib/fetchers/notion.js');
+      const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+      vi.mocked(fetchLinearItems)
+        .mockRejectedValueOnce(new Error('Linear API failed (401). Check your personal API token.'))
+        .mockResolvedValueOnce([{ source_url: 'https://linear.app/x/ISS-1', title: 'I', raw_text: 'i', type: 'issue' }]);
+      vi.mocked(fetchNotionItems).mockResolvedValue([]); // no items
+      mockConfirm.mockResolvedValue(true);
+      mockWaitForCallback.mockResolvedValue({
+        data: { connector: 'linear-personal', credentials: { access_token: 'lin_fresh' } },
+        port: 7654,
+      });
+      const { log } = await import('@clack/prompts');
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      expect(vi.mocked(fetchGitHubItems)).toHaveBeenCalled(); // github imported (default mock returns a PR)
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('Linear token expired') }),
+      );
+      expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(2); // reconnected + reimported
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('No items found in Notion'));
+    });
+  });
 });
