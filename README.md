@@ -17,6 +17,15 @@ npm install -g @aligndottech/cli
 
 Node 20+ required. MIT licensed.
 
+> **Install notes.** Cloud mode needs no native build. `--local` mode additionally
+> uses an on-device embedding model (`@xenova/transformers`, an optional dependency)
+> that ships native binaries for macOS, glibc Linux, and Windows (x64/arm64) - on
+> those platforms `npm i -g` just works. On Alpine/musl, uncommon architectures, or
+> behind a strict proxy the optional model may not install; the global install still
+> succeeds and cloud mode works, and `--local` will tell you the model is unavailable
+> rather than failing silently. The first `--local` import downloads the model
+> (~90MB) once.
+
 ## Quick start
 
 ```bash
