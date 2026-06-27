@@ -14,7 +14,7 @@ import { initLocalMode } from '../lib/local-mode.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { CLI_CALLBACK_PORTS, waitForCallback } from '../lib/cli-oauth.js';
-import { AuthExpiredError } from '../lib/errors.js';
+import { isAuthExpiry } from '../lib/errors.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -780,13 +780,15 @@ async function runCloudSetup(ctx: {
   fetchSpinner.start(`Fetching from ${n} source${n === 1 ? '' : 's'}...`);
 
   // Each task catches its own errors so one slow or failing connector never
-  // blocks the others. AuthExpiredError is flagged for interactive re-auth below.
+  // blocks the others. An expired/revoked credential (isAuthExpiry) on an OAuth
+  // connector is flagged for the interactive reconnect below - covers every
+  // connector, not just the Atlassian fetchers that throw the typed AuthExpiredError.
   const fetched = await Promise.all(
     readyConnectors.map(async ({ source, tokens }): Promise<FetchResult> => {
       try {
         return { source, items: await source.fetch(tokens) };
       } catch (err) {
-        if (err instanceof AuthExpiredError && source.oauthKey) {
+        if (source.oauthKey && isAuthExpiry(err)) {
           return { source, authExpired: true };
         }
         return { source, error: err as Error };
