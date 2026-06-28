@@ -71,8 +71,9 @@ describe('detectEditors', () => {
   });
 
   it('returns VS Code with the vscode format when its User dir exists', () => {
+    // Normalize separators so the matcher works under Windows path.join (backslashes).
     mockExistsSync.mockImplementation((p: unknown) =>
-      typeof p === 'string' && p.includes(`Code${'/'}User`),
+      typeof p === 'string' && p.replace(/\\/g, '/').includes('Code/User'),
     );
     const target = detectEditors().find(e => e.name === 'VS Code');
     expect(target).toBeDefined();
@@ -81,8 +82,9 @@ describe('detectEditors', () => {
   });
 
   it('returns Zed with the zed format when ~/.config/zed exists', () => {
+    // Normalize separators so the matcher works under Windows path.join (backslashes).
     mockExistsSync.mockImplementation((p: unknown) =>
-      typeof p === 'string' && p.includes(`${'/'}zed`),
+      typeof p === 'string' && p.replace(/\\/g, '/').includes('/zed'),
     );
     const target = detectEditors().find(e => e.name === 'Zed');
     expect(target).toBeDefined();
