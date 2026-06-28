@@ -324,7 +324,7 @@ describe('align setup', () => {
   it('detects editors and writes MCP config before import', async () => {
     const { detectEditors, writeMcpConfig } = await import('../lib/mcp-setup.js');
     (detectEditors as ReturnType<typeof vi.fn>).mockReturnValueOnce([
-      { name: 'Claude Code', configPath: '/tmp/.claude.json', configKey: 'mcpServers' },
+      { name: 'Claude Code', configPath: '/tmp/.claude.json', format: 'mcpServers' },
     ]);
     await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
     expect(writeMcpConfig).toHaveBeenCalled();

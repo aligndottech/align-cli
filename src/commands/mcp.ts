@@ -178,10 +178,10 @@ const TOOL_SCHEMAS = [
 export function registerMcpCommand(program: Command): void {
   program
     .command('mcp')
-    .description('Run Align as an MCP server for Claude Code, Cursor, or Windsurf')
+    .description('Run Align as an MCP server for any MCP-capable agent (Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini, ...)')
     .option('--env <env>', 'Environment')
-    .option('--setup', 'Interactively configure editors (Claude, Cursor) to use Align as an MCP server')
-    .option('--install', 'Configure editors - alias for --setup')
+    .option('--setup', 'Interactively configure your MCP-capable agents to use Align as an MCP server')
+    .option('--install', 'Configure agents - alias for --setup')
     .addHelpText('after', `
 Claude Code config (~/.claude.json or workspace .mcp.json):
   {
@@ -230,20 +230,20 @@ async function runMcpSetup(env?: EnvName): Promise<void> {
   if (!editors.length) {
     const envArgs = env && env !== 'prod' ? `, "--env", "${env}"` : '';
     p.log.warn(
-      'No editors detected automatically.\n' +
-      'Add this config manually to your editor\'s MCP settings:\n\n' +
+      'No MCP agent detected automatically. Align works with any MCP-capable agent.\n' +
+      'Add this config manually to your agent\'s MCP settings:\n\n' +
       `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
     );
     p.outro('Done.');
     return;
   }
 
-  p.log.info(`Detected ${editors.length} editor${editors.length > 1 ? 's' : ''}:`);
+  p.log.info(`Detected ${editors.length} agent${editors.length > 1 ? 's' : ''}:`);
   for (const e of editors) p.log.info(`  ${e.name} - ${e.configPath}`);
   console.log('');
 
   const selected = await p.multiselect({
-    message: 'Which editors should use Align as an MCP server?',
+    message: 'Which agents should use Align as an MCP server?',
     options: editors.map(e => ({ value: e.name, label: e.name })),
     required: true,
   });

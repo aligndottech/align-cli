@@ -38,7 +38,7 @@ describe('initLocalMode', () => {
   });
 
   it('writes MCP configs for each detected editor when not quiet', async () => {
-    const fakeTarget = { name: 'Cursor', configPath: '/tmp/cursor/mcp.json', configKey: 'mcpServers' };
+    const fakeTarget = { name: 'Cursor', configPath: '/tmp/cursor/mcp.json', format: 'mcpServers' };
     mockDetectEditors.mockReturnValueOnce([fakeTarget]);
     await initLocalMode({ quiet: false });
     expect(mockWriteMcpConfig).toHaveBeenCalledWith(fakeTarget, 'local');
