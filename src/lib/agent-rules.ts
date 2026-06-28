@@ -4,8 +4,10 @@ import path from 'node:path';
 // ALI-121: the deterministic auto-alignment layer. ALI-120 gave the MCP server
 // instructions (model discretion); these project-local, committed files make the
 // alignment context fire regardless of which agent/model the user runs:
-//  - .claude/settings.json  PostToolUse hook -> `align check --advisory` (Claude Code)
-//  - CLAUDE.md               managed nudge block (Claude Code / generic agents)
+//  - .claude/settings.json  Pre/PostToolUse hook -> `align check --advisory` (Claude Code)
+//  - CLAUDE.md               managed nudge block (Claude Code)
+//  - AGENTS.md               managed nudge block (the cross-agent standard read by
+//                            Cursor, Windsurf, Codex, Gemini, Zed, and others)
 //  - .cursor/rules/align.md  project rule (Cursor ignores Claude Code hooks)
 
 // Claude Code hook command timeout, in SECONDS (Claude Code's unit). The advisory
@@ -61,7 +63,9 @@ export function writeClaudeCodeHook(cwd: string, env?: string): void {
   writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
 }
 
-function managedNudgeBlock(): string {
+// The nudge body. `claudeHooks` adds the Claude-Code-specific line about the
+// Pre/PostToolUse hook - true for CLAUDE.md, false for the agent-neutral AGENTS.md.
+function managedNudgeBlock(opts: { claudeHooks: boolean }): string {
   return [
     ALIGN_NUDGE_START,
     '## Align decision graph',
@@ -73,18 +77,19 @@ function managedNudgeBlock(): string {
     '  (`align_check_alignment`, or run `align check`). A conflict means a past decision opposes',
     '  the change - reconcile it or confirm with the user before proceeding.',
     '- When unsure why something is the way it is, ask the graph first (`align_ask`).',
-    '- Claude Code hooks also surface conflicting decisions automatically: before an edit is',
-    '  written, and again after it lands.',
+    ...(opts.claudeHooks
+      ? [
+          '- Claude Code hooks also surface conflicting decisions automatically: before an edit is',
+          '  written, and again after it lands.',
+        ]
+      : []),
     ALIGN_NUDGE_END,
   ].join('\n');
 }
 
-// Append (or replace) a marker-delimited Align block in the project CLAUDE.md. Only the
+// Append (or replace) a marker-delimited Align block in a project markdown file. Only the
 // content between the markers is managed; everything else the user wrote is preserved.
-export function writeManagedNudge(cwd: string): void {
-  const file = path.join(cwd, 'CLAUDE.md');
-  const block = managedNudgeBlock();
-
+function writeMarkerNudge(file: string, block: string): void {
   let content = '';
   try {
     content = readFileSync(file, 'utf8');
@@ -105,6 +110,17 @@ export function writeManagedNudge(cwd: string): void {
   }
 
   writeFileSync(file, content, 'utf8');
+}
+
+// CLAUDE.md nudge (Claude Code reads this file).
+export function writeManagedNudge(cwd: string): void {
+  writeMarkerNudge(path.join(cwd, 'CLAUDE.md'), managedNudgeBlock({ claudeHooks: true }));
+}
+
+// AGENTS.md nudge - the cross-agent standard read by Cursor, Windsurf, Codex,
+// Gemini, Zed and others. Agent-neutral (no Claude-hook line).
+export function writeAgentsNudge(cwd: string): void {
+  writeMarkerNudge(path.join(cwd, 'AGENTS.md'), managedNudgeBlock({ claudeHooks: false }));
 }
 
 function cursorRuleBody(): string {
@@ -136,11 +152,12 @@ export function writeCursorRule(cwd: string): void {
   writeFileSync(path.join(dir, 'align.md'), cursorRuleBody(), 'utf8');
 }
 
-// Write all three deterministic-alignment artifacts into the project. Returns the
+// Write every deterministic-alignment artifact into the project. Returns the
 // repo-relative paths written, for the caller to report.
 export function setupAgentAlignment(opts: { cwd: string; env?: string }): string[] {
   writeClaudeCodeHook(opts.cwd, opts.env);
   writeManagedNudge(opts.cwd);
+  writeAgentsNudge(opts.cwd);
   writeCursorRule(opts.cwd);
-  return ['.claude/settings.json', 'CLAUDE.md', '.cursor/rules/align.md'];
+  return ['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md'];
 }

@@ -6,6 +6,7 @@ import {
   ALIGN_NUDGE_END,
   ALIGN_NUDGE_START,
   setupAgentAlignment,
+  writeAgentsNudge,
   writeClaudeCodeHook,
   writeCursorRule,
   writeManagedNudge,
@@ -122,6 +123,38 @@ describe('writeManagedNudge', () => {
   });
 });
 
+describe('writeAgentsNudge', () => {
+  it('creates AGENTS.md with a marker-delimited Align block when none exists', () => {
+    writeAgentsNudge(dir);
+    const md = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+    expect(md).toContain(ALIGN_NUDGE_START);
+    expect(md).toContain(ALIGN_NUDGE_END);
+    expect(md.toLowerCase()).toContain('decision');
+  });
+
+  it('is agent-neutral - does not reference Claude Code hooks (the generic cross-agent file)', () => {
+    writeAgentsNudge(dir);
+    const md = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+    expect(md.toLowerCase()).not.toContain('claude code hook');
+  });
+
+  it('appends to an existing AGENTS.md without dropping prior content', () => {
+    writeFileSync(join(dir, 'AGENTS.md'), '# My agents\n\nHouse rules.\n');
+    writeAgentsNudge(dir);
+    const md = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+    expect(md).toContain('# My agents');
+    expect(md).toContain('House rules.');
+    expect(md).toContain(ALIGN_NUDGE_START);
+  });
+
+  it('replaces the managed block on re-run instead of duplicating it', () => {
+    writeAgentsNudge(dir);
+    writeAgentsNudge(dir);
+    const md = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+    expect(md.split(ALIGN_NUDGE_START)).toHaveLength(2);
+  });
+});
+
 describe('writeCursorRule', () => {
   it('writes .cursor/rules/align.md mentioning the decision graph', () => {
     writeCursorRule(dir);
@@ -132,13 +165,14 @@ describe('writeCursorRule', () => {
 });
 
 describe('setupAgentAlignment', () => {
-  it('writes all three artifacts and reports what it wrote', () => {
+  it('writes all agent-rule artifacts (incl. generic AGENTS.md) and reports what it wrote', () => {
     const written = setupAgentAlignment({ cwd: dir, env: 'prod' });
     expect(existsSync(join(dir, '.claude', 'settings.json'))).toBe(true);
     expect(existsSync(join(dir, 'CLAUDE.md'))).toBe(true);
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
     expect(existsSync(join(dir, '.cursor', 'rules', 'align.md'))).toBe(true);
     expect(written).toEqual(
-      expect.arrayContaining(['.claude/settings.json', 'CLAUDE.md', '.cursor/rules/align.md']),
+      expect.arrayContaining(['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md']),
     );
   });
 });

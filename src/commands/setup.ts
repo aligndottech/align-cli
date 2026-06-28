@@ -635,11 +635,11 @@ async function runCloudSetup(ctx: {
   console.log('');
   const editors = detectEditors();
   if (editors.length > 0) {
-    p.log.info(`Detected ${editors.length} editor${editors.length === 1 ? '' : 's'}: ${editors.map(e => e.name).join(', ')}`);
+    p.log.info(`Detected ${editors.length} agent${editors.length === 1 ? '' : 's'}: ${editors.map(e => e.name).join(', ')}`);
     let selectedEditors: string[] = editors.map(e => e.name);
     if (editors.length > 1) {
       const sel = await p.multiselect({
-        message: 'Which editors to configure?',
+        message: 'Which agents to configure?',
         options: editors.map(e => ({ value: e.name, label: e.name })),
       });
       if (!p.isCancel(sel)) selectedEditors = sel as string[];
@@ -654,7 +654,15 @@ async function runCloudSetup(ctx: {
       }
     }
   } else {
-    p.log.info(`No editors detected. Run ${chalk.bold('align mcp --setup')} after installing Claude Code or Cursor.`);
+    // Agent-agnostic: Align is just an MCP server, so any MCP-capable agent works
+    // even when we can't auto-detect it. Hand over the portable config to paste.
+    const envArgs = envName !== 'prod' ? `, "--env", "${envName}"` : '';
+    p.log.info(
+      `No MCP agent detected automatically. Align works with any MCP-capable agent ` +
+      `(Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...).\n` +
+      `Add this to your agent's MCP config (or re-run ${chalk.bold('align mcp --setup')} once it is installed):\n\n` +
+      `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
+    );
   }
 
   // ---- Step 3b: Deterministic auto-alignment files (hook + nudges) ----
