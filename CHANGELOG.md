@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/aligndottech/align-cli/compare/cli-v0.4.2...cli-v0.5.0) (2026-06-28)
+
+
+### Features
+
+* **setup:** make MCP setup agent-agnostic ([#69](https://github.com/aligndottech/align-cli/issues/69)) ([de2a4b9](https://github.com/aligndottech/align-cli/commit/de2a4b99158f5387ba03aa39245441ab75bd98d1))
+
 ## [0.4.2](https://github.com/aligndottech/align-cli/compare/cli-v0.4.1...cli-v0.4.2) (2026-06-27)
 
 
