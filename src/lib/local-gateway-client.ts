@@ -146,7 +146,7 @@ export function createLocalGatewayClient(dbPath: string) {
           title: c.title,
           summary: c.summary,
           url: c.sourceUrl ?? undefined,
-          relationship: rel?.type ?? 'relates_to',
+          relationship: rel?.type ?? 'relates', // ALI-219: canonical (was 'relates_to')
           confidence: rel?.confidence ?? c.score,
           typed: rel !== null,
           reason: rel?.reason,

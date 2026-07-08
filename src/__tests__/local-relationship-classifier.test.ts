@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DECISION_RELATIONSHIPS, isDecisionRelationship } from '@aligndottech/connector-core';
 import { classifyRelationship, RELATIONSHIP_TYPES } from '../lib/local-relationship-classifier.js';
 
 const A = { title: 'Standardise on MySQL', summary: 'We chose MySQL as the primary database.' };
@@ -60,10 +61,26 @@ describe('classifyRelationship', () => {
     expect(result).toBeNull();
   });
 
-  it('exposes the cloud taxonomy', () => {
-    expect(RELATIONSHIP_TYPES).toContain('conflicts_with');
-    expect(RELATIONSHIP_TYPES).toContain('supersedes');
-    expect(RELATIONSHIP_TYPES).toContain('relates_to');
+  it('uses the canonical connector-core vocabulary, not an invented local list', () => {
+    // ALI-219: the local classifier previously invented types (implements,
+    // depends_on, relates_to) that the graph never accepts. It must now be the
+    // canonical DecisionRelationship set - one source of truth with the gateway.
+    expect(RELATIONSHIP_TYPES).toEqual(DECISION_RELATIONSHIPS);
+  });
+
+  it('emits only types the decision graph accepts (anti-drift)', () => {
+    // Every type the classifier can emit must be a canonical relationship, or a
+    // local edge would be rejected by the graph on personal->org sync.
+    for (const t of RELATIONSHIP_TYPES) {
+      expect(isDecisionRelationship(t)).toBe(true);
+    }
+  });
+
+  it('rejects a non-canonical type from the LLM (e.g. the old depends_on)', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
+    mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'depends_on', confidence: 0.9 }));
+    const result = await classifyRelationship(A, B);
+    expect(result).toBeNull();
   });
 
   it('classifies at temperature 0 so the same pair types the same way each run', () => {
