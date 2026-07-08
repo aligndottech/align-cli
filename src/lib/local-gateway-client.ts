@@ -28,7 +28,8 @@ export function createLocalGatewayClient(dbPath: string) {
       .filter(e => e.decisionId !== excludeId)
       .map(e => ({ decisionId: e.decisionId, score: cosineSimilarity(embedding, e.embedding) }))
       .filter(e => e.score >= threshold)
-      .sort((a, b) => b.score - a.score)
+      // ALI-218: id tiebreaker so equal-similarity candidates slice deterministically.
+      .sort((a, b) => b.score - a.score || a.decisionId.localeCompare(b.decisionId))
       .slice(0, topK);
   }
 

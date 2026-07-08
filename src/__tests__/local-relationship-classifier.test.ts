@@ -65,4 +65,18 @@ describe('classifyRelationship', () => {
     expect(RELATIONSHIP_TYPES).toContain('supersedes');
     expect(RELATIONSHIP_TYPES).toContain('relates_to');
   });
+
+  it('classifies at temperature 0 so the same pair types the same way each run', () => {
+    // ALI-218: local relationship typing must be deterministic - offline scans
+    // otherwise produce different conflicts/supersessions each run. The request
+    // to the provider must pin temperature 0 (it previously omitted it, defaulting
+    // to the provider's ~1.0).
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
+    mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'supersedes', confidence: 0.9 }));
+    return classifyRelationship(A, B).then(() => {
+      const [, init] = mockFetch.mock.calls[0]!;
+      const body = JSON.parse((init as { body: string }).body);
+      expect(body.temperature).toBe(0);
+    });
+  });
 });
