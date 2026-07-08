@@ -10,6 +10,12 @@ export interface CallChatOptions {
   provider?: AiProvider;
   apiKey?: string;
   maxTokens?: number;
+  /**
+   * Sampling temperature. Omit for the provider default; pass 0 for deterministic
+   * output (relationship classification, where the same pair must type the same
+   * way every run). See ALI-218.
+   */
+  temperature?: number;
 }
 
 const SYSTEM_PROMPT =
@@ -37,6 +43,7 @@ async function tryOpenAiCompatible(
   key: string,
   maxTokens = 256,
   timeoutMs = 15000,
+  temperature?: number,
 ): Promise<string | null> {
   try {
     const res = await fetch(endpoint, {
@@ -48,6 +55,7 @@ async function tryOpenAiCompatible(
       body: JSON.stringify({
         model,
         max_tokens: maxTokens,
+        ...(temperature !== undefined ? { temperature } : {}),
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },
@@ -68,6 +76,7 @@ async function tryAnthropic(
   user: string,
   key: string,
   maxTokens = 256,
+  temperature?: number,
 ): Promise<string | null> {
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -80,6 +89,7 @@ async function tryAnthropic(
       body: JSON.stringify({
         model: process.env['ALIGN_ANTHROPIC_MODEL'] ?? 'claude-haiku-4-5-20251001',
         max_tokens: maxTokens,
+        ...(temperature !== undefined ? { temperature } : {}),
         system,
         messages: [{ role: 'user', content: user }],
       }),
@@ -98,6 +108,7 @@ async function tryGemini(
   user: string,
   key: string,
   maxTokens = 256,
+  temperature?: number,
 ): Promise<string | null> {
   try {
     const geminiModel = process.env['ALIGN_GEMINI_MODEL'] ?? 'gemini-1.5-flash';
@@ -109,7 +120,10 @@ async function tryGemini(
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },
           contents: [{ parts: [{ text: user }] }],
-          generationConfig: { maxOutputTokens: maxTokens },
+          generationConfig: {
+            maxOutputTokens: maxTokens,
+            ...(temperature !== undefined ? { temperature } : {}),
+          },
         }),
         signal: AbortSignal.timeout(15000),
       },
@@ -124,7 +138,11 @@ async function tryGemini(
   }
 }
 
-async function tryOllama(system: string, user: string): Promise<string | null> {
+async function tryOllama(
+  system: string,
+  user: string,
+  temperature?: number,
+): Promise<string | null> {
   const host = process.env['OLLAMA_HOST'] ?? 'http://localhost:11434';
 
   let model: string;
@@ -147,6 +165,7 @@ async function tryOllama(system: string, user: string): Promise<string | null> {
       body: JSON.stringify({
         model,
         stream: false,
+        ...(temperature !== undefined ? { options: { temperature } } : {}),
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },
@@ -185,20 +204,21 @@ async function callProvider(
   system: string,
   user: string,
   maxTokens?: number,
+  temperature?: number,
 ): Promise<string | null> {
   switch (provider) {
     case 'anthropic':
-      return tryAnthropic(system, user, key, maxTokens);
+      return tryAnthropic(system, user, key, maxTokens, temperature);
     case 'openai':
-      return tryOpenAiCompatible(system, user, 'https://api.openai.com/v1/chat/completions', process.env['ALIGN_OPENAI_MODEL'] ?? 'gpt-4o-mini', key, maxTokens);
+      return tryOpenAiCompatible(system, user, 'https://api.openai.com/v1/chat/completions', process.env['ALIGN_OPENAI_MODEL'] ?? 'gpt-4o-mini', key, maxTokens, undefined, temperature);
     case 'gemini':
-      return tryGemini(system, user, key, maxTokens);
+      return tryGemini(system, user, key, maxTokens, temperature);
     case 'groq':
-      return tryOpenAiCompatible(system, user, 'https://api.groq.com/openai/v1/chat/completions', process.env['ALIGN_GROQ_MODEL'] ?? 'llama-3.1-8b-instant', key, maxTokens);
+      return tryOpenAiCompatible(system, user, 'https://api.groq.com/openai/v1/chat/completions', process.env['ALIGN_GROQ_MODEL'] ?? 'llama-3.1-8b-instant', key, maxTokens, undefined, temperature);
     case 'mistral':
-      return tryOpenAiCompatible(system, user, 'https://api.mistral.ai/v1/chat/completions', process.env['ALIGN_MISTRAL_MODEL'] ?? 'mistral-small-latest', key, maxTokens);
+      return tryOpenAiCompatible(system, user, 'https://api.mistral.ai/v1/chat/completions', process.env['ALIGN_MISTRAL_MODEL'] ?? 'mistral-small-latest', key, maxTokens, undefined, temperature);
     case 'grok':
-      return tryOpenAiCompatible(system, user, 'https://api.x.ai/v1/chat/completions', process.env['ALIGN_GROK_MODEL'] ?? 'grok-2-latest', key, maxTokens);
+      return tryOpenAiCompatible(system, user, 'https://api.x.ai/v1/chat/completions', process.env['ALIGN_GROK_MODEL'] ?? 'grok-2-latest', key, maxTokens, undefined, temperature);
   }
 }
 
@@ -219,10 +239,11 @@ export async function callChat(
   opts?: CallChatOptions,
 ): Promise<string | null> {
   const maxTokens = opts?.maxTokens;
+  const temperature = opts?.temperature;
 
   // 1. configured provider (from align setup) takes priority
   if (opts?.provider && opts.apiKey) {
-    const result = await callProvider(opts.provider, opts.apiKey, system, user, maxTokens);
+    const result = await callProvider(opts.provider, opts.apiKey, system, user, maxTokens, temperature);
     if (result) return result;
   }
 
@@ -231,7 +252,7 @@ export async function callChat(
   if (baseUrl) {
     const key = process.env['ALIGN_LLM_API_KEY'] ?? '';
     const model = process.env['ALIGN_LLM_MODEL'] ?? 'gpt-4o-mini';
-    const result = await tryOpenAiCompatible(system, user, chatCompletionsUrl(baseUrl), model, key, maxTokens);
+    const result = await tryOpenAiCompatible(system, user, chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature);
     if (result) return result;
   }
 
@@ -240,13 +261,13 @@ export async function callChat(
     if (opts?.provider === provider) continue; // already tried above
     const key = keyForProvider(provider);
     if (key) {
-      const result = await callProvider(provider, key, system, user, maxTokens);
+      const result = await callProvider(provider, key, system, user, maxTokens, temperature);
       if (result) return result;
     }
   }
 
   // 4. local Ollama as last resort
-  return tryOllama(system, user);
+  return tryOllama(system, user, temperature);
 }
 
 /** Synthesise a natural-language answer from retrieved decisions, using any configured provider. */

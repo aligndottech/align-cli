@@ -66,6 +66,22 @@ describe('local-gateway-client', () => {
     expect(typeof result.results[0].similarity).toBe('number');
   });
 
+  it('orders equal-similarity results by a stable id tiebreaker (deterministic)', async () => {
+    // ALI-218: when several decisions share an identical similarity score, the
+    // slice of top-K candidates must be stable across runs - otherwise the same
+    // offline scan compares a different candidate set each time. Force a tie and
+    // assert the results come back sorted by id, not in arbitrary insert order.
+    vi.mocked(cosineSimilarity).mockReturnValue(0.75);
+    await client.captureDecision('Alpha decision', 'cli');
+    await client.captureDecision('Bravo decision', 'cli');
+    await client.captureDecision('Charlie decision', 'cli');
+
+    const result = await client.searchDecisions('anything', 10);
+    const ids = result.results.map((r: { id: string }) => r.id);
+    const sorted = [...ids].sort();
+    expect(ids).toEqual(sorted);
+  });
+
   it('getConflicts returns empty when no conflicts', async () => {
     const result = await client.getConflicts();
     expect(result).toHaveProperty('links');

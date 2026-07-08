@@ -44,7 +44,9 @@ export async function classifyRelationship(
   subject: DecisionLite,
   candidate: DecisionLite,
 ): Promise<ClassifiedRelationship | null> {
-  const raw = await callChat(SYSTEM_PROMPT, buildUserPrompt(subject, candidate));
+  // ALI-218: temperature 0 so the same decision pair types the same way every
+  // run - offline relationship detection must be deterministic.
+  const raw = await callChat(SYSTEM_PROMPT, buildUserPrompt(subject, candidate), { temperature: 0 });
   if (!raw) return null;
   return parseRelationship(raw);
 }
