@@ -33,7 +33,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@aligndottech/connector-core": "^0.2.0",
+    "@aligndottech/connector-core": "^0.4.0",
     "@clack/prompts": "^0.9.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.10.0",
