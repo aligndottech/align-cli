@@ -15,6 +15,7 @@ import { registerDevCommands } from './commands/dev/index.js';
 import { registerSpacesCommand } from './commands/spaces.js';
 import { registerLinksCommand } from './commands/links.js';
 import { registerDriftCommand } from './commands/drift.js';
+import { registerStatusCommand } from './commands/status.js';
 import { registerEnvCommand } from './commands/env.js';
 import { registerAskCommand } from './commands/why.js';
 import { registerSetupCommand } from './commands/setup.js';
@@ -63,6 +64,7 @@ registerExportCommand(program);
 registerSpacesCommand(program);
 registerLinksCommand(program);
 registerDriftCommand(program);
+registerStatusCommand(program);
 
 // Customer: CI/alignment check
 registerCheckCommand(program);

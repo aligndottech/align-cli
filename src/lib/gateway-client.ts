@@ -268,6 +268,24 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return request('/decision-links?relation=conflicts_with,contradicts&paginated=true&limit=50');
     },
 
+    // ALI-215 value-moment signals (all authMiddleware-only, free-CLI reachable).
+    async getStats(): Promise<{ snapshots?: number }> {
+      return request('/stats');
+    },
+    async getConflictImpact(days = 30): Promise<{ total?: number; precision?: number | null }> {
+      return request(`/alignment/impact?days=${days}`);
+    },
+    async getLinkCounts(): Promise<{ conflicts_count?: number; duplicates_count?: number; supersessions_count?: number; relates_count?: number }> {
+      const data = await request<{ pagination?: Record<string, number> }>('/decision-links?paginated=true&limit=1');
+      return data.pagination ?? {};
+    },
+    async getReuseRate(days = 30): Promise<{ referenced: number; rediscovered: number; rate: number | null }> {
+      return request(`/decisions/reuse-rate?days=${days}`);
+    },
+    async getHealth(): Promise<{ compositeScore?: { overall?: number; grade?: string } }> {
+      return request('/decision-health');
+    },
+
     async bulkStartImport(
       connectors: string[],
       config?: Record<string, unknown>,
