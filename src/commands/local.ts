@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { getLocalDbPath, initLocalMode } from '../lib/local-mode.js';
+import { localValueRollup, renderValueReadout } from '../lib/value-rollup.js';
 
 export function registerLocalCommand(program: Command): void {
   const local = program
@@ -39,11 +40,9 @@ export function registerLocalCommand(program: Command): void {
         return;
       }
       const db = createLocalDb(env.localDbPath ?? getLocalDbPath());
-      const stats = db.getStats();
+      const rollup = localValueRollup(db);
       db.close();
-      console.log(`Decisions:  ${stats.decisions}`);
-      console.log(`Embeddings: ${stats.embeddings}`);
-      console.log(`Conflicts:  ${stats.conflicts}`);
+      console.log(`\n${  renderValueReadout(rollup, { mode: 'local' })  }\n`);
     });
 
   local
