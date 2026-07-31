@@ -76,13 +76,12 @@ registerMcpCommand(program);
 // Customer: local-first mode (no cloud account required)
 registerLocalCommand(program);
 
-// Onboarding: load a curated sample graph to try Align in seconds
-registerDemoCommand(program);
-
 // Internal: only registered when ALIGN_INTERNAL=1 (Align team local dev)
 if (process.env.ALIGN_INTERNAL === '1') {
   registerConnectorCommands(program);
   registerDevCommands(program);
+  // Sample-graph demo seeding is internal-only - kept out of the public OSS CLI surface.
+  registerDemoCommand(program);
 }
 
 program.parse();
