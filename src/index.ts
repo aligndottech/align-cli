@@ -20,6 +20,7 @@ import { registerEnvCommand } from './commands/env.js';
 import { registerAskCommand } from './commands/why.js';
 import { registerSetupCommand } from './commands/setup.js';
 import { registerExportCommand } from './commands/export.js';
+import { registerDemoCommand } from './commands/demo.js';
 
 // Last-resort guard so no command ever dumps a raw Node stack trace at a user.
 // Individual commands still handle their own expected errors; this only catches
@@ -74,6 +75,9 @@ registerMcpCommand(program);
 
 // Customer: local-first mode (no cloud account required)
 registerLocalCommand(program);
+
+// Onboarding: load a curated sample graph to try Align in seconds
+registerDemoCommand(program);
 
 // Internal: only registered when ALIGN_INTERNAL=1 (Align team local dev)
 if (process.env.ALIGN_INTERNAL === '1') {
