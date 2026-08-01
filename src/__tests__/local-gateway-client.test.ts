@@ -9,8 +9,8 @@ vi.mock('../lib/local-embeddings.js', () => ({
 }));
 
 vi.mock('../lib/local-relationship-classifier.js', () => ({
-  // Default: no LLM key -> degrade to untyped (returns null)
-  classifyRelationship: vi.fn().mockResolvedValue(null),
+  // Default: no LLM key -> the classifier cannot run and says so (ALI-414)
+  classifyRelationship: vi.fn().mockResolvedValue({ ok: false, reason: 'no_llm_key' }),
   RELATIONSHIP_TYPES: ['supersedes', 'conflicts_with', 'contradicts', 'duplicates', 'refines', 'implements', 'depends_on', 'relates_to'],
 }));
 
@@ -26,7 +26,7 @@ describe('local-gateway-client', () => {
     dbPath = path.join(os.tmpdir(), `align-lgc-test-${Date.now()}.db`);
     client = createLocalGatewayClient(dbPath);
     vi.mocked(cosineSimilarity).mockReturnValue(0.0);
-    vi.mocked(classifyRelationship).mockResolvedValue(null);
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'no_llm_key' });
   });
 
   afterEach(() => {
@@ -108,20 +108,70 @@ describe('local-gateway-client', () => {
     expect(result.relevant_decisions).toEqual([]);
   });
 
-  it('checkAlignment returns "aligned" with a key hint when nothing is typed (no LLM key)', async () => {
+  // ALI-414: this test previously asserted `aligned` here, pinning the fail-open. A
+  // retrieved decision that was never classified is exactly the state where the CLI
+  // does NOT know, and an agent branching on `status` reads `aligned` as permission
+  // to proceed past a contradicting decision. Unset key = default state of a fresh
+  // `npm i @aligndottech/cli`, so this is the normal first-run path.
+  it('checkAlignment returns "unknown" (never "aligned") when no LLM key can type the candidates', async () => {
     vi.mocked(cosineSimilarity).mockReturnValue(0.6);
     await client.ingestBatch([
       { source_url: 'https://jira/ABC-1', platform: 'jira', raw_text: 'Feature flag rollout', title: 'Rollout plan' },
     ]);
     const result = await client.checkAlignment('add a feature flag');
-    expect(result.status).toBe('aligned');
+    expect(result.status).toBe('unknown');
+    expect(result.reason).toBe('no_llm_key');
+    // The retrieved decisions and the key hint both survive - the human still sees
+    // what could not be checked, and how to make it checkable.
     expect(result.relevant_decisions.length).toBeGreaterThan(0);
     expect(result.message).toMatch(/ANTHROPIC_API_KEY|OPENAI_API_KEY/);
   });
 
+  // The pair for the test above: proves the happy path was not simply renamed. A
+  // classifier that RAN and returned a confident non-conflict is a real `aligned`.
+  it('checkAlignment returns "aligned" when every candidate is classified as a non-conflict', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship).mockResolvedValue({
+      ok: true,
+      relationship: { type: 'relates', confidence: 0.7, reason: 'same area, no opposition' },
+    });
+    await client.ingestBatch([
+      { source_url: 'https://jira/ABC-1', platform: 'jira', raw_text: 'Feature flag rollout', title: 'Rollout plan' },
+    ]);
+    const result = await client.checkAlignment('add a feature flag');
+    expect(result.status).toBe('aligned');
+    expect(result.reason).toBeUndefined();
+    expect(result.relevant_decisions.length).toBeGreaterThan(0);
+  });
+
+  it('checkAlignment returns "unknown" with reason classifier_error when a configured provider fails', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'classifier_error' });
+    await client.ingestBatch([
+      { source_url: 'https://jira/ABC-1', platform: 'jira', raw_text: 'Feature flag rollout', title: 'Rollout plan' },
+    ]);
+    const result = await client.checkAlignment('add a feature flag');
+    expect(result.status).toBe('unknown');
+    expect(result.reason).toBe('classifier_error');
+  });
+
+  it('checkAlignment returns "unknown" for unparseable classifier output - never a default', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'classifier_unparseable' });
+    await client.ingestBatch([
+      { source_url: 'https://jira/ABC-1', platform: 'jira', raw_text: 'Feature flag rollout', title: 'Rollout plan' },
+    ]);
+    const result = await client.checkAlignment('add a feature flag');
+    expect(result.status).toBe('unknown');
+    expect(result.reason).toBe('classifier_unparseable');
+  });
+
   it('checkAlignment flags a typed conflict in the cloud AlignmentResult shape', async () => {
     vi.mocked(cosineSimilarity).mockReturnValue(0.6);
-    vi.mocked(classifyRelationship).mockResolvedValue({ type: 'conflicts_with', confidence: 0.9, reason: 'opposes prior choice' });
+    vi.mocked(classifyRelationship).mockResolvedValue({
+      ok: true,
+      relationship: { type: 'conflicts_with', confidence: 0.9, reason: 'opposes prior choice' },
+    });
     await client.ingestBatch([
       { source_url: 'https://slack.com/x', platform: 'slack', raw_text: 'We standardised on MySQL', title: 'Standardise on MySQL' },
     ]);
@@ -131,6 +181,23 @@ describe('local-gateway-client', () => {
     expect(result.conflicts![0].decision_id).toBeTruthy();
     expect(result.conflicts![0].severity).toBe('critical'); // confidence 0.9 >= 0.8
     expect(result.conflicts![0].reason).toBe('opposes prior choice');
+  });
+
+  // Second example for the aggregation rule: a found conflict is still worth
+  // surfacing even when a sibling candidate could not be typed. `conflicting` is
+  // strictly more actionable than `unknown`, so it wins.
+  it('checkAlignment reports "conflicting" when one candidate conflicts and another is unclassified', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship)
+      .mockResolvedValueOnce({ ok: false, reason: 'classifier_error' })
+      .mockResolvedValueOnce({ ok: true, relationship: { type: 'conflicts_with', confidence: 0.9 } });
+    await client.ingestBatch([
+      { source_url: 'https://slack.com/a', platform: 'slack', raw_text: 'Standardise on MySQL', title: 'Standardise on MySQL' },
+      { source_url: 'https://slack.com/b', platform: 'slack', raw_text: 'Cache with Redis', title: 'Cache with Redis' },
+    ]);
+    const result = await client.checkAlignment('migrate the database to Postgres');
+    expect(result.status).toBe('conflicting');
+    expect(result.conflicts).toHaveLength(1);
   });
 
   it('checkDrift returns score for a known decision', async () => {

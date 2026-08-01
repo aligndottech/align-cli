@@ -17,6 +17,7 @@ import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 export const ALIGN_MCP_INSTRUCTIONS = `Align is this team's decision graph - the source of truth for what was decided, why, and who decided it. Use these tools proactively, without being asked:
 
 - BEFORE writing or changing non-trivial code, call align_check_alignment with the proposed change. A "conflict" result means a past decision opposes the change - STOP and confirm with the user before proceeding.
+- An "unknown" status means the check could NOT run (no LLM key, a timeout, unreadable output). It is NOT a pass and NOT "no conflicts found" - the related decisions it returns are unchecked. STOP and ask the human rather than proceeding.
 - When the user asks "why", "how does X work", or "what was decided about Y" - or you're unsure of a convention - call align_ask (or align_search) first. The answer, its status (active/conflicted), and the person who decided it are in the graph.
 - Use align_get_conflicts and align_get_related_decisions to understand context and surface who to talk to.
 - Prefer the graph over guessing: it reflects decisions made across Slack, Jira, GitHub, Linear and more that may not be in the code or docs.`;
@@ -81,7 +82,7 @@ export async function dispatchTool(
   }
 }
 
-const TOOL_SCHEMAS = [
+export const TOOL_SCHEMAS = [
   {
     name: 'align_search',
     description: 'Search the Align decision graph for relevant decisions, architectural choices, and past resolutions',
@@ -119,7 +120,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'align_check_alignment',
-    description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding.',
+    description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding. An "unknown" status means the check could not run and is NOT a pass: the decisions it returns are unchecked, so stop and ask the human rather than treating it as clear.',
     inputSchema: {
       type: 'object',
       properties: {

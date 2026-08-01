@@ -140,7 +140,8 @@ export function createLocalGatewayClient(dbPath: string) {
       const subject = { title: 'Proposed change', summary: diff.slice(0, 2000) };
       const typed = [];
       for (const c of candidates) {
-        const rel = await classifyRelationship(subject, { title: c.title, summary: c.summary });
+        const outcome = await classifyRelationship(subject, { title: c.title, summary: c.summary });
+        const rel = outcome.ok ? outcome.relationship : null;
         typed.push({
           id: c.id,
           title: c.title,
@@ -149,6 +150,7 @@ export function createLocalGatewayClient(dbPath: string) {
           relationship: rel?.type ?? 'relates', // ALI-219: canonical (was 'relates_to')
           confidence: rel?.confidence ?? c.score,
           typed: rel !== null,
+          failureReason: outcome.ok ? undefined : outcome.reason,
           reason: rel?.reason,
           similarity: c.score,
         });
@@ -166,13 +168,46 @@ export function createLocalGatewayClient(dbPath: string) {
           severity: (t.confidence >= 0.8 ? 'critical' : 'warning') as 'critical' | 'warning',
         }));
 
-      const anyTyped = typed.some(t => t.typed);
-      const status: AlignmentResult['status'] = conflicts.length ? 'conflicting' : 'aligned';
+      // ALI-414: a candidate we retrieved but could not classify is exactly the case
+      // where we do not know - it could be the conflict. Reporting `aligned` there is
+      // a fail-open, and an agent reads `aligned` as permission to proceed. A conflict
+      // we DID find still wins: it is strictly more actionable than "unknown".
+      const unclassified = typed.find(t => !t.typed);
       const confidence = Math.max(...typed.map(t => t.confidence));
-      const message = conflicts.length
-        ? `This change conflicts with ${conflicts.length} existing decision(s) in your local graph - review before proceeding.`
-        : `Found ${relevant_decisions.length} related decision(s) to review${anyTyped ? '' : ' (set ANTHROPIC_API_KEY or OPENAI_API_KEY to type these relationships)'}.`;
-      return { status, confidence, relevant_decisions, conflicts, message };
+
+      if (conflicts.length) {
+        return {
+          status: 'conflicting',
+          confidence,
+          relevant_decisions,
+          conflicts,
+          message: `This change conflicts with ${conflicts.length} existing decision(s) in your local graph - review before proceeding.`,
+        };
+      }
+
+      if (unclassified) {
+        const hint = unclassified.failureReason === 'no_llm_key'
+          ? ' Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or run a local Ollama) so these can be classified.'
+          : '';
+        return {
+          status: 'unknown',
+          reason: unclassified.failureReason,
+          confidence: 0,
+          relevant_decisions,
+          conflicts: [],
+          message:
+            `Could not check ${relevant_decisions.length} related decision(s) - the relationship classifier did not run. ` +
+            `This is NOT a pass: treat it as unchecked and review these decisions before proceeding.${hint}`,
+        };
+      }
+
+      return {
+        status: 'aligned',
+        confidence,
+        relevant_decisions,
+        conflicts,
+        message: `Found ${relevant_decisions.length} related decision(s) to review.`,
+      };
     },
 
     async checkDrift(decisionId: string, content: string, _sourceType?: string) {

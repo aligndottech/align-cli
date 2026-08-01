@@ -33,8 +33,31 @@ export interface SearchResults {
   strategy: 'semantic' | 'keyword';
 }
 
+/**
+ * Why an alignment check could not reach a verdict (ALI-414 / ALI-348).
+ *
+ * The `brain_*` codes come from the cloud gateway (`/alignment/check`), the rest
+ * from the local embedded client. Both are listed because this one type describes
+ * both clients' responses, and an agent branching on `reason` sees either.
+ */
+export type UnknownReason =
+  | 'brain_timeout'
+  | 'brain_error'
+  | 'brain_degraded'
+  | 'no_llm_key'
+  | 'classifier_error'
+  | 'classifier_unparseable';
+
 export interface AlignmentResult {
-  status: 'aligned' | 'conflicting' | 'no-context';
+  /**
+   * `unknown` means the check did NOT run - it is not a pass. Anything that cannot
+   * produce a verdict (no LLM key, a classifier that timed out, unparseable output)
+   * lands here rather than in `aligned`, so a consumer that branches on `status`
+   * cannot mistake "could not check" for "checked, no conflict". See ALI-414.
+   */
+  status: 'aligned' | 'conflicting' | 'no-context' | 'unknown';
+  /** Populated only when `status` is `unknown`. */
+  reason?: UnknownReason;
   confidence: number;
   relevant_decisions: Array<{ id: string; title: string; summary: string; similarity: number; url?: string }>;
   conflicts?: Array<{
