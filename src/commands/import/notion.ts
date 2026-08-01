@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
@@ -26,7 +27,8 @@ export function registerImportNotionCommand(importCmd: Command): void {
 Note: Only pages explicitly shared with your Notion integration are visible.
 To share a page: open it in Notion → ... menu → Add connections → select your integration.
 Create an integration at: notion.so/my-integrations`)
-    .action(async (opts: NotionImportOpts) => {
+    .action(async (_opts: NotionImportOpts, cmd: Command) => {
+      const opts = subcommandOpts<NotionImportOpts>(cmd);
       const config = createConfigStore();
       const envName = resolveEnv(opts.env);
       const env = config.getEnvironment(envName);

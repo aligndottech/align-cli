@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
@@ -22,7 +23,8 @@ export function registerImportGitHubCommand(importCmd: Command): void {
     .option('--limit <n>', 'Max items to import', '100')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
-    .action(async (opts: GitHubImportOpts) => {
+    .action(async (_opts: GitHubImportOpts, cmd: Command) => {
+      const opts = subcommandOpts<GitHubImportOpts>(cmd);
       const config = createConfigStore();
       const envName = resolveEnv(opts.env);
       const env = config.getEnvironment(envName);
