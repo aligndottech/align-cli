@@ -41,6 +41,27 @@ export async function dispatchTool(
   client: ReturnType<typeof createGatewayClient>,
   env: EnvironmentConfig,
 ): Promise<unknown> {
+  // A required argument that never arrived used to reach the implementation and fail
+  // from wherever the undefined landed: a missing `diff` surfaced as the tokenizer's
+  // `text may not be null or undefined`, raised to the agent as JSON-RPC -32603. That
+  // names nothing it passed and nothing it could pass instead. The required set is read
+  // from TOOL_SCHEMAS - the same declaration tools/list hands the agent - so there is one
+  // writer of what a tool needs rather than a second copy that can drift from it.
+  const schema = TOOL_SCHEMAS.find((t) => t.name === name) as
+    | { inputSchema?: { required?: readonly string[] } }
+    | undefined;
+  const missing = (schema?.inputSchema?.required ?? []).filter((key) => {
+    const value = args?.[key];
+    return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+  });
+  if (missing.length) {
+    const names = missing.map((k) => `"${k}"`).join(' and ');
+    throw new Error(
+      `${name} requires ${names}. Call it again with ${missing.length > 1 ? 'those arguments' : 'that argument'} ` +
+      'set to a non-empty value.',
+    );
+  }
+
   switch (name) {
     case 'align_search':
       return client.searchDecisions(args?.['query'] as string, args?.['limit'] as number | undefined);
