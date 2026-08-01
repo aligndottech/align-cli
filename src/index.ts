@@ -45,6 +45,20 @@ program
   .description('Align CLI - capture decisions, check alignment, and manage connectors')
   .version(version);
 
+// ALI-403: one usage event per invocation, cloud mode only, so CLI activation and weekly
+// retention are countable. No-ops in --local mode and under ALIGN_TELEMETRY=0. Runs after the
+// command's own work, so a slow or blackholed gateway cannot delay the output the user came for.
+program.hook('postAction', async (_thisCommand, actionCommand) => {
+  const { createConfigStore } = await import('./lib/config.js');
+  const { recordCommandUsage } = await import('./lib/usage-telemetry.js');
+  // Full path ("local ask"), not the leaf name ("ask"), so recordCommandUsage can exclude the
+  // offline `local` group - a cloud-logged-in user running it still has a token in hand.
+  const parts: string[] = [];
+  for (let c: Command | null = actionCommand; c?.parent; c = c.parent) parts.unshift(c.name());
+  const config = createConfigStore();
+  await recordCommandUsage(config.getEnvironment(config.getDefaultEnv()), parts.join(' '));
+});
+
 // Environment targeting
 registerEnvCommand(program);
 

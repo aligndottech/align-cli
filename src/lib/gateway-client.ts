@@ -1,5 +1,22 @@
 import type { EnvironmentConfig } from './config.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
+import pkg from '../../package.json' with { type: 'json' };
+
+/**
+ * ALI-403: identify the CLI to the gateway on every call.
+ *
+ * Without this the CLI is anonymous - a request from `align` carries exactly the same
+ * identifying headers as one from the web app, so cloud-mode CLI usage is only visible as
+ * generic tenant activity and CLI retention cannot be counted at all.
+ *
+ * Read from package.json rather than a literal so a release cannot ship a stale version
+ * string, which would make the number wrong in the one direction nobody would notice.
+ */
+export const CLIENT_IDENTITY_HEADERS: Readonly<Record<string, string>> = Object.freeze({
+  'x-align-client': 'cli',
+  'x-align-client-version': pkg.version,
+  'User-Agent': `@aligndottech/cli/${pkg.version}`,
+});
 
 export interface ConnectorInfo {
   key: string;
@@ -166,7 +183,13 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     try {
       const res = await fetch(`${gatewayUrl}${path}`, {
         ...options,
-        headers: { ...buildHeaders(), ...(options.headers as Record<string, string> ?? {}) },
+        // Identity is applied LAST so a caller passing its own `headers` cannot drop it. Every
+        // other header stays caller-overridable, as before.
+        headers: {
+          ...buildHeaders(),
+          ...(options.headers as Record<string, string> ?? {}),
+          ...CLIENT_IDENTITY_HEADERS,
+        },
       });
       if (!res.ok) {
         let detail = '';

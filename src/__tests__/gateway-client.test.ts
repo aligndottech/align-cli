@@ -6,6 +6,18 @@ vi.mock('../lib/local-gateway-client.js', () => ({
 
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
+import pkg from '../../package.json' with { type: 'json' };
+
+const pkgVersion = pkg.version;
+
+/** Headers of the Nth fetch call, asserted non-empty so a missed call cannot pass vacuously. */
+function sentHeaders(call = 0): Record<string, string> {
+  const args = mockFetch.mock.calls[call];
+  if (!args) throw new Error(`fetch was not called ${call + 1} time(s)`);
+  const headers = (args[1] as { headers?: Record<string, string> } | undefined)?.headers;
+  if (!headers) throw new Error('fetch was called without headers');
+  return headers;
+}
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -176,5 +188,41 @@ describe('gateway client', () => {
     expect(result.snapshots[0].analysis?.relatedDecisions).toHaveLength(1);
     expect(result.snapshots[0].analysis?.relatedDecisions[0].relationship).toBe('relates');
     expect(result.snapshots[0].analysis?.relatedDecisions[0].confidence).toBe(0.8);
+  });
+
+  // ALI-403: without these the CLI is anonymous to the gateway - a CLI request is
+  // byte-identical in its identifying headers to one from the web app, so cloud-mode CLI
+  // usage cannot be counted server-side at all.
+  describe('client identity', () => {
+    async function headersOf(): Promise<Record<string, string>> {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ all: [], enabled: [] }) });
+      await createGatewayClient(localEnv).listConnectors();
+      return sentHeaders();
+    }
+
+    it('names itself as the cli on every request', async () => {
+      expect(await headersOf()).toMatchObject({ 'x-align-client': 'cli' });
+    });
+
+    it('sends its own package version, not a hardcoded one', async () => {
+      expect((await headersOf())['x-align-client-version']).toBe(pkgVersion);
+    });
+
+    it('sends a User-Agent naming the package and version', async () => {
+      expect((await headersOf())['User-Agent']).toBe(`@aligndottech/cli/${pkgVersion}`);
+    });
+
+    // buildHeaders() is spread FIRST, so a caller-supplied headers object silently wins.
+    // Identity must survive that or it is only present on the calls nobody customises.
+    it('keeps the identity headers when a caller supplies its own headers', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
+      await createGatewayClient(localEnv).ingestBatch([
+        { source_url: 'https://x', platform: 'slack', raw_text: 'x' },
+      ]);
+      expect(sentHeaders()).toMatchObject({
+        'x-align-client': 'cli',
+        'x-align-client-version': pkgVersion,
+      });
+    });
   });
 });
