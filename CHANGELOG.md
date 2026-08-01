@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.1](https://github.com/aligndottech/align-cli/compare/cli-v0.7.0...cli-v0.7.1) (2026-08-01)
+
+
+### Bug Fixes
+
+* **deps:** replace @xenova/transformers with @huggingface/transformers (ALI-424) ([#82](https://github.com/aligndottech/align-cli/issues/82)) ([ac90653](https://github.com/aligndottech/align-cli/commit/ac90653d585bf065d05e00f86ab4687104550eee))
+* **import:** pass --approve and --env through to import subcommands (ALI-422) ([#79](https://github.com/aligndottech/align-cli/issues/79)) ([2dfd673](https://github.com/aligndottech/align-cli/commit/2dfd673be9df40f58dc24680538915575e735a39))
+* **mcp:** back the MCP server with the local graph for a no-account user (ALI-423) ([#81](https://github.com/aligndottech/align-cli/issues/81)) ([46e87da](https://github.com/aligndottech/align-cli/commit/46e87da7a7915f29685836ac26814b314a67968c))
+
 ## [0.7.0](https://github.com/aligndottech/align-cli/compare/cli-v0.6.0...cli-v0.7.0) (2026-08-01)
 
 
