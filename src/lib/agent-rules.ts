@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { alignServerEntry } from './mcp-setup.js';
 
 // ALI-121: the deterministic auto-alignment layer. ALI-120 gave the MCP server
 // instructions (model discretion); these project-local, committed files make the
@@ -152,6 +153,36 @@ export function writeCursorRule(cwd: string): void {
   writeFileSync(path.join(dir, 'align.md'), cursorRuleBody(), 'utf8');
 }
 
+// .mcp.json - the tool-agnostic, project-local MCP config. pi reads it (via
+// pi-mcp-adapter), so does Claude Code, and it is committed, so one write covers the
+// whole team rather than each person's per-host config. Deliberately host-NEUTRAL: pi's
+// `directTools` goes in the Pi-owned override that mcp-setup.ts writes, never here.
+export function writeProjectMcpConfig(cwd: string, env?: string): void {
+  const file = path.join(cwd, '.mcp.json');
+
+  let raw = '';
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'ENOENT') throw err;
+  }
+
+  let config: Record<string, unknown> = {};
+  if (raw.trim()) {
+    try {
+      config = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new Error(`${file} contains invalid JSON - fix it manually before running align setup`);
+    }
+  }
+
+  const servers = (config['mcpServers'] ?? {}) as Record<string, unknown>;
+  servers['align'] = alignServerEntry('mcpServers', env);
+  config['mcpServers'] = servers;
+
+  writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+}
+
 // Write every deterministic-alignment artifact into the project. Returns the
 // repo-relative paths written, for the caller to report.
 export function setupAgentAlignment(opts: { cwd: string; env?: string }): string[] {
@@ -159,5 +190,8 @@ export function setupAgentAlignment(opts: { cwd: string; env?: string }): string
   writeManagedNudge(opts.cwd);
   writeAgentsNudge(opts.cwd);
   writeCursorRule(opts.cwd);
-  return ['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md'];
+  // prod is the default env, so leave it off to keep the committed file portable -
+  // the same rule advisoryCommand() applies to the hook.
+  writeProjectMcpConfig(opts.cwd, opts.env === 'prod' ? undefined : opts.env);
+  return ['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md', '.mcp.json'];
 }

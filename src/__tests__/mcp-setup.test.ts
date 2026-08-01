@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal();
@@ -105,6 +105,79 @@ describe('detectEditors', () => {
   it('returns empty array when no editors found', () => {
     mockExistsSync.mockReturnValue(false);
     expect(detectEditors()).toHaveLength(0);
+  });
+});
+
+// pi (https://pi.dev) reads MCP config from its agent dir, which the pi-mcp-adapter
+// relocates via $PI_CODING_AGENT_DIR. Both sides of that conditional are set
+// explicitly here - inheriting the ambient value would make one of these vacuous.
+describe('detectEditors - pi', () => {
+  const savedAgentDir = process.env['PI_CODING_AGENT_DIR'];
+
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    if (savedAgentDir === undefined) delete process.env['PI_CODING_AGENT_DIR'];
+    else process.env['PI_CODING_AGENT_DIR'] = savedAgentDir;
+  });
+
+  it('returns pi with the pi format when ~/.pi exists', () => {
+    delete process.env['PI_CODING_AGENT_DIR'];
+    mockExistsSync.mockImplementation((p: unknown) =>
+      typeof p === 'string' && p.replace(/\\/g, '/').endsWith('/.pi'),
+    );
+    const target = detectEditors().find(e => e.name === 'pi');
+    expect(target).toBeDefined();
+    expect(target!.format).toBe('pi');
+    expect(target!.configPath.replace(/\\/g, '/')).toMatch(/\/\.pi\/agent\/mcp\.json$/);
+  });
+
+  it('honours $PI_CODING_AGENT_DIR even when ~/.pi does not exist', () => {
+    process.env['PI_CODING_AGENT_DIR'] = '/custom/pi-agent';
+    mockExistsSync.mockImplementation((p: unknown) =>
+      typeof p === 'string' && p.replace(/\\/g, '/') === '/custom/pi-agent',
+    );
+    const target = detectEditors().find(e => e.name === 'pi');
+    expect(target).toBeDefined();
+    expect(target!.configPath.replace(/\\/g, '/')).toBe('/custom/pi-agent/mcp.json');
+  });
+
+  it('does not return pi when neither the agent dir nor ~/.pi exists', () => {
+    delete process.env['PI_CODING_AGENT_DIR'];
+    mockExistsSync.mockReturnValue(false);
+    expect(detectEditors().some(e => e.name === 'pi')).toBe(false);
+  });
+});
+
+describe('writeMcpConfig - pi format', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // directTools is what keeps align's tools in the model's context. Without it the
+  // adapter hides every server behind one proxy tool the agent must search first,
+  // which defeats "call align_check_alignment BEFORE writing code".
+  it('writes under "mcpServers" with directTools so the tools stay directly callable', () => {
+    mockReadFileSync.mockReturnValue('{}');
+    const target: EditorTarget = { name: 'pi', configPath: '/tmp/.pi/agent/mcp.json', format: 'pi' };
+    writeMcpConfig(target);
+    const written = JSON.parse(lastWritten()) as { mcpServers: Record<string, unknown> };
+    expect(written.mcpServers['align']).toEqual({ command: 'align', args: ['mcp'], directTools: true });
+  });
+
+  it('keeps directTools when a non-prod env is encoded into the args', () => {
+    mockReadFileSync.mockReturnValue('{}');
+    const target: EditorTarget = { name: 'pi', configPath: '/tmp/.pi/agent/mcp.json', format: 'pi' };
+    writeMcpConfig(target, 'local');
+    const written = JSON.parse(lastWritten()) as { mcpServers: Record<string, { args: string[]; directTools: boolean }> };
+    expect(written.mcpServers['align'].args).toEqual(['mcp', '--env', 'local']);
+    expect(written.mcpServers['align'].directTools).toBe(true);
+  });
+
+  it('preserves other servers already in the pi agent config', () => {
+    mockReadFileSync.mockReturnValue(JSON.stringify({ mcpServers: { other: { command: 'x' } } }));
+    const target: EditorTarget = { name: 'pi', configPath: '/tmp/.pi/agent/mcp.json', format: 'pi' };
+    writeMcpConfig(target);
+    const written = JSON.parse(lastWritten()) as { mcpServers: Record<string, unknown> };
+    expect(written.mcpServers['other']).toBeDefined();
+    expect(written.mcpServers['align']).toBeDefined();
   });
 });
 
