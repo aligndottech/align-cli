@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/aligndottech/align-cli/compare/cli-v0.6.0...cli-v0.7.0) (2026-08-01)
+
+
+### Features
+
+* **cli:** identify the CLI to the gateway and record one usage event per command (ALI-403) ([#77](https://github.com/aligndottech/align-cli/issues/77)) ([b19c9b2](https://github.com/aligndottech/align-cli/commit/b19c9b2f5ebacd95a19494cfe65eff192f2e99a8))
+
 ## [0.6.0](https://github.com/aligndottech/align-cli/compare/cli-v0.5.0...cli-v0.6.0) (2026-08-01)
 
 
