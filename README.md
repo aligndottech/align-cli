@@ -50,13 +50,13 @@ align ask "how does our auth work"       # natural language answer from your gra
   ──────────                   ───────────                  ───────────────────
   Git, GitHub, GitLab  ─┐                                  ┌─ align ask "why…"
   Jira, Confluence      ├─▶  import  ─▶  decision graph ─┐ ├─ MCP server (inline)
-  Linear, Notion        │    (read-only) (what/why/who)  ├─┤  PostToolUse hook
+  Linear, Notion        │    (read-only) (what/why/who)  ├─┤  edit hooks (any agent)
   Slack, Teams, Zoom   ─┘                  + relationships┘ └─ align check (CI)
 ```
 
 1. **Import** pulls the decisions out of the tools you already use - read-only, nothing is modified.
 2. Align links them into a **cross-tool decision graph**: what was decided, why, who decided it, and how decisions relate (supersedes, conflicts with, depends on).
-3. Your agents and you **query and check against** that graph - over MCP, a Claude Code hook, CI, or plain `align ask`.
+3. Your agents and you **query and check against** that graph - over MCP, a deterministic edit hook in your agent, CI, or plain `align ask`.
 
 The CLI and MCP server are open source (this repo). The hosted graph + relationship detection is a separate commercial gateway; you can also run fully local with `--local`.
 
@@ -65,7 +65,9 @@ The CLI and MCP server are open source (this repo). The hosted graph + relations
 When you run `align setup`, Align makes itself available to your AI agents three ways, so the context fires whether or not the model thinks to ask for it:
 
 1. **MCP server** - your assistant (Claude Code, Cursor, Claude Desktop, Windsurf) can query the decision graph inline. The server ships with instructions telling the agent to check alignment *before* making non-trivial changes.
-2. **Claude Code hook** - setup writes a `PostToolUse` hook (matcher `Write|Edit`) into the project's `.claude/settings.json`. After the agent edits a file, the hook runs `align check --advisory` and injects any conflicting decisions straight into the agent's context. It is **non-blocking and fail-open**: it never denies an edit, and if Align is slow or unreachable it exits silently.
+2. **Deterministic edit hooks** - setup registers `align check --advisory` with every host that exposes a hook API, so the conflict reaches the model whether or not it thought to ask. **Claude Code** (`.claude/settings.json`), **pi** (`.pi/extensions/align.ts`) and **Gemini CLI** (`.gemini/settings.json`) all check the *proposed* change before it is written. It is **non-blocking and fail-open**: it never denies an edit by default, and if Align is missing, slow or unreachable the edit proceeds untouched.
+
+   **Cursor and Codex CLI cannot do this**, and that is a limit of those hosts, not a gap in setup: Cursor has no `beforeFileEdit` and its `afterFileEdit` hook has no output fields, and Codex's `PreToolUse` intercepts Bash only. They get layers 1, 3 and 4. The full per-host matrix, and why, is in [docs/agent-hooks.md](docs/agent-hooks.md).
 3. **Editor rules** - a managed, marker-delimited block in your `CLAUDE.md` and `AGENTS.md`, plus a `.cursor/rules/align.md` file (Cursor doesn't honor Claude Code hooks), nudge agents to consult the graph.
 4. **A shared `.mcp.json`** at the repo root - the tool-agnostic MCP config that pi, Claude Code and others read, so one committed file wires up the whole team rather than each person's per-host config.
 
@@ -73,10 +75,11 @@ The hook, rule and `.mcp.json` files are committed to the repo, so the whole tea
 
 > **Heads up:** the first time Claude Code loads a project with a committed hook, it shows a one-time "approve hooks" prompt. Accept it to enable automatic alignment.
 
-You can also run the advisory check yourself - it always exits 0 and prints the Claude Code hook JSON on a conflict:
+You can also run the advisory check yourself. It always exits 0, and on a conflict prints the hook output in whichever host's shape you ask for - `--format text` is plain prose for a host with no JSON contract:
 
 ```bash
-align check --advisory
+align check --advisory                  # Claude Code shape (default)
+align check --advisory --format text    # plain text, for any other agent
 ```
 
 ## Asking questions

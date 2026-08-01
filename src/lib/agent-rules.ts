@@ -183,6 +183,152 @@ export function writeProjectMcpConfig(cwd: string, env?: string): void {
   writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 }
 
+// ---------------------------------------------------------------------------
+// Per-host hook shims (the agent-agnostic guardrail)
+// ---------------------------------------------------------------------------
+// One advisory engine, N hosts. `align check --advisory --format <host>` reads the
+// host's payload on stdin and prints the shape that host reads back. All a shim does
+// is register that command and move the bytes. Which hosts can do what, and why, is
+// the table in docs/agent-hooks.md - the differences are the hosts', not ours.
+
+// pi discovers project extensions at .pi/extensions/*.ts and loads them with jiti, so
+// this ships as TypeScript and is never compiled by us.
+//
+// Two events, because pi splits the two halves of what Claude Code does in one:
+//   tool_call   fires BEFORE the edit, but its only return channel is {block, reason}
+//   tool_result fires after, and CAN patch the content the model reads
+// So the check runs pre-edit (the point of ALI-122) and its finding is replayed into
+// that same call's result - non-blocking by default, exactly like the Claude hook.
+//
+// The extension deliberately declares its own structural types instead of importing
+// them from pi: an unresolved import would throw at load and take the session with it,
+// and pi's package scope has already moved once (@mariozechner -> @earendil-works).
+function piExtensionBody(env?: string): string {
+  const envArgs = env && env !== 'prod' ? `, "--env", "${env}"` : '';
+  return `// Align decision graph - managed by \`align setup\`, do not edit.
+// Checks each proposed edit against your team's prior decisions and feeds any
+// conflict back to the model. Non-blocking and fail-open by design: if align is
+// missing, slow or unhappy, the edit proceeds untouched.
+import { execFile } from "node:child_process";
+
+type PiEvent = { toolName?: string; toolCallId?: string; input?: unknown; content?: unknown[] };
+type Verdict = { block?: boolean; reason?: string; context?: string };
+
+const MUTATING_TOOLS = new Set(["edit", "write"]);
+const TIMEOUT_MS = 10000;
+
+// Findings from the pre-edit check, held until that call's result comes back.
+const pending = new Map<string, string>();
+
+function askAlign(payload: unknown): Promise<Verdict | null> {
+  return new Promise((resolve) => {
+    try {
+      const child = execFile(
+        "align",
+        ["check", "--advisory", "--format", "pi"${envArgs}],
+        { timeout: TIMEOUT_MS },
+        (err, stdout) => {
+          if (err || !stdout || !stdout.trim()) return resolve(null);
+          try {
+            const last = stdout.trim().split("\\n").pop() as string;
+            resolve(JSON.parse(last) as Verdict);
+          } catch {
+            resolve(null);
+          }
+        },
+      );
+      child.stdin?.end(JSON.stringify(payload));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export default function (pi: { on: (e: string, h: (ev: PiEvent) => unknown) => void }) {
+  pi.on("tool_call", async (event: PiEvent) => {
+    if (!event.toolName || !MUTATING_TOOLS.has(event.toolName)) return;
+    const verdict = await askAlign({ type: "tool_call", toolName: event.toolName, input: event.input });
+    if (!verdict) return;
+    if (verdict.block) return { block: true, reason: String(verdict.reason ?? "Conflicts with a prior decision") };
+    if (verdict.context && event.toolCallId) pending.set(event.toolCallId, String(verdict.context));
+  });
+
+  pi.on("tool_result", async (event: PiEvent) => {
+    const found = event.toolCallId ? pending.get(event.toolCallId) : undefined;
+    if (!found) return;
+    pending.delete(event.toolCallId as string);
+    return { content: [...(event.content ?? []), { type: "text", text: found }] };
+  });
+}
+`;
+}
+
+// pi extension. Fully managed - overwritten each run.
+export function writePiExtension(cwd: string, env?: string): void {
+  const dir = path.join(cwd, '.pi', 'extensions');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, 'align.ts'), piExtensionBody(env), 'utf8');
+}
+
+// Gemini CLI hooks. BeforeTool can only deny (no additionalContext channel), so the
+// non-blocking finding is carried by AfterTool - the same split as pi, for the same
+// reason. `replace` and `write_file` are Gemini's built-in file-mutating tools; the
+// matcher is a regex.
+const GEMINI_MATCHER = 'write_file|replace';
+
+function geminiHookGroup(event: 'BeforeTool' | 'AfterTool', env?: string): Record<string, unknown> {
+  const envArg = env && env !== 'prod' ? ` --env ${env}` : '';
+  return {
+    matcher: GEMINI_MATCHER,
+    hooks: [{
+      type: 'command',
+      name: 'align-decision-graph',
+      description: `Align: check the ${event === 'BeforeTool' ? 'proposed' : 'applied'} change against prior decisions`,
+      command: `align check --advisory --format gemini${envArg}`,
+    }],
+  };
+}
+
+function isAlignGeminiHook(group: unknown): boolean {
+  const hooks = (group as { hooks?: Array<{ command?: unknown }> })?.hooks;
+  return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes('align check --advisory'));
+}
+
+export function writeGeminiHooks(cwd: string, env?: string): void {
+  const dir = path.join(cwd, '.gemini');
+  const file = path.join(dir, 'settings.json');
+
+  let raw = '';
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'ENOENT') throw err;
+  }
+
+  let settings: Record<string, unknown> = {};
+  if (raw.trim()) {
+    try {
+      settings = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new Error(`${file} contains invalid JSON - fix it manually before running align setup`);
+    }
+  }
+
+  const hooks = (settings['hooks'] ?? {}) as Record<string, unknown>;
+  // Strip any prior align-managed group from each event first, so a re-run replaces
+  // it (and picks up an env change) instead of stacking a second one.
+  for (const event of ['BeforeTool', 'AfterTool'] as const) {
+    const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
+    const preserved = existing.filter((g) => !isAlignGeminiHook(g));
+    preserved.push(geminiHookGroup(event, env));
+    hooks[event] = preserved;
+  }
+  settings['hooks'] = hooks;
+
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+}
+
 // Write every deterministic-alignment artifact into the project. Returns the
 // repo-relative paths written, for the caller to report.
 export function setupAgentAlignment(opts: { cwd: string; env?: string }): string[] {
@@ -192,6 +338,17 @@ export function setupAgentAlignment(opts: { cwd: string; env?: string }): string
   writeCursorRule(opts.cwd);
   // prod is the default env, so leave it off to keep the committed file portable -
   // the same rule advisoryCommand() applies to the hook.
-  writeProjectMcpConfig(opts.cwd, opts.env === 'prod' ? undefined : opts.env);
-  return ['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md', '.mcp.json'];
+  const env = opts.env === 'prod' ? undefined : opts.env;
+  writeProjectMcpConfig(opts.cwd, env);
+  writePiExtension(opts.cwd, env);
+  writeGeminiHooks(opts.cwd, env);
+  return [
+    '.claude/settings.json',
+    'CLAUDE.md',
+    'AGENTS.md',
+    '.cursor/rules/align.md',
+    '.mcp.json',
+    '.pi/extensions/align.ts',
+    '.gemini/settings.json',
+  ];
 }

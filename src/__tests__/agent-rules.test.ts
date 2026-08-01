@@ -219,6 +219,15 @@ describe('setupAgentAlignment', () => {
     );
   });
 
+  it('writes the deterministic hook shim for every host that supports one, and reports each', () => {
+    const written = setupAgentAlignment({ cwd: dir, env: 'prod' });
+    expect(existsSync(join(dir, '.pi', 'extensions', 'align.ts'))).toBe(true);
+    expect(existsSync(join(dir, '.gemini', 'settings.json'))).toBe(true);
+    expect(written).toEqual(
+      expect.arrayContaining(['.claude/settings.json', '.pi/extensions/align.ts', '.gemini/settings.json']),
+    );
+  });
+
   it('also writes the shared .mcp.json and reports it', () => {
     const written = setupAgentAlignment({ cwd: dir, env: 'prod' });
     expect(existsSync(join(dir, '.mcp.json'))).toBe(true);
