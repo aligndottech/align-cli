@@ -61,7 +61,7 @@
     "vitest": "^3.2.4"
   },
   "optionalDependencies": {
-    "@xenova/transformers": "^2.17.2"
+    "@huggingface/transformers": "^4.2.0"
   },
   "engines": {
     "node": ">=20"

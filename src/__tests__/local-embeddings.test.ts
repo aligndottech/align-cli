@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@xenova/transformers', () => {
+vi.mock('@huggingface/transformers', () => {
   const mockPipeline = vi.fn().mockResolvedValue(
     vi.fn().mockResolvedValue([{ data: new Float32Array(384).fill(0.1) }])
   );
