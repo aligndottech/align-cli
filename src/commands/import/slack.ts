@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
@@ -25,7 +26,8 @@ export function registerImportSlackCommand(importCmd: Command): void {
     .option('--days-back <n>', 'How many days back to scan', '90')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
-    .action(async (opts: SlackImportOpts) => {
+    .action(async (_opts: SlackImportOpts, cmd: Command) => {
+      const opts = subcommandOpts<SlackImportOpts>(cmd);
       p.log.warn(chalk.yellow(
         'Experimental: requires a Slack app with xoxp- token installed in your workspace.\n' +
         '  To get a token: api.slack.com/apps → New App → OAuth & Permissions → User Token Scopes:\n' +

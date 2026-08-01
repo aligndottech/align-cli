@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
@@ -22,7 +23,8 @@ export function registerImportTeamsCommand(importCmd: Command): void {
     .option('--limit <n>', 'Max messages to import', '50')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
-    .action(async (opts: TeamsImportOpts) => {
+    .action(async (_opts: TeamsImportOpts, cmd: Command) => {
+      const opts = subcommandOpts<TeamsImportOpts>(cmd);
       p.log.warn(
         'Requires a delegated Graph API token with ChannelMessage.Read.All scope.\n' +
         '  This permission requires admin consent in most Microsoft 365 tenants.\n' +

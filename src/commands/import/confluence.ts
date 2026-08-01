@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
@@ -27,7 +28,8 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
     .option('--limit <n>', 'Max pages to import', '50')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
-    .action(async (opts: ConfluenceImportOpts) => {
+    .action(async (_opts: ConfluenceImportOpts, cmd: Command) => {
+      const opts = subcommandOpts<ConfluenceImportOpts>(cmd);
       const config = createConfigStore();
       const envName = resolveEnv(opts.env);
       const env = config.getEnvironment(envName);

@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
@@ -26,7 +27,8 @@ export function registerImportGitCommand(importCmd: Command): void {
     .option('--branch <name>', 'Branch to scan (default: current)')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
-    .action(async (opts: GitImportOpts) => {
+    .action(async (_opts: GitImportOpts, cmd: Command) => {
+      const opts = subcommandOpts<GitImportOpts>(cmd);
       if (!(await isGitRepo())) {
         p.log.error('Not in a git repository. Run from inside your project directory.');
         process.exit(1);

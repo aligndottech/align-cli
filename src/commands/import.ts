@@ -1,5 +1,6 @@
 import { resolveEnv } from '../lib/resolve-env.js';
 import type { Command } from 'commander';
+import { subcommandOpts } from '../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { EventSource } from 'eventsource';
@@ -47,7 +48,8 @@ function registerImportListCommands(importCmd: Command): void {
     .option('--env <env>', 'Environment')
     .option('--status <status>', 'Filter by status (running, completed, failed, pending)')
     .option('--connector <key>', 'Filter by connector key')
-    .action(async (opts: { env: EnvName; status?: string; connector?: string }) => {
+    .action(async (_opts: { env: EnvName; status?: string; connector?: string }, cmd: Command) => {
+      const opts = subcommandOpts<{ env: EnvName; status?: string; connector?: string }>(cmd);
       const client = createGatewayClient(createConfigStore().getEnvironment(resolveEnv(opts.env)));
       const spinner = p.spinner();
       spinner.start('Fetching import jobs...');
@@ -95,7 +97,8 @@ function registerImportListCommands(importCmd: Command): void {
     .option('--env <env>', 'Environment')
     .option('--job <id>', 'Filter by import job ID')
     .option('--status <s>', 'Filter by status', 'pending')
-    .action(async (opts: { env: EnvName; job?: string; status: string }) => {
+    .action(async (_opts: { env: EnvName; job?: string; status: string }, cmd: Command) => {
+      const opts = subcommandOpts<{ env: EnvName; job?: string; status: string }>(cmd);
       const client = createGatewayClient(createConfigStore().getEnvironment(resolveEnv(opts.env)));
       const spinner = p.spinner();
       spinner.start('Fetching suggestions...');
@@ -126,7 +129,8 @@ function registerImportListCommands(importCmd: Command): void {
     .command('scan-runs')
     .description('List historical scan runs')
     .option('--env <env>', 'Environment')
-    .action(async (opts: { env: EnvName }) => {
+    .action(async (_opts: { env: EnvName }, cmd: Command) => {
+      const opts = subcommandOpts<{ env: EnvName }>(cmd);
       const client = createGatewayClient(createConfigStore().getEnvironment(resolveEnv(opts.env)));
       const spinner = p.spinner();
       spinner.start('Fetching scan runs...');
