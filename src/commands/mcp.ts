@@ -198,7 +198,10 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
       }
 
       const config = createConfigStore();
-      const resolvedEnv = resolveEnv(opts.env);
+      // Local mode serves every tool this server exposes, so a no-account user who ran
+      // `align local start` is routed there rather than at an anonymous cloud gateway -
+      // otherwise the agent's very first call 401s. A logged-in user is never redirected.
+      const resolvedEnv = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const env = config.getEnvironment(resolvedEnv);
       const client = createGatewayClient(env);
 
