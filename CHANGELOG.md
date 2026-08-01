@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0](https://github.com/aligndottech/align-cli/compare/cli-v0.5.0...cli-v0.6.0) (2026-08-01)
+
+
+### Features
+
+* **cli:** autonomous "what your graph did for you" value readout (ALI-215) ([#74](https://github.com/aligndottech/align-cli/issues/74)) ([5cbf841](https://github.com/aligndottech/align-cli/commit/5cbf841fd3b776bb9c7aefdecb2459c9061e3eff))
+
+
+### Bug Fixes
+
+* **check:** add an explicit "unknown" state so a check that could not run stops reporting "aligned" (ALI-414) ([#76](https://github.com/aligndottech/align-cli/issues/76)) ([c0ea263](https://github.com/aligndottech/align-cli/commit/c0ea263f2c9b109841835af495906f82204ee9fe))
+* **local:** consume canonical relationship contract, drop invented types (ALI-219) ([#73](https://github.com/aligndottech/align-cli/issues/73)) ([4fdbdb1](https://github.com/aligndottech/align-cli/commit/4fdbdb17cff07641b58be0d20bfb40a6848d202a))
+* **local:** deterministic offline relationship detection (ALI-218) ([#71](https://github.com/aligndottech/align-cli/issues/71)) ([9f3dbae](https://github.com/aligndottech/align-cli/commit/9f3dbae8c641f1932113b4c59279b9cd00501f17))
+
 ## [0.5.0](https://github.com/aligndottech/align-cli/compare/cli-v0.4.2...cli-v0.5.0) (2026-06-28)
 
 
