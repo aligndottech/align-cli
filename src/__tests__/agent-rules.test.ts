@@ -10,6 +10,7 @@ import {
   writeClaudeCodeHook,
   writeCursorRule,
   writeManagedNudge,
+  writeProjectMcpConfig,
 } from '../lib/agent-rules.js';
 
 let dir: string;
@@ -164,6 +165,48 @@ describe('writeCursorRule', () => {
   });
 });
 
+describe('writeProjectMcpConfig', () => {
+  it('writes .mcp.json with the align stdio server', () => {
+    writeProjectMcpConfig(dir);
+    const cfg = readJson('.mcp.json');
+    expect(cfg.mcpServers.align).toEqual({ command: 'align', args: ['mcp'] });
+  });
+
+  // .mcp.json is the SHARED, committed file that pi, Claude Code and others all read,
+  // so it must stay host-neutral. pi's directTools belongs in the pi-owned override
+  // written by mcp-setup, not here.
+  it('omits host-specific fields so the shared file stays portable', () => {
+    writeProjectMcpConfig(dir);
+    expect(readJson('.mcp.json').mcpServers.align).not.toHaveProperty('directTools');
+  });
+
+  it('encodes a non-prod env into the args', () => {
+    writeProjectMcpConfig(dir, 'local');
+    expect(readJson('.mcp.json').mcpServers.align.args).toEqual(['mcp', '--env', 'local']);
+  });
+
+  it('merges into an existing .mcp.json without dropping other servers', () => {
+    writeFileSync(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { other: { command: 'x' } } }));
+    writeProjectMcpConfig(dir);
+    const cfg = readJson('.mcp.json');
+    expect(cfg.mcpServers.other).toEqual({ command: 'x' });
+    expect(cfg.mcpServers.align).toBeDefined();
+  });
+
+  it('is idempotent - a re-run leaves exactly one align entry', () => {
+    writeProjectMcpConfig(dir);
+    writeProjectMcpConfig(dir);
+    const keys = Object.keys(readJson('.mcp.json').mcpServers);
+    expect(keys.filter(k => k === 'align')).toHaveLength(1);
+  });
+
+  it('throws rather than clobbering a .mcp.json containing invalid JSON', () => {
+    writeFileSync(join(dir, '.mcp.json'), 'not json{{{');
+    expect(() => writeProjectMcpConfig(dir)).toThrow('invalid JSON');
+    expect(readFileSync(join(dir, '.mcp.json'), 'utf8')).toBe('not json{{{');
+  });
+});
+
 describe('setupAgentAlignment', () => {
   it('writes all agent-rule artifacts (incl. generic AGENTS.md) and reports what it wrote', () => {
     const written = setupAgentAlignment({ cwd: dir, env: 'prod' });
@@ -174,5 +217,22 @@ describe('setupAgentAlignment', () => {
     expect(written).toEqual(
       expect.arrayContaining(['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md']),
     );
+  });
+
+  it('also writes the shared .mcp.json and reports it', () => {
+    const written = setupAgentAlignment({ cwd: dir, env: 'prod' });
+    expect(existsSync(join(dir, '.mcp.json'))).toBe(true);
+    expect(written).toContain('.mcp.json');
+  });
+
+  // The file is committed, so it has to work for teammates on the default env.
+  it('leaves the default prod env out of the committed .mcp.json args', () => {
+    setupAgentAlignment({ cwd: dir, env: 'prod' });
+    expect(readJson('.mcp.json').mcpServers.align.args).toEqual(['mcp']);
+  });
+
+  it('writes a non-default env into the committed .mcp.json args', () => {
+    setupAgentAlignment({ cwd: dir, env: 'local' });
+    expect(readJson('.mcp.json').mcpServers.align.args).toEqual(['mcp', '--env', 'local']);
   });
 });

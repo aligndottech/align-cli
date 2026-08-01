@@ -659,7 +659,7 @@ async function runCloudSetup(ctx: {
     const envArgs = envName !== 'prod' ? `, "--env", "${envName}"` : '';
     p.log.info(
       `No MCP agent detected automatically. Align works with any MCP-capable agent ` +
-      `(Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...).\n` +
+      `(Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, pi, ...).\n` +
       `Add this to your agent's MCP config (or re-run ${chalk.bold('align mcp --setup')} once it is installed):\n\n` +
       `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
     );

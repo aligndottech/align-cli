@@ -66,9 +66,10 @@ When you run `align setup`, Align makes itself available to your AI agents three
 
 1. **MCP server** - your assistant (Claude Code, Cursor, Claude Desktop, Windsurf) can query the decision graph inline. The server ships with instructions telling the agent to check alignment *before* making non-trivial changes.
 2. **Claude Code hook** - setup writes a `PostToolUse` hook (matcher `Write|Edit`) into the project's `.claude/settings.json`. After the agent edits a file, the hook runs `align check --advisory` and injects any conflicting decisions straight into the agent's context. It is **non-blocking and fail-open**: it never denies an edit, and if Align is slow or unreachable it exits silently.
-3. **Editor rules** - a managed, marker-delimited block in your `CLAUDE.md` and a `.cursor/rules/align.md` file (Cursor doesn't honor Claude Code hooks) nudge agents to consult the graph.
+3. **Editor rules** - a managed, marker-delimited block in your `CLAUDE.md` and `AGENTS.md`, plus a `.cursor/rules/align.md` file (Cursor doesn't honor Claude Code hooks), nudge agents to consult the graph.
+4. **A shared `.mcp.json`** at the repo root - the tool-agnostic MCP config that pi, Claude Code and others read, so one committed file wires up the whole team rather than each person's per-host config.
 
-The hook and rule files are committed to the repo, so the whole team's agents get the same guardrail. Re-running `align setup` updates them in place (idempotent - no duplicate hooks or blocks).
+The hook, rule and `.mcp.json` files are committed to the repo, so the whole team's agents get the same guardrail. Re-running `align setup` updates them in place (idempotent - no duplicate hooks or blocks).
 
 > **Heads up:** the first time Claude Code loads a project with a committed hook, it shows a one-time "approve hooks" prompt. Accept it to enable automatic alignment.
 
@@ -314,6 +315,18 @@ align mcp           # start the server directly
 ```
 
 **Cursor** - `~/.cursor/mcp.json` (same format as Claude Code above).
+
+**pi** - MCP is not built in; install the adapter first with `pi install npm:pi-mcp-adapter`, then restart pi. `align setup` writes `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "align": { "command": "align", "args": ["mcp"], "directTools": true }
+  }
+}
+```
+
+`directTools` matters: the adapter is lazy by default and hides every server behind a single proxy tool the agent has to search first, which defeats the "check alignment *before* the edit" instruction.
 
 Once configured, your assistant can call these tools to query and update your decision graph in context:
 

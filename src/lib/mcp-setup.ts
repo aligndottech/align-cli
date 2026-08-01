@@ -9,7 +9,8 @@ import os from 'node:os';
 //  - 'vscode' JSON       {"servers":{"align":{"type":"stdio","command","args"}}}   VS Code (Copilot)
 //  - 'zed' JSON          {"context_servers":{"align":{"source":"custom","command","args"}}}  Zed
 //  - 'codex' TOML        [mcp_servers.align] table                          OpenAI Codex CLI
-export type McpFormat = 'mcpServers' | 'vscode' | 'zed' | 'codex';
+//  - 'pi' JSON           {"mcpServers":{"align":{...,"directTools":true}}}   pi (pi.dev)
+export type McpFormat = 'mcpServers' | 'vscode' | 'zed' | 'codex' | 'pi';
 
 export interface EditorTarget {
   name: string;
@@ -22,14 +23,22 @@ function alignArgs(env?: string): string[] {
 }
 
 // The per-format entry shape for the `align` server. VS Code requires `type`;
-// Zed silently drops entries without `source: "custom"`.
-function alignServerEntry(format: McpFormat, env?: string): Record<string, unknown> {
+// Zed silently drops entries without `source: "custom"`. Exported so the shared
+// project-local .mcp.json (agent-rules.ts) builds the entry from here rather than
+// keeping a second copy that can drift from this one.
+export function alignServerEntry(format: McpFormat, env?: string): Record<string, unknown> {
   const args = alignArgs(env);
   switch (format) {
     case 'vscode':
       return { type: 'stdio', command: 'align', args };
     case 'zed':
       return { source: 'custom', command: 'align', args };
+    case 'pi':
+      // pi's MCP adapter is lazy by default: every server hides behind one proxy tool
+      // the agent has to search before it can call anything. That directly undercuts
+      // ALIGN_MCP_INSTRUCTIONS' "call align_check_alignment BEFORE writing code", so
+      // ask for the tools to be registered directly.
+      return { command: 'align', args, directTools: true };
     default:
       return { command: 'align', args };
   }
@@ -106,6 +115,20 @@ export function detectEditors(): EditorTarget[] {
   // OpenAI Codex CLI (~/.codex/config.toml)
   if (existsSync(path.join(home, '.codex'))) {
     found.push({ name: 'Codex', configPath: path.join(home, '.codex', 'config.toml'), format: 'codex' });
+  }
+
+  // pi (pi.dev) - MCP comes from the `pi-mcp-adapter` package, which reads the Pi agent
+  // dir (~/.pi/agent by default, relocatable via $PI_CODING_AGENT_DIR). Write the Pi-owned
+  // override rather than a shared file: it is where adapter-only settings like directTools
+  // belong, and it never rewrites another host's config.
+  const piAgentDir = process.env['PI_CODING_AGENT_DIR'];
+  const piRoot = piAgentDir ?? path.join(home, '.pi');
+  if (existsSync(piRoot)) {
+    found.push({
+      name: 'pi',
+      configPath: path.join(piAgentDir ?? path.join(home, '.pi', 'agent'), 'mcp.json'),
+      format: 'pi',
+    });
   }
 
   // Gemini CLI (~/.gemini/settings.json, `mcpServers`)
