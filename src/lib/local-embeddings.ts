@@ -3,22 +3,28 @@ let _pipe: EmbeddingPipeline | null = null;
 
 export async function getEmbedding(text: string): Promise<Float32Array> {
   if (!_pipe) {
-    let mod: { pipeline: (task: string, model: string) => Promise<unknown> };
+    let mod: { pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown> };
     try {
-      // @xenova/transformers is an optionalDependency - its native deps (sharp,
+      // @huggingface/transformers is an optionalDependency - its native deps (sharp,
       // onnxruntime) can fail to install on Alpine/ARM/behind a proxy. If it's
       // missing, point the user at cloud mode rather than a raw "Cannot find module".
-      mod = (await import('@xenova/transformers')) as unknown as typeof mod;
+      mod = (await import('@huggingface/transformers')) as unknown as typeof mod;
     } catch (err) {
       throw new Error(
-        'Local mode needs the on-device embedding model (@xenova/transformers), which is not installed on this platform. ' +
+        'Local mode needs the on-device embedding model (@huggingface/transformers), which is not installed on this platform. ' +
         'Use cloud mode (`align login`), or reinstall on a supported platform (macOS, glibc Linux, or Windows x64/arm64). ' +
         `(${(err as Error).message})`,
       );
     }
     try {
       // First call downloads the ~90MB model from the Hugging Face Hub.
-      _pipe = (await mod.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2')) as unknown as EmbeddingPipeline;
+      // dtype 'q8' is load-bearing, not a perf tweak: @xenova/transformers@2 loaded
+      // quantized weights by default and v3+ default to fp32, which shifts pairwise
+      // cosine by up to 2.3e-02 against vectors already persisted in a user's local
+      // graph. Pinning q8 holds that to 6.6e-04. See local-embeddings-dtype.test.ts.
+      _pipe = (await mod.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+        dtype: 'q8',
+      })) as unknown as EmbeddingPipeline;
     } catch (err) {
       throw new Error(
         'Could not load the local embedding model (~90MB, Xenova/all-MiniLM-L6-v2). ' +
