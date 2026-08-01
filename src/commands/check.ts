@@ -16,6 +16,12 @@ import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 // hasn't answered within this window we fail open (exit 0, no output).
 const ADVISORY_TIMEOUT_MS = 8000;
 
+// Exit codes. `unknown` gets its own code (ALI-414) rather than reusing 1: "we found
+// a conflict" and "we could not look" call for different responses, and a caller that
+// only tests for non-zero still treats both as a failure.
+const EXIT_CONFLICT = 1;
+const EXIT_UNKNOWN = 2;
+
 export function registerCheckCommand(program: Command): void {
   program
     .command('check')
@@ -64,7 +70,10 @@ export function registerCheckCommand(program: Command): void {
         try {
           const result = await client.checkAlignment(diff, branch);
           process.stdout.write(`${JSON.stringify(result)  }\n`);
-          process.exit(result.status === 'conflicting' ? 1 : 0);
+          if (result.status === 'conflicting') process.exit(EXIT_CONFLICT);
+          // CI is where a silent green costs the most: a check that could not run
+          // must not be indistinguishable from a check that found nothing (ALI-414).
+          process.exit(result.status === 'unknown' ? EXIT_UNKNOWN : 0);
         } catch (err) {
           process.stdout.write(`${JSON.stringify({ status: 'error', message: (err as Error).message })  }\n`);
           process.exit(0);
@@ -122,7 +131,28 @@ export function registerCheckCommand(program: Command): void {
           }
           const hasCritical = conflicts.some(c => c.severity === 'critical');
           if (opts.hook && !hasCritical) process.exit(0);
-          process.exit(1);
+          process.exit(EXIT_CONFLICT);
+        } else if (result.status === 'unknown') {
+          // ALI-414: the check did not run. Never a green header, and never the
+          // "no related decisions" line - the decisions may well be there, we just
+          // could not classify them. Show them so the human can review by hand.
+          console.log(chalk.yellow('\n  Could not check this change against your decision graph.\n'));
+          console.log(chalk.dim(`  ${result.message}\n`));
+          for (const d of result.relevant_decisions.slice(0, 3)) {
+            console.log(`  ${chalk.yellow('?')} ${chalk.bold(d.title)}`);
+            if (d.summary) {
+              const snippet = d.summary.slice(0, 120).replace(/\n/g, ' ');
+              console.log(chalk.dim(`    "${snippet}${d.summary.length > 120 ? '...' : ''}"`));
+            }
+            if (d.url) console.log(chalk.dim(`    ${d.url}`));
+            console.log('');
+          }
+          // Pre-commit hook mode stays non-blocking (its contract is "only fail on
+          // critical conflicts"): a user with no LLM key would otherwise have every
+          // commit rejected and would just uninstall the hook. It is no longer
+          // SILENT, though - the lines above still print.
+          if (opts.hook) process.exit(0);
+          process.exit(EXIT_UNKNOWN);
         } else {
           if (!opts.hook) console.log(chalk.dim('\n  No related decisions found in your graph.\n'));
         }

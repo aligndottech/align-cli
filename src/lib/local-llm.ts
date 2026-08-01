@@ -225,6 +225,20 @@ async function callProvider(
 const ALL_PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'gemini', 'groq', 'mistral', 'grok'];
 
 /**
+ * Is any LLM provider configured by environment? (ALI-414)
+ *
+ * `callChat` returns null for a missing key, a timeout and a non-2xx alike, so a
+ * caller that needs to tell "never configured" from "configured but failed" has to
+ * ask first. Deliberately synchronous and env-only: it does NOT probe Ollama, so a
+ * machine whose only provider is a broken local Ollama reads as unconfigured. The
+ * remedy that points at - configure a provider - is still the right one.
+ */
+export function hasConfiguredProvider(): boolean {
+  if (process.env['ALIGN_LLM_BASE_URL']) return true;
+  return ALL_PROVIDERS.some(p => Boolean(keyForProvider(p)));
+}
+
+/**
  * Provider-agnostic chat call. Resolution order:
  *   1. explicitly configured provider+key (e.g. from `align setup`)
  *   2. ALIGN_LLM_BASE_URL  - any OpenAI-compatible endpoint (Grok, OpenRouter,

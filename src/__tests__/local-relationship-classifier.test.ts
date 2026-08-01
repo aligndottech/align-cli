@@ -23,13 +23,15 @@ describe('classifyRelationship', () => {
     vi.unstubAllGlobals();
   });
 
-  it('returns null when no cloud key and no local Ollama (degrade to untyped)', async () => {
+  // ALI-414: the three ways classification can fail used to collapse into a single
+  // `null`, so the caller could not tell "no key configured" from "the model replied
+  // with garbage" - and reported both as `aligned`. Each now reports its own reason.
+  it('reports no_llm_key when no cloud key and no local Ollama', async () => {
     // No cloud provider keys (beforeEach) + Ollama unreachable. The shared resolver
-    // now probes local Ollama as a last resort, so it degrades to null only when
-    // that is also unavailable.
+    // probes local Ollama as a last resort, so it fails only when that is also gone.
     mockFetch.mockResolvedValue({ ok: false }); // Ollama /api/tags not ok
     const result = await classifyRelationship(A, B);
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, reason: 'no_llm_key' });
   });
 
   it('types the relationship via Anthropic when ANTHROPIC_API_KEY is set', async () => {
@@ -37,28 +39,30 @@ describe('classifyRelationship', () => {
     mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'supersedes', confidence: 0.88, reason: 'B replaces A' }));
     const result = await classifyRelationship(A, B);
     expect(mockFetch).toHaveBeenCalledWith('https://api.anthropic.com/v1/messages', expect.anything());
-    expect(result).toEqual({ type: 'supersedes', confidence: 0.88, reason: 'B replaces A' });
+    expect(result).toEqual({ ok: true, relationship: { type: 'supersedes', confidence: 0.88, reason: 'B replaces A' } });
   });
 
-  it('returns null for malformed LLM output (safe degrade)', async () => {
+  it('reports classifier_unparseable for malformed LLM output', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ content: [{ text: 'not json at all' }] }) });
     const result = await classifyRelationship(A, B);
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, reason: 'classifier_unparseable' });
   });
 
   it('rejects a relationship type outside the taxonomy', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
     mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'is_friends_with', confidence: 0.9 }));
     const result = await classifyRelationship(A, B);
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, reason: 'classifier_unparseable' });
   });
 
-  it('returns null when the API call fails', async () => {
+  // The distinction that matters: a configured provider that FAILED is a different
+  // state from no provider at all, and only the first is worth retrying.
+  it('reports classifier_error when a configured provider call fails', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) });
+    mockFetch.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     const result = await classifyRelationship(A, B);
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, reason: 'classifier_error' });
   });
 
   it('uses the canonical connector-core vocabulary, not an invented local list', () => {
@@ -80,7 +84,7 @@ describe('classifyRelationship', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
     mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'depends_on', confidence: 0.9 }));
     const result = await classifyRelationship(A, B);
-    expect(result).toBeNull();
+    expect(result).toEqual({ ok: false, reason: 'classifier_unparseable' });
   });
 
   it('classifies at temperature 0 so the same pair types the same way each run', () => {
