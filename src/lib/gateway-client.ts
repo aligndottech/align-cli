@@ -72,7 +72,8 @@ export interface AlignmentResult {
    * lands here rather than in `aligned`, so a consumer that branches on `status`
    * cannot mistake "could not check" for "checked, no conflict". See ALI-414.
    */
-  status: 'aligned' | 'conflicting' | 'no-context' | 'unknown';
+  // 'retrieved' = related decisions only, NOT adjudicated (gateway #1415, depth:'related').
+  status: 'aligned' | 'conflicting' | 'no-context' | 'unknown' | 'retrieved';
   /** Populated only when `status` is `unknown`. */
   reason?: UnknownReason;
   confidence: number;
@@ -276,13 +277,21 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return request(`/snapshots/${id}`);
     },
 
-    async checkAlignment(diff: string, context?: string): Promise<AlignmentResult> {
+    // `depth: 'related'` returns the same embedding retrieval this endpoint already does and
+    // skips the ~11s LLM adjudication (gateway #1415). The editor hook uses it because every
+    // host budget is <=10s; `align check` and the PR bot keep the default 'full'.
+    async checkAlignment(
+      diff: string,
+      context?: string,
+      opts: { depth?: 'related' | 'full' } = {},
+    ): Promise<AlignmentResult> {
       return request<AlignmentResult>('/alignment/check', {
         method: 'POST',
         body: JSON.stringify({
           action_type: 'pull_request',
           content: diff.slice(0, 8000),
           context: context?.slice(0, 1000),
+          ...(opts.depth ? { depth: opts.depth } : {}),
         }),
       });
     },
