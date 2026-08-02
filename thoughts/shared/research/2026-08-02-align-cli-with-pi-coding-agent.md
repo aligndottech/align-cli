@@ -131,8 +131,18 @@ read - one write covering several clients instead of one per host.
   user trying Align for free would hit. Upgrade before testing.
 - **nvm globals are per Node version** - `align --version` reported 0.6.0 under node
   v24.18.0 in align-stack; a different directory can resolve a different CLI.
-- **The hook layer does not port.** Do not describe pi support as equivalent to Claude Code
-  support; the deterministic `align check --advisory` guardrail has no pi equivalent today.
+- ~~**The hook layer does not port.**~~ **CORRECTED 2026-08-02, same day.** This was wrong.
+  pi has a full extension system (`.pi/extensions/*.ts`, loaded via jiti) with `tool_call`
+  and `tool_result` lifecycle events, and `tool_call` fires **before** the edit. The claim
+  came from `pi.dev/docs`, which does not mention hooks - the same page that does not
+  mention MCP either, which we already knew existed. **A negative drawn from one doc page
+  that is already known to be incomplete is not a negative** (see verification.md, "a
+  positive control proves your CHECK works, not that your SEARCH SPACE is right").
+  The real constraint is narrower and only found by reading
+  `packages/coding-agent/src/core/extensions/types.ts`: `ToolCallEventResult` is
+  `{block?, reason?}` - blocking is its ONLY channel - so non-blocking context must be
+  delivered via `ToolResultEventResult.content`. Shipped in the follow-up; see
+  `docs/agent-hooks.md`.
 - **None of this was executed.** pi is not installed here, so treat the wiring above as
   derived-from-docs until someone runs it.
 

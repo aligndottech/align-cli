@@ -29,16 +29,17 @@ export function registerCheckCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--all', 'Check full HEAD diff, not just staged changes')
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
-    .option('--advisory', 'Claude Code hook mode: always exit 0, emit conflicting decisions as additionalContext JSON. Detects Pre vs PostToolUse from the hook payload on stdin')
+    .option('--advisory', 'Agent hook mode: always exit 0, emit conflicting decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
+    .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, or text', 'claude')
     .option('--block-on-critical', 'Advisory PreToolUse hook: deny an edit only on a CRITICAL conflict (default: never block, just surface context)')
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
-    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; ci: boolean; resolve?: string }) => {
+    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; format?: AdvisoryFormat; ci: boolean; resolve?: string }) => {
       // Advisory mode is the deterministic auto-alignment path (ALI-121/ALI-122):
       // non-blocking, fail-open, machine-readable. It owns the whole flow, never
       // touching the human-facing spinner/console output below.
       if (opts.advisory) {
-        await runAdvisory(opts.env, { blockOnCritical: opts.blockOnCritical });
+        await runAdvisory(opts.env, { blockOnCritical: opts.blockOnCritical, format: opts.format });
         return;
       }
 
@@ -173,7 +174,7 @@ export function registerCheckCommand(program: Command): void {
 //     a manual `align check --advisory` run with no piped payload.
 // Anything else (no repo, no diff, gateway down/slow, aligned) stays silent.
 // Fail-open is the whole point - a hook that blocks or errors on every edit gets disabled.
-async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean } = {}): Promise<void> {
+async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; format?: AdvisoryFormat } = {}): Promise<void> {
   try {
     const payload = await readHookPayload();
     const pre = payload?.hook_event_name === 'PreToolUse';
@@ -208,10 +209,12 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean } = {
       const fresh = result.conflicts.filter((c) => !(c.decision_id && seen.has(c.decision_id)));
       if (fresh.length) {
         markSurfaced(cwd, fresh.map((c) => c.decision_id).filter((id): id is string => Boolean(id)));
-        const output = pre
-          ? buildPreToolUseOutput(fresh, opts.blockOnCritical ?? false)
-          : buildPostToolUseOutput(fresh);
-        process.stdout.write(`${JSON.stringify(output)}\n`);
+        const format = opts.format ?? 'claude';
+        const output = buildAdvisoryOutput(fresh, { pre, format, blockOnCritical: opts.blockOnCritical ?? false });
+        // A host with no channel for this event (Gemini's BeforeTool) gets nothing.
+        if (output !== null) {
+          process.stdout.write(`${format === 'text' ? output : JSON.stringify(output)}\n`);
+        }
       }
     }
   } catch {
@@ -246,25 +249,57 @@ function conflictContext(conflicts: AdvisoryConflict[], closing: string): string
   ].join('\n');
 }
 
-function buildPostToolUseOutput(conflicts: AdvisoryConflict[]): {
-  hookSpecificOutput: { hookEventName: 'PostToolUse'; additionalContext: string };
-} {
-  const additionalContext = conflictContext(conflicts, 'Reconcile with these decisions or confirm with the user before continuing.');
-  return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext } };
+// The host agents whose hook output contract we can speak. `text` is the universal
+// fallback for a host that just runs a command and shows whatever it printed.
+export type AdvisoryFormat = 'claude' | 'gemini' | 'pi' | 'text';
+
+export interface AdvisoryRenderOpts {
+  pre: boolean;
+  format: AdvisoryFormat;
+  blockOnCritical: boolean;
 }
 
-// PreToolUse fires before the edit is written. By default we only enrich the agent's
-// context (no permissionDecision, so the normal permission flow is untouched). The
-// opt-in `--block-on-critical` is the only path that denies, and only on a CRITICAL
-// conflict - never block by default.
-type PreToolUseOutput =
-  | { hookSpecificOutput: { hookEventName: 'PreToolUse'; additionalContext: string } }
-  | { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: 'deny'; permissionDecisionReason: string } };
+// Render the conflicts into whatever shape the host reads off stdout. One engine, N
+// hosts - every field name here comes from that host's published hook schema:
+//
+//   claude  Pre: hookSpecificOutput.additionalContext, or permissionDecision:'deny'
+//           Post: hookSpecificOutput.additionalContext
+//   gemini  BeforeTool: decision:'deny' + reason. It has NO additionalContext channel,
+//           so a non-blocking pre-check emits NOTHING and lets AfterTool carry it.
+//           AfterTool: hookSpecificOutput.additionalContext
+//   pi      tool_call can only block, so non-blocking findings come back as {context}
+//           for the extension to replay into that call's tool_result content.
+//   text    plain prose
+//
+// Blocking is always the opt-in `--block-on-critical` path AND only on a CRITICAL
+// conflict, and never after the edit has already landed. Fail-open is the whole point:
+// a guardrail that blocks on every edit gets turned off.
+export function buildAdvisoryOutput(
+  conflicts: AdvisoryConflict[],
+  opts: AdvisoryRenderOpts,
+): unknown | null {
+  const closing = opts.pre
+    ? 'Reconcile with these decisions or confirm with the user before writing this change.'
+    : 'Reconcile with these decisions or confirm with the user before continuing.';
+  const summary = conflictContext(conflicts, closing);
+  const blocking = opts.pre && opts.blockOnCritical && conflicts.some((c) => c.severity === 'critical');
+  const hookEventName = opts.pre ? 'PreToolUse' : 'PostToolUse';
 
-function buildPreToolUseOutput(conflicts: AdvisoryConflict[], blockOnCritical: boolean): PreToolUseOutput {
-  const summary = conflictContext(conflicts, 'Reconcile with these decisions or confirm with the user before writing this change.');
-  if (blockOnCritical && conflicts.some((c) => c.severity === 'critical')) {
-    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: summary } };
+  switch (opts.format) {
+    case 'gemini':
+      if (opts.pre) return blocking ? { decision: 'deny', reason: summary } : null;
+      return { hookSpecificOutput: { additionalContext: summary } };
+
+    case 'pi':
+      return blocking ? { block: true, reason: summary } : { context: summary };
+
+    case 'text':
+      return summary;
+
+    default:
+      if (blocking) {
+        return { hookSpecificOutput: { hookEventName, permissionDecision: 'deny', permissionDecisionReason: summary } };
+      }
+      return { hookSpecificOutput: { hookEventName, additionalContext: summary } };
   }
-  return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: summary } };
 }

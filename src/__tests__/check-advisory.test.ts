@@ -196,3 +196,60 @@ describe('align check --advisory (PreToolUse hook mode)', () => {
     expect(stdout).toBe('');
   });
 });
+
+// End-to-end wiring per host: payload in on stdin, host-shaped bytes out on stdout,
+// through the real command. The unit tests pin normalize and render separately; these
+// prove runAdvisory actually connects them and that --format reaches the renderer.
+describe('align check --advisory --format <host> (wiring)', () => {
+  const conflict = {
+    status: 'conflicting',
+    relevant_decisions: [],
+    conflicts: [{ decision_id: 'd1', title: 'Use PostgreSQL', severity: 'critical', reason: 'r', url: 'u' }],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsGitRepo.mockResolvedValue(true);
+    mockReadHookPayload.mockReset();
+    mockRecentlySurfaced.mockReset();
+    mockRecentlySurfaced.mockReturnValue(new Set<string>());
+    mockCheckAlignment.mockResolvedValue(conflict);
+  });
+
+  it('emits pi {context} on a tool_call, so the extension can replay it non-blockingly', async () => {
+    mockReadHookPayload.mockResolvedValue({ hook_event_name: 'PreToolUse', tool_name: 'write', tool_input: { content: 'use mongo' } });
+    const { exitCode, stdout } = await runCheck(['--advisory', '--format', 'pi']);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.block).toBeUndefined();
+    expect(parsed.context).toContain('Use PostgreSQL');
+  });
+
+  it('emits pi {block} on a tool_call only with --block-on-critical', async () => {
+    mockReadHookPayload.mockResolvedValue({ hook_event_name: 'PreToolUse', tool_name: 'write', tool_input: { content: 'use mongo' } });
+    const { stdout } = await runCheck(['--advisory', '--format', 'pi', '--block-on-critical']);
+    expect(JSON.parse(stdout).block).toBe(true);
+  });
+
+  // Gemini's BeforeTool has no additionalContext channel, so silence is correct here -
+  // and it is the one case where empty stdout is the RIGHT answer, not a broken check.
+  it('stays silent on a Gemini BeforeTool when not blocking', async () => {
+    mockReadHookPayload.mockResolvedValue({ hook_event_name: 'PreToolUse', tool_name: 'write_file', tool_input: { content: 'use mongo' } });
+    const { exitCode, stdout } = await runCheck(['--advisory', '--format', 'gemini']);
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+  });
+
+  it('emits Gemini additionalContext on an AfterTool', async () => {
+    mockReadHookPayload.mockResolvedValue({ hook_event_name: 'PostToolUse', tool_name: 'write_file', tool_input: { content: 'x' } });
+    const { stdout } = await runCheck(['--advisory', '--format', 'gemini']);
+    expect(JSON.parse(stdout).hookSpecificOutput.additionalContext).toContain('Use PostgreSQL');
+  });
+
+  it('emits plain prose (not JSON) for --format text', async () => {
+    mockReadHookPayload.mockResolvedValue({ hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { new_string: 'x' } });
+    const { stdout } = await runCheck(['--advisory', '--format', 'text']);
+    expect(stdout).toContain('Use PostgreSQL');
+    expect(() => JSON.parse(stdout)).toThrow();
+  });
+});
