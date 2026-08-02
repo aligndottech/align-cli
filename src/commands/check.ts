@@ -11,10 +11,11 @@ import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 
-// Advisory (PostToolUse hook) mode keeps a tight budget: a Write/Edit hook fires on
-// every agent file change, so a slow gateway must never stall the edit. If the check
-// hasn't answered within this window we fail open (exit 0, no output).
-const ADVISORY_TIMEOUT_MS = 8000;
+// The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
+// execFile timeout in the pi and OpenCode shims). Adjudication measured ~11s whenever
+// retrieval returns anything, so the old synchronous check timed out on exactly the edits it
+// existed for and printed nothing. Retrieval alone measured 0.4-2.4s, which fits.
+const RETRIEVAL_TIMEOUT_MS = 2500;
 
 // Exit codes. `unknown` gets its own code (ALI-414) rather than reusing 1: "we found
 // a conflict" and "we could not look" call for different responses, and a caller that
@@ -196,26 +197,49 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     const config = createConfigStore();
     const client = createGatewayClient(config.getEnvironment(envName));
 
-    // Race the check against a tight timeout so a slow gateway never stalls the edit.
-    const result = await Promise.race<AlignmentResult | null>([
-      client.checkAlignment(text, context),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), ADVISORY_TIMEOUT_MS)),
-    ]);
-
-    if (result?.status === 'conflicting' && result.conflicts?.length) {
-      // Drop conflicts the sibling hook already showed the agent moments ago.
-      const cwd = process.cwd();
-      const seen = recentlySurfaced(cwd);
-      const fresh = result.conflicts.filter((c) => !(c.decision_id && seen.has(c.decision_id)));
-      if (fresh.length) {
-        markSurfaced(cwd, fresh.map((c) => c.decision_id).filter((id): id is string => Boolean(id)));
-        const format = opts.format ?? 'claude';
-        const output = buildAdvisoryOutput(fresh, { pre, format, blockOnCritical: opts.blockOnCritical ?? false });
-        // A host with no channel for this event (Gemini's BeforeTool) gets nothing.
-        if (output !== null) {
-          process.stdout.write(`${format === 'text' ? output : JSON.stringify(output)}\n`);
-        }
+    const format = opts.format ?? 'claude';
+    const renderOpts = { pre, format, blockOnCritical: opts.blockOnCritical ?? false };
+    // A host with no channel for this event (Gemini's BeforeTool) gets nothing.
+    const emit = (output: unknown | null): void => {
+      if (output !== null) {
+        process.stdout.write(`${format === 'text' ? output : JSON.stringify(output)}\n`);
       }
+    };
+
+    // RETRIEVAL ONLY. Adjudication is ~11s and does not fit any host's hook budget, so it
+    // moves to a follow-up rather than timing out here and printing nothing. Nothing is lost:
+    // the LLM runs whenever retrieval returns anything, so no tenant was getting a verdict
+    // through the hook - the fast path measured 0.8s only because it was `no-context`.
+    let found: RelatedDecision[] | null = null;
+    try {
+      const result = await Promise.race([
+        // The SAME embedding retrieval `align check` uses, minus the adjudication. Plain
+        // `searchDecisions` is keyword-based and returns nothing for a sentence of edit
+        // content, which is why this path needed gateway #1415 rather than the search API.
+        client.checkAlignment(text, context, { depth: 'related' }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), RETRIEVAL_TIMEOUT_MS)),
+      ]);
+      found = result === null ? null : (result.relevant_decisions ?? []);
+    } catch {
+      found = null;
+    }
+
+    if (found === null) {
+      // Never silent on a non-answer (ALI-414 / ALI-348).
+      emit(buildUnknownOutput(renderOpts));
+      process.exit(0);
+    }
+
+    // Genuinely nothing related: a real answer, so staying quiet is honest here.
+    if (!found.length) process.exit(0);
+
+    // Drop decisions the sibling hook already showed the agent moments ago.
+    const cwd = process.cwd();
+    const seen = recentlySurfaced(cwd);
+    const fresh = found.filter((d) => !seen.has(d.id));
+    if (fresh.length) {
+      markSurfaced(cwd, fresh.map((d) => d.id));
+      emit(buildRelatedOutput(fresh, renderOpts));
     }
   } catch {
     // Fail open: swallow everything (gateway error, network, bad config).
@@ -224,6 +248,31 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
 }
 
 type AdvisoryConflict = NonNullable<AlignmentResult['conflicts']>[number];
+
+type RelatedDecision = { id: string; title: string; summary?: string };
+
+// Retrieval finds decisions on the same SUBJECT. It does not encode opposition - ALI-410
+// measured the agreeing pair at cosine 0.38 against the contradicting pair at 0.31 - so this
+// wording must never assert a conflict. Saying "related" is the honest claim and the useful one.
+export function buildRelatedOutput(decisions: RelatedDecision[], opts: AdvisoryRenderOpts): unknown | null {
+  const lines = decisions.map((d) => `- ${d.title}`);
+  const summary = [
+    `Align decision graph: ${decisions.length} prior decision${decisions.length > 1 ? 's relate' : ' relates'} to this change:`,
+    ...lines,
+    'These are related by content search and have NOT been adjudicated. Check whether any of them opposes this change before continuing.',
+  ].join('\n');
+  return renderForHost(summary, opts, false);
+}
+
+// ALI-414 / ALI-348: a check that could not run is not a pass. Silence here would be
+// indistinguishable from "nothing found", which is the exact fail-open both tickets closed.
+export function buildUnknownOutput(opts: AdvisoryRenderOpts): unknown | null {
+  const summary = [
+    'Align could not check this change against the decision graph (retrieval failed or timed out).',
+    'Treat it as UNVERIFIED rather than approved - run `align check` manually if it matters.',
+  ].join('\n');
+  return renderForHost(summary, opts, false);
+}
 
 // The proposed change from a PreToolUse payload: Write sends the full content, Edit a
 // new_string, MultiEdit a list of edits. We check the new text against the graph.
@@ -259,6 +308,10 @@ export interface AdvisoryRenderOpts {
   blockOnCritical: boolean;
 }
 
+// NO RUNTIME CALLER until the deferred adjudication path lands - the hook is retrieval-only
+// (see runAdvisory). Kept, with its tests, because that follow-up is the immediate next step
+// and delete/re-add is churn. If that ticket dies, delete this with it.
+//
 // Render the conflicts into whatever shape the host reads off stdout. One engine, N
 // hosts - every field name here comes from that host's published hook schema:
 //
@@ -283,8 +336,14 @@ export function buildAdvisoryOutput(
     : 'Reconcile with these decisions or confirm with the user before continuing.';
   const summary = conflictContext(conflicts, closing);
   const blocking = opts.pre && opts.blockOnCritical && conflicts.some((c) => c.severity === 'critical');
-  const hookEventName = opts.pre ? 'PreToolUse' : 'PostToolUse';
 
+  return renderForHost(summary, opts, blocking);
+}
+
+// One writer of each host's output shape. Conflicts, related decisions and "could not check"
+// differ only in their BODY - the wrapping is identical, so it lives here once.
+function renderForHost(summary: string, opts: AdvisoryRenderOpts, blocking: boolean): unknown | null {
+  const hookEventName = opts.pre ? 'PreToolUse' : 'PostToolUse';
   switch (opts.format) {
     case 'gemini':
       if (opts.pre) return blocking ? { decision: 'deny', reason: summary } : null;

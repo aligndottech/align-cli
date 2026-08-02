@@ -22,8 +22,12 @@ vi.mock('../lib/git.js', () => ({
 
 vi.mock('node:fs', () => ({ existsSync: vi.fn(() => false), readFileSync: vi.fn() }));
 
+const mockSearchDecisions = vi.fn();
 vi.mock('../lib/gateway-client.js', () => ({
-  createGatewayClient: vi.fn(() => ({ checkAlignment: mockCheckAlignment })),
+  createGatewayClient: vi.fn(() => ({
+    checkAlignment: mockCheckAlignment,
+    searchDecisions: mockSearchDecisions,
+  })),
 }));
 
 // Default: no piped hook payload -> the advisory path falls back to the git diff
@@ -73,15 +77,7 @@ describe('align check --advisory (PostToolUse hook mode)', () => {
   });
 
   it('emits hookSpecificOutput.additionalContext JSON and exits 0 on conflict', async () => {
-    mockCheckAlignment.mockResolvedValue({
-      status: 'conflicting',
-      confidence: 0.9,
-      relevant_decisions: [],
-      conflicts: [
-        { decision_id: 'd-1', title: 'Use PostgreSQL', reason: 'Code uses MongoDB', severity: 'critical', summary: 'Postgres for ACID' },
-      ],
-      message: 'Conflict detected',
-    });
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', confidence: 0, relevant_decisions: [{ id: 'd-1', title: 'Use PostgreSQL', summary: 's', status: 'active', similarity: 0.7 }] });
 
     const { exitCode, stdout } = await runCheck(['--advisory']);
 
@@ -91,11 +87,14 @@ describe('align check --advisory (PostToolUse hook mode)', () => {
     expect(parsed.hookSpecificOutput.additionalContext).toContain('Use PostgreSQL');
   });
 
-  it('exits 0 with no output when the gateway errors (fail-open)', async () => {
+  // INVERTED deliberately. This used to assert silence on a gateway error, which is the exact
+  // fail-open ALI-348/ALI-414 closed elsewhere: "could not check" was indistinguishable from
+  // "nothing found". The edit still proceeds (exit 0, never blocking) - it just says so now.
+  it('says "could not check" when the gateway errors, rather than failing silently', async () => {
     mockCheckAlignment.mockRejectedValue(new Error('gateway down'));
     const { exitCode, stdout } = await runCheck(['--advisory']);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+    expect(stdout.toLowerCase()).toContain('could not check');
   });
 
   it('exits 0 with no output and never calls the gateway outside a git repo', async () => {
@@ -106,10 +105,8 @@ describe('align check --advisory (PostToolUse hook mode)', () => {
     expect(mockCheckAlignment).not.toHaveBeenCalled();
   });
 
-  it('exits 0 with no hook JSON when the change is aligned (no noise)', async () => {
-    mockCheckAlignment.mockResolvedValue({
-      status: 'aligned', confidence: 0.9, relevant_decisions: [], message: 'ok',
-    });
+  it('exits 0 with no hook JSON when nothing related is retrieved (no noise)', async () => {
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', confidence: 0, relevant_decisions: [], count: 0, strategy: 'semantic' });
     const { exitCode, stdout } = await runCheck(['--advisory']);
     expect(exitCode).toBe(0);
     expect(stdout).toBe('');
@@ -117,13 +114,6 @@ describe('align check --advisory (PostToolUse hook mode)', () => {
 });
 
 describe('align check --advisory (PreToolUse hook mode)', () => {
-  const writeConflict = {
-    status: 'conflicting',
-    confidence: 0.9,
-    relevant_decisions: [],
-    conflicts: [{ decision_id: 'd-1', title: 'Use PostgreSQL', reason: 'proposed code uses MongoDB', severity: 'critical', summary: 'Postgres for ACID' }],
-    message: 'Conflict detected',
-  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -138,37 +128,19 @@ describe('align check --advisory (PreToolUse hook mode)', () => {
     });
   });
 
-  it('checks the PROPOSED content (not git) and emits PreToolUse additionalContext on conflict', async () => {
-    mockCheckAlignment.mockResolvedValue(writeConflict);
+  it('checks the PROPOSED content (not git) and emits PreToolUse additionalContext', async () => {
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', confidence: 0, relevant_decisions: [{ id: 'd-1', title: 'Use PostgreSQL', summary: 's', status: 'active', similarity: 0.7 }] });
     const { exitCode, stdout } = await runCheck(['--advisory']);
     expect(exitCode).toBe(0);
     // checked the proposed edit content, not a git diff
-    expect(mockCheckAlignment).toHaveBeenCalledWith('// switch to mongodb', 'src/db.ts');
+    expect(mockCheckAlignment).toHaveBeenCalledWith('// switch to mongodb', 'src/db.ts', { depth: 'related' });
     const parsed = JSON.parse(stdout);
     expect(parsed.hookSpecificOutput.hookEventName).toBe('PreToolUse');
     expect(parsed.hookSpecificOutput.additionalContext).toContain('Use PostgreSQL');
     expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
   });
 
-  it('denies only on a critical conflict when --block-on-critical is set', async () => {
-    mockCheckAlignment.mockResolvedValue(writeConflict);
-    const { exitCode, stdout } = await runCheck(['--advisory', '--block-on-critical']);
-    expect(exitCode).toBe(0);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('Use PostgreSQL');
-  });
 
-  it('does not deny a warning-level conflict even with --block-on-critical', async () => {
-    mockCheckAlignment.mockResolvedValue({
-      ...writeConflict,
-      conflicts: [{ decision_id: 'd-2', title: 'Prefer REST', reason: 'x', severity: 'warning' }],
-    });
-    const { stdout } = await runCheck(['--advisory', '--block-on-critical']);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
-    expect(parsed.hookSpecificOutput.additionalContext).toContain('Prefer REST');
-  });
 
   it('reads the new_string for an Edit payload', async () => {
     mockReadHookPayload.mockResolvedValue({
@@ -176,35 +148,36 @@ describe('align check --advisory (PreToolUse hook mode)', () => {
       tool_name: 'Edit',
       tool_input: { file_path: 'a.ts', old_string: 'postgres', new_string: 'mongodb client' },
     });
-    mockCheckAlignment.mockResolvedValue(writeConflict);
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', confidence: 0, relevant_decisions: [{ id: 'd-1', title: 'Use PostgreSQL', summary: 's', status: 'active', similarity: 0.7 }] });
     await runCheck(['--advisory']);
-    expect(mockCheckAlignment).toHaveBeenCalledWith('mongodb client', 'a.ts');
+    expect(mockCheckAlignment).toHaveBeenCalledWith('mongodb client', 'a.ts', { depth: 'related' });
   });
 
-  it('stays silent when the same conflict was already surfaced by the sibling hook', async () => {
+  it('stays silent when the same decision was already surfaced by the sibling hook', async () => {
     mockRecentlySurfaced.mockReturnValue(new Set(['d-1']));
-    mockCheckAlignment.mockResolvedValue(writeConflict);
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', confidence: 0, relevant_decisions: [{ id: 'd-1', title: 'Use PostgreSQL', summary: 's', status: 'active', similarity: 0.7 }] });
     const { exitCode, stdout } = await runCheck(['--advisory']);
     expect(exitCode).toBe(0);
     expect(stdout).toBe('');
   });
 
-  it('exits 0 with no output when the proposed edit is aligned', async () => {
-    mockCheckAlignment.mockResolvedValue({ status: 'aligned', confidence: 0.9, relevant_decisions: [], message: 'ok' });
+  it('exits 0 with no output when retrieval finds nothing related', async () => {
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', confidence: 0, relevant_decisions: [], count: 0, strategy: 'semantic' });
     const { exitCode, stdout } = await runCheck(['--advisory']);
     expect(exitCode).toBe(0);
     expect(stdout).toBe('');
   });
 });
 
-// End-to-end wiring per host: payload in on stdin, host-shaped bytes out on stdout,
-// through the real command. The unit tests pin normalize and render separately; these
-// prove runAdvisory actually connects them and that --format reaches the renderer.
+// End-to-end wiring per host: payload in on stdin, host-shaped bytes out on stdout, through
+// the real command. The unit tests in advisory-formats.test.ts pin each host's SHAPE against
+// buildAdvisoryOutput; these prove runAdvisory actually reaches the renderer and that --format
+// is threaded through. They drive retrieval because that is what the hook now calls.
 describe('align check --advisory --format <host> (wiring)', () => {
-  const conflict = {
-    status: 'conflicting',
-    relevant_decisions: [],
-    conflicts: [{ decision_id: 'd1', title: 'Use PostgreSQL', severity: 'critical', reason: 'r', url: 'u' }],
+  const hit = {
+    status: 'retrieved' as const,
+    confidence: 0,
+    relevant_decisions: [{ id: 'd1', title: 'Use PostgreSQL', summary: 's', similarity: 0.7 }],
   };
 
   beforeEach(() => {
@@ -213,7 +186,7 @@ describe('align check --advisory --format <host> (wiring)', () => {
     mockReadHookPayload.mockReset();
     mockRecentlySurfaced.mockReset();
     mockRecentlySurfaced.mockReturnValue(new Set<string>());
-    mockCheckAlignment.mockResolvedValue(conflict);
+    mockCheckAlignment.mockResolvedValue(hit);
   });
 
   it('emits pi {context} on a tool_call, so the extension can replay it non-blockingly', async () => {
@@ -225,15 +198,15 @@ describe('align check --advisory --format <host> (wiring)', () => {
     expect(parsed.context).toContain('Use PostgreSQL');
   });
 
-  it('emits pi {block} on a tool_call only with --block-on-critical', async () => {
+  // Retrieval never blocks, whatever the flag says: only an adjudicated critical may deny,
+  // and the hook no longer adjudicates.
+  it('does not block on --block-on-critical, because retrieval is not a verdict', async () => {
     mockReadHookPayload.mockResolvedValue({ hook_event_name: 'PreToolUse', tool_name: 'write', tool_input: { content: 'use mongo' } });
     const { stdout } = await runCheck(['--advisory', '--format', 'pi', '--block-on-critical']);
-    expect(JSON.parse(stdout).block).toBe(true);
+    expect(JSON.parse(stdout).block).toBeUndefined();
   });
 
-  // Gemini's BeforeTool has no additionalContext channel, so silence is correct here -
-  // and it is the one case where empty stdout is the RIGHT answer, not a broken check.
-  it('stays silent on a Gemini BeforeTool when not blocking', async () => {
+  it('stays silent on a Gemini BeforeTool, which has no context channel', async () => {
     mockReadHookPayload.mockResolvedValue({ hook_event_name: 'PreToolUse', tool_name: 'write_file', tool_input: { content: 'use mongo' } });
     const { exitCode, stdout } = await runCheck(['--advisory', '--format', 'gemini']);
     expect(exitCode).toBe(0);
@@ -251,5 +224,73 @@ describe('align check --advisory --format <host> (wiring)', () => {
     const { stdout } = await runCheck(['--advisory', '--format', 'text']);
     expect(stdout).toContain('Use PostgreSQL');
     expect(() => JSON.parse(stdout)).toThrow();
+  });
+});
+
+describe('align check --advisory (fast tier)', () => {
+  const hit = {
+    status: 'retrieved' as const,
+    confidence: 0,
+    relevant_decisions: [
+      { id: 'd1', title: 'Use PostgreSQL, not Mongo', summary: 'Store decisions in Postgres', similarity: 0.71 },
+      { id: 'd2', title: 'One writer per fact', summary: 'Avoid duplicate sources of truth', similarity: 0.55 },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsGitRepo.mockResolvedValue(true);
+    mockReadHookPayload.mockReset();
+    mockReadHookPayload.mockResolvedValue({
+      hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { content: 'switch to mongo' },
+    });
+    mockRecentlySurfaced.mockReset();
+    mockRecentlySurfaced.mockReturnValue(new Set<string>());
+  });
+
+  it('never calls the ~11s adjudication path from the hook', async () => {
+    mockCheckAlignment.mockResolvedValue(hit);
+    await runCheck(['--advisory', '--format', 'text']);
+    // Retrieval only: the depth flag is what keeps this off the ~11s adjudication path.
+    expect(mockCheckAlignment).toHaveBeenCalledWith(expect.any(String), expect.any(String), { depth: 'related' });
+  });
+
+  it('surfaces retrieved decisions as RELATED, never as a conflict', async () => {
+    mockCheckAlignment.mockResolvedValue(hit);
+    const { exitCode, stdout } = await runCheck(['--advisory', '--format', 'text']);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('Use PostgreSQL, not Mongo');
+    // Cosine encodes topic, not opposition - the agreeing pair scored HIGHER than the
+    // contradicting one (ALI-410). Claiming a conflict from retrieval would be worse than
+    // saying nothing.
+    expect(stdout.toLowerCase()).not.toContain('conflict');
+  });
+
+  it('stays silent when retrieval genuinely finds nothing', async () => {
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', confidence: 0, relevant_decisions: [], count: 0, strategy: 'semantic' });
+    const { exitCode, stdout } = await runCheck(['--advisory', '--format', 'text']);
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+  });
+
+  // ALI-414 / ALI-348: "could not check" must never be indistinguishable from "nothing found".
+  it('says so explicitly when retrieval fails', async () => {
+    mockCheckAlignment.mockRejectedValue(new Error('gateway down'));
+    const { exitCode, stdout } = await runCheck(['--advisory', '--format', 'text']);
+    expect(exitCode).toBe(0);
+    expect(stdout.toLowerCase()).toContain('could not check');
+  });
+
+  it('says so explicitly when retrieval times out', async () => {
+    mockCheckAlignment.mockImplementation(() => new Promise(() => {}));
+    const { exitCode, stdout } = await runCheck(['--advisory', '--format', 'text']);
+    expect(exitCode).toBe(0);
+    expect(stdout.toLowerCase()).toContain('could not check');
+  }, 15000);
+
+  it('never blocks the edit, even on the unknown path', async () => {
+    mockCheckAlignment.mockRejectedValue(new Error('gateway down'));
+    const { stdout } = await runCheck(['--advisory', '--format', 'pi', '--block-on-critical']);
+    expect(JSON.parse(stdout).block).toBeUndefined();
   });
 });
