@@ -19,6 +19,7 @@ file got written.
 | **Claude Code** | `.claude/settings.json` | yes (`PreToolUse`) | yes, on both Pre and Post | opt-in, critical only |
 | **pi** | `.pi/extensions/align.ts` | yes (`tool_call`) | yes, via the `tool_result` content patch | opt-in, critical only |
 | **Gemini CLI** | `.gemini/settings.json` | yes (`BeforeTool`) | yes, on `AfterTool` only | opt-in, critical only |
+| **OpenCode** | `.opencode/plugins/align.js` | yes (`tool.execute.before`) | yes, by mutating the result in `tool.execute.after` | opt-in, critical only |
 | **Cursor** | - | **no** | **no** | no |
 | **Codex CLI** | - | **no** (Bash only) | no | Bash only |
 | **Windsurf, Zed, VS Code** | - | no hook API | no | no |
@@ -74,10 +75,23 @@ Claude Code, pi and Gemini CLI all converge on the same split, for different rea
 - **Gemini CLI** - `BeforeTool` reads `decision`/`reason` and has no `additionalContext`
   channel, so a non-blocking pre-check emits **nothing** there and `AfterTool` carries the
   context.
+- **OpenCode** - `tool.execute.before` runs ahead of `item.execute(...)`, so the only way
+  to stop an edit is to **throw**; there is no `{block}` return value. The non-blocking
+  finding rides `tool.execute.after`, which is handed the result object the caller
+  returns on the very next line, so mutating `output.output` reaches the model.
 - **Claude Code** - the only one where `PreToolUse` can do both, via `additionalContext`.
 
-In all three the check still inspects the **proposed** change before it is written. Only
+In all four the check still inspects the **proposed** change before it is written. Only
 the delivery point moves.
+
+### Verify the caller, not the type signature
+
+OpenCode's hooks are both declared `=> Promise<void>`, so the types alone do not say
+whether mutating the `output` argument changes anything. That question is settled in
+`packages/opencode/src/session/tools.ts`, where the trigger is followed immediately by
+`return output` on the same object - mutation propagates. Both halves of this shim were
+confirmed that way rather than from the plugin docs, which state the `after` signature
+without saying what the caller does with it.
 
 ## Blocking is opt-in, everywhere
 

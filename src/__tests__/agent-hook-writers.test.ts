@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { writeGeminiHooks, writePiExtension } from '../lib/agent-rules.js';
+import { writeGeminiHooks, writeOpenCodePlugin, writePiExtension } from '../lib/agent-rules.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'align-hooks-')); });
@@ -138,6 +138,72 @@ describe('the generated pi extension is valid TypeScript', () => {
     // Positive control: the same parser MUST report a problem on known-broken input,
     // or "zero diagnostics" only proves the check is inert.
     const broken = ts.createSourceFile('b.ts', 'export default function ( {', ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+    expect((broken as any).parseDiagnostics.length, 'positive control').toBeGreaterThan(0);
+    expect((sf as any).parseDiagnostics).toEqual([]);
+  });
+});
+
+describe('writeOpenCodePlugin', () => {
+  it('writes .opencode/plugins/align.js, where OpenCode auto-discovers project plugins', () => {
+    writeOpenCodePlugin(dir);
+    expect(read('.opencode/plugins/align.js')).toContain('export const');
+  });
+
+  // before blocks by THROWING (it runs ahead of item.execute); after mutates the result
+  // object the caller returns to the model. Both halves are needed.
+  it('subscribes to both tool.execute.before and tool.execute.after', () => {
+    writeOpenCodePlugin(dir);
+    const p = read('.opencode/plugins/align.js');
+    expect(p).toContain('"tool.execute.before"');
+    expect(p).toContain('"tool.execute.after"');
+  });
+
+  it('only fires on the file-mutating tools', () => {
+    writeOpenCodePlugin(dir);
+    const p = read('.opencode/plugins/align.js');
+    expect(p).toContain('edit');
+    expect(p).toContain('write');
+    expect(p).toContain('apply_patch');
+    expect(p).not.toContain('"grep"');
+    expect(p).not.toContain('"webfetch"');
+  });
+
+  it('invokes the advisory check in opencode output format', () => {
+    writeOpenCodePlugin(dir);
+    const p = read('.opencode/plugins/align.js');
+    expect(p).toContain('--advisory');
+    expect(p).toContain('opencode');
+  });
+
+  it('omits the default prod env so the committed plugin stays portable', () => {
+    writeOpenCodePlugin(dir, 'prod');
+    expect(read('.opencode/plugins/align.js')).not.toContain('--env');
+  });
+
+  it('encodes a non-prod env into the spawned args', () => {
+    writeOpenCodePlugin(dir, 'local');
+    const p = read('.opencode/plugins/align.js');
+    expect(p).toContain('--env');
+    expect(p).toContain('local');
+  });
+
+  it('is fully managed - a re-run replaces it rather than appending', () => {
+    writeOpenCodePlugin(dir);
+    const first = read('.opencode/plugins/align.js');
+    writeOpenCodePlugin(dir);
+    expect(read('.opencode/plugins/align.js')).toBe(first);
+  });
+});
+
+// Same reasoning as the pi extension: it ships as a string literal, so a syntax error
+// would surface only inside a user's OpenCode session, at plugin load.
+describe('the generated OpenCode plugin is valid JavaScript', () => {
+  it('parses with zero syntactic diagnostics', async () => {
+    const ts = (await import('typescript')).default;
+    writeOpenCodePlugin(dir, 'local');
+    const source = read('.opencode/plugins/align.js');
+    const sf = ts.createSourceFile('align.js', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+    const broken = ts.createSourceFile('b.js', 'export const X = async ({ => {', ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
     expect((broken as any).parseDiagnostics.length, 'positive control').toBeGreaterThan(0);
     expect((sf as any).parseDiagnostics).toEqual([]);
   });
