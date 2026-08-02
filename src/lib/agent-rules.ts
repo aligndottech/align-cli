@@ -329,6 +329,85 @@ export function writeGeminiHooks(cwd: string, env?: string): void {
   writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
 }
 
+// OpenCode discovers project plugins at .opencode/plugins/*.{js,ts} and loads them at
+// startup. Ships as plain JS so nothing depends on a type package resolving.
+//
+// The two halves work differently from pi's, verified against OpenCode's own caller in
+// packages/opencode/src/session/tools.ts rather than from the type signatures:
+//   tool.execute.before  runs BEFORE `item.execute(...)`, so throwing prevents the call.
+//                        That is the only way to stop an edit - there is no {block} return.
+//   tool.execute.after   is handed the result object and the caller does `return output`
+//                        on the next line, so mutating output.output reaches the model.
+// Both hooks are declared `=> Promise<void>`; mutation is in place, not by return value.
+function openCodePluginBody(env?: string): string {
+  const envArgs = env && env !== 'prod' ? `, "--env", "${env}"` : '';
+  return `// Align decision graph - managed by \`align setup\`, do not edit.
+// Checks each proposed edit against your team's prior decisions and feeds any conflict
+// back to the model. Non-blocking and fail-open by design: if align is missing, slow or
+// unhappy, the edit proceeds untouched.
+import { execFile } from "node:child_process";
+
+const MUTATING_TOOLS = new Set(["edit", "write", "apply_patch"]);
+const TIMEOUT_MS = 10000;
+
+// Findings from the pre-edit check, held until that call's result comes back.
+const pending = new Map();
+
+function askAlign(payload) {
+  return new Promise((resolve) => {
+    try {
+      const child = execFile(
+        "align",
+        ["check", "--advisory", "--format", "opencode"${envArgs}],
+        { timeout: TIMEOUT_MS },
+        (err, stdout) => {
+          if (err || !stdout || !stdout.trim()) return resolve(null);
+          try {
+            resolve(JSON.parse(stdout.trim().split("\\n").pop()));
+          } catch {
+            resolve(null);
+          }
+        },
+      );
+      child.stdin?.end(JSON.stringify(payload));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export const AlignPlugin = async () => ({
+  "tool.execute.before": async (input, output) => {
+    if (!MUTATING_TOOLS.has(input.tool)) return;
+    const verdict = await askAlign({
+      type: "tool.execute.before",
+      tool: input.tool,
+      args: output.args,
+    });
+    if (!verdict) return;
+    // Throwing is the only way to stop the call - the hook runs before item.execute.
+    if (verdict.block) throw new Error(String(verdict.reason ?? "Conflicts with a prior decision"));
+    if (verdict.context) pending.set(input.callID, String(verdict.context));
+  },
+
+  "tool.execute.after": async (input, output) => {
+    const found = pending.get(input.callID);
+    if (!found) return;
+    pending.delete(input.callID);
+    // The caller returns this same object, so appending here reaches the model.
+    output.output = \`\${output.output}\\n\\n\${found}\`;
+  },
+});
+`;
+}
+
+// OpenCode plugin. Fully managed - overwritten each run.
+export function writeOpenCodePlugin(cwd: string, env?: string): void {
+  const dir = path.join(cwd, '.opencode', 'plugins');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, 'align.js'), openCodePluginBody(env), 'utf8');
+}
+
 // Write every deterministic-alignment artifact into the project. Returns the
 // repo-relative paths written, for the caller to report.
 export function setupAgentAlignment(opts: { cwd: string; env?: string }): string[] {
@@ -342,6 +421,7 @@ export function setupAgentAlignment(opts: { cwd: string; env?: string }): string
   writeProjectMcpConfig(opts.cwd, env);
   writePiExtension(opts.cwd, env);
   writeGeminiHooks(opts.cwd, env);
+  writeOpenCodePlugin(opts.cwd, env);
   return [
     '.claude/settings.json',
     'CLAUDE.md',
@@ -350,5 +430,6 @@ export function setupAgentAlignment(opts: { cwd: string; env?: string }): string
     '.mcp.json',
     '.pi/extensions/align.ts',
     '.gemini/settings.json',
+    '.opencode/plugins/align.js',
   ];
 }

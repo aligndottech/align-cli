@@ -38,6 +38,23 @@ function fromPiInput(input: Raw): HookToolInput {
   return out;
 }
 
+// OpenCode passes each tool's own parameter names straight through to the plugin.
+// Taken from packages/opencode/src/tool/*.ts:
+//   edit        {filePath, oldString, newString, replaceAll?}
+//   write       {content, filePath}
+//   apply_patch {patchText}  - one blob describing the whole change
+function fromOpenCodeArgs(args: Raw): HookToolInput {
+  const out: HookToolInput = {};
+  if (typeof args['filePath'] === 'string') out.file_path = args['filePath'];
+  if (typeof args['content'] === 'string') out.content = args['content'];
+  // The patch text IS the proposed change, so it maps to `content` - the first field
+  // proposedChangeText() reads.
+  if (typeof args['patchText'] === 'string') out.content = args['patchText'];
+  if (typeof args['oldString'] === 'string') out.old_string = args['oldString'];
+  if (typeof args['newString'] === 'string') out.new_string = args['newString'];
+  return out;
+}
+
 // Normalize whichever host's hook payload arrived on stdin into the canonical
 // HookPayload, so runAdvisory never learns which agent it is serving. Every field name
 // below comes from that host's published schema:
@@ -60,6 +77,15 @@ export function normalizeHookPayload(raw: unknown): HookPayload | null {
       hook_event_name: p['type'] === 'tool_call' ? 'PreToolUse' : 'PostToolUse',
       tool_name: typeof p['toolName'] === 'string' ? p['toolName'] : undefined,
       tool_input: fromPiInput(input),
+    };
+  }
+
+  // OpenCode: the plugin hook name is the event.
+  if (p['type'] === 'tool.execute.before' || p['type'] === 'tool.execute.after') {
+    return {
+      hook_event_name: p['type'] === 'tool.execute.before' ? 'PreToolUse' : 'PostToolUse',
+      tool_name: typeof p['tool'] === 'string' ? p['tool'] : undefined,
+      tool_input: fromOpenCodeArgs(asRecord(p['args']) ?? {}),
     };
   }
 

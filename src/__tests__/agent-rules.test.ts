@@ -245,3 +245,11 @@ describe('setupAgentAlignment', () => {
     expect(readJson('.mcp.json').mcpServers.align.args).toEqual(['mcp', '--env', 'local']);
   });
 });
+
+describe('setupAgentAlignment - OpenCode', () => {
+  it('writes the OpenCode plugin and reports it', () => {
+    const written = setupAgentAlignment({ cwd: dir, env: 'prod' });
+    expect(existsSync(join(dir, '.opencode', 'plugins', 'align.js'))).toBe(true);
+    expect(written).toContain('.opencode/plugins/align.js');
+  });
+});

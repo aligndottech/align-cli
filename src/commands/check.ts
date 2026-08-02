@@ -30,7 +30,7 @@ export function registerCheckCommand(program: Command): void {
     .option('--all', 'Check full HEAD diff, not just staged changes')
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
     .option('--advisory', 'Agent hook mode: always exit 0, emit conflicting decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
-    .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, or text', 'claude')
+    .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, opencode, or text', 'claude')
     .option('--block-on-critical', 'Advisory PreToolUse hook: deny an edit only on a CRITICAL conflict (default: never block, just surface context)')
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
@@ -251,7 +251,7 @@ function conflictContext(conflicts: AdvisoryConflict[], closing: string): string
 
 // The host agents whose hook output contract we can speak. `text` is the universal
 // fallback for a host that just runs a command and shows whatever it printed.
-export type AdvisoryFormat = 'claude' | 'gemini' | 'pi' | 'text';
+export type AdvisoryFormat = 'claude' | 'gemini' | 'pi' | 'opencode' | 'text';
 
 export interface AdvisoryRenderOpts {
   pre: boolean;
@@ -290,7 +290,12 @@ export function buildAdvisoryOutput(
       if (opts.pre) return blocking ? { decision: 'deny', reason: summary } : null;
       return { hookSpecificOutput: { additionalContext: summary } };
 
+    // pi and OpenCode share this shape. Both have exactly two channels and reach them
+    // differently: pi's tool_call returns {block}, OpenCode's tool.execute.before blocks
+    // by throwing; pi patches tool_result.content, OpenCode mutates the result object
+    // its caller then returns. Same contract, so one branch rather than two writers.
     case 'pi':
+    case 'opencode':
       return blocking ? { block: true, reason: summary } : { context: summary };
 
     case 'text':

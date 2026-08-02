@@ -114,3 +114,50 @@ describe('normalizeHookPayload - rejects what it cannot read', () => {
     expect(normalizeHookPayload(null)).toBeNull();
   });
 });
+
+// OpenCode plugins receive the tool's own argument names. Every field below is from
+// its source: edit{filePath,oldString,newString}, write{content,filePath},
+// apply_patch{patchText} (packages/opencode/src/tool/*.ts).
+describe('normalizeHookPayload - OpenCode', () => {
+  it('maps a write tool.execute.before to PreToolUse', () => {
+    const got = normalizeHookPayload({
+      type: 'tool.execute.before',
+      tool: 'write',
+      args: { filePath: '/repo/src/a.ts', content: 'const x = 1' },
+    });
+    expect(got).toEqual({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'write',
+      tool_input: { file_path: '/repo/src/a.ts', content: 'const x = 1' },
+    });
+  });
+
+  it('renames editoldString/newString into the canonical shape', () => {
+    const got = normalizeHookPayload({
+      type: 'tool.execute.before',
+      tool: 'edit',
+      args: { filePath: '/repo/a.ts', oldString: 'pg', newString: 'mongo' },
+    });
+    expect(got?.tool_input).toEqual({ file_path: '/repo/a.ts', old_string: 'pg', new_string: 'mongo' });
+  });
+
+  // apply_patch carries the whole change as one blob, which IS the proposed change -
+  // so it maps to `content`, the field proposedChangeText() reads first.
+  it('maps apply_patch patchText to content', () => {
+    const got = normalizeHookPayload({
+      type: 'tool.execute.before',
+      tool: 'apply_patch',
+      args: { patchText: '*** Update File: a.ts\n+use mongo' },
+    });
+    expect(got?.tool_input?.content).toContain('use mongo');
+  });
+
+  it('maps tool.execute.after to PostToolUse', () => {
+    const got = normalizeHookPayload({
+      type: 'tool.execute.after',
+      tool: 'write',
+      args: { filePath: '/repo/a.ts', content: 'x' },
+    });
+    expect(got?.hook_event_name).toBe('PostToolUse');
+  });
+});

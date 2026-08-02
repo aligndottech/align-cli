@@ -97,3 +97,27 @@ describe('buildAdvisoryOutput - shared body', () => {
     }
   });
 });
+
+// OpenCode has the same two channels as pi, reached differently: `tool.execute.before`
+// blocks by THROWING (it runs before item.execute, so a throw prevents the call), and
+// `tool.execute.after` mutates the result object the caller then returns to the model.
+// Same output contract, so it shares pi's renderer branch rather than duplicating it.
+describe('buildAdvisoryOutput - opencode', () => {
+  it('emits context (not block) when not blocking', () => {
+    const out = buildAdvisoryOutput(warning, { pre: true, format: 'opencode', blockOnCritical: false }) as any;
+    expect(out.block).toBeUndefined();
+    expect(out.context).toContain('Use Postgres, not Mongo');
+  });
+
+  it('emits block plus reason for a critical conflict when blocking', () => {
+    const out = buildAdvisoryOutput(critical, { pre: true, format: 'opencode', blockOnCritical: true }) as any;
+    expect(out.block).toBe(true);
+    expect(out.reason).toContain('Use Postgres, not Mongo');
+  });
+
+  it('never blocks after the edit has already been applied', () => {
+    const out = buildAdvisoryOutput(critical, { pre: false, format: 'opencode', blockOnCritical: true }) as any;
+    expect(out.block).toBeUndefined();
+    expect(out.context).toBeTruthy();
+  });
+});
