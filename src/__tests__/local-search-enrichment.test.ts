@@ -32,6 +32,21 @@ import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 let dir = '';
 let dbPath = '';
 
+/**
+ * Every SQLite handle opened by a test, closed before the temp dir is removed.
+ *
+ * Windows will not unlink an open file, so leaving one open fails the rmSync in afterEach
+ * with EBUSY - and it fails on the CLEANUP, so all six tests report as broken while the
+ * assertions themselves passed. It cannot reproduce on macOS or Linux, which happily unlink
+ * open files, so a green local run says nothing about it. createLocalGatewayClient documents
+ * exactly this on its own close().
+ */
+const openHandles: Array<{ close: () => void }> = [];
+function track<T extends { close: () => void }>(h: T): T {
+  openHandles.push(h);
+  return h;
+}
+
 /** Insert a decision whose similarity to any query is exactly `score`. */
 function seed(
   db: ReturnType<typeof createLocalDb>,
@@ -54,12 +69,14 @@ beforeEach(() => {
   dbPath = path.join(dir, 'align.db');
 });
 afterEach(() => {
+  // Close before unlink, or Windows fails the cleanup with EBUSY.
+  while (openHandles.length) openHandles.pop()?.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
 describe('local searchDecisions gives an agent enough to cite a decision', () => {
   it('carries source_url, repository and cite for a decision that came from code', async () => {
-    const db = createLocalDb(dbPath);
+    const db = track(createLocalDb(dbPath));
     seed(db, {
       title: "Add explicit 'unknown' state",
       sourceUrl: 'https://github.com/aligndottech/align-cli/pull/76',
@@ -67,7 +84,7 @@ describe('local searchDecisions gives an agent enough to cite a decision', () =>
       score: 0.9,
     });
 
-    const client = createLocalGatewayClient(dbPath);
+    const client = track(createLocalGatewayClient(dbPath));
     const res = await client.searchDecisions('does the check fail open');
 
     // Positive control: the fixture produced a result before anything is asserted about it.
@@ -82,7 +99,7 @@ describe('local searchDecisions gives an agent enough to cite a decision', () =>
   // "github.com". A self-hosted tenant on GitHub Enterprise Server is the whole reason
   // mcp-align's reader is not host-anchored, and this repo ships to those tenants too.
   it('derives the repository on a self-hosted GitHub Enterprise host', async () => {
-    const db = createLocalDb(dbPath);
+    const db = track(createLocalDb(dbPath));
     seed(db, {
       title: 'Pin the ingest batch size',
       sourceUrl: 'https://github.acme-corp.internal/platform/ingest/pull/412',
@@ -90,7 +107,7 @@ describe('local searchDecisions gives an agent enough to cite a decision', () =>
       score: 0.9,
     });
 
-    const client = createLocalGatewayClient(dbPath);
+    const client = track(createLocalGatewayClient(dbPath));
     const res = await client.searchDecisions('batch size');
 
     expect(res.results).toHaveLength(1);
@@ -102,11 +119,11 @@ describe('local searchDecisions gives an agent enough to cite a decision', () =>
   // A negative assertion needs a positive control in the same test, or an empty world
   // satisfies it. Both decisions are returned by the same call; only one is from code.
   it('omits repository and cite for a decision that did not come from code', async () => {
-    const db = createLocalDb(dbPath);
+    const db = track(createLocalDb(dbPath));
     seed(db, { title: 'From Slack', sourceUrl: 'https://acme.slack.com/archives/C1/p123', platform: 'slack', score: 0.9 });
     seed(db, { title: 'From a PR', sourceUrl: 'https://github.com/aligndottech/align-cli/pull/76', platform: 'github', score: 0.8 });
 
-    const client = createLocalGatewayClient(dbPath);
+    const client = track(createLocalGatewayClient(dbPath));
     const res = await client.searchDecisions('anything');
 
     expect(res.results).toHaveLength(2);
@@ -125,10 +142,10 @@ describe('local searchDecisions gives an agent enough to cite a decision', () =>
   // in this machine's SQLite file, so any Align URL built for it 404s wherever it points -
   // and a fabricated link is worse than none because it looks clickable.
   it('does not invent an Align decision_url for a locally-stored decision', async () => {
-    const db = createLocalDb(dbPath);
+    const db = track(createLocalDb(dbPath));
     seed(db, { title: 'Local only', sourceUrl: 'https://github.com/o/r/pull/1', platform: 'github', score: 0.9 });
 
-    const client = createLocalGatewayClient(dbPath);
+    const client = track(createLocalGatewayClient(dbPath));
     const res = await client.searchDecisions('anything');
 
     expect(res.results).toHaveLength(1);
@@ -144,11 +161,11 @@ describe('local searchDecisions applies a real relevance floor', () => {
   // "result"; 0.30 is the nearest value above the floor. One either side, so the test
   // fails if the floor moves in either direction rather than only if it disappears.
   it('excludes a match below the floor and keeps one above it', async () => {
-    const db = createLocalDb(dbPath);
+    const db = track(createLocalDb(dbPath));
     seed(db, { title: 'Noise at 0.18', sourceUrl: null, platform: 'cli', score: 0.18 });
     seed(db, { title: 'Relevant at 0.30', sourceUrl: null, platform: 'cli', score: 0.3 });
 
-    const client = createLocalGatewayClient(dbPath);
+    const client = track(createLocalGatewayClient(dbPath));
     const res = await client.searchDecisions('does the check fail open');
 
     expect(res.results.map(r => r.title)).toEqual(['Relevant at 0.30']);
@@ -158,11 +175,11 @@ describe('local searchDecisions applies a real relevance floor', () => {
   // empty result. That is a better answer than two wrong ones - the agent can say the
   // graph has nothing rather than having to judge decimals itself.
   it('returns nothing rather than noise when every match is below the floor', async () => {
-    const db = createLocalDb(dbPath);
+    const db = track(createLocalDb(dbPath));
     seed(db, { title: 'gRPC seed data', sourceUrl: null, platform: 'cli', score: 0.1846 });
     seed(db, { title: 'More seed data', sourceUrl: null, platform: 'cli', score: 0.1425 });
 
-    const client = createLocalGatewayClient(dbPath);
+    const client = track(createLocalGatewayClient(dbPath));
     const res = await client.searchDecisions('what happens when the brain service is down');
 
     expect(res.results).toEqual([]);
