@@ -45,7 +45,17 @@ export interface CapturedDecision {
 }
 
 export interface SearchResults {
-  results: Array<{ id: string; title: string; summary: string; status: string; similarity?: number; author?: DecisionAuthor | null; created_at?: string }>;
+  results: Array<{
+    id: string; title: string; summary: string; status: string;
+    similarity?: number; author?: DecisionAuthor | null; created_at?: string;
+    // Attribution an agent needs to CITE a decision rather than just repeat its
+    // title: which repository it came from, how a human writes it (align-cli#76),
+    // and the URL it was decided at. Optional because a decision from Slack or a
+    // meeting has no repository, and omitting beats emitting an empty string.
+    platform?: string; source_url?: string; repository?: string; cite?: string;
+    // Present only in cloud mode, where a hosted UI can actually serve it.
+    decision_url?: string;
+  }>;
   count: number;
   strategy: 'semantic' | 'keyword';
 }

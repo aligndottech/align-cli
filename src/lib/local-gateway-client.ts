@@ -1,12 +1,30 @@
 import { createLocalDb } from './local-db.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 import { classifyRelationship } from './local-relationship-classifier.js';
+import { citationFor, repositoryOf } from './decision-links.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
 // (ask/search/check) work identically in local mode.
 import type { AlignmentResult, SearchResults } from './gateway-client.js';
 
 export const CONFLICT_THRESHOLD = 0.65;
+/**
+ * Relevance floor for align_ask / align_search.
+ *
+ * Was an inline 0.1, the only unnamed threshold in this file and less than a quarter of
+ * its neighbours. It let align_ask answer "what happens when the brain service is down"
+ * with two unrelated decisions at 0.18 and 0.14 - noise the agent had to recognise by
+ * reading the decimals itself, and an audience cannot.
+ *
+ * 0.25 matches the gateway's own /decisions/smart-search floor, so the same question gets
+ * the same relevance bar in local and cloud mode. Lower than the 0.45 used for relatedness
+ * on purpose: search is a human asking a natural-language question, where a looser match is
+ * still worth showing, while relatedness is machinery acting on its own.
+ *
+ * An honest empty result is the point. "The graph has nothing on this" is a better answer
+ * than two wrong decisions, because the caller can act on it.
+ */
+export const SEARCH_THRESHOLD = 0.25;
 // Embeddings flag a decision as a related CANDIDATE at/above this score; the
 // relationship type is then assigned lazily by the LLM classifier.
 export const RELATES_THRESHOLD = 0.45;
@@ -108,13 +126,31 @@ export function createLocalGatewayClient(dbPath: string) {
 
     async searchDecisions(query: string, limit = 10): Promise<SearchResults> {
       const embedding = await getEmbedding(query);
-      const similar = await findSimilar(embedding, limit, 0.1);
+      const similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD);
       const results = similar
         .map(s => {
           const row = db.getDecisionById(s.decisionId);
-          return row
-            ? { id: row.id, title: row.title, summary: row.summary, status: 'active', similarity: s.score, created_at: row.createdAt }
-            : null;
+          if (!row) return null;
+          // source_url and platform were read from SQLite here and then discarded, so
+          // nothing downstream could say which repository a decision came from. The
+          // hosted connector has derived both since #1441; this is that parity.
+          const repository = repositoryOf(row.sourceUrl);
+          const cite = citationFor(row.sourceUrl);
+          return {
+            id: row.id,
+            title: row.title,
+            summary: row.summary,
+            status: 'active',
+            similarity: s.score,
+            created_at: row.createdAt,
+            platform: row.platform,
+            ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
+            ...(repository ? { repository } : {}),
+            ...(cite ? { cite } : {}),
+            // No decision_url: a local-embedded decision lives only in this machine's
+            // SQLite file, so any Align URL built for it would 404 wherever it pointed.
+            // Absent beats fabricated - a wrong link looks clickable.
+          };
         })
         .filter((d): d is NonNullable<typeof d> => d !== null);
       return { results, count: results.length, strategy: 'semantic' };
