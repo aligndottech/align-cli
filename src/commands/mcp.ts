@@ -22,6 +22,56 @@ export const ALIGN_MCP_INSTRUCTIONS = `Align is this team's decision graph - the
 - Use align_get_conflicts and align_get_related_decisions to understand context and surface who to talk to.
 - Prefer the graph over guessing: it reflects decisions made across Slack, Jira, GitHub, Linear and more that may not be in the code or docs.`;
 
+/**
+ * Which decision graph THIS server reads, appended to the base instructions.
+ *
+ * Three Align MCP servers are commonly connected at once - align-prod, align-preview, and this
+ * CLI - with near-identical tool names, and none of them said which graph it answers from. An
+ * agent choosing between them had no basis to choose, so it took align_ask because the
+ * instructions named it first, and answered a question about the hosted product from a laptop
+ * SQLite file holding four seeded demo decisions.
+ *
+ * Naming the source is what lets the model pick correctly, instead of the human remembering to
+ * disconnect a server before every session.
+ */
+function graphIdentity(env: EnvironmentConfig): string {
+  if (env.mode === 'local-embedded') {
+    return (
+      '\n\nTHIS SERVER READS THE LOCAL DECISION GRAPH stored on this machine, not a hosted Align ' +
+      'tenant. It holds only what has been captured or imported locally. If another Align server ' +
+      'is connected, prefer it for questions about a team or a product, and use this one for what ' +
+      'is on this machine.'
+    );
+  }
+  // Naming the host matters when prod and preview are both connected: they hold different
+  // graphs and answer the same question differently.
+  return `\n\nThis server reads the hosted Align graph at ${env.gatewayUrl}.`;
+}
+
+/** Server instructions for the environment actually being served. */
+export function instructionsFor(env: EnvironmentConfig): string {
+  return ALIGN_MCP_INSTRUCTIONS + graphIdentity(env);
+}
+
+/**
+ * Tool schemas with the retrieval tools' descriptions marked with the graph they search.
+ *
+ * Only the two that READ the graph are rewritten. A client picks a tool by its description, and
+ * capture/check tools are unambiguous - editing them would be churn that makes a future diff
+ * harder to read for no gain in disambiguation.
+ */
+export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
+  const local = env.mode === 'local-embedded';
+  const suffix = local
+    ? ' Searches the LOCAL decision graph on this machine, not a hosted Align tenant.'
+    : ` Searches the hosted Align graph at ${env.gatewayUrl}.`;
+  return TOOL_SCHEMAS.map(tool =>
+    tool.name === 'align_ask' || tool.name === 'align_search'
+      ? { ...tool, description: tool.description + suffix }
+      : tool,
+  );
+}
+
 // Heavy internal fields that bloat the model's context without helping it reason.
 // MCP responses go straight into the agent's context window, so we omit these and
 // serialize compactly (no pretty-print whitespace) - see "MCP context cost".
@@ -228,10 +278,10 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
 
       const server = new Server(
         { name: 'align', version },
-        { capabilities: { tools: {} }, instructions: ALIGN_MCP_INSTRUCTIONS },
+        { capabilities: { tools: {} }, instructions: instructionsFor(env) },
       );
 
-      server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_SCHEMAS }));
+      server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolSchemasFor(env) }));
 
       server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
