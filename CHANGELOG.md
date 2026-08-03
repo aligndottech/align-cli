@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/aligndottech/align-cli/compare/cli-v0.8.0...cli-v0.8.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **check:** make the editor hook fit its budget, and never fail silently ([#88](https://github.com/aligndottech/align-cli/issues/88)) ([0386b7d](https://github.com/aligndottech/align-cli/commit/0386b7dd2bec3be067127c6d99310cfc9eb1950a))
+* **mcp:** give align_ask the repository, citation and relevance floor it never had ([#90](https://github.com/aligndottech/align-cli/issues/90)) ([1357d83](https://github.com/aligndottech/align-cli/commit/1357d83730d0daba1b3ebb348d4946d994010629))
+
 ## [0.8.0](https://github.com/aligndottech/align-cli/compare/cli-v0.7.1...cli-v0.8.0) (2026-08-02)
 
 
