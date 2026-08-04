@@ -144,35 +144,28 @@ runs:
     - name: Apply the fail-on policy
       shell: bash
       run: |
-        set -euo pipefail
+        set -uo pipefail
         CODE="${{ steps.check.outputs.code }}"
         STATUS="${{ steps.check.outputs.status }}"
 
-        case "${{ inputs.fail-on }}" in
-          never)
-            echo "fail-on=never: reporting '$STATUS' without failing the job."
-            ;;
-          conflict-or-unknown)
-            if [ "$CODE" != "0" ]; then
-              echo "::error::Align check returned '$STATUS' (exit $CODE)."
-              exit 1
-            fi
-            ;;
-          conflict)
-            # The default deliberately does NOT fail on `unknown`. A required gate that
-            # fails when the service is unreachable makes every outage a merge freeze,
-            # which is the failure mode this action exists to remove. Choose
-            # conflict-or-unknown if you would rather block than proceed unchecked.
-            if [ "$CODE" = "1" ]; then
-              echo "::error::Align check found a conflict with a recorded decision."
-              exit 1
-            fi
-            if [ "$CODE" != "0" ]; then
-              echo "::warning::Align check could not run (status '$STATUS'). Not failing, because fail-on=conflict."
-            fi
-            ;;
-          *)
-            echo "::error::Unknown fail-on value '${{ inputs.fail-on }}'. Use conflict, conflict-or-unknown or never."
-            exit 1
-            ;;
+        # The policy lives in decide.sh so it can be tested. Classifying on the exit code
+        # alone is wrong: a CLI crash also exits 1 with no JSON, and reporting that as
+        # "found a conflict" is a fabricated finding. See src/__tests__/action-decide.test.ts.
+        set +e
+        OUTCOME="$(bash "${{ github.action_path }}/decide.sh" "$CODE" "$STATUS" "${{ inputs.fail-on }}" 2>&1)"
+        DECISION=$?
+        set -e
+        echo "$OUTCOME"
+
+        if [ "$DECISION" = "2" ]; then
+          echo "::error::$OUTCOME"
+          exit 1
+        fi
+
+        case "$OUTCOME" in
+          *reason=conflict*)   echo "::error::Align check found a conflict with a recorded decision." ;;
+          *incomplete*)        echo "::warning::Align check did not complete (status '$STATUS', exit $CODE). Nothing was verified." ;;
+        esac
+
+        exit "$DECISION"
         esac
