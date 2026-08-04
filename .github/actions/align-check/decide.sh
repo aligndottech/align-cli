@@ -26,9 +26,23 @@ fi
 # Exit code alone is not enough: 1 is also what a crash produces.
 is_conflict() { [ "$CODE" = "1" ] && [ "$STATUS" = "conflicting" ]; }
 
-# Everything else that is not a clean pass means the check did not complete. `unknown` is
-# the CLI saying so deliberately (exit 2); `error`, or any other non-zero, is a crash.
-is_incomplete() { ! is_conflict && { [ "$CODE" != "0" ] || [ "$STATUS" != "aligned" ]; }; }
+# A COMPLETE check is exit 0 with a status the CLI produced on purpose. There are two:
+# `aligned` (found related decisions, none oppose the diff) and `no-context` (ran fine,
+# found nothing related). The second is an ordinary result for new work, not an outage.
+is_complete_pass() {
+  [ "$CODE" = "0" ] && { [ "$STATUS" = "aligned" ] || [ "$STATUS" = "no-context" ]; }
+}
+
+# Everything else means the check did not complete. `unknown` is the CLI saying so
+# deliberately (exit 2); `error`, or any other non-zero, is a crash. Note `error` arrives
+# with exit 0 on the 401 path, so the STATUS is what separates it - not the code.
+#
+# This deliberately does NOT test `!= aligned`. That spelling classified `no-context` as
+# incomplete, so under fail-on=conflict-or-unknown a required check blocked every PR whose
+# diff the graph had no decisions about (align-stack#1482). It also inverted the point of
+# the `unknown` status (align-cli#76): "we found nothing" and "we could not look" were
+# folded back together, which is the distinction that status exists to draw.
+is_incomplete() { ! is_conflict && ! is_complete_pass; }
 
 case "$FAIL_ON" in
   never)

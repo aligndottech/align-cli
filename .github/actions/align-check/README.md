@@ -64,13 +64,20 @@ a base checks nothing and passes every time. The action always passes `--base`.
 
 ## Exit codes and `fail-on`
 
-The CLI distinguishes three outcomes, and the distinction is the point:
+The CLI distinguishes four outcomes, and the distinction is the point:
 
 | Exit | Status | Meaning |
 | -- | -- | -- |
-| `0` | `aligned` | Checked, no conflict found. |
+| `0` | `aligned` | Checked, related decisions found, none oppose the diff. |
+| `0` | `no-context` | Checked, no related decisions found. A result, not a failure. |
 | `1` | `conflicting` | Checked, conflicts with a recorded decision. |
 | `2` | `unknown` | **Could not check.** Not a pass. |
+
+`no-context` and `unknown` are the pair most easily confused, and folding them together is a
+real defect rather than a wording nit: `no-context` means the check ran and the graph had
+nothing to say, which is the ordinary outcome for new work. `unknown` means it did not run.
+Treating the first as the second made `conflict-or-unknown` block every PR whose diff had no
+related decisions, in a repo where that check was required (align-stack#1482).
 
 A conflict is only ever reported when the CLI actually says `conflicting`. If it crashes -
 an old version, a bad flag, a runtime error - it also exits `1`, but with no result to
