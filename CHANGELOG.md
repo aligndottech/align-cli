@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0](https://github.com/aligndottech/align-cli/compare/cli-v0.8.1...cli-v0.9.0) (2026-08-04)
+
+
+### Features
+
+* **check:** add --base for CI, and a reusable GitHub Action ([#93](https://github.com/aligndottech/align-cli/issues/93)) ([03938ed](https://github.com/aligndottech/align-cli/commit/03938ed949e7fdce8618b448dfa96847efa156d0))
+
+
+### Bug Fixes
+
+* **action:** never report a CLI crash as a conflict ([#94](https://github.com/aligndottech/align-cli/issues/94)) ([7ccdd2c](https://github.com/aligndottech/align-cli/commit/7ccdd2c9b7662bb1790bcc1e8ec4d09263668466))
+* **mcp:** say which decision graph this server reads ([#91](https://github.com/aligndottech/align-cli/issues/91)) ([569357b](https://github.com/aligndottech/align-cli/commit/569357bc8ce4107b4b2718e92e9dc8eed95f8a07))
+
 ## [0.8.1](https://github.com/aligndottech/align-cli/compare/cli-v0.8.0...cli-v0.8.1) (2026-08-03)
 
 
