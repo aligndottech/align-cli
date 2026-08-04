@@ -168,4 +168,3 @@ runs:
         esac
 
         exit "$DECISION"
-        esac
