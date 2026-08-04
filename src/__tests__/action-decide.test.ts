@@ -64,6 +64,24 @@ describe('align-check action fail policy', () => {
       expect(r.exitCode).toBe(0);
       expect(r.out).toContain('incomplete');
     });
+
+    // The 401 shape, and the one most likely to be hit in practice - a missing or wrong
+    // token. The CLI catches the transport error and exits ZERO with status "error":
+    //
+    //   $ ALIGN_TOKEN=bad align check --ci --base origin/main
+    //   {"status":"error","message":"Gateway returned 401 for /alignment/check: unauthorized"}
+    //   EXIT=0
+    //
+    // Exit code alone would read that as a clean pass. Only the status distinguishes it,
+    // which is why `is_incomplete` tests both. Added after a review asked whether a 401
+    // could fail the job: it cannot, and this is what pins that it also cannot silently
+    // masquerade as "aligned".
+    it('treats a zero exit with an error status as incomplete, not as a pass', async () => {
+      const r = await decide('0', 'error', 'conflict');
+      expect(r.exitCode).toBe(0);
+      expect(r.out).toContain('incomplete');
+      expect(r.out).not.toContain('outcome=pass status=');
+    });
   });
 
   describe('fail-on=conflict-or-unknown (strict)', () => {
