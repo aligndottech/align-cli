@@ -72,10 +72,18 @@ The CLI distinguishes three outcomes, and the distinction is the point:
 | `1` | `conflicting` | Checked, conflicts with a recorded decision. |
 | `2` | `unknown` | **Could not check.** Not a pass. |
 
-`fail-on: conflict` (the default) fails only on `1`, and logs a warning on `2`. That is
-deliberate: a required status check that fails when the service is unreachable turns every
-outage into a repository-wide merge freeze. If you would rather block than merge unchecked,
-use `fail-on: conflict-or-unknown`.
+A conflict is only ever reported when the CLI actually says `conflicting`. If it crashes -
+an old version, a bad flag, a runtime error - it also exits `1`, but with no result to
+parse, and the action treats that as **could not check**, never as a finding. Reporting a
+crash as a conflict would be inventing a result.
+
+`fail-on: conflict` (the default) fails only on a real conflict, and warns when the check
+did not complete. That is deliberate: a required status check that fails when the service is
+unreachable turns every outage into a repository-wide merge freeze. If you would rather
+block than merge unchecked, use `fail-on: conflict-or-unknown`.
+
+The policy is a small script, `decide.sh`, covered by a truth table in
+`src/__tests__/action-decide.test.ts`.
 
 Set `fail-on: never` to report into the job summary without ever failing - a good way to
 watch the signal before you make the check required.
