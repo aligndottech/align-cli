@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo } from '../lib/git.js';
+import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
@@ -34,8 +34,9 @@ export function registerCheckCommand(program: Command): void {
     .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, opencode, or text', 'claude')
     .option('--block-on-critical', 'Advisory PreToolUse hook: deny an edit only on a CRITICAL conflict (default: never block, just surface context)')
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
+    .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
-    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; format?: AdvisoryFormat; ci: boolean; resolve?: string }) => {
+    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; format?: AdvisoryFormat; ci: boolean; base?: string; resolve?: string }) => {
       // Advisory mode is the deterministic auto-alignment path (ALI-121/ALI-122):
       // non-blocking, fail-open, machine-readable. It owns the whole flow, never
       // touching the human-facing spinner/console output below.
@@ -58,8 +59,27 @@ export function registerCheckCommand(program: Command): void {
       const config = createConfigStore();
       const client = createGatewayClient(config.getEnvironment(envName));
 
-      let diff = await getStagedDiff();
-      if (!diff.trim() || opts.all) diff = await getHeadDiff();
+      let diff: string;
+      if (opts.base) {
+        // An unresolvable base (a typo, a shallow clone with no history, a deleted branch)
+        // must NOT fall through to the empty-diff path below: "I could not look" and "there
+        // was nothing to look at" are the same green from the outside, which is the exact
+        // silent pass this option exists to remove (ALI-414).
+        try {
+          diff = await getBaseDiff(opts.base);
+        } catch (err) {
+          const message = `Could not diff against '${opts.base}': ${(err as Error).message}`;
+          if (opts.ci) {
+            process.stdout.write(`${JSON.stringify({ status: 'unknown', reason: 'bad_base_ref', message })}\n`);
+          } else {
+            console.error(chalk.red(message));
+          }
+          process.exit(EXIT_UNKNOWN);
+        }
+      } else {
+        diff = await getStagedDiff();
+        if (!diff.trim() || opts.all) diff = await getHeadDiff();
+      }
 
       if (!diff.trim()) {
         if (!opts.hook && !opts.ci) console.log(chalk.dim('No changes to check.'));
