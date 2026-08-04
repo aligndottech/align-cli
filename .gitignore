@@ -13,3 +13,8 @@ pnpm-lock.yaml
 
 # test coverage
 coverage/
+
+# Research, plans and session notes. Kept locally, not published: this repo is public
+# and these are working notes, not product documentation. align-stack (private) keeps its
+# thoughts/shared/ convention. Untracked in #95; this is the guard that keeps it that way.
+thoughts/
