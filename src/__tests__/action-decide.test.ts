@@ -82,6 +82,16 @@ describe('align-check action fail policy', () => {
       expect(r.out).toContain('incomplete');
       expect(r.out).not.toContain('outcome=pass status=');
     });
+
+    // `no-context` is the CLI saying it RAN and found no related decisions. That is a
+    // result, not a failure to produce one. It exits 0 and is not an error shape, so
+    // reporting "nothing was verified" against it is simply false - the diff was checked
+    // and the graph had nothing to say about it.
+    it('reports no-context as a real result, not as an incomplete check', async () => {
+      const r = await decide('0', 'no-context', 'conflict');
+      expect(r.exitCode).toBe(0);
+      expect(r.out).not.toContain('incomplete');
+    });
   });
 
   describe('fail-on=conflict-or-unknown (strict)', () => {
@@ -103,6 +113,42 @@ describe('align-check action fail policy', () => {
 
     it('fails on a crash, attributed as incomplete', async () => {
       const r = await decide('1', 'error', 'conflict-or-unknown');
+      expect(r.exitCode).toBe(1);
+      expect(r.out).toContain('reason=incomplete');
+    });
+
+    // The case that broke align-stack#1482. Under the strict policy a `no-context` result
+    // failed a REQUIRED check, so any PR touching ground the graph has no decisions about
+    // was blocked. "We checked and found nothing related" is the ordinary outcome for new
+    // work; it is not an outage.
+    it('passes on no-context, which is a complete check that found nothing', async () => {
+      const r = await decide('0', 'no-context', 'conflict-or-unknown');
+      expect(r.exitCode).toBe(0);
+      expect(r.out).toContain('outcome=pass');
+      expect(r.out).not.toContain('incomplete');
+    });
+
+    // The regression guard for the above, and the reason this pair has to sit together:
+    // widening what counts as complete must NOT re-open the fail-open hole that the
+    // `unknown` status exists to close (align-cli#76). Same policy, same exit-0 CLI, and
+    // this one must still block.
+    it('still fails on unknown, so widening no-context did not loosen the strict policy', async () => {
+      const r = await decide('0', 'unknown', 'conflict-or-unknown');
+      expect(r.exitCode).toBe(1);
+      expect(r.out).toContain('reason=incomplete');
+    });
+
+    // A passing status with a non-zero exit is INCOHERENT - the CLI does not produce it.
+    // These pin the `[ "$CODE" = "0" ]` half of is_complete_pass, which deleting left every
+    // other test green: without them the guard is a living mutant, and a future CLI whose
+    // exit semantics drift (or a half-parsed JSON line) would be read as a clean pass on
+    // the strength of the status string alone. Two examples, one per accepted status, so
+    // the rule is the code check rather than one hard-coded pair.
+    it.each([
+      ['1', 'aligned'],
+      ['2', 'no-context'],
+    ])('does not accept a passing status with a non-zero exit (code %s, status %s)', async (code, status) => {
+      const r = await decide(code, status, 'conflict-or-unknown');
       expect(r.exitCode).toBe(1);
       expect(r.out).toContain('reason=incomplete');
     });
