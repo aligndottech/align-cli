@@ -5,7 +5,7 @@ vi.mock('execa', () => ({
 }));
 
 import { execa } from 'execa';
-import { buildCommitUrl, formatCommitAsText, getCurrentBranch, getHeadDiff, getStagedDiff, isDecisionCommit, isGitRepo } from '../lib/git.js';
+import { buildCommitUrl, formatCommitAsText, getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isDecisionCommit, isGitRepo } from '../lib/git.js';
 import type { GitCommit } from '../lib/git.js';
 
 describe('git helpers', () => {
@@ -19,6 +19,25 @@ describe('git helpers', () => {
     vi.mocked(execa).mockResolvedValueOnce({ stdout: 'diff --git b/other.ts', stderr: '' } as Awaited<ReturnType<typeof execa>>);
     const diff = await getHeadDiff();
     expect(diff).toBe('diff --git b/other.ts');
+  });
+
+  // CI is the reason this exists. `git diff --staged` and `git diff HEAD` are both EMPTY in
+  // a clean CI checkout, so a pipeline calling `align check` without a base ref checks
+  // nothing and exits 0 - a gate that cannot fail.
+  it('getBaseDiff returns the diff against a base ref', async () => {
+    vi.mocked(execa).mockResolvedValueOnce({ stdout: 'diff --git c/ci.ts', stderr: '' } as Awaited<ReturnType<typeof execa>>);
+    const diff = await getBaseDiff('origin/main');
+    expect(diff).toBe('diff --git c/ci.ts');
+  });
+
+  it('getBaseDiff diffs from the MERGE BASE, not the base tip', async () => {
+    vi.mocked(execa).mockResolvedValueOnce({ stdout: '', stderr: '' } as Awaited<ReturnType<typeof execa>>);
+    await getBaseDiff('origin/main');
+
+    // Three dots, not two. `git diff main..HEAD` also reports everything that landed on
+    // main since this branch diverged, so a long-lived branch would submit other people's
+    // changes for alignment analysis and could be failed by a conflict it did not cause.
+    expect(vi.mocked(execa)).toHaveBeenCalledWith('git', ['diff', 'origin/main...HEAD']);
   });
 
   it('getCurrentBranch returns trimmed branch name', async () => {

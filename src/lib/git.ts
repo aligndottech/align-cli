@@ -122,6 +122,23 @@ export async function getHeadDiff(): Promise<string> {
   return result.stdout;
 }
 
+/**
+ * Diff of this branch against where it diverged from `baseRef`.
+ *
+ * This is the shape CI needs. A CI checkout has a clean working tree, so `git diff --staged`
+ * and `git diff HEAD` are both empty there - a pipeline relying on them checks nothing and
+ * passes, which is worse than no gate at all.
+ *
+ * Three dots deliberately: `base...HEAD` diffs from the MERGE BASE, so it contains only the
+ * commits on this branch. `base..HEAD` would also include everything that landed on the base
+ * since the branch diverged, submitting other people's changes for analysis and letting a
+ * conflict this branch did not cause fail it.
+ */
+export async function getBaseDiff(baseRef: string): Promise<string> {
+  const result = await execa('git', ['diff', `${baseRef}...HEAD`]);
+  return result.stdout;
+}
+
 export async function getCurrentBranch(): Promise<string> {
   const result = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
   return result.stdout.trim();

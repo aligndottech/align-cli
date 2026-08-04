@@ -1,0 +1,178 @@
+name: 'Align Decision Check'
+description: 'Check a pull request against your team decision graph. Works with Align cloud or a self-hosted gateway.'
+author: 'Align'
+
+branding:
+  icon: 'git-merge'
+  color: 'purple'
+
+inputs:
+  token:
+    description: 'Align API token. Store it as a secret and pass it here. Not required when pointing at a gateway that does not authenticate (e.g. a local dev stack).'
+    required: false
+  tenant-id:
+    description: 'Align tenant id. Optional when the token already identifies the tenant.'
+    required: false
+  gateway-url:
+    description: 'Base URL of your Align gateway. Set this to self-host (e.g. https://align.internal.example.com). Leave unset to use Align cloud.'
+    required: false
+  env:
+    description: 'Align cloud environment when gateway-url is not set: prod, preview or local.'
+    required: false
+    default: 'prod'
+  base-ref:
+    description: 'Ref to diff against. Defaults to the pull request base branch, or the repository default branch on a push.'
+    required: false
+  fail-on:
+    description: 'When to fail the job: conflict (default), conflict-or-unknown, or never. "unknown" means the check could not run - failing on it is the strict choice and will block on an outage.'
+    required: false
+    default: 'conflict'
+  cli-version:
+    description: 'Version of @aligndottech/cli to run. Defaults to latest because --base (which this action requires) ships in the first release after 0.8.1; pin it to an exact version once that release is out, and for reproducible builds generally.'
+    required: false
+    default: 'latest'
+  working-directory:
+    description: 'Directory to run in.'
+    required: false
+    default: '.'
+
+outputs:
+  status:
+    description: 'aligned, conflicting, unknown or error.'
+    value: ${{ steps.check.outputs.status }}
+  result:
+    description: 'The full JSON result from the check.'
+    value: ${{ steps.check.outputs.result }}
+
+runs:
+  using: 'composite'
+  steps:
+    # actions/checkout defaults to a shallow clone with a single commit, so the merge base
+    # with the target branch is not present and `git diff base...HEAD` fails. Rather than
+    # make every caller remember `fetch-depth: 0`, fetch what we need here.
+    - name: Ensure the base ref is available
+      id: base
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+
+        BASE="${{ inputs.base-ref }}"
+        if [ -z "$BASE" ]; then
+          if [ -n "${GITHUB_BASE_REF:-}" ]; then
+            BASE="$GITHUB_BASE_REF"                      # pull_request: the target branch
+          else
+            BASE="${{ github.event.repository.default_branch }}"
+          fi
+        fi
+
+        # Accept either a bare branch name or an already-qualified ref.
+        case "$BASE" in
+          origin/*|refs/*) REMOTE_REF="$BASE" ;;
+          *) REMOTE_REF="origin/$BASE" ;;
+        esac
+
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          git fetch --unshallow --no-tags origin "+refs/heads/${BASE#origin/}:refs/remotes/origin/${BASE#origin/}" \
+            || git fetch --deepen=200 --no-tags origin "${BASE#origin/}" || true
+        else
+          git fetch --no-tags origin "+refs/heads/${BASE#origin/}:refs/remotes/origin/${BASE#origin/}" || true
+        fi
+
+        # Fail loudly rather than letting an unresolvable base become an empty diff and a
+        # green tick. A gate that cannot see the change must not report success.
+        if ! git rev-parse --verify --quiet "$REMOTE_REF" >/dev/null; then
+          echo "::error::Could not resolve base ref '$REMOTE_REF'. Pass base-ref, or use actions/checkout with fetch-depth: 0."
+          exit 1
+        fi
+        if ! git merge-base "$REMOTE_REF" HEAD >/dev/null 2>&1; then
+          echo "::error::No merge base between '$REMOTE_REF' and HEAD - the clone is too shallow. Use actions/checkout with fetch-depth: 0."
+          exit 1
+        fi
+
+        echo "ref=$REMOTE_REF" >> "$GITHUB_OUTPUT"
+
+    - name: Run the alignment check
+      id: check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ALIGN_TOKEN: ${{ inputs.token }}
+        ALIGN_TENANT_ID: ${{ inputs.tenant-id }}
+        ALIGN_GATEWAY_URL: ${{ inputs.gateway-url }}
+        ALIGN_ENV: ${{ inputs.env }}
+      run: |
+        set -uo pipefail
+
+        set +e
+        OUT="$(npx --yes "@aligndottech/cli@${{ inputs.cli-version }}" check --ci --base "${{ steps.base.outputs.ref }}")"
+        CODE=$?
+        set -e
+
+        # Exit codes are the CLI's contract: 0 aligned, 1 conflict, 2 could-not-check.
+        # `unknown` is deliberately NOT folded into either - "we found nothing" and "we
+        # could not look" call for different responses.
+        # node, not python3: the action already requires node for npx, so this adds no
+        # runtime that a runner might not have.
+        STATUS="$(printf '%s' "$OUT" | tail -n 1 | node -e \
+          'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).status||"error")}catch{process.stdout.write("error")}})' \
+          2>/dev/null || echo error)"
+
+        {
+          echo "status=$STATUS"
+          echo "code=$CODE"
+          echo "result<<ALIGN_EOF"
+          printf '%s\n' "$OUT"
+          echo "ALIGN_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### Align Decision Check"
+          echo ""
+          case "$STATUS" in
+            aligned)     echo "No conflicts with recorded decisions." ;;
+            conflicting) echo "**Conflicts with one or more recorded decisions.**" ;;
+            unknown)     echo "Could not complete the check. This is not a pass." ;;
+            *)           echo "The check did not run. This is not a pass." ;;
+          esac
+          echo ""
+          echo '```json'
+          printf '%s\n' "$OUT"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Apply the fail-on policy
+      shell: bash
+      run: |
+        set -euo pipefail
+        CODE="${{ steps.check.outputs.code }}"
+        STATUS="${{ steps.check.outputs.status }}"
+
+        case "${{ inputs.fail-on }}" in
+          never)
+            echo "fail-on=never: reporting '$STATUS' without failing the job."
+            ;;
+          conflict-or-unknown)
+            if [ "$CODE" != "0" ]; then
+              echo "::error::Align check returned '$STATUS' (exit $CODE)."
+              exit 1
+            fi
+            ;;
+          conflict)
+            # The default deliberately does NOT fail on `unknown`. A required gate that
+            # fails when the service is unreachable makes every outage a merge freeze,
+            # which is the failure mode this action exists to remove. Choose
+            # conflict-or-unknown if you would rather block than proceed unchecked.
+            if [ "$CODE" = "1" ]; then
+              echo "::error::Align check found a conflict with a recorded decision."
+              exit 1
+            fi
+            if [ "$CODE" != "0" ]; then
+              echo "::warning::Align check could not run (status '$STATUS'). Not failing, because fail-on=conflict."
+            fi
+            ;;
+          *)
+            echo "::error::Unknown fail-on value '${{ inputs.fail-on }}'. Use conflict, conflict-or-unknown or never."
+            exit 1
+            ;;
+        esac
