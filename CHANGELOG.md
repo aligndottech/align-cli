@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.1](https://github.com/aligndottech/align-cli/compare/cli-v0.9.0...cli-v0.9.1) (2026-08-05)
+
+
+### Bug Fixes
+
+* **action:** a no-context result is a complete check, not a failed one ([#99](https://github.com/aligndottech/align-cli/issues/99)) ([62bdd4b](https://github.com/aligndottech/align-cli/commit/62bdd4b872516ad8a347a057e93faaacdfbc109b))
+* **action:** remove a stray esac, and gate the action's shell syntax ([#97](https://github.com/aligndottech/align-cli/issues/97)) ([8cb3cd7](https://github.com/aligndottech/align-cli/commit/8cb3cd7c07f37cd84de989b76a21fea1520f44ff))
+* **action:** surface the gateway's reason when a check does not complete ([#100](https://github.com/aligndottech/align-cli/issues/100)) ([878c2e0](https://github.com/aligndottech/align-cli/commit/878c2e0e5db495b257a3477321bd06857fed4871))
+
 ## [0.9.0](https://github.com/aligndottech/align-cli/compare/cli-v0.8.1...cli-v0.9.0) (2026-08-04)
 
 
