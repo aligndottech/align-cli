@@ -118,8 +118,19 @@ runs:
           'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).status||"error")}catch{process.stdout.write("error")}})' \
           2>/dev/null || echo error)"
 
+        # The gateway explains WHY it could not check - brain_timeout, brain_error,
+        # brain_degraded, bad_base_ref - and the CLI already prints the whole result, so the
+        # reason is sitting in $OUT. Without pulling it out, a failure reads only as
+        # "status 'unknown'", and the difference between "retry, the analysis timed out" and
+        # "something is actually broken" costs an investigation every time. Empty string when
+        # absent, which is the normal case on a completed check.
+        REASON="$(printf '%s' "$OUT" | tail -n 1 | node -e \
+          'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).reason||"")}catch{process.stdout.write("")}})' \
+          2>/dev/null || echo '')"
+
         {
           echo "status=$STATUS"
+          echo "reason=$REASON"
           echo "code=$CODE"
           echo "result<<ALIGN_EOF"
           printf '%s\n' "$OUT"
@@ -147,6 +158,7 @@ runs:
         set -uo pipefail
         CODE="${{ steps.check.outputs.code }}"
         STATUS="${{ steps.check.outputs.status }}"
+        REASON="${{ steps.check.outputs.reason }}"
 
         # The policy lives in decide.sh so it can be tested. Classifying on the exit code
         # alone is wrong: a CLI crash also exits 1 with no JSON, and reporting that as
@@ -164,7 +176,14 @@ runs:
 
         case "$OUTCOME" in
           *reason=conflict*)   echo "::error::Align check found a conflict with a recorded decision." ;;
-          *incomplete*)        echo "::warning::Align check did not complete (status '$STATUS', exit $CODE). Nothing was verified." ;;
+          *incomplete*)
+            # The reason is the whole point of this annotation. "status 'unknown'" tells the
+            # reader nothing they can act on; "brain_timeout" says retry, "brain_error" says
+            # go and look. Suffix only when present so a reasonless unknown still reads well.
+            SUFFIX=""
+            [ -n "$REASON" ] && SUFFIX=", reason '$REASON'"
+            echo "::warning::Align check did not complete (status '$STATUS'$SUFFIX, exit $CODE). Nothing was verified."
+            ;;
         esac
 
         exit "$DECISION"
