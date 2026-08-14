@@ -8,9 +8,11 @@ import { resolveEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchSlackItems } from '../../lib/fetchers/slack.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { personalCredsForImport } from '../../lib/personal-oauth.js';
 
 interface SlackImportOpts {
-  token: string;
+  token?: string;
+  personal?: boolean;
   limit: string;
   daysBack: string;
   approve?: boolean;
@@ -21,7 +23,8 @@ export function registerImportSlackCommand(importCmd: Command): void {
   importCmd
     .command('slack')
     .description('Import decision threads from Slack (xoxp- user token) [experimental]')
-    .requiredOption('--token <token>', 'Slack user OAuth token (xoxp-...)')
+    .option('--token <token>', 'Slack user OAuth token (xoxp-...)')
+    .option('--personal', 'Connect your own Slack via browser OAuth (Align personal app) instead of a token')
     .option('--limit <n>', 'Max threads to import', '50')
     .option('--days-back <n>', 'How many days back to scan', '90')
     .option('--approve', 'Skip confirmation prompt')
@@ -40,12 +43,26 @@ export function registerImportSlackCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
+      let token = opts.token;
+      if (!token && opts.personal) {
+        try {
+          ({ token } = await personalCredsForImport('slack', 'Slack', { config, envName, env, client }));
+        } catch (err) {
+          p.log.error((err as Error).message);
+          process.exit(1);
+        }
+      }
+      if (!token) {
+        p.log.error('No Slack credentials. Pass --token, or use --personal to connect via browser OAuth.');
+        process.exit(1);
+      }
+
       p.intro('align import slack');
       const spinner = p.spinner();
       spinner.start('Fetching decision threads from Slack...');
       try {
         const items = await fetchSlackItems({
-          token: opts.token,
+          token,
           limit: parseInt(opts.limit, 10),
           daysBack: parseInt(opts.daysBack, 10),
         });

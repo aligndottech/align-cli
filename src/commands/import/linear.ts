@@ -7,9 +7,11 @@ import { resolveEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchLinearItems } from '../../lib/fetchers/linear.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { personalCredsForImport } from '../../lib/personal-oauth.js';
 
 interface LinearImportOpts {
-  token: string;
+  token?: string;
+  personal?: boolean;
   limit: string;
   approve?: boolean;
   env?: EnvName;
@@ -19,7 +21,8 @@ export function registerImportLinearCommand(importCmd: Command): void {
   importCmd
     .command('linear')
     .description('Import your Linear issues (personal API token)')
-    .requiredOption('--token <token>', 'Linear personal API token (lin_api_...)')
+    .option('--token <token>', 'Linear personal API token (lin_api_...)')
+    .option('--personal', 'Connect your own Linear via browser OAuth (Align personal app) instead of a token')
     .option('--limit <n>', 'Max items to import', '100')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
@@ -30,11 +33,25 @@ export function registerImportLinearCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
+      let token = opts.token;
+      if (!token && opts.personal) {
+        try {
+          ({ token } = await personalCredsForImport('linear', 'Linear', { config, envName, env, client }));
+        } catch (err) {
+          p.log.error((err as Error).message);
+          process.exit(1);
+        }
+      }
+      if (!token) {
+        p.log.error('No Linear credentials. Pass --token, or use --personal to connect via browser OAuth.');
+        process.exit(1);
+      }
+
       p.intro('align import linear');
       const spinner = p.spinner();
       spinner.start('Fetching your Linear issues...');
       try {
-        const items = await fetchLinearItems({ token: opts.token, limit: parseInt(opts.limit, 10) });
+        const items = await fetchLinearItems({ token, limit: parseInt(opts.limit, 10) });
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'Linear', approve: opts.approve, appUrl: resolveAppUrl(env) });
       } catch (err) {

@@ -7,9 +7,11 @@ import { resolveEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchTeamsItems } from '../../lib/fetchers/teams.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { personalCredsForImport } from '../../lib/personal-oauth.js';
 
 interface TeamsImportOpts {
-  token: string;
+  token?: string;
+  personal?: boolean;
   limit: string;
   approve?: boolean;
   env?: EnvName;
@@ -19,7 +21,8 @@ export function registerImportTeamsCommand(importCmd: Command): void {
   importCmd
     .command('teams')
     .description('Import channel messages from Microsoft Teams')
-    .requiredOption('--token <token>', 'Microsoft Graph API delegated access token')
+    .option('--token <token>', 'Microsoft Graph API delegated access token')
+    .option('--personal', 'Connect via browser OAuth (Align Teams app) instead of pasting a Graph token')
     .option('--limit <n>', 'Max messages to import', '50')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
@@ -36,12 +39,26 @@ export function registerImportTeamsCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
+      let token = opts.token;
+      if (!token && opts.personal) {
+        try {
+          ({ token } = await personalCredsForImport('teams', 'Microsoft Teams', { config, envName, env, client }));
+        } catch (err) {
+          p.log.error((err as Error).message);
+          process.exit(1);
+        }
+      }
+      if (!token) {
+        p.log.error('No Microsoft Teams credentials. Pass --token, or use --personal to connect via browser OAuth.');
+        process.exit(1);
+      }
+
       p.intro('align import teams');
       const spinner = p.spinner();
       spinner.start('Fetching channel messages from Microsoft Teams...');
       try {
         const items = await fetchTeamsItems({
-          token: opts.token,
+          token,
           limit: parseInt(opts.limit, 10),
         });
         spinner.stop(`Found ${items.length} messages`);

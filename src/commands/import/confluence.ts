@@ -7,11 +7,13 @@ import { resolveEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchConfluenceItems } from '../../lib/fetchers/confluence.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { PERSONAL_OAUTH_KEYS, personalCredsForImport } from '../../lib/personal-oauth.js';
 import { AuthExpiredError } from '../../lib/errors.js';
 
 interface ConfluenceImportOpts {
   email?: string;
   token?: string;
+  personal?: boolean;
   domain?: string;
   limit: string;
   approve?: boolean;
@@ -24,6 +26,7 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
     .description('Import your Confluence pages')
     .option('--email <email>', 'Atlassian account email (for API token auth)')
     .option('--token <token>', 'Atlassian API token (or uses cached OAuth token from align setup)')
+    .option('--personal', 'Connect via browser OAuth (Align personal Atlassian app) instead of a token')
     .option('--domain <domain>', 'Confluence domain, e.g. company.atlassian.net (for API token auth)')
     .option('--limit <n>', 'Max pages to import', '50')
     .option('--approve', 'Skip confirmation prompt')
@@ -35,12 +38,33 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
-      const token = opts.token ?? config.getConnectorToken(envName, 'confluence');
-      const cloudId = !opts.token ? config.getConnectorCloudId(envName, 'confluence') ?? undefined : undefined;
-      const siteBase = !opts.token ? config.getConnectorSiteBase(envName, 'confluence') ?? undefined : undefined;
+      // Resolve auth: explicit flags first, then --personal (cached-or-browser OAuth), then
+      // the cached OAuth token align setup persisted - under the source's oauthKey
+      // ('confluence-personal'), which is the key this file wrongly read as 'confluence'
+      // until ALI-388.
+      const cachedKey = PERSONAL_OAUTH_KEYS['confluence'];
+      let token = opts.token;
+      let cloudId: string | undefined;
+      let siteBase: string | undefined;
+      if (!token && opts.personal) {
+        try {
+          const creds = await personalCredsForImport('confluence', 'Confluence', { config, envName, env, client });
+          token = creds.token;
+          cloudId = creds.cloudId;
+          siteBase = creds.siteBase;
+        } catch (err) {
+          p.log.error((err as Error).message);
+          process.exit(1);
+        }
+      }
+      if (!token) {
+        token = config.getConnectorToken(envName, cachedKey) ?? undefined;
+        cloudId = config.getConnectorCloudId(envName, cachedKey) ?? undefined;
+        siteBase = config.getConnectorSiteBase(envName, cachedKey) ?? undefined;
+      }
 
       if (!token) {
-        p.log.error('No Confluence credentials found. Run align setup to connect Confluence via OAuth, or pass --email, --token, and --domain.');
+        p.log.error('No Confluence credentials found. Run align setup or align import confluence --personal to connect via OAuth, or pass --email, --token, and --domain.');
         process.exit(1);
       }
       if (!cloudId && (!opts.email || !opts.domain)) {
