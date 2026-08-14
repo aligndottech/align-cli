@@ -43,6 +43,8 @@ align import git                         # pull commit history - no token needed
 align ask "how does our auth work"       # natural language answer from your graph
 ```
 
+Want a hand setting this up? I do free 30 minute setup calls: https://calendly.com/tom-align/setup
+
 ## How it works
 
 ```
