@@ -97,9 +97,11 @@ without saying what the caller does with it.
 
 ## Blocking is opt-in, everywhere
 
-Default behaviour on every host is: surface the conflict, never deny the edit. `--block-on-critical`
+Default behaviour on every host is: surface the finding, never deny the edit. `--block-on-critical`
 is the only path that denies, and only on a `critical` conflict, and never after the edit has
-already landed.
+already landed. It is currently inert: the hook is retrieval-only, which cannot assert a
+conflict, so nothing reaches the deny path until the deferred adjudication follow-up (ALI-570)
+lands.
 
 This is deliberate. A guardrail that blocks on a false positive gets switched off, and then it
 protects nothing. Fail-open also covers align being missing, slow, unauthenticated or

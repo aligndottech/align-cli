@@ -28,7 +28,7 @@ export function registerCheckCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--all', 'Check full HEAD diff, not just staged changes')
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
-    .option('--advisory', 'Agent hook mode: always exit 0, emit conflicting decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
+    .option('--advisory', 'Agent hook mode: always exit 0, emit related (unadjudicated) decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
     .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, opencode, or text', 'claude')
     .option('--block-on-critical', 'Advisory PreToolUse hook: deny an edit only on a CRITICAL conflict (default: never block, just surface context)')
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
@@ -184,8 +184,8 @@ export function registerCheckCommand(program: Command): void {
 }
 
 // Advisory (Claude Code hook) mode. Contract: ALWAYS exit 0 (never error out an
-// edit), and on a conflict print the hook JSON so the conflicting decisions land in
-// the agent's context. One entrypoint serves both hook events, detected from the
+// edit), and when retrieval finds related decisions print the hook JSON so they land
+// in the agent's context. One entrypoint serves both hook events, detected from the
 // payload Claude Code pipes on stdin:
 //   - PreToolUse  -> check the PROPOSED edit before it is written (ALI-122)
 //   - PostToolUse -> check the landed working-tree diff (ALI-121); also the path for
