@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.10.0](https://github.com/aligndottech/align-cli/compare/cli-v0.9.0...cli-v0.10.0) (2026-08-14)
+
+
+### Features
+
+* align import &lt;src&gt; --personal - browser OAuth for imports, no PAT needed (ALI-388) ([#103](https://github.com/aligndottech/align-cli/issues/103)) ([c70b182](https://github.com/aligndottech/align-cli/commit/c70b182bef43d6d7cd14addaebe5712bede4e30b))
+
+
+### Bug Fixes
+
+* **action:** a no-context result is a complete check, not a failed one ([#99](https://github.com/aligndottech/align-cli/issues/99)) ([62bdd4b](https://github.com/aligndottech/align-cli/commit/62bdd4b872516ad8a347a057e93faaacdfbc109b))
+* **action:** remove a stray esac, and gate the action's shell syntax ([#97](https://github.com/aligndottech/align-cli/issues/97)) ([8cb3cd7](https://github.com/aligndottech/align-cli/commit/8cb3cd7c07f37cd84de989b76a21fea1520f44ff))
+* **action:** surface the gateway's reason when a check does not complete ([#100](https://github.com/aligndottech/align-cli/issues/100)) ([878c2e0](https://github.com/aligndottech/align-cli/commit/878c2e0e5db495b257a3477321bd06857fed4871))
+* surface honesty sweep - five places the CLI claimed more than the code does (ALI-505) ([#102](https://github.com/aligndottech/align-cli/issues/102)) ([d4a9f6e](https://github.com/aligndottech/align-cli/commit/d4a9f6ee51813996fd48f814288885b39ef83273))
+
 ## [0.9.0](https://github.com/aligndottech/align-cli/compare/cli-v0.8.1...cli-v0.9.0) (2026-08-04)
 
 
