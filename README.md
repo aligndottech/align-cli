@@ -146,7 +146,7 @@ Pull your existing work into the decision graph. The more sources you add, the r
 
 **Easiest way: `align setup`.** It connects each source via a **read-only browser OAuth** consent - no tokens to create or paste. The CLI only ever *reads*; it can't modify your tools (write access lives only in the team/org bot apps). GitHub, Jira, Confluence, Slack, Microsoft Teams, Zoom, Linear, GitLab (gitlab.com), and Notion all use OAuth. Self-managed GitLab (a custom domain) uses a read-only token you paste.
 
-The `align import <source> --token ...` forms below are the manual / CI alternative (and how to connect self-managed hosts). Every import previews what will be imported and asks for confirmation before sending anything (use `--approve` to skip the prompt).
+The same OAuth flow also works per source: `align import <source> --personal` opens the browser consent (or reuses the token a previous `align setup` cached) - no PAT to create. The `align import <source> --token ...` forms below are the manual / CI alternative (and how to connect self-managed hosts). Every import previews what will be imported and asks for confirmation before sending anything (use `--approve` to skip the prompt).
 
 ### Git
 
