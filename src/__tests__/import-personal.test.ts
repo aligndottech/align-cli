@@ -180,11 +180,17 @@ describe('align import <src> --personal (ALI-388)', () => {
   });
 
   it('refuses --personal in local-embedded mode before any browser opens', async () => {
-    configState.env = { mode: 'local-embedded', localDbPath: '/tmp/x.db' };
+    // authToken deliberately PRESENT: config.getEnvironment injects ALIGN_TOKEN into any env
+    // including local, so without it this fixture would satisfy the login guard too and the
+    // mode guard would be unpinned (deleting it left this test green until this was fixed).
+    configState.env = { mode: 'local-embedded', localDbPath: '/tmp/x.db', authToken: 'auth-tok' };
+    const p = await import('@clack/prompts');
 
     await expect(run(['import', 'github', '--personal'])).rejects.toThrow('process.exit:1');
 
     expect(gatewayClient.startCliOAuth).not.toHaveBeenCalled();
+    const message = vi.mocked(p.log.error).mock.calls.map((c) => String(c[0])).join('\n');
+    expect(message).toMatch(/cloud environment/);
   });
 
   it('refuses --personal when not logged in, pointing at align login', async () => {
@@ -201,6 +207,21 @@ describe('align import <src> --personal (ALI-388)', () => {
   it('refuses --personal on gitlab with a self-managed --domain (the OAuth app is gitlab.com-only)', async () => {
     await expect(run(['import', 'gitlab', '--personal', '--domain', 'git.corp.example'])).rejects.toThrow('process.exit:1');
 
+    expect(gatewayClient.startCliOAuth).not.toHaveBeenCalled();
+  });
+
+  it('jira --personal carries cloudId and siteBase from the cached Atlassian credential', async () => {
+    // Pins the creds -> cloudId/siteBase assignment: without it, --personal with a fully
+    // cached Atlassian credential would die on "OAuth metadata incomplete".
+    configState.tokens['prod:jira-personal'] = 'cached-jira-tok';
+    configState.cloudIds['prod:jira-personal'] = 'cloud-1';
+    configState.siteBases['prod:jira-personal'] = 'https://team.atlassian.net';
+
+    await run(['import', 'jira', '--personal', '--approve']);
+
+    expect(vi.mocked(fetchJiraItems)).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'cached-jira-tok', cloudId: 'cloud-1', siteBase: 'https://team.atlassian.net' })
+    );
     expect(gatewayClient.startCliOAuth).not.toHaveBeenCalled();
   });
 });
