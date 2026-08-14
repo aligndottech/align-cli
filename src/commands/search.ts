@@ -11,8 +11,10 @@ export function registerSearchCommand(program: Command): void {
     .description('Search the decision graph')
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max results', '10')
-    .option('--space <slug>', 'Filter by space')
-    .action(async (query: string, opts: { env: EnvName; limit: string; space?: string }) => {
+    // No --space here: smart-search has no space parameter on the gateway and the local graph
+    // has no space concept, so the flag parsed and silently did nothing (ALI-505). Space
+    // filtering lives where it works: `align decisions list --space <slug>`.
+    .action(async (query: string, opts: { env: EnvName; limit: string }) => {
       const config = createConfigStore();
       const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true })));
       const spinner = ora(`Searching "${query}"...`).start();

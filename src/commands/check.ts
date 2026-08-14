@@ -1,8 +1,6 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
@@ -30,7 +28,7 @@ export function registerCheckCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--all', 'Check full HEAD diff, not just staged changes')
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
-    .option('--advisory', 'Agent hook mode: always exit 0, emit conflicting decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
+    .option('--advisory', 'Agent hook mode: always exit 0, emit related (unadjudicated) decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
     .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, opencode, or text', 'claude')
     .option('--block-on-critical', 'Advisory PreToolUse hook: deny an edit only on a CRITICAL conflict (default: never block, just surface context)')
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
@@ -50,11 +48,10 @@ export function registerCheckCommand(program: Command): void {
         process.exit(1);
       }
 
-      const rcPath = join(process.cwd(), '.alignrc');
-      const rc = existsSync(rcPath)
-        ? (JSON.parse(readFileSync(rcPath, 'utf-8')) as { defaultEnv?: EnvName })
-        : {};
-      const envName: EnvName = resolveEnv(opts.env ?? rc.defaultEnv, { preferLocalEmbedded: true });
+      // .alignrc was read here for { defaultEnv } and nothing anywhere wrote or documented it -
+      // a third env-selection mechanism next to ALIGN_ENV and `align env set`, applying to this
+      // one command, with an unguarded JSON.parse. Dropped (ALI-505).
+      const envName: EnvName = resolveEnv(opts.env, { preferLocalEmbedded: true });
 
       const config = createConfigStore();
       const client = createGatewayClient(config.getEnvironment(envName));
@@ -187,8 +184,8 @@ export function registerCheckCommand(program: Command): void {
 }
 
 // Advisory (Claude Code hook) mode. Contract: ALWAYS exit 0 (never error out an
-// edit), and on a conflict print the hook JSON so the conflicting decisions land in
-// the agent's context. One entrypoint serves both hook events, detected from the
+// edit), and when retrieval finds related decisions print the hook JSON so they land
+// in the agent's context. One entrypoint serves both hook events, detected from the
 // payload Claude Code pipes on stdin:
 //   - PreToolUse  -> check the PROPOSED edit before it is written (ALI-122)
 //   - PostToolUse -> check the landed working-tree diff (ALI-121); also the path for
@@ -328,9 +325,12 @@ export interface AdvisoryRenderOpts {
   blockOnCritical: boolean;
 }
 
-// NO RUNTIME CALLER until the deferred adjudication path lands - the hook is retrieval-only
-// (see runAdvisory). Kept, with its tests, because that follow-up is the immediate next step
-// and delete/re-add is churn. If that ticket dies, delete this with it.
+// NO RUNTIME CALLER until the deferred adjudication path lands (ALI-570) - the hook is
+// retrieval-only (see runAdvisory). Kept, with its tests, because deleting it cascades:
+// --block-on-critical is a published flag whose only implementation is the blocking branches
+// this reaches, and removing a flag makes existing committed hooks die on `unknown option`,
+// breaking the fail-open contract. If ALI-570 is closed won't-do, retire this, its tests and
+// the flag together in a major-version bump.
 //
 // Render the conflicts into whatever shape the host reads off stdout. One engine, N
 // hosts - every field name here comes from that host's published hook schema:
