@@ -132,10 +132,11 @@ export function registerConnectorCommands(program: Command): void {
   connector
     .command('logs <name>')
     .description('Stream logs for a connector (requires kubectl or docker)')
-    .option('--env <env>', 'Environment')
+    // No --env: this command shells out to kubectl/docker and never touches an Align
+    // environment, so the flag parsed and silently did nothing (ALI-505).
     .option('--namespace <ns>', 'Kubernetes namespace', 'align-local')
     .option('--docker', 'Use docker logs instead of kubectl')
-    .action(async (name: string, opts: { env: EnvName; namespace: string; docker: boolean }) => {
+    .action(async (name: string, opts: { namespace: string; docker: boolean }) => {
       console.log(chalk.dim(`Streaming logs for ${name} (Ctrl+C to stop)...\n`));
       try {
         if (opts.docker) {

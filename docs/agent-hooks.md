@@ -58,9 +58,11 @@ host hook  ->  align check --advisory --format <host>  ->  host-shaped JSON on s
 - **In** - `normalizeHookPayload` (`src/lib/hook-payload.ts`) accepts whichever payload
   shape the host sent and maps it to one canonical `HookPayload`. The engine never learns
   which agent it is serving.
-- **Out** - `buildAdvisoryOutput` (`src/commands/check.ts`) renders the conflicts into the
-  shape that host reads. `--format text` is the fallback for anything not listed above:
-  plain prose, for a host that just runs a command and shows what it printed.
+- **Out** - `buildRelatedOutput` / `buildUnknownOutput` (`src/commands/check.ts`) build the
+  finding - related, unadjudicated decisions, or an explicit "could not check" notice - and
+  `renderForHost` wraps it in the shape that host reads. `--format text` is the fallback for
+  anything not listed above: plain prose, for a host that just runs a command and shows what
+  it printed.
 
 Adding a host is a payload case, an output case, and a writer. It is not a change to the
 check.

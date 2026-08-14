@@ -64,10 +64,10 @@ The CLI and MCP server are open source (this repo). The hosted graph + relations
 
 ## Auto-alignment for AI agents
 
-When you run `align setup`, Align makes itself available to your AI agents three ways, so the context fires whether or not the model thinks to ask for it:
+When you run `align setup`, Align makes itself available to your AI agents four ways, so the context fires whether or not the model thinks to ask for it:
 
 1. **MCP server** - your assistant (Claude Code, Cursor, Claude Desktop, Windsurf) can query the decision graph inline. The server ships with instructions telling the agent to check alignment *before* making non-trivial changes.
-2. **Deterministic edit hooks** - setup registers `align check --advisory` with every host that exposes a hook API, so the conflict reaches the model whether or not it thought to ask. **Claude Code** (`.claude/settings.json`), **pi** (`.pi/extensions/align.ts`), **Gemini CLI** (`.gemini/settings.json`) and **OpenCode** (`.opencode/plugins/align.js`) all check the *proposed* change before it is written. It is **non-blocking and fail-open**: it never denies an edit by default, and if Align is missing, slow or unreachable the edit proceeds untouched.
+2. **Deterministic edit hooks** - setup registers `align check --advisory` with every host that exposes a hook API, so prior decisions related to the change reach the model whether or not it thought to ask. **Claude Code** (`.claude/settings.json`), **pi** (`.pi/extensions/align.ts`), **Gemini CLI** (`.gemini/settings.json`) and **OpenCode** (`.opencode/plugins/align.js`) all check the *proposed* change before it is written. It is **non-blocking and fail-open**: it never denies an edit by default, and if Align is missing, slow or unreachable the edit proceeds untouched.
 
    **Cursor and Codex CLI cannot do this**, and that is a limit of those hosts, not a gap in setup: Cursor has no `beforeFileEdit` and its `afterFileEdit` hook has no output fields, and Codex's `PreToolUse` intercepts Bash only. They get layers 1, 3 and 4. The full per-host matrix, and why, is in [docs/agent-hooks.md](docs/agent-hooks.md).
 3. **Editor rules** - a managed, marker-delimited block in your `CLAUDE.md` and `AGENTS.md`, plus a `.cursor/rules/align.md` file (Cursor doesn't honor Claude Code hooks), nudge agents to consult the graph.
@@ -77,7 +77,7 @@ The hook, rule and `.mcp.json` files are committed to the repo, so the whole tea
 
 > **Heads up:** the first time Claude Code loads a project with a committed hook, it shows a one-time "approve hooks" prompt. Accept it to enable automatic alignment.
 
-You can also run the advisory check yourself. It always exits 0, and on a conflict prints the hook output in whichever host's shape you ask for - `--format text` is plain prose for a host with no JSON contract:
+You can also run the advisory check yourself. It always exits 0, and when it finds related prior decisions (or could not check at all) prints the hook output in whichever host's shape you ask for - `--format text` is plain prose for a host with no JSON contract. It reports the decisions as related, not as conflicts: retrieval finds decisions on the same subject and does not adjudicate opposition.
 
 ```bash
 align check --advisory                  # Claude Code shape (default)
@@ -266,7 +266,7 @@ Modes:
 |------|----------|
 | (default) | Human-readable output; exits `1` on any conflict. |
 | `--hook` | Pre-commit mode: silent when there's no context, only fails on **critical** conflicts. |
-| `--advisory` | PostToolUse hook mode: **always exits 0**, emits conflicting decisions as Claude Code `additionalContext` JSON. Fail-open. |
+| `--advisory` | Agent hook mode (detects pre vs post from the hook payload on stdin): **always exits 0**, emits related, unadjudicated decisions - or an explicit "could not check" notice - in the host's hook shape (`--format claude\|gemini\|pi\|opencode\|text`). Fail-open. |
 | `--ci` | Emits JSON to stdout for CI; exits `1` on conflict. |
 
 In CI:
@@ -406,6 +406,7 @@ align import zoom            Import from Zoom recording transcripts
 align import notion          Import from Notion
 align decisions list         List decisions in your graph
 align decisions show <id>    Show full detail for a decision
+align status                 Value readout: what your graph has done for you
 align export                 Export decisions as a structured brief
 align drift                  Show decisions that may be out of date
 align links list             Show cross-tool decision relationships

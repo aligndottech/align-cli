@@ -1,8 +1,6 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
@@ -50,11 +48,10 @@ export function registerCheckCommand(program: Command): void {
         process.exit(1);
       }
 
-      const rcPath = join(process.cwd(), '.alignrc');
-      const rc = existsSync(rcPath)
-        ? (JSON.parse(readFileSync(rcPath, 'utf-8')) as { defaultEnv?: EnvName })
-        : {};
-      const envName: EnvName = resolveEnv(opts.env ?? rc.defaultEnv, { preferLocalEmbedded: true });
+      // .alignrc was read here for { defaultEnv } and nothing anywhere wrote or documented it -
+      // a third env-selection mechanism next to ALIGN_ENV and `align env set`, applying to this
+      // one command, with an unguarded JSON.parse. Dropped (ALI-505).
+      const envName: EnvName = resolveEnv(opts.env, { preferLocalEmbedded: true });
 
       const config = createConfigStore();
       const client = createGatewayClient(config.getEnvironment(envName));
@@ -328,9 +325,12 @@ export interface AdvisoryRenderOpts {
   blockOnCritical: boolean;
 }
 
-// NO RUNTIME CALLER until the deferred adjudication path lands - the hook is retrieval-only
-// (see runAdvisory). Kept, with its tests, because that follow-up is the immediate next step
-// and delete/re-add is churn. If that ticket dies, delete this with it.
+// NO RUNTIME CALLER until the deferred adjudication path lands (ALI-570) - the hook is
+// retrieval-only (see runAdvisory). Kept, with its tests, because deleting it cascades:
+// --block-on-critical is a published flag whose only implementation is the blocking branches
+// this reaches, and removing a flag makes existing committed hooks die on `unknown option`,
+// breaking the fail-open contract. If ALI-570 is closed won't-do, retire this, its tests and
+// the flag together in a major-version bump.
 //
 // Render the conflicts into whatever shape the host reads off stdout. One engine, N
 // hosts - every field name here comes from that host's published hook schema:
