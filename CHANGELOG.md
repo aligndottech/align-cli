@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/aligndottech/align-cli/compare/cli-v0.10.0...cli-v0.11.0) (2026-08-15)
+
+
+### Features
+
+* **check:** --title sends the proposed decision in words, and stop interpolating github.event into shell ([#104](https://github.com/aligndottech/align-cli/issues/104)) ([bfeeb45](https://github.com/aligndottech/align-cli/commit/bfeeb45e06103e847dd206cc460c7559563dd7b9))
+
 ## [0.10.0](https://github.com/aligndottech/align-cli/compare/cli-v0.9.0...cli-v0.10.0) (2026-08-14)
 
 
