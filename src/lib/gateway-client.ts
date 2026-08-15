@@ -293,7 +293,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     async checkAlignment(
       diff: string,
       context?: string,
-      opts: { depth?: 'related' | 'full' } = {},
+      opts: { depth?: 'related' | 'full'; title?: string } = {},
     ): Promise<AlignmentResult> {
       return request<AlignmentResult>('/alignment/check', {
         method: 'POST',
@@ -302,6 +302,15 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
           content: diff.slice(0, 8000),
           context: context?.slice(0, 1000),
           ...(opts.depth ? { depth: opts.depth } : {}),
+          // The decision being proposed, in words. Without it the gateway adjudicates on
+          // `Proposed: <first 200 chars of the diff>`, which for a diff is a file header and a
+          // few `+` lines (align-stack#1652).
+          //
+          // Spread rather than `title: opts.title`, because the gateway's schema rejects an
+          // empty string and an older gateway strips the key it does not know - so an absent
+          // title has to mean absent, not present-and-empty. Sliced to 300 to match that
+          // schema's max: a longer title is a 400, and truncating here beats failing the check.
+          ...(opts.title ? { title: opts.title.slice(0, 300) } : {}),
         }),
       });
     },

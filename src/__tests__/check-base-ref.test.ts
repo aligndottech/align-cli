@@ -79,7 +79,9 @@ describe('align check --base', () => {
   it('sends the base diff to the gateway, not an empty working-tree diff', async () => {
     await runCheck(['--ci', '--base', 'origin/main']);
 
-    expect(mockCheckAlignment).toHaveBeenCalledWith(PR_DIFF, 'feat/test');
+    // The third argument arrived with `--title`. Asserted exactly rather than relaxed to
+    // objectContaining: if a title ever starts being sent by default, this should go red.
+    expect(mockCheckAlignment).toHaveBeenCalledWith(PR_DIFF, 'feat/test', { title: undefined });
   });
 
   it('still reports a conflict found in the base diff', async () => {
@@ -105,7 +107,8 @@ describe('align check --base', () => {
     expect(mockGetBaseDiff).not.toHaveBeenCalled();
     expect(mockCheckAlignment).toHaveBeenCalledWith(
       'diff --git a/local.ts b/local.ts\n+// local edit',
-      'feat/test'
+      'feat/test',
+      { title: undefined }
     );
   });
 

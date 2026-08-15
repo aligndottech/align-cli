@@ -32,9 +32,10 @@ export function registerCheckCommand(program: Command): void {
     .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, opencode, or text', 'claude')
     .option('--block-on-critical', 'Advisory PreToolUse hook: deny an edit only on a CRITICAL conflict (default: never block, just surface context)')
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
+    .option('--title <text>', 'The decision being proposed, in words (e.g. the PR title). Without it the gateway adjudicates on the first 200 characters of the diff, which is a file header and a few + lines')
     .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
-    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; format?: AdvisoryFormat; ci: boolean; base?: string; resolve?: string }) => {
+    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; format?: AdvisoryFormat; ci: boolean; base?: string; title?: string; resolve?: string }) => {
       // Advisory mode is the deterministic auto-alignment path (ALI-121/ALI-122):
       // non-blocking, fail-open, machine-readable. It owns the whole flow, never
       // touching the human-facing spinner/console output below.
@@ -87,7 +88,7 @@ export function registerCheckCommand(program: Command): void {
 
       if (opts.ci) {
         try {
-          const result = await client.checkAlignment(diff, branch);
+          const result = await client.checkAlignment(diff, branch, { title: opts.title });
           process.stdout.write(`${JSON.stringify(result)  }\n`);
           if (result.status === 'conflicting') process.exit(EXIT_CONFLICT);
           // CI is where a silent green costs the most: a check that could not run
@@ -101,7 +102,7 @@ export function registerCheckCommand(program: Command): void {
 
       const spinner = ora('Checking alignment...').start();
       try {
-        const result = await client.checkAlignment(diff, branch);
+        const result = await client.checkAlignment(diff, branch, { title: opts.title });
         spinner.stop();
 
         if (result.status === 'aligned') {

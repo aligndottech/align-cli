@@ -99,6 +99,41 @@ describe('gateway client', () => {
     expect(result.status).toBe('aligned');
   });
 
+  // The gateway adjudicates on `new_decision.title`, and derived from a diff that is a file
+  // header and three `+` lines. A caller that knows the real title should send it.
+  // (align-stack#1652 added the optional field; an older gateway strips the unknown key.)
+  it('checkAlignment sends the title when one is supplied', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'aligned', confidence: 0.9, relevant_decisions: [], message: 'ok' }),
+    });
+
+    await createGatewayClient(localEnv).checkAlignment('diff content', 'main', {
+      title: 'Raise the gateway Postgres pool to 30 connections',
+    });
+
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as Parameters<typeof fetch>[1]).body as string);
+    expect(body.title).toBe('Raise the gateway Postgres pool to 30 connections');
+  });
+
+  // Second example: the key is ABSENT, not present-and-undefined. The gateway's schema caps
+  // title length and rejects an empty string, so sending the key with nothing in it would turn
+  // a titleless caller into a 400.
+  it('checkAlignment omits the title key entirely when none is supplied', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'aligned', confidence: 0.9, relevant_decisions: [], message: 'ok' }),
+    });
+
+    await createGatewayClient(localEnv).checkAlignment('diff content', 'main');
+
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as Parameters<typeof fetch>[1]).body as string);
+    // Positive control: the request really was built, so `not toHaveProperty` is not passing
+    // against an empty object.
+    expect(body.content).toBe('diff content');
+    expect(body).not.toHaveProperty('title');
+  });
+
   it('returns unhealthy when connector returns 503', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
     const health = await createGatewayClient(localEnv).getConnectorHealth('slack');
