@@ -260,4 +260,86 @@ describe('gateway client', () => {
       });
     });
   });
+
+  describe('getConflicts pagination (ALI-587, ported from mcp-align / align-stack#1682)', () => {
+    // One 50-row fetch silently truncated the set for any tenant past it, and the MCP tool
+    // (commands/mcp.ts align_get_conflicts) served it to agents as if complete.
+    const CURSOR = '2026-05-21T21:07:34.277456Z|a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    const mkLink = (n: number) => ({
+      id: `link-${n}`,
+      from_snapshot: `d-a-${n}`,
+      to_snapshot: `d-b-${n}`,
+      relation: 'conflicts_with',
+      confidence: 0.9,
+    });
+    const pageResponse = (links: unknown[], nextCursor: string | null) => ({
+      ok: true,
+      json: async () => ({
+        links,
+        pagination: { next_cursor: nextCursor, has_more: nextCursor !== null, conflicts_count: 7 },
+      }),
+    });
+    type ConflictsResult = {
+      links: Array<{ id: string }>;
+      conflict_count: number;
+      showing?: number;
+      fetch_truncated?: boolean;
+      pagination?: { conflicts_count?: number };
+    };
+
+    it('follows next_cursor at full page width and reports the fetched total', async () => {
+      mockFetch
+        .mockResolvedValueOnce(pageResponse([mkLink(1), mkLink(2)], CURSOR))
+        .mockResolvedValueOnce(pageResponse([mkLink(3)], null));
+
+      const result = (await createGatewayClient(localEnv).getConflicts()) as ConflictsResult;
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const secondUrl = String(mockFetch.mock.calls[1]?.[0]);
+      expect(secondUrl).toContain(`cursor=${encodeURIComponent(CURSOR)}`);
+      expect(secondUrl).toContain('limit=500');
+      expect(result.links.map((l) => l.id)).toEqual(['link-1', 'link-2', 'link-3']);
+      expect(result.conflict_count).toBe(3);
+      expect(result.fetch_truncated).toBeUndefined();
+    });
+
+    it('caps the links it returns at 50 while the count describes the full fetched set', async () => {
+      mockFetch.mockResolvedValueOnce(
+        pageResponse(Array.from({ length: 60 }, (_, n) => mkLink(n)), null),
+      );
+
+      const result = (await createGatewayClient(localEnv).getConflicts()) as ConflictsResult;
+
+      expect(result.conflict_count).toBe(60);
+      expect(result.links).toHaveLength(50);
+      expect(result.showing).toBe(50);
+    });
+
+    it('stops at the page cap and marks the fetch truncated', async () => {
+      let n = 0;
+      mockFetch.mockImplementation(async () => pageResponse([mkLink(n)], `${CURSOR}-${n++}`));
+
+      const result = (await createGatewayClient(localEnv).getConflicts()) as ConflictsResult;
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(result.fetch_truncated).toBe(true);
+    });
+
+    it('treats a cursor that stops advancing as truncation, not an infinite loop', async () => {
+      mockFetch.mockImplementation(async () => pageResponse([mkLink(1)], CURSOR));
+
+      const result = (await createGatewayClient(localEnv).getConflicts()) as ConflictsResult;
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(result.fetch_truncated).toBe(true);
+    });
+
+    it('keeps the first page pagination counts in the response for compatibility', async () => {
+      mockFetch.mockResolvedValueOnce(pageResponse([mkLink(1)], null));
+
+      const result = (await createGatewayClient(localEnv).getConflicts()) as ConflictsResult;
+
+      expect(result.pagination?.conflicts_count).toBe(7);
+    });
+  });
 });

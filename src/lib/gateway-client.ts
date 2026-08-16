@@ -339,7 +339,48 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     },
 
     async getConflicts(): Promise<unknown> {
-      return request('/decision-links?relation=conflicts_with,contradicts&paginated=true&limit=50');
+      // ALI-587, ported from mcp-align (align-stack#1682). One 50-row fetch silently
+      // truncated the set for any tenant past it, and the MCP tool served it to agents as
+      // complete. Follow next_cursor at the gateway's max page width - 2 pages * 500 rows
+      // in at most two round trips - and cap what is RETURNED at the old 50-link ceiling:
+      // fetching wide is for an honest count, not for serialising 1,000 rows to an agent.
+      // Hitting the page cap, or a cursor that stops advancing, marks the fetch truncated
+      // so no consumer asserts completeness over a knowingly partial set.
+      const MAX_PAGES = 2;
+      const RENDER_CAP = 50;
+      const all: unknown[] = [];
+      let firstPagination: Record<string, unknown> | undefined;
+      let cursor: string | undefined;
+      let truncated = true; // stays true only when the loop exhausts MAX_PAGES
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const qs = new URLSearchParams({
+          relation: 'conflicts_with,contradicts',
+          paginated: 'true',
+          limit: '500',
+        });
+        if (cursor) qs.set('cursor', cursor);
+        const data = await request<{
+          links?: unknown[];
+          pagination?: Record<string, unknown> & { next_cursor?: string | null; has_more?: boolean };
+        }>(`/decision-links?${qs}`);
+        all.push(...(data.links ?? []));
+        if (page === 0) firstPagination = data.pagination;
+        if (!data.pagination?.has_more) {
+          truncated = false;
+          break;
+        }
+        const next = data.pagination.next_cursor ?? undefined;
+        if (!next || next === cursor) break; // stalled cursor: partial set, truncated stays true
+        cursor = next;
+      }
+      const links = all.slice(0, RENDER_CAP);
+      return {
+        links,
+        ...(firstPagination ? { pagination: firstPagination } : {}),
+        conflict_count: all.length,
+        ...(all.length > links.length ? { showing: links.length } : {}),
+        ...(truncated ? { fetch_truncated: true } : {}),
+      };
     },
 
     // ALI-215 value-moment signals (all authMiddleware-only, free-CLI reachable).
