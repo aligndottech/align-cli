@@ -294,6 +294,10 @@ describe('gateway client', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const url = String(mockFetch.mock.calls[0]?.[0]);
       expect(url).toContain('limit=50');
+      // ALI-587 cross-client decision (applied to mcp-align in the same sitting): the tool
+      // reports ACTIVE conflicts, so resolved links are excluded and total_count counts the
+      // unresolved set - the count and the links describe the same population.
+      expect(url).toContain('unresolved_only=true');
       expect(result.links).toHaveLength(50);
       expect(result.conflict_count).toBe(1400);
       expect(result.showing).toBe(50);
@@ -333,6 +337,70 @@ describe('gateway client', () => {
       mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [mkLink(1), mkLink(2)] });
 
       await expect(createGatewayClient(localEnv).getConflicts()).rejects.toThrow(
+        /unexpected \/decision-links response shape/,
+      );
+    });
+  });
+
+  describe('listDecisionLinks honest listing (ALI-587)', () => {
+    // The legacy non-paginated /decision-links branch hard-caps at 100 rows server-side
+    // and returns a bare array - no envelope, so `align links list` could not even say
+    // "showing first 100". The paginated branch carries total_count over the whole
+    // matching set.
+    const mkLink = (n: number) => ({
+      id: `link-${n}`,
+      relation: 'supports',
+      confidence: 0.9,
+      from_decision: { id: `da-${n}`, title: `A${n}` },
+      to_decision: { id: `db-${n}`, title: `B${n}` },
+    });
+    const envelope = (links: unknown[], total: number) => ({
+      ok: true,
+      json: async () => ({
+        links,
+        pagination: { next_cursor: null, has_more: false, total_count: total },
+      }),
+    });
+
+    it('uses the paginated endpoint and returns the whole-set total beside the page', async () => {
+      mockFetch.mockResolvedValueOnce(envelope([mkLink(1), mkLink(2)], 340));
+
+      const result = await createGatewayClient(localEnv).listDecisionLinks({
+        relation: 'conflicts_with',
+      });
+
+      const url = String(mockFetch.mock.calls[0]?.[0]);
+      expect(url).toContain('paginated=true');
+      expect(url).toContain('limit=100');
+      expect(url).toContain('relation=conflicts_with');
+      expect(result.links).toHaveLength(2);
+      expect(result.total_count).toBe(340);
+    });
+
+    it('keeps the decision_id filter on the paginated request', async () => {
+      mockFetch.mockResolvedValueOnce(envelope([mkLink(1)], 1));
+
+      await createGatewayClient(localEnv).listDecisionLinks({ decision_id: 'dec-42' });
+
+      const url = String(mockFetch.mock.calls[0]?.[0]);
+      expect(url).toContain('decision_id=dec-42');
+    });
+
+    it('falls back to the delivered length when the envelope carries no total_count', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ links: [mkLink(1)], pagination: { next_cursor: null, has_more: false } }),
+      });
+
+      const result = await createGatewayClient(localEnv).listDecisionLinks();
+
+      expect(result.total_count).toBe(1);
+    });
+
+    it('throws loudly on a bare-array response instead of an empty listing', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [mkLink(1)] });
+
+      await expect(createGatewayClient(localEnv).listDecisionLinks()).rejects.toThrow(
         /unexpected \/decision-links response shape/,
       );
     });

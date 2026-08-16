@@ -29,7 +29,7 @@ export function registerLinksCommand(program: Command): void {
       const client = createGatewayClient(createConfigStore().getEnvironment(resolveEnv(opts.env)));
       const spinner = ora('Fetching links...').start();
       try {
-        const items = await client.listDecisionLinks({
+        const { links: items, total_count } = await client.listDecisionLinks({
           relation: opts.relation,
           decision_id: opts.decision,
         });
@@ -53,6 +53,9 @@ export function registerLinksCommand(program: Command): void {
             ];
           }),
         );
+        if (total_count > items.length) {
+          console.log(chalk.dim(`\n  Showing the first ${items.length} of ${total_count} links.`));
+        }
         if (items.length >= 5) {
           console.log(chalk.dim('\n  Teams get this as a shared graph with CI drift detection.'));
           console.log(chalk.dim('  https://align.tech/pricing\n'));

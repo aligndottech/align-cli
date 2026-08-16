@@ -363,10 +363,13 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       // walked - plus a second round trip on the agent hot path, which is why this is
       // deliberately not a cursor-following port of mcp-align's getAllDecisionLinkPages
       // (that client filters fetched rows locally, so it needs them; this one does not).
+      // unresolved_only (ALI-587, decided once with mcp-align): this tool reports ACTIVE
+      // conflicts, so resolved links are excluded - and the gateway applies the same
+      // predicate to its count query, so total_count and the links describe one population.
       const data = await request<{
         links?: unknown[];
         pagination?: Record<string, unknown> & { total_count?: number | null };
-      }>('/decision-links?relation=conflicts_with,contradicts&paginated=true&limit=50');
+      }>('/decision-links?relation=conflicts_with,contradicts&unresolved_only=true&paginated=true&limit=50');
       if (!Array.isArray(data?.links)) {
         // A shape this client does not understand must fail loudly. Degrading to an empty
         // list reads as an affirmative "no conflicts" to the agent consuming this.
@@ -478,10 +481,31 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return request('/spaces');
     },
 
-    async listDecisionLinks(filters?: { relation?: string; decision_id?: string }): Promise<DecisionLink[]> {
-      const entries = Object.entries(filters ?? {}).filter(([, v]) => Boolean(v)) as [string, string][];
-      const qs = new URLSearchParams(entries);
-      return request(`/decision-links${qs.size ? `?${  qs}` : ''}`);
+    async listDecisionLinks(
+      filters?: { relation?: string; decision_id?: string },
+    ): Promise<{ links: DecisionLink[]; total_count: number }> {
+      // ALI-587: the legacy non-paginated branch hard-caps at 100 rows server-side and
+      // returns a bare array - no envelope, so the caller could not even say "showing
+      // first 100". The paginated branch keeps the same page size and carries total_count
+      // over the whole matching set (computed cursor-free), so the listing can be honest.
+      const qs = new URLSearchParams({ paginated: 'true', limit: '100' });
+      if (filters?.relation) qs.set('relation', filters.relation);
+      if (filters?.decision_id) qs.set('decision_id', filters.decision_id);
+      const data = await request<{
+        links?: DecisionLink[];
+        pagination?: { total_count?: number | null };
+      }>(`/decision-links?${qs.toString()}`);
+      if (!Array.isArray(data?.links)) {
+        // Same rule as getConflicts: a shape this client does not understand must fail
+        // loudly, not render as an empty (or silently partial) listing.
+        throw new Error(
+          'unexpected /decision-links response shape: expected { links: [...] } - is the gateway older than cursor pagination?',
+        );
+      }
+      const links = data.links;
+      const total_count =
+        typeof data.pagination?.total_count === 'number' ? data.pagination.total_count : links.length;
+      return { links, total_count };
     },
 
     async getDriftSummary(): Promise<DriftItem[]> {
