@@ -18,6 +18,21 @@ export const CLIENT_IDENTITY_HEADERS: Readonly<Record<string, string>> = Object.
   'User-Agent': `@aligndottech/cli/${pkg.version}`,
 });
 
+/**
+ * What getConflicts returns (ALI-587). `conflict_count` is the gateway's exact whole-set
+ * total (`pagination.total_count`, computed without any cursor), so it stays honest however
+ * many links the page holds; `showing` and `message` appear only when the rendered list is
+ * smaller than that total. Declared here, not re-typed in tests - the MCP tool serialises
+ * this object straight into an agent's context.
+ */
+export interface ConflictsResult {
+  links: unknown[];
+  pagination?: Record<string, unknown>;
+  conflict_count: number;
+  showing?: number;
+  message?: string;
+}
+
 export interface ConnectorInfo {
   key: string;
   name: string;
@@ -338,8 +353,43 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return request(`/decisions/${decisionId}/impact`);
     },
 
-    async getConflicts(): Promise<unknown> {
-      return request('/decision-links?relation=conflicts_with,contradicts&paginated=true&limit=50');
+    async getConflicts(): Promise<ConflictsResult> {
+      // ALI-587. One 50-row fetch was served to agents as the complete conflict set, with
+      // nothing marking a tenant past 50 links as partial. The honest total costs nothing
+      // extra: the gateway computes pagination.total_count over the WHOLE matching set on
+      // every paginated call (its count query deliberately excludes the cursor), so a
+      // single page at the old width already carries the exact number. Fetching wider
+      // would buy a WORSE count - a client-side tally capped by however many pages get
+      // walked - plus a second round trip on the agent hot path, which is why this is
+      // deliberately not a cursor-following port of mcp-align's getAllDecisionLinkPages
+      // (that client filters fetched rows locally, so it needs them; this one does not).
+      const data = await request<{
+        links?: unknown[];
+        pagination?: Record<string, unknown> & { total_count?: number | null };
+      }>('/decision-links?relation=conflicts_with,contradicts&paginated=true&limit=50');
+      if (!Array.isArray(data?.links)) {
+        // A shape this client does not understand must fail loudly. Degrading to an empty
+        // list reads as an affirmative "no conflicts" to the agent consuming this.
+        throw new Error(
+          'unexpected /decision-links response shape: expected { links: [...] } - is the gateway older than cursor pagination?',
+        );
+      }
+      const links = data.links;
+      const total =
+        typeof data.pagination?.total_count === 'number' ? data.pagination.total_count : links.length;
+      return {
+        links,
+        // The page's own envelope, verbatim: has_more/next_cursor genuinely describe the
+        // returned links, so a consumer that pages on from here skips nothing.
+        ...(data.pagination ? { pagination: data.pagination } : {}),
+        conflict_count: total,
+        ...(total > links.length
+          ? {
+              showing: links.length,
+              message: `Showing the first ${links.length} of ${total} conflict links.`,
+            }
+          : {}),
+      };
     },
 
     // ALI-215 value-moment signals (all authMiddleware-only, free-CLI reachable).

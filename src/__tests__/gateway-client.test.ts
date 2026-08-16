@@ -260,4 +260,81 @@ describe('gateway client', () => {
       });
     });
   });
+
+  describe('getConflicts honest totals (ALI-587)', () => {
+    // Until this change the client fetched one 50-row page and its consumer (the MCP tool)
+    // served it to agents as the complete conflict set. The gateway's total_count is
+    // computed over the WHOLE matching set on every paginated call (its count query
+    // excludes the cursor), so one page already carries the exact total - the fix is to
+    // read it, not to fetch wider.
+    const mkLink = (n: number) => ({
+      id: `link-${n}`,
+      from_snapshot: `d-a-${n}`,
+      to_snapshot: `d-b-${n}`,
+      relation: 'conflicts_with',
+      confidence: 0.9,
+    });
+    const pageResponse = (links: unknown[], pagination?: Record<string, unknown>) => ({
+      ok: true,
+      json: async () => ({ links, ...(pagination ? { pagination } : {}) }),
+    });
+
+    it('makes one request at the render width and reports the exact whole-set total', async () => {
+      mockFetch.mockResolvedValueOnce(
+        pageResponse(Array.from({ length: 50 }, (_, n) => mkLink(n)), {
+          next_cursor: 'ts|a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+          has_more: true,
+          total_count: 1400,
+          conflicts_count: 900,
+        }),
+      );
+
+      const result = await createGatewayClient(localEnv).getConflicts();
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const url = String(mockFetch.mock.calls[0]?.[0]);
+      expect(url).toContain('limit=50');
+      expect(result.links).toHaveLength(50);
+      expect(result.conflict_count).toBe(1400);
+      expect(result.showing).toBe(50);
+      expect(result.message).toContain('first 50 of 1400');
+      // The page envelope is passed through verbatim, so has_more/next_cursor genuinely
+      // describe the returned links and a consumer paging on from here skips nothing.
+      expect(result.pagination?.['has_more']).toBe(true);
+    });
+
+    it('omits the partial-set markers when the page holds the whole set', async () => {
+      mockFetch.mockResolvedValueOnce(
+        pageResponse([mkLink(1), mkLink(2)], { next_cursor: null, has_more: false, total_count: 2 }),
+      );
+
+      const result = await createGatewayClient(localEnv).getConflicts();
+
+      expect(result.conflict_count).toBe(2);
+      expect(result.links).toHaveLength(2);
+      // Pinned as absent: a spurious showing/message on a complete set would tell an
+      // agent the set is partial when it is not.
+      expect('showing' in result).toBe(false);
+      expect('message' in result).toBe(false);
+    });
+
+    it('falls back to the delivered length when the envelope carries no total_count', async () => {
+      mockFetch.mockResolvedValueOnce(pageResponse([mkLink(1)], { next_cursor: null, has_more: false }));
+
+      const result = await createGatewayClient(localEnv).getConflicts();
+
+      expect(result.conflict_count).toBe(1);
+    });
+
+    it('throws loudly on a response shape it does not understand, instead of a confident zero', async () => {
+      // A gateway (or proxy) answering with the legacy bare array must not degrade to
+      // { links: [], conflict_count: 0 } - an affirmative "no conflicts" is the most
+      // dangerous possible misreading for this tool.
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [mkLink(1), mkLink(2)] });
+
+      await expect(createGatewayClient(localEnv).getConflicts()).rejects.toThrow(
+        /unexpected \/decision-links response shape/,
+      );
+    });
+  });
 });

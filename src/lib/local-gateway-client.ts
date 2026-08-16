@@ -262,8 +262,15 @@ export function createLocalGatewayClient(dbPath: string) {
     },
 
     async getConflicts() {
-      const links = db.listLinks({ relation: 'conflicts_with' });
-      return { links };
+      // Same tool name as the cloud client, so the same vocabulary: conflict_count is the
+      // whole-set total (the local store is fully in hand, so it is simply the length).
+      // contradicts is included because the local classifier genuinely emits it and the
+      // cloud query has always asked for both relations.
+      const links = [
+        ...db.listLinks({ relation: 'conflicts_with' }),
+        ...db.listLinks({ relation: 'contradicts' }),
+      ];
+      return { links, conflict_count: links.length };
     },
   };
 }
