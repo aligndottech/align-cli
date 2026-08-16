@@ -172,6 +172,24 @@ runs:
           echo '```'
         } >> "$GITHUB_STEP_SUMMARY"
 
+    # BEFORE the fail-on policy, deliberately: that step exits non-zero on a conflict, and a
+    # step after it would never run. So the annotations that explain a red gate have to be
+    # emitted while the job is still passing.
+    - name: Anchor conflicts to the files that produced them
+      shell: bash
+      env:
+        # Through env for the same reason as PR_TITLE: this payload carries decision titles
+        # and reasons straight out of the graph, which is text other people wrote. Interpolated
+        # into the script it would be substituted before bash parses it.
+        ALIGN_RESULT: ${{ steps.check.outputs.result }}
+      run: |
+        set -uo pipefail
+
+        # tail -n 1 because the CLI may print human-facing lines before its JSON, which is the
+        # same slice the status and reason parsers above take.
+        printf '%s' "${ALIGN_RESULT:-}" | tail -n 1 \
+          | node "${{ github.action_path }}/annotate.mjs"
+
     - name: Apply the fail-on policy
       shell: bash
       run: |
