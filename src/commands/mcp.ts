@@ -227,7 +227,8 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'align_get_conflicts',
-    description: 'List all active conflicts and contradictions in the decision graph',
+    description:
+      'List conflicts and contradictions in the decision graph. conflict_count is the exact total; the links list holds one page, and a message says when there are more than it shows - never present the listed links as the complete set unless they match conflict_count.',
     inputSchema: {
       type: 'object',
       properties: {},
