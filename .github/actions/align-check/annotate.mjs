@@ -16,6 +16,8 @@
  * a failure to render must not turn a real verdict into a broken build.
  */
 
+import { pathToFileURL } from 'node:url';
+
 /** align-stack#1420: reasons are capped, with the full text living in the check summary. */
 const MAX_REASON_CHARS = 400;
 
@@ -101,8 +103,13 @@ export function annotationsFor(raw) {
   return lines;
 }
 
-/* c8 ignore start - the stdin wrapper is exercised by an exec test, not by an import */
-const isDirectRun = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
+/* c8 ignore start - the stdin wrapper is exercised by running the script, not by importing it */
+// pathToFileURL, not a string comparison on the basename. Splitting argv[1] on '/' finds no
+// separator on Windows, so the whole backslashed path became the "basename", never matched
+// import.meta.url, and the script silently produced nothing. It would have been inert on
+// every windows-latest runner using this action, and no test caught it because the tests
+// imported the function directly rather than running the file.
+const isDirectRun = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   let raw = '';
   process.stdin.setEncoding('utf8');
