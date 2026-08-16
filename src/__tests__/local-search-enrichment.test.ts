@@ -24,7 +24,13 @@ vi.mock('../lib/local-embeddings.js', () => ({
 vi.mock('../lib/local-relationship-classifier.js', () => ({
   classifyRelationship: vi.fn().mockResolvedValue(null),
 }));
-vi.mock('../lib/local-llm.js', () => ({ synthesiseLocally: vi.fn().mockResolvedValue(null) }));
+// See the note in local-query-integration.test.ts: fake the surface `ask` uses, not just
+// the one call this file exercises.
+vi.mock('../lib/local-llm.js', () => ({
+  synthesiseLocally: vi.fn().mockResolvedValue(null),
+  getUnvettedOllamaModels: vi.fn().mockReturnValue(null),
+  VETTED_OLLAMA_MODELS: ['llama3.2'],
+}));
 
 import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';

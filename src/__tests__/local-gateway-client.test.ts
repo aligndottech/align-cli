@@ -127,6 +127,24 @@ describe('local-gateway-client', () => {
     expect(result.message).toMatch(/ANTHROPIC_API_KEY|OPENAI_API_KEY/);
   });
 
+  // ALI-420: same "unknown" status, different remedy. The no_llm_key hint above tells the
+  // user to run a local Ollama; this user already is, and the model is what disqualified
+  // them. Telling them to do the thing they have done is worse than saying nothing.
+  it('checkAlignment names the model remedy when the local model was unvetted', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'unvetted_local_model' });
+    await client.ingestBatch([
+      { source_url: 'https://jira/ABC-2', platform: 'jira', raw_text: 'Feature flag rollout', title: 'Rollout plan' },
+    ]);
+
+    const result = await client.checkAlignment('add a feature flag');
+
+    expect(result.status).toBe('unknown');
+    expect(result.reason).toBe('unvetted_local_model');
+    expect(result.message).toMatch(/ollama pull|ALIGN_OLLAMA_MODEL/);
+    expect(result.message).not.toMatch(/run a local Ollama/);
+  });
+
   // The pair for the test above: proves the happy path was not simply renamed. A
   // classifier that RAN and returned a confident non-conflict is a real `aligned`.
   it('checkAlignment returns "aligned" when every candidate is classified as a non-conflict', async () => {

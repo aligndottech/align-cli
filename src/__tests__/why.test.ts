@@ -27,7 +27,14 @@ vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('p
 
 // Default null = no AI provider available -> list fallback (keeps the list-rendering tests valid).
 const mockSynthesise = vi.hoisted(() => vi.fn().mockResolvedValue(null));
-vi.mock('../lib/local-llm.js', () => ({ synthesiseLocally: mockSynthesise }));
+// ALI-420: `ask` asks WHY there was no answer so it can say something useful. Default
+// null = the ordinary "no provider configured" case, which keeps the existing tests valid.
+const mockUnvetted = vi.hoisted(() => vi.fn().mockReturnValue(null));
+vi.mock('../lib/local-llm.js', () => ({
+  synthesiseLocally: mockSynthesise,
+  getUnvettedOllamaModels: mockUnvetted,
+  VETTED_OLLAMA_MODELS: ['llama3.2', 'llama3.1'],
+}));
 
 const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { output.push(args.join(' ')); });
@@ -164,5 +171,34 @@ describe('align ask - file path mode', () => {
     await program.parseAsync(['node', 'align', 'ask', 'Makefile']);
     const client = (createGatewayClient as ReturnType<typeof vi.fn>).mock.results[0].value as { searchDecisions: ReturnType<typeof vi.fn> };
     expect(client.searchDecisions).toHaveBeenCalledWith('Makefile', 8);
+  });
+
+  // ALI-420. These two are a pair: each one's positive assertion is the other's control,
+  // so neither negative can pass because the whole block failed to render.
+  it('says why there was no answer when Ollama has only unvetted models', async () => {
+    mockUnvetted.mockReturnValueOnce(['WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M']);
+    const program = new Command();
+    registerAskCommand(program);
+
+    await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
+
+    const all = output.join('\n');
+    expect(all).toContain('WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M'); // attributable, not mysterious
+    expect(all).toContain('ollama pull llama3.2');             // what to do about it
+    expect(all).toContain('ALIGN_OLLAMA_MODEL');               // the escape hatch
+    expect(all).toContain('Chose Postgres');                   // the ranked list still prints
+    // The generic nudge would be wrong here: they have a provider, it is the model.
+    expect(all).not.toContain('Set ANTHROPIC_API_KEY');
+  });
+
+  it('keeps the generic provider nudge when Ollama is not the reason', async () => {
+    const program = new Command();
+    registerAskCommand(program);
+
+    await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
+
+    const all = output.join('\n');
+    expect(all).toContain('Set ANTHROPIC_API_KEY');
+    expect(all).not.toContain('ollama pull');
   });
 });

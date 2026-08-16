@@ -138,12 +138,59 @@ async function tryGemini(
   }
 }
 
+export const VETTED_OLLAMA_MODELS = [
+  'llama3.2', 'llama3.1', 'llama3', 'mistral', 'gemma2', 'phi3',
+] as const;
+
+export type OllamaModelChoice =
+  | { ok: true; model: string }
+  | { ok: false; reason: 'no_models' | 'no_vetted_model' };
+
+export function resolveOllamaModel(installed: string[], override?: string): OllamaModelChoice {
+  // Named by the user, so it is their call - the contract every other provider here
+  // already has via ALIGN_<PROVIDER>_MODEL.
+  if (override) return { ok: true, model: override };
+  if (!installed.length) return { ok: false, reason: 'no_models' };
+  // Iterate the VETTED list, not the installed list: `/api/tags` order is Ollama's, and
+  // letting it pick among vetted models is the same defect one line over.
+  for (const family of VETTED_OLLAMA_MODELS) {
+    const match = installed.find(m => m.startsWith(family));
+    if (match) return { ok: true, model: match };
+  }
+  return { ok: false, reason: 'no_vetted_model' };
+}
+
+let unvettedOllamaModels: string[] | null = null;
+
+/**
+ * The models Ollama had when it declined to answer for want of a vetted one (ALI-420),
+ * or null when that did not happen. Read it on the failure branch to say WHY there was
+ * no answer, the same way `hasConfiguredProvider()` is read there.
+ *
+ * Recorded rather than re-probed: `tryOllama` has already fetched `/api/tags`, and
+ * `callChat` cannot return null without running it (step 4 is unconditional), so
+ * whenever a caller asks, the recording is from this run.
+ */
+export function getUnvettedOllamaModels(): string[] | null {
+  return unvettedOllamaModels;
+}
+
+/** Test seam: clears the recording above between cases. */
+export function resetOllamaDiagnostics(): void {
+  unvettedOllamaModels = null;
+}
+
 async function tryOllama(
   system: string,
   user: string,
   temperature?: number,
 ): Promise<string | null> {
   const host = process.env['OLLAMA_HOST'] ?? 'http://localhost:11434';
+
+  // Clear first, so the recording always describes THIS attempt. Without it a refusal
+  // from an earlier call in the same process outlives its cause, and a later failure
+  // with a different cause inherits the wrong diagnosis.
+  unvettedOllamaModels = null;
 
   let model: string;
   try {
@@ -152,8 +199,12 @@ async function tryOllama(
     const tags = await tagsRes.json() as { models?: Array<{ name: string }> };
     const models = (tags.models ?? []).map(m => m.name);
     if (!models.length) return null;
-    const preferred = ['llama3.2', 'llama3.1', 'llama3', 'mistral', 'gemma2', 'phi3'];
-    model = models.find(m => preferred.some(p => m.startsWith(p))) ?? models[0]!;
+    const choice = resolveOllamaModel(models, process.env['ALIGN_OLLAMA_MODEL']);
+    if (!choice.ok) {
+      if (choice.reason === 'no_vetted_model') unvettedOllamaModels = models;
+      return null;
+    }
+    model = choice.model;
   } catch {
     return null;
   }

@@ -14,7 +14,7 @@ import {
   isDecisionRelationship,
 } from '@aligndottech/connector-core';
 
-import { callChat, hasConfiguredProvider } from './local-llm.js';
+import { callChat, getUnvettedOllamaModels, hasConfiguredProvider } from './local-llm.js';
 
 // ALI-219: the canonical decision-graph vocabulary is the single source of truth
 // (connector-core). The local classifier must only emit types the graph accepts,
@@ -40,7 +40,13 @@ export type ClassifierFailureReason =
   /** A provider IS configured and the call did not come back usable. */
   | 'classifier_error'
   /** The model replied, but with no JSON or a type outside the canonical vocabulary. */
-  | 'classifier_unparseable';
+  | 'classifier_unparseable'
+  /**
+   * Ollama is running, but every installed model is outside the vetted set (ALI-420).
+   * Distinct from `no_llm_key` because the remedy is the opposite: this user already has
+   * a local provider, and telling them to run one reads as nonsense.
+   */
+  | 'unvetted_local_model';
 
 export type ClassificationOutcome =
   | { ok: true; relationship: ClassifiedRelationship }
@@ -72,6 +78,9 @@ export async function classifyRelationship(
     temperature: DETERMINISTIC_TEMPERATURE,
   });
   if (!raw) {
+    // Order matters: an unvetted local model is a more specific diagnosis than either of
+    // the other two, and `hasConfiguredProvider()` is env-only so it cannot see it.
+    if (getUnvettedOllamaModels()) return { ok: false, reason: 'unvetted_local_model' };
     return { ok: false, reason: hasConfiguredProvider() ? 'classifier_error' : 'no_llm_key' };
   }
   const relationship = parseRelationship(raw);

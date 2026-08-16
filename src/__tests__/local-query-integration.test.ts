@@ -15,7 +15,14 @@ vi.mock('../lib/local-embeddings.js', () => ({
 vi.mock('../lib/local-relationship-classifier.js', () => ({
   classifyRelationship: vi.fn().mockResolvedValue(null),
 }));
-vi.mock('../lib/local-llm.js', () => ({ synthesiseLocally: vi.fn().mockResolvedValue(null) }));
+// The whole module surface `ask` uses, not just the call this file cares about: a
+// partial fake makes any NEW read from local-llm.js crash here rather than in the suite
+// that owns it (ALI-420 added getUnvettedOllamaModels and hit exactly that).
+vi.mock('../lib/local-llm.js', () => ({
+  synthesiseLocally: vi.fn().mockResolvedValue(null),
+  getUnvettedOllamaModels: vi.fn().mockReturnValue(null),
+  VETTED_OLLAMA_MODELS: ['llama3.2'],
+}));
 
 let dbPath = '';
 vi.mock('../lib/config.js', () => ({
