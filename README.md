@@ -369,7 +369,7 @@ align --env local <command>    # one-off override
 | `ALIGN_TOKEN` | API token (alternative to `align login`) |
 | `ALIGN_ENV` | Default environment (`prod`, `preview`, `local`) |
 | `ALIGN_GATEWAY_URL` | Override gateway URL (self-hosted) |
-| `ALIGN_TENANT_ID` | Override tenant ID (self-hosted / CI) |
+| `ALIGN_TENANT_ID` | Override tenant ID (self-hosted / CI). Against `preview` or `prod` it needs `ALIGN_TOKEN` set too: a tenant on its own authenticates nothing, and the CLI refuses rather than sending it |
 | `ANTHROPIC_API_KEY` | Anthropic API key for `align ask` synthesis |
 | `OPENAI_API_KEY` | OpenAI API key for `align ask` synthesis |
 | `GEMINI_API_KEY` | Google Gemini API key for `align ask` synthesis |

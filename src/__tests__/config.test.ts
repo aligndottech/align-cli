@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createConfigStore } from '../lib/config.js';
 
 vi.mock('conf', () => {
@@ -19,6 +19,17 @@ vi.mock('conf', () => {
 });
 
 describe('config store', () => {
+  // ALI-462: getEnvironment reads ALIGN_TOKEN, ALIGN_TENANT_ID and ALIGN_GATEWAY_URL, so
+  // without this the outcome depends on whoever runs the suite. Not hypothetical: with
+  // ALIGN_TOKEN exported, "clears stored token on logout" fails on the leaked value. The
+  // environment is an input, so it belongs in the arrange step like any other.
+  beforeEach(() => {
+    vi.stubEnv('ALIGN_TOKEN', '');
+    vi.stubEnv('ALIGN_TENANT_ID', '');
+    vi.stubEnv('ALIGN_GATEWAY_URL', '');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
   it('returns default gateway URL for local', () => {
     expect(createConfigStore().getEnvironment('local').gatewayUrl).toBe('http://localhost:8080');
   });
@@ -59,6 +70,21 @@ describe('config store', () => {
     expect(c.getEnvironment('prod').authToken).toBe('tok_123');
     c.clear('prod');
     expect(c.getEnvironment('prod').authToken).toBeNull();
+  });
+
+  // ALI-462: the state at the heart of the ticket is representable. No CLI flow produces it
+  // (login-flow sets the token first and the tenant only after /me succeeds), so it is
+  // reachable ONLY like this. Pinned because the guard downstream is written against it.
+  it('ALIGN_TENANT_ID with no ALIGN_TOKEN yields a tenant that nothing authenticates', () => {
+    vi.stubEnv('ALIGN_TENANT_ID', 'tenant-from-env');
+
+    const env = createConfigStore().getEnvironment('prod');
+
+    expect(env.tenantId).toBe('tenant-from-env');
+    expect(env.authToken).toBeNull();
+    // `auth` is what makes it unusable. The same shape under `demo` is how a local gateway
+    // is meant to be addressed, which is why the client guard keys on mode, not on this.
+    expect(env.mode).toBe('auth');
   });
 
   it('saves and retrieves connector cloudId', () => {
