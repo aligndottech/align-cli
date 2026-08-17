@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/aligndottech/align-cli/compare/cli-v0.12.0...cli-v0.12.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **local:** cosine similarity is `relates`, not a conflict caught (ALI-503) ([#111](https://github.com/aligndottech/align-cli/issues/111)) ([98f3a07](https://github.com/aligndottech/align-cli/commit/98f3a07ef939003892764342c0c7cc835acc5750))
+
 ## [0.12.0](https://github.com/aligndottech/align-cli/compare/cli-v0.11.0...cli-v0.12.0) (2026-08-17)
 
 
