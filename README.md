@@ -390,7 +390,7 @@ align login --env local --token algt_...
 ALIGN_GATEWAY_URL=https://api.yourco.com align decisions list
 ```
 
-`ALIGN_GATEWAY_URL` changes **where** the CLI talks to; `--env` changes **how** it authenticates, and the two are independent. That matters if you also set `ALIGN_TENANT_ID`, because a tenant with nothing authenticating it is refused against a cloud-mode environment:
+`ALIGN_GATEWAY_URL` changes **where** the CLI talks to; `--env` changes **how** it authenticates, and the two are independent. That matters if you also set `ALIGN_TENANT_ID`, because a tenant with nothing authenticating it is refused in `prod`/`preview` (auth mode):
 
 | Your gateway | Use | Why |
 |---|---|---|
