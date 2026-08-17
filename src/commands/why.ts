@@ -133,7 +133,7 @@ export function registerAskCommand(program: Command): void {
           const unvetted = getUnvettedOllamaModels();
           if (unvetted) {
             console.log(chalk.dim('  No answer written: Ollama is running, but none of these'));
-            console.log(chalk.dim('  models is vetted for decision synthesis.'));
+            console.log(chalk.dim('  models are vetted for decision synthesis.'));
             for (const m of unvetted) console.log(chalk.dim(`    - ${m}`));
             console.log(chalk.dim(`  Pull one:     ollama pull ${VETTED_OLLAMA_MODELS[0]}`));
             console.log(chalk.dim('  Or name one:  ALIGN_OLLAMA_MODEL=<model>'));
