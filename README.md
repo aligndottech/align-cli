@@ -390,6 +390,15 @@ align login --env local --token algt_...
 ALIGN_GATEWAY_URL=https://api.yourco.com align decisions list
 ```
 
+`ALIGN_GATEWAY_URL` changes **where** the CLI talks to; `--env` changes **how** it authenticates, and the two are independent. That matters if you also set `ALIGN_TENANT_ID`, because a tenant with nothing authenticating it is refused in `prod`/`preview` (auth mode):
+
+| Your gateway | Use | Why |
+|---|---|---|
+| enforces auth (the default) | `ALIGN_TOKEN` alongside `ALIGN_GATEWAY_URL` | the token is what names your tenant, so `ALIGN_TENANT_ID` is optional |
+| runs in demo mode | `--env local` with `ALIGN_GATEWAY_URL` | `local` is the mode where an `x-tenant-id` header with no bearer is the intended way to address a gateway |
+
+With no `--env` the CLI defaults to `prod`, which authenticates. So `ALIGN_TENANT_ID` set on its own, with no token, is refused rather than sent: it cannot succeed against a gated route, and against an ungated one it would read a tenant you were never authorised for.
+
 ## Command reference
 
 ```
