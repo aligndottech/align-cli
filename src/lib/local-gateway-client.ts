@@ -7,7 +7,17 @@ import { citationFor, repositoryOf } from './decision-links.js';
 // (ask/search/check) work identically in local mode.
 import type { AlignmentResult, SearchResults } from './gateway-client.js';
 
-export const CONFLICT_THRESHOLD = 0.65;
+/**
+ * Cosine floor for linking two decisions as related on ingest.
+ *
+ * Named CONFLICT_THRESHOLD until ALI-503, which was the same category error as the code
+ * it governed: the value decides similarity, and similarity is not opposition. The
+ * classifier prompt in local-relationship-classifier.ts says so directly - "high textual
+ * similarity alone is NOT a conflict" - and the link written here is `relates` because an
+ * embedding cannot tell agreement from opposition. Only a classifier reading both can, and
+ * its verdict is never persisted as a link.
+ */
+export const SIMILARITY_THRESHOLD = 0.65;
 /**
  * Relevance floor for align_ask / align_search.
  *
@@ -51,13 +61,15 @@ export function createLocalGatewayClient(dbPath: string) {
       .slice(0, topK);
   }
 
-  // Shared ingest path: insert, embed (title + summary), detect conflicts.
+  // Shared ingest path: insert, embed (title + summary), link similar decisions.
   // Used by both captureDecision (single, may parse a URL) and ingestBatch.
+  // Says "similar", not "conflicts": an embedding cannot tell agreement from opposition,
+  // and calling this conflict detection is what ALI-503 was (see SIMILARITY_THRESHOLD).
   async function ingestOne(
     input: string,
     platform: string,
     opts: { titleOverride?: string; sourceUrlOverride?: string | null } = {},
-  ): Promise<{ id: string; title: string; summary: string; sourceUrl: string | null; platform: string; conflicts: Array<{ decisionId: string; score: number }> }> {
+  ): Promise<{ id: string; title: string; summary: string; sourceUrl: string | null; platform: string; related: Array<{ decisionId: string; score: number }> }> {
     let title = input.slice(0, 80);
     let summary = input;
     let sourceUrl: string | null = opts.sourceUrlOverride ?? null;
@@ -78,11 +90,14 @@ export function createLocalGatewayClient(dbPath: string) {
     const embedding = await getEmbedding(embedText);
     db.setEmbedding(id, embedding);
 
-    const candidates = await findSimilar(embedding, 10, CONFLICT_THRESHOLD, id);
+    const candidates = await findSimilar(embedding, 10, SIMILARITY_THRESHOLD, id);
     for (const c of candidates) {
-      db.insertLink({ sourceId: id, targetId: c.decisionId, relation: 'conflicts_with', confidence: c.score });
+      // ALI-503: `relates`, not `conflicts_with`. This is a cosine score with no judgement
+      // behind it, and labelling it a conflict made `align local status` and the
+      // align_get_conflicts MCP tool report manufactured findings as detections.
+      db.insertLink({ sourceId: id, targetId: c.decisionId, relation: 'relates', confidence: c.score });
     }
-    return { id, title, summary, sourceUrl, platform, conflicts: candidates };
+    return { id, title, summary, sourceUrl, platform, related: candidates };
   }
 
   return {
@@ -97,7 +112,7 @@ export function createLocalGatewayClient(dbPath: string) {
 
     async captureDecision(input: string, platform = 'cli') {
       const r = await ingestOne(input, platform);
-      return { id: r.id, title: r.title, summary: r.summary, sourceUrl: r.sourceUrl, platform: r.platform, conflicts: r.conflicts.map(c => c.decisionId) };
+      return { id: r.id, title: r.title, summary: r.summary, sourceUrl: r.sourceUrl, platform: r.platform, related: r.related.map(c => c.decisionId) };
     },
 
     async ingestBatch(items: Array<{ source_url?: string; platform?: string; raw_text: string; title?: string }>) {
@@ -112,10 +127,12 @@ export function createLocalGatewayClient(dbPath: string) {
           title: r.title,
           summary: r.summary,
           analysis: {
-            relatedDecisions: r.conflicts.map(c => ({
+            relatedDecisions: r.related.map(c => ({
               id: c.decisionId,
               title: db.getDecisionById(c.decisionId)?.title ?? '',
-              relationship: 'conflicts_with',
+              // Must match the relation actually written above, or this is a second writer
+              // of the same fact that can drift from it (ALI-503).
+              relationship: 'relates',
               confidence: c.score,
             })),
           },

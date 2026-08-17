@@ -8,11 +8,28 @@
 export interface ValueRollup {
   decisions: number;
   conflictsCaught: number;
+  /**
+   * Decisions linked by embedding similarity alone (ALI-503). Deliberately a separate
+   * number from conflictsCaught: an embedding says two decisions are about the same thing,
+   * never that they disagree. Populated offline only; the cloud rollup has richer signals.
+   */
+  similarDecisions: number;
   duplicates: number;
   supersessions: number;
   reuseRate: number | null;
   healthGrade: string | null;
 }
+
+/**
+ * Decisions in a local graph before the sharing prompt is earned (ALI-503).
+ *
+ * The prompt used to be gated on conflictsCaught, which offline was fabricated from cosine
+ * similarity, so a manufactured detection was what asked the user for money. Nothing writes
+ * a conflict, duplicate or supersession link offline, so that gate is now structurally
+ * false and needs a claim we can defend: a graph this size is worth sharing. 5 matches the
+ * threshold `align ask` already nudges at.
+ */
+export const LOCAL_SHARE_THRESHOLD = 5;
 
 export interface ValueRollupClient {
   getStats(): Promise<{ snapshots?: number }>;
@@ -42,6 +59,8 @@ export async function fetchValueRollup(client: ValueRollupClient): Promise<Value
   return {
     decisions: stats?.snapshots ?? 0,
     conflictsCaught: impact?.total ?? 0,
+    // Cloud mode does not surface a similarity count; the gateway adjudicates instead.
+    similarDecisions: 0,
     duplicates: links?.duplicates_count ?? 0,
     supersessions: links?.supersessions_count ?? 0,
     reuseRate: reuse ? reuse.rate : null,
@@ -58,9 +77,15 @@ export async function fetchValueRollup(client: ValueRollupClient): Promise<Value
  */
 export function renderValueReadout(r: ValueRollup, opts: { mode: 'cloud' | 'local' }): string {
   const reuse = r.reuseRate === null ? 'n/a' : `${Math.round(r.reuseRate * 100)}%`;
+  // ALI-503: offline, nothing can write a conflict link, so "N conflicts caught" was either
+  // fabricated from cosine similarity or a permanent zero that reads as a broken counter.
+  // Report what the local graph genuinely knows instead.
+  const headline = opts.mode === 'local'
+    ? `  ${r.similarDecisions} similar decisions found`
+    : `  ${r.conflictsCaught} conflicts caught`;
   const lines = [
     `  ${r.decisions} decisions in your graph`,
-    `  ${r.conflictsCaught} conflicts caught`,
+    headline,
     `  ${r.duplicates} duplicates found`,
     `  ${r.supersessions} decisions superseded`,
     `  reuse rate: ${reuse}`,
@@ -72,7 +97,10 @@ export function renderValueReadout(r: ValueRollup, opts: { mode: 'cloud' | 'loca
     lines.push('');
     lines.push('  Reuse rate and health need the cloud graph - run `align login` to see them.');
   }
-  const hasValue = r.conflictsCaught > 0 || r.duplicates > 0 || r.supersessions > 0;
+  // similarDecisions is deliberately absent: buying the upsell with a cosine artefact is
+  // the defect this ticket exists to remove, not a smaller version of it (ALI-503).
+  const hasValue = (opts.mode === 'local' && r.decisions >= LOCAL_SHARE_THRESHOLD)
+    || r.conflictsCaught > 0 || r.duplicates > 0 || r.supersessions > 0;
   if (hasValue) {
     lines.push('');
     lines.push('  Share this graph with your team: https://app.align.tech/pricing');
@@ -94,7 +122,11 @@ export function localValueRollup(db: LocalRollupDb): ValueRollup {
   const count = (relation: string) => db.listLinks({ relation }).length;
   return {
     decisions: db.getStats().decisions,
+    // Kept counting the real relations even though nothing offline writes one, so the
+    // counter stays provably capable of reporting a conflict. That is what makes a zero
+    // here mean "none found" rather than "the counter is broken" (ALI-503 positive control).
     conflictsCaught: count('conflicts_with') + count('contradicts'),
+    similarDecisions: count('relates'),
     duplicates: count('duplicates'),
     supersessions: count('supersedes'),
     reuseRate: null,
