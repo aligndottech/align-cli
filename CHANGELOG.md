@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.0](https://github.com/aligndottech/align-cli/compare/cli-v0.11.0...cli-v0.12.0) (2026-08-17)
+
+
+### Features
+
+* **action:** anchor conflicts to the files that produced them ([#109](https://github.com/aligndottech/align-cli/issues/109)) ([87b721d](https://github.com/aligndottech/align-cli/commit/87b721dc71f29a70dc03926d25d6f93d25de0105))
+
+
+### Bug Fixes
+
+* **ask:** refuse to synthesise with an unvetted Ollama model (ALI-420) ([#110](https://github.com/aligndottech/align-cli/issues/110)) ([43c439f](https://github.com/aligndottech/align-cli/commit/43c439f8d1188c187876ea79117f499f3ee503ce))
+* **gateway-client:** follow decision-links cursor in getConflicts (ALI-587) ([#106](https://github.com/aligndottech/align-cli/issues/106)) ([f9c9f92](https://github.com/aligndottech/align-cli/commit/f9c9f92437fe701c0ff8f6268b713b1d7eb4bba4))
+* honest link listings and active-only conflict counts (ALI-587) ([#108](https://github.com/aligndottech/align-cli/issues/108)) ([0b1f916](https://github.com/aligndottech/align-cli/commit/0b1f91618c47654ba38169f28e8f4eca5c4bd6ce))
+
 ## [0.11.0](https://github.com/aligndottech/align-cli/compare/cli-v0.10.0...cli-v0.11.0) (2026-08-15)
 
 
