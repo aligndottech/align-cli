@@ -17,6 +17,9 @@
  * plumbing.
  */
 
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
 export interface ContextDecision {
   title: string;
   /** e.g. `align-stack#1441`. Stable, human-quotable, and the deterministic sort key. */
@@ -89,4 +92,50 @@ export function appendImportLine(claudeMd: string): string {
   if (hasImportLine(claudeMd)) return claudeMd;
   const separator = claudeMd.endsWith('\n') ? '' : '\n';
   return `${claudeMd}${separator}\n${ALIGN_IMPORT_LINE}\n`;
+}
+
+export interface WriteResult {
+  /** Repo-relative path of the file Align owns. */
+  contextPath: string;
+  /** True only when this run added the import line, so a caller can say so once. */
+  importAdded: boolean;
+}
+
+/**
+ * Write the owned context file, and add the import line to CLAUDE.md if it is there.
+ *
+ * Deliberately does NOT create CLAUDE.md when the repo has none. Inventing a file the user
+ * never had is a different and worse surprise than the one the constraint is about; the caller
+ * prints the line instead, the way `align setup` treats MCP config.
+ *
+ * Idempotent on disk, which is the acceptance test for the whole feature rather than a detail:
+ * a file that differs between runs turns every regeneration into a git diff in someone else's
+ * repo. The renderer carries no timestamp for exactly this reason.
+ */
+export async function writeDecisionsContext(
+  repoRoot: string,
+  decisions: ContextDecision[],
+): Promise<WriteResult> {
+  const target = path.join(repoRoot, ALIGN_CONTEXT_PATH);
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, renderDecisionsFile(decisions), 'utf8');
+
+  const claudePath = path.join(repoRoot, 'CLAUDE.md');
+  let importAdded = false;
+  try {
+    const existing = await readFile(claudePath, 'utf8');
+    const updated = appendImportLine(existing);
+    // Only touch their file when there is something to change. Rewriting identical bytes
+    // still updates mtime and shows up in tooling that watches the file.
+    if (updated !== existing) {
+      await writeFile(claudePath, updated, 'utf8');
+      importAdded = true;
+    }
+  } catch (err) {
+    // ENOENT is the "repo has no CLAUDE.md" case above and is not a failure. Anything else
+    // is, and must not be swallowed into a silent success.
+    if ((err as { code?: string }).code !== 'ENOENT') throw err;
+  }
+
+  return { contextPath: ALIGN_CONTEXT_PATH, importAdded };
 }
