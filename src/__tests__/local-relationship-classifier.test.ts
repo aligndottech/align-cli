@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DECISION_RELATIONSHIPS, isDecisionRelationship } from '@aligndottech/connector-core';
 import { classifyRelationship, RELATIONSHIP_TYPES } from '../lib/local-relationship-classifier.js';
+import { resetOllamaDiagnostics } from '../lib/local-llm.js';
 
 const A = { title: 'Standardise on MySQL', summary: 'We chose MySQL as the primary database.' };
 const B = { title: 'Migrate to Postgres', summary: 'Switch the service database to Postgres.' };
@@ -32,6 +33,26 @@ describe('classifyRelationship', () => {
     mockFetch.mockResolvedValue({ ok: false }); // Ollama /api/tags not ok
     const result = await classifyRelationship(A, B);
     expect(result).toEqual({ ok: false, reason: 'no_llm_key' });
+  });
+
+  // ALI-420: an unvetted local model must not assert typed edges. These are written into
+  // the local graph and sync to the org graph, so a wrong `conflicts_with` here is a data
+  // write, not a rendering the user can judge.
+  it('reports unvetted_local_model when Ollama is running with no vetted model', async () => {
+    for (const k of ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GROQ_API_KEY', 'MISTRAL_API_KEY',
+      'GROK_API_KEY', 'XAI_API_KEY', 'ALIGN_LLM_BASE_URL', 'ALIGN_OLLAMA_MODEL']) {
+      vi.stubEnv(k, '');
+    }
+    resetOllamaDiagnostics();
+    mockFetch.mockImplementation(async (url: string) =>
+      String(url).includes('/api/tags')
+        ? { ok: true, json: async () => ({ models: [{ name: 'WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M' }] }) }
+        : { ok: false });
+
+    const result = await classifyRelationship(A, B);
+
+    // NOT no_llm_key: that hint tells the user to "run a local Ollama", and they are.
+    expect(result).toEqual({ ok: false, reason: 'unvetted_local_model' });
   });
 
   it('types the relationship via Anthropic when ANTHROPIC_API_KEY is set', async () => {

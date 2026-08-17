@@ -222,9 +222,13 @@ export function createLocalGatewayClient(dbPath: string) {
       }
 
       if (unclassified) {
-        const hint = unclassified.failureReason === 'no_llm_key'
-          ? ' Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or run a local Ollama) so these can be classified.'
-          : '';
+        // ALI-420: an unvetted local model gets its own remedy. The no_llm_key hint below
+        // says "or run a local Ollama", which is nonsense to someone already running one.
+        const hint = unclassified.failureReason === 'unvetted_local_model'
+          ? ' Ollama is running, but no vetted model is installed: `ollama pull llama3.2`, or set ALIGN_OLLAMA_MODEL to name your own.'
+          : unclassified.failureReason === 'no_llm_key'
+            ? ' Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or run a local Ollama) so these can be classified.'
+            : '';
         return {
           status: 'unknown',
           reason: unclassified.failureReason,

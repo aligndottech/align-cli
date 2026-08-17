@@ -5,7 +5,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { synthesiseLocally } from '../lib/local-llm.js';
+import { getUnvettedOllamaModels, synthesiseLocally, VETTED_OLLAMA_MODELS } from '../lib/local-llm.js';
 import { formatWhen } from '../lib/format-date.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
@@ -125,9 +125,21 @@ export function registerAskCommand(program: Command): void {
         }
 
         // We only reach the list for a non-file query when synthesis was
-        // unavailable - nudge the user toward a conversational answer.
+        // unavailable - say why, and what to do about it.
         if (!filePath) {
-          console.log(chalk.dim('  Set ANTHROPIC_API_KEY (or OPENAI_API_KEY) for a conversational answer.'));
+          // ALI-420: a running Ollama with no vetted model used to answer anyway, with
+          // whatever it listed first. It now declines, so name the models it has rather
+          // than telling someone who is already running a provider to configure one.
+          const unvetted = getUnvettedOllamaModels();
+          if (unvetted) {
+            console.log(chalk.dim('  No answer written: Ollama is running, but none of these'));
+            console.log(chalk.dim('  models are vetted for decision synthesis.'));
+            for (const m of unvetted) console.log(chalk.dim(`    - ${m}`));
+            console.log(chalk.dim(`  Pull one:     ollama pull ${VETTED_OLLAMA_MODELS[0]}`));
+            console.log(chalk.dim('  Or name one:  ALIGN_OLLAMA_MODEL=<model>'));
+          } else {
+            console.log(chalk.dim('  Set ANTHROPIC_API_KEY (or OPENAI_API_KEY) for a conversational answer.'));
+          }
           console.log('');
         }
 

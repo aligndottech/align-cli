@@ -81,6 +81,10 @@ export interface SearchResults {
  * The `brain_*` codes come from the cloud gateway (`/alignment/check`), the rest
  * from the local embedded client. Both are listed because this one type describes
  * both clients' responses, and an agent branching on `reason` sees either.
+ *
+ * This spells the local half twice, here and as `ClassifierFailureReason`. That drift
+ * cannot ship silently: `local-gateway-client.ts` assigns one to the other, so adding a
+ * classifier reason without adding it here fails `tsc`, which is how ALI-420 found it.
  */
 export type UnknownReason =
   | 'brain_timeout'
@@ -88,7 +92,8 @@ export type UnknownReason =
   | 'brain_degraded'
   | 'no_llm_key'
   | 'classifier_error'
-  | 'classifier_unparseable';
+  | 'classifier_unparseable'
+  | 'unvetted_local_model';
 
 export interface AlignmentResult {
   /**
