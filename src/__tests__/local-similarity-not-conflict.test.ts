@@ -45,7 +45,10 @@ describe('ALI-503 the write: cosine similarity is `relates`, never a conflict', 
 
   afterEach(() => {
     client.close();
-    if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+    for (const suffix of ['', '-wal', '-shm']) {
+      const file = `${dbPath}${suffix}`;
+      if (fs.existsSync(file)) fs.unlinkSync(file);
+    }
   });
 
   it('a similar pair produces no conflicts, on the surface an agent reads', async () => {
