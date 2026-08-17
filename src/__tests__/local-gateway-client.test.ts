@@ -43,8 +43,10 @@ describe('local-gateway-client', () => {
     const result = await client.captureDecision('We decided to use TypeScript', 'cli');
     expect(result).toHaveProperty('id');
     expect(result).toHaveProperty('title');
-    expect(result).toHaveProperty('conflicts');
-    expect(Array.isArray(result.conflicts)).toBe(true);
+    // ALI-503: was `conflicts`. It holds cosine-similar decision ids and no judgement,
+    // and align_capture returns this object straight to an agent.
+    expect(result).toHaveProperty('related');
+    expect(Array.isArray(result.related)).toBe(true);
   });
 
   // BUG-2: the local client MUST return the same shape the cloud client does
@@ -239,16 +241,18 @@ describe('local-gateway-client', () => {
     expect(found.results.length).toBe(2);
   });
 
-  it('ingestBatch records a conflicts_with relationship when items are similar', async () => {
-    vi.mocked(cosineSimilarity).mockReturnValue(0.9); // above CONFLICT_THRESHOLD
+  it('ingestBatch records a `relates` relationship when items are similar', async () => {
+    // ALI-503: this asserted `conflicts_with`. Similar wording is not opposition, and the
+    // returned analysis must match the relation actually written to the row.
+    vi.mocked(cosineSimilarity).mockReturnValue(0.9); // above SIMILARITY_THRESHOLD
     const result = await client.ingestBatch([
       { source_url: 'git://commit/a', platform: 'git', raw_text: 'Use MySQL', title: 'Use MySQL' },
       { source_url: 'git://commit/b', platform: 'git', raw_text: 'Use Postgres', title: 'Use Postgres' },
     ]);
-    // second item conflicts with the first
+
     const related = result.snapshots[1].analysis?.relatedDecisions ?? [];
     expect(related.length).toBeGreaterThan(0);
-    expect(related[0].relationship).toBe('conflicts_with');
-    await expect(client.getConflicts()).resolves.toHaveProperty('links');
+    expect(related[0].relationship).toBe('relates');
+    expect((await client.getConflicts()).conflict_count).toBe(0);
   });
 });

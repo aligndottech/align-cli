@@ -82,6 +82,5 @@ describe('local-db', () => {
     const stats = db.getStats();
     expect(stats.decisions).toBe(1);
     expect(stats.embeddings).toBe(0);
-    expect(stats.conflicts).toBe(0);
   });
 });

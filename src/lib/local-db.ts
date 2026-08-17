@@ -23,7 +23,6 @@ export interface LinkRow {
 export interface DbStats {
   decisions: number;
   embeddings: number;
-  conflicts: number;
 }
 
 const SCHEMA = `
@@ -51,6 +50,31 @@ CREATE TABLE IF NOT EXISTS decision_links (
 );
 `;
 
+/** Schema version this build expects. Bump when adding a step to `migrate`. */
+const SCHEMA_VERSION = 1;
+
+/**
+ * One-time data migrations, tracked in SQLite's built-in `user_version`.
+ *
+ * 1. ALI-503: relabel the cosine-similarity links that were written as `conflicts_with`.
+ *    Every such row at version 0 is provably an artefact, because `insertLink` had exactly
+ *    one caller and it hardcoded that relation for any pair over 0.65 cosine. No classifier
+ *    verdict was ever persisted, so there is no earned row to damage.
+ *
+ * The version guard is load-bearing rather than tidiness. The same UPDATE run on every open
+ * is indistinguishable from this one today, and starts silently eating genuine conflicts the
+ * moment anything writes one.
+ */
+function migrate(db: Database.Database): void {
+  const version = db.pragma('user_version', { simple: true }) as number;
+  if (version < 1) {
+    db.exec(`UPDATE decision_links SET relation = 'relates' WHERE relation = 'conflicts_with'`);
+  }
+  if (version < SCHEMA_VERSION) {
+    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  }
+}
+
 export function createLocalDb(dbPath: string) {
   // better-sqlite3 creates the DB file but not its parent directory, so on a clean
   // machine (~/.config/align-cli absent) `align setup --local` crashed with "unable
@@ -61,6 +85,7 @@ export function createLocalDb(dbPath: string) {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.exec(SCHEMA);
+  migrate(db);
 
   return {
     insertDecision(row: { title: string; summary: string; sourceUrl: string | null; platform: string }): string {
@@ -124,8 +149,9 @@ export function createLocalDb(dbPath: string) {
     getStats(): DbStats {
       const decisions = (db.prepare(`SELECT COUNT(*) as n FROM decisions`).get() as { n: number }).n;
       const embeddings = (db.prepare(`SELECT COUNT(*) as n FROM decision_embeddings`).get() as { n: number }).n;
-      const conflicts = (db.prepare(`SELECT COUNT(*) as n FROM decision_links WHERE relation = 'conflicts_with'`).get() as { n: number }).n;
-      return { decisions, embeddings, conflicts };
+      // ALI-503 removed a `conflicts` count here: it had no production reader (only a test)
+      // and after the relabelling it could only ever report 0, which is a decoy.
+      return { decisions, embeddings };
     },
 
     dropAll(): void {

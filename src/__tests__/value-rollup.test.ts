@@ -23,6 +23,8 @@ describe('fetchValueRollup (ALI-215)', () => {
     expect(out).toEqual({
       decisions: 142,
       conflictsCaught: 6,
+      // ALI-503: cloud mode does not surface a similarity count; the gateway adjudicates.
+      similarDecisions: 0,
       duplicates: 9,
       supersessions: 4,
       reuseRate: 92 / 127,
@@ -43,6 +45,7 @@ describe('fetchValueRollup (ALI-215)', () => {
     expect(out).toEqual({
       decisions: 7,
       conflictsCaught: 1,
+      similarDecisions: 0,
       duplicates: 2,
       supersessions: 1,
       reuseRate: 0.1,
