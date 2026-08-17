@@ -87,8 +87,8 @@ describe('ALI-462 a tenant with no token must not be sent to a cloud gateway', (
   });
 
   it('demo mode is untouched: a tenant with no token is how a local gateway is addressed', async () => {
-    // The case that makes a blanket refusal wrong. tenant-isolation.md: x-tenant-id is
-    // honoured only when there is no auth context, which means demo mode and service auth.
+    // The case that makes a blanket refusal wrong: x-tenant-id is honoured only when there is
+    // no auth context, which means demo mode and service auth.
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ all: [], enabled: [] }) });
 
     await createGatewayClient({ ...authEnv, mode: 'demo' as const }).listConnectors();
