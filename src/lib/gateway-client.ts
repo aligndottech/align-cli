@@ -224,8 +224,8 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
    * ungated (ALI-459, blocked by ALI-458), so this is live rather than theoretical.
    *
    * `demo` mode is deliberately exempt. Addressing a local gateway by tenant header with no
-   * bearer is precisely what demo mode is for (tenant-isolation.md), and an existing test
-   * pins it. `local-embedded` never reaches this client at all.
+   * bearer is precisely what demo mode is for, and an existing test pins it. `local-embedded`
+   * never reaches this client at all.
    *
    * Thrown BEFORE request()'s try block on purpose: inside it, the catch rewrites every
    * non-GatewayError into "Cannot reach gateway", which is the opposite of legible.
