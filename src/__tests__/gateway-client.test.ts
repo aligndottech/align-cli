@@ -29,6 +29,75 @@ const localEnv = {
   mode: 'demo' as const,
 };
 
+/**
+ * A cloud environment. The only difference from localEnv that matters here is `mode`:
+ * `demo` means the gateway honours x-tenant-id with no auth context (which is the point of
+ * demo mode), `auth` means it cannot.
+ */
+const authEnv = {
+  gatewayUrl: 'https://api.align.tech',
+  authToken: null as string | null,
+  tenantId: 'tenant-123',
+  mode: 'auth' as const,
+};
+
+describe('ALI-462 a tenant with no token must not be sent to a cloud gateway', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('refuses, naming the missing token and the fix', async () => {
+    // Before the drift routes were gated this read another tenant's data, because the
+    // gateway honours x-tenant-id when nothing authenticates the request. After gating it
+    // is a bare 401 that says nothing about what to do. Neither is worth shipping.
+    await expect(createGatewayClient(authEnv).listConnectors()).rejects.toThrow(/align login/);
+
+    // Asserting the message content, not merely that something threw: a network error
+    // would satisfy a bare rejects.toThrow() and prove nothing about legibility.
+    await expect(createGatewayClient(authEnv).listConnectors()).rejects.toThrow(/tenant-123/);
+    await expect(createGatewayClient(authEnv).listConnectors()).rejects.toThrow(/ALIGN_TENANT_ID/);
+  });
+
+  it('makes no request at all', async () => {
+    // The difference between refusing and catching a 401. Scope item 2 of the ticket: it
+    // cannot succeed against a gated route and must not succeed against an ungated one.
+    await createGatewayClient(authEnv).listConnectors().catch(() => undefined);
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('still sends both headers when the token IS present', async () => {
+    // Positive control: the change must not be "always error in cloud mode".
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ all: [], enabled: [] }) });
+
+    await createGatewayClient({ ...authEnv, authToken: 'jwt-token' }).listConnectors();
+
+    expect(sentHeaders()).toMatchObject({
+      Authorization: 'Bearer jwt-token',
+      'x-tenant-id': 'tenant-123',
+    });
+  });
+
+  it('leaves an anonymous cloud request alone when no tenant is configured either', async () => {
+    // Both absent is the fresh-install state and is not what this guard is about.
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ all: [], enabled: [] }) });
+
+    await createGatewayClient({ ...authEnv, tenantId: null }).listConnectors();
+
+    expect(mockFetch).toHaveBeenCalled();
+    expect(sentHeaders()).not.toHaveProperty('x-tenant-id');
+  });
+
+  it('demo mode is untouched: a tenant with no token is how a local gateway is addressed', async () => {
+    // The case that makes a blanket refusal wrong: x-tenant-id is honoured only when there is
+    // no auth context, which means demo mode and service auth.
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ all: [], enabled: [] }) });
+
+    await createGatewayClient({ ...authEnv, mode: 'demo' as const }).listConnectors();
+
+    expect(sentHeaders()).toMatchObject({ 'x-tenant-id': 'tenant-123' });
+    expect(sentHeaders()).not.toHaveProperty('Authorization');
+  });
+});
+
 describe('gateway client', () => {
   beforeEach(() => mockFetch.mockReset());
 

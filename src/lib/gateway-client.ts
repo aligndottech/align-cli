@@ -210,7 +210,37 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     return h;
   }
 
+  /**
+   * ALI-462: refuse a tenant that nothing authenticates, before the request goes out.
+   *
+   * `ALIGN_TENANT_ID` and `ALIGN_TOKEN` are read independently (`config.ts`), so a tenant
+   * with no token is representable. No CLI flow produces it - `login-flow.ts` sets the token
+   * first and the tenant only after `/me` succeeds - so it is reachable only by exporting
+   * the one variable without the other.
+   *
+   * Against a gated route that config is a bare 401 explaining nothing. Against an ungated
+   * one it is worse: the gateway honours `x-tenant-id` when there is no auth context, so it
+   * serves a tenant the caller was never authorised for. Twelve such routes are still
+   * ungated (ALI-459, blocked by ALI-458), so this is live rather than theoretical.
+   *
+   * `demo` mode is deliberately exempt. Addressing a local gateway by tenant header with no
+   * bearer is precisely what demo mode is for, and an existing test pins it. `local-embedded`
+   * never reaches this client at all.
+   *
+   * Thrown BEFORE request()'s try block on purpose: inside it, the catch rewrites every
+   * non-GatewayError into "Cannot reach gateway", which is the opposite of legible.
+   */
+  function assertAuthenticatedIdentity(): void {
+    if (env.mode !== 'auth' || !tenantId || authToken) return;
+    throw new Error(
+      `A tenant is configured (${tenantId}) but no token is, so this request cannot be authenticated. ` +
+      'Run `align login` for this environment. If ALIGN_TENANT_ID is set in your shell, ' +
+      'either unset it or set ALIGN_TOKEN alongside it.',
+    );
+  }
+
   async function request<T>(path: string, options: Parameters<typeof fetch>[1] = {}): Promise<T> {
+    assertAuthenticatedIdentity();
     try {
       const res = await fetch(`${gatewayUrl}${path}`, {
         ...options,
