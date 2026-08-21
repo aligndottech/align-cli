@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.13.0](https://github.com/aligndottech/align-cli/compare/cli-v0.12.1...cli-v0.13.0) (2026-08-21)
+
+
+### Features
+
+* **context:** ALI-196 spike proof - a decisions file Align owns, imported not spliced ([#116](https://github.com/aligndottech/align-cli/issues/116)) ([ea226eb](https://github.com/aligndottech/align-cli/commit/ea226eb9852912571d668daab95bbd7db2837c06))
+
+
+### Bug Fixes
+
+* **client:** refuse a tenant that nothing authenticates (ALI-462) ([#113](https://github.com/aligndottech/align-cli/issues/113)) ([ea9c653](https://github.com/aligndottech/align-cli/commit/ea9c653f164eaed51ba03dd8cf320c00b1f1af18))
+* correct the licence holder and year ([#117](https://github.com/aligndottech/align-cli/issues/117)) ([029b863](https://github.com/aligndottech/align-cli/commit/029b86352b2cf0aa4dc9affd590b0179a9ab2d47))
+
 ## [0.12.1](https://github.com/aligndottech/align-cli/compare/cli-v0.12.0...cli-v0.12.1) (2026-08-17)
 
 
