@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/aligndottech/align-cli/compare/cli-v0.13.0...cli-v0.14.0) (2026-08-24)
+
+
+### Features
+
+* **context:** align context sync - write the decision graph into the files agents read (ALI-602) ([#120](https://github.com/aligndottech/align-cli/issues/120)) ([85a5ccc](https://github.com/aligndottech/align-cli/commit/85a5cccec1d219a2d028038f3cd2d6c7a7b4db77))
+
 ## [0.13.0](https://github.com/aligndottech/align-cli/compare/cli-v0.12.1...cli-v0.13.0) (2026-08-24)
 
 
