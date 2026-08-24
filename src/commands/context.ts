@@ -52,9 +52,14 @@ export function registerContextCommand(program: Command): void {
       // unreachable graph are different claims (the ALI-414 rule, new surface).
       let decisions: ContextDecision[];
       try {
+        // A malformed --limit must not become NaN: locally slice(0, NaN) is []
+        // and the command would write a plausible-looking EMPTY decisions file -
+        // the exact silent failure the fetch-before-write guard below exists for.
+        const parsedLimit = parseInt(opts.limit, 10);
+        const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 200;
         // Active only: the file states what currently governs. Superseded and
         // archived decisions are history, and history is the graph's job.
-        const rows = await client.listDecisions({ limit: parseInt(opts.limit, 10), status: 'active' });
+        const rows = await client.listDecisions({ limit, status: 'active' });
         decisions = rows.map((d) => ({
           title: d.title,
           ...(citationFor(d.source_url) ? { cite: citationFor(d.source_url) } : {}),

@@ -144,14 +144,17 @@ else
   echo "FAIL: context sync exited 0 but wrote no .align/decisions.md"
   FAILURES=$((FAILURES + 1))
 fi
-CTX_BEFORE="$(cat .align/decisions.md 2>/dev/null)"
+# cmp against a saved copy, not command substitution: $(cat) strips trailing
+# newlines, so a re-run differing only at the file's end would compare equal.
+cp .align/decisions.md /tmp/ctx-before.md 2>/dev/null || true
 step "align context sync (re-run)" 60 align context sync --env local
-if [ -n "$CTX_BEFORE" ] && [ "$CTX_BEFORE" = "$(cat .align/decisions.md 2>/dev/null)" ]; then
-  echo "PASS: context sync idempotent"
+if [ -s /tmp/ctx-before.md ] && cmp -s /tmp/ctx-before.md .align/decisions.md; then
+  echo "PASS: context sync idempotent (byte-identical)"
 else
   echo "FAIL: context sync re-run changed the file (or first run wrote nothing)"
   FAILURES=$((FAILURES + 1))
 fi
+rm -f /tmp/ctx-before.md
 step "align mcp --setup"        60  align mcp --setup --env local
 # Bare name, not $ALIGN_BIN: the handshake helper spawns through cmd.exe on
 # Windows, and cmd resolves `align` -> align.cmd via PATH + PATHEXT, while the

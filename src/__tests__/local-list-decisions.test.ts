@@ -18,8 +18,13 @@ import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
 let dir: string;
 let dbPath: string;
+// Held so afterEach can close it: Windows refuses to unlink an open SQLite
+// file (EBUSY), so a test that leaks the handle fails only on that OS - the
+// exact shape the cross-platform job exists to catch, and did.
+let client: ReturnType<typeof createLocalGatewayClient> | undefined;
 
 beforeEach(() => {
+  client = undefined;
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ali602-local-'));
   dbPath = path.join(dir, 'graph.db');
   const db = createLocalDb(dbPath);
@@ -39,12 +44,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  client?.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
 describe('local client listDecisions', () => {
   it('returns rows from the local DB with title and source_url', async () => {
-    const client = createLocalGatewayClient(dbPath);
+    client = createLocalGatewayClient(dbPath);
     const rows = await client.listDecisions();
     expect(rows).toHaveLength(2);
     const titles = rows.map((r: { title: string }) => r.title);
@@ -54,13 +60,13 @@ describe('local client listDecisions', () => {
   });
 
   it('respects the limit param', async () => {
-    const client = createLocalGatewayClient(dbPath);
+    client = createLocalGatewayClient(dbPath);
     const rows = await client.listDecisions({ limit: 1 });
     expect(rows).toHaveLength(1);
   });
 
   it('rows carry the derived cite, matching searchDecisions', async () => {
-    const client = createLocalGatewayClient(dbPath);
+    client = createLocalGatewayClient(dbPath);
     const rows = await client.listDecisions();
     const pg = rows.find((r: { title: string }) => r.title.startsWith('Use Postgres'));
     expect(pg?.cite).toBe('api#1441');

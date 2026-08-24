@@ -65,7 +65,8 @@ function makeProgram(): Command {
   return p;
 }
 
-const run = () => makeProgram().parseAsync(['node', 'align', 'context', 'sync']);
+const run = (...extra: string[]) =>
+  makeProgram().parseAsync(['node', 'align', 'context', 'sync', ...extra]);
 
 let repo: string;
 let prevCwd: string;
@@ -149,6 +150,13 @@ describe('align context sync', () => {
     await run();
     // 'active' is load-bearing: the file states what currently GOVERNS, and a
     // fetch without the filter would render superseded decisions as if live.
+    expect(mockListDecisions).toHaveBeenCalledWith({ limit: 200, status: 'active' });
+  });
+
+  it('a malformed --limit falls back to the default instead of becoming NaN', async () => {
+    await run('--limit', 'abc');
+    // NaN would slice the local graph to [] and write a plausible EMPTY file -
+    // the silent failure this command is built to refuse (Copilot, #120).
     expect(mockListDecisions).toHaveBeenCalledWith({ limit: 200, status: 'active' });
   });
 

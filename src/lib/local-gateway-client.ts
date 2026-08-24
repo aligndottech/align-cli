@@ -146,15 +146,18 @@ export function createLocalGatewayClient(dbPath: string) {
     // order here only decides WHICH rows survive the limit (newest do).
     async listDecisions(params: { limit?: number } = {}) {
       const limit = params.limit ?? 200;
-      return db.listDecisions().slice(0, limit).map((row) => ({
-        id: row.id,
-        title: row.title,
-        summary: row.summary,
-        platform: row.platform,
-        status: 'active',
-        ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
-        ...(citationFor(row.sourceUrl) ? { cite: citationFor(row.sourceUrl) } : {}),
-      }));
+      return db.listDecisions().slice(0, limit).map((row) => {
+        const cite = citationFor(row.sourceUrl);
+        return {
+          id: row.id,
+          title: row.title,
+          summary: row.summary,
+          platform: row.platform,
+          status: 'active',
+          ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
+          ...(cite ? { cite } : {}),
+        };
+      });
     },
 
     async searchDecisions(query: string, limit = 10): Promise<SearchResults> {
