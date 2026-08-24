@@ -135,6 +135,23 @@ step "align setup --local"      600 align setup --local
 step "align import git"         300 align import git --approve --env local --limit 20
 step "align local status"       60  align local status
 step "align search (local)"     120 align search "postgres" --env local --limit 5
+step "align context sync"       60  align context sync --env local
+# The sync's whole contract is the written artifact, not its exit code: the
+# owned file must exist, and re-running must not change a byte (ALI-602 DoD).
+if [ -f .align/decisions.md ]; then
+  echo "PASS: context file written"
+else
+  echo "FAIL: context sync exited 0 but wrote no .align/decisions.md"
+  FAILURES=$((FAILURES + 1))
+fi
+CTX_BEFORE="$(cat .align/decisions.md 2>/dev/null)"
+step "align context sync (re-run)" 60 align context sync --env local
+if [ -n "$CTX_BEFORE" ] && [ "$CTX_BEFORE" = "$(cat .align/decisions.md 2>/dev/null)" ]; then
+  echo "PASS: context sync idempotent"
+else
+  echo "FAIL: context sync re-run changed the file (or first run wrote nothing)"
+  FAILURES=$((FAILURES + 1))
+fi
 step "align mcp --setup"        60  align mcp --setup --env local
 # Bare name, not $ALIGN_BIN: the handshake helper spawns through cmd.exe on
 # Windows, and cmd resolves `align` -> align.cmd via PATH + PATHEXT, while the

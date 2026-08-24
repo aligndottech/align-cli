@@ -52,6 +52,12 @@ export interface CapturedDecision {
   summary: string;
   platform: string;
   status?: string;
+  /**
+   * Where it was decided. The /snapshots wire has always carried this
+   * (gateway listSnapshots selects it); the type just never declared it,
+   * so nothing downstream could cite a decision (ALI-602 needs to).
+   */
+  source_url?: string | null;
   ai?: {
     risks?: string[];
     actions?: Array<{ text: string }>;

@@ -141,6 +141,22 @@ export function createLocalGatewayClient(dbPath: string) {
       return { snapshots };
     },
 
+    // ALI-602: `align context sync --env local` lists the graph without a query.
+    // The db reads newest-first; the renderer re-sorts deterministically, so the
+    // order here only decides WHICH rows survive the limit (newest do).
+    async listDecisions(params: { limit?: number } = {}) {
+      const limit = params.limit ?? 200;
+      return db.listDecisions().slice(0, limit).map((row) => ({
+        id: row.id,
+        title: row.title,
+        summary: row.summary,
+        platform: row.platform,
+        status: 'active',
+        ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
+        ...(citationFor(row.sourceUrl) ? { cite: citationFor(row.sourceUrl) } : {}),
+      }));
+    },
+
     async searchDecisions(query: string, limit = 10): Promise<SearchResults> {
       const embedding = await getEmbedding(query);
       const similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD);

@@ -290,6 +290,22 @@ Resolve a flagged conflict (records the resolution so it stops surfacing):
 align check --resolve <decision_id>:honored      # or overridden | context_changed
 ```
 
+## Write decisions into your agent's context files
+
+Agents read local files before they reach for any tool. `align context sync` writes your
+current decisions to `.align/decisions.md` and adds one import line to CLAUDE.md, so an
+agent knows what your team decided without a single tool call.
+
+```bash
+align context sync           # write .align/decisions.md, import it from CLAUDE.md
+```
+
+Align owns `.align/decisions.md` outright and regenerates it on each sync - your CLAUDE.md
+is never rewritten, only ever appended with the single `@.align/decisions.md` line, once.
+If the repo has no CLAUDE.md, the command prints the line to add instead of inventing a
+file. Re-run after new decisions land; unchanged decisions produce a byte-identical file,
+so syncing never dirties a clean tree.
+
 ## MCP server
 
 Run Align as a local [Model Context Protocol](https://modelcontextprotocol.io) server so AI assistants (Claude Code, Claude Desktop, Cursor, Windsurf) can query your decision graph inline.
@@ -423,6 +439,7 @@ align import notion          Import from Notion
 align decisions list         List decisions in your graph
 align decisions show <id>    Show full detail for a decision
 align status                 Value readout: what your graph has done for you
+align context sync           Write decisions to .align/decisions.md + CLAUDE.md import
 align export                 Export decisions as a structured brief
 align drift                  Show decisions that may be out of date
 align links list             Show cross-tool decision relationships
