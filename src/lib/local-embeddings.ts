@@ -8,7 +8,15 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
       // @huggingface/transformers is an optionalDependency - its native deps (sharp,
       // onnxruntime) can fail to install on Alpine/ARM/behind a proxy. If it's
       // missing, point the user at cloud mode rather than a raw "Cannot find module".
-      mod = (await import('@huggingface/transformers')) as unknown as typeof mod;
+      //
+      // The specifier is a variable ON PURPOSE: a literal makes tsc resolve the
+      // module at typecheck time, so `npm run typecheck` fails with TS2307 on any
+      // machine where the OPTIONAL install was skipped - which npm does silently
+      // (a CI run installed 398 packages where its sibling installed 438, and the
+      // only trace was the red typecheck). An optional dep must be optional to
+      // the typechecker too.
+      const HF_TRANSFORMERS = '@huggingface/transformers';
+      mod = (await import(HF_TRANSFORMERS)) as unknown as typeof mod;
     } catch (err) {
       throw new Error(
         'Local mode needs the on-device embedding model (@huggingface/transformers), which is not installed on this platform. ' +

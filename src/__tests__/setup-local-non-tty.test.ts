@@ -11,9 +11,12 @@
  *
  * The fixture is a NON-git directory on purpose: isGitRepo() false skips the
  * embedded-model import, so the test reaches the prompt in seconds and needs
- * no network. stdin is 'ignore' - the precondition (no TTY) is established
- * explicitly, not inherited from the runner (tdd.md: a test must establish its
- * own preconditions, especially environmental ones).
+ * no network. The no-TTY precondition is established explicitly by spawning
+ * with piped stdio (execFile's default) rather than inherited from the runner
+ * (tdd.md: a test must establish its own preconditions, especially
+ * environmental ones). The pipe exercises the HANG failure mode; the closed
+ * stdin (crash) variant is covered by the install-smoke script, whose timeout
+ * runner spawns with stdin 'ignore'.
  */
 import { describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
