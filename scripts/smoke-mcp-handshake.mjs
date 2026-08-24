@@ -29,9 +29,15 @@ const child = spawn(bin, ['mcp', '--env', 'local'], {
   shell: process.platform === 'win32',
 });
 
+// Timeout is a flag, not a scheduled exit: killing the child fires its 'exit'
+// handler, which would otherwise reach finish(1) first and report a hung
+// server as a protocol failure. finish() reads the flag so 124 always wins.
+let timedOut = false;
 const timer = setTimeout(() => {
+  timedOut = true;
   console.error(`smoke-mcp-handshake: no tools/list response within ${TIMEOUT_MS / 1000}s`);
   child.kill('SIGKILL');
+  // Backstop in case the child ignores the kill and 'exit' never fires.
   setTimeout(() => process.exit(124), 2000).unref();
 }, TIMEOUT_MS);
 
@@ -83,6 +89,10 @@ child.on('error', (err) => {
 });
 
 child.on('exit', (code) => {
+  if (timedOut) {
+    finish(124);
+    return;
+  }
   // The server must not exit before the handshake completes.
   if (!done) {
     console.error(`smoke-mcp-handshake: server exited early (code ${code}) before tools/list answered`);

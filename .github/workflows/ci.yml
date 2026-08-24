@@ -106,6 +106,8 @@ jobs:
   # protection (a gate is only real once something requires it, but a flaky
   # required gate teaches everyone to ignore red).
   install-smoke:
+    permissions:
+      contents: read  # CodeQL: the job only checks out and runs; never let the default token write
     strategy:
       fail-fast: false
       matrix:

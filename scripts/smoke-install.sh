@@ -15,7 +15,7 @@
 #
 # Run locally:  npm run build && bash scripts/smoke-install.sh
 # CI:           the install-smoke matrix job (3 OS x 3 Node versions).
-set -u
+set -u -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -60,7 +60,9 @@ export GIT_COMMITTER_NAME="Smoke Tester" GIT_COMMITTER_EMAIL="smoke@example.inva
 # npm pack does NOT run prepublishOnly, hence the dist/ precondition above.
 # ---------------------------------------------------------------------------
 echo "== pack =="
-TARBALL_NAME="$(cd "$REPO_ROOT" && npm pack --silent | tail -1)"
+# pipefail (set above) keeps a pack failure loud through the tail; the rc check
+# names it rather than falling through to a confusing empty-name FATAL.
+TARBALL_NAME="$(cd "$REPO_ROOT" && npm pack --silent | tail -1)" || { echo "FATAL: npm pack failed"; exit 1; }
 TARBALL="$REPO_ROOT/$TARBALL_NAME"
 [ -f "$TARBALL" ] || { echo "FATAL: npm pack reported '$TARBALL_NAME' but no such file exists"; exit 1; }
 echo "packed: $TARBALL_NAME ($(wc -c < "$TARBALL" | tr -d ' ') bytes)"
@@ -72,9 +74,14 @@ if ! npm install -g --prefix "$PREFIX" --loglevel=error "$TARBALL"; then
   echo "FAIL: global install of the packed tarball failed (native build or files-list problem)"
   exit 1
 fi
-# POSIX puts binaries in prefix/bin; Windows npm puts align.cmd at prefix root.
+# POSIX puts binaries in prefix/bin; Windows npm puts align.cmd (plus an
+# extensionless sh shim for Git Bash) at the prefix root.
 export PATH="$PREFIX/bin:$PREFIX:$PATH"
-ALIGN_BIN="$(command -v align || true)"
+# On Windows the runnable artifact is align.cmd - the extensionless shim that
+# `command -v align` finds is a Git Bash sh script Node's spawn cannot exec
+# (ENOENT; it took out all three windows legs on the first CI run). The
+# helpers spawn through cmd.exe there, which resolves .cmd via PATHEXT.
+ALIGN_BIN="$(command -v align.cmd 2>/dev/null || command -v align || true)"
 [ -n "$ALIGN_BIN" ] || { echo "FAIL: 'align' not on PATH after global install"; exit 1; }
 echo "installed: $ALIGN_BIN"
 
@@ -129,7 +136,10 @@ step "align import git"         300 align import git --approve --env local --lim
 step "align local status"       60  align local status
 step "align search (local)"     120 align search "postgres" --env local --limit 5
 step "align mcp --setup"        60  align mcp --setup --env local
-step "MCP handshake"            60  node "$SCRIPT_DIR/smoke-mcp-handshake.mjs" "$ALIGN_BIN"
+# Bare name, not $ALIGN_BIN: the handshake helper spawns through cmd.exe on
+# Windows, and cmd resolves `align` -> align.cmd via PATH + PATHEXT, while the
+# full POSIX-style path to the sh shim is unrunnable there.
+step "MCP handshake"            60  node "$SCRIPT_DIR/smoke-mcp-handshake.mjs" align
 
 rm -f "$TARBALL"
 
