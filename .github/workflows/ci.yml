@@ -88,3 +88,42 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Install smoke: become the user. Packs the real tarball, installs it globally
+  # into a clean prefix, and runs the cold no-account first-run sequence
+  # (setup --local, import git, search, mcp --setup, a real MCP stdio handshake),
+  # asserting exit codes. This crosses the four layers the unit suite never sees:
+  # the tsc output in dist/, the package.json "files" list, the native install
+  # (better-sqlite3 + optional transformers), and Commander's argv parsing -
+  # ALI-422 lived in that last one with every test green.
+  #
+  # The OS x Node matrix is the whole point: the native-build step is the only
+  # part of the CLI whose answer differs by platform, and it is exactly the part
+  # no laptop can test for anyone else's machine. windows-2022 for the same
+  # node-gyp/VS reason documented on cross-platform above.
+  #
+  # NOT a required context yet - prove it stable first, then add it to branch
+  # protection (a gate is only real once something requires it, but a flaky
+  # required gate teaches everyone to ignore red).
+  install-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022, macos-latest]
+        node: ['20', '22', '24']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Pack, install globally, run the cold first-run sequence
+        shell: bash
+        run: bash scripts/smoke-install.sh
