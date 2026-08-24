@@ -347,11 +347,20 @@ async function runLocalSetup(): Promise<void> {
     .filter((s) => s.id !== 'git' && s.tokenLabel)
     .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
   console.log('');
-  const selected = await p.multiselect({
-    message: 'Connect more sources with a read-only token? (skip to finish)',
-    options: localConnectors.map((s) => ({ value: s.id, label: s.label, hint: s.description })),
-    required: false,
-  });
+  // Without a TTY this prompt cannot work: a piped stdin hangs on it forever
+  // and a closed stdin crashes clack's raw-mode init (uv_tty_init EINVAL) -
+  // AFTER local setup has already succeeded, so the exit code reports failure
+  // for work that worked. Both streams must be TTYs: with stdout redirected
+  // (`setup --local > log`) the prompt renders invisibly and waits on input
+  // the user cannot see. Scripted runs skip the optional prompt instead.
+  const interactive = process.stdin.isTTY && process.stdout.isTTY;
+  const selected = interactive
+    ? await p.multiselect({
+        message: 'Connect more sources with a read-only token? (skip to finish)',
+        options: localConnectors.map((s) => ({ value: s.id, label: s.label, hint: s.description })),
+        required: false,
+      })
+    : ([] as string[]);
   if (!p.isCancel(selected)) {
     for (const id of selected as string[]) {
       const source = localConnectors.find((s) => s.id === id);

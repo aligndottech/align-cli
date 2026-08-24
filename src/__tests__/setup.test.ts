@@ -346,6 +346,24 @@ describe('align setup', () => {
   });
 
   describe('cloud (default) / local (--local) mode', () => {
+    // The connector multiselect is TTY-gated on BOTH streams (a piped stdin hung
+    // on it, a closed one crashed clack's raw-mode init, and a redirected stdout
+    // renders the prompt invisibly). vitest attaches neither as a TTY, so tests
+    // that assert on the prompt must establish the precondition themselves -
+    // the environment is an input and belongs in the arrange step (tdd.md).
+    const realStdinIsTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const realStdoutIsTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    beforeEach(() => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    });
+    afterEach(() => {
+      if (realStdinIsTTY) Object.defineProperty(process.stdin, 'isTTY', realStdinIsTTY);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      if (realStdoutIsTTY) Object.defineProperty(process.stdout, 'isTTY', realStdoutIsTTY);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    });
+
     it('--local sets up local mode without cloud auth, and imports git', async () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
       expect(mockInitLocalMode).toHaveBeenCalled();
