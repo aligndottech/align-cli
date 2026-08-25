@@ -39,7 +39,20 @@ export function repositoryOf(sourceUrl: string | null | undefined): string | und
 }
 
 /**
- * A decision rendered the way a human cites one: "align-cli#76".
+ * Tracker tickets have their own native cite - the key humans already say out
+ * loud ("ALI-346", "PROJ-123") - so those URLs cite by key rather than getting
+ * a repo#number invented for them. Deliberately NOT folded into CODE_REF:
+ * repositoryOf must keep returning undefined for these, because a Linear
+ * workspace is not an owner and a ticket key is not a repository (that refusal
+ * is CODE_REF's documented point). The KEY-123 shape is required in full, so a
+ * bare word in the issue slot cites nothing.
+ */
+const LINEAR_ISSUE = /^https?:\/\/linear\.app\/[^/\s]+\/issue\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)/;
+const JIRA_ISSUE = /^https?:\/\/[^/\s]+\/browse\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)/;
+
+/**
+ * A decision rendered the way a human cites one: "align-cli#76" for code,
+ * the ticket key ("ALI-346") for tracker decisions.
  *
  * `repository` already carries the same fact, and the agent still wrote prose naming titles
  * and dates but not repositories - so which repo a decision came from was only discoverable
@@ -52,5 +65,7 @@ export function repositoryOf(sourceUrl: string | null | undefined): string | und
 export function citationFor(sourceUrl: string | null | undefined): string | undefined {
   if (!sourceUrl) return undefined;
   const m = CODE_REF.exec(sourceUrl);
-  return m ? `${m[2]}#${m[3]}` : undefined;
+  if (m) return `${m[2]}#${m[3]}`;
+  const ticket = LINEAR_ISSUE.exec(sourceUrl) ?? JIRA_ISSUE.exec(sourceUrl);
+  return ticket ? ticket[1] : undefined;
 }
