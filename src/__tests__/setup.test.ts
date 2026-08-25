@@ -364,6 +364,31 @@ describe('align setup', () => {
       else delete (process.stdout as { isTTY?: boolean }).isTTY;
     });
 
+    it('--local warns a logged-in user that BARE commands still hit the cloud graph (ALI-87 stands)', async () => {
+      // resolveEnv is the truth about what a bare command does next: mocked to
+      // 'prod' here = the logged-in shape (a token keeps the cloud default).
+      const { resolveEnv } = await import('../lib/resolve-env.js');
+      vi.mocked(resolveEnv).mockReturnValue('prod');
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align env set local'));
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('prod'));
+      // The factory default is 'prod'; a leaked override broke three OAuth
+      // tests further down the file on first run (tdd.md: the environment is
+      // an input, and a mock's return value is environment).
+      vi.mocked(resolveEnv).mockReturnValue('prod');
+    });
+
+    it('--local stays quiet for a no-account user - the redirect already lands them locally', async () => {
+      const { resolveEnv } = await import('../lib/resolve-env.js');
+      vi.mocked(resolveEnv).mockReturnValue('local');
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const warns = vi.mocked(log.warn).mock.calls.map((c) => String(c[0]));
+      expect(warns.filter((w) => w.includes('align env set local'))).toEqual([]);
+      vi.mocked(resolveEnv).mockReturnValue('prod');
+    });
+
     it('--local sets up local mode without cloud auth, and imports git', async () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
       expect(mockInitLocalMode).toHaveBeenCalled();
