@@ -18,10 +18,27 @@ export interface CallChatOptions {
   temperature?: number;
 }
 
-const SYSTEM_PROMPT =
+/**
+ * Exported so its contract is pinned by test (local-llm.test.ts), the way a
+ * render contract is. What each line is FOR, so a rewrite keeps the point:
+ *
+ * - The abstention sentence is the load-bearing one. Measured 2026-08-25
+ *   (ollama-vet eval): without it, llama3.2, deepseek-r1 and WhiteRabbitNeo
+ *   ALL invented a database-sharding decision on 6/6 runs when the context
+ *   held no answer - ALI-414's fail-open shape on the synthesis surface.
+ * - "authoritative" is gone on purpose: it was the licence the models were
+ *   obeying when they confabulated. Direct != authoritative-about-nothing.
+ * - The relationship and conflict sentences target the other two measured
+ *   failures: invented links between unrelated decisions, and an invented
+ *   winner between contradicting ones.
+ */
+export const SYNTHESIS_SYSTEM_PROMPT =
   'You are a technical assistant helping a developer understand their team\'s past decisions. ' +
   'Answer the question in 2-4 concise sentences based only on the provided context. ' +
-  'Be direct and authoritative. Synthesise the context into a clear explanation - do not list decisions.';
+  'If the context does not answer the question, say exactly that - never guess and never invent decisions or details. ' +
+  'Attribute details only to the decision they came from, and only state relationships between decisions that the context itself states. ' +
+  'If two decisions contradict each other, say they conflict - do not pick a winner the context does not name. ' +
+  'Be direct. Synthesise the context into a clear explanation - do not list decisions.';
 
 function buildUserPrompt(
   question: string,
@@ -342,5 +359,5 @@ export async function synthesiseLocally(
   options?: LocalLlmOptions,
 ): Promise<string | null> {
   const user = buildUserPrompt(question, decisions);
-  return callChat(SYSTEM_PROMPT, user, { provider: options?.provider, apiKey: options?.apiKey });
+  return callChat(SYNTHESIS_SYSTEM_PROMPT, user, { provider: options?.provider, apiKey: options?.apiKey });
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callChat } from '../lib/local-llm.js';
+import { callChat, SYNTHESIS_SYSTEM_PROMPT } from '../lib/local-llm.js';
 
 const mockFetch = vi.fn();
 
@@ -83,5 +83,30 @@ describe('callChat (provider-agnostic resolver)', () => {
     mockFetch.mockResolvedValue({ ok: false }); // ollama /api/tags not ok
     const r = await callChat('s', 'u');
     expect(r).toBeNull();
+  });
+});
+
+describe('SYNTHESIS_SYSTEM_PROMPT carries the abstention contract (ollama-vet eval, 2026-08-25)', () => {
+  // Measured: with no abstention instruction, ALL of llama3.2, deepseek-r1 and
+  // WhiteRabbitNeo fabricated a database-sharding decision on 6 of 6 runs when
+  // asked about something the context did not contain - and "authoritative"
+  // in the prompt is what they were obeying. The instruction is pinned here
+  // the way a render contract is (ALI-586): a prompt edit that drops the
+  // abstention line must go red, because the eval that catches it costs three
+  // model runs and this test costs milliseconds.
+  it('tells the model to say when the context has no answer, and never to invent', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/does not (answer|contain|cover)/i);
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/never (guess|invent)/i);
+  });
+
+  it('tells the model to surface contradictions rather than pick a winner', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT.toLowerCase()).toContain('conflict');
+  });
+
+  it('no longer says "authoritative" - the measured licence to confabulate', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT.toLowerCase()).not.toContain('authoritative');
+    // Positive control for the negative assertion: the constant is real prose,
+    // not an empty string a broken import would also satisfy.
+    expect(SYNTHESIS_SYSTEM_PROMPT.length).toBeGreaterThan(100);
   });
 });
