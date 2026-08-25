@@ -202,3 +202,168 @@ describe('align ask - file path mode', () => {
     expect(all).not.toContain('ollama pull');
   });
 });
+
+describe('align ask - source attribution parity with the MCP surface (cite/platform/link)', () => {
+  // align-stack#1442 added cite to search payloads so consumers COPY citations
+  // instead of composing them. The MCP surface uses all of it; this renderer
+  // was the one consumer still printing a raw UUID. Same data, every surface.
+  const RICH_RESULTS = {
+    results: [
+      {
+        id: 'c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3',
+        title: 'Make prod image tags single-writer',
+        summary: 'Release workflow commits the tag.',
+        status: 'active',
+        similarity: 0.93,
+        created_at: '2026-08-19T10:00:00Z',
+        author: { name: 'Tom' },
+        platform: 'github',
+        repository: 'aligndottech/align-stack',
+        cite: 'align-stack#1656',
+        source_url: 'https://github.com/aligndottech/align-stack/pull/1656',
+      },
+      {
+        id: 'a1b2c3d4-0000-4000-8000-000000000000',
+        title: 'Ship weekly, decided in standup',
+        summary: 'Slack thread consensus.',
+        status: 'active',
+        similarity: 0.81,
+        created_at: '2026-08-12T10:00:00Z',
+        platform: 'slack',
+        source_url: 'https://acme.slack.com/archives/C1/p123',
+        // no cite: a Slack decision has no repo#number form
+      },
+    ],
+    count: 2,
+    strategy: 'semantic' as const,
+  };
+
+  beforeEach(async () => {
+    output.length = 0;
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue(RICH_RESULTS),
+    });
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  async function runAsk(): Promise<string> {
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'how do prod tags update']);
+    return output.join('\n');
+  }
+
+  it('synthesis sources cite the human-quotable form, never the raw UUID', async () => {
+    mockSynthesise.mockResolvedValueOnce('The release workflow is the single writer.');
+    const all = await runAsk();
+    expect(all).toContain('(align-stack#1656)');
+    expect(all).not.toContain('c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3');
+  });
+
+  it('synthesis sources carry the platform tag and the source link', async () => {
+    mockSynthesise.mockResolvedValueOnce('The release workflow is the single writer.');
+    const all = await runAsk();
+    expect(all).toContain('[github]');
+    expect(all).toContain('https://github.com/aligndottech/align-stack/pull/1656');
+  });
+
+  it('says when the answer spans tools - the cross-tool moment, visible in a terminal', async () => {
+    mockSynthesise.mockResolvedValueOnce('The release workflow is the single writer.');
+    const all = await runAsk();
+    expect(all).toMatch(/across .*github.*slack|across .*slack.*github/);
+  });
+
+  it('a decision with no cite keeps its id (decisions show needs it) and still shows platform + link', async () => {
+    mockSynthesise.mockResolvedValueOnce('The release workflow is the single writer.');
+    const all = await runAsk();
+    expect(all).toContain('[slack]');
+    expect(all).toContain('https://acme.slack.com/archives/C1/p123');
+    expect(all).toContain('a1b2c3d4-0000-4000-8000-000000000000');
+  });
+
+  it('the list fallback (no AI provider) renders cite and platform too - one contract, both paths', async () => {
+    mockSynthesise.mockResolvedValueOnce(null);
+    const all = await runAsk();
+    expect(all).toContain('(align-stack#1656)');
+    expect(all).toContain('[github]');
+  });
+
+  it('single-platform results do NOT claim a cross-tool span', async () => {
+    // Negative control for the header: the claim must be earned, not decorative.
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue({
+        results: [RICH_RESULTS.results[0]],
+        count: 1,
+        strategy: 'semantic' as const,
+      }),
+    });
+    mockSynthesise.mockResolvedValueOnce('One platform only.');
+    const all = await runAsk();
+    expect(all).not.toMatch(/across /);
+  });
+});
+
+describe('align ask - cite derived client-side when the wire omits it', () => {
+  // The prod smart-search response predates cite; the CLI already owns
+  // citationFor (its local client uses it), so the renderer derives the
+  // human-quotable form from source_url instead of falling back to a UUID.
+  beforeEach(async () => {
+    output.length = 0;
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue({
+        results: [{
+          id: 'c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3',
+          title: 'Single source of truth for prod image tags',
+          summary: 's', status: 'active', similarity: 0.9,
+          platform: 'github',
+          source_url: 'https://github.com/aligndottech/align-stack/pull/1582',
+          // no cite on the wire - the prod REST path predates align-stack#1442
+        }],
+        count: 1, strategy: 'semantic' as const,
+      }),
+    });
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it('renders the derived cite, not the UUID', async () => {
+    mockSynthesise.mockResolvedValueOnce('Answer.');
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'prod tags?']);
+    const all = output.join('\n');
+    expect(all).toContain('(align-stack#1582)');
+    expect(all).not.toContain('c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3');
+  });
+});
+
+describe('align ask - the fallback derives cites too (one contract means one contract)', () => {
+  // Copilot on #124: the derivation lived only in the synthesis path, so prod
+  // responses (no cite on the wire) still showed UUIDs in the fallback. The
+  // original fallback test used a cite-carrying fixture - the easy side of the
+  // boundary - and could not see this.
+  it('list fallback derives the cite from source_url when the wire omits it', async () => {
+    output.length = 0;
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue({
+        results: [{
+          id: 'c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3',
+          title: 'Single writer for prod tags', summary: 's', status: 'active',
+          similarity: 0.9, platform: 'github',
+          source_url: 'https://github.com/aligndottech/align-stack/pull/1582',
+        }],
+        count: 1, strategy: 'semantic' as const,
+      }),
+    });
+    mockSynthesise.mockResolvedValueOnce(null); // no provider -> list fallback
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'prod tags?']);
+    const all = output.join('\n');
+    expect(all).toContain('(align-stack#1582)');
+    vi.clearAllMocks();
+  });
+});
