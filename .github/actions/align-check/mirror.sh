@@ -18,6 +18,7 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEST="${1:?usage: mirror.sh <dest-dir> <ref>}"
 REF="${2:?usage: mirror.sh <dest-dir> <ref>}"
 
+mkdir -p "$DEST"
 # The four files that make up the action. annotate.mjs and decide.sh are resolved at
 # runtime through ${{ github.action_path }}, so they work unchanged at a repo root.
 FILES=(action.yml decide.sh annotate.mjs README.md)
