@@ -3,6 +3,11 @@
   "release-type": "node",
   "bootstrap-sha": "754570a2d9e0fdee4d3efc1642ffa58c272dba9e",
   "packages": {
-    ".": {}
+    ".": {
+      "extra-files": [
+        { "type": "json", "path": "server.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "server.json", "jsonpath": "$.packages[0].version" }
+      ]
+    }
   }
 }
