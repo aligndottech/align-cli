@@ -45,7 +45,16 @@ export function registerCheckCommand(program: Command): void {
       }
 
       if (!await isGitRepo()) {
-        if (!opts.ci) console.error(chalk.red('Not in a git repository'));
+        const message = 'Not in a git repository';
+        // Exit 1 is the conflict code, and this is a "could not run". In --ci the old
+        // spelling also suppressed the message, so a machine got exit 1 and an empty
+        // stdout - "could not look" wearing the costume of "found something", which is
+        // the confusion EXIT_UNKNOWN exists to remove.
+        if (opts.ci) {
+          process.stdout.write(`${JSON.stringify({ status: 'error', message })}\n`);
+          process.exit(EXIT_UNKNOWN);
+        }
+        console.error(chalk.red(message));
         process.exit(1);
       }
 

@@ -157,3 +157,37 @@ describe('align check --ci when the gateway throws', () => {
     expect(stdout).toMatch(/401/);
   });
 });
+
+// The same invariant again, and the worst instance of it: outside a git repo the command
+// exited 1 - the code that means "we found a conflict" - and `if (!opts.ci)` suppressed
+// the message, so in the one mode where a machine is reading it said nothing at all.
+// decide.sh already defends our own action against exactly this shape ("a CLI that
+// crashes also exits 1 with no JSON on stdout ... reported as found a conflict"), but the
+// CLI should not be producing it in the first place.
+describe('align check --ci outside a git repository', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const git = await import('../lib/git.js');
+    vi.mocked(git.isGitRepo).mockResolvedValue(false);
+  });
+
+  it('does not exit 1: "could not run" must not wear the conflict exit code', async () => {
+    const { exitCode } = await runCheck(['--ci']);
+    expect(exitCode).toBe(2);
+  });
+
+  it('says so on stdout instead of failing silently', async () => {
+    const { stdout } = await runCheck(['--ci']);
+    expect(JSON.parse(stdout.split('\n')[0]!)).toMatchObject({ status: 'error' });
+    expect(stdout).toMatch(/git repositor/i);
+  });
+
+  // The human path keeps its red line and its exit 1. Only --ci changes.
+  it('leaves the interactive path alone', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { exitCode } = await runCheck([]);
+    expect(exitCode).toBe(1);
+    expect(errSpy.mock.calls.flat().join(' ')).toMatch(/Not in a git repository/);
+    errSpy.mockRestore();
+  });
+});
