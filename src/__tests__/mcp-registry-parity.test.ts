@@ -30,6 +30,13 @@ describe('MCP registry record parity (server.json <-> package.json)', () => {
     expect(server.packages[0].version).toBe(pkg.version);
   });
 
+  it('keeps the description inside the registry limit', () => {
+    // The registry 422s on `expected length <= 100` (body.description) - it
+    // rejected the 0.17.0 publish, run 32898364837. Schema validation happens
+    // server-side only, so this is the pre-release stand-in for it.
+    expect(server.description.length).toBeLessThanOrEqual(100);
+  });
+
   it('points at this npm package over stdio', () => {
     expect(server.packages[0].registryType).toBe('npm');
     expect(server.packages[0].identifier).toBe(pkg.name);
