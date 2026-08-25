@@ -49,8 +49,22 @@ export function repositoryOf(sourceUrl: string | null | undefined): string | und
  * Short repo name rather than owner/repo, because this is for prose. `repository` sits beside
  * it with the full path when a tenant has same-named repos under two owners.
  */
+/**
+ * Tracker tickets have their own native cite - the key humans already say out
+ * loud ("ALI-346", "PROJ-123") - so those URLs cite by key rather than getting
+ * a repo#number invented for them. Deliberately NOT folded into CODE_REF:
+ * repositoryOf must keep returning undefined for these, because a Linear
+ * workspace is not an owner and a ticket key is not a repository (that refusal
+ * is CODE_REF's documented point). The KEY-123 shape is required in full, so a
+ * bare word in the issue slot cites nothing.
+ */
+const LINEAR_ISSUE = /^https?:\/\/linear\.app\/[^/\s]+\/issue\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)/;
+const JIRA_ISSUE = /^https?:\/\/[^/\s]+\/browse\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)/;
+
 export function citationFor(sourceUrl: string | null | undefined): string | undefined {
   if (!sourceUrl) return undefined;
   const m = CODE_REF.exec(sourceUrl);
-  return m ? `${m[2]}#${m[3]}` : undefined;
+  if (m) return `${m[2]}#${m[3]}`;
+  const ticket = LINEAR_ISSUE.exec(sourceUrl) ?? JIRA_ISSUE.exec(sourceUrl);
+  return ticket ? ticket[1] : undefined;
 }
