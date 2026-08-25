@@ -400,6 +400,33 @@ async function runLocalSetup(): Promise<void> {
     }
   }
 
+  // Which graph does a BARE command read after this? resolveEnv with the
+  // most local-favouring read preference is the truth: a no-account user is
+  // redirected to local and there is nothing to say; a cloud token (or an
+  // exported ALIGN_ENV) keeps bare commands on the cloud graph the user did
+  // NOT just build. The default deliberately does not move - ALI-87 keeps
+  // personal cloud the default and `align env set` its only writer; this
+  // warning exists because Session A (2026-08-25) showed the silence reads
+  // as the product ignoring an explicit choice.
+  const bareEnv = resolveEnv(undefined, { preferLocalEmbedded: true });
+  if (bareEnv !== 'local') {
+    // Name the actual cause, and never suggest a remedy the cause overrides:
+    // an exported ALIGN_ENV beats the stored default, so `align env set local`
+    // would silently change nothing while it is set (Copilot, #129).
+    const alignEnv = process.env['ALIGN_ENV'];
+    const cause = alignEnv
+      ? `ALIGN_ENV=${alignEnv} is exported in this shell`
+      : 'you are logged in';
+    const remedy = alignEnv
+      ? `export ${chalk.bold('ALIGN_ENV=local')} (or unset it)`
+      : `run ${chalk.bold('align env set local')} to make local the default ` +
+        `(${chalk.dim(`align env set ${bareEnv}`)} switches back)`;
+    p.log.warn(
+      `Bare commands (align ask, align import ...) use the ${bareEnv} cloud graph, not this local one, because ${cause}.\n` +
+      `Add ${chalk.bold('--env local')} per command, or ${remedy}.`,
+    );
+  }
+
   p.outro(
     `${chalk.green('You are set up in local mode.')}\n` +
     `  Graph: ${chalk.dim(dbPath)}\n` +

@@ -357,11 +357,57 @@ describe('align setup', () => {
       Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
     });
-    afterEach(() => {
+    afterEach(async () => {
       if (realStdinIsTTY) Object.defineProperty(process.stdin, 'isTTY', realStdinIsTTY);
       else delete (process.stdin as { isTTY?: boolean }).isTTY;
       if (realStdoutIsTTY) Object.defineProperty(process.stdout, 'isTTY', realStdoutIsTTY);
       else delete (process.stdout as { isTTY?: boolean }).isTTY;
+      // Restore HERE, not at the end of a test body: an assertion that throws
+      // before an in-test reset leaks the override into later tests, which is
+      // exactly what happened on this suite's first RED run (Copilot, #129).
+      const { resolveEnv } = await import('../lib/resolve-env.js');
+      vi.mocked(resolveEnv).mockReset().mockReturnValue('prod');
+      delete process.env['ALIGN_ENV'];
+    });
+
+    it('--local warns a logged-in user that BARE commands still hit the cloud graph (ALI-87 stands)', async () => {
+      // resolveEnv is the truth about what a bare command does next: 'prod'
+      // regardless of options = the logged-in shape (a token wins everywhere).
+      const { resolveEnv } = await import('../lib/resolve-env.js');
+      vi.mocked(resolveEnv).mockReturnValue('prod');
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align env set local'));
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('prod'));
+    });
+
+    it('--local names ALIGN_ENV as the cause when the shell exports it, and does not suggest a remedy it overrides', async () => {
+      // `align env set local` cannot take effect while ALIGN_ENV is exported,
+      // so the message must name the variable instead (Copilot, #129).
+      process.env['ALIGN_ENV'] = 'preview';
+      const { resolveEnv } = await import('../lib/resolve-env.js');
+      vi.mocked(resolveEnv).mockReturnValue('preview');
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('ALIGN_ENV=preview'));
+      const warns = vi.mocked(log.warn).mock.calls.map((c) => String(c[0]));
+      expect(warns.filter((w) => w.includes('align env set local'))).toEqual([]);
+    });
+
+    it('--local stays quiet for a no-account user - the redirect already lands them locally', async () => {
+      // DISCRIMINATING mock: local only when preferLocalEmbedded is actually
+      // passed. An unconditional 'local' would keep this green even if the
+      // production call dropped the option (Copilot, #129 - the equal-values
+      // fixture trap, mock flavour).
+      const { resolveEnv } = await import('../lib/resolve-env.js');
+      vi.mocked(resolveEnv).mockImplementation(
+        ((_e?: string, opts?: { preferLocalEmbedded?: boolean }) =>
+          opts?.preferLocalEmbedded ? 'local' : 'prod') as never,
+      );
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const warns = vi.mocked(log.warn).mock.calls.map((c) => String(c[0]));
+      expect(warns.filter((w) => w.includes('align env set local'))).toEqual([]);
     });
 
     it('--local sets up local mode without cloud auth, and imports git', async () => {
