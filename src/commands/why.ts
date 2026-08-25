@@ -164,11 +164,12 @@ export function registerAskCommand(program: Command): void {
             ? chalk.yellow(` [${d.status}]`)
             : '';
           const when = formatWhen(d.created_at);
-          // Cite first (human-quotable, align-stack#1442); the id stays because
-          // `align decisions show <id>` consumes it. Platform on every entry.
-          const citeLabel = d.cite ? chalk.dim(` (${d.cite})`) : '';
+          // Prefer a human-quotable cite when available (or derivable); fall back to the id
+          // because `align decisions show <id>` consumes it. Platform on every entry.
+          const cite = d.cite ?? citationFor(d.source_url);
+          const ref = cite ?? d.id;
           const platformLabel = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
-          console.log(chalk.dim(`  id: ${d.id}`) + citeLabel + platformLabel + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
+          console.log(chalk.dim(`  ref: ${ref}`) + platformLabel + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
           if (d.source_url) console.log(chalk.dim(`  ${d.source_url}`));
           // Who to talk to (ALI-118).
           if (d.author?.name) console.log(chalk.cyan(`  talk to: ${d.author.name}`));
