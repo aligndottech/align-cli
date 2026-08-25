@@ -131,13 +131,14 @@ describe('align check on an "unknown" result', () => {
   });
 });
 
-// The same invariant, on the path where the gateway never answers at all. `--ci` caught
-// the exception and exited ZERO, two lines under a comment saying a check that could not
-// run must not be indistinguishable from one that found nothing. Our own GitHub action
-// survived it because decide.sh classifies on the status rather than the code, but the
-// composite action's README tells every other runner "any runner can branch on the exit
-// code", and the CLI's own table promises exit 2 means "could not check". Following either
-// of those documented contracts turned an outage into a silent green.
+// The same invariant, on the path where the check request fails (gateway outage, auth
+// rejected, etc.). `--ci` caught the exception and exited ZERO, two lines under a comment
+// saying a check that could not run must not be indistinguishable from one that found
+// nothing. Our own GitHub action survived it because decide.sh classifies on the status
+// rather than the code, but the composite action's README tells every other runner "any
+// runner can branch on the exit code", and the CLI's own table promises exit 2 means
+// "could not check". Following either of those documented contracts turned a failure into
+// a silent green.
 describe('align check --ci when the gateway throws', () => {
   beforeEach(() => {
     vi.clearAllMocks();
