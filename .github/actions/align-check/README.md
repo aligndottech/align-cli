@@ -137,4 +137,15 @@ align:
 ```
 
 The command prints one line of JSON to stdout, so any runner can branch on the exit code or
-parse the result.
+parse the result:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | The check ran and nothing opposes the diff (`aligned` or `no-context`). |
+| `1` | A conflict was found. |
+| `2` | The check could not run - `unknown` (the graph could not classify) or `error` (the gateway was unreachable, the token was rejected, the base ref was bad). **Not a pass.** |
+
+Treat `2` as you would a failed build step, or explicitly allow it if you would rather an
+Align outage never blocked your pipeline. What you must not do is treat it as success:
+before CLI 0.18.0 a transport failure exited `0`, so a runner branching on the code read an
+outage as a clean check.
