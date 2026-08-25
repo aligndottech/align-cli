@@ -61,21 +61,25 @@ describe('mirror.sh', () => {
     const dest = mkdtempSync(join(tmpdir(), 'align-mirror-'));
     const readmePath = join(ACTION_DIR, 'README.md');
     const original = readFileSync(readmePath, 'utf8');
+    // Asserting on the stderr TEXT, not merely that it rejected: a bare rejection is
+    // satisfied by mirror.sh being deleted, a bad interpreter, or any other error, so it
+    // would pass while proving nothing about the guard it is here to pin.
+    let exitedZero = false;
     try {
       writeFileSync(readmePath, '# no uses references here\n');
       await exec('bash', [SCRIPT, dest, 'v2']);
-      throw new Error('expected mirror.sh to fail when README has no references to rewrite');
+      exitedZero = true;
     } catch (err) {
       const e = err as { stderr?: unknown };
       expect(String(e.stderr ?? '')).toContain(
         "found no 'aligndottech/align-cli/.github/actions/align-check@main' references to rewrite",
       );
-    }
     } finally {
       // cp semantics, not git checkout: restoring from HEAD would discard any other
       // uncommitted edit to this README.
       writeFileSync(readmePath, original);
     }
+    expect(exitedZero, 'mirror.sh exited 0 with nothing to rewrite').toBe(false);
     expect(readFileSync(readmePath, 'utf8')).toBe(original);
   });
 });
