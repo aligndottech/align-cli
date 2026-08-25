@@ -59,13 +59,18 @@ describe('mirror.sh', () => {
   // publishes instructions pointing at an unlistable path.
   it('fails when there is nothing to rewrite, instead of silently publishing', async () => {
     const dest = mkdtempSync(join(tmpdir(), 'align-mirror-'));
-    const stash = join(tmpdir(), 'align-mirror-readme-stash.md');
     const readmePath = join(ACTION_DIR, 'README.md');
     const original = readFileSync(readmePath, 'utf8');
-    writeFileSync(stash, original);
     try {
       writeFileSync(readmePath, '# no uses references here\n');
-      await expect(exec('bash', [SCRIPT, dest, 'v2'])).rejects.toThrow();
+      await exec('bash', [SCRIPT, dest, 'v2']);
+      throw new Error('expected mirror.sh to fail when README has no references to rewrite');
+    } catch (err) {
+      const e = err as { stderr?: unknown };
+      expect(String(e.stderr ?? '')).toContain(
+        "found no 'aligndottech/align-cli/.github/actions/align-check@main' references to rewrite",
+      );
+    }
     } finally {
       // cp semantics, not git checkout: restoring from HEAD would discard any other
       // uncommitted edit to this README.
