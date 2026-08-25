@@ -36,7 +36,7 @@ vi.mock('../lib/config.js', () => ({
 
 vi.mock('../lib/resolve-env.js', () => ({
   resolveEnv: vi.fn(() => 'local'),
-}));
+  resolveImportEnv: vi.fn(() => 'local'),}));
 
 import { registerContextCommand } from '../commands/context.js';
 

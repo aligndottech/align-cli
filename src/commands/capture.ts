@@ -34,7 +34,10 @@ export function registerCaptureCommand(program: Command): void {
       }
 
       const config = createConfigStore();
-      const env = config.getEnvironment(resolveEnv(opts.env));
+      // preferLocalEmbedded: the local client serves capture, so a no-account
+      // user's `align capture` must land in their local graph, not 401 against
+      // the unauthenticated cloud default (ALI-675 family).
+      const env = config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true }));
       const client = createGatewayClient(env);
       const platform = labelFromUrl(input);
 

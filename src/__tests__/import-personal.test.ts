@@ -50,7 +50,7 @@ vi.mock('../lib/fetchers/zoom.js', () => ({
 }));
 vi.mock('../lib/personal-import.js', () => ({ runPersonalImport: vi.fn() }));
 vi.mock('../lib/env-resolver.js', () => ({ resolveAppUrl: vi.fn(() => 'https://app.align.tech') }));
-vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn(() => 'prod') }));
+vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn(() => 'prod'), resolveImportEnv: vi.fn(() => 'prod') }));
 
 // The localhost callback listener: resolve immediately with fresh credentials, invoking
 // onBound the way the real server does so startCliOAuth gets the port + nonce.

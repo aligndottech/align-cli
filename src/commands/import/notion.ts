@@ -3,7 +3,7 @@ import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
-import { resolveEnv } from '../../lib/resolve-env.js';
+import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchNotionItems } from '../../lib/fetchers/notion.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
@@ -33,7 +33,7 @@ Create an integration at: notion.so/my-integrations`)
     .action(async (_opts: NotionImportOpts, cmd: Command) => {
       const opts = subcommandOpts<NotionImportOpts>(cmd);
       const config = createConfigStore();
-      const envName = resolveEnv(opts.env);
+      const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
