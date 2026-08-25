@@ -18,23 +18,32 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const IMPORT_DIR = path.join(HERE, '..', 'commands', 'import');
 const IMPORT_TS = path.join(HERE, '..', 'commands', 'import.ts');
 
-function importSources(): Array<{ name: string; text: string }> {
-  const files = fs
+/**
+ * Two populations with OPPOSITE contracts, and the gate pins both:
+ *
+ * - `import/<tool>.ts` are FETCHER-based: the fetcher runs client-side and the
+ *   local client serves ingestBatch, so they take the redirect.
+ * - `import.ts` is JOB-based: listImportJobs / listSuggestions / listScanRuns
+ *   exist only on the cloud gateway (the local client implements none of
+ *   them), so redirecting a no-account user there converts a clean 401 into a
+ *   "not a function" crash. It stays on the bare resolver DELIBERATELY
+ *   (Copilot, #122).
+ */
+function fetcherSources(): Array<{ name: string; text: string }> {
+  return fs
     .readdirSync(IMPORT_DIR)
     .filter((f) => f.endsWith('.ts'))
     .map((f) => ({ name: `import/${f}`, text: fs.readFileSync(path.join(IMPORT_DIR, f), 'utf8') }));
-  files.push({ name: 'import.ts', text: fs.readFileSync(IMPORT_TS, 'utf8') });
-  return files;
 }
 
 describe('import env-resolution parity (ALI-675)', () => {
   it('examines the real command set, not an empty directory', () => {
     // Positive control: a moved directory must fail loudly, not pass on [].
-    expect(importSources().length).toBeGreaterThanOrEqual(11);
+    expect(fetcherSources().length).toBeGreaterThanOrEqual(10);
   });
 
-  it('every import entry point uses resolveImportEnv and never the bare resolver', () => {
-    const offenders = importSources()
+  it('every fetcher-based import uses resolveImportEnv and never the bare resolver', () => {
+    const offenders = fetcherSources()
       .filter(({ text }) => /\bresolveEnv\(/.test(text))
       .map(({ name }) => name);
     expect(
@@ -44,12 +53,11 @@ describe('import env-resolution parity (ALI-675)', () => {
     ).toEqual([]);
   });
 
-  it('every file that resolves an env resolves it through the chokepoint', () => {
+  it('every fetcher file that builds a client resolves through the chokepoint', () => {
     // The inverse half: a file that dropped env resolution entirely would pass
-    // the test above. Every file that constructs a gateway client must name
-    // resolveImportEnv.
-    const resolvers = importSources().filter(({ text }) => text.includes('createGatewayClient'));
-    expect(resolvers.length).toBeGreaterThanOrEqual(11); // control: the set is real
+    // the test above.
+    const resolvers = fetcherSources().filter(({ text }) => text.includes('createGatewayClient'));
+    expect(resolvers.length).toBeGreaterThanOrEqual(10); // control: the set is real
     const missing = resolvers
       .filter(({ text }) => !text.includes('resolveImportEnv'))
       .map(({ name }) => name);
@@ -57,5 +65,19 @@ describe('import env-resolution parity (ALI-675)', () => {
       missing,
       `these files build a client without resolveImportEnv: ${missing.join(', ')}`,
     ).toEqual([]);
+  });
+
+  it('the jobs-based import.ts stays on the bare resolver - redirecting it trades a 401 for a crash', () => {
+    const text = fs.readFileSync(IMPORT_TS, 'utf8');
+    // Positive control first: the file really is jobs-based. If these methods
+    // ever appear on the local client, this whole exemption should be
+    // re-examined rather than silently kept.
+    expect(text).toMatch(/listImportJobs|listSuggestions|listScanRuns/);
+    expect(
+      text.includes('resolveImportEnv'),
+      'import.ts adopted resolveImportEnv: its job endpoints do not exist on the local ' +
+        'client, so a no-account user gets "not a function" instead of a clean 401. ' +
+        'Either implement the job methods locally first, or keep the bare resolver.',
+    ).toBe(false);
   });
 });
