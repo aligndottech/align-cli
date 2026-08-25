@@ -130,3 +130,65 @@ describe('align check on an "unknown" result', () => {
     expect(out).toMatch(/Aligned with decision graph/);
   });
 });
+
+// The same invariant, on the path where the check request fails (gateway outage, auth
+// rejected, etc.). `--ci` caught the exception and exited ZERO, two lines under a comment
+// saying a check that could not run must not be indistinguishable from one that found
+// nothing. Our own GitHub action survived it because decide.sh classifies on the status
+// rather than the code, but the composite action's README tells every other runner "any
+// runner can branch on the exit code", and the CLI's own table promises exit 2 means
+// "could not check". Following either of those documented contracts turned a failure into
+// a silent green.
+describe('align check --ci when the gateway throws', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCheckAlignment.mockRejectedValue(new Error('Gateway returned 401 for /alignment/check: unauthorized'));
+  });
+
+  it('exits 2, so a runner branching on the exit code cannot read an outage as a pass', async () => {
+    const { exitCode } = await runCheck(['--ci']);
+    expect(exitCode).toBe(2);
+  });
+
+  // Positive control on the assertion above: prove the failure path actually ran and
+  // produced its line, rather than the exit code coming from somewhere else.
+  it('still writes one parseable line naming what went wrong', async () => {
+    const { stdout } = await runCheck(['--ci']);
+    expect(JSON.parse(stdout.split('\n')[0]!)).toMatchObject({ status: 'error' });
+    expect(stdout).toMatch(/401/);
+  });
+});
+
+// The same invariant again, and the worst instance of it: outside a git repo the command
+// exited 1 - the code that means "we found a conflict" - and `if (!opts.ci)` suppressed
+// the message, so in the one mode where a machine is reading it said nothing at all.
+// decide.sh already defends our own action against exactly this shape ("a CLI that
+// crashes also exits 1 with no JSON on stdout ... reported as found a conflict"), but the
+// CLI should not be producing it in the first place.
+describe('align check --ci outside a git repository', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const git = await import('../lib/git.js');
+    vi.mocked(git.isGitRepo).mockResolvedValue(false);
+  });
+
+  it('does not exit 1: "could not run" must not wear the conflict exit code', async () => {
+    const { exitCode } = await runCheck(['--ci']);
+    expect(exitCode).toBe(2);
+  });
+
+  it('says so on stdout instead of failing silently', async () => {
+    const { stdout } = await runCheck(['--ci']);
+    expect(JSON.parse(stdout.split('\n')[0]!)).toMatchObject({ status: 'error' });
+    expect(stdout).toMatch(/git repositor/i);
+  });
+
+  // The human path keeps its red line and its exit 1. Only --ci changes.
+  it('leaves the interactive path alone', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { exitCode } = await runCheck([]);
+    expect(exitCode).toBe(1);
+    expect(errSpy.mock.calls.flat().join(' ')).toMatch(/Not in a git repository/);
+    errSpy.mockRestore();
+  });
+});

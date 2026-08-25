@@ -34,8 +34,10 @@ is_complete_pass() {
 }
 
 # Everything else means the check did not complete. `unknown` is the CLI saying so
-# deliberately (exit 2); `error`, or any other non-zero, is a crash. Note `error` arrives
-# with exit 0 on the 401 path, so the STATUS is what separates it - not the code.
+# deliberately (exit 2); `error`, or any other non-zero, is a crash. `error` exits 2 from
+# CLI 0.18.0 on and exited ZERO before it, and this action pins `cli-version`, so both
+# codes are live depending on the pin. The STATUS is what separates it either way, which
+# is why this classifies on status and the truth table still covers the exit-0 row.
 #
 # This deliberately does NOT test `!= aligned`. That spelling classified `no-context` as
 # incomplete, so under fail-on=conflict-or-unknown a required check blocked every PR whose

@@ -45,7 +45,16 @@ export function registerCheckCommand(program: Command): void {
       }
 
       if (!await isGitRepo()) {
-        if (!opts.ci) console.error(chalk.red('Not in a git repository'));
+        const message = 'Not in a git repository';
+        // Exit 1 is the conflict code, and this is a "could not run". In --ci the old
+        // spelling also suppressed the message, so a machine got exit 1 and an empty
+        // stdout - "could not look" wearing the costume of "found something", which is
+        // the confusion EXIT_UNKNOWN exists to remove.
+        if (opts.ci) {
+          process.stdout.write(`${JSON.stringify({ status: 'error', message })}\n`);
+          process.exit(EXIT_UNKNOWN);
+        }
+        console.error(chalk.red(message));
         process.exit(1);
       }
 
@@ -95,8 +104,13 @@ export function registerCheckCommand(program: Command): void {
           // must not be indistinguishable from a check that found nothing (ALI-414).
           process.exit(result.status === 'unknown' ? EXIT_UNKNOWN : 0);
         } catch (err) {
+          // EXIT_UNKNOWN, not 0: the check request failed (network/auth/etc.), so nothing was verified, and
+          // the two lines above exist to keep that distinguishable from a clean check.
+          // Exiting 0 here made an outage (or auth failure) a silent green for any runner following the
+          // documented exit-code contract. The status stays `error` rather than `unknown` - `unknown` is
+          // the graph deliberately declining to classify, while this is an execution/transport failure.
           process.stdout.write(`${JSON.stringify({ status: 'error', message: (err as Error).message })  }\n`);
-          process.exit(0);
+          process.exit(EXIT_UNKNOWN);
         }
       }
 

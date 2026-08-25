@@ -66,7 +66,7 @@ describe('align-check action fail policy', () => {
     });
 
     // The 401 shape, and the one most likely to be hit in practice - a missing or wrong
-    // token. The CLI catches the transport error and exits ZERO with status "error":
+    // token. Up to CLI 0.17.x the transport error was caught and exited ZERO:
     //
     //   $ ALIGN_TOKEN=bad align check --ci --base origin/main
     //   {"status":"error","message":"Gateway returned 401 for /alignment/check: unauthorized"}
@@ -76,6 +76,10 @@ describe('align-check action fail policy', () => {
     // which is why `is_incomplete` tests both. Added after a review asked whether a 401
     // could fail the job: it cannot, and this is what pins that it also cannot silently
     // masquerade as "aligned".
+    //
+    // 0.18.0 exits 2 there instead, so this row is no longer what a current CLI produces.
+    // It stays because the action PINS `cli-version`, so an older CLI can still send it,
+    // and because the classification must not depend on the code in the first place.
     it('treats a zero exit with an error status as incomplete, not as a pass', async () => {
       const r = await decide('0', 'error', 'conflict');
       expect(r.exitCode).toBe(0);

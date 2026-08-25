@@ -259,7 +259,8 @@ align export                                # export decisions as a structured b
 
 ## Alignment check
 
-Check your current changes against the decision graph. Exit code `1` means a conflict was found.
+Check your current changes against the decision graph. Exit code `1` means a conflict was
+found; `2` means the check could not run and nothing was verified, which is not a pass.
 
 ```bash
 align check          # check the staged diff
