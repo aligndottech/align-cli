@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/aligndottech/align-cli/compare/cli-v0.14.1...cli-v0.15.0) (2026-08-25)
+
+
+### Features
+
+* **ask:** sources carry cite, platform and link - same data as the MCP surface, rendered natively ([#124](https://github.com/aligndottech/align-cli/issues/124)) ([ebec798](https://github.com/aligndottech/align-cli/commit/ebec79838d5a1e94f6a68530067d53e34bb5cb99))
+
 ## [0.14.1](https://github.com/aligndottech/align-cli/compare/cli-v0.14.0...cli-v0.14.1) (2026-08-25)
 
 
