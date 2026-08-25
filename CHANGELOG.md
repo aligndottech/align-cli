@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/aligndottech/align-cli/compare/cli-v0.15.0...cli-v0.16.0) (2026-08-25)
+
+
+### Features
+
+* **cites:** Linear and Jira decisions cite by ticket key, not UUID ([#126](https://github.com/aligndottech/align-cli/issues/126)) ([1dfb5ff](https://github.com/aligndottech/align-cli/commit/1dfb5ffe27d0c2c75732c8935a060484ddc8733a))
+
 ## [0.15.0](https://github.com/aligndottech/align-cli/compare/cli-v0.14.1...cli-v0.15.0) (2026-08-25)
 
 
