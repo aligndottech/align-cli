@@ -124,16 +124,40 @@ runs:
           set -- "$@" --title "$PR_TITLE"
         fi
 
+        # Installed rather than npx'd so the optional dependency can be pruned.
+        # `@huggingface/transformers` (359MB with onnxruntime) backs `--local` mode only,
+        # and CI always talks to a gateway, so it is downloaded and never loaded. Measured
+        # on 0.17.1, cold cache: 431MB in 25s with it, 45MB in 5s without, and a pruned
+        # install completes a real gateway check unchanged. It is also the dependency most
+        # likely to fail to install at all, which used to take local mode down with it.
+        #
+        # A --prefix, not -g: a global install needs a writable npm prefix, which is not a
+        # given on a self-hosted runner, and this action runs on other people's machines.
+        PREFIX="${RUNNER_TEMP:-/tmp}/align-cli"
+        INSTALL_LOG="${RUNNER_TEMP:-/tmp}/align-install.log"
+        OUT=""
+
         set +e
-        OUT="$(npx --yes "@aligndottech/cli@${{ inputs.cli-version }}" check "$@")"
+        npm install --omit=optional --no-save --no-audit --no-fund \
+          --prefix "$PREFIX" "@aligndottech/cli@${{ inputs.cli-version }}" > "$INSTALL_LOG" 2>&1
         CODE=$?
+        if [ "$CODE" -eq 0 ]; then
+          OUT="$("$PREFIX/node_modules/.bin/align" check "$@")"
+          CODE=$?
+        else
+          # Deliberately NOT a hard exit. `fail-on` owns whether a check that could not run
+          # blocks the build, and failing the step here would bypass that policy - turning
+          # an npm outage into a merge freeze for everyone using the default.
+          echo "::warning::Could not install @aligndottech/cli@${{ inputs.cli-version }} - the check did not run."
+          tail -n 5 "$INSTALL_LOG"
+        fi
         set -e
 
         # Exit codes are the CLI's contract: 0 aligned, 1 conflict, 2 could-not-check.
         # `unknown` is deliberately NOT folded into either - "we found nothing" and "we
         # could not look" call for different responses.
-        # node, not python3: the action already requires node for npx, so this adds no
-        # runtime that a runner might not have.
+        # node, not python3: the action already requires node to run the CLI, so this adds
+        # no runtime that a runner might not have.
         STATUS="$(printf '%s' "$OUT" | tail -n 1 | node -e \
           'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).status||"error")}catch{process.stdout.write("error")}})' \
           2>/dev/null || echo error)"
