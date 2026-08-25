@@ -39,17 +39,6 @@ export function repositoryOf(sourceUrl: string | null | undefined): string | und
 }
 
 /**
- * A decision rendered the way a human cites one: "align-cli#76".
- *
- * `repository` already carries the same fact, and the agent still wrote prose naming titles
- * and dates but not repositories - so which repo a decision came from was only discoverable
- * by opening its link. Composing owner/repo plus a PR number is work the model must choose to
- * do; a ready-made string is work it only has to copy.
- *
- * Short repo name rather than owner/repo, because this is for prose. `repository` sits beside
- * it with the full path when a tenant has same-named repos under two owners.
- */
-/**
  * Tracker tickets have their own native cite - the key humans already say out
  * loud ("ALI-346", "PROJ-123") - so those URLs cite by key rather than getting
  * a repo#number invented for them. Deliberately NOT folded into CODE_REF:
@@ -61,6 +50,18 @@ export function repositoryOf(sourceUrl: string | null | undefined): string | und
 const LINEAR_ISSUE = /^https?:\/\/linear\.app\/[^/\s]+\/issue\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)/;
 const JIRA_ISSUE = /^https?:\/\/[^/\s]+\/browse\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)/;
 
+/**
+ * A decision rendered the way a human cites one: "align-cli#76" for code,
+ * the ticket key ("ALI-346") for tracker decisions.
+ *
+ * `repository` already carries the same fact, and the agent still wrote prose naming titles
+ * and dates but not repositories - so which repo a decision came from was only discoverable
+ * by opening its link. Composing owner/repo plus a PR number is work the model must choose to
+ * do; a ready-made string is work it only has to copy.
+ *
+ * Short repo name rather than owner/repo, because this is for prose. `repository` sits beside
+ * it with the full path when a tenant has same-named repos under two owners.
+ */
 export function citationFor(sourceUrl: string | null | undefined): string | undefined {
   if (!sourceUrl) return undefined;
   const m = CODE_REF.exec(sourceUrl);
