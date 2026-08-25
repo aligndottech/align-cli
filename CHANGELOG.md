@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.17.0](https://github.com/aligndottech/align-cli/compare/cli-v0.16.0...cli-v0.17.0) (2026-08-25)
+
+
+### Features
+
+* **mcp-registry:** publish to registry.modelcontextprotocol.io on every release (ALI-535) ([#128](https://github.com/aligndottech/align-cli/issues/128)) ([949c876](https://github.com/aligndottech/align-cli/commit/949c876b489b14b17952b37d58d90100d17cc3f5))
+
+
+### Bug Fixes
+
+* **setup:** --local tells a logged-in user their bare commands still target the cloud graph ([#129](https://github.com/aligndottech/align-cli/issues/129)) ([cefa6d2](https://github.com/aligndottech/align-cli/commit/cefa6d20eaab9d15071449a909ca3020d84ff392))
+
 ## [0.16.0](https://github.com/aligndottech/align-cli/compare/cli-v0.15.0...cli-v0.16.0) (2026-08-25)
 
 
