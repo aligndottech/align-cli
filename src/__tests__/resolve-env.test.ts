@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../lib/config.js', () => ({ createConfigStore: vi.fn() }));
 
-import { resolveEnv } from '../lib/resolve-env.js';
+import { resolveEnv, resolveImportEnv } from '../lib/resolve-env.js';
 import { createConfigStore } from '../lib/config.js';
 
 type EnvShape = { mode: string; authToken: string | null };
@@ -53,5 +53,33 @@ describe('resolveEnv preferLocalEmbedded (BUG-2: a --local user running bare `al
     delete process.env['ALIGN_ENV'];
     mockConfig({ defaultEnv: 'prod', local: { mode: 'local-embedded' }, cloud: { authToken: null } });
     expect(resolveEnv()).toBe('prod');
+  });
+});
+describe('resolveImportEnv (ALI-675: imports are local-servable, so they get the same redirect)', () => {
+  const orig = process.env['ALIGN_ENV'];
+  afterEach(() => {
+    vi.clearAllMocks();
+    if (orig === undefined) delete process.env['ALIGN_ENV'];
+    else process.env['ALIGN_ENV'] = orig;
+  });
+
+  it('redirects a no-account user to the local graph instead of a 401 against cloud', () => {
+    delete process.env['ALIGN_ENV'];
+    mockConfig({ defaultEnv: 'prod', local: { mode: 'local-embedded' }, cloud: { authToken: null } });
+    expect(resolveImportEnv(undefined)).toBe('local');
+  });
+
+  it('never hijacks a logged-in user: a cloud token keeps the cloud default', () => {
+    delete process.env['ALIGN_ENV'];
+    // preview, not prod: a DIFFERENT value from the redirect target on both sides,
+    // so "returned the default" and "returned local" cannot be confused (tdd.md,
+    // the equal-values fixture trap).
+    mockConfig({ defaultEnv: 'preview', local: { mode: 'local-embedded' }, cloud: { authToken: 'tok' } });
+    expect(resolveImportEnv(undefined)).toBe('preview');
+  });
+
+  it('an explicit --env flag always wins', () => {
+    mockConfig({ defaultEnv: 'prod', local: { mode: 'local-embedded' }, cloud: { authToken: null } });
+    expect(resolveImportEnv('preview')).toBe('preview');
   });
 });

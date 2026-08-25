@@ -27,3 +27,21 @@ export function resolveEnv(flagValue?: string, opts: { preferLocalEmbedded?: boo
   }
   return defaultEnv;
 }
+
+/**
+ * Env resolution for `align import <tool>` (ALI-675).
+ *
+ * Imports were left off the preferLocalEmbedded redirect on the premise that
+ * they are cloud-only. They are not: the local-embedded client implements
+ * ingestBatch (on-device embeddings, cross-item linking), and every fetcher
+ * runs client-side - so a no-account user's `align import jira` was resolving
+ * to an unauthenticated cloud default and 401ing, on the exact multi-tool
+ * first run the product is pitched on. Setup's own retry hint sends users
+ * here (setup.ts), which made the 401 a guided experience.
+ *
+ * Same guarantees as the read-command redirect, pinned in resolve-env.test.ts:
+ * an explicit --env always wins, and a logged-in user is never hijacked.
+ */
+export function resolveImportEnv(flagValue?: string): EnvName {
+  return resolveEnv(flagValue, { preferLocalEmbedded: true });
+}

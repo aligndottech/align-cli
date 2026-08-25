@@ -1,4 +1,4 @@
-import { resolveEnv } from '../lib/resolve-env.js';
+import { resolveImportEnv } from '../lib/resolve-env.js';
 import type { Command } from 'commander';
 import { subcommandOpts } from '../lib/command-opts.js';
 import * as p from '@clack/prompts';
@@ -50,7 +50,7 @@ function registerImportListCommands(importCmd: Command): void {
     .option('--connector <key>', 'Filter by connector key')
     .action(async (_opts: { env: EnvName; status?: string; connector?: string }, cmd: Command) => {
       const opts = subcommandOpts<{ env: EnvName; status?: string; connector?: string }>(cmd);
-      const client = createGatewayClient(createConfigStore().getEnvironment(resolveEnv(opts.env)));
+      const client = createGatewayClient(createConfigStore().getEnvironment(resolveImportEnv(opts.env)));
       const spinner = p.spinner();
       spinner.start('Fetching import jobs...');
       try {
@@ -99,7 +99,7 @@ function registerImportListCommands(importCmd: Command): void {
     .option('--status <s>', 'Filter by status', 'pending')
     .action(async (_opts: { env: EnvName; job?: string; status: string }, cmd: Command) => {
       const opts = subcommandOpts<{ env: EnvName; job?: string; status: string }>(cmd);
-      const client = createGatewayClient(createConfigStore().getEnvironment(resolveEnv(opts.env)));
+      const client = createGatewayClient(createConfigStore().getEnvironment(resolveImportEnv(opts.env)));
       const spinner = p.spinner();
       spinner.start('Fetching suggestions...');
       try {
@@ -131,7 +131,7 @@ function registerImportListCommands(importCmd: Command): void {
     .option('--env <env>', 'Environment')
     .action(async (_opts: { env: EnvName }, cmd: Command) => {
       const opts = subcommandOpts<{ env: EnvName }>(cmd);
-      const client = createGatewayClient(createConfigStore().getEnvironment(resolveEnv(opts.env)));
+      const client = createGatewayClient(createConfigStore().getEnvironment(resolveImportEnv(opts.env)));
       const spinner = p.spinner();
       spinner.start('Fetching scan runs...');
       try {
@@ -181,7 +181,7 @@ export function registerImportCommand(program: Command): void {
       from?: string; to?: string; approve: boolean;
     }) => {
       const config = createConfigStore();
-      const env = config.getEnvironment(resolveEnv(opts.env));
+      const env = config.getEnvironment(resolveImportEnv(opts.env));
       const client = createGatewayClient(env);
 
       let targets: string[] = connectors;

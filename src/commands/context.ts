@@ -44,7 +44,10 @@ export function registerContextCommand(program: Command): void {
     .option('--limit <n>', 'Max decisions to include', '200')
     .action(async (opts: { env: EnvName; limit: string }) => {
       const config = createConfigStore();
-      const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env)));
+      // preferLocalEmbedded: the launch's flagship command must work for the
+      // no-account user it is pitched at - bare resolution sent them to an
+      // unauthenticated cloud 401 (ALI-675, the ALI-160/423 family).
+      const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true })));
       const spinner = ora('Fetching decisions...').start();
 
       // Fetch BEFORE writing anything: a failed fetch must not leave a

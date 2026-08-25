@@ -4,7 +4,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
-import { resolveEnv } from '../../lib/resolve-env.js';
+import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchSlackItems } from '../../lib/fetchers/slack.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
@@ -39,7 +39,7 @@ export function registerImportSlackCommand(importCmd: Command): void {
       ));
 
       const config = createConfigStore();
-      const envName = resolveEnv(opts.env);
+      const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 

@@ -19,7 +19,7 @@ vi.mock('../lib/config.js', () => ({
   })),
 }));
 
-vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn((e: string) => e ?? 'prod') }));
+vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn((e: string) => e ?? 'prod'), resolveImportEnv: vi.fn((e: string) => e ?? 'prod') }));
 
 vi.mock('../lib/git.js', () => ({
   isGitRepo: vi.fn(() => Promise.resolve(true)),

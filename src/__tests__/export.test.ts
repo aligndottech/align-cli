@@ -17,7 +17,7 @@ vi.mock('../lib/config.js', () => ({
 }));
 vi.mock('../lib/resolve-env.js', () => ({
   resolveEnv: vi.fn((e: string) => e ?? 'prod'),
-}));
+  resolveImportEnv: vi.fn((e: string) => e ?? 'prod'),}));
 vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({
     listDecisions: mockListDecisions,

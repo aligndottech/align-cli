@@ -272,6 +272,18 @@ async function collectTokens(
 // CLAUDE.md nudge + Cursor rule) so alignment context fires regardless of model
 // discretion. Best-effort: a write failure (read-only dir, weird CWD) must never abort
 // onboarding, so we warn and continue.
+/**
+ * The retry command printed when a connector import fails mid-setup (ALI-675).
+ *
+ * It must be runnable AS PRINTED by the user this session belongs to. The bare
+ * form resolved to the cloud default, so a --local user pasting our own hint
+ * got a 401. Same env-naming convention as the MCP config writer: prod is the
+ * unmarked default, everything else is explicit.
+ */
+export function importRetryHint(sourceId: string, envName: EnvName): string {
+  return envName === 'prod' ? `align import ${sourceId}` : `align import ${sourceId} --env ${envName}`;
+}
+
 function writeAgentAlignment(envName: EnvName): void {
   try {
     const written = setupAgentAlignment({ cwd: process.cwd(), env: envName });
@@ -718,7 +730,7 @@ async function runCloudSetup(ctx: {
       }
     } else {
       p.log.warn(`Skipped ${source.label} - ${result.error.message}`);
-      p.log.warn(`You can run ${chalk.bold(`align import ${source.id}`)} later to retry.`);
+      p.log.warn(`You can run ${chalk.bold(importRetryHint(source.id, envName))} later to retry.`);
     }
   }
 

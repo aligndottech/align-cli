@@ -3,7 +3,7 @@ import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
-import { resolveEnv } from '../../lib/resolve-env.js';
+import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchTeamsItems } from '../../lib/fetchers/teams.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
@@ -35,7 +35,7 @@ export function registerImportTeamsCommand(importCmd: Command): void {
       );
 
       const config = createConfigStore();
-      const envName = resolveEnv(opts.env);
+      const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 

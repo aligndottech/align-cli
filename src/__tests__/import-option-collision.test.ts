@@ -41,7 +41,7 @@ vi.mock('../lib/fetchers/github.js', () => ({
 vi.mock('../lib/personal-import.js', () => ({ runPersonalImport: vi.fn() }));
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({})) }));
 vi.mock('../lib/env-resolver.js', () => ({ resolveAppUrl: vi.fn(() => 'https://app.align.tech') }));
-vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn(() => 'prod') }));
+vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn(() => 'prod'), resolveImportEnv: vi.fn(() => 'prod') }));
 vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn(() => ({ gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: 'auth' })),
@@ -51,7 +51,7 @@ vi.mock('../lib/config.js', () => ({
 
 const { registerImportCommand } = await import('../commands/import.js');
 const { runPersonalImport } = await import('../lib/personal-import.js');
-const { resolveEnv } = await import('../lib/resolve-env.js');
+const { resolveImportEnv } = await import('../lib/resolve-env.js');
 
 async function run(argv: string[]): Promise<void> {
   const program = new Command();
@@ -70,7 +70,7 @@ function importOpts(): Record<string, unknown> {
 describe('import subcommand options reach the subcommand (parent/child collision)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(resolveEnv).mockReturnValue('prod');
+    vi.mocked(resolveImportEnv).mockReturnValue('prod');
   });
 
   it('honours --approve on `import git`, so the confirm prompt is skipped', async () => {
@@ -87,18 +87,18 @@ describe('import subcommand options reach the subcommand (parent/child collision
 
   it('honours --env local on `import git`, so a no-account user routes locally', async () => {
     await run(['import', 'git', '--env', 'local']);
-    expect(resolveEnv).toHaveBeenCalledWith('local');
+    expect(resolveImportEnv).toHaveBeenCalledWith('local');
   });
 
   it('honours --env local on `import github`', async () => {
     await run(['import', 'github', '--token', 'ghp_x', '--env', 'local']);
-    expect(resolveEnv).toHaveBeenCalledWith('local');
+    expect(resolveImportEnv).toHaveBeenCalledWith('local');
   });
 
   it('honours --approve and --env together with a child-only option', async () => {
     await run(['import', 'git', '--approve', '--env', 'local', '--limit', '3']);
     expect(importOpts()['approve']).toBe(true);
-    expect(resolveEnv).toHaveBeenCalledWith('local');
+    expect(resolveImportEnv).toHaveBeenCalledWith('local');
   });
 
   // Control: a child-only option was never affected by the collision. If this

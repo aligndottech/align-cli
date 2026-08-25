@@ -3,7 +3,7 @@ import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
-import { resolveEnv } from '../../lib/resolve-env.js';
+import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchJiraItems } from '../../lib/fetchers/jira.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
@@ -34,7 +34,7 @@ export function registerImportJiraCommand(importCmd: Command): void {
     .action(async (_opts: JiraImportOpts, cmd: Command) => {
       const opts = subcommandOpts<JiraImportOpts>(cmd);
       const config = createConfigStore();
-      const envName = resolveEnv(opts.env);
+      const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
