@@ -104,12 +104,11 @@ export function registerCheckCommand(program: Command): void {
           // must not be indistinguishable from a check that found nothing (ALI-414).
           process.exit(result.status === 'unknown' ? EXIT_UNKNOWN : 0);
         } catch (err) {
-          // EXIT_UNKNOWN, not 0: the gateway never answered, so nothing was verified, and
+          // EXIT_UNKNOWN, not 0: the check request failed (network/auth/etc.), so nothing was verified, and
           // the two lines above exist to keep that distinguishable from a clean check.
-          // Exiting 0 here made an outage a silent green for any runner following the
-          // documented exit-code contract. The status stays `error` rather than `unknown`
-          // - `unknown` is the graph deliberately saying it could not classify, this is a
-          // transport failure, and decide.sh reads the two differently.
+          // Exiting 0 here made an outage (or auth failure) a silent green for any runner following the
+          // documented exit-code contract. The status stays `error` rather than `unknown` - `unknown` is
+          // the graph deliberately declining to classify, while this is an execution/transport failure.
           process.stdout.write(`${JSON.stringify({ status: 'error', message: (err as Error).message })  }\n`);
           process.exit(EXIT_UNKNOWN);
         }
