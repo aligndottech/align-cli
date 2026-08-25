@@ -5,6 +5,8 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
+import type { SearchResults } from '../lib/gateway-client.js';
+import { citationFor } from '../lib/decision-links.js';
 import { getUnvettedOllamaModels, synthesiseLocally, VETTED_OLLAMA_MODELS } from '../lib/local-llm.js';
 import { formatWhen } from '../lib/format-date.js';
 
@@ -25,6 +27,47 @@ function wrapText(text: string, indent: string, maxWidth: number): string[] {
 
 function isFilePath(arg: string): boolean {
   return arg.startsWith('./') || arg.startsWith('../') || arg.includes('/') || existsSync(arg);
+}
+
+type SearchHit = SearchResults['results'][number];
+
+/**
+ * One source line, same fields the MCP surface serves (align-stack#1442 added
+ * `cite` so consumers COPY citations instead of composing them - this renderer
+ * was the one consumer still printing a raw UUID). The cite replaces the id
+ * when present; a decision with no cite (Slack, a meeting) keeps its id, which
+ * `align decisions show <id>` needs. Platform is printed on every line: a
+ * GitHub PR agreeing with a Slack thread is the cross-tool claim made visible,
+ * and it is invisible if every line looks alike (the ALI-586 lesson).
+ */
+function sourceLine(d: SearchHit): string {
+  // Derive the cite when the wire omits it (the prod REST path predates
+  // align-stack#1442); the UUID is the last resort, kept only because
+  // `align decisions show <id>` consumes it.
+  const cite = d.cite ?? citationFor(d.source_url);
+  const ref = cite ? ` (${cite})` : ` (${d.id})`;
+  const platform = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
+  const statusLabel = d.status && d.status !== 'active' ? chalk.yellow(` [${d.status}]`) : '';
+  const who = d.author?.name ? chalk.cyan(` ← ${d.author.name}`) : '';
+  const when = formatWhen(d.created_at);
+  const whenLabel = when ? chalk.dim(` · ${when}`) : '';
+  return chalk.dim(`    - ${d.title}${ref}`) + platform + statusLabel + who + whenLabel;
+}
+
+/** The indented link under a source line - where it was DECIDED, clickable. */
+function sourceLink(d: SearchHit): string | null {
+  return d.source_url ? chalk.dim(`      ${d.source_url}`) : null;
+}
+
+/**
+ * "5 decisions across github, linear, slack" - printed only when results
+ * genuinely span more than one platform. The claim is earned, never decorative:
+ * a single-platform result set prints nothing.
+ */
+function crossToolHeader(results: SearchHit[]): string | null {
+  const platforms = [...new Set(results.map((d) => d.platform).filter(Boolean))] as string[];
+  if (platforms.length < 2) return null;
+  return chalk.dim(`  ${results.length} decisions across ${platforms.join(', ')}`);
 }
 
 export function registerAskCommand(program: Command): void {
@@ -77,13 +120,16 @@ export function registerAskCommand(program: Command): void {
             for (const line of wrapText(answer, '  ', 76)) console.log(line);
             console.log('');
             console.log(chalk.dim('  Sources:'));
-            for (const d of results.results.slice(0, 5)) {
-              const statusLabel = d.status && d.status !== 'active' ? chalk.yellow(` [${d.status}]`) : '';
-              // Who to talk to (ALI-118) + when (ALI-118 timestamps).
-              const who = d.author?.name ? chalk.cyan(` ← ${d.author.name}`) : '';
-              const when = formatWhen(d.created_at);
-              const whenLabel = when ? chalk.dim(` · ${when}`) : '';
-              console.log(chalk.dim(`    - ${d.title} (${d.id})`) + statusLabel + who + whenLabel);
+            const shown = results.results.slice(0, 5);
+            const span = crossToolHeader(shown);
+            if (span) {
+              console.log(span);
+              console.log('');
+            }
+            for (const d of shown) {
+              console.log(sourceLine(d));
+              const link = sourceLink(d);
+              if (link) console.log(link);
             }
             console.log('');
             if (results.count >= 5) {
@@ -118,7 +164,12 @@ export function registerAskCommand(program: Command): void {
             ? chalk.yellow(` [${d.status}]`)
             : '';
           const when = formatWhen(d.created_at);
-          console.log(chalk.dim(`  id: ${d.id}`) + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
+          // Cite first (human-quotable, align-stack#1442); the id stays because
+          // `align decisions show <id>` consumes it. Platform on every entry.
+          const citeLabel = d.cite ? chalk.dim(` (${d.cite})`) : '';
+          const platformLabel = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
+          console.log(chalk.dim(`  id: ${d.id}`) + citeLabel + platformLabel + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
+          if (d.source_url) console.log(chalk.dim(`  ${d.source_url}`));
           // Who to talk to (ALI-118).
           if (d.author?.name) console.log(chalk.cyan(`  talk to: ${d.author.name}`));
           console.log('');
