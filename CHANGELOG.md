@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/aligndottech/align-cli/compare/cli-v0.14.0...cli-v0.14.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **import:** no-account users' imports land in the local graph instead of 401ing against cloud (ALI-675) ([#122](https://github.com/aligndottech/align-cli/issues/122)) ([ca69e53](https://github.com/aligndottech/align-cli/commit/ca69e53f568fc555a8cbf8137ee72b7c24e95bc5))
+
 ## [0.14.0](https://github.com/aligndottech/align-cli/compare/cli-v0.13.0...cli-v0.14.0) (2026-08-24)
 
 
