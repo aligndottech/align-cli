@@ -61,3 +61,38 @@ jobs:
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Republish the record at registry.modelcontextprotocol.io after every npm
+  # release, so the registry never describes a version npm does not have
+  # (ALI-535). Runs after `publish` because the registry validates `mcpName`
+  # against the LIVE npm record - publishing first would fail validation.
+  # OIDC login binds the token to the io.github.aligndottech/* namespace, so
+  # there is no registry secret to store or rotate.
+  mcp-registry:
+    needs: [release-please, publish]
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC login to the MCP registry
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Login to the MCP registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json
+        run: |
+          # npm metadata can lag `npm publish` by a few seconds, and the
+          # registry reads it to check mcpName - retry rather than fail the
+          # release on propagation delay.
+          n=0
+          until ./mcp-publisher publish; do
+            n=$((n+1))
+            [ "$n" -ge 3 ] && { echo "registry publish failed after $n attempts"; exit 1; }
+            sleep 30
+          done
