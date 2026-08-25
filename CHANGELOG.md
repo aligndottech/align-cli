@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.1](https://github.com/aligndottech/align-cli/compare/cli-v0.17.0...cli-v0.17.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **mcp-registry:** registry rejects descriptions over 100 chars - shorten and pin it ([6c47546](https://github.com/aligndottech/align-cli/commit/6c47546ae5f6e70b9a5eb2f04f65556392dfd2a5))
+* **mcp-registry:** registry rejects descriptions over 100 chars (ALI-535) ([b4f3bc2](https://github.com/aligndottech/align-cli/commit/b4f3bc28ab07e64800485d78677ab4e8ab3050aa))
+
 ## [0.17.0](https://github.com/aligndottech/align-cli/compare/cli-v0.16.0...cli-v0.17.0) (2026-08-25)
 
 
