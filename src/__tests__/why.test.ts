@@ -338,3 +338,32 @@ describe('align ask - cite derived client-side when the wire omits it', () => {
     expect(all).not.toContain('c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3');
   });
 });
+
+describe('align ask - the fallback derives cites too (one contract means one contract)', () => {
+  // Copilot on #124: the derivation lived only in the synthesis path, so prod
+  // responses (no cite on the wire) still showed UUIDs in the fallback. The
+  // original fallback test used a cite-carrying fixture - the easy side of the
+  // boundary - and could not see this.
+  it('list fallback derives the cite from source_url when the wire omits it', async () => {
+    output.length = 0;
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue({
+        results: [{
+          id: 'c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3',
+          title: 'Single writer for prod tags', summary: 's', status: 'active',
+          similarity: 0.9, platform: 'github',
+          source_url: 'https://github.com/aligndottech/align-stack/pull/1582',
+        }],
+        count: 1, strategy: 'semantic' as const,
+      }),
+    });
+    mockSynthesise.mockResolvedValueOnce(null); // no provider -> list fallback
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'prod tags?']);
+    const all = output.join('\n');
+    expect(all).toContain('(align-stack#1582)');
+    vi.clearAllMocks();
+  });
+});

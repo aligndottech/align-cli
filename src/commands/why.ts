@@ -164,12 +164,17 @@ export function registerAskCommand(program: Command): void {
             ? chalk.yellow(` [${d.status}]`)
             : '';
           const when = formatWhen(d.created_at);
-          // Prefer a human-quotable cite when available (or derivable); fall back to the id
-          // because `align decisions show <id>` consumes it. Platform on every entry.
+          // Cite first (human-quotable, align-stack#1442), derived from
+          // source_url when the wire omits it - the SAME derivation as
+          // sourceLine, or the two paths drift (Copilot, #124). The id ALWAYS
+          // prints, never replaced by the cite: `align decisions show <id>`
+          // consumes the id, and a cite is not an id (the autofix's ref-swap
+          // on this line would have broken that flow exactly when a cite is
+          // derivable, which is most of the time).
           const cite = d.cite ?? citationFor(d.source_url);
-          const ref = cite ?? d.id;
+          const citeLabel = cite ? chalk.dim(` (${cite})`) : '';
           const platformLabel = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
-          console.log(chalk.dim(`  ref: ${ref}`) + platformLabel + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
+          console.log(chalk.dim(`  id: ${d.id}`) + citeLabel + platformLabel + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
           if (d.source_url) console.log(chalk.dim(`  ${d.source_url}`));
           // Who to talk to (ALI-118).
           if (d.author?.name) console.log(chalk.cyan(`  talk to: ${d.author.name}`));
