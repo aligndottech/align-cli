@@ -135,13 +135,44 @@ export async function readHookPayload(
 
 // Read the stream to end. A short timeout guarantees a manual, non-TTY run with no
 // piped data never hangs the hook - it resolves empty and the caller falls back.
+/**
+ * How long to wait for the FIRST byte. A host spawns the process and then writes, so this is
+ * spawn latency, not think time - and the old 200ms was inside it. Measured on the shipped
+ * build: a payload delayed 150ms was already being missed, which read as "no payload" and made
+ * the hook exit 0 in silence. Bounded well under check.ts's own 2.5s retrieval race so a
+ * genuinely empty pipe still cannot make the hook the slow part of an edit.
+ */
+const FIRST_BYTE_TIMEOUT_MS = 2_000;
+/** Once bytes are flowing, only a stall this long ends the read. `end` normally beats it. */
+const IDLE_TIMEOUT_MS = 200;
+
 function readAll(stream: Readable): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
-    const timer = setTimeout(() => resolve(data), 200);
+    // ReturnType<typeof setTimeout> rather than NodeJS.Timeout: the eslint config has no Node
+    // globals declared, so the namespace form is a no-undef error here.
+    let timer: ReturnType<typeof setTimeout>;
+    const settle = (): void => {
+      clearTimeout(timer);
+      resolve(data);
+    };
+    // Re-armed per chunk rather than set once: a fixed deadline from attach time is a race
+    // against the writer, which is the defect. Waiting on `end` alone would instead hang a
+    // manual run whose stdin is an open pipe nobody writes to.
+    const arm = (ms: number): void => {
+      clearTimeout(timer);
+      timer = setTimeout(settle, ms);
+    };
+    arm(FIRST_BYTE_TIMEOUT_MS);
     stream.setEncoding?.('utf8');
-    stream.on('data', (chunk: string) => { data += chunk; });
-    stream.on('end', () => { clearTimeout(timer); resolve(data); });
-    stream.on('error', (err) => { clearTimeout(timer); reject(err); });
+    stream.on('data', (chunk: string) => {
+      data += chunk;
+      arm(IDLE_TIMEOUT_MS);
+    });
+    stream.on('end', settle);
+    stream.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
   });
 }
