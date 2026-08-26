@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.19.1](https://github.com/aligndottech/align-cli/compare/cli-v0.19.0...cli-v0.19.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* **hook:** stop losing a payload that arrives more than 200ms after the reader attaches ([5ca2cee](https://github.com/aligndottech/align-cli/commit/5ca2ceef55947910e22f0bfaf86e5bfc0d235580))
+* **local:** close the setup --local leak, and make the controls able to fail ([33ce2fc](https://github.com/aligndottech/align-cli/commit/33ce2fcbc674893c201e93c6e612b4ffa52099b3))
+* **local:** honour the no-phone-home contract, and stop the agent hook calling an LLM ([0f39c6f](https://github.com/aligndottech/align-cli/commit/0f39c6f65a9a63ca97d588aa203b7372ac16e5d8))
+* **local:** honour the no-phone-home contract, and stop the agent hook calling an LLM ([5084a0d](https://github.com/aligndottech/align-cli/commit/5084a0d704fcbd9a8dd08b31676bdb49d25fce90))
+* **local:** key dedup on (source_url, title) - a constant URL was deleting unrelated decisions ([d339e1a](https://github.com/aligndottech/align-cli/commit/d339e1abdadc389cd2705e7c94265a3a6d00869e))
+* **local:** stop duplicating every import, measure the relatedness floor, retract two wrong Windows claims ([8dfd2cf](https://github.com/aligndottech/align-cli/commit/8dfd2cf83bb4fc2ba8939abe04996c878ee82df4))
+* **local:** stop duplicating every import, measure the relatedness floor, retract two wrong Windows claims ([859adbf](https://github.com/aligndottech/align-cli/commit/859adbf8b147fc438c667f5191f35054b99badfb))
+* **smoke:** run the advisory hook once, and pipe inside the timeout wrapper ([23e90f9](https://github.com/aligndottech/align-cli/commit/23e90f9100ae4107e6b14c951e79bb52e6cb0930))
+
 ## [0.19.0](https://github.com/aligndottech/align-cli/compare/cli-v0.18.0...cli-v0.19.0) (2026-08-26)
 
 
