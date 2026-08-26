@@ -102,7 +102,11 @@ export function registerCheckCommand(program: Command): void {
           if (result.status === 'conflicting') process.exit(EXIT_CONFLICT);
           // CI is where a silent green costs the most: a check that could not run
           // must not be indistinguishable from a check that found nothing (ALI-414).
-          process.exit(result.status === 'unknown' ? EXIT_UNKNOWN : 0);
+          // `retrieved` joins `unknown` here: decisions came back unadjudicated, so nothing
+          // was verified and a 0 would read as a clean check.
+          process.exit(
+            result.status === 'unknown' || result.status === 'retrieved' ? EXIT_UNKNOWN : 0,
+          );
         } catch (err) {
           // EXIT_UNKNOWN, not 0: the check request failed (network/auth/etc.), so nothing was verified, and
           // the two lines above exist to keep that distinguishable from a clean check.
@@ -185,6 +189,22 @@ export function registerCheckCommand(program: Command): void {
           // critical conflicts"): a user with no LLM key would otherwise have every
           // commit rejected and would just uninstall the hook. It is no longer
           // SILENT, though - the lines above still print.
+          if (opts.hook) process.exit(0);
+          process.exit(EXIT_UNKNOWN);
+        } else if (result.status === 'retrieved') {
+          // Retrieval without adjudication, the third member of the family this file's ALI-414
+          // comments are about: not a pass, and emphatically not "nothing found", because
+          // relevant_decisions is populated. Only the advisory hook asks for it today, and it
+          // reads relevant_decisions rather than status - so this branch exists so that adding
+          // `depth` to either call above cannot silently render decisions as an empty graph.
+          if (!opts.hook) {
+            console.log(
+              chalk.yellow(
+                `\n  ${result.relevant_decisions.length} related decision(s) retrieved but NOT adjudicated - review them by hand.\n`,
+              ),
+            );
+            for (const d of result.relevant_decisions) console.log(chalk.dim(`  - ${d.title}`));
+          }
           if (opts.hook) process.exit(0);
           process.exit(EXIT_UNKNOWN);
         } else {

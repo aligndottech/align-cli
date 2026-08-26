@@ -193,7 +193,11 @@ export function createLocalGatewayClient(dbPath: string) {
       return { results, count: results.length, strategy: 'semantic' };
     },
 
-    async checkAlignment(diff: string, _context?: string): Promise<AlignmentResult> {
+    async checkAlignment(
+      diff: string,
+      _context?: string,
+      opts: { depth?: 'related' | 'full'; title?: string } = {},
+    ): Promise<AlignmentResult> {
       // Stage 1: embeddings find candidate related decisions (free, local).
       const embedding = await getEmbedding(diff);
       const similar = await findSimilar(embedding, 5, RELATES_THRESHOLD);
@@ -208,9 +212,42 @@ export function createLocalGatewayClient(dbPath: string) {
         return { status: 'no-context', confidence: 0, relevant_decisions: [], conflicts: [], message: 'No related decisions found in your local graph.' };
       }
 
+      // `depth:'related'` means retrieval only, and honouring it matters more here than in the
+      // cloud client. The editor hook asks for it to fit a <=10s budget (check.ts), but in
+      // local mode Stage 2 is also the only EGRESS in the pipeline: it posts the proposed
+      // content plus a stored decision to the user's own LLM provider, once per candidate, on
+      // every agent Write/Edit. This signature took two arguments, so the option was silently
+      // dropped and adjudication ran anyway - up to 5 provider calls per keystroke-level event,
+      // whose results the hook then abandoned at its 2.5s race.
+      //
+      // Matched as an allowlist-of-one rather than `!== 'full'`, which would be the safer
+      // polarity for an egress guard, because the two callers that MUST adjudicate
+      // (`align check` and `--ci`, check.ts) pass no depth at all. Inverting it would silence
+      // them. The cost of this direction: a future caller misspelling the value adjudicates,
+      // so keep `depth` typed as the union at every call site rather than widening it.
+      if (opts.depth === 'related') {
+        return {
+          status: 'retrieved',
+          confidence: Math.max(...candidates.map(c => c.score)),
+          relevant_decisions: candidates.map(c => ({
+            id: c.id,
+            title: c.title,
+            summary: c.summary,
+            similarity: c.score,
+            url: c.sourceUrl ?? undefined,
+          })),
+          conflicts: [],
+          message: `Found ${candidates.length} related decision(s) - retrieval only, not adjudicated.`,
+        };
+      }
+
       // Stage 2: type each candidate against the proposed change (LLM, user's key,
       // lazy - only the few candidates we surface here). Degrades to untyped.
-      const subject = { title: 'Proposed change', summary: diff.slice(0, 2000) };
+      // The caller's title when it gave one: `align check --title` exists because adjudicating
+      // on a bare diff means judging a file header and a few `+` lines. Accepting the option in
+      // the signature and then classifying against a placeholder is the dropped-`depth` defect
+      // one field over.
+      const subject = { title: opts.title ?? 'Proposed change', summary: diff.slice(0, 2000) };
       const typed = [];
       let chainStopped = false;
       for (const c of candidates) {

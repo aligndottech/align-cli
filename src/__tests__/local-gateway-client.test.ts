@@ -121,6 +121,81 @@ describe('local-gateway-client', () => {
     expect(result.relevant_decisions).toEqual([]);
   });
 
+  // The advisory hook asks for retrieval only (`depth:'related'`, check.ts) because
+  // adjudication fits no host's hook budget - and because in local mode Stage 2 is also an
+  // EGRESS: each classification sends the proposed content plus a stored decision to the
+  // user's own LLM provider. The cloud client forwards the option (gateway #1415, status
+  // 'retrieved'); the local client's two-arg signature silently discarded it and adjudicated
+  // anyway, up to 5 provider calls per agent Write/Edit.
+  it('checkAlignment with depth "related" retrieves without ever invoking the classifier', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.75);
+    await client.captureDecision('Use Postgres for persistence', 'cli');
+    vi.mocked(classifyRelationship).mockClear(); // scope the assertion to the check, not the capture
+
+    const result = await client.checkAlignment('migrate the database', undefined, { depth: 'related' });
+
+    expect(classifyRelationship).not.toHaveBeenCalled();
+    expect(result.status).toBe('retrieved');
+    expect(result.relevant_decisions.length).toBeGreaterThan(0);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  // Ordering only, NOT the depth property: with no candidates the method returns 'no-context'
+  // before it reads `depth` at all, so removing the depth branch leaves this green (confirmed by
+  // injection). It is here to pin that adding the branch did not disturb the empty case, and the
+  // classifier assertion below is vacuous by construction - the retrieval test above is the one
+  // that pins suppression.
+  it('checkAlignment with depth "related" leaves the empty case reporting "no-context"', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.0);
+
+    const result = await client.checkAlignment('- use js\n+ use ts', undefined, { depth: 'related' });
+
+    expect(result.status).toBe('no-context');
+    expect(result.relevant_decisions).toEqual([]);
+  });
+
+  // The widened signature accepts `title` because the cloud client does, and `align check
+  // --title` documents it as materially improving adjudication. Accepting it and dropping it is
+  // the same defect as dropping `depth`, one field over - and worse, because the old two-arg
+  // signature at least made it visibly unsupported.
+  it('checkAlignment adjudicates against the caller\'s title rather than a generic placeholder', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.75);
+    await client.captureDecision('Use Postgres for persistence', 'cli');
+    vi.mocked(classifyRelationship).mockClear();
+
+    await client.checkAlignment('diff body', undefined, { title: 'Move the main store to MySQL' });
+
+    expect(classifyRelationship).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Move the main store to MySQL' }),
+      expect.anything(),
+    );
+  });
+
+  // The default, so the assertion above cannot pass by the title being ignored in both cases.
+  it('checkAlignment falls back to "Proposed change" when no title is given', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.75);
+    await client.captureDecision('Use Postgres for persistence', 'cli');
+    vi.mocked(classifyRelationship).mockClear();
+
+    await client.checkAlignment('diff body');
+
+    expect(classifyRelationship).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Proposed change' }),
+      expect.anything(),
+    );
+  });
+
+  // The other side of the boundary: an explicit 'full' adjudicates, same as no option at all.
+  it('checkAlignment with explicit depth "full" still classifies the candidates', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.75);
+    await client.captureDecision('Use Postgres for persistence', 'cli');
+    vi.mocked(classifyRelationship).mockClear();
+
+    await client.checkAlignment('migrate the database', undefined, { depth: 'full' });
+
+    expect(classifyRelationship).toHaveBeenCalled();
+  });
+
   // ALI-414: this test previously asserted `aligned` here, pinning the fail-open. A
   // retrieved decision that was never classified is exactly the state where the CLI
   // does NOT know, and an agent branching on `status` reads `aligned` as permission

@@ -25,17 +25,20 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
       );
     }
     try {
-      // First call downloads the ~90MB model from the Hugging Face Hub.
+      // First call downloads ~23MB from the Hugging Face Hub (huggingface.co), then caches.
       // dtype 'q8' is load-bearing, not a perf tweak: @xenova/transformers@2 loaded
       // quantized weights by default and v3+ default to fp32, which shifts pairwise
       // cosine by up to 2.3e-02 against vectors already persisted in a user's local
       // graph. Pinning q8 holds that to 6.6e-04. See local-embeddings-dtype.test.ts.
+      // The size follows from that pin: q8 fetches onnx/model_quantized.onnx (22.0MiB) plus
+      // the tokenizer, where fp32 would be 86.2MiB. This comment and the copy in setup.ts
+      // and README.md said "~90MB" for both, quoting the file the pin exists to avoid.
       _pipe = (await mod.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
         dtype: 'q8',
       })) as unknown as EmbeddingPipeline;
     } catch (err) {
       throw new Error(
-        'Could not load the local embedding model (~90MB, Xenova/all-MiniLM-L6-v2). ' +
+        'Could not load the local embedding model (~23MB, Xenova/all-MiniLM-L6-v2, from huggingface.co). ' +
         'Check your internet connection or proxy and try again. ' +
         `(${(err as Error).message})`,
       );
