@@ -1,6 +1,6 @@
 # Claude Code Setup for Align CLI
 
-`@aligndottech/cli` — the open-source TypeScript CLI for Align (login, `setup`, connector imports, `ask`, MCP config). Companion to the closed `align-stack` gateway.
+`@aligndottech/cli` - the open-source TypeScript CLI for Align (login, `setup`, connector imports, `ask`, MCP config). Companion to the closed `align-stack` gateway.
 
 ## Workflow (Research → Plan → Implement → Validate, mandatory TDD)
 
@@ -17,7 +17,7 @@ Every substantial change is tracked in Linear and traceable branch → ticket �
 
 ## Repo specifics (READ THIS)
 
-- **Package manager: `npm`** (NOT pnpm). The lockfile is `package-lock.json`. Use `npm install` / `npm ci` — do not introduce `pnpm-lock.yaml`.
+- **Package manager: `npm`** (NOT pnpm). The lockfile is `package-lock.json`. Use `npm install` / `npm ci` - do not introduce `pnpm-lock.yaml`.
 - **Node ≥ 20** (CI uses Node 20).
 - **Publishing happens when the RELEASE PR merges, not when you push a tag.** There is no
   `publish.yml` (this line used to name one): the `publish` job lives in
@@ -42,8 +42,8 @@ npm run build       # tsc -> dist/
 
 ## Connector auth model (context)
 
-- **Cloud (default)** — connectors connect via **read-only browser OAuth** through the gateway (`oauthKey` on each `SetupSource`). Personal/CLI tokens are read-only; write scopes live only in the team/org bot apps.
-- **Local (`--local`)** — fully offline/private; OAuth can't run (no hosted callback), so connectors use **manual read-only token paste** (`tokenLabel`/`tokenUrl`/`extraFields`). Teams/Zoom have no personal token → cloud-only.
+- **Cloud (default)** - connectors connect via **read-only browser OAuth** through the gateway (`oauthKey` on each `SetupSource`). Personal/CLI tokens are read-only; write scopes live only in the team/org bot apps.
+- **Local (`--local`)** - fully offline/private; OAuth can't run (no hosted callback), so connectors use **manual read-only token paste** (`tokenLabel`/`tokenUrl`/`extraFields`). Teams/Zoom have no personal token → cloud-only.
 - A connector with both `oauthKey` and token metadata uses OAuth in cloud and paste in local. The cloud collect loop checks `oauthKey` first, so token metadata is inert in cloud.
 
 ## Layout
