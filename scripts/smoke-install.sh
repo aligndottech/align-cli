@@ -170,10 +170,21 @@ step "align ask (local, no key)" 120 align ask "why postgres" --env local --limi
 # retrieves nothing at all. A fixture comfortably over the bar is the point here - this step
 # tests the hook, not the threshold.
 ADVISORY_PAYLOAD='{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"config.ini","content":"replace Postgres with MySQL for the main store, dropping concurrent writers"}}'
-step "align check --advisory"   60  sh -c "printf '%s' '$ADVISORY_PAYLOAD' | align check --advisory --env local"
-# Asserted on the OUTPUT, because --advisory always exits 0 by design and `step` therefore
-# cannot fail on a hook that printed nothing. It separates a working hook from a silent one and
-# from the give-up path, which says "could not check" instead.
+# ONE invocation, captured - deliberately not a `step` call plus a capture call. The hook dedups
+# against decisions it surfaced moments ago (advisory-dedup.ts, keyed on cwd), which is correct
+# product behaviour and means a second identical run legitimately prints nothing. Running it
+# twice is what made the first version of this check fail in CI while the hook was working.
+echo ""
+echo "== align check --advisory =="
+# The pipe lives INSIDE `sh -c`, on purpose: smoke-timeout.mjs spawns with
+# stdio[0]='ignore', so piping *into* the wrapper would hand align an empty stdin and the
+# hook would read no payload at all - a silent pass-shaped failure.
+ADVISORY_OUT=$($TIMEOUT 60 sh -c "printf '%s' '$ADVISORY_PAYLOAD' | align check --advisory --env local" 2>/dev/null)
+ADVISORY_RC=$?
+echo "$ADVISORY_OUT"
+# Asserted on the OUTPUT, because --advisory always exits 0 by design and an exit-code check
+# therefore cannot fail on a hook that printed nothing. It separates a working hook from a
+# silent one and from the give-up path, which says "could not check" instead.
 #
 # What it does NOT catch, measured rather than assumed: reinstating the adjudicating LLM path
 # prints this same wording, because check.ts renders whatever `relevant_decisions` holds and
@@ -181,11 +192,10 @@ step "align check --advisory"   60  sh -c "printf '%s' '$ADVISORY_PAYLOAD' | ali
 # still passed. The no-egress property is pinned by the unit test instead ("depth related
 # retrieves without ever invoking the classifier"), which can assert the classifier was never
 # called; a latency bound is the only e2e signal and it would be flaky on a shared runner.
-ADVISORY_OUT=$(printf '%s' "$ADVISORY_PAYLOAD" | align check --advisory --env local 2>/dev/null || true)
-if printf '%s' "$ADVISORY_OUT" | grep -q "NOT been adjudicated"; then
+if [ "$ADVISORY_RC" -eq 0 ] && printf '%s' "$ADVISORY_OUT" | grep -q "NOT been adjudicated"; then
   echo "PASS: advisory hook surfaced related decisions, retrieval-only, with no provider key"
 else
-  echo "FAIL: advisory hook did not take the retrieval path. Got: ${ADVISORY_OUT:-<no output>}"
+  echo "FAIL: advisory hook did not take the retrieval path (exit $ADVISORY_RC$([ "$ADVISORY_RC" -eq 124 ] && echo ' = TIMED OUT')). Got: ${ADVISORY_OUT:-<no output>}"
   FAILURES=$((FAILURES + 1))
 fi
 step "align mcp --setup"        60  align mcp --setup --env local
