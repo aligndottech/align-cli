@@ -58,7 +58,7 @@ function buildUserPrompt(
 //                 or a weaker model silently answers in the chosen one's place
 type AdapterOutcome =
   | { kind: 'answer'; text: string }
-  | { kind: 'unavailable'; detail: string }
+  | { kind: 'unavailable'; detail: string; unrecognisedModels?: string[] }
   | { kind: 'failed'; model: string; detail: string };
 
 /** Classify a non-2xx response: availability-class advances, anything else stops. */
@@ -338,38 +338,29 @@ export function resolveOllamaModel(installed: string[], override?: string): Olla
   return { ok: false, reason: 'no_recognised_model' };
 }
 
-let unvettedOllamaModels: string[] | null = null;
-
 /**
- * The models Ollama had when it declined to answer for want of a vetted one (ALI-420),
- * or null when that did not happen. Read it on the failure branch to say WHY there was
- * no answer, the same way `hasConfiguredProvider()` is read there.
+ * Why a chat produced no answer. RETURNED to the caller, never stashed in module
+ * state: the previous design recorded it in a module variable cleared at each
+ * `callChat` entry, so "the recording describes THIS call" held only while nothing
+ * ran concurrently, and it was enforced by a comment. Two overlapping calls (parallel
+ * MCP request handlers, a `Promise.all` over candidates) had one clearing the other's
+ * diagnosis, so a caller could read a sibling's failure or none at all. Returning it
+ * makes the guarantee structural - a value on the call stack cannot be clobbered.
  *
- * Recorded rather than re-probed: `tryOllama` has already fetched `/api/tags`.
- * Cleared at every callChat entry (a chain stop can end the run before step 4 - see
- * ALI-692), so whenever a caller asks, the recording is from this run.
+ *  - `no_provider` - nothing was configured and nothing local answered.
+ *  - `unrecognised_local_models` - Ollama is running and no installed model is
+ *    recognised for synthesis (ALI-420). Carries the models, so a caller can name them.
+ *  - `provider_stopped` - a provider WAS reached and its response was unusable, so the
+ *    chain stopped rather than demoting to a weaker model (ALI-692).
  */
-export function getUnvettedOllamaModels(): string[] | null {
-  return unvettedOllamaModels;
-}
+export type LlmFailure =
+  | { kind: 'no_provider' }
+  | { kind: 'unrecognised_local_models'; models: string[] }
+  | { kind: 'provider_stopped'; provider: string; model: string; detail: string };
 
-/**
- * The provider/model the fallback chain STOPPED on, and why (ALI-692), or null when
- * the last call answered or every failure was availability-class. Same recorded-not-
- * re-probed contract as getUnvettedOllamaModels above: cleared at each callChat entry,
- * so whenever a caller asks, the recording is from this run.
- */
-export interface LlmFailure {
-  provider: string;
-  model: string;
-  detail: string;
-}
-
-let llmFailure: LlmFailure | null = null;
-
-export function getLlmFailure(): LlmFailure | null {
-  return llmFailure;
-}
+export type ChatResult =
+  | { ok: true; text: string }
+  | { ok: false; failure: LlmFailure };
 
 /**
  * Error-body wordings that mean PERMANENT: this key or this model cannot answer here
@@ -435,11 +426,6 @@ export function isAvailabilityFailure(status: number, body: string): boolean {
   return AVAILABILITY_BODY_PATTERNS.some(p => p.test(text));
 }
 
-/** Test seam: clears both recordings above between cases. */
-export function resetLlmDiagnostics(): void {
-  unvettedOllamaModels = null;
-  llmFailure = null;
-}
 
 async function tryOllama(
   system: string,
@@ -450,11 +436,6 @@ async function tryOllama(
   // would otherwise make every probe a relative URL that fetch cannot parse, so a
   // healthy local Ollama is never asked and the user is told to configure a key.
   const host = process.env['OLLAMA_HOST'] || 'http://localhost:11434';
-
-  // Clear first, so the recording always describes THIS attempt. Without it a refusal
-  // from an earlier call in the same process outlives its cause, and a later failure
-  // with a different cause inherits the wrong diagnosis.
-  unvettedOllamaModels = null;
 
   // The /api/tags probe is discovery, not a model answering: every way it can fail
   // (not running, no models, nothing recognised) means "no usable model here".
@@ -467,8 +448,11 @@ async function tryOllama(
     if (!models.length) return { kind: 'unavailable', detail: 'no models installed' };
     const choice = resolveOllamaModel(models, process.env['ALIGN_OLLAMA_MODEL']);
     if (!choice.ok) {
-      if (choice.reason === 'no_recognised_model') unvettedOllamaModels = models;
-      return { kind: 'unavailable', detail: choice.reason };
+      // The models travel WITH the outcome, so the caller that asked gets them - see
+      // LlmFailure. A module variable here could be cleared by a concurrent call.
+      return choice.reason === 'no_recognised_model'
+        ? { kind: 'unavailable', detail: choice.reason, unrecognisedModels: models }
+        : { kind: 'unavailable', detail: choice.reason };
     }
     model = choice.model;
   } catch (err) {
@@ -555,8 +539,9 @@ const ALL_PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'gemini', 'groq', 'm
  *
  * `callChat` returns null for a missing key and for a provider that answered unusably
  * alike, so a caller that needs to tell "never configured" from "configured but
- * failed" has to ask - this, then `getLlmFailure()` for the second case, which is the
- * one this function cannot see. Deliberately synchronous and env-only: it does NOT probe Ollama, so a
+ * failed" has to ask - this, then the failure `callChatDetailed` returned for the
+ * second case, which is the one this function cannot see. Deliberately synchronous and
+ * env-only: it does NOT probe Ollama, so a
  * machine whose only provider is a broken local Ollama reads as unconfigured. The
  * remedy that points at - configure a provider - is still the right one.
  */
@@ -572,35 +557,35 @@ export function hasConfiguredProvider(): boolean {
  *      Together, DeepSeek, LM Studio, vLLM, ...) via ALIGN_LLM_MODEL/ALIGN_LLM_API_KEY
  *   3. named providers by env key (Anthropic, OpenAI, Gemini, Groq, Mistral, Grok)
  *   4. local Ollama (no key)
- * Returns the model's text, or null if nothing is available (callers fall back).
+ * Returns the model's text, or the reason there is none - see LlmFailure. The reason
+ * is RETURNED rather than recorded in module state, so concurrent calls cannot read
+ * each other's diagnosis.
  *
  * ALI-692: only an availability-class failure advances that chain (see
- * isAvailabilityFailure). Anything else - the chosen model answering unusably, a
- * rate limit, a 5xx - stops it, returns null, and is recorded on getLlmFailure()
- * so the caller can name the model instead of a weaker one answering in its place.
+ * isAvailabilityFailure). Anything else - the chosen model answering unusably, a rate
+ * limit, a 5xx - stops it, so the caller can name the model that failed instead of a
+ * weaker one answering in its place.
  */
-export async function callChat(
+export async function callChatDetailed(
   system: string,
   user: string,
   opts?: CallChatOptions,
-): Promise<string | null> {
+): Promise<ChatResult> {
   const maxTokens = opts?.maxTokens;
   const temperature = opts?.temperature;
 
-  // Each call describes itself: cleared here so a caller reading the diagnostics
-  // after a null sees THIS run's stop. The Ollama recording must clear here too, not
-  // only inside tryOllama - a stop earlier in the chain means step 4 never runs, and
-  // an earlier call's refusal would outlive its cause and misdiagnose this one.
-  llmFailure = null;
-  unvettedOllamaModels = null;
+  // The most specific unavailability seen while walking the chain. Only Ollama can
+  // produce one today, and it is a local (not module) variable, so a sibling call
+  // cannot clear it mid-flight - which is the whole point of this shape.
+  let unrecognised: string[] | undefined;
 
-  // An answer or a stop returns a value; availability returns undefined = advance.
-  const settle = (outcome: AdapterOutcome, provider: string): string | null | undefined => {
-    if (outcome.kind === 'answer') return outcome.text;
+  // An answer or a stop settles the chain; availability advances it (undefined).
+  const settle = (outcome: AdapterOutcome, provider: string): ChatResult | undefined => {
+    if (outcome.kind === 'answer') return { ok: true, text: outcome.text };
     if (outcome.kind === 'failed') {
-      llmFailure = { provider, model: outcome.model, detail: outcome.detail };
-      return null;
+      return { ok: false, failure: { kind: 'provider_stopped', provider, model: outcome.model, detail: outcome.detail } };
     }
+    if (outcome.unrecognisedModels) unrecognised = outcome.unrecognisedModels;
     return undefined;
   };
 
@@ -610,7 +595,7 @@ export async function callChat(
       await callProvider(opts.provider, opts.apiKey, system, user, maxTokens, temperature),
       opts.provider,
     );
-    if (settled !== undefined) return settled;
+    if (settled) return settled;
   }
 
   // 2. generic OpenAI-compatible escape hatch - covers any provider
@@ -622,7 +607,7 @@ export async function callChat(
       await tryOpenAiCompatible(system, user, chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
       'custom',
     );
-    if (settled !== undefined) return settled;
+    if (settled) return settled;
   }
 
   // 3. named providers via env keys, in priority order
@@ -634,20 +619,47 @@ export async function callChat(
         await callProvider(provider, key, system, user, maxTokens, temperature),
         provider,
       );
-      if (settled !== undefined) return settled;
+      if (settled) return settled;
     }
   }
 
   // 4. local Ollama as last resort
-  return settle(await tryOllama(system, user, temperature), 'ollama') ?? null;
+  const settled = settle(await tryOllama(system, user, temperature), 'ollama');
+  if (settled) return settled;
+
+  // Nothing answered. An unrecognised local model is the more specific diagnosis and
+  // its remedy is the opposite of "configure a provider", so it wins (ALI-420).
+  return unrecognised
+    ? { ok: false, failure: { kind: 'unrecognised_local_models', models: unrecognised } }
+    : { ok: false, failure: { kind: 'no_provider' } };
+}
+
+/** Text-only convenience wrapper. Use callChatDetailed when you need to say WHY. */
+export async function callChat(
+  system: string,
+  user: string,
+  opts?: CallChatOptions,
+): Promise<string | null> {
+  const result = await callChatDetailed(system, user, opts);
+  return result.ok ? result.text : null;
 }
 
 /** Synthesise a natural-language answer from retrieved decisions, using any configured provider. */
+export async function synthesiseDetailed(
+  question: string,
+  decisions: Array<{ id: string; title: string; summary: string }>,
+  options?: LocalLlmOptions,
+): Promise<ChatResult> {
+  const user = buildUserPrompt(question, decisions);
+  return callChatDetailed(SYNTHESIS_SYSTEM_PROMPT, user, { provider: options?.provider, apiKey: options?.apiKey });
+}
+
+/** Text-only wrapper on synthesiseDetailed, for callers that cannot use the reason. */
 export async function synthesiseLocally(
   question: string,
   decisions: Array<{ id: string; title: string; summary: string }>,
   options?: LocalLlmOptions,
 ): Promise<string | null> {
-  const user = buildUserPrompt(question, decisions);
-  return callChat(SYNTHESIS_SYSTEM_PROMPT, user, { provider: options?.provider, apiKey: options?.apiKey });
+  const result = await synthesiseDetailed(question, decisions, options);
+  return result.ok ? result.text : null;
 }

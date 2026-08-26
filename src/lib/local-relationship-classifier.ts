@@ -14,7 +14,7 @@ import {
   isDecisionRelationship,
 } from '@aligndottech/connector-core';
 
-import { callChat, getLlmFailure, getUnvettedOllamaModels, hasConfiguredProvider } from './local-llm.js';
+import { callChatDetailed, hasConfiguredProvider, type LlmFailure } from './local-llm.js';
 
 // ALI-219: the canonical decision-graph vocabulary is the single source of truth
 // (connector-core). The local classifier must only emit types the graph accepts,
@@ -32,7 +32,7 @@ export interface ClassifiedRelationship {
 /**
  * Why a candidate edge could not be typed. This enum stays coarse on purpose: since
  * ALI-692 `callChat` CAN tell a timeout from a 429 from an empty body, but the finer
- * detail travels on `getLlmFailure()` (provider, model, detail) rather than by adding
+ * detail travels on the outcome's `failure` (provider, model, detail) rather than by adding
  * a reason per failure mode, so presenters name the model without this union growing
  * a member every time a provider invents a new way to fail.
  */
@@ -52,7 +52,13 @@ export type ClassifierFailureReason =
 
 export type ClassificationOutcome =
   | { ok: true; relationship: ClassifiedRelationship }
-  | { ok: false; reason: ClassifierFailureReason };
+  /**
+   * `failure` carries WHICH provider and model failed, when one did. It is on the
+   * value rather than on a module getter so a presenter reads the diagnosis for the
+   * candidate it actually asked about - the reason `align check` could previously
+   * report classifier_error with no remedy attached.
+   */
+  | { ok: false; reason: ClassifierFailureReason; failure?: LlmFailure };
 
 interface DecisionLite {
   title: string;
@@ -83,21 +89,21 @@ export async function classifyRelationship(
   // ALI-218/219: pin the shared deterministic temperature so the same decision
   // pair types the same way every run - offline relationship detection must be
   // deterministic, and the value is the one both paths share (connector-core).
-  const raw = await callChat(SYSTEM_PROMPT, buildUserPrompt(subject, candidate), {
+  const result = await callChatDetailed(SYSTEM_PROMPT, buildUserPrompt(subject, candidate), {
     temperature: DETERMINISTIC_TEMPERATURE,
   });
-  if (!raw) {
-    // Order matters: an unvetted local model is a more specific diagnosis than either of
-    // the other two, and `hasConfiguredProvider()` is env-only so it cannot see it.
-    if (getUnvettedOllamaModels()) return { ok: false, reason: 'unvetted_local_model' };
-    // ALI-692: a recorded chain stop means a provider WAS reached and answered unusably.
-    // It has to be checked as well as hasConfiguredProvider(), which is env-only and so
-    // cannot see a local Ollama - without it that case misreports as no_llm_key. The
-    // model that failed is on getLlmFailure(); presenters read it for the remedy.
-    const reason = getLlmFailure() || hasConfiguredProvider() ? 'classifier_error' : 'no_llm_key';
-    return { ok: false, reason };
+  if (!result.ok) {
+    // Each mapping below reads the failure the call RETURNED, so it describes this
+    // candidate's attempt and nothing else. `hasConfiguredProvider()` is still the
+    // tiebreak for no_provider, because it is env-only and so is the only thing that
+    // can tell "keys exist but every one was rejected" from "nothing is configured".
+    const reason: ClassifierFailureReason =
+      result.failure.kind === 'unrecognised_local_models' ? 'unvetted_local_model'
+        : result.failure.kind === 'provider_stopped' ? 'classifier_error'
+          : hasConfiguredProvider() ? 'classifier_error' : 'no_llm_key';
+    return { ok: false, reason, failure: result.failure };
   }
-  const relationship = parseRelationship(raw);
+  const relationship = parseRelationship(result.text);
   return relationship ? { ok: true, relationship } : { ok: false, reason: 'classifier_unparseable' };
 }
 

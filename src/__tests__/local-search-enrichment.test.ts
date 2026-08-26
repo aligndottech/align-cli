@@ -27,9 +27,7 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 // See the note in local-query-integration.test.ts: fake the surface `ask` uses, not just
 // the one call this file exercises.
 vi.mock('../lib/local-llm.js', () => ({
-  synthesiseLocally: vi.fn().mockResolvedValue(null),
-  getUnvettedOllamaModels: vi.fn().mockReturnValue(null),
-  getLlmFailure: vi.fn().mockReturnValue(null),
+  synthesiseDetailed: vi.fn().mockResolvedValue({ ok: false, failure: { kind: 'no_provider' } }),
   RECOMMENDED_OLLAMA_PULL: 'llama3.2',
 }));
 

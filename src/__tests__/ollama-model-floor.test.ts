@@ -5,13 +5,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  callChat,
-  getUnvettedOllamaModels,
+  callChatDetailed,
+  type ChatResult,
   OLLAMA_MODEL_FAMILIES,
   RECOMMENDED_OLLAMA_PULL,
-  resetLlmDiagnostics,
   resolveOllamaModel,
 } from '../lib/local-llm.js';
+
+// The unrecognised models are RETURNED on the failure now, not read from a getter.
+const unrecognisedOf = (r: ChatResult) =>
+  !r.ok && r.failure.kind === 'unrecognised_local_models' ? r.failure.models : null;
+const textOf = (r: ChatResult) => (r.ok ? r.text : null);
 
 // Real Ollama tag names. The unvetted one is the model from the ticket's reproduction.
 const PENTEST = 'WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M';
@@ -195,7 +199,6 @@ describe('callChat falls back to Ollama only through the floor (ALI-420)', () =>
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();
     for (const k of ALL_KEYS) vi.stubEnv(k, '');
-    resetLlmDiagnostics();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -205,9 +208,9 @@ describe('callChat falls back to Ollama only through the floor (ALI-420)', () =>
   it('refuses to generate at all when the only model is unvetted', async () => {
     ollamaWith([PENTEST]);
 
-    const r = await callChat('sys', 'usr');
+    const r = await callChatDetailed('sys', 'usr');
 
-    expect(r).toBeNull();
+    expect(textOf(r)).toBeNull();
     // The assertion that separates "refused" from "answered badly": a warning-only fix
     // would still have POSTed here and printed prose from the pentest model.
     expect(generateCalls()).toHaveLength(0);
@@ -217,9 +220,9 @@ describe('callChat falls back to Ollama only through the floor (ALI-420)', () =>
     // The pair for the rule above - proves the floor did not just break synthesis.
     ollamaWith(['llama3.2:latest']);
 
-    const r = await callChat('sys', 'usr');
+    const r = await callChatDetailed('sys', 'usr');
 
-    expect(r).toBe('synthesised answer');
+    expect(textOf(r)).toBe('synthesised answer');
     expect(JSON.parse(generateCalls()[0][1].body as string).model).toBe('llama3.2:latest');
   });
 
@@ -227,40 +230,41 @@ describe('callChat falls back to Ollama only through the floor (ALI-420)', () =>
     vi.stubEnv('ALIGN_OLLAMA_MODEL', PENTEST);
     ollamaWith([PENTEST]);
 
-    const r = await callChat('sys', 'usr');
+    const r = await callChatDetailed('sys', 'usr');
 
-    expect(r).toBe('synthesised answer');
+    expect(textOf(r)).toBe('synthesised answer');
     expect(JSON.parse(generateCalls()[0][1].body as string).model).toBe(PENTEST);
   });
 
   it('records the unvetted models so a caller can name them', async () => {
     ollamaWith([PENTEST, CODER]);
 
-    await callChat('sys', 'usr');
+    const r = await callChatDetailed('sys', 'usr');
 
-    expect(getUnvettedOllamaModels()).toEqual([PENTEST, CODER]);
+    expect(unrecognisedOf(r)).toEqual([PENTEST, CODER]);
   });
 
   it('records nothing when a vetted model answered', async () => {
     ollamaWith(['llama3.2:latest']);
 
-    await callChat('sys', 'usr');
+    const r = await callChatDetailed('sys', 'usr');
 
-    expect(getUnvettedOllamaModels()).toBeNull();
+    expect(unrecognisedOf(r)).toBeNull();
   });
 
   it('a later attempt does not inherit an earlier refusal', async () => {
-    // The recording describes the most recent attempt or it is worse than useless: a
-    // stale one makes a later failure with a different cause report the wrong diagnosis.
-    // Found by an existing classifier test going red, not by writing this first.
+    // Each attempt's diagnosis is on its OWN result, so a refusal cannot outlive its
+    // cause and make a later failure report the wrong reason. This used to depend on
+    // clearing a module variable at the right moment; now both values coexist and
+    // still disagree, which is the same guarantee without the timing.
     ollamaWith([PENTEST]);
-    await callChat('sys', 'usr');
-    expect(getUnvettedOllamaModels()).toEqual([PENTEST]);
+    const refused = await callChatDetailed('sys', 'usr');
 
     mockFetch.mockResolvedValue({ ok: false }); // Ollama gone on the next call
-    await callChat('sys', 'usr');
+    const gone = await callChatDetailed('sys', 'usr');
 
-    expect(getUnvettedOllamaModels()).toBeNull();
+    expect(unrecognisedOf(refused)).toEqual([PENTEST]);
+    expect(unrecognisedOf(gone)).toBeNull();
   });
 
   it('records nothing when Ollama has no models at all', async () => {
@@ -268,9 +272,9 @@ describe('callChat falls back to Ollama only through the floor (ALI-420)', () =>
     // stop using a model the user does not have.
     ollamaWith([]);
 
-    const r = await callChat('sys', 'usr');
+    const r = await callChatDetailed('sys', 'usr');
 
-    expect(r).toBeNull();
-    expect(getUnvettedOllamaModels()).toBeNull();
+    expect(textOf(r)).toBeNull();
+    expect(unrecognisedOf(r)).toBeNull();
   });
 });
