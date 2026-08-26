@@ -5,11 +5,20 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Node](https://img.shields.io/node/v/@aligndottech/cli.svg)](https://nodejs.org)
 
-**AI agents are shipping code from decisions they can't see.**
+**Your AI agents know the code. They don't know the company.**
 
-[Align](https://align.tech) captures the reasoning behind every engineering choice - across Git, GitHub, GitLab, Jira, Confluence, Linear, Slack, Microsoft Teams, Zoom, and Notion - links them into a cross-tool decision graph, and surfaces that context to every agent and engineer on your team.
+The decisions behind the code live in commits, tickets, chat and meetings - and months later
+nobody can tell what still stands, what conflicts, or why. [Align](https://align.tech) pulls
+those decisions into one graph your agents and your team check before they build.
 
-The CLI lets you import your decision history, query it in plain English, and run Align as a local [MCP](https://modelcontextprotocol.io) server so your AI assistants have authoritative context inline - and check their changes against it automatically.
+This CLI is the free, open-source way in. It builds a decision graph from the tools you
+already use - git history, GitHub, GitLab, Jira, Confluence, Linear, Slack, Teams, Zoom,
+Notion - and serves it to any MCP agent, with an edit hook that surfaces prior decisions
+before the agent writes. No account required. Beta, pre-1.0.
+
+In a published benchmark, giving a coding agent recorded product decisions took decision
+compliance from 46% to 95% ([Dillon & Varanasi, arXiv:2605.08112](https://arxiv.org/abs/2605.08112) -
+a small vendor study, 8 tasks and 41 decision points, and it isn't our data).
 
 ```
 npm install -g @aligndottech/cli
@@ -17,15 +26,15 @@ npm install -g @aligndottech/cli
 
 Node 20+ required. MIT licensed.
 
-> **Install notes.** Cloud mode needs no native build. `--local` mode additionally
+> **Install notes.** Cloud mode needs no native build. Local-only mode additionally
 > uses an on-device embedding model (`@huggingface/transformers`, an optional dependency)
 > that ships native binaries for macOS, glibc Linux, and Windows (x64/arm64) - on
 > those platforms `npm i -g` just works. On Alpine/musl, uncommon architectures, or
 > behind a strict proxy the optional model may not install; the global install still
-> succeeds and cloud mode works, and `--local` will tell you the model is unavailable
-> rather than failing silently. The first `--local` import downloads the model from
-> huggingface.co (~23MB) once, and local mode cannot start until that succeeds - so on a
-> restricted network, check that host is reachable before you begin.
+> succeeds and cloud mode works, and local-only mode will tell you the model is unavailable
+> rather than failing silently. The first import downloads the model from
+> huggingface.co (~23MB) once, and nothing local can be embedded or searched until that
+> succeeds - so on a restricted network, check that host is reachable before you begin.
 
 ## Quick start
 
@@ -59,16 +68,21 @@ Want a hand setting this up? I do free 30 minute setup calls: https://calendly.c
 
 1. **Import** pulls the decisions out of the tools you already use - read-only, nothing is modified.
 2. Align links them into a **cross-tool decision graph**: what was decided, why, who decided it, and how decisions relate (supersedes, conflicts with, depends on).
-3. Your agents and you **query and check against** that graph - over MCP, a deterministic edit hook in your agent, CI, or plain `align ask`.
+3. Your agents and you **query and check against** that graph - over MCP, an edit hook in your agent, CI, or plain `align ask`.
 
-The CLI and MCP server are open source (this repo). The hosted graph + relationship detection is a separate commercial gateway; you can also run fully local with `--local`.
+Wiring context into an agent is the easy part, and this repo is the open-source version of it.
+The hard part is the record underneath: what your team actually decided, across every tool,
+kept current. The CLI and MCP server are open source (this repo,
+plus the [connector SDK](https://github.com/aligndottech/align-connector-sdk)). The hosted
+graph and the heavier cross-tool relationship detection are a separate commercial gateway; you
+can also run fully local with `--local`.
 
 ## Auto-alignment for AI agents
 
 When you run `align setup`, Align makes itself available to your AI agents four ways, so the context fires whether or not the model thinks to ask for it:
 
 1. **MCP server** - your assistant (Claude Code, Cursor, Claude Desktop, Windsurf) can query the decision graph inline. The server ships with instructions telling the agent to check alignment *before* making non-trivial changes.
-2. **Deterministic edit hooks** - setup registers `align check --advisory` with every host that exposes a hook API, so prior decisions related to the change reach the model whether or not it thought to ask. **Claude Code** (`.claude/settings.json`), **pi** (`.pi/extensions/align.ts`), **Gemini CLI** (`.gemini/settings.json`) and **OpenCode** (`.opencode/plugins/align.js`) all check the *proposed* change before it is written. It is **non-blocking and fail-open**: it never denies an edit by default, and if Align is missing, slow or unreachable the edit proceeds untouched.
+2. **Edit hooks** - setup registers `align check --advisory` with every host that exposes a hook API, so prior decisions related to the change reach the model whether or not it thought to ask. **Claude Code** (`.claude/settings.json`), **pi** (`.pi/extensions/align.ts`), **Gemini CLI** (`.gemini/settings.json`) and **OpenCode** (`.opencode/plugins/align.js`) all check the *proposed* change before it is written. It is **non-blocking and fail-open**: it never denies an edit by default, and if Align is missing, slow or unreachable the edit proceeds untouched. The hook is retrieval only, so it needs no AI provider key and makes no provider call.
 
    **Cursor and Codex CLI cannot do this**, and that is a limit of those hosts, not a gap in setup: Cursor has no `beforeFileEdit` and its `afterFileEdit` hook has no output fields, and Codex's `PreToolUse` intercepts Bash only. They get layers 1, 3 and 4. The full per-host matrix, and why, is in [docs/agent-hooks.md](docs/agent-hooks.md).
 3. **Editor rules** - a managed, marker-delimited block in your `CLAUDE.md` and `AGENTS.md`, plus a `.cursor/rules/align.md` file (Cursor doesn't honor Claude Code hooks), nudge agents to consult the graph.
@@ -78,7 +92,7 @@ The hook, rule and `.mcp.json` files are committed to the repo, so the whole tea
 
 > **Heads up:** the first time Claude Code loads a project with a committed hook, it shows a one-time "approve hooks" prompt. Accept it to enable automatic alignment.
 
-You can also run the advisory check yourself. It always exits 0, and when it finds related prior decisions (or could not check at all) prints the hook output in whichever host's shape you ask for - `--format text` is plain prose for a host with no JSON contract. It reports the decisions as related, not as conflicts: retrieval finds decisions on the same subject and does not adjudicate opposition.
+You can also run the advisory check yourself. It always exits 0, and when it finds related prior decisions (or could not check at all) prints the hook output in whichever host's shape you ask for - `--format text` is plain prose for a host with no JSON contract. It reports the decisions as related, not as conflicts: retrieval finds decisions on the same subject and does not adjudicate opposition. A decision the hook surfaced moments ago in the same directory is not repeated, so the pre and post hooks don't say everything twice.
 
 ```bash
 align check --advisory                  # Claude Code shape (default)
@@ -96,7 +110,7 @@ align ask "what was decided about caching"
 align ask "do we use redis"
 ```
 
-Ask in plain English - the graph picks keyword or semantic search automatically based on your phrasing, so full questions ("why do we use postgres") work as well as short terms ("postgres"). Pass a file path instead of a question to find decisions related to that file:
+Ask in plain English. In cloud mode the gateway picks keyword or semantic search based on your phrasing; in local-only mode every query is semantic. Either way, full questions ("why do we use postgres") work as well as short terms ("postgres"). Pass a file path instead of a question to find decisions related to that file:
 
 ```bash
 align ask src/auth/session.ts
@@ -106,16 +120,17 @@ align ask src/auth/session.ts
 
 Align is **provider-agnostic** - `align ask` (and local relationship typing) uses **your own AI provider**. It resolves one, in order:
 
-1. A named provider via env key: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `GROQ_API_KEY`, `MISTRAL_API_KEY`, or `GROK_API_KEY` (or `XAI_API_KEY`). Each has an optional model override (`ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`).
-2. **Any OpenAI-compatible endpoint** via `ALIGN_LLM_BASE_URL` (+ `ALIGN_LLM_API_KEY`, `ALIGN_LLM_MODEL`) - covers OpenRouter, Together, DeepSeek, LM Studio, vLLM, or any self-hosted OpenAI-compatible server. Example:
+1. A provider you configured explicitly during `align setup`, if you did.
+2. **Any OpenAI-compatible endpoint** via `ALIGN_LLM_BASE_URL` (+ `ALIGN_LLM_API_KEY`, `ALIGN_LLM_MODEL`) - covers OpenRouter, Together, DeepSeek, LM Studio, vLLM, or any self-hosted OpenAI-compatible server. This outranks the named keys below, so it wins even when `ANTHROPIC_API_KEY` is also set. Example:
    ```bash
-   export ALIGN_LLM_BASE_URL=https://openrouter.ai/api/v1
-   export ALIGN_LLM_API_KEY=sk-or-...
-   export ALIGN_LLM_MODEL=anthropic/claude-3.5-sonnet
+   export ALIGN_LLM_BASE_URL=https://api.deepseek.com
+   export ALIGN_LLM_API_KEY=sk-...
+   export ALIGN_LLM_MODEL=deepseek-chat
    ```
-3. [Ollama](https://ollama.com) running locally (auto-detected on `localhost:11434`, override `OLLAMA_HOST`), with a general-purpose model from a recognised family installed: `llama`, `mistral`, `gemma`, `phi`, `qwen` or `deepseek-r`. The installed version is read from Ollama itself, so a new release of any of those works the day it ships, and the newest one you have is the one used.
+3. A named provider via env key: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `GROQ_API_KEY`, `MISTRAL_API_KEY`, or `GROK_API_KEY` (or `XAI_API_KEY`). Each has an optional model override (`ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`).
+4. [Ollama](https://ollama.com) running locally (auto-detected on `localhost:11434`, override `OLLAMA_HOST`), with a general-purpose model from a recognised family installed: `llama`, `mistral`, `gemma`, `phi`, `qwen` or `deepseek-r`. The installed version is read from Ollama itself, so a new release of any of those works the day it ships; families are tried in the order above, and within the first one you have installed, the newest wins.
 
-   Ollama will not answer from a model outside those families, or from one tuned for a different job (a `-coder`, `-math`, `-embed`, `-vision` or `-uncensored` variant). Such a model will still write fluent prose about your decisions, including relationships between them that do not exist, and it is not obvious from the output that anything went wrong. To use any model regardless, name it and it is used as-is:
+   Ollama will not answer from a model outside those families, or from one tuned for a different job (any tag containing `coder`, `code`, `math`, `embed`, `guard`, `vision`, `uncensored` or `dolphin`). Such a model will still write fluent prose about your decisions, including relationships between them that do not exist, and it is not obvious from the output that anything went wrong. To use any model regardless, name it and it is used as-is:
 
    ```bash
    export ALIGN_OLLAMA_MODEL=my-fine-tune:latest
@@ -123,27 +138,42 @@ Align is **provider-agnostic** - `align ask` (and local relationship typing) use
 
 If none is available, `align ask` still works - it prints a ranked list of the matching decisions instead of a synthesised paragraph. No key is ever required.
 
-**Note:** A Claude.ai or ChatGPT subscription is not the same as an API key - you need a separate API account. [Groq](https://console.groq.com/keys) offers a free tier with no credit card and is the fastest option.
+**Note:** A Claude.ai or ChatGPT subscription is not the same as an API key - you need a separate API account. [Groq](https://console.groq.com/keys) offers a free tier with no credit card.
 
-The retrieval itself (search over your graph) always runs against Align - the API key is only used locally to phrase the answer.
+In cloud mode, retrieval (the search over your graph) runs on Align's gateway and the provider key is only used locally to phrase the answer. In local-only mode, retrieval is on-device too.
 
 ## Authentication
 
 ```bash
-align login                  # opens browser, paste token when prompted
+align login                  # opens your browser; the token arrives via a localhost callback
 align login --token algt_...  # non-interactive, good for CI / self-hosted
 align whoami                 # verify current session
 align logout                 # clear stored credentials
 ```
 
-Tokens are stored locally in your OS config directory. To create one manually, go to **Settings > API Tokens** in the Align web app.
+`align login` starts a small localhost listener, opens the Align sign-in page, and receives the token on the callback - nothing to paste. It prints the sign-in URL too, in case the browser does not open; if the callback cannot complete (a locked-down machine, no free port), use `align login --token` instead. Tokens are stored locally in your OS config directory. To create one manually, go to **Settings > API Tokens** in the Align web app.
 
-## Cloud vs local mode
+## Cloud or local-only
 
 `align setup` offers two modes:
 
 - **Personal cloud** (default) - your decision graph is hosted at Align: synced across machines, backed up, and upgradeable to a shared team workspace. Connectors connect via **read-only browser OAuth** (no tokens to paste), and `align ask` retrieval runs server-side. Nothing you connect can be modified by the CLI - it only reads.
-- **Local-only** (`align setup --local`) - **no account, and no Align servers**: the graph, embeddings, and search all live in a SQLite database on your machine, and the CLI never sends your decisions to us. Three things do use the network, all worth knowing before you point it at work content. The embedding model downloads once from huggingface.co. Then, **only if a provider key is set in your environment** (see below), two commands call **your own AI provider**: `align ask` sends your question plus the titles and summaries of the decisions it retrieved (up to `--limit`, default 8), and `align check` sends up to 2,000 characters of the proposed change paired with one retrieved decision at a time. With no key set, nothing at all leaves the machine after that first download - retrieval is on-device, so the editor hook still surfaces related decisions. Seeds from your git history out of the box; other sources connect by pasting a **read-only personal token** (OAuth needs the hosted callback, so it isn't available offline). Related decisions are surfaced on-device by semantic similarity; typed relationships (supersedes / conflicts with / depends on) and conflict detection on a change are typed at query time using **your own AI provider key** (Anthropic, OpenAI, or a local Ollama) - without one, related decisions still surface, just not typed. The heavier cross-tool relationship detection runs in the hosted gateway. Run `align local status` to inspect it, `align local reset` to wipe it.
+- **Local-only** (`align setup --local`) - **no account, and no Align servers**: the graph, embeddings, and search all live in a SQLite database on your machine, and the CLI never sends your decisions to us.
+
+What uses the network in local-only mode, all worth knowing before you point it at work content:
+
+- The embedding model downloads once from huggingface.co (~23MB), on the first import.
+- **Only when an AI provider is available** - an API key in your environment, or a running Ollama, which needs no key - three surfaces call **your own provider**: `align ask` sends your question plus the titles and summaries of the decisions it retrieved (up to `--limit`, default 8), and `align check` and the MCP tool `align_check_alignment` send up to 2,000 characters of the proposed change paired with one retrieved decision at a time. The editor hook never does - it is retrieval only, provider or no provider.
+- Ollama runs on your own machine by default, so those calls stay local - unless you have pointed `OLLAMA_HOST` at another box, in which case they go there.
+- With no provider available at all, nothing else goes out after that first download: retrieval is on-device, so the editor hook still surfaces related decisions.
+
+How the local graph behaves:
+
+- Seeds from your git history out of the box; other sources connect by pasting a **read-only personal token** (OAuth needs the hosted callback, so it isn't available offline). Add `--env local` to any `align import <tool>` run.
+- **Re-importing is safe**: a decision is identified by its source URL and title, so running the same import twice updates what changed rather than duplicating the graph.
+- Related decisions are surfaced on-device by semantic similarity; typed relationships (supersedes / conflicts with / depends on) are typed at query time using **your own AI provider key** (Anthropic, OpenAI, or a local Ollama) - without one, related decisions still surface, just not typed. The heavier cross-tool relationship detection runs in the hosted gateway.
+- Run `align local status` to inspect the graph, `align local reset` to wipe it.
+- Works in local-only mode today: `setup`, `import <tool>`, `capture`, `ask`, `search`, `check`, `status`, `context sync`, `mcp`, and the `local` commands. Not yet routed to the local graph (they address the cloud gateway): `decisions`, `export`, `drift`, `links`, `spaces`, `check --resolve`, and the connector-scan commands under `align import`.
 
 Pick cloud for sync + team upgrade, local for maximum privacy. You can always start local and move to cloud later.
 
@@ -153,7 +183,7 @@ Pull your existing work into the decision graph. The more sources you add, the r
 
 **Easiest way: `align setup`.** It connects each source via a **read-only browser OAuth** consent - no tokens to create or paste. The CLI only ever *reads*; it can't modify your tools (write access lives only in the team/org bot apps). GitHub, Jira, Confluence, Slack, Microsoft Teams, Zoom, Linear, GitLab (gitlab.com), and Notion all use OAuth. Self-managed GitLab (a custom domain) uses a read-only token you paste.
 
-The same OAuth flow also works per source: `align import <source> --personal` opens the browser consent (or reuses the token a previous `align setup` cached) - no PAT to create. The `align import <source> --token ...` forms below are the manual / CI alternative (and how to connect self-managed hosts). Every import previews what will be imported and asks for confirmation before sending anything (use `--approve` to skip the prompt).
+The same OAuth flow also works per source: `align import <source> --personal` opens the browser consent (or reuses the token a previous `align setup` cached) - no PAT to create. The `align import <source> --token ...` forms below are the manual / CI alternative (and how to connect self-managed hosts). Every import previews what will be imported and asks for confirmation before sending anything (use `--approve` to skip the prompt). In local-only mode, add `--env local` - a machine that has also logged in to cloud otherwise imports to the cloud graph.
 
 ### Git
 
@@ -231,7 +261,18 @@ align import notion --token <your-notion-integration-token>
 
 ### Microsoft Teams / Zoom
 
-Connect these through `align setup` (OAuth) - they have no read-only personal token to paste, so they are cloud-only.
+Prefer `align setup` (OAuth) - neither has a personal token a human can create in-app, so they are not offered in local-only setup. `align import teams --token <Graph token>` and `align import zoom --token <OAuth token>` exist for tokens you obtained elsewhere.
+
+### Connector scans (cloud)
+
+With a cloud account, the gateway can also run connector-side scans and hold the results as suggestions for review:
+
+```bash
+align import --all           # start a scan across every enabled connector
+align import list            # scan jobs and their status
+align import suggestions     # review what a scan found
+align import scan-runs       # scan history
+```
 
 ## Capturing decisions
 
@@ -242,31 +283,38 @@ align capture https://yourco.atlassian.net/browse/ENG-123
 align capture https://yourco.slack.com/archives/C123/p1700000000000000
 ```
 
+`align capture` takes a URL; raw text capture is not supported from the CLI yet. Over MCP, `align_capture` accepts text too, in local-only mode.
+
 ## Searching and browsing
 
 ```bash
 align ask "any question in plain English"  # natural language answer
 align search "authentication strategy"      # keyword/semantic search - returns a list
-align decisions list                        # browse the graph
+align decisions list                        # browse the graph (cloud)
 align decisions list --space backend        # filter by space
 align decisions list --platform jira        # filter by source platform
-align decisions show <id>                   # full detail for one decision
-align links list                            # cross-tool decision relationships
-align drift                                 # decisions that may be out of date
-align export                                # export decisions as a structured brief
+align decisions show <id>                   # full detail for one decision (cloud)
+align links list                            # cross-tool decision relationships (cloud)
+align drift                                 # decisions that may be out of date (cloud)
+align export                                # export decisions as a structured brief (cloud)
 ```
 
-`align ask` synthesises an answer. `align search` returns a ranked list - useful when you want to browse.
+`align ask` synthesises an answer. `align search` returns a ranked list - useful when you want to browse. The commands marked cloud address your hosted graph; in local-only mode use `align search`, `align ask` and `align local status` instead.
 
 ## Alignment check
 
-Check your current changes against the decision graph. Exit code `1` means a conflict was
-found; `2` means the check could not run and nothing was verified, which is not a pass.
+Check your current changes against the decision graph.
 
 ```bash
-align check          # check the staged diff
+align check          # check the staged diff (falls back to the HEAD diff when nothing is staged)
 align check --all    # check the full working-tree diff vs HEAD
 ```
+
+Four outcomes: aligned or nothing-related exits `0`; a conflict exits `1`; and `2` means the
+check retrieved decisions it could not adjudicate, or could not run at all - not a pass, and
+distinguishable from a conflict on purpose. That clean 0/1/2 contract is guaranteed under
+`--ci`; in default interactive mode a transport error or a missing git repository also exits
+`1`.
 
 Modes:
 
@@ -275,18 +323,27 @@ Modes:
 | (default) | Human-readable output; exits `1` on any conflict. |
 | `--hook` | Pre-commit mode: silent when there's no context, only fails on **critical** conflicts. |
 | `--advisory` | Agent hook mode (detects pre vs post from the hook payload on stdin): **always exits 0**, emits related, unadjudicated decisions - or an explicit "could not check" notice - in the host's hook shape (`--format claude\|gemini\|pi\|opencode\|text`). Fail-open. |
-| `--ci` | Emits JSON to stdout for CI; exits `1` on conflict. |
+| `--ci` | Emits JSON to stdout; the 0/1/2 exit contract above. **Pass `--base`** or there is nothing to diff. |
 
-In CI:
+Useful flags: `--title "what this change decides"` improves adjudication on a bare diff;
+`--base <ref>` diffs `base...HEAD` instead of the staged diff.
+
+In CI, always pass `--base` - a clean checkout has no staged diff, and a check with nothing to
+diff would pass without looking:
 
 ```yaml
 - name: Check alignment
-  run: align check --all --ci
+  run: align check --base origin/${{ github.base_ref }} --ci
   env:
     ALIGN_TOKEN: ${{ secrets.ALIGN_TOKEN }}
 ```
 
-Resolve a flagged conflict (records the resolution so it stops surfacing):
+Or use the published GitHub Action, which always passes `--base`, writes the verdict to the
+job summary and annotates the changed files:
+[`aligndottech/decision-check`](https://github.com/aligndottech/decision-check).
+
+When a check flags a conflict, resolve it so it stops surfacing (only meaningful while the
+current diff is conflicting):
 
 ```bash
 align check --resolve <decision_id>:honored      # or overridden | context_changed
@@ -295,8 +352,9 @@ align check --resolve <decision_id>:honored      # or overridden | context_chang
 ## Write decisions into your agent's context files
 
 Agents read local files before they reach for any tool. `align context sync` writes your
-current decisions to `.align/decisions.md` and adds one import line to CLAUDE.md, so an
-agent knows what your team decided without a single tool call.
+active decisions to `.align/decisions.md` and adds one import line to CLAUDE.md, so an
+agent knows what your team decided without a single tool call. Superseded and archived
+decisions are history, and stay out of it.
 
 ```bash
 align context sync           # write .align/decisions.md, import it from CLAUDE.md
@@ -363,7 +421,7 @@ Once configured, your assistant can call these tools to query and update your de
 |------|---------|
 | `align_ask` | Natural-language question about past decisions |
 | `align_search` | Search the decision graph |
-| `align_capture` | Capture a decision from a URL or text |
+| `align_capture` | Capture a decision from a URL (raw text too, in local-only mode) |
 | `align_check_alignment` | Check a proposed change for conflicts with prior decisions |
 | `align_check_drift` | Check whether code/config has drifted from a decision |
 | `align_get_related_decisions` | Decisions related to a file or module |
@@ -372,13 +430,17 @@ Once configured, your assistant can call these tools to query and update your de
 
 ## Environments
 
-By default the CLI targets `prod` (`api.align.tech`). Use `--env` or set a sticky default:
+By default the CLI targets `prod` (`api.align.tech`). Use a sticky default, or override per command - `--env` belongs after the command name:
 
 ```bash
 align env set preview          # stick to preview for this machine
 align env get                  # show current default
-align --env local <command>    # one-off override
+align search "auth" --env local   # one-off override on any command
 ```
+
+One naming trap: `--env local` means your embedded SQLite graph only after `align setup --local`
+has configured it. On a machine that never ran that, `local` is a developer convenience that
+addresses a gateway on `localhost:8080`.
 
 ## Environment variables
 
@@ -388,16 +450,21 @@ align --env local <command>    # one-off override
 | `ALIGN_ENV` | Default environment (`prod`, `preview`, `local`) |
 | `ALIGN_GATEWAY_URL` | Override gateway URL (self-hosted) |
 | `ALIGN_TENANT_ID` | Override tenant ID (self-hosted / CI). Against `preview` or `prod` it needs `ALIGN_TOKEN` set too: a tenant on its own authenticates nothing, and the CLI refuses rather than sending it |
-| `ALIGN_TELEMETRY` | Set it to anything other than `1`/`true`/`yes`/`on` to send no usage events at all. Cloud mode reports one `cli.command` event per invocation - the command name, nothing else, over the connection it was already using. Local mode sends nothing either way |
+| `ALIGN_TELEMETRY` | Set it to anything other than `1`/`true`/`yes`/`on` to send no usage events at all (empty counts as unset, so leaves them on). Cloud mode reports one `cli.command` event per invocation to the same gateway - the command name, nothing else. Local mode sends nothing either way |
+| `ALIGN_DEBUG` | Set to any value to print the full stack trace when the CLI crashes with an unexpected error |
 | `ANTHROPIC_API_KEY` | Anthropic API key for `align ask` synthesis |
 | `OPENAI_API_KEY` | OpenAI API key for `align ask` synthesis |
-| `GEMINI_API_KEY` | Google Gemini API key for `align ask` synthesis |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Google Gemini API key for `align ask` synthesis |
 | `GROQ_API_KEY` | Groq API key for `align ask` synthesis |
 | `MISTRAL_API_KEY` | Mistral API key for `align ask` synthesis |
 | `GROK_API_KEY` / `XAI_API_KEY` | xAI Grok API key for `align ask` synthesis |
-| `ALIGN_LLM_BASE_URL` | Any OpenAI-compatible endpoint (with `ALIGN_LLM_API_KEY`, `ALIGN_LLM_MODEL`) |
-| `OLLAMA_HOST` | Ollama host (default: `http://localhost:11434`). Your own machine by default; point it at a shared box and local mode's relationship typing goes there instead |
+| `ALIGN_LLM_BASE_URL` | Any OpenAI-compatible endpoint. Outranks the named keys above |
+| `ALIGN_LLM_API_KEY` | Bearer token for `ALIGN_LLM_BASE_URL` |
+| `ALIGN_LLM_MODEL` | Model name for `ALIGN_LLM_BASE_URL` (default `gpt-4o-mini`) |
+| `OLLAMA_HOST` | Ollama host (default: `http://localhost:11434`). Your own machine by default; point it at a shared box and local relationship typing goes there instead |
 | `ALIGN_OLLAMA_MODEL` | Use this Ollama model, whatever family it is from |
+| `ALIGN_INGEST_CONCURRENCY` | Concurrent ingest batch requests during imports (default `6`) |
+| `PI_CODING_AGENT_DIR` | Where `align mcp --setup` writes pi's `mcp.json`, if pi keeps its config somewhere non-standard |
 
 Advanced: override the model per provider with `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`, or `ALIGN_OLLAMA_MODEL`.
 
@@ -439,14 +506,18 @@ align import slack           Import from Slack (experimental)
 align import teams           Import from Microsoft Teams
 align import zoom            Import from Zoom recording transcripts
 align import notion          Import from Notion
-align decisions list         List decisions in your graph
-align decisions show <id>    Show full detail for a decision
+align import --all           Start a connector scan across enabled connectors (cloud)
+align import list            List scan jobs (cloud)
+align import suggestions     Review scan suggestions (cloud)
+align import scan-runs       Scan history (cloud)
+align decisions list         List decisions in your graph (cloud)
+align decisions show <id>    Show full detail for a decision (cloud)
 align status                 Value readout: what your graph has done for you
 align context sync           Write decisions to .align/decisions.md + CLAUDE.md import
-align export                 Export decisions as a structured brief
-align drift                  Show decisions that may be out of date
-align links list             Show cross-tool decision relationships
-align spaces list            List spaces (project scopes)
+align export                 Export decisions as a structured brief (cloud)
+align drift                  Show decisions that may be out of date (cloud)
+align links list             Show cross-tool decision relationships (cloud)
+align spaces list            List spaces (project scopes) (cloud)
 align env set <name>         Set default environment
 align env get                Show current environment
 align mcp                    Start local MCP server
