@@ -21,8 +21,8 @@ Every substantial change is tracked in Linear and traceable branch → ticket �
 - **Node ≥ 20** (CI uses Node 20).
 - **Publishing happens when the RELEASE PR merges, not when you push a tag.** There is no
   `publish.yml` (this line used to name one): the `publish` job lives in
-  `.github/workflows/release-please.yml`, is gated on `needs.release-please.outputs.releases_created
-  == 'true'`, and runs typecheck, test and build before `npm publish --provenance --access public`.
+  `.github/workflows/release-please.yml`, is gated on
+  `needs.release-please.outputs.releases_created == 'true'`, and runs typecheck, test and build before `npm publish --provenance --access public`.
   So the whole release is: land your work on `main`, then merge the `chore(main): release cli
   X.Y.Z` PR that release-please opens. Do not publish manually, and do not hand-push a tag - the
   tag release-please creates is component-prefixed (`cli-v0.19.0`), so a `v*` trigger would not
