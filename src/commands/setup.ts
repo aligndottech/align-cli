@@ -321,7 +321,7 @@ async function runLocalSetup(): Promise<void> {
 
   if (await isGitRepo()) {
     console.log('');
-    p.log.info(chalk.dim('First import downloads a small local embedding model (~90MB), one time.'));
+    p.log.info(chalk.dim('First import downloads a local embedding model (~23MB, from huggingface.co), one time.'));
     const gitSpinner = p.spinner();
     gitSpinner.start('Scanning git history...');
     try {

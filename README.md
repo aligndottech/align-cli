@@ -23,8 +23,9 @@ Node 20+ required. MIT licensed.
 > those platforms `npm i -g` just works. On Alpine/musl, uncommon architectures, or
 > behind a strict proxy the optional model may not install; the global install still
 > succeeds and cloud mode works, and `--local` will tell you the model is unavailable
-> rather than failing silently. The first `--local` import downloads the model
-> (~90MB) once.
+> rather than failing silently. The first `--local` import downloads the model from
+> huggingface.co (~23MB) once, and local mode cannot start until that succeeds - so on a
+> restricted network, check that host is reachable before you begin.
 
 ## Quick start
 
@@ -142,7 +143,7 @@ Tokens are stored locally in your OS config directory. To create one manually, g
 `align setup` offers two modes:
 
 - **Personal cloud** (default) - your decision graph is hosted at Align: synced across machines, backed up, and upgradeable to a shared team workspace. Connectors connect via **read-only browser OAuth** (no tokens to paste), and `align ask` retrieval runs server-side. Nothing you connect can be modified by the CLI - it only reads.
-- **Local-only** (`align setup --local`) - fully **private and offline**: no account, no cloud, nothing leaves your machine. The graph, embeddings, and search all live in a local database. Seeds from your git history out of the box; other sources connect by pasting a **read-only personal token** (OAuth needs the hosted callback, so it isn't available offline). Related decisions are surfaced on-device by semantic similarity; typed relationships (supersedes / conflicts with / depends on) and conflict detection on a change are typed at query time using **your own AI provider key** (Anthropic, OpenAI, or a local Ollama) - without one, related decisions still surface, just not typed. The heavier cross-tool relationship detection runs in the hosted gateway. Run `align local status` to inspect it, `align local reset` to wipe it.
+- **Local-only** (`align setup --local`) - **no account, and no Align servers**: the graph, embeddings, and search all live in a SQLite database on your machine, and the CLI never sends your decisions to us. Two things do use the network, both worth knowing before you point it at work content: the embedding model downloads once from huggingface.co, and typed relationships call **your own AI provider** (see below) if a provider key is set in your environment. With no key set, nothing at all leaves the machine after that first download. Seeds from your git history out of the box; other sources connect by pasting a **read-only personal token** (OAuth needs the hosted callback, so it isn't available offline). Related decisions are surfaced on-device by semantic similarity; typed relationships (supersedes / conflicts with / depends on) and conflict detection on a change are typed at query time using **your own AI provider key** (Anthropic, OpenAI, or a local Ollama) - without one, related decisions still surface, just not typed. The heavier cross-tool relationship detection runs in the hosted gateway. Run `align local status` to inspect it, `align local reset` to wipe it.
 
 Pick cloud for sync + team upgrade, local for maximum privacy. You can always start local and move to cloud later.
 
@@ -387,6 +388,7 @@ align --env local <command>    # one-off override
 | `ALIGN_ENV` | Default environment (`prod`, `preview`, `local`) |
 | `ALIGN_GATEWAY_URL` | Override gateway URL (self-hosted) |
 | `ALIGN_TENANT_ID` | Override tenant ID (self-hosted / CI). Against `preview` or `prod` it needs `ALIGN_TOKEN` set too: a tenant on its own authenticates nothing, and the CLI refuses rather than sending it |
+| `ALIGN_TELEMETRY` | Set to `0` (or `false` / `no` / `off`) to send no usage events at all. Cloud mode reports one `cli.command` event per invocation - the command name, nothing else, over the connection it was already using. Local mode sends nothing regardless of this setting |
 | `ANTHROPIC_API_KEY` | Anthropic API key for `align ask` synthesis |
 | `OPENAI_API_KEY` | OpenAI API key for `align ask` synthesis |
 | `GEMINI_API_KEY` | Google Gemini API key for `align ask` synthesis |
@@ -394,7 +396,7 @@ align --env local <command>    # one-off override
 | `MISTRAL_API_KEY` | Mistral API key for `align ask` synthesis |
 | `GROK_API_KEY` / `XAI_API_KEY` | xAI Grok API key for `align ask` synthesis |
 | `ALIGN_LLM_BASE_URL` | Any OpenAI-compatible endpoint (with `ALIGN_LLM_API_KEY`, `ALIGN_LLM_MODEL`) |
-| `OLLAMA_HOST` | Ollama host (default: `http://localhost:11434`) |
+| `OLLAMA_HOST` | Ollama host (default: `http://localhost:11434`). Your own machine by default; point it at a shared box and local mode's relationship typing goes there instead |
 | `ALIGN_OLLAMA_MODEL` | Use this Ollama model, whatever family it is from |
 
 Advanced: override the model per provider with `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`, or `ALIGN_OLLAMA_MODEL`.

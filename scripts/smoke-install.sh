@@ -155,6 +155,39 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 rm -f /tmp/ctx-before.md
+# `align ask` with no provider key: the ranked list still comes back, plus the hint. This is
+# the shape a first-run dev sees, so it must exit 0 rather than treating a missing key as an
+# error (the CI runner has no ANTHROPIC_API_KEY, which is the point).
+step "align ask (local, no key)" 120 align ask "why postgres" --env local --limit 5
+# The agent hook, on the payload Claude Code actually pipes. Retrieval only, so it needs no
+# provider key and makes no provider call - and in local mode that is not just a latency
+# choice, it is the only egress in the pipeline (local-gateway-client.ts honours depth).
+#
+# The content deliberately shares vocabulary with the Postgres commit seeded above, because
+# RELATES_THRESHOLD is 0.45 and this embedding is lexical enough that a conceptual near-miss
+# lands under it: measured on a seeded graph, "replace Postgres with MySQL for persistence"
+# scores 0.53 against that decision while "switch the database to mongodb" scores 0.37 and
+# retrieves nothing at all. A fixture comfortably over the bar is the point here - this step
+# tests the hook, not the threshold.
+ADVISORY_PAYLOAD='{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"config.ini","content":"replace Postgres with MySQL for the main store, dropping concurrent writers"}}'
+step "align check --advisory"   60  sh -c "printf '%s' '$ADVISORY_PAYLOAD' | align check --advisory --env local"
+# Asserted on the OUTPUT, because --advisory always exits 0 by design and `step` therefore
+# cannot fail on a hook that printed nothing. It separates a working hook from a silent one and
+# from the give-up path, which says "could not check" instead.
+#
+# What it does NOT catch, measured rather than assumed: reinstating the adjudicating LLM path
+# prints this same wording, because check.ts renders whatever `relevant_decisions` holds and
+# both paths populate it. Injecting that regression here took the hook from 700ms to 2711ms and
+# still passed. The no-egress property is pinned by the unit test instead ("depth related
+# retrieves without ever invoking the classifier"), which can assert the classifier was never
+# called; a latency bound is the only e2e signal and it would be flaky on a shared runner.
+ADVISORY_OUT=$(printf '%s' "$ADVISORY_PAYLOAD" | align check --advisory --env local 2>/dev/null || true)
+if printf '%s' "$ADVISORY_OUT" | grep -q "NOT been adjudicated"; then
+  echo "PASS: advisory hook surfaced related decisions, retrieval-only, with no provider key"
+else
+  echo "FAIL: advisory hook did not take the retrieval path. Got: ${ADVISORY_OUT:-<no output>}"
+  FAILURES=$((FAILURES + 1))
+fi
 step "align mcp --setup"        60  align mcp --setup --env local
 # Bare name, not $ALIGN_BIN: the handshake helper spawns through cmd.exe on
 # Windows, and cmd resolves `align` -> align.cmd via PATH + PATHEXT, while the

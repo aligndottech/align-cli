@@ -106,6 +106,51 @@ describe('recordCommandUsage', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  // Second example: someone reaching for an opt-out types whatever falsy word comes to mind,
+  // and a strict `=== '0'` silently keeps sending for all of them.
+  it('accepts "false" as the opt-out too', async () => {
+    vi.stubEnv('ALIGN_TELEMETRY', 'false');
+
+    await recordCommandUsage(cloudEnv, 'import');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('accepts "off" as the opt-out too', async () => {
+    vi.stubEnv('ALIGN_TELEMETRY', 'off');
+
+    await recordCommandUsage(cloudEnv, 'import');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // The boundary: a truthy value is not an opt-out, so the beforeEach '' precondition and this
+  // pin both sides of the parse.
+  it('still sends when ALIGN_TELEMETRY=1', async () => {
+    vi.stubEnv('ALIGN_TELEMETRY', '1');
+
+    await recordCommandUsage(cloudEnv, 'import');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  // The leak state the PR #77 suite never covered: local-embedded mode WITH a token and tenant
+  // in scope (ALIGN_TOKEN exported into the env, or the postAction hook resolving a logged-in
+  // default env). The mode is the consent boundary, so it must gate on its own - the token
+  // check protects a different case (never logged in) and passes here.
+  it('sends nothing in local-embedded mode even when a token and tenant are present', async () => {
+    const leakEnv: EnvironmentConfig = {
+      gatewayUrl: 'https://api.align.tech',
+      authToken: 'jwt-token',
+      tenantId: 'tenant-123',
+      mode: 'local-embedded',
+    };
+
+    await recordCommandUsage(leakEnv, 'ask');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('resolves when the gateway rejects, so telemetry can never fail a command', async () => {
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 

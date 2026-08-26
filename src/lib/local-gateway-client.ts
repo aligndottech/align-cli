@@ -193,7 +193,11 @@ export function createLocalGatewayClient(dbPath: string) {
       return { results, count: results.length, strategy: 'semantic' };
     },
 
-    async checkAlignment(diff: string, _context?: string): Promise<AlignmentResult> {
+    async checkAlignment(
+      diff: string,
+      _context?: string,
+      opts: { depth?: 'related' | 'full'; title?: string } = {},
+    ): Promise<AlignmentResult> {
       // Stage 1: embeddings find candidate related decisions (free, local).
       const embedding = await getEmbedding(diff);
       const similar = await findSimilar(embedding, 5, RELATES_THRESHOLD);
@@ -206,6 +210,29 @@ export function createLocalGatewayClient(dbPath: string) {
 
       if (!candidates.length) {
         return { status: 'no-context', confidence: 0, relevant_decisions: [], conflicts: [], message: 'No related decisions found in your local graph.' };
+      }
+
+      // `depth:'related'` means retrieval only, and honouring it matters more here than in the
+      // cloud client. The editor hook asks for it to fit a <=10s budget (check.ts), but in
+      // local mode Stage 2 is also the only EGRESS in the pipeline: it posts the proposed
+      // content plus a stored decision to the user's own LLM provider, once per candidate, on
+      // every agent Write/Edit. This signature took two arguments, so the option was silently
+      // dropped and adjudication ran anyway - up to 5 provider calls per keystroke-level event,
+      // whose results the hook then abandoned at its 2.5s race.
+      if (opts.depth === 'related') {
+        return {
+          status: 'retrieved',
+          confidence: Math.max(...candidates.map(c => c.score)),
+          relevant_decisions: candidates.map(c => ({
+            id: c.id,
+            title: c.title,
+            summary: c.summary,
+            similarity: c.score,
+            url: c.sourceUrl ?? undefined,
+          })),
+          conflicts: [],
+          message: `Found ${candidates.length} related decision(s) - retrieval only, not adjudicated.`,
+        };
       }
 
       // Stage 2: type each candidate against the proposed change (LLM, user's key,
