@@ -114,6 +114,9 @@ runs:
         # runner with the token in scope. An env value is passed to the shell as data.
         # Empty on any non-PR trigger (workflow_dispatch, push), which the guard below handles.
         PR_TITLE: ${{ github.event.pull_request.title }}
+        # Data, not interpolation, same as PR_TITLE - and an input, so the shape rule has no
+        # exemption list to grow.
+        FAIL_ON: ${{ inputs.fail-on }}
       run: |
         set -uo pipefail
 
@@ -122,6 +125,14 @@ runs:
         set -- --ci --base "${{ steps.base.outputs.ref }}"
         if [ -n "${PR_TITLE:-}" ]; then
           set -- "$@" --title "$PR_TITLE"
+        fi
+        # A gate that fails on unknown has declared it will pay for a verdict, so ask the
+        # gateway to adjudicate whatever it retrieved rather than skip below its similarity
+        # cost gate and fail this build on a diff nothing examined (ALI-708). Needs the CLI
+        # release carrying --depth and a gateway that knows the member; an older CLI rejects
+        # the option, which surfaces through fail-on as could-not-check - never a silent pass.
+        if [ "${FAIL_ON:-}" = "conflict-or-unknown" ]; then
+          set -- "$@" --depth exhaustive
         fi
 
         # Installed rather than npx'd so the optional dependency can be pruned.

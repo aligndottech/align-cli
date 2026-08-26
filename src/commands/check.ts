@@ -34,14 +34,30 @@ export function registerCheckCommand(program: Command): void {
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
     .option('--title <text>', 'The decision being proposed, in words (e.g. the PR title). Without it the gateway adjudicates on the first 200 characters of the diff, which is a file header and a few + lines')
     .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')
+    .option('--depth <depth>', "How deep an answer to request: related (retrieval only), full (the gateway default: adjudication behind its similarity cost gate), or exhaustive (adjudicate whatever was retrieved - for strict CI gates whose fail-on treats unknown as failure, ALI-708)")
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
-    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; format?: AdvisoryFormat; ci: boolean; base?: string; title?: string; resolve?: string }) => {
+    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; format?: AdvisoryFormat; ci: boolean; base?: string; title?: string; depth?: string; resolve?: string }) => {
       // Advisory mode is the deterministic auto-alignment path (ALI-121/ALI-122):
       // non-blocking, fail-open, machine-readable. It owns the whole flow, never
       // touching the human-facing spinner/console output below.
       if (opts.advisory) {
         await runAdvisory(opts.env, { blockOnCritical: opts.blockOnCritical, format: opts.format });
         return;
+      }
+
+      // A typo'd depth must not silently become the gateway default: for a strict CI
+      // caller that quiet fall-through would reintroduce the exact unadjudicated skip
+      // --depth exhaustive exists to remove (ALI-708).
+      const CHECK_DEPTHS = ['related', 'full', 'exhaustive'] as const;
+      const depth = opts.depth as (typeof CHECK_DEPTHS)[number] | undefined;
+      if (depth !== undefined && !CHECK_DEPTHS.includes(depth)) {
+        const message = `Invalid --depth '${opts.depth}': expected one of ${CHECK_DEPTHS.join(', ')}`;
+        if (opts.ci) {
+          process.stdout.write(`${JSON.stringify({ status: 'error', message })}\n`);
+          process.exit(EXIT_UNKNOWN);
+        }
+        console.error(chalk.red(message));
+        process.exit(1);
       }
 
       if (!await isGitRepo()) {
@@ -97,7 +113,7 @@ export function registerCheckCommand(program: Command): void {
 
       if (opts.ci) {
         try {
-          const result = await client.checkAlignment(diff, branch, { title: opts.title });
+          const result = await client.checkAlignment(diff, branch, { title: opts.title, depth });
           process.stdout.write(`${JSON.stringify(result)  }\n`);
           if (result.status === 'conflicting') process.exit(EXIT_CONFLICT);
           // CI is where a silent green costs the most: a check that could not run
@@ -120,7 +136,7 @@ export function registerCheckCommand(program: Command): void {
 
       const spinner = ora('Checking alignment...').start();
       try {
-        const result = await client.checkAlignment(diff, branch, { title: opts.title });
+        const result = await client.checkAlignment(diff, branch, { title: opts.title, depth });
         spinner.stop();
 
         if (result.status === 'aligned') {

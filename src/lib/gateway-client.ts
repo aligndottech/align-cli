@@ -346,10 +346,14 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     // `depth: 'related'` returns the same embedding retrieval this endpoint already does and
     // skips the ~11s LLM adjudication (gateway #1415). The editor hook uses it because every
     // host budget is <=10s; `align check` and the PR bot keep the default 'full'.
+    // `depth: 'exhaustive'` is the other end (ALI-708): the gateway's similarity cost gate
+    // does not skip adjudication, for callers whose failure policy makes `unknown` fatal.
+    // Requires a gateway that knows the member - an older one rejects the VALUE with a 400
+    // (unknown keys it strips, unknown enum values it refuses), so ship the gateway first.
     async checkAlignment(
       diff: string,
       context?: string,
-      opts: { depth?: 'related' | 'full'; title?: string } = {},
+      opts: { depth?: 'related' | 'full' | 'exhaustive'; title?: string } = {},
     ): Promise<AlignmentResult> {
       return request<AlignmentResult>('/alignment/check', {
         method: 'POST',
