@@ -34,6 +34,10 @@ const argv = process.argv.slice(2);
 // need a shell pipeline to get it.
 let stdinFile = null;
 if (argv[0] === '--stdin-file') {
+  if (!argv[1]) {
+    console.error('usage: smoke-timeout.mjs [--stdin-file <path>] <seconds> <cmd> [args...]');
+    process.exit(2);
+  }
   stdinFile = argv[1];
   argv.splice(0, 2);
 }
