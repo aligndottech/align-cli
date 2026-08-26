@@ -14,7 +14,7 @@ import {
   isDecisionRelationship,
 } from '@aligndottech/connector-core';
 
-import { callChat, getUnvettedOllamaModels, hasConfiguredProvider } from './local-llm.js';
+import { callChat, getLlmFailure, getUnvettedOllamaModels, hasConfiguredProvider } from './local-llm.js';
 
 // ALI-219: the canonical decision-graph vocabulary is the single source of truth
 // (connector-core). The local classifier must only emit types the graph accepts,
@@ -30,9 +30,11 @@ export interface ClassifiedRelationship {
 }
 
 /**
- * Why a candidate edge could not be typed. Only distinctions the code can actually
- * make: `callChat` cannot tell a timeout from a 429 from an empty body, so there is
- * deliberately no `classifier_timeout`.
+ * Why a candidate edge could not be typed. This enum stays coarse on purpose: since
+ * ALI-692 `callChat` CAN tell a timeout from a 429 from an empty body, but the finer
+ * detail travels on `getLlmFailure()` (provider, model, detail) rather than by adding
+ * a reason per failure mode, so presenters name the model without this union growing
+ * a member every time a provider invents a new way to fail.
  */
 export type ClassifierFailureReason =
   /** Nothing to call: no provider key in the environment, no local Ollama. */
@@ -67,6 +69,13 @@ function buildUserPrompt(a: DecisionLite, b: DecisionLite): string {
   return `Decision A: ${a.title}. ${a.summary}\n\nDecision B: ${b.title}. ${b.summary}`;
 }
 
+/**
+ * Design constraint for any future multi-model adjudication here (ALI-692): if two
+ * models ever judge one question (a conflict verdict plus a second opinion, a jury),
+ * the pair must span model FAMILIES. A family's leniency is systematic, so same-family
+ * agreement is one opinion counted twice, not independent confirmation. Today exactly
+ * one model answers, so there is nothing to enforce - this note is the requirement.
+ */
 export async function classifyRelationship(
   subject: DecisionLite,
   candidate: DecisionLite,
@@ -81,7 +90,12 @@ export async function classifyRelationship(
     // Order matters: an unvetted local model is a more specific diagnosis than either of
     // the other two, and `hasConfiguredProvider()` is env-only so it cannot see it.
     if (getUnvettedOllamaModels()) return { ok: false, reason: 'unvetted_local_model' };
-    return { ok: false, reason: hasConfiguredProvider() ? 'classifier_error' : 'no_llm_key' };
+    // ALI-692: a recorded chain stop means a provider WAS reached and answered unusably.
+    // It has to be checked as well as hasConfiguredProvider(), which is env-only and so
+    // cannot see a local Ollama - without it that case misreports as no_llm_key. The
+    // model that failed is on getLlmFailure(); presenters read it for the remedy.
+    const reason = getLlmFailure() || hasConfiguredProvider() ? 'classifier_error' : 'no_llm_key';
+    return { ok: false, reason };
   }
   const relationship = parseRelationship(raw);
   return relationship ? { ok: true, relationship } : { ok: false, reason: 'classifier_unparseable' };

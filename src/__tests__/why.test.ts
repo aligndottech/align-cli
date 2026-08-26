@@ -30,10 +30,13 @@ const mockSynthesise = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 // ALI-420: `ask` asks WHY there was no answer so it can say something useful. Default
 // null = the ordinary "no provider configured" case, which keeps the existing tests valid.
 const mockUnvetted = vi.hoisted(() => vi.fn().mockReturnValue(null));
+// ALI-692: same contract for a chain that STOPPED on an unusable answer.
+const mockLlmFailure = vi.hoisted(() => vi.fn().mockReturnValue(null));
 vi.mock('../lib/local-llm.js', () => ({
   synthesiseLocally: mockSynthesise,
   getUnvettedOllamaModels: mockUnvetted,
-  VETTED_OLLAMA_MODELS: ['llama3.2', 'llama3.1'],
+  getLlmFailure: mockLlmFailure,
+  RECOMMENDED_OLLAMA_PULL: 'llama3.2',
 }));
 
 const output: string[] = [];
@@ -188,6 +191,24 @@ describe('align ask - file path mode', () => {
     expect(all).toContain('ALIGN_OLLAMA_MODEL');               // the escape hatch
     expect(all).toContain('Chose Postgres');                   // the ranked list still prints
     // The generic nudge would be wrong here: they have a provider, it is the model.
+    expect(all).not.toContain('Set ANTHROPIC_API_KEY');
+  });
+
+  // ALI-692: the chain no longer silently demotes to a weaker model when the chosen
+  // one answers unusably - so when that happens, say WHICH model failed and how,
+  // instead of telling a user with a working key to go configure a key.
+  it('names the model when the chain stopped on an unusable answer', async () => {
+    mockLlmFailure.mockReturnValueOnce({ provider: 'openai', model: 'gpt-4o-mini', detail: 'empty response' });
+    const program = new Command();
+    registerAskCommand(program);
+
+    await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
+
+    const all = output.join('\n');
+    expect(all).toContain('gpt-4o-mini');       // attributable, not mysterious
+    expect(all).toContain('empty response');    // what it did
+    expect(all).toContain('Chose Postgres');    // the ranked list still prints
+    // The generic nudge would be wrong here: a provider IS configured and it replied.
     expect(all).not.toContain('Set ANTHROPIC_API_KEY');
   });
 

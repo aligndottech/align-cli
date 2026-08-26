@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type * as LocalLlmModule from '../lib/local-llm.js';
 
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
@@ -14,9 +15,18 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
   RELATIONSHIP_TYPES: ['supersedes', 'conflicts_with', 'contradicts', 'duplicates', 'refines', 'implements', 'depends_on', 'relates_to'],
 }));
 
+// ALI-692: the hint ladder now reads WHICH model failed. Only getLlmFailure is faked -
+// RECOMMENDED_OLLAMA_PULL is imported for real, so a test asserting the pull hint is
+// comparing against the constant the command actually renders, not a copy of it.
+vi.mock('../lib/local-llm.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof LocalLlmModule>()),
+  getLlmFailure: vi.fn().mockReturnValue(null),
+}));
+
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { cosineSimilarity } from '../lib/local-embeddings.js';
 import { classifyRelationship } from '../lib/local-relationship-classifier.js';
+import { getLlmFailure, RECOMMENDED_OLLAMA_PULL } from '../lib/local-llm.js';
 
 describe('local-gateway-client', () => {
   let dbPath: string;
@@ -27,6 +37,7 @@ describe('local-gateway-client', () => {
     client = createLocalGatewayClient(dbPath);
     vi.mocked(cosineSimilarity).mockReturnValue(0.0);
     vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'no_llm_key' });
+    vi.mocked(getLlmFailure).mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -173,6 +184,66 @@ describe('local-gateway-client', () => {
     const result = await client.checkAlignment('add a feature flag');
     expect(result.status).toBe('unknown');
     expect(result.reason).toBe('classifier_error');
+  });
+
+  // ALI-692: `align check` is the surface agents gate on, and it was the one that learnt
+  // nothing from the new diagnosis - classifier_error fell through the hint ladder to an
+  // empty string, so the model that failed was recorded and then discarded one frame up.
+  it('checkAlignment names the model that failed when the chain stopped on it', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'classifier_error' });
+    vi.mocked(getLlmFailure).mockReturnValue({ provider: 'openai', model: 'gpt-4o-mini', detail: 'HTTP 429' });
+    await client.ingestBatch([
+      { source_url: 'https://jira/ABC-3', platform: 'jira', raw_text: 'Feature flag rollout', title: 'Rollout plan' },
+    ]);
+
+    const result = await client.checkAlignment('add a feature flag');
+
+    expect(result.status).toBe('unknown');
+    expect(result.message).toContain('gpt-4o-mini');
+    expect(result.message).toContain('HTTP 429');
+    // Telling someone whose provider just answered to configure a provider is the
+    // misdiagnosis this rung exists to prevent.
+    expect(result.message).not.toMatch(/Set ANTHROPIC_API_KEY/);
+  });
+
+  it('checkAlignment stops asking after a recorded chain stop instead of retrying every candidate', async () => {
+    // A recorded stop is a property of the provider, not of the candidate, so asking
+    // again per candidate burns the same doomed call N times - and on a 429 it burns
+    // the retry budget while `align check --advisory` is racing a 2.5s deadline.
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'classifier_error' });
+    vi.mocked(getLlmFailure).mockReturnValue({ provider: 'openai', model: 'gpt-4o-mini', detail: 'HTTP 429' });
+    await client.ingestBatch([
+      { source_url: 'https://slack.com/a', platform: 'slack', raw_text: 'Standardise on MySQL', title: 'Standardise on MySQL' },
+      { source_url: 'https://slack.com/b', platform: 'slack', raw_text: 'Cache with Redis', title: 'Cache with Redis' },
+      { source_url: 'https://slack.com/c', platform: 'slack', raw_text: 'Queue with SQS', title: 'Queue with SQS' },
+    ]);
+    // This file's beforeEach re-stubs the mock's return but does not clear its history,
+    // so a call COUNT has to start from a known zero or it inherits every earlier test.
+    vi.mocked(classifyRelationship).mockClear();
+
+    const result = await client.checkAlignment('migrate the database to Postgres');
+
+    expect(vi.mocked(classifyRelationship)).toHaveBeenCalledTimes(1);
+    // The retrieved decisions still all report, so stopping early costs the human nothing.
+    expect(result.status).toBe('unknown');
+    expect(result.relevant_decisions.length).toBe(3);
+  });
+
+  it('checkAlignment keeps the pull hint in step with the one `align ask` prints', async () => {
+    // Two writers of one fact: this hint hardcoded `ollama pull llama3.2` while ask
+    // renders RECOMMENDED_OLLAMA_PULL, so the next bump makes the two commands
+    // recommend different models for the identical condition.
+    vi.mocked(cosineSimilarity).mockReturnValue(0.6);
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'unvetted_local_model' });
+    await client.ingestBatch([
+      { source_url: 'https://jira/ABC-4', platform: 'jira', raw_text: 'Feature flag rollout', title: 'Rollout plan' },
+    ]);
+
+    const result = await client.checkAlignment('add a feature flag');
+
+    expect(result.message).toContain(`ollama pull ${RECOMMENDED_OLLAMA_PULL}`);
   });
 
   it('checkAlignment returns "unknown" for unparseable classifier output - never a default', async () => {
