@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.18.0](https://github.com/aligndottech/align-cli/compare/cli-v0.17.1...cli-v0.18.0) (2026-08-26)
+
+
+### Features
+
+* **action:** mirror script to publish the action at a repository root (ALI-686) ([8d3c49e](https://github.com/aligndottech/align-cli/commit/8d3c49e5e32c9390cf95875f5ca4be60e92d00e4))
+* **action:** mirror script to publish this action at a repository root ([43d3f52](https://github.com/aligndottech/align-cli/commit/43d3f526e138df282561d598ccb1e934a9424954))
+
+
+### Bug Fixes
+
+* **ask:** the synthesis prompt licensed confabulation - add the abstention contract, measured ([90634d0](https://github.com/aligndottech/align-cli/commit/90634d025b2565c6485dc76d441194b7a058a06b))
+* **ask:** the synthesis prompt licensed confabulation - add the abstention contract, measured ([7721671](https://github.com/aligndottech/align-cli/commit/7721671fb7682d8fc058cbba42f3a38c656113d7))
+* **check:** --ci exited 0 when the gateway never answered, so an outage read as a pass ([176ae49](https://github.com/aligndottech/align-cli/commit/176ae49bc9cd0d0d4fae04738403200f418df7f3))
+* **check:** --ci outside a git repo exited 1 with no output at all ([6b8afd8](https://github.com/aligndottech/align-cli/commit/6b8afd86a18cc1fec086520357b8dd75dba38ae4))
+* **check:** two ways --ci reported a check that could not run as a result (ALI-686) ([a4560c4](https://github.com/aligndottech/align-cli/commit/a4560c41e1649dc2961a46987f091a344c05b528))
+* **test:** repair the orphaned `finally` an autofix left in action-mirror ([7ee6ea1](https://github.com/aligndottech/align-cli/commit/7ee6ea1a323fc5f0f73c489e99fa96e896305998))
+
+
+### Performance Improvements
+
+* **action:** prune the optional ML dependency from the CI install (431MB -&gt; 45MB) ([df3fdb8](https://github.com/aligndottech/align-cli/commit/df3fdb8295518ef3a724e326d8885adf09e91750))
+* **action:** prune the optional ML dependency from the CI install, 431MB to 45MB (ALI-686) ([08970a4](https://github.com/aligndottech/align-cli/commit/08970a4e3d351871f43554b179e15491eddb5838))
+
 ## [0.17.1](https://github.com/aligndottech/align-cli/compare/cli-v0.17.0...cli-v0.17.1) (2026-08-25)
 
 
