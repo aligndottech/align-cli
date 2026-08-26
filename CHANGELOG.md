@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.0](https://github.com/aligndottech/align-cli/compare/cli-v0.18.0...cli-v0.19.0) (2026-08-26)
+
+
+### Features
+
+* **llm:** advance the fallback chain only on availability failures; discover Ollama models by family (ALI-692) ([41f90d7](https://github.com/aligndottech/align-cli/commit/41f90d783c0047efe9a9b81dd866b8c6f44ce07c))
+* **llm:** availability-only fallback + live Ollama family discovery (ALI-692) ([5e54138](https://github.com/aligndottech/align-cli/commit/5e5413881d9192f4b33cd5bae1b2adfb5535f40a))
+
+
+### Bug Fixes
+
+* **llm:** repair the fallback classification and family floor found by review (ALI-692) ([09d8b91](https://github.com/aligndottech/align-cli/commit/09d8b919c316d7bcc8f9e28ff702920e53645f88))
+
 ## [0.18.0](https://github.com/aligndottech/align-cli/compare/cli-v0.17.1...cli-v0.18.0) (2026-08-26)
 
 
