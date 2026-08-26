@@ -7,7 +7,7 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import type { SearchResults } from '../lib/gateway-client.js';
 import { citationFor } from '../lib/decision-links.js';
-import { getUnvettedOllamaModels, synthesiseLocally, VETTED_OLLAMA_MODELS } from '../lib/local-llm.js';
+import { getLlmFailure, getUnvettedOllamaModels, RECOMMENDED_OLLAMA_PULL, synthesiseLocally } from '../lib/local-llm.js';
 import { formatWhen } from '../lib/format-date.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
@@ -188,12 +188,20 @@ export function registerAskCommand(program: Command): void {
           // whatever it listed first. It now declines, so name the models it has rather
           // than telling someone who is already running a provider to configure one.
           const unvetted = getUnvettedOllamaModels();
+          const failure = getLlmFailure();
           if (unvetted) {
             console.log(chalk.dim('  No answer written: Ollama is running, but none of these'));
-            console.log(chalk.dim('  models are vetted for decision synthesis.'));
+            console.log(chalk.dim('  models are recognised for decision synthesis.'));
             for (const m of unvetted) console.log(chalk.dim(`    - ${m}`));
-            console.log(chalk.dim(`  Pull one:     ollama pull ${VETTED_OLLAMA_MODELS[0]}`));
+            console.log(chalk.dim(`  Pull one:     ollama pull ${RECOMMENDED_OLLAMA_PULL}`));
             console.log(chalk.dim('  Or name one:  ALIGN_OLLAMA_MODEL=<model>'));
+          } else if (failure) {
+            // ALI-692: the chain stopped rather than demoting to a weaker model. Name
+            // the model that failed - the key hint would be wrong for a user whose
+            // provider is configured and answering.
+            console.log(chalk.dim(`  No answer written: ${failure.model} (${failure.provider}) returned an`));
+            console.log(chalk.dim(`  unusable response (${failure.detail}). A weaker model was not asked in`));
+            console.log(chalk.dim('  its place. Retry, or configure a different provider.'));
           } else {
             console.log(chalk.dim('  Set ANTHROPIC_API_KEY (or OPENAI_API_KEY) for a conversational answer.'));
           }

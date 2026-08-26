@@ -21,7 +21,7 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 vi.mock('../lib/local-llm.js', () => ({
   synthesiseLocally: vi.fn().mockResolvedValue(null),
   getUnvettedOllamaModels: vi.fn().mockReturnValue(null),
-  VETTED_OLLAMA_MODELS: ['llama3.2'],
+  getLlmFailure: vi.fn().mockReturnValue(null),
 }));
 
 let dbPath = '';

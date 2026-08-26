@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DECISION_RELATIONSHIPS, isDecisionRelationship } from '@aligndottech/connector-core';
 import { classifyRelationship, RELATIONSHIP_TYPES } from '../lib/local-relationship-classifier.js';
-import { resetOllamaDiagnostics } from '../lib/local-llm.js';
+import { resetLlmDiagnostics } from '../lib/local-llm.js';
 
 const A = { title: 'Standardise on MySQL', summary: 'We chose MySQL as the primary database.' };
 const B = { title: 'Migrate to Postgres', summary: 'Switch the service database to Postgres.' };
@@ -43,7 +43,7 @@ describe('classifyRelationship', () => {
       'GROK_API_KEY', 'XAI_API_KEY', 'ALIGN_LLM_BASE_URL', 'ALIGN_OLLAMA_MODEL']) {
       vi.stubEnv(k, '');
     }
-    resetOllamaDiagnostics();
+    resetLlmDiagnostics();
     mockFetch.mockImplementation(async (url: string) =>
       String(url).includes('/api/tags')
         ? { ok: true, json: async () => ({ models: [{ name: 'WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M' }] }) }
@@ -83,6 +83,25 @@ describe('classifyRelationship', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
     mockFetch.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     const result = await classifyRelationship(A, B);
+    expect(result).toEqual({ ok: false, reason: 'classifier_error' });
+  });
+
+  // ALI-692: an Ollama model that ANSWERED, unusably, used to fall into no_llm_key
+  // because hasConfiguredProvider() is env-only and cannot see local Ollama. That hint
+  // tells this user to configure a provider - they have one, and it replied.
+  it('reports classifier_error, not no_llm_key, when local Ollama answered unusably with no keys set', async () => {
+    for (const k of ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GROQ_API_KEY', 'MISTRAL_API_KEY',
+      'GROK_API_KEY', 'XAI_API_KEY', 'ALIGN_LLM_BASE_URL', 'ALIGN_OLLAMA_MODEL']) {
+      vi.stubEnv(k, '');
+    }
+    resetLlmDiagnostics();
+    mockFetch.mockImplementation(async (url: string) =>
+      String(url).includes('/api/tags')
+        ? { ok: true, json: async () => ({ models: [{ name: 'llama3.2:latest' }] }) }
+        : { ok: true, json: async () => ({ message: { content: '' } }) });
+
+    const result = await classifyRelationship(A, B);
+
     expect(result).toEqual({ ok: false, reason: 'classifier_error' });
   });
 
