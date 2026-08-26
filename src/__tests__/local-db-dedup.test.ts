@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { createLocalDb } from '../lib/local-db.js';
+import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
 
 const COMMIT_URL = 'git://commit/d0364cabfef7c371b0773c2d469c3ad1f304a1b2';
 
@@ -206,6 +206,131 @@ describe('local-db migration of a graph that already holds duplicates', () => {
       ).toThrow(/UNIQUE/i);
     } finally {
       raw.close();
+    }
+  });
+
+  /**
+   * The migration deletes rows from a user's only copy of their personal graph, automatically,
+   * on open. These are the states I could think of that might make it delete the wrong thing.
+   * Verified by hand first and pinned here, because a destructive path checked once is not
+   * guarded - it is anecdote.
+   */
+  function seedRaw(rows: Array<[string, string | null, string]>, links: Array<[string, string, string]> = []): void {
+    const raw = new Database(dbPath);
+    raw.exec(`
+      CREATE TABLE decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, summary TEXT NOT NULL,
+        source_url TEXT, platform TEXT NOT NULL DEFAULT 'cli', created_at TEXT NOT NULL);
+      CREATE TABLE decision_embeddings (decision_id TEXT PRIMARY KEY REFERENCES decisions(id) ON DELETE CASCADE, embedding BLOB NOT NULL);
+      CREATE TABLE decision_links (id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+        target_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE, relation TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 1.0, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    `);
+    const blob = Buffer.from(new Float32Array([0.1]).buffer);
+    for (const [id, url, created] of rows) {
+      raw.prepare(`INSERT INTO decisions (id,title,summary,source_url,platform,created_at) VALUES (?,?,?,?,?,?)`)
+        .run(id, 't', 's', url, 'git', created);
+      raw.prepare(`INSERT INTO decision_embeddings VALUES (?,?)`).run(id, blob);
+    }
+    for (const [id, s, t] of links) {
+      raw.prepare(`INSERT INTO decision_links (id,source_id,target_id,relation,confidence) VALUES (?,?,?,'relates',1.0)`).run(id, s, t);
+    }
+    raw.pragma('user_version = 1');
+    raw.close();
+  }
+
+  /** No orphan or null-FK row anywhere, read from a separate connection. */
+  function assertReferentialIntegrity(): void {
+    const raw = new Database(dbPath, { readonly: true });
+    try {
+      const orphanE = raw.prepare(`SELECT COUNT(*) n FROM decision_embeddings e LEFT JOIN decisions d ON d.id = e.decision_id WHERE d.id IS NULL`).get() as { n: number };
+      const orphanL = raw.prepare(`SELECT COUNT(*) n FROM decision_links l LEFT JOIN decisions s ON s.id = l.source_id LEFT JOIN decisions t ON t.id = l.target_id WHERE s.id IS NULL OR t.id IS NULL`).get() as { n: number };
+      const nullFk = raw.prepare(`SELECT COUNT(*) n FROM decision_links WHERE source_id IS NULL OR target_id IS NULL`).get() as { n: number };
+      expect(orphanE.n).toBe(0);
+      expect(orphanL.n).toBe(0);
+      // The repointing UPDATE uses a correlated subquery; if it ever failed to match it would
+      // write NULL into a NOT NULL column, which SQLite would reject - but assert it anyway,
+      // because the alternative is discovering it on someone's graph.
+      expect(nullFk.n).toBe(0);
+    } finally {
+      raw.close();
+    }
+  }
+
+  it('collapses THREE copies to the earliest, not just a pair', () => {
+    seedRaw([['a', 'u1', '10:00'], ['b', 'u1', '10:01'], ['c', 'u1', '10:02'], ['z', 'u2', '10:03']],
+      [['l1', 'c', 'z'], ['l2', 'b', 'z']]);
+
+    db = createLocalDb(dbPath);
+
+    expect(db.listDecisions().map(r => r.id).sort()).toEqual(['a', 'z']);
+    // Both edges repointed onto the survivor and then deduped into one.
+    expect(db.listLinks()).toHaveLength(1);
+    expect(db.listLinks()[0]).toMatchObject({ sourceId: 'a', targetId: 'z' });
+    assertReferentialIntegrity();
+  });
+
+  it('breaks a created_at tie by id rather than by insertion luck', () => {
+    seedRaw([['c', 'u1', '10:00'], ['a', 'u1', '10:00'], ['b', 'u1', '10:00']]);
+
+    db = createLocalDb(dbPath);
+
+    // Same timestamp on all three, so ORDER BY created_at alone is undecided and the id
+    // tiebreaker is what makes this deterministic instead of whatever SQLite scans first.
+    expect(db.listDecisions().map(r => r.id)).toEqual(['a']);
+  });
+
+  it('never collapses rows that merely share a NULL source_url', () => {
+    seedRaw([['a', null, '10:00'], ['b', null, '10:01'], ['c', 'u1', '10:02'], ['d', 'u1', '10:03']]);
+
+    db = createLocalDb(dbPath);
+
+    // Both NULLs survive - they are different decisions that happen to have no URL - and only
+    // the genuine u1 pair collapses.
+    expect(db.listDecisions().map(r => r.id).sort()).toEqual(['a', 'b', 'c']);
+    assertReferentialIntegrity();
+  });
+
+  it('deletes the self-link left behind when the two copies were linked to each other', () => {
+    seedRaw([['a', 'u1', '10:00'], ['b', 'u1', '10:01']], [['l1', 'a', 'b']]);
+
+    db = createLocalDb(dbPath);
+
+    expect(db.listDecisions().map(r => r.id)).toEqual(['a']);
+    // Repointing turns a->b into a->a, which is not a relationship.
+    expect(db.listLinks()).toHaveLength(0);
+    assertReferentialIntegrity();
+  });
+
+  it('leaves a graph with no duplicates completely untouched', () => {
+    seedRaw([['a', 'u1', '10:00'], ['z', 'u2', '10:01']], [['l1', 'a', 'z']]);
+
+    db = createLocalDb(dbPath);
+
+    expect(db.listDecisions().map(r => r.id).sort()).toEqual(['a', 'z']);
+    expect(db.listLinks()).toHaveLength(1);
+  });
+
+  /**
+   * The interrupted state: user_version is stamped AFTER the transaction commits, so a process
+   * killed in that window leaves the collapse done and the version still 1. The next open must
+   * recover rather than fail permanently.
+   */
+  it('recovers when killed between the commit and the version stamp', () => {
+    seedRaw([['a', 'u1', '10:00'], ['b', 'u1', '10:01']]);
+    db = createLocalDb(dbPath);
+    db.close();
+    const raw = new Database(dbPath);
+    raw.pragma('user_version = 1'); // index present, duplicates gone, version not yet stamped
+    raw.close();
+
+    db = createLocalDb(dbPath);
+
+    expect(db.listDecisions().map(r => r.id)).toEqual(['a']);
+    const check = new Database(dbPath, { readonly: true });
+    try {
+      expect(check.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    } finally {
+      check.close();
     }
   });
 
