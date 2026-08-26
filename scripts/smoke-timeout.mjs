@@ -48,10 +48,14 @@ if (!Number.isFinite(seconds) || seconds <= 0 || !cmd) {
 // REFUSED, rather than documented: shell:true on win32 quotes nothing, so this argument would
 // arrive as two. Enforced on every platform because the SHAPE is what is wrong - letting it run
 // on ubuntu and macos is how it reached Windows in the first place.
-const spaced = [cmd, ...args].find((a) => /\s/.test(a));
-if (spaced !== undefined) {
+// Whitespace AND cmd.exe's metacharacters: the join is unquoted, so `a&b` is two commands and
+// `a>b` is a redirect, not just `a b` being two arguments. Checking only /\s/ would have left
+// the narrower half of the same hazard open.
+const unsafe = [cmd, ...args].find((a) => /[\s&|<>^"]/.test(a));
+if (unsafe !== undefined) {
   console.error(
-    `smoke-timeout: argument contains a space and cannot survive the win32 shell join: ${JSON.stringify(spaced)}\n` +
+    `smoke-timeout: argument is not a single safe token and cannot survive the unquoted win32 ` +
+      `shell join: ${JSON.stringify(unsafe)}\n` +
       '  Use a single-token argument, or pass the text via --stdin-file.',
   );
   process.exit(2);

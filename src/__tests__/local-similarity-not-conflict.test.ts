@@ -99,13 +99,20 @@ describe('ALI-503 the write: cosine similarity is `relates`, never a conflict', 
 
 // -------------------------------------------------------------- B. the counter
 
-function seed(links: Array<{ relation: string }>, decisions = 2) {
+/**
+ * One target decision per link, so N links are N distinct edges. They used to share a single
+ * (source, target) pair, so two `relates` links were two rows naming one triple - and
+ * `decision_links` now has a unique index on (source_id, target_id, relation), which makes the
+ * second an upsert. These tests are about counting edges BY RELATION, so the fixture wanted
+ * distinct edges rather than the assertions wanting weakening.
+ */
+function seed(links: Array<{ relation: string }>) {
   const db = createLocalDb(':memory:');
-  const ids = Array.from({ length: decisions }, (_, i) =>
-    db.insertDecision({ title: `D${i}`, summary: '', sourceUrl: null, platform: 'cli' }));
-  for (const l of links) {
-    db.insertLink({ sourceId: ids[0]!, targetId: ids[1]!, relation: l.relation, confidence: 1 });
-  }
+  const source = db.insertDecision({ title: 'D0', summary: '', sourceUrl: null, platform: 'cli' });
+  links.forEach((l, i) => {
+    const target = db.insertDecision({ title: `T${i}`, summary: '', sourceUrl: null, platform: 'cli' });
+    db.insertLink({ sourceId: source, targetId: target, relation: l.relation, confidence: 1 });
+  });
   return db;
 }
 

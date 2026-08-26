@@ -11,6 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -56,17 +57,35 @@ describe('local-db source_url dedup', () => {
     expect(second).toBe(first);
   });
 
-  it('refreshes the title and summary when the source has changed since the last import', () => {
+  it('refreshes the summary when the source body changed since the last import', () => {
     db = createLocalDb(dbPath);
-    db.insertDecision({ title: 'Old title', summary: 'Old summary', sourceUrl: COMMIT_URL, platform: 'git' });
+    db.insertDecision({ title: 'Same title', summary: 'Old summary', sourceUrl: COMMIT_URL, platform: 'git' });
 
-    db.insertDecision({ title: 'New title', summary: 'New summary', sourceUrl: COMMIT_URL, platform: 'git' });
+    db.insertDecision({ title: 'Same title', summary: 'New summary', sourceUrl: COMMIT_URL, platform: 'git' });
 
     const rows = db.listDecisions();
     expect(rows).toHaveLength(1);
-    // Refresh, not ignore: a Jira issue or a rewritten commit message that changed upstream
-    // should be current in the graph. DO NOTHING would pin the first version forever.
-    expect(rows[0]).toMatchObject({ title: 'New title', summary: 'New summary' });
+    // Refresh, not ignore: an edited Jira issue should be current in the graph, and DO NOTHING
+    // would pin the first version forever.
+    expect(rows[0]).toMatchObject({ summary: 'New summary' });
+  });
+
+  /**
+   * The accepted cost of keying on (source_url, title) rather than source_url alone. A retitled
+   * source inserts a second row instead of updating the first.
+   *
+   * Taken deliberately, because the alternative is worse in kind rather than degree: keying on
+   * the URL alone let a CONSTANT source_url - connector-core's Teams fallback is literally
+   * 'https://teams.microsoft.com' - collapse every message onto one row and DELETE the rest on
+   * migration. Duplicating on a retitle is a tidiness problem; that was data loss.
+   */
+  it('inserts a second row when the title changed, which is the cost of the pair key', () => {
+    db = createLocalDb(dbPath);
+    db.insertDecision({ title: 'Old title', summary: 's', sourceUrl: COMMIT_URL, platform: 'git' });
+
+    db.insertDecision({ title: 'New title', summary: 's', sourceUrl: COMMIT_URL, platform: 'git' });
+
+    expect(db.listDecisions()).toHaveLength(2);
   });
 
   // The boundary, and the reason a plain unique index is the right tool: `align capture` with
@@ -87,6 +106,23 @@ describe('local-db source_url dedup', () => {
     db.insertDecision({ title: 'B', summary: 'b', sourceUrl: `${COMMIT_URL}-b`, platform: 'git' });
 
     expect(db.listDecisions()).toHaveLength(2);
+  });
+});
+
+describe('SCHEMA_VERSION and migrate() are one fact', () => {
+  /**
+   * Two writers of the same number: the constant, and the `if (version < N)` branches. Forget
+   * the bump and the new branch runs on every open forever, which for a destructive step means
+   * re-collapsing a graph indefinitely. Derived from the source rather than asserted as a
+   * literal, so the next migration cannot introduce the drift silently.
+   */
+  it('SCHEMA_VERSION equals the highest migration step in migrate()', () => {
+    const source = readFileSync(new URL('../lib/local-db.ts', import.meta.url), 'utf8');
+    const steps = [...source.matchAll(/if \(version < (\d+)\)/g)].map(m => Number(m[1]));
+
+    // Positive control: an empty parse would make the comparison below vacuous.
+    expect(steps.length).toBeGreaterThan(0);
+    expect(Math.max(...steps)).toBe(SCHEMA_VERSION);
   });
 });
 
@@ -269,14 +305,18 @@ describe('local-db migration of a graph that already holds duplicates', () => {
     assertReferentialIntegrity();
   });
 
-  it('breaks a created_at tie by id rather than by insertion luck', () => {
+  it('breaks a created_at tie by INSERTION ORDER, keeping the row that was there first', () => {
+    // `c` is inserted first, so `c` is the id an agent has been holding and advisory-dedup has
+    // cached. created_at has one-second granularity, so a tie is the norm for rows written in
+    // one import rather than a curiosity.
     seedRaw([['c', 'u1', '10:00'], ['a', 'u1', '10:00'], ['b', 'u1', '10:00']]);
 
     db = createLocalDb(dbPath);
 
-    // Same timestamp on all three, so ORDER BY created_at alone is undecided and the id
-    // tiebreaker is what makes this deterministic instead of whatever SQLite scans first.
-    expect(db.listDecisions().map(r => r.id)).toEqual(['a']);
+    // Ordering by `id` here would keep 'a' - the lowest UUID, which is a coin flip - while the
+    // comment above the query claimed to keep the long-standing row. `rowid` is insertion order
+    // and actually delivers that.
+    expect(db.listDecisions().map(r => r.id)).toEqual(['c']);
   });
 
   it('never collapses rows that merely share a NULL source_url', () => {

@@ -75,6 +75,17 @@ describe('RETRIEVAL_RELATES_THRESHOLD is the value the corpus supports', () => {
     expect(RETRIEVAL_RELATES_THRESHOLD - worstNoise).toBeGreaterThanOrEqual(0.05);
   });
 
+  /**
+   * The four assertions above are satisfied by any value in roughly [0.2552, 0.3200], so they
+   * pin a BAND rather than the number - and the 0.05 margin constant is itself fitted, chosen
+   * because it is what separates the two candidates the corpus scores identically. So the exact
+   * value is asserted too, next to the derivation, the way RELATES_THRESHOLD is. Changing it
+   * means changing this line and re-reading the band above, deliberately.
+   */
+  it('is 0.30 exactly, the midpoint of the supported band and the pre-0cbef08 value', () => {
+    expect(RETRIEVAL_RELATES_THRESHOLD).toBe(0.3);
+  });
+
   // The old value, kept as the reason this change exists rather than as an insult to it.
   it('recovers strictly more than the 0.45 it replaced on this surface', () => {
     expect(recallAt(RETRIEVAL_RELATES_THRESHOLD)).toBeGreaterThan(recallAt(0.45));

@@ -2,13 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { createLocalDb } from '../lib/local-db.js';
 import { localValueRollup } from '../lib/value-rollup.js';
 
+/**
+ * Each link gets its own TARGET decision, so N links are N distinct edges.
+ *
+ * They used to share one pair, which meant two `duplicates` links were two rows naming the
+ * identical (source, target, relation) triple - and `decision_links` now has a unique index on
+ * that triple, so the second is an upsert and the count is 1. The rollup counts edges BY
+ * RELATION, which is what these tests are about, so the fixture needed distinct edges rather
+ * than the assertions needing weakening.
+ */
 function seed(links: Array<{ relation: string }>) {
   const db = createLocalDb(':memory:');
   const a = db.insertDecision({ title: 'A', summary: '', sourceUrl: null, platform: 'cli' });
-  const b = db.insertDecision({ title: 'B', summary: '', sourceUrl: null, platform: 'cli' });
-  for (const l of links) {
-    db.insertLink({ sourceId: a, targetId: b, relation: l.relation, confidence: 1 });
-  }
+  links.forEach((l, i) => {
+    const target = db.insertDecision({ title: `T${i}`, summary: '', sourceUrl: null, platform: 'cli' });
+    db.insertLink({ sourceId: a, targetId: target, relation: l.relation, confidence: 1 });
+  });
   return db;
 }
 
@@ -23,7 +32,9 @@ describe('localValueRollup (ALI-215 - honest local subset)', () => {
     const out = localValueRollup(db);
     db.close();
 
-    expect(out.decisions).toBe(2);
+    // One source plus one target per link, per `seed` above. Written as the arithmetic rather
+        // than as a literal so it stays true if a relation is added to the fixture.
+    expect(out.decisions).toBe(1 + 4);
     expect(out.conflictsCaught).toBe(1);
     expect(out.duplicates).toBe(2);
     expect(out.supersessions).toBe(1);

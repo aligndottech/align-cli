@@ -29,7 +29,7 @@ bad()  { echo "FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 # merely looks multi-word. An earlier version of this test used `console.log('x')`, which
 # contains no space at all and so could never have exercised the guard.
 out=$(node "$RUNNER" 30 echo "why postgres" 2>&1); rc=$?
-if [ $rc -eq 2 ] && printf '%s' "$out" | grep -q "space"; then
+if [ $rc -eq 2 ] && printf '%s' "$out" | grep -q "single safe token"; then
   ok "refuses an argument containing a space, naming the reason"
 else
   bad "a space-bearing argument was accepted (rc=$rc): $out"
@@ -42,6 +42,17 @@ if [ $rc -eq 2 ] && printf '%s' "$out" | grep -q "two words"; then
 else
   bad "a later space-bearing argument was accepted (rc=$rc): $out"
 fi
+
+# Whitespace is the half that bit us; cmd.exe's metacharacters are the other half of the same
+# unquoted join. `a&b` becomes two commands, `a>b` a redirect - worse than an argument split.
+for meta in 'a&b' 'a|b' 'a>b' 'a"b'; do
+  out=$(node "$RUNNER" 30 echo "$meta" 2>&1); rc=$?
+  if [ $rc -eq 2 ]; then
+    ok "refuses the shell metacharacter in $meta"
+  else
+    bad "$meta was accepted (rc=$rc): $out"
+  fi
+done
 
 # The boundary: ordinary single-token arguments must still run, or the guard is just a ban.
 out=$(node "$RUNNER" 30 node --version 2>&1); rc=$?
@@ -58,7 +69,7 @@ fi
 # nothing, and align read an empty stdin. Both look identical to a silent hook.
 PAYLOAD_FILE="$(mktemp)"
 printf '{"hook_event_name":"PreToolUse","tool_input":{"content":"a b c"}}' > "$PAYLOAD_FILE"
-out=$(node "$RUNNER" --stdin-file "$PAYLOAD_FILE" 30 node -e "process.stdin.on('data',d=>process.stdout.write(d))" 2>&1); rc=$?
+out=$(node "$RUNNER" --stdin-file "$PAYLOAD_FILE" 30 node -e 'process.stdin.on(String.fromCharCode(100,97,116,97),function(d){process.stdout.write(d)})' 2>&1); rc=$?
 if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q '"hook_event_name"'; then
   ok "--stdin-file delivers the payload to the child"
 else
@@ -67,7 +78,7 @@ fi
 
 # Positive control on the assertion above: without the flag the child must see EOF, so a pass
 # there cannot be the child inventing the payload from somewhere else.
-out=$(node "$RUNNER" 30 node -e "process.stdin.on('data',d=>process.stdout.write(d));process.stdin.on('end',()=>process.stdout.write('EOF'))" 2>&1); rc=$?
+out=$(node "$RUNNER" 30 node -e 'process.stdin.resume();process.stdin.on(String.fromCharCode(101,110,100),function(){process.stdout.write(String.fromCharCode(69,79,70))})' 2>&1); rc=$?
 if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q "EOF" && ! printf '%s' "$out" | grep -q "hook_event_name"; then
   ok "without --stdin-file the child sees an empty stdin"
 else
@@ -83,14 +94,14 @@ fi
 rm -f "$PAYLOAD_FILE"
 
 # --- pre-existing contract, so this change cannot quietly break it --------------------------
-out=$(node "$RUNNER" 1 node -e "setTimeout(()=>{},60000)" 2>&1); rc=$?
+out=$(node "$RUNNER" 1 node -e 'setTimeout(function(){},60000)' 2>&1); rc=$?
 if [ $rc -eq 124 ]; then
   ok "a hang still exits 124, distinguishable from a real failure"
 else
   bad "timeout did not exit 124 (rc=$rc): $out"
 fi
 
-out=$(node "$RUNNER" 30 node -e "process.exit(3)" 2>&1); rc=$?
+out=$(node "$RUNNER" 30 node -e 'process.exit(3)' 2>&1); rc=$?
 if [ $rc -eq 3 ]; then
   ok "propagates the child's own exit code"
 else

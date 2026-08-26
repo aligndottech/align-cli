@@ -55,9 +55,49 @@ CREATE TABLE IF NOT EXISTS decision_links (
  *
  * Exported so a test can assert the migration WROTE the version it claims, without hardcoding
  * the number - a test pinning a literal 1 had to be edited by this change rather than passing
- * or failing on its own merits.
+ * or failing on its own merits. A parity test also derives the highest `version <` branch in
+ * `migrate` from the source and compares it here, because forgetting the bump leaves the new
+ * branch running destructively on every open with nothing to stop it.
  */
 export const SCHEMA_VERSION = 2;
+
+/**
+ * A `source_url` is only an identity if it points at ONE thing. Some fetchers substitute a
+ * constant when the per-item link is missing, and connector-core ships one:
+ *
+ *     dist/fetchers/teams.js:60   source_url: msg.webUrl ?? 'https://teams.microsoft.com'
+ *
+ * Treating that as an identity is destructive once the column is unique - every such message
+ * collapses onto one row. So a bare origin, an empty string and whitespace are normalised to
+ * null, which means "no identity" and never collides.
+ *
+ * Normalised away rather than stored beside a separate identity column: a URL that addresses a
+ * host and nothing on it is not a link to the decision, so keeping it would render a
+ * "source" link in `align search` that takes the reader to a homepage. One column, one meaning.
+ *
+ * Deliberately narrow: a URL with any path is treated as identifying, because Confluence's
+ * `linkBase`
+ * fallback (`https://site.atlassian.net/wiki`) cannot be told apart from a genuinely short page
+ * URL, and a hardcoded list of known fallbacks would be wrong the day a fetcher invents one
+ * more. That case is caught by the other half of the key instead - uniqueness is on
+ * (source_url, title).
+ */
+export function identifyingSourceUrl(raw: string | null): string | null {
+  if (raw === null) return null;
+  const value = raw.trim();
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    // No path, no query, no fragment: this addresses a host, not a thing on it.
+    if ((parsed.pathname === '' || parsed.pathname === '/') && !parsed.search && !parsed.hash) {
+      return null;
+    }
+  } catch {
+    // Not a parseable URL. `git://commit/<sha>` parses, but an opaque key may not, and an
+    // opaque key is still an identity - discarding it would be the destructive direction.
+  }
+  return value;
+}
 
 /**
  * One-time data migrations, tracked in SQLite's built-in `user_version`.
@@ -83,69 +123,95 @@ function migrate(db: Database.Database): void {
     db.exec(`UPDATE decision_links SET relation = 'relates' WHERE relation = 'conflicts_with'`);
   }
   if (version < 2) {
-    // One transaction: a half-collapsed graph with the index already in place would refuse
-    // every subsequent import, and the failure would surface far from here.
-    db.exec('BEGIN');
+    // IMMEDIATE, not the default DEFERRED: this transaction reads (the survivor scan) before it
+    // writes, and under WAL another writer arriving in between makes the first write fail with
+    // SQLITE_BUSY_SNAPSHOT, which busy_timeout does not retry. Every local command opens the DB
+    // and the advisory hook fires on every agent edit, so a concurrent open is the normal case.
+    db.exec('BEGIN IMMEDIATE');
     try {
-      // The survivor per source_url is the EARLIEST. Decision ids are handed to agents and
-      // cached by advisory-dedup, so the long-standing id is the one worth keeping. `id` breaks
-      // a created_at tie so the choice is deterministic rather than insertion-order luck.
+      // The survivor is the row inserted FIRST. `rowid` rather than `id` breaks a created_at
+      // tie: created_at has one-second granularity so rows written in one import tie routinely,
+      // and ordering by a random UUID would keep an arbitrary one while this comment claimed to
+      // keep the long-standing id. rowid is insertion order (the table is not WITHOUT ROWID).
+      //
+      // Keyed on (source_url, title), not source_url alone. Some fetchers emit a CONSTANT
+      // source_url when the per-item link is missing - connector-core's Teams fallback is
+      // literally 'https://teams.microsoft.com' - and collapsing on the URL alone deleted every
+      // such message but one. Two rows sharing a URL AND a title are duplicates by any reading;
+      // two sharing only the URL are not.
       db.exec(`
         CREATE TEMP TABLE dedup_survivor AS
-        SELECT source_url, id FROM (
-          SELECT source_url, id,
-                 ROW_NUMBER() OVER (PARTITION BY source_url ORDER BY created_at, id) AS rn
+        SELECT source_url, title, id FROM (
+          SELECT source_url, title, id,
+                 ROW_NUMBER() OVER (PARTITION BY source_url, title ORDER BY created_at, rowid) AS rn
           FROM decisions WHERE source_url IS NOT NULL
         ) WHERE rn = 1;
+
+        CREATE TEMP TABLE dedup_dropped AS
+        SELECT d.id AS id, s.id AS survivor_id
+        FROM decisions d JOIN dedup_survivor s
+          ON d.source_url = s.source_url AND d.title = s.title
+        WHERE d.id <> s.id;
       `);
-      // Repoint edges rather than dropping them: an edge to a duplicate is a real edge that
-      // happened to name the copy. Dropping it would lose relationships the user earned.
+      // Repoint edges rather than dropping them: an edge naming a duplicate is a real edge that
+      // happened to name the copy. Dropping it would lose a relationship the user earned.
       db.exec(`
         UPDATE decision_links SET source_id = (
-          SELECT s.id FROM dedup_survivor s JOIN decisions d ON d.source_url = s.source_url
-          WHERE d.id = decision_links.source_id
-        ) WHERE source_id IN (
-          SELECT d.id FROM decisions d JOIN dedup_survivor s ON d.source_url = s.source_url
-          WHERE d.id <> s.id
-        );
+          SELECT survivor_id FROM dedup_dropped WHERE id = decision_links.source_id
+        ) WHERE source_id IN (SELECT id FROM dedup_dropped);
         UPDATE decision_links SET target_id = (
-          SELECT s.id FROM dedup_survivor s JOIN decisions d ON d.source_url = s.source_url
-          WHERE d.id = decision_links.target_id
-        ) WHERE target_id IN (
-          SELECT d.id FROM decisions d JOIN dedup_survivor s ON d.source_url = s.source_url
-          WHERE d.id <> s.id
-        );
+          SELECT survivor_id FROM dedup_dropped WHERE id = decision_links.target_id
+        ) WHERE target_id IN (SELECT id FROM dedup_dropped);
       `);
-      // Repointing can collapse an edge onto itself (the two copies were linked to each other)
-      // or onto an edge that already exists. Neither is representable as a relationship.
-      db.exec(`DELETE FROM decision_links WHERE source_id = target_id`);
+      // Both cleanups are scoped to the pairs repointing actually touched. An earlier version
+      // deduplicated decision_links table-wide, which deleted user-earned edges that had nothing
+      // to do with duplication - and kept the lowest UUID rather than the highest confidence.
       db.exec(`
-        DELETE FROM decision_links WHERE id NOT IN (
-          SELECT MIN(id) FROM decision_links GROUP BY source_id, target_id, relation
-        );
+        DELETE FROM decision_links
+        WHERE source_id = target_id
+          AND (source_id IN (SELECT survivor_id FROM dedup_dropped)
+            OR target_id IN (SELECT survivor_id FROM dedup_dropped));
       `);
       // Explicitly, not by CASCADE: SQLite leaves foreign_keys OFF unless asked, so the
       // ON DELETE CASCADE in the schema does not fire and these would be orphaned.
-      db.exec(`
-        DELETE FROM decision_embeddings WHERE decision_id IN (
-          SELECT d.id FROM decisions d JOIN dedup_survivor s ON d.source_url = s.source_url
-          WHERE d.id <> s.id
-        );
-      `);
-      db.exec(`
-        DELETE FROM decisions WHERE id IN (
-          SELECT d.id FROM decisions d JOIN dedup_survivor s ON d.source_url = s.source_url
-          WHERE d.id <> s.id
-        );
-      `);
-      db.exec(`DROP TABLE dedup_survivor`);
+      db.exec(`DELETE FROM decision_embeddings WHERE decision_id IN (SELECT id FROM dedup_dropped)`);
+      db.exec(`DELETE FROM decisions WHERE id IN (SELECT id FROM dedup_dropped)`);
+      db.exec(`DROP TABLE dedup_dropped; DROP TABLE dedup_survivor;`);
       // Created here rather than in SCHEMA on purpose: SCHEMA runs before this function, so on
       // any already-duplicated graph the index would fail to build before the collapse could
       // run. A fresh database passes through the same path with nothing to collapse.
-      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS decisions_source_url_unique ON decisions(source_url)`);
+      //
+      // A distinct name from any previous attempt, because IF NOT EXISTS matches on the NAME
+      // only: an index of the same name with different columns would be silently kept, and
+      // every later insert would then fail with "ON CONFLICT clause does not match".
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS decisions_source_title_unique ON decisions(source_url, title)`);
+      // Same story for edges: insertLink's `OR IGNORE` was decorative without a unique index, so
+      // a re-import stacked an identical relates row every time. Collapse, then constrain.
+      //
+      // This one IS table-wide, unavoidably: the index cannot be created while any duplicate
+      // triple remains anywhere. Every row it removes duplicates another by definition - same
+      // source, same target, same relation. It keeps the HIGHEST confidence rather than the
+      // lowest uuid, so the survivor is the best score rather than an arbitrary one.
+      db.exec(`
+        DELETE FROM decision_links WHERE id NOT IN (
+          SELECT id FROM (
+            SELECT id, ROW_NUMBER() OVER (
+              PARTITION BY source_id, target_id, relation ORDER BY confidence DESC, rowid
+            ) AS rn FROM decision_links
+          ) WHERE rn = 1
+        );
+      `);
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS decision_links_triple_unique ON decision_links(source_id, target_id, relation)`);
+      // Stamped INSIDE the transaction. Outside it, a process killed between COMMIT and the
+      // pragma replays the version-1 relabel on the next open, which turns an adjudicated
+      // conflicts_with edge into relates - the exact silent loss the docstring above warns of.
+      db.pragma(`user_version = ${SCHEMA_VERSION}`);
       db.exec('COMMIT');
     } catch (err) {
-      db.exec('ROLLBACK');
+      // Guarded: SQLITE_FULL, IOERR, BUSY, NOMEM and INTERRUPT auto-roll-back, and an
+      // unconditional ROLLBACK then throws "no transaction is active" and buries the real
+      // cause - so a user whose disk filled mid-migration would be told the wrong thing.
+      if (db.inTransaction) db.exec('ROLLBACK');
       throw err;
     }
   }
@@ -182,9 +248,15 @@ export function createLocalDb(dbPath: string) {
     insertDecision(row: { title: string; summary: string; sourceUrl: string | null; platform: string }): string {
       const inserted = db.prepare(
         `INSERT INTO decisions (id, title, summary, source_url, platform) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(source_url) DO UPDATE SET title = excluded.title, summary = excluded.summary
+         ON CONFLICT(source_url, title) DO UPDATE SET summary = excluded.summary, platform = excluded.platform
          RETURNING id`
-      ).get(randomUUID(), row.title, row.summary, row.sourceUrl, row.platform) as { id: string };
+      ).get(
+        randomUUID(),
+        row.title,
+        row.summary,
+        identifyingSourceUrl(row.sourceUrl),
+        row.platform,
+      ) as { id: string };
       return inserted.id;
     },
 
@@ -224,9 +296,21 @@ export function createLocalDb(dbPath: string) {
       }));
     },
 
+    /**
+     * `INSERT OR IGNORE` here was decorative: the id is a fresh UUID, so the only key that
+     * could conflict was guaranteed not to, and there was no unique index on the triple. With
+     * decisions now deduping, a re-import returns the SAME decision id and this added another
+     * identical edge every time - measured 1, 2, 3 over three imports, inflating the
+     * "similar decisions found" count `align local status` prints.
+     *
+     * The unique index (created in migrate) is what makes the OR IGNORE real. Confidence is
+     * refreshed rather than ignored so a better score replaces a worse one.
+     */
     insertLink(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
       db.prepare(
-        `INSERT OR IGNORE INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(source_id, target_id, relation)
+           DO UPDATE SET confidence = MAX(confidence, excluded.confidence)`
       ).run(randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
     },
 
