@@ -24,7 +24,7 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
   RELATIONSHIP_TYPES: ['supersedes', 'conflicts_with', 'contradicts', 'duplicates', 'relates'],
 }));
 
-import { createLocalDb } from '../lib/local-db.js';
+import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
 import { cosineSimilarity } from '../lib/local-embeddings.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { localValueRollup, renderValueReadout, type ValueRollup } from '../lib/value-rollup.js';
@@ -255,7 +255,11 @@ describe('ALI-503 migrating the artefacts already on disk', () => {
     const version = raw.pragma('user_version', { simple: true });
     raw.close();
 
-    expect(version).toBe(1);
+    // Against the constant, not a literal: the assertion is "migrate() stamped the version it
+    // claims to expect", which is what makes the guard work. A hardcoded 1 tested the same
+    // property but had to be hand-edited by the next migration, so it failed for a reason that
+    // had nothing to do with the behaviour it was written to protect.
+    expect(version).toBe(SCHEMA_VERSION);
   });
 
   it('a fresh database is unaffected', () => {

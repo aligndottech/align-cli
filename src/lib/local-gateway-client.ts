@@ -36,9 +36,40 @@ export const SIMILARITY_THRESHOLD = 0.65;
  * than two wrong decisions, because the caller can act on it.
  */
 export const SEARCH_THRESHOLD = 0.25;
-// Embeddings flag a decision as a related CANDIDATE at/above this score; the
-// relationship type is then assigned lazily by the LLM classifier.
+/**
+ * Candidate floor for ADJUDICATION - the path that then pays an LLM per candidate.
+ *
+ * Deliberately higher than the retrieval floor below, because this surface is expensive in
+ * three ways the hook is not: up to 5 sequential calls to the user's own provider, ~11s of
+ * latency, and an exit code. A keyless CI runner that gets `no-context` today exits 0; the
+ * moment retrieval finds anything it gets `unknown` and exits 2. And the classifier cannot
+ * reject a candidate - its vocabulary is ten positive relations with no "unrelated" - so a
+ * loose candidate that reaches it is reported rather than filtered.
+ *
+ * Deliberately NOT recalibrated with the retrieval floor. Measured on the corpus, 0.30 would
+ * recover four more related pairs here too, and that trade is a separate decision with a
+ * separate blast radius (see relatedness-calibration.test.ts).
+ */
 export const RELATES_THRESHOLD = 0.45;
+
+/**
+ * Candidate floor for RETRIEVAL ONLY (`depth: 'related'`, the agent editor hook).
+ *
+ * Measured, not chosen. Against fixtures/relatedness-corpus.json: 0.45 recovered 3 of 8 related
+ * pairs, 0.30 recovers 7 of 8, and neither admits a single unrelated pair. 0.25 scores the same
+ * 7 of 8, so the tie-break is margin over the worst false positive (0.2051): 0.30 clears it by
+ * 0.095 against 0.25's 0.045.
+ *
+ * 0.30 is also where this constant sat until commit 0cbef08 raised it to 0.45 inside a rename,
+ * unmentioned and unmeasured. So this is a revert with evidence attached rather than a new
+ * guess, and the evidence is a test that fails if the corpus stops supporting it.
+ *
+ * Safe to be looser here precisely because this path is cheap and honest: it returns above
+ * Stage 2, so it makes no provider call, and what the hook prints declines to assert anything
+ * ("related by content search and have NOT been adjudicated"). That is the same posture as
+ * `align search`, which has run at 0.25 all along - as has MCP `align_get_related_decisions`.
+ */
+export const RETRIEVAL_RELATES_THRESHOLD = 0.3;
 // Below this similarity between a decision and new content, the content is
 // considered to have drifted from the decision.
 export const DRIFT_THRESHOLD = 0.5;
@@ -199,8 +230,14 @@ export function createLocalGatewayClient(dbPath: string) {
       opts: { depth?: 'related' | 'full'; title?: string } = {},
     ): Promise<AlignmentResult> {
       // Stage 1: embeddings find candidate related decisions (free, local).
+      //
+      // The floor depends on what the caller will DO with the candidates. Retrieval-only stops
+      // above Stage 2, so a looser match costs one extra title in prose that asserts nothing;
+      // adjudication pays a provider call per candidate and can move an exit code, so it keeps
+      // the stricter bar. One constant could not serve both.
+      const threshold = opts.depth === 'related' ? RETRIEVAL_RELATES_THRESHOLD : RELATES_THRESHOLD;
       const embedding = await getEmbedding(diff);
-      const similar = await findSimilar(embedding, 5, RELATES_THRESHOLD);
+      const similar = await findSimilar(embedding, 5, threshold);
       const candidates = similar
         .map(s => {
           const row = db.getDecisionById(s.decisionId);

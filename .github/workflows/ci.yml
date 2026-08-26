@@ -28,6 +28,13 @@ jobs:
       - name: Test + coverage (enforces thresholds)
         run: npm run test:coverage
 
+      # Guards for the smoke harness itself, which vitest cannot reach: it is a shell script
+      # plus a Node runner. They exist because the runner's win32 argv-quoting precondition was
+      # documented and unenforced, and a step that broke it was misdiagnosed as a product defect
+      # for two rounds. Runs in this job because it is the one with Node available.
+      - name: Smoke harness guards
+        run: bash scripts/__tests__/test-smoke-timeout.sh
+
       - name: Build
         run: npm run build
 
