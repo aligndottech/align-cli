@@ -585,6 +585,10 @@ export async function callChatDetailed(
     if (outcome.kind === 'failed') {
       return { ok: false, failure: { kind: 'provider_stopped', provider, model: outcome.model, detail: outcome.detail } };
     }
+    // Narrowed to `unavailable` by the two returns above, so reading its own field
+    // needs no guard. Deliberately left to exhaustion rather than an explicit
+    // `kind === 'unavailable'` check: a fourth AdapterOutcome variant would make this
+    // line a type error, where an explicit check would silently route it to advance.
     if (outcome.unrecognisedModels) unrecognised = outcome.unrecognisedModels;
     return undefined;
   };
