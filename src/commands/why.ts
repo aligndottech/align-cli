@@ -7,7 +7,7 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import type { SearchResults } from '../lib/gateway-client.js';
 import { citationFor } from '../lib/decision-links.js';
-import { getLlmFailure, getUnvettedOllamaModels, RECOMMENDED_OLLAMA_PULL, synthesiseLocally } from '../lib/local-llm.js';
+import { type LlmFailure, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
 import { formatWhen } from '../lib/format-date.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
@@ -108,13 +108,17 @@ export function registerAskCommand(program: Command): void {
 
         // Conversational synthesis for natural-language questions (not file paths).
         // Uses the user's own AI provider (configured key / env var / local Ollama)
-        // via synthesiseLocally; returns null when none is available, in which case
-        // we fall through to the ranked decision list below.
+        // via synthesiseDetailed, which reports WHY when there is no answer - carried
+        // here so the list fallback below can say it, rather than re-read a module
+        // getter that a concurrent call could have cleared.
+        let synthFailure: LlmFailure | undefined;
         if (!filePath) {
-          const answer = await synthesiseLocally(
+          const synth = await synthesiseDetailed(
             query,
             results.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
           );
+          const answer = synth.ok ? synth.text : null;
+          if (!synth.ok) synthFailure = synth.failure;
           if (answer) {
             console.log('');
             for (const line of wrapText(answer, '  ', 76)) console.log(line);
@@ -191,8 +195,8 @@ export function registerAskCommand(program: Command): void {
           // ALI-420: a running Ollama with no vetted model used to answer anyway, with
           // whatever it listed first. It now declines, so name the models it has rather
           // than telling someone who is already running a provider to configure one.
-          const unvetted = getUnvettedOllamaModels();
-          const failure = getLlmFailure();
+          const unvetted = synthFailure?.kind === 'unrecognised_local_models' ? synthFailure.models : null;
+          const failure = synthFailure?.kind === 'provider_stopped' ? synthFailure : null;
           if (unvetted) {
             console.log(chalk.dim('  No answer written: Ollama is running, but none of these'));
             console.log(chalk.dim('  models are recognised for decision synthesis.'));

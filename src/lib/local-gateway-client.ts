@@ -1,7 +1,7 @@
 import { createLocalDb } from './local-db.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
-import { classifyRelationship } from './local-relationship-classifier.js';
-import { getLlmFailure, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
+import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
+import { RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
 import { citationFor, repositoryOf } from './decision-links.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
@@ -292,10 +292,10 @@ export function createLocalGatewayClient(dbPath: string) {
         // candidate, so asking again per candidate repeats one doomed call N times -
         // on a 429 that burns the retry budget while `--advisory` races its deadline.
         // The remaining candidates still report, untyped, which is what `unknown` means.
-        const outcome = chainStopped
-          ? ({ ok: false, reason: 'classifier_error' } as const)
+        const outcome: ClassificationOutcome = chainStopped
+          ? { ok: false, reason: 'classifier_error' }
           : await classifyRelationship(subject, { title: c.title, summary: c.summary });
-        if (!outcome.ok && getLlmFailure()) chainStopped = true;
+        if (!outcome.ok && outcome.failure?.kind === 'provider_stopped') chainStopped = true;
         const rel = outcome.ok ? outcome.relationship : null;
         typed.push({
           id: c.id,
@@ -306,6 +306,10 @@ export function createLocalGatewayClient(dbPath: string) {
           confidence: rel?.confidence ?? c.score,
           typed: rel !== null,
           failureReason: outcome.ok ? undefined : outcome.reason,
+          // The diagnosis travels WITH the candidate it describes, so the hint below
+          // names the model that failed on this one rather than whatever a module
+          // getter happened to hold by the time the loop finished.
+          failure: outcome.ok ? undefined : outcome.failure,
           reason: rel?.reason,
           similarity: c.score,
         });
@@ -346,12 +350,12 @@ export function createLocalGatewayClient(dbPath: string) {
         // ALI-692: the third rung. A recorded chain stop names the model that failed,
         // and this is the surface agents gate on - it used to fall through to an empty
         // hint, discarding the diagnosis one frame above where it was recorded.
-        const failure = getLlmFailure();
+        const failure = unclassified.failure;
         const hint = unclassified.failureReason === 'unvetted_local_model'
           ? ` Ollama is running, but no recognised model is installed: \`ollama pull ${RECOMMENDED_OLLAMA_PULL}\`, or set ALIGN_OLLAMA_MODEL to name your own.`
           : unclassified.failureReason === 'no_llm_key'
             ? ' Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or run a local Ollama) so these can be classified.'
-            : failure
+            : failure?.kind === 'provider_stopped'
               ? ` ${failure.model} (${failure.provider}) returned an unusable response (${failure.detail}), and no weaker model was asked in its place.`
               : '';
         return {

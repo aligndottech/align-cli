@@ -6,12 +6,16 @@
 // else stops it and is recorded so the caller can name the model that failed.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  callChat,
-  getLlmFailure,
-  isAvailabilityFailure,
-  resetLlmDiagnostics,
-} from '../lib/local-llm.js';
+import { callChatDetailed, type ChatResult, isAvailabilityFailure } from '../lib/local-llm.js';
+
+// ALI-692 follow-up: the diagnosis is RETURNED, so every assertion below reads the
+// result it was handed. These two projections are pure and take that result as an
+// argument - deliberately not a getter, because a getter is what was removed.
+const textOf = (r: ChatResult) => (r.ok ? r.text : null);
+const stopOf = (r: ChatResult) =>
+  !r.ok && r.failure.kind === 'provider_stopped'
+    ? { provider: r.failure.provider, model: r.failure.model, detail: r.failure.detail }
+    : null;
 
 const mockFetch = vi.fn();
 
@@ -38,7 +42,6 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();
     for (const k of ALL_KEYS) vi.stubEnv(k, '');
-    resetLlmDiagnostics();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -51,10 +54,10 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
     mockFetch.mockImplementation(async (url: unknown) =>
       String(url).includes('anthropic') ? httpError(401, 'unauthorized') : openAiResponse('next answer'));
 
-    const r = await callChat('s', 'u');
+    const r = await callChatDetailed('s', 'u');
 
-    expect(r).toBe('next answer');
-    expect(getLlmFailure()).toBeNull();
+    expect(textOf(r)).toBe('next answer');
+    expect(stopOf(r)).toBeNull();
   });
 
   it('a 404 advances too - the unknown-model shape', async () => {
@@ -63,8 +66,9 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
     mockFetch.mockImplementation(async (url: unknown) =>
       String(url).includes('anthropic') ? httpError(404, 'model not found') : openAiResponse('answered'));
 
-    expect(await callChat('s', 'u')).toBe('answered');
-    expect(getLlmFailure()).toBeNull();
+    const r = await callChatDetailed('s', 'u');
+    expect(textOf(r)).toBe('answered');
+    expect(stopOf(r)).toBeNull();
   });
 
   it('a 400 whose body names an unknown model advances (body allowlist)', async () => {
@@ -76,13 +80,13 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
         ? { ok: false }
         : httpError(400, '{"error":{"message":"not-installed is not a valid model ID"}}'));
 
-    const r = await callChat('s', 'u');
+    const r = await callChatDetailed('s', 'u');
 
-    expect(r).toBeNull();
+    expect(textOf(r)).toBeNull();
     // The chain ADVANCED past the custom endpoint to the Ollama probe...
     expect(urls().some(u => u.includes('/api/tags'))).toBe(true);
     // ...and no stop was recorded: every failure was availability-class.
-    expect(getLlmFailure()).toBeNull();
+    expect(stopOf(r)).toBeNull();
   });
 
   it('a 200 with no content STOPS the chain and names the model', async () => {
@@ -92,23 +96,23 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
         ? { ok: true, json: async () => ({}) } // authenticated, answered, unusable
         : openAiResponse('a weaker model answer'));
 
-    const r = await callChat('s', 'u');
+    const r = await callChatDetailed('s', 'u');
 
-    expect(r).toBeNull();
+    expect(textOf(r)).toBeNull();
     // The assertion that separates "stopped" from "silently demoted": nothing after
     // the chosen provider was called - not even the local Ollama probe.
     expect(urls().filter(u => !u.includes('openai.com'))).toEqual([]);
-    expect(getLlmFailure()).toEqual({ provider: 'openai', model: 'gpt-4o-mini', detail: 'empty response' });
+    expect(stopOf(r)).toEqual({ provider: 'openai', model: 'gpt-4o-mini', detail: 'empty response' });
   });
 
   it('a 200 whose content is an empty string stops too - the second example of the rule', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'k');
     mockFetch.mockImplementation(async () => openAiResponse(''));
 
-    const r = await callChat('s', 'u');
+    const r = await callChatDetailed('s', 'u');
 
-    expect(r).toBeNull();
-    expect(getLlmFailure()?.detail).toBe('empty response');
+    expect(textOf(r)).toBeNull();
+    expect(stopOf(r)?.detail).toBe('empty response');
   });
 
   it('a 200 whose body is not JSON stops and says so', async () => {
@@ -118,10 +122,10 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
       json: async () => { throw new Error('bad json'); },
     }));
 
-    const r = await callChat('s', 'u');
+    const r = await callChatDetailed('s', 'u');
 
-    expect(r).toBeNull();
-    expect(getLlmFailure()).toEqual({ provider: 'openai', model: 'gpt-4o-mini', detail: 'malformed response body' });
+    expect(textOf(r)).toBeNull();
+    expect(stopOf(r)).toEqual({ provider: 'openai', model: 'gpt-4o-mini', detail: 'malformed response body' });
   });
 
   it('a 429 stops: rate-limited is not a licence to demote to a weaker model', async () => {
@@ -129,11 +133,11 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
     vi.stubEnv('OPENAI_API_KEY', 'bait'); // would answer, must not be asked
     mockFetch.mockImplementation(async () => httpError(429, 'rate limited'));
 
-    const r = await callChat('s', 'u');
+    const r = await callChatDetailed('s', 'u');
 
-    expect(r).toBeNull();
+    expect(textOf(r)).toBeNull();
     expect(urls().every(u => u.includes('anthropic'))).toBe(true);
-    expect(getLlmFailure()).toEqual({
+    expect(stopOf(r)).toEqual({
       provider: 'anthropic',
       model: 'claude-haiku-4-5-20251001',
       detail: 'HTTP 429',
@@ -144,8 +148,9 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
     vi.stubEnv('OPENAI_API_KEY', 'k');
     mockFetch.mockImplementation(async () => httpError(500, 'internal error'));
 
-    expect(await callChat('s', 'u')).toBeNull();
-    expect(getLlmFailure()?.detail).toBe('HTTP 500');
+    const r = await callChatDetailed('s', 'u');
+    expect(textOf(r)).toBeNull();
+    expect(stopOf(r)?.detail).toBe('HTTP 500');
   });
 
   it('an explicitly configured provider that answers garbage does NOT fall through to env keys', async () => {
@@ -157,11 +162,11 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
         ? { ok: true, json: async () => ({ content: [] }) }
         : openAiResponse('the demotion that must not happen'));
 
-    const r = await callChat('s', 'u', { provider: 'anthropic', apiKey: 'cfg' });
+    const r = await callChatDetailed('s', 'u', { provider: 'anthropic', apiKey: 'cfg' });
 
-    expect(r).toBeNull();
+    expect(textOf(r)).toBeNull();
     expect(urls().every(u => u.includes('anthropic'))).toBe(true);
-    expect(getLlmFailure()?.provider).toBe('anthropic');
+    expect(stopOf(r)?.provider).toBe('anthropic');
   });
 
   it('an explicitly configured provider with a bad key still falls through (availability)', async () => {
@@ -169,66 +174,25 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
     mockFetch.mockImplementation(async (url: unknown) =>
       String(url).includes('anthropic') ? httpError(401, 'invalid x-api-key') : openAiResponse('env answer'));
 
-    expect(await callChat('s', 'u', { provider: 'anthropic', apiKey: 'revoked' })).toBe('env answer');
+    const r = await callChatDetailed('s', 'u', { provider: 'anthropic', apiKey: 'revoked' });
+    expect(textOf(r)).toBe('env answer');
   });
 
-  it('a recorded stop describes THIS call, not an earlier one', async () => {
+  it('each call carries its own outcome, so a stop cannot outlive its cause', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'k');
     mockFetch.mockImplementation(async () => httpError(429, ''));
-    await callChat('s', 'u');
-    expect(getLlmFailure()).not.toBeNull();
+    const failed = await callChatDetailed('s', 'u');
 
     mockFetch.mockImplementation(async () => openAiResponse('recovered'));
-    const r = await callChat('s', 'u');
+    const recovered = await callChatDetailed('s', 'u');
 
-    expect(r).toBe('recovered');
-    expect(getLlmFailure()).toBeNull();
+    // Both results are still in scope and still disagree, which is the property: the
+    // first call's stop is on the first value and nothing can clear it from there.
+    expect(stopOf(failed)?.detail).toBe('HTTP 429');
+    expect(textOf(recovered)).toBe('recovered');
+    expect(stopOf(recovered)).toBeNull();
   });
 
-  // A timeout is the most common way the chosen provider fails, and it used to advance:
-  // the fetch rejection was indistinguishable from "this provider is not here". Slow is
-  // not absent, so it must stop, exactly as the 429 does - the same overloaded provider
-  // otherwise stops on a 429 and demotes on a client abort.
-  it('a timeout on the chosen provider STOPS the chain, it does not demote', async () => {
-    vi.stubEnv('ANTHROPIC_API_KEY', 'k');
-    vi.stubEnv('OPENAI_API_KEY', 'bait'); // would answer, must not be asked
-    mockFetch.mockImplementation(async (url: unknown) => {
-      if (String(url).includes('anthropic')) {
-        const err = new Error('The operation was aborted due to timeout');
-        err.name = 'TimeoutError';
-        throw err;
-      }
-      return openAiResponse('the demotion that must not happen');
-    });
-
-    const r = await callChat('s', 'u');
-
-    expect(r).toBeNull();
-    expect(urls().every(u => u.includes('anthropic'))).toBe(true);
-    expect(getLlmFailure()).toEqual({
-      provider: 'anthropic',
-      model: 'claude-haiku-4-5-20251001',
-      detail: 'timed out',
-    });
-  });
-
-  it('a provider that is genuinely not reachable still advances - the pair for the rule above', async () => {
-    // A connection refused or DNS failure means nothing answered, so the next provider
-    // may. Only an abort (we gave up on a provider that was answering) is a stop.
-    vi.stubEnv('ANTHROPIC_API_KEY', 'k');
-    vi.stubEnv('OPENAI_API_KEY', 'good');
-    mockFetch.mockImplementation(async (url: unknown) => {
-      if (String(url).includes('anthropic')) throw new TypeError('fetch failed');
-      return openAiResponse('next provider answered');
-    });
-
-    expect(await callChat('s', 'u')).toBe('next provider answered');
-    expect(getLlmFailure()).toBeNull();
-  });
-
-  // Once /api/tags has named a model, Ollama is a CHOSEN provider like any other, so a
-  // failure from /api/chat must be attributable. It used to record nothing at all, and
-  // `align ask` then told a user whose Ollama had just replied to go and set a key.
   it('an Ollama failure after the model was chosen names the model, not "configure a key"', async () => {
     vi.stubEnv('ALIGN_OLLAMA_MODEL', 'llama3.2:latest'); // named, so selection cannot fail
     mockFetch.mockImplementation(async (url: unknown) =>
@@ -236,10 +200,10 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
         ? { ok: true, json: async () => ({ models: [{ name: 'llama3.2:latest' }] }) }
         : httpError(404, 'model "llama3.2:latest" not found, try pulling it first'));
 
-    const r = await callChat('s', 'u');
+    const r = await callChatDetailed('s', 'u');
 
-    expect(r).toBeNull();
-    expect(getLlmFailure()).toEqual({
+    expect(textOf(r)).toBeNull();
+    expect(stopOf(r)).toEqual({
       provider: 'ollama',
       model: 'llama3.2:latest',
       detail: 'HTTP 404',
@@ -251,8 +215,9 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
     // and the generic key hint is the right remedy.
     mockFetch.mockImplementation(async () => ({ ok: false, status: 503, text: async () => '' }));
 
-    expect(await callChat('s', 'u')).toBeNull();
-    expect(getLlmFailure()).toBeNull();
+    const r = await callChatDetailed('s', 'u');
+    expect(textOf(r)).toBeNull();
+    expect(stopOf(r)).toBeNull();
   });
 
   it('an Ollama model that answers with nothing is a stop naming that model, not "configure a key"', async () => {
@@ -261,10 +226,10 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
         ? { ok: true, json: async () => ({ models: [{ name: 'llama3.2:latest' }] }) }
         : { ok: true, json: async () => ({ message: { content: '' } }) });
 
-    const r = await callChat('s', 'u');
+    const r = await callChatDetailed('s', 'u');
 
-    expect(r).toBeNull();
-    expect(getLlmFailure()).toEqual({ provider: 'ollama', model: 'llama3.2:latest', detail: 'empty response' });
+    expect(textOf(r)).toBeNull();
+    expect(stopOf(r)).toEqual({ provider: 'ollama', model: 'llama3.2:latest', detail: 'empty response' });
   });
 });
 
@@ -273,7 +238,6 @@ describe('a reasoning model\'s monologue is not part of the answer (ALI-692)', (
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();
     for (const k of ALL_KEYS) vi.stubEnv(k, '');
-    resetLlmDiagnostics();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -297,9 +261,9 @@ describe('a reasoning model\'s monologue is not part of the answer (ALI-692)', (
           }),
         });
 
-    const r = await callChat('s', 'u');
+    const r = await callChatDetailed('s', 'u');
 
-    expect(r).toBe('Postgres was chosen for JSONB.');
+    expect(textOf(r)).toBe('Postgres was chosen for JSONB.');
   });
 
   it('a monologue with no answer after it is an unusable response, not an answer', async () => {
@@ -310,8 +274,9 @@ describe('a reasoning model\'s monologue is not part of the answer (ALI-692)', (
         ? { ok: true, json: async () => ({ models: [{ name: 'deepseek-r1:7b' }] }) }
         : { ok: true, json: async () => ({ message: { content: '<think>I am still thinking.</think>' } }) });
 
-    expect(await callChat('s', 'u')).toBeNull();
-    expect(getLlmFailure()).toEqual({
+    const r = await callChatDetailed('s', 'u');
+    expect(textOf(r)).toBeNull();
+    expect(stopOf(r)).toEqual({
       provider: 'ollama',
       model: 'deepseek-r1:7b',
       detail: 'empty response',

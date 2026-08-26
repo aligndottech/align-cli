@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type * as LocalLlmModule from '../lib/local-llm.js';
 
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
@@ -15,14 +14,12 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
   RELATIONSHIP_TYPES: ['supersedes', 'conflicts_with', 'contradicts', 'duplicates', 'refines', 'implements', 'depends_on', 'relates_to'],
 }));
 
-// ALI-692: the hint ladder now reads WHICH model failed. Only getLlmFailure is faked -
-// RECOMMENDED_OLLAMA_PULL is imported for real, so a test asserting the pull hint is
-// comparing against the constant the command actually renders, not a copy of it.
-vi.mock('../lib/local-llm.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof LocalLlmModule>()),
-  getLlmFailure: vi.fn().mockReturnValue(null),
-}));
-
+// No local-llm mock any more: this branch removes the module-level `getLlmFailure()` that had to
+// be faked here, because the failure now travels back on the classifier's own return value. That
+// is the whole point of the refactor - a module variable could be cleared by a concurrent call -
+// and it means one less piece of shared state for this suite to arrange.
+// RECOMMENDED_OLLAMA_PULL is still imported for real below, so a test asserting the pull hint
+// compares against the constant the command actually renders rather than a copy of it.
 import {
   createLocalGatewayClient,
   RELATES_THRESHOLD,
@@ -30,7 +27,7 @@ import {
 } from '../lib/local-gateway-client.js';
 import { cosineSimilarity } from '../lib/local-embeddings.js';
 import { classifyRelationship } from '../lib/local-relationship-classifier.js';
-import { getLlmFailure, RECOMMENDED_OLLAMA_PULL } from '../lib/local-llm.js';
+import { RECOMMENDED_OLLAMA_PULL } from '../lib/local-llm.js';
 
 describe('local-gateway-client', () => {
   let dbPath: string;
@@ -41,7 +38,6 @@ describe('local-gateway-client', () => {
     client = createLocalGatewayClient(dbPath);
     vi.mocked(cosineSimilarity).mockReturnValue(0.0);
     vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'no_llm_key' });
-    vi.mocked(getLlmFailure).mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -292,7 +288,7 @@ describe('local-gateway-client', () => {
   it('checkAlignment names the model that failed when the chain stopped on it', async () => {
     vi.mocked(cosineSimilarity).mockReturnValue(0.6);
     vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'classifier_error' });
-    vi.mocked(getLlmFailure).mockReturnValue({ provider: 'openai', model: 'gpt-4o-mini', detail: 'HTTP 429' });
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'classifier_error', failure: { kind: 'provider_stopped', provider: 'openai', model: 'gpt-4o-mini', detail: 'HTTP 429' } });
     await client.ingestBatch([
       { source_url: 'https://jira/ABC-3', platform: 'jira', raw_text: 'Feature flag rollout', title: 'Rollout plan' },
     ]);
@@ -313,7 +309,7 @@ describe('local-gateway-client', () => {
     // the retry budget while `align check --advisory` is racing a 2.5s deadline.
     vi.mocked(cosineSimilarity).mockReturnValue(0.6);
     vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'classifier_error' });
-    vi.mocked(getLlmFailure).mockReturnValue({ provider: 'openai', model: 'gpt-4o-mini', detail: 'HTTP 429' });
+    vi.mocked(classifyRelationship).mockResolvedValue({ ok: false, reason: 'classifier_error', failure: { kind: 'provider_stopped', provider: 'openai', model: 'gpt-4o-mini', detail: 'HTTP 429' } });
     await client.ingestBatch([
       { source_url: 'https://slack.com/a', platform: 'slack', raw_text: 'Standardise on MySQL', title: 'Standardise on MySQL' },
       { source_url: 'https://slack.com/b', platform: 'slack', raw_text: 'Cache with Redis', title: 'Cache with Redis' },

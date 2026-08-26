@@ -25,17 +25,13 @@ vi.mock('../lib/config.js', () => ({
 
 vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('prod') }));
 
-// Default null = no AI provider available -> list fallback (keeps the list-rendering tests valid).
-const mockSynthesise = vi.hoisted(() => vi.fn().mockResolvedValue(null));
-// ALI-420: `ask` asks WHY there was no answer so it can say something useful. Default
-// null = the ordinary "no provider configured" case, which keeps the existing tests valid.
-const mockUnvetted = vi.hoisted(() => vi.fn().mockReturnValue(null));
-// ALI-692: same contract for a chain that STOPPED on an unusable answer.
-const mockLlmFailure = vi.hoisted(() => vi.fn().mockReturnValue(null));
+// `ask` now gets the answer AND the reason there is none from one returned value, so
+// there is one mock instead of three. Default = the ordinary "no provider configured"
+// case, which keeps every list-rendering test below valid.
+const mockSynthesise = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ ok: false, failure: { kind: 'no_provider' } }));
 vi.mock('../lib/local-llm.js', () => ({
-  synthesiseLocally: mockSynthesise,
-  getUnvettedOllamaModels: mockUnvetted,
-  getLlmFailure: mockLlmFailure,
+  synthesiseDetailed: mockSynthesise,
   RECOMMENDED_OLLAMA_PULL: 'llama3.2',
 }));
 
@@ -83,7 +79,7 @@ describe('align ask', () => {
   });
 
   it('prints a conversational synthesised answer when an AI provider is available', async () => {
-    mockSynthesise.mockResolvedValueOnce('Postgres was chosen for its JSONB and pgvector support.');
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'Postgres was chosen for its JSONB and pgvector support.' });
     const program = new Command();
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
@@ -94,7 +90,7 @@ describe('align ask', () => {
   });
 
   it('falls back to the decision list + a hint when no AI provider is configured', async () => {
-    mockSynthesise.mockResolvedValueOnce(null);
+    mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'no_provider' } });
     const program = new Command();
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
@@ -200,7 +196,7 @@ describe('align ask - file path mode', () => {
   // ALI-420. These two are a pair: each one's positive assertion is the other's control,
   // so neither negative can pass because the whole block failed to render.
   it('says why there was no answer when Ollama has only unvetted models', async () => {
-    mockUnvetted.mockReturnValueOnce(['WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M']);
+    mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'unrecognised_local_models', models: ['WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M'] } });
     const program = new Command();
     registerAskCommand(program);
 
@@ -219,7 +215,7 @@ describe('align ask - file path mode', () => {
   // one answers unusably - so when that happens, say WHICH model failed and how,
   // instead of telling a user with a working key to go configure a key.
   it('names the model when the chain stopped on an unusable answer', async () => {
-    mockLlmFailure.mockReturnValueOnce({ provider: 'openai', model: 'gpt-4o-mini', detail: 'empty response' });
+    mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'provider_stopped', provider: 'openai', model: 'gpt-4o-mini', detail: 'empty response' } });
     const program = new Command();
     registerAskCommand(program);
 
@@ -297,27 +293,27 @@ describe('align ask - source attribution parity with the MCP surface (cite/platf
   }
 
   it('synthesis sources cite the human-quotable form, never the raw UUID', async () => {
-    mockSynthesise.mockResolvedValueOnce('The release workflow is the single writer.');
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'The release workflow is the single writer.' });
     const all = await runAsk();
     expect(all).toContain('(align-stack#1656)');
     expect(all).not.toContain('c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3');
   });
 
   it('synthesis sources carry the platform tag and the source link', async () => {
-    mockSynthesise.mockResolvedValueOnce('The release workflow is the single writer.');
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'The release workflow is the single writer.' });
     const all = await runAsk();
     expect(all).toContain('[github]');
     expect(all).toContain('https://github.com/aligndottech/align-stack/pull/1656');
   });
 
   it('says when the answer spans tools - the cross-tool moment, visible in a terminal', async () => {
-    mockSynthesise.mockResolvedValueOnce('The release workflow is the single writer.');
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'The release workflow is the single writer.' });
     const all = await runAsk();
     expect(all).toMatch(/across .*github.*slack|across .*slack.*github/);
   });
 
   it('a decision with no cite keeps its id (decisions show needs it) and still shows platform + link', async () => {
-    mockSynthesise.mockResolvedValueOnce('The release workflow is the single writer.');
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'The release workflow is the single writer.' });
     const all = await runAsk();
     expect(all).toContain('[slack]');
     expect(all).toContain('https://acme.slack.com/archives/C1/p123');
@@ -325,7 +321,7 @@ describe('align ask - source attribution parity with the MCP surface (cite/platf
   });
 
   it('the list fallback (no AI provider) renders cite and platform too - one contract, both paths', async () => {
-    mockSynthesise.mockResolvedValueOnce(null);
+    mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'no_provider' } });
     const all = await runAsk();
     expect(all).toContain('(align-stack#1656)');
     expect(all).toContain('[github]');
@@ -341,7 +337,7 @@ describe('align ask - source attribution parity with the MCP surface (cite/platf
         strategy: 'semantic' as const,
       }),
     });
-    mockSynthesise.mockResolvedValueOnce('One platform only.');
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'One platform only.' });
     const all = await runAsk();
     expect(all).not.toMatch(/across /);
   });
@@ -371,7 +367,7 @@ describe('align ask - cite derived client-side when the wire omits it', () => {
   afterEach(() => vi.clearAllMocks());
 
   it('renders the derived cite, not the UUID', async () => {
-    mockSynthesise.mockResolvedValueOnce('Answer.');
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'Answer.' });
     const program = new Command();
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask', 'prod tags?']);
@@ -400,7 +396,7 @@ describe('align ask - the fallback derives cites too (one contract means one con
         count: 1, strategy: 'semantic' as const,
       }),
     });
-    mockSynthesise.mockResolvedValueOnce(null); // no provider -> list fallback
+    mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'no_provider' } }); // no provider -> list fallback
     const program = new Command();
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask', 'prod tags?']);

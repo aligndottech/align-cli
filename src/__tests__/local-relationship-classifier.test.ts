@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DECISION_RELATIONSHIPS, isDecisionRelationship } from '@aligndottech/connector-core';
 import { classifyRelationship, RELATIONSHIP_TYPES } from '../lib/local-relationship-classifier.js';
-import { resetLlmDiagnostics } from '../lib/local-llm.js';
 
 const A = { title: 'Standardise on MySQL', summary: 'We chose MySQL as the primary database.' };
 const B = { title: 'Migrate to Postgres', summary: 'Switch the service database to Postgres.' };
@@ -32,7 +31,7 @@ describe('classifyRelationship', () => {
     // probes local Ollama as a last resort, so it fails only when that is also gone.
     mockFetch.mockResolvedValue({ ok: false }); // Ollama /api/tags not ok
     const result = await classifyRelationship(A, B);
-    expect(result).toEqual({ ok: false, reason: 'no_llm_key' });
+    expect(result).toEqual({ ok: false, reason: 'no_llm_key', failure: { kind: 'no_provider' } });
   });
 
   // ALI-420: an unvetted local model must not assert typed edges. These are written into
@@ -43,7 +42,6 @@ describe('classifyRelationship', () => {
       'GROK_API_KEY', 'XAI_API_KEY', 'ALIGN_LLM_BASE_URL', 'ALIGN_OLLAMA_MODEL']) {
       vi.stubEnv(k, '');
     }
-    resetLlmDiagnostics();
     mockFetch.mockImplementation(async (url: string) =>
       String(url).includes('/api/tags')
         ? { ok: true, json: async () => ({ models: [{ name: 'WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M' }] }) }
@@ -52,7 +50,12 @@ describe('classifyRelationship', () => {
     const result = await classifyRelationship(A, B);
 
     // NOT no_llm_key: that hint tells the user to "run a local Ollama", and they are.
-    expect(result).toEqual({ ok: false, reason: 'unvetted_local_model' });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'unvetted_local_model',
+      // The models travel on the value, so a presenter can name them for THIS candidate.
+      failure: { kind: 'unrecognised_local_models', models: ['WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M'] },
+    });
   });
 
   it('types the relationship via Anthropic when ANTHROPIC_API_KEY is set', async () => {
@@ -83,7 +86,10 @@ describe('classifyRelationship', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
     mockFetch.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     const result = await classifyRelationship(A, B);
-    expect(result).toEqual({ ok: false, reason: 'classifier_error' });
+    expect(result).toMatchObject({ ok: false, reason: 'classifier_error' });
+    // Not just the reason: the model that failed rides along, which is what lets
+    // `align check` name it instead of printing an empty remedy.
+    expect(result).toMatchObject({ failure: { kind: 'provider_stopped' } });
   });
 
   // ALI-692: an Ollama model that ANSWERED, unusably, used to fall into no_llm_key
@@ -94,7 +100,6 @@ describe('classifyRelationship', () => {
       'GROK_API_KEY', 'XAI_API_KEY', 'ALIGN_LLM_BASE_URL', 'ALIGN_OLLAMA_MODEL']) {
       vi.stubEnv(k, '');
     }
-    resetLlmDiagnostics();
     mockFetch.mockImplementation(async (url: string) =>
       String(url).includes('/api/tags')
         ? { ok: true, json: async () => ({ models: [{ name: 'llama3.2:latest' }] }) }
@@ -102,7 +107,10 @@ describe('classifyRelationship', () => {
 
     const result = await classifyRelationship(A, B);
 
-    expect(result).toEqual({ ok: false, reason: 'classifier_error' });
+    expect(result).toMatchObject({ ok: false, reason: 'classifier_error' });
+    // Not just the reason: the model that failed rides along, which is what lets
+    // `align check` name it instead of printing an empty remedy.
+    expect(result).toMatchObject({ failure: { kind: 'provider_stopped' } });
   });
 
   it('uses the canonical connector-core vocabulary, not an invented local list', () => {
