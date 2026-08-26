@@ -8,6 +8,7 @@ import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo } 
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
+import { CHECK_DEPTHS, type CheckDepth } from '../lib/check-depth.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
 // execFile timeout in the pi and OpenCode shims). Adjudication measured ~11s whenever
@@ -20,6 +21,10 @@ const RETRIEVAL_TIMEOUT_MS = 2500;
 // only tests for non-zero still treats both as a failure.
 const EXIT_CONFLICT = 1;
 const EXIT_UNKNOWN = 2;
+
+function isCheckDepth(v: string): v is CheckDepth {
+  return (CHECK_DEPTHS as readonly string[]).includes(v);
+}
 
 export function registerCheckCommand(program: Command): void {
   program
@@ -34,9 +39,27 @@ export function registerCheckCommand(program: Command): void {
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
     .option('--title <text>', 'The decision being proposed, in words (e.g. the PR title). Without it the gateway adjudicates on the first 200 characters of the diff, which is a file header and a few + lines')
     .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')
-    .option('--depth <depth>', "How deep an answer to request: related (retrieval only), full (the gateway default: adjudication behind its similarity cost gate), or exhaustive (adjudicate whatever was retrieved - for strict CI gates whose fail-on treats unknown as failure, ALI-708)")
+    .option('--depth <depth>', `How deep an answer to request: ${CHECK_DEPTHS.join(', ')} - related is retrieval only, full (the gateway default) adjudicates behind its similarity cost gate, exhaustive adjudicates whatever was retrieved (for strict CI gates whose fail-on treats unknown as failure, ALI-708). Ignored in --advisory mode, which is retrieval-only by design`)
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
     .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; format?: AdvisoryFormat; ci: boolean; base?: string; title?: string; depth?: string; resolve?: string }) => {
+      // A typo'd depth must not silently become the gateway default: for a strict CI
+      // caller that quiet fall-through would reintroduce the exact unadjudicated skip
+      // --depth exhaustive exists to remove (ALI-708). Above the advisory early-return, so
+      // the typo is loud on EVERY path. Narrowing by predicate rather than a cast, so
+      // deleting this guard would take the typed value with it. EXIT_UNKNOWN on both
+      // branches: exit 1 is the conflict code, and a usage error reported as "found a
+      // conflict" is the fabricated finding decide.sh's header documents.
+      if (opts.depth !== undefined && !isCheckDepth(opts.depth)) {
+        const message = `Invalid --depth '${opts.depth}': expected one of ${CHECK_DEPTHS.join(', ')}`;
+        if (opts.ci) {
+          process.stdout.write(`${JSON.stringify({ status: 'error', reason: 'invalid_depth', message })}\n`);
+        } else {
+          console.error(chalk.red(message));
+        }
+        process.exit(EXIT_UNKNOWN);
+      }
+      const depth = opts.depth as CheckDepth | undefined;
+
       // Advisory mode is the deterministic auto-alignment path (ALI-121/ALI-122):
       // non-blocking, fail-open, machine-readable. It owns the whole flow, never
       // touching the human-facing spinner/console output below.
@@ -45,20 +68,6 @@ export function registerCheckCommand(program: Command): void {
         return;
       }
 
-      // A typo'd depth must not silently become the gateway default: for a strict CI
-      // caller that quiet fall-through would reintroduce the exact unadjudicated skip
-      // --depth exhaustive exists to remove (ALI-708).
-      const CHECK_DEPTHS = ['related', 'full', 'exhaustive'] as const;
-      const depth = opts.depth as (typeof CHECK_DEPTHS)[number] | undefined;
-      if (depth !== undefined && !CHECK_DEPTHS.includes(depth)) {
-        const message = `Invalid --depth '${opts.depth}': expected one of ${CHECK_DEPTHS.join(', ')}`;
-        if (opts.ci) {
-          process.stdout.write(`${JSON.stringify({ status: 'error', message })}\n`);
-          process.exit(EXIT_UNKNOWN);
-        }
-        console.error(chalk.red(message));
-        process.exit(1);
-      }
 
       if (!await isGitRepo()) {
         const message = 'Not in a git repository';
@@ -110,10 +119,13 @@ export function registerCheckCommand(program: Command): void {
       }
 
       const branch = await getCurrentBranch().catch(() => '');
+      // One options object for both paths below, so the CI request and the interactive
+      // request cannot silently diverge field by field.
+      const checkOpts = { title: opts.title, depth };
 
       if (opts.ci) {
         try {
-          const result = await client.checkAlignment(diff, branch, { title: opts.title, depth });
+          const result = await client.checkAlignment(diff, branch, checkOpts);
           process.stdout.write(`${JSON.stringify(result)  }\n`);
           if (result.status === 'conflicting') process.exit(EXIT_CONFLICT);
           // CI is where a silent green costs the most: a check that could not run
@@ -136,7 +148,7 @@ export function registerCheckCommand(program: Command): void {
 
       const spinner = ora('Checking alignment...').start();
       try {
-        const result = await client.checkAlignment(diff, branch, { title: opts.title, depth });
+        const result = await client.checkAlignment(diff, branch, checkOpts);
         spinner.stop();
 
         if (result.status === 'aligned') {

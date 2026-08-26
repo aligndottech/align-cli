@@ -181,6 +181,7 @@ export interface DriftItem {
 // source of truth in @aligndottech/connector-core - imported + re-exported here
 // so the rest of the CLI keeps importing them from this module.
 import type { FetcherItem as BatchIngestItem, DecisionAuthor } from '@aligndottech/connector-core';
+import type { CheckDepth } from './check-depth.js';
 export type { DecisionAuthor, BatchIngestItem };
 
 export interface BatchIngestResult {
@@ -353,7 +354,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     async checkAlignment(
       diff: string,
       context?: string,
-      opts: { depth?: 'related' | 'full' | 'exhaustive'; title?: string } = {},
+      opts: { depth?: CheckDepth; title?: string } = {},
     ): Promise<AlignmentResult> {
       return request<AlignmentResult>('/alignment/check', {
         method: 'POST',

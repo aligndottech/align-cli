@@ -90,9 +90,10 @@ describe('align check --depth', () => {
     );
   });
 
-  // Second example: absent means absent, so the gateway's own default stays the single
-  // writer of what an unspecified depth means.
-  it('sends no depth when the flag is absent', async () => {
+  // Second example: an absent flag reaches the client as depth undefined; the KEY-level
+  // absence on the wire (so the gateway default stays the single writer) is the client's
+  // job, pinned by gateway-client.test.ts "omits the depth key entirely".
+  it('sends no depth value when the flag is absent', async () => {
     await runCheck(['--ci', '--base', 'origin/main']);
 
     // Positive control first: the check really ran, so the absence below is not an
@@ -108,6 +109,26 @@ describe('align check --depth', () => {
     expect(exits[0]).toBe(EXIT_UNKNOWN);
     const line = JSON.parse(stdout.trim().split('\n').at(-1) as string);
     expect(line.status).toBe('error');
+    expect(line.reason).toBe('invalid_depth');
     expect(line.message).toMatch(/depth/i);
+  });
+
+  it('rejects an invalid depth with the could-not-check code outside --ci too', async () => {
+    // Exit 1 is the conflict code (decide.sh's header documents the fabricated-finding
+    // confusion), so a usage error must exit EXIT_UNKNOWN on the human path as well.
+    const { exits } = await runCheck(['--base', 'origin/main', '--depth', 'exhaustve']);
+
+    expect(mockCheckAlignment).not.toHaveBeenCalled();
+    expect(exits[0]).toBe(EXIT_UNKNOWN);
+  });
+
+  it('rejects an invalid depth even in --advisory mode', async () => {
+    // The validation sits ABOVE the advisory early-return: advisory ignores a VALID depth
+    // by design (it is retrieval-only), but a typo must be loud on every path or it
+    // silently becomes the default - the exact skip the flag exists to remove.
+    const { exits } = await runCheck(['--advisory', '--depth', 'exhaustve']);
+
+    expect(mockCheckAlignment).not.toHaveBeenCalled();
+    expect(exits[0]).toBe(EXIT_UNKNOWN);
   });
 });
