@@ -91,6 +91,44 @@ if [ $rc -eq 2 ] && printf '%s' "$out" | grep -qi "stdin-file"; then
 else
   bad "a missing --stdin-file was tolerated (rc=$rc): $out"
 fi
+
+# --- the --stdin-file argument guard (Copilot Autofix on #145, which shipped no test) ---------
+#
+# Measured by deleting that guard and re-running: only ONE of these two reddens. With
+# `--stdin-file` and nothing after it, splicing leaves argv empty, so the pre-existing seconds
+# check fires first and prints the same usage line with the same exit code - the guard is
+# redundant for that input, and this assertion is satisfied by a different mechanism. Kept as a
+# behaviour regression test, labelled so nobody reads it as pinning the guard.
+out=$(node "$RUNNER" --stdin-file 2>&1); rc=$?
+if [ $rc -eq 2 ] && printf '%s' "$out" | grep -q "usage:"; then
+  ok "--stdin-file with no path prints usage (via the seconds check, not the guard)"
+else
+  bad "--stdin-file with no path did not print usage (rc=$rc): $out"
+fi
+
+# THIS is the input the guard actually exists for, and the one that reddens without it: an empty
+# path is falsy but present, so argv still holds a valid seconds/cmd pair and the seconds check
+# passes. Without the guard it reaches openSync('') and dies with
+# "cannot read --stdin-file : ENOENT ... open ''", pointing at a file rather than at the caller's
+# mistake. So assert the usage TEXT, not the exit code, which is 2 either way.
+out=$(node "$RUNNER" --stdin-file "" 30 node --version 2>&1); rc=$?
+if [ $rc -eq 2 ] && printf '%s' "$out" | grep -q "usage:"; then
+  ok "--stdin-file with an empty path prints usage rather than an ENOENT on the empty string"
+else
+  bad "--stdin-file with an empty path was tolerated (rc=$rc): $out"
+fi
+
+# The boundary, and the case the guard does NOT special-case: a path that looks like the seconds
+# argument is consumed AS the path, which leaves `node` sitting where the seconds should be. It
+# then fails on the seconds check rather than the open - a different branch to the two above, and
+# still loud. The property worth pinning is that it refuses rather than silently shifting argv
+# and running the wrong command with the wrong timeout.
+out=$(node "$RUNNER" --stdin-file 30 node --version 2>&1); rc=$?
+if [ $rc -eq 2 ] && printf '%s' "$out" | grep -q "usage:"; then
+  ok "a numeric-looking path is consumed as the path, and the bad seconds arg is then refused"
+else
+  bad "a numeric-looking path was mishandled (rc=$rc): $out"
+fi
 rm -f "$PAYLOAD_FILE"
 
 # --- pre-existing contract, so this change cannot quietly break it --------------------------
