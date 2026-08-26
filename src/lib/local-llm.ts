@@ -62,21 +62,65 @@ type AdapterOutcome =
   | { kind: 'failed'; model: string; detail: string };
 
 /** Classify a non-2xx response: availability-class advances, anything else stops. */
-async function classifyHttpFailure(
-  res: { status?: number; text?: () => Promise<string> },
-  model: string,
-): Promise<AdapterOutcome> {
+async function classifyHttpFailure(res: Response, model: string): Promise<AdapterOutcome> {
+  const detail = `HTTP ${res.status}`;
+  // 401/403/404 decide on the status alone, so do not download a body to ignore it -
+  // behind a proxy the 401 body is an HTML page, and a dead key is the common case.
+  if (res.status === 401 || res.status === 403 || res.status === 404) {
+    return { kind: 'unavailable', detail };
+  }
   let body = '';
   try {
-    body = await res.text!();
+    body = await res.text();
   } catch {
     // No readable body; the status alone decides.
   }
-  const status = res.status ?? 0;
-  const detail = `HTTP ${status}`;
-  return isAvailabilityFailure(status, body)
+  return isAvailabilityFailure(res.status, body)
     ? { kind: 'unavailable', detail }
     : { kind: 'failed', model, detail };
+}
+
+/**
+ * Classify a thrown fetch. An ABORT is not an absence: we chose this provider and gave
+ * up waiting on it, which is the same event as a 429 from the caller's point of view
+ * and must stop the chain. Slow is not absent - otherwise the same overloaded provider
+ * stops the chain when it answers 429 and demotes to a weaker model when it answers
+ * nothing, which is the harder failure to notice. A connection or DNS error genuinely
+ * means nothing answered, so that advances.
+ */
+function classifyThrownFetch(err: unknown, model: string): AdapterOutcome {
+  const name = (err as { name?: string } | undefined)?.name;
+  if (name === 'TimeoutError' || name === 'AbortError') {
+    return { kind: 'failed', model, detail: 'timed out' };
+  }
+  return { kind: 'unavailable', detail: String(err) };
+}
+
+// A reasoning model (the deepseek-r family) prefixes its answer with a <think> block.
+// It is a monologue, not prose for a human, and `align ask` prints the response
+// verbatim while parseRelationship's brace match would span a brace inside it.
+function stripReasoningBlock(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
+/**
+ * The shared tail every adapter needs: read the body, extract the model's text, and
+ * decide answer-or-stop. One owner, because this IS the response policy - four copies
+ * drift, and the Gemini copy had already grown its own shape.
+ */
+async function parseAdapterResponse<T>(
+  res: Response,
+  model: string,
+  extract: (data: T) => string | undefined,
+): Promise<AdapterOutcome> {
+  let data: T;
+  try {
+    data = await res.json() as T;
+  } catch {
+    return { kind: 'failed', model, detail: 'malformed response body' };
+  }
+  const text = stripReasoningBlock(extract(data)?.trim() ?? '');
+  return text ? { kind: 'answer', text } : { kind: 'failed', model, detail: 'empty response' };
 }
 
 // OpenAI-compatible Chat Completions API (OpenAI, Groq, Mistral, xAI/Grok, and any
@@ -111,18 +155,11 @@ async function tryOpenAiCompatible(
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
-    // Nothing answered (network, DNS, timeout): the provider is absent here.
-    return { kind: 'unavailable', detail: String(err) };
+    return classifyThrownFetch(err, model);
   }
   if (!res.ok) return classifyHttpFailure(res, model);
-  let data: { choices?: Array<{ message?: { content?: string } }> };
-  try {
-    data = await res.json() as typeof data;
-  } catch {
-    return { kind: 'failed', model, detail: 'malformed response body' };
-  }
-  const text = data.choices?.[0]?.message?.content?.trim();
-  return text ? { kind: 'answer', text } : { kind: 'failed', model, detail: 'empty response' };
+  return parseAdapterResponse<{ choices?: Array<{ message?: { content?: string } }> }>(
+    res, model, d => d.choices?.[0]?.message?.content);
 }
 
 async function tryAnthropic(
@@ -152,17 +189,14 @@ async function tryAnthropic(
       signal: AbortSignal.timeout(15000),
     });
   } catch (err) {
-    return { kind: 'unavailable', detail: String(err) };
+    return classifyThrownFetch(err, model);
   }
   if (!res.ok) return classifyHttpFailure(res, model);
-  let data: { content?: Array<{ text?: string }> };
-  try {
-    data = await res.json() as typeof data;
-  } catch {
-    return { kind: 'failed', model, detail: 'malformed response body' };
-  }
-  const text = data.content?.[0]?.text?.trim();
-  return text ? { kind: 'answer', text } : { kind: 'failed', model, detail: 'empty response' };
+  // First block with text, not content[0]: a thinking or tool-use block can lead, and
+  // reading index 0 blindly calls a correct answer an empty response - which now STOPS
+  // the chain rather than merely falling through it.
+  return parseAdapterResponse<{ content?: Array<{ text?: string }> }>(
+    res, model, d => d.content?.find(b => b.text?.trim())?.text);
 }
 
 async function tryGemini(
@@ -192,17 +226,12 @@ async function tryGemini(
       },
     );
   } catch (err) {
-    return { kind: 'unavailable', detail: String(err) };
+    return classifyThrownFetch(err, geminiModel);
   }
   if (!res.ok) return classifyHttpFailure(res, geminiModel);
-  let data: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  try {
-    data = await res.json() as typeof data;
-  } catch {
-    return { kind: 'failed', model: geminiModel, detail: 'malformed response body' };
-  }
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-  return text ? { kind: 'answer', text } : { kind: 'failed', model: geminiModel, detail: 'empty response' };
+  // First part with text, for the same reason as Anthropic's blocks above.
+  return parseAdapterResponse<{ candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }>(
+    res, geminiModel, d => d.candidates?.[0]?.content?.parts?.find(p => p.text?.trim())?.text);
 }
 
 /**
@@ -216,13 +245,36 @@ async function tryGemini(
  * (ALI-692)
  */
 export const OLLAMA_MODEL_FAMILIES: readonly RegExp[] = [
-  /^llama\d/,
-  /^mistral([:\-.]|\d|$)/,
-  /^gemma\d/,
-  /^phi\d/,
-  /^qwen\d/,
-  /^deepseek-r\d/,
+  /^llama[\d.:-]/i,
+  /^mistral[\d.:-]/i,
+  /^gemma[\d.:-]/i,
+  /^phi[\d.:-]/i,
+  /^qwen[\d.:-]/i,
+  /^deepseek-r[\d.:-]/i,
 ];
+
+/**
+ * A family match says who trained it, never what it was trained FOR, and the ALI-420
+ * floor is about the second: llama2-uncensored is in the llama family and is the same
+ * category as the pentest model from that ticket, while a coder or embedding model is
+ * not a synthesis model at all. So a tuning marker disqualifies a tag even when its
+ * family is recognised - a user can still name one explicitly via ALIGN_OLLAMA_MODEL.
+ */
+const OLLAMA_TUNING_DISQUALIFIERS = /(coder|code|math|uncensored|embed|guard|vision|dolphin)/i;
+
+/**
+ * A tag is recognised by its LAST path segment, because `ollama pull hf.co/<user>/<repo>`
+ * prefixes the name - anchoring at the start of the whole string refuses every model
+ * installed that mainstream way.
+ */
+function ollamaTagBase(name: string): string {
+  return name.split('/').pop() ?? name;
+}
+
+function isRecognisedOllamaModel(name: string, family: RegExp): boolean {
+  const base = ollamaTagBase(name);
+  return family.test(base) && !OLLAMA_TUNING_DISQUALIFIERS.test(base);
+}
 
 /**
  * Static fallback for the "pull one" hint only - version-pinned so it is
@@ -235,11 +287,23 @@ export type OllamaModelChoice =
   | { ok: true; model: string }
   | { ok: false; reason: 'no_models' | 'no_recognised_model' };
 
-/** Numeric version segments from a tag name ('llama3.10:latest' -> [3, 10]). */
+/**
+ * Numeric version segments from a tag name ('llama3.10:latest' -> [3, 10]).
+ *
+ * A PARAMETER SIZE is not a version, and community tags put one in the name: taking
+ * the first digit run makes `mistral-7b-instruct` look newer than `mistral-small3.1`,
+ * so any `-7b` / `_7x8b` token comes out before the version is read.
+ */
 function modelVersionSegments(name: string): number[] {
-  const base = name.split(':')[0] ?? '';
+  const base = (name.split(':')[0] ?? '').replace(/[-_]\d+(\.\d+)?x?\d*b\b/gi, '');
   const m = base.match(/(\d+(?:\.\d+)*)/);
   return m ? m[1]!.split('.').map(Number) : [0];
+}
+
+/** Parameter count in billions from a tag ('llama3.2:3b' -> 3), 0 when absent. */
+function modelParameterBillions(name: string): number {
+  const m = name.match(/(\d+(?:\.\d+)?)b\b/i);
+  return m ? Number(m[1]) : 0;
 }
 
 // Segment-wise, so 3.10 > 3.9 (a float parse or string sort gets it backwards).
@@ -260,9 +324,15 @@ export function resolveOllamaModel(installed: string[], override?: string): Olla
   // Iterate OUR family order, not the installed list: `/api/tags` order is Ollama's,
   // and letting it pick among recognised families is the same defect one line over.
   for (const family of OLLAMA_MODEL_FAMILIES) {
-    const matches = installed.filter(m => family.test(m));
+    const matches = installed.filter(m => isRecognisedOllamaModel(m, family));
     if (!matches.length) continue;
-    matches.sort((a, b) => compareVersionSegments(modelVersionSegments(b), modelVersionSegments(a)));
+    // Newest version, then the larger model, then the name. The last two exist so the
+    // result cannot depend on `/api/tags` order: llama3.2:1b and llama3.2:3b tie on
+    // version, and a stable sort would hand that choice straight back to Ollama.
+    matches.sort((a, b) =>
+      compareVersionSegments(modelVersionSegments(b), modelVersionSegments(a))
+      || modelParameterBillions(b) - modelParameterBillions(a)
+      || a.localeCompare(b));
     return { ok: true, model: matches[0]! };
   }
   return { ok: false, reason: 'no_recognised_model' };
@@ -301,33 +371,68 @@ export function getLlmFailure(): LlmFailure | null {
   return llmFailure;
 }
 
-// The error-body shapes that strongly imply the model or key can never work here.
-// Deliberately conservative: generic task failures must NOT match, or the chain is
-// back to demoting on anything.
+/**
+ * Error-body wordings that mean PERMANENT: this key or this model cannot answer here
+ * however many times we ask. Providers report several of these on statuses outside
+ * 401/403/404 - Gemini says 400 for a bad key, OpenAI says 429 for a dead account -
+ * and each one, misread as transient, permanently disables every provider behind it
+ * in the chain. Every entry is a real provider phrasing.
+ *
+ * A TRANSIENT failure must never appear here: a real rate limit, a 529 overload or a
+ * 5xx is the chosen provider having a bad minute, and advancing past it is the silent
+ * demotion this whole mechanism exists to prevent.
+ */
 const AVAILABILITY_BODY_PATTERNS = [
-  /unauthor[iz]ed/i,
-  /authentication[\s_-]+failed/i,
-  /forbidden/i,
+  /unauthori[sz]ed/i,
+  /authentication[\s_-]+(failed|error)/i,
+  /permission[\s_-]+denied/i,
   /\binvalid[\s_-]+api[\s_-]?key\b/i,
+  /\bapi[\s_-]?key[\s_-]+not[\s_-]+valid\b/i,
   /\bunknown\s+(model|provider)\b/i,
   /\binvalid\s+(model|provider)\b/i,
   /\bmodel\s+not\s+(found|available|registered|supported)\b/i,
   /\bno\s+such\s+(model|provider)\b/i,
   /not a valid model/i,
   /\bmodel_not_found\b/i,
+  /\binsufficient_quota\b/i,
+  /credit balance is too low/i,
+  /\bunsupported (parameter|value)\b/i,
 ];
 
 /**
+ * The body text a provider's error carries, WITHOUT any part of the request it may
+ * have echoed back. `classifyRelationship` sends a 2,000-character diff as the user
+ * prompt, and endpoints routinely quote the offending request in a 4xx body - so
+ * matching prose against the whole body lets the decision text under review decide
+ * whether to demote to a weaker model. Reading only the error member closes that.
+ *
+ * A non-JSON body has no error member to read, so it falls back to the raw text: the
+ * boundary of this defence is "the provider replied in JSON", which is all of them.
+ */
+function providerErrorText(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (typeof parsed !== 'object' || parsed === null) return body;
+    const err = (parsed as { error?: unknown }).error;
+    if (err === undefined) return body;
+    return typeof err === 'string' ? err : JSON.stringify(err);
+  } catch {
+    return body;
+  }
+}
+
+/**
  * Only failures on this allowlist may advance the fallback chain: they mean the chosen
- * model can NEVER answer in this environment (bad key, no such model), so trying the
- * next provider loses nothing. Anything else - a malformed body, an empty answer, a
- * rate limit, a 5xx - came from the provider the user chose, and silently demoting to
- * a weaker model would launder that failure into an answer the caller trusts as if the
- * chosen model wrote it. Deliberately conservative (ALI-692).
+ * model can NEVER answer in this environment (bad key, no such model, no credit), so
+ * trying the next provider loses nothing. Anything else - a malformed body, an empty
+ * answer, a real rate limit, a 5xx - came from the provider the user chose, and
+ * silently demoting to a weaker model would launder that failure into an answer the
+ * caller trusts as if the chosen model wrote it. Deliberately conservative (ALI-692).
  */
 export function isAvailabilityFailure(status: number, body: string): boolean {
   if (status === 401 || status === 403 || status === 404) return true;
-  return AVAILABILITY_BODY_PATTERNS.some(p => p.test(body));
+  const text = providerErrorText(body);
+  return AVAILABILITY_BODY_PATTERNS.some(p => p.test(text));
 }
 
 /** Test seam: clears both recordings above between cases. */
@@ -341,7 +446,10 @@ async function tryOllama(
   user: string,
   temperature?: number,
 ): Promise<AdapterOutcome> {
-  const host = process.env['OLLAMA_HOST'] ?? 'http://localhost:11434';
+  // `||`, not `??`: OLLAMA_HOST='' (a stock .env template, an unset compose variable)
+  // would otherwise make every probe a relative URL that fetch cannot parse, so a
+  // healthy local Ollama is never asked and the user is told to configure a key.
+  const host = process.env['OLLAMA_HOST'] || 'http://localhost:11434';
 
   // Clear first, so the recording always describes THIS attempt. Without it a refusal
   // from an earlier call in the same process outlives its cause, and a later failure
@@ -384,17 +492,17 @@ async function tryOllama(
       signal: AbortSignal.timeout(30000),
     });
   } catch (err) {
-    return { kind: 'unavailable', detail: String(err) };
+    // Past selection, Ollama is a CHOSEN provider like any other, so every failure here
+    // must be attributable: an unrecorded stop sends the caller to the generic "set a
+    // key" hint, which is nonsense for a user whose local model just replied. A cold
+    // 7B commonly exceeds the 30s budget on its first load, and that is the model's
+    // failure to name, not an absent provider.
+    const name = (err as { name?: string } | undefined)?.name;
+    return { kind: 'failed', model, detail: name === 'TimeoutError' || name === 'AbortError' ? 'timed out' : 'unreachable' };
   }
-  if (!res.ok) return classifyHttpFailure(res, model);
-  let data: { message?: { content?: string } };
-  try {
-    data = await res.json() as typeof data;
-  } catch {
-    return { kind: 'failed', model, detail: 'malformed response body' };
-  }
-  const text = data.message?.content?.trim();
-  return text ? { kind: 'answer', text } : { kind: 'failed', model, detail: 'empty response' };
+  if (!res.ok) return { kind: 'failed', model, detail: `HTTP ${res.status}` };
+  return parseAdapterResponse<{ message?: { content?: string } }>(
+    res, model, d => d.message?.content);
 }
 
 /** Normalize a base URL into a full Chat Completions endpoint. */
@@ -407,10 +515,12 @@ function keyForProvider(provider: AiProvider): string | undefined {
   switch (provider) {
     case 'anthropic': return process.env['ANTHROPIC_API_KEY'];
     case 'openai':    return process.env['OPENAI_API_KEY'];
-    case 'gemini':    return process.env['GEMINI_API_KEY'] ?? process.env['GOOGLE_API_KEY'];
+    // `||` on the aliases: an empty GEMINI_API_KEY must not shadow a real GOOGLE_API_KEY
+    // (a stock .env template ships both names), which `??` would do silently.
+    case 'gemini':    return process.env['GEMINI_API_KEY'] || process.env['GOOGLE_API_KEY'];
     case 'groq':      return process.env['GROQ_API_KEY'];
     case 'mistral':   return process.env['MISTRAL_API_KEY'];
-    case 'grok':      return process.env['GROK_API_KEY'] ?? process.env['XAI_API_KEY'];
+    case 'grok':      return process.env['GROK_API_KEY'] || process.env['XAI_API_KEY'];
   }
 }
 
@@ -443,9 +553,10 @@ const ALL_PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'gemini', 'groq', 'm
 /**
  * Is any LLM provider configured by environment? (ALI-414)
  *
- * `callChat` returns null for a missing key, a timeout and a non-2xx alike, so a
- * caller that needs to tell "never configured" from "configured but failed" has to
- * ask first. Deliberately synchronous and env-only: it does NOT probe Ollama, so a
+ * `callChat` returns null for a missing key and for a provider that answered unusably
+ * alike, so a caller that needs to tell "never configured" from "configured but
+ * failed" has to ask - this, then `getLlmFailure()` for the second case, which is the
+ * one this function cannot see. Deliberately synchronous and env-only: it does NOT probe Ollama, so a
  * machine whose only provider is a broken local Ollama reads as unconfigured. The
  * remedy that points at - configure a provider - is still the right one.
  */

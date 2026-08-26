@@ -30,6 +30,7 @@ vi.mock('../lib/local-llm.js', () => ({
   synthesiseLocally: vi.fn().mockResolvedValue(null),
   getUnvettedOllamaModels: vi.fn().mockReturnValue(null),
   getLlmFailure: vi.fn().mockReturnValue(null),
+  RECOMMENDED_OLLAMA_PULL: 'llama3.2',
 }));
 
 import { createLocalDb } from '../lib/local-db.js';

@@ -30,9 +30,11 @@ export interface ClassifiedRelationship {
 }
 
 /**
- * Why a candidate edge could not be typed. Only distinctions the code can actually
- * make: `callChat` cannot tell a timeout from a 429 from an empty body, so there is
- * deliberately no `classifier_timeout`.
+ * Why a candidate edge could not be typed. This enum stays coarse on purpose: since
+ * ALI-692 `callChat` CAN tell a timeout from a 429 from an empty body, but the finer
+ * detail travels on `getLlmFailure()` (provider, model, detail) rather than by adding
+ * a reason per failure mode, so presenters name the model without this union growing
+ * a member every time a provider invents a new way to fail.
  */
 export type ClassifierFailureReason =
   /** Nothing to call: no provider key in the environment, no local Ollama. */
@@ -88,11 +90,12 @@ export async function classifyRelationship(
     // Order matters: an unvetted local model is a more specific diagnosis than either of
     // the other two, and `hasConfiguredProvider()` is env-only so it cannot see it.
     if (getUnvettedOllamaModels()) return { ok: false, reason: 'unvetted_local_model' };
-    // ALI-692: a recorded chain stop means a provider WAS reached and its response was
-    // unusable - env-only hasConfiguredProvider() cannot see local Ollama, so without
-    // this check that case misreports as no_llm_key.
-    if (getLlmFailure()) return { ok: false, reason: 'classifier_error' };
-    return { ok: false, reason: hasConfiguredProvider() ? 'classifier_error' : 'no_llm_key' };
+    // ALI-692: a recorded chain stop means a provider WAS reached and answered unusably.
+    // It has to be checked as well as hasConfiguredProvider(), which is env-only and so
+    // cannot see a local Ollama - without it that case misreports as no_llm_key. The
+    // model that failed is on getLlmFailure(); presenters read it for the remedy.
+    const reason = getLlmFailure() || hasConfiguredProvider() ? 'classifier_error' : 'no_llm_key';
+    return { ok: false, reason };
   }
   const relationship = parseRelationship(raw);
   return relationship ? { ok: true, relationship } : { ok: false, reason: 'classifier_unparseable' };

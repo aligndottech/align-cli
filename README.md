@@ -112,12 +112,12 @@ Align is **provider-agnostic** - `align ask` (and local relationship typing) use
    export ALIGN_LLM_API_KEY=sk-or-...
    export ALIGN_LLM_MODEL=anthropic/claude-3.5-sonnet
    ```
-3. [Ollama](https://ollama.com) running locally (auto-detected on `localhost:11434`, override `OLLAMA_HOST`), with one of `llama3.2`, `llama3.1`, `llama3`, `mistral`, `gemma2` or `phi3` installed.
+3. [Ollama](https://ollama.com) running locally (auto-detected on `localhost:11434`, override `OLLAMA_HOST`), with a general-purpose model from a recognised family installed: `llama`, `mistral`, `gemma`, `phi`, `qwen` or `deepseek-r`. The installed version is read from Ollama itself, so a new release of any of those works the day it ships, and the newest one you have is the one used.
 
-   Ollama will not answer from a model outside that list. A model tuned for something else entirely will still write fluent prose about your decisions, including relationships between them that do not exist, and it is not obvious from the output that anything went wrong. To use a model that is not listed, name it and it is used as-is:
+   Ollama will not answer from a model outside those families, or from one tuned for a different job (a `-coder`, `-math`, `-embed`, `-vision` or `-uncensored` variant). Such a model will still write fluent prose about your decisions, including relationships between them that do not exist, and it is not obvious from the output that anything went wrong. To use any model regardless, name it and it is used as-is:
 
    ```bash
-   export ALIGN_OLLAMA_MODEL=qwen2.5:14b
+   export ALIGN_OLLAMA_MODEL=my-fine-tune:latest
    ```
 
 If none is available, `align ask` still works - it prints a ranked list of the matching decisions instead of a synthesised paragraph. No key is ever required.
@@ -395,7 +395,7 @@ align --env local <command>    # one-off override
 | `GROK_API_KEY` / `XAI_API_KEY` | xAI Grok API key for `align ask` synthesis |
 | `ALIGN_LLM_BASE_URL` | Any OpenAI-compatible endpoint (with `ALIGN_LLM_API_KEY`, `ALIGN_LLM_MODEL`) |
 | `OLLAMA_HOST` | Ollama host (default: `http://localhost:11434`) |
-| `ALIGN_OLLAMA_MODEL` | Use this Ollama model instead of the vetted list |
+| `ALIGN_OLLAMA_MODEL` | Use this Ollama model, whatever family it is from |
 
 Advanced: override the model per provider with `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`, or `ALIGN_OLLAMA_MODEL`.
 

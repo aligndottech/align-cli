@@ -93,6 +93,64 @@ describe('resolveOllamaModel (ALI-420 floor)', () => {
     expect(resolveOllamaModel(['qwen3:8b'])).toEqual({ ok: true, model: 'qwen3:8b' });
   });
 
+  it('recognises a bare family tag with no version in the name', () => {
+    // gemma:2b, phi:latest and qwen:7b are all real library tags. A pattern demanding a
+    // digit after the family word refuses the mainstream model it claims to recognise.
+    expect(resolveOllamaModel(['gemma:2b'])).toEqual({ ok: true, model: 'gemma:2b' });
+    expect(resolveOllamaModel(['phi:latest'])).toEqual({ ok: true, model: 'phi:latest' });
+  });
+
+  it('recognises a capitalised tag - real tags are not all lowercase', () => {
+    expect(resolveOllamaModel(['Llama3.2:latest'])).toEqual({ ok: true, model: 'Llama3.2:latest' });
+  });
+
+  it('recognises a family pulled from a HuggingFace path', () => {
+    // `ollama pull hf.co/<user>/<repo>` is a mainstream path, and it prefixes the tag.
+    // Anchoring at the start of the whole string refuses every model installed that way.
+    const hf = 'hf.co/bartowski/Llama-3.3-70B-Instruct-GGUF:Q4_K_M';
+    expect(resolveOllamaModel([hf])).toEqual({ ok: true, model: hf });
+  });
+
+  // The ALI-420 floor is about what a model was TUNED for, and a family regex alone
+  // cannot see that: llama2-uncensored is in the llama family and is the same category
+  // as the pentest model from the ticket.
+  it.each([
+    ['llama2-uncensored:7b'],
+    ['qwen3-coder:30b'],
+    ['qwen2-math:7b'],
+    ['nomic-embed-text:latest'],
+  ])('refuses %s even where the family matches - the tuning disqualifies it', (tag) => {
+    expect(resolveOllamaModel([tag])).toEqual({ ok: false, reason: 'no_recognised_model' });
+  });
+
+  it('a disqualified model never wins over an installed general one', () => {
+    // The sharp version: family order puts llama before mistral, so a bare family match
+    // would hand synthesis to the uncensored model while a vetted mistral sat installed.
+    expect(resolveOllamaModel(['llama2-uncensored:7b', 'mistral:7b'])).toEqual({
+      ok: true,
+      model: 'mistral:7b',
+    });
+  });
+
+  it('reads the version, not the parameter count, when both are in the name', () => {
+    // mistral-7b-instruct is a community tag whose only number is its parameter size.
+    // Taking the first digit run makes a 7B look newer than Mistral Small 3.1.
+    expect(resolveOllamaModel(['mistral-7b-instruct:latest', 'mistral-small3.1:24b'])).toEqual({
+      ok: true,
+      model: 'mistral-small3.1:24b',
+    });
+  });
+
+  it('breaks a version tie deterministically, never by /api/tags order', () => {
+    // llama3.2:1b and llama3.2:3b tie on version, and a stable sort then lets Ollama's
+    // listing order pick the model - the ALI-420 defect one scope down. The same set in
+    // either order must give the same answer, and it must be the larger model.
+    const forward = resolveOllamaModel(['llama3.2:1b', 'llama3.2:3b']);
+    const reverse = resolveOllamaModel(['llama3.2:3b', 'llama3.2:1b']);
+    expect(forward).toEqual(reverse);
+    expect(forward).toEqual({ ok: true, model: 'llama3.2:3b' });
+  });
+
   it('the family list is non-empty and the pull hint is itself recognisable', () => {
     // Positive control on the constants the rules above are written against: an empty
     // family list would refuse everything vacuously, and a pull hint outside the
