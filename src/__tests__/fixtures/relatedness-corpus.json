@@ -1,0 +1,111 @@
+{
+  "purpose": "Labelled (proposed change, stored decision) pairs for calibrating the retrieval floor that gates the agent editor hook. The hook asks one question - 'is this edit about something the team already decided' - so the pairs are shaped like that, not like search queries.",
+  "labelling_rule": "related = the stored decision is one a reviewer would want to see before making this change, whether the change agrees with it or contradicts it. unrelated = seeing it would be noise. Hard negatives share a domain with their decision and differ in the PARAMETER decided, because a corpus of easy negatives makes any threshold look good.",
+  "provenance": "Decision texts are paraphrases of real conventions in align-stack's own .claude/rules (pino over console.log, pnpm, tenant from the token, SQS visibility above the brain timeout) plus the two commits the install smoke seeds. Change texts are written as an agent's edit would read.",
+  "pairs": [
+    {
+      "label": "related",
+      "change": "switch the database to mongodb for the events pipeline",
+      "decision": "Use Postgres for persistence, not MySQL: we need JSONB and partial indexes",
+      "why": "contradicts the datastore choice - the case the hook exists for",
+      "score": 0.1977
+    },
+    {
+      "label": "related",
+      "change": "replace Postgres with MySQL for the main store, dropping concurrent writers",
+      "decision": "Use Postgres for persistence, not MySQL: we need JSONB and partial indexes",
+      "why": "directly reverses the decision, shares vocabulary",
+      "score": 0.4269
+    },
+    {
+      "label": "related",
+      "change": "add a retry loop with unlimited exponential backoff to the worker",
+      "decision": "Cap retries at 3 instead of infinite backoff, to bound queue latency",
+      "why": "contradicts the retry policy, low shared vocabulary",
+      "score": 0.4644
+    },
+    {
+      "label": "related",
+      "change": "install packages with yarn in the new service",
+      "decision": "Adopt pnpm as the package manager across all services",
+      "why": "contradicts a stated convention, almost no shared vocabulary",
+      "score": 0.3843
+    },
+    {
+      "label": "related",
+      "change": "print the request id with console.log for debugging",
+      "decision": "All Node services log through pino, never console.log in production paths",
+      "why": "contradicts a lint-gated convention",
+      "score": 0.32
+    },
+    {
+      "label": "related",
+      "change": "read the tenant id from the x-tenant-id request header in this handler",
+      "decision": "The tenant for an authenticated request comes from the auth token, never a client header",
+      "why": "contradicts a security invariant - the most expensive miss possible",
+      "score": 0.5647
+    },
+    {
+      "label": "related",
+      "change": "raise the queue visibility timeout to ten minutes",
+      "decision": "Keep the SQS visibility timeout above the brain analyze timeout so a slow analysis is not redelivered",
+      "why": "touches the decided parameter, agrees or not depending on the other value",
+      "score": 0.4145
+    },
+    {
+      "label": "related",
+      "change": "store the session token in localStorage so it survives a reload",
+      "decision": "Auth tokens live in httpOnly cookies, never in localStorage",
+      "why": "contradicts a security decision",
+      "score": 0.6383
+    },
+    {
+      "label": "unrelated",
+      "change": "add a Redis cache in front of the read API",
+      "decision": "Use Postgres for persistence, not MySQL: we need JSONB and partial indexes",
+      "why": "HARD negative: both are datastores, but caching is not the persistence choice",
+      "score": 0.1176
+    },
+    {
+      "label": "unrelated",
+      "change": "cap retries at 3 in the new fetcher",
+      "decision": "Adopt pnpm as the package manager across all services",
+      "why": "HARD negative: both are engineering conventions, different parameters",
+      "score": 0.0824
+    },
+    {
+      "label": "unrelated",
+      "change": "rename the CSS variable for button padding",
+      "decision": "Use Postgres for persistence, not MySQL: we need JSONB and partial indexes",
+      "why": "different domain entirely",
+      "score": -0.1646
+    },
+    {
+      "label": "unrelated",
+      "change": "fix a typo in the README installation section",
+      "decision": "All Node services log through pino, never console.log in production paths",
+      "why": "different domain entirely",
+      "score": 0.0532
+    },
+    {
+      "label": "unrelated",
+      "change": "bump the copyright year in the licence header",
+      "decision": "The tenant for an authenticated request comes from the auth token, never a client header",
+      "why": "different domain entirely",
+      "score": 0.2051
+    },
+    {
+      "label": "unrelated",
+      "change": "add a dark mode toggle to the settings page",
+      "decision": "Cap retries at 3 instead of infinite backoff, to bound queue latency",
+      "why": "HARD-ish negative: both are product changes, unrelated subjects",
+      "score": 0.0683
+    }
+  ],
+  "measured": {
+    "model": "Xenova/all-MiniLM-L6-v2",
+    "dtype": "q8",
+    "embedded": "change text and decision text separately, cosine between them",
+    "note": "Regenerate with ALIGN_CALIBRATE=1 npx vitest run src/__tests__/relatedness-calibration.test.ts. Scores are recorded so the calibration test needs no model download; the opt-in test recomputes them against the real model."
+  }
+}

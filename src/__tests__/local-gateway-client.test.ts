@@ -23,7 +23,11 @@ vi.mock('../lib/local-llm.js', async (importOriginal) => ({
   getLlmFailure: vi.fn().mockReturnValue(null),
 }));
 
-import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
+import {
+  createLocalGatewayClient,
+  RELATES_THRESHOLD,
+  RETRIEVAL_RELATES_THRESHOLD,
+} from '../lib/local-gateway-client.js';
 import { cosineSimilarity } from '../lib/local-embeddings.js';
 import { classifyRelationship } from '../lib/local-relationship-classifier.js';
 import { getLlmFailure, RECOMMENDED_OLLAMA_PULL } from '../lib/local-llm.js';
@@ -183,6 +187,27 @@ describe('local-gateway-client', () => {
       expect.objectContaining({ title: 'Proposed change' }),
       expect.anything(),
     );
+  });
+
+  // The split floor, driven by a score BETWEEN the two constants. A fixture above both, or
+  // below both, cannot tell a split from a single threshold - it is the same shape as sending
+  // the same value down two paths and calling it a precedence test.
+  it('retrieves a candidate scoring between the two floors, but does not adjudicate it', async () => {
+    const between = (RETRIEVAL_RELATES_THRESHOLD + RELATES_THRESHOLD) / 2;
+    expect(between).toBeGreaterThan(RETRIEVAL_RELATES_THRESHOLD);
+    expect(between).toBeLessThan(RELATES_THRESHOLD);
+    vi.mocked(cosineSimilarity).mockReturnValue(between);
+    await client.captureDecision('Use Postgres for persistence', 'cli');
+
+    const retrieved = await client.checkAlignment('migrate the database', undefined, { depth: 'related' });
+    const adjudicated = await client.checkAlignment('migrate the database', undefined, { depth: 'full' });
+
+    // The hook sees it...
+    expect(retrieved.status).toBe('retrieved');
+    expect(retrieved.relevant_decisions.length).toBeGreaterThan(0);
+    // ...and the adjudicating path does not, so it stays free of the LLM call it would have paid.
+    expect(adjudicated.status).toBe('no-context');
+    expect(adjudicated.relevant_decisions).toEqual([]);
   });
 
   // The other side of the boundary: an explicit 'full' adjudicates, same as no option at all.

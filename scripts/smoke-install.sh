@@ -158,17 +158,18 @@ rm -f /tmp/ctx-before.md
 # `align ask` with no provider key: the ranked list still comes back, plus the hint. This is
 # the shape a first-run dev sees, so it must exit 0 rather than treating a missing key as an
 # error (the CI runner has no ANTHROPIC_API_KEY, which is the point).
-step "align ask (local, no key)" 120 align ask "why postgres" --env local --limit 5
+#
+# ONE token, and it has to stay that way: smoke-timeout.mjs spawns through a shell on win32,
+# which quotes nothing, so `"why postgres"` arrived as two arguments and Commander bound
+# query="why" while silently discarding the rest. The runner refuses a space-bearing argument
+# outright now, so this is enforced rather than remembered.
+step "align ask (local, no key)" 120 align ask postgres --env local --limit 5
 # The agent hook, on the payload Claude Code actually pipes. Retrieval only, so it needs no
 # provider key and makes no provider call - and in local mode that is not just a latency
 # choice, it is the only egress in the pipeline (local-gateway-client.ts honours depth).
 #
-# The content deliberately shares vocabulary with the Postgres commit seeded above, because
-# RELATES_THRESHOLD is 0.45 and this embedding is lexical enough that a conceptual near-miss
-# lands under it: measured on a seeded graph, "replace Postgres with MySQL for persistence"
-# scores 0.53 against that decision while "switch the database to mongodb" scores 0.37 and
-# retrieves nothing at all. A fixture comfortably over the bar is the point here - this step
-# tests the hook, not the threshold.
+# The content shares vocabulary with the Postgres commit seeded above so it clears the
+# retrieval floor comfortably. This step tests the hook, not the threshold.
 ADVISORY_PAYLOAD='{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"config.ini","content":"replace Postgres with MySQL for the main store, dropping concurrent writers"}}'
 # ONE invocation, captured - deliberately not a `step` call plus a capture call. The hook dedups
 # against decisions it surfaced moments ago (advisory-dedup.ts, keyed on cwd), which is correct
@@ -176,10 +177,14 @@ ADVISORY_PAYLOAD='{"hook_event_name":"PreToolUse","tool_name":"Write","tool_inpu
 # twice is what made the first version of this check fail in CI while the hook was working.
 echo ""
 echo "== align check --advisory =="
-# The pipe lives INSIDE `sh -c`, on purpose: smoke-timeout.mjs spawns with
-# stdio[0]='ignore', so piping *into* the wrapper would hand align an empty stdin and the
-# hook would read no payload at all - a silent pass-shaped failure.
-ADVISORY_OUT=$($TIMEOUT 60 sh -c "printf '%s' '$ADVISORY_PAYLOAD' | align check --advisory --env local" 2>/dev/null)
+# --stdin-file, not a shell pipeline. `sh -c "printf ... | align ..."` was mangled on win32 by
+# the same unquoted argv join that broke the ask step: `sh` received `printf` as a separate
+# word, printed nothing, and align read an empty stdin - which is indistinguishable from a hook
+# that legitimately had nothing to say. The runner now opens the file itself, so no shell is
+# involved and an unreadable payload fails loudly.
+PAYLOAD_FILE="$SMOKE_TMP/advisory-payload.json"
+printf '%s' "$ADVISORY_PAYLOAD" > "$PAYLOAD_FILE"
+ADVISORY_OUT=$($TIMEOUT --stdin-file "$PAYLOAD_FILE" 60 align check --advisory --env local 2>/dev/null)
 ADVISORY_RC=$?
 echo "$ADVISORY_OUT"
 # Asserted on the OUTPUT, because --advisory always exits 0 by design and an exit-code check
@@ -193,28 +198,18 @@ echo "$ADVISORY_OUT"
 # retrieves without ever invoking the classifier"), which can assert the classifier was never
 # called; a latency bound is the only e2e signal and it would be flaky on a shared runner.
 #
-# The content half is asserted on Linux and macOS only, and that is a finding rather than a
-# convenience. Measured on this PR's CI over the identical fixture:
-#
-#   ubuntu   graph holds 2 decisions   `ask "why postgres"` matches at 47%   hook surfaces 1
-#   windows  graph holds 4 decisions   same query matches NOTHING            hook silent
-#
-# Two separate pre-existing defects, neither related to what this PR changes. `align import git`
-# after `setup --local` re-imported the same commits on Windows instead of recognising them
-# (2 -> 4), and Windows embeddings score the same text differently enough to fall under
-# SEARCH_THRESHOLD (0.25) while `search "postgres"` on the same graph still scored 0.50 - so
-# retrieval is not broken there, it is differently calibrated. Both deserve their own fix; making
-# this assertion fatal on Windows would only convert them into a red gate on an unrelated PR.
-#
-# The exit code and the run itself ARE asserted everywhere, so a crash or a hang still fails on
-# every platform.
+# Asserted on EVERY platform. A previous version of this block excused Windows, citing two
+# defects that do not exist: it claimed `import git` duplicated only there and that Windows
+# embeddings scored below threshold. Both were wrong. All nine legs reported the same 4-decision
+# graph, and Windows `search "postgres"` scored 0.51 against ubuntu's 0.51 - the divergence was
+# this harness mangling any argument containing a space, which is fixed above and now refused
+# outright by the runner. A platform excuse that turns out to be a harness bug is worse than a
+# red gate, because it teaches the next reader to stop looking.
 if [ "$ADVISORY_RC" -ne 0 ]; then
   echo "FAIL: advisory hook exited $ADVISORY_RC$([ "$ADVISORY_RC" -eq 124 ] && echo ' = TIMED OUT / HUNG')"
   FAILURES=$((FAILURES + 1))
 elif printf '%s' "$ADVISORY_OUT" | grep -q "NOT been adjudicated"; then
   echo "PASS: advisory hook surfaced related decisions, retrieval-only, with no provider key"
-elif [ "$(uname -s | cut -c1-5)" = "MINGW" ] || [ "$(uname -s | cut -c1-6)" = "CYGWIN" ] || [ "$(uname -s | cut -c1-4)" = "MSYS" ]; then
-  echo "SKIP: advisory hook produced no decisions on Windows (known: import duplicates and embeddings score below threshold there). Exit code was asserted."
 else
   echo "FAIL: advisory hook did not take the retrieval path (exit 0). Got: ${ADVISORY_OUT:-<no output>}"
   FAILURES=$((FAILURES + 1))

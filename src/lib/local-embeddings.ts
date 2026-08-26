@@ -49,6 +49,16 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
 }
 
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  // Loudly, because the silent version is worse than a crash: this loop indexes `b[i]` over
+  // `a.length`, so a shorter `b` yields undefined -> NaN -> `NaN >= threshold` is false, and
+  // findSimilar drops the row as IRRELEVANT. A vector written by a different model would make
+  // decisions quietly unfindable with no error anywhere.
+  if (a.length !== b.length) {
+    throw new Error(
+      `Embedding length mismatch: ${a.length} vs ${b.length}. The local graph holds a vector ` +
+      'from a different model - run `align local reset` and re-import to rebuild it.',
+    );
+  }
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i]! * b[i]!;

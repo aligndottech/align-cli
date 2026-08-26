@@ -9,8 +9,16 @@
  * Windows needs a shell: `npm i -g` exposes align as align.cmd, which spawn()
  * cannot exec directly (ENOENT with shell:false - that failure took out all
  * three windows legs on the first CI run). cmd.exe resolves it via PATHEXT.
- * The smoke's arguments are single tokens with no spaces, so shell:true's
- * lack of argument quoting cannot bite here; keep it that way.
+ * Node's shell:true joins argv with spaces and quotes NOTHING, so an argument
+ * containing a space is silently split into two.
+ *
+ * That precondition used to be stated here and nothing enforced it, which cost
+ * two rounds of misdiagnosis: a step carrying `align ask "why postgres"` made
+ * cmd.exe see `ask why postgres`, Commander bound query="why" and dropped the
+ * rest (it permits excess arguments), and the empty result was written up as a
+ * platform embedding defect. It is a check now - see REFUSED below - and any
+ * command that needs to pass real text uses --stdin-file rather than a shell
+ * pipeline, because `sh -c "printf ... | align"` is mangled the same way.
  *
  * Exit codes: the child's own code on completion; 124 on timeout (matching GNU
  * timeout, so a hang is distinguishable from a real failure in the log). The
@@ -19,18 +27,60 @@
  * handler can win the race against a scheduled process.exit(124).
  */
 import { spawn } from 'node:child_process';
+import { openSync } from 'node:fs';
 
-const [, , secondsArg, cmd, ...args] = process.argv;
+const argv = process.argv.slice(2);
+// Optional leading `--stdin-file <path>`, so a command that needs real text on stdin does not
+// need a shell pipeline to get it.
+let stdinFile = null;
+if (argv[0] === '--stdin-file') {
+  if (!argv[1]) {
+    console.error('usage: smoke-timeout.mjs [--stdin-file <path>] <seconds> <cmd> [args...]');
+    process.exit(2);
+  }
+  stdinFile = argv[1];
+  argv.splice(0, 2);
+}
+
+const [secondsArg, cmd, ...args] = argv;
 const seconds = Number(secondsArg);
 if (!Number.isFinite(seconds) || seconds <= 0 || !cmd) {
-  console.error('usage: smoke-timeout.mjs <seconds> <cmd> [args...]');
+  console.error('usage: smoke-timeout.mjs [--stdin-file <path>] <seconds> <cmd> [args...]');
   process.exit(2);
 }
 
-// stdin is closed deliberately ('ignore'): the smoke asserts every command
-// completes without a terminal, which is the scripted/CI condition under test.
+// REFUSED, rather than documented: shell:true on win32 quotes nothing, so this argument would
+// arrive as two. Enforced on every platform because the SHAPE is what is wrong - letting it run
+// on ubuntu and macos is how it reached Windows in the first place.
+// Whitespace AND cmd.exe's metacharacters: the join is unquoted, so `a&b` is two commands and
+// `a>b` is a redirect, not just `a b` being two arguments. Checking only /\s/ would have left
+// the narrower half of the same hazard open.
+const unsafe = [cmd, ...args].find((a) => /[\s&|<>^"]/.test(a));
+if (unsafe !== undefined) {
+  console.error(
+    `smoke-timeout: argument is not a single safe token and cannot survive the unquoted win32 ` +
+      `shell join: ${JSON.stringify(unsafe)}\n` +
+      '  Use a single-token argument, or pass the text via --stdin-file.',
+  );
+  process.exit(2);
+}
+
+// Opened before spawning so an unreadable payload fails loudly here. Feeding the child an empty
+// stdin instead would look exactly like a command that legitimately had nothing to read.
+let stdin = 'ignore';
+if (stdinFile !== null) {
+  try {
+    stdin = openSync(stdinFile, 'r');
+  } catch (err) {
+    console.error(`smoke-timeout: cannot read --stdin-file ${stdinFile}: ${err.message}`);
+    process.exit(2);
+  }
+}
+
+// stdin defaults to closed ('ignore'): the smoke asserts every command completes without a
+// terminal, which is the scripted/CI condition under test.
 const child = spawn(cmd, args, {
-  stdio: ['ignore', 'inherit', 'inherit'],
+  stdio: [stdin, 'inherit', 'inherit'],
   shell: process.platform === 'win32',
 });
 

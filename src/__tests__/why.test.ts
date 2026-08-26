@@ -61,6 +61,27 @@ describe('align ask', () => {
     expect(client.searchDecisions).toHaveBeenCalledWith('why do we use postgres', 8);
   });
 
+  /**
+   * `align ask` printed "N decisions in your graph" where N was the number of SEARCH HITS.
+   * `align local status` prints the identical sentence with the real graph size (value-rollup),
+   * so the same words meant two different things depending on which command you ran.
+   *
+   * That is not cosmetic. Diagnosing an unrelated CI failure, I read ask's "2 decisions in your
+   * graph" against status's "4 decisions in your graph", concluded the two platforms had
+   * different graphs, and published two wrong findings off the back of it. A count is only
+   * meaningful with its denominator attached.
+   */
+  it('describes the count it prints as matches, not as the size of the graph', async () => {
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
+
+    expect(output.some(l => /decisions? in your graph/i.test(l))).toBe(false);
+    // Positive control: it still reports how many it found, so this is a relabel and not a
+    // deletion. The shared fixture at the top of this file reports `count: 2`.
+    expect(output.some(l => /2 matching decisions/i.test(l))).toBe(true);
+  });
+
   it('prints a conversational synthesised answer when an AI provider is available', async () => {
     mockSynthesise.mockResolvedValueOnce('Postgres was chosen for its JSONB and pgvector support.');
     const program = new Command();

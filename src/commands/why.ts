@@ -143,8 +143,12 @@ export function registerAskCommand(program: Command): void {
         if (filePath) {
           console.log(chalk.bold(`\n  Decisions related to ${query}\n`));
         } else {
+          // "matching", not "in your graph": this is the size of the RESULT SET, and
+          // `align local status` prints the identical sentence with the real graph size. Two
+          // commands using one sentence for two different numbers is how a CI comparison of
+          // ask-output against status-output produced two confidently wrong findings.
           const count = results.count;
-          console.log(chalk.bold(`\n  ${count} decision${count === 1 ? '' : 's'} in your graph\n`));
+          console.log(chalk.bold(`\n  ${count} matching decision${count === 1 ? '' : 's'}\n`));
         }
 
         for (const d of results.results) {
