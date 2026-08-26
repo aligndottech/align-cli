@@ -13,10 +13,23 @@ import type { EnvironmentConfig } from './config.js';
  */
 export const TELEMETRY_TIMEOUT_MS = 2_000;
 
-const OPT_OUT_VALUES = new Set(['0', 'false', 'no', 'off']);
+/**
+ * Set and not recognisably ON means OFF. Enumerating the falsy words instead - `0|false|no|off` -
+ * guesses at what a user will type, and every guess that misses is a live send by someone who
+ * believes they opted out: `disabled` and `n` both sent. Trimmed, because a trailing space or
+ * newline comes free from a `.env` file or a here-doc. Unset is ON, which is the documented
+ * cloud default and the only value this cannot see.
+ */
+const OPT_IN_VALUES = new Set(['1', 'true', 'yes', 'on']);
+
+function telemetryOptedOut(): boolean {
+  const raw = process.env['ALIGN_TELEMETRY'];
+  if (raw === undefined || raw.trim() === '') return false;
+  return !OPT_IN_VALUES.has(raw.trim().toLowerCase());
+}
 
 export async function recordCommandUsage(env: EnvironmentConfig, command: string): Promise<void> {
-  if (OPT_OUT_VALUES.has((process.env['ALIGN_TELEMETRY'] ?? '').toLowerCase())) return;
+  if (telemetryOptedOut()) return;
   // `align local ...` is the explicitly-offline path. Its caller may still hold a cloud token
   // (the hook may resolve an env other than the one the command used), so the token check below
   // is not enough on its own.
@@ -76,8 +89,14 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
  * would send a local command's event to the cloud default - this slice's own bug, one layer up.
  */
 export function envFlagOf(cmd: { optsWithGlobals(): Record<string, unknown> }): string | undefined {
-  const value = cmd.optsWithGlobals()['env'];
-  return typeof value === 'string' ? value : undefined;
+  const opts = cmd.optsWithGlobals();
+  const value = opts['env'];
+  if (typeof value === 'string') return value;
+  // `align setup --local` is how a user ENTERS local mode, and it is not spelled `--env local`,
+  // so reading only `env` reported the one command whose whole purpose is going private. Checked
+  // after `env` so an explicitly typed cloud env still wins.
+  if (opts['local'] === true) return 'local';
+  return undefined;
 }
 
 /**
@@ -92,7 +111,16 @@ export function envFlagOf(cmd: { optsWithGlobals(): Record<string, unknown> }): 
  * `preferLocalEmbedded` is deliberately NOT passed: it is a routing preference for the
  * read commands, and asking for it here would be a second opinion on where the command
  * went. The flag and ALIGN_ENV are what the user chose explicitly, and those are what a
- * consent decision may rest on.
+ * consent decision may rest on. Note that preference and this gate are today mutually
+ * exclusive by arithmetic rather than by design - the redirect fires only when the cloud env
+ * has no token, which is the same condition recordCommandUsage returns on - so if that token
+ * check is ever relaxed to count tokenless users, pass the preference here as well.
+ *
+ * `setup` is suppressed once local-embedded is configured. The interactive "Local only" choice
+ * sets no flag, and the default env stays cloud on purpose, so the only evidence the session was
+ * local is what the run left behind - and a `setup` that ends with the machine in local mode is
+ * a local session. It costs one activation count on a once-per-machine command, in the direction
+ * that cannot leak.
  */
 export async function recordInvocationUsage(
   envFlag: string | undefined,
@@ -101,5 +129,6 @@ export async function recordInvocationUsage(
   const { createConfigStore } = await import('./config.js');
   const { resolveEnv } = await import('./resolve-env.js');
   const config = createConfigStore();
+  if (command === 'setup' && config.getEnvironment('local').mode === 'local-embedded') return;
   await recordCommandUsage(config.getEnvironment(resolveEnv(envFlag)), command);
 }

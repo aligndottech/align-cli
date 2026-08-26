@@ -219,6 +219,12 @@ export function createLocalGatewayClient(dbPath: string) {
       // every agent Write/Edit. This signature took two arguments, so the option was silently
       // dropped and adjudication ran anyway - up to 5 provider calls per keystroke-level event,
       // whose results the hook then abandoned at its 2.5s race.
+      //
+      // Matched as an allowlist-of-one rather than `!== 'full'`, which would be the safer
+      // polarity for an egress guard, because the two callers that MUST adjudicate
+      // (`align check` and `--ci`, check.ts) pass no depth at all. Inverting it would silence
+      // them. The cost of this direction: a future caller misspelling the value adjudicates,
+      // so keep `depth` typed as the union at every call site rather than widening it.
       if (opts.depth === 'related') {
         return {
           status: 'retrieved',
@@ -237,7 +243,11 @@ export function createLocalGatewayClient(dbPath: string) {
 
       // Stage 2: type each candidate against the proposed change (LLM, user's key,
       // lazy - only the few candidates we surface here). Degrades to untyped.
-      const subject = { title: 'Proposed change', summary: diff.slice(0, 2000) };
+      // The caller's title when it gave one: `align check --title` exists because adjudicating
+      // on a bare diff means judging a file header and a few `+` lines. Accepting the option in
+      // the signature and then classifying against a placeholder is the dropped-`depth` defect
+      // one field over.
+      const subject = { title: opts.title ?? 'Proposed change', summary: diff.slice(0, 2000) };
       const typed = [];
       let chainStopped = false;
       for (const c of candidates) {

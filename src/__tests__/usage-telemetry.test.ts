@@ -134,6 +134,37 @@ describe('recordCommandUsage', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  // Whitespace comes free from a .env file, a here-doc, or `export ALIGN_TELEMETRY="off "`.
+  // Someone who believes they opted out must have done so.
+  it.each([' off', 'off\n', ' 0 ', 'FALSE'])('treats %j as an opt-out', async (value) => {
+    vi.stubEnv('ALIGN_TELEMETRY', value);
+
+    await recordCommandUsage(cloudEnv, 'import');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // Enumerating the falsy words guesses at what a user will type. Anything set and not
+  // recognisably ON is an opt-out instead, so the unlisted attempts land safe rather than
+  // sending: 'disabled' and 'n' were both live sends before.
+  it.each(['disabled', 'n', 'nope'])('treats an unrecognised value %j as an opt-out', async (value) => {
+    vi.stubEnv('ALIGN_TELEMETRY', value);
+
+    await recordCommandUsage(cloudEnv, 'import');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // The other side, so the rule above cannot be satisfied by suppressing everything: an
+  // explicit opt-in still sends, and so does the unset default (the beforeEach precondition).
+  it.each(['1', 'true', 'yes', 'on', 'ON'])('still sends when explicitly opted in with %j', async (value) => {
+    vi.stubEnv('ALIGN_TELEMETRY', value);
+
+    await recordCommandUsage(cloudEnv, 'import');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   // The leak state the PR #77 suite never covered: local-embedded mode WITH a token and tenant
   // in scope (ALIGN_TOKEN exported into the env, or the postAction hook resolving a logged-in
   // default env). The mode is the consent boundary, so it must gate on its own - the token

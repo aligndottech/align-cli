@@ -29,9 +29,24 @@ function importLikeProgram(): Command {
   return program;
 }
 
+/**
+ * A non-colliding leaf, which is what MOST commands are: `--env` declared once, on the command
+ * that acts. Only the 13 `import` children collide, so a suite built solely from the `import`
+ * shape leaves the common case - `align ask --env local`, the string this fix exists for -
+ * entirely uncovered, and a parent-only implementation passes it.
+ */
+function askLikeProgram(): Command {
+  const program = new Command();
+  program.exitOverride().name('align');
+  program
+    .command('ask <question>')
+    .option('--env <env>', 'environment')
+    .action(() => {});
+  return program;
+}
+
 /** Captures the Command that Commander reports as the acting one, as index.ts's hook does. */
-function actingCommandFor(argv: string[]): Command {
-  const program = importLikeProgram();
+function actingCommandFor(argv: string[], program: Command = importLikeProgram()): Command {
   let acting: Command | null = null;
   program.hook('postAction', (_thisCommand, actionCommand) => {
     acting = actionCommand;
@@ -42,14 +57,24 @@ function actingCommandFor(argv: string[]): Command {
 }
 
 describe('envFlagOf', () => {
-  it('reads --env when it lands on the subcommand', () => {
-    expect(envFlagOf(actingCommandFor(['import', 'git', '--env', 'local']))).toBe('local');
+  // The plain case, on a command whose --env has no parent competing for the name. Named for
+  // what the fixture actually builds: on the `import` shape BOTH argument positions are the
+  // collision case, because the collision is about the declaration, not the position.
+  it('reads --env on a non-colliding leaf command', () => {
+    expect(envFlagOf(actingCommandFor(['ask', 'why', '--env', 'local'], askLikeProgram()))).toBe(
+      'local',
+    );
   });
 
   // The collision case. Commander gives the parent the value, so `.opts()` on the acting
   // command is empty here and only optsWithGlobals() can see it.
   it('reads --env when Commander resolved the collision in the parent\'s favour', () => {
     expect(envFlagOf(actingCommandFor(['import', '--env', 'local', 'git']))).toBe('local');
+  });
+
+  // Same collision, flag after the subcommand: still the parent's, which is the point.
+  it('reads --env written after the subcommand, which Commander also gives the parent', () => {
+    expect(envFlagOf(actingCommandFor(['import', 'git', '--env', 'local']))).toBe('local');
   });
 
   // The negative side, so a helper that just returned 'local' could not pass.
@@ -59,5 +84,33 @@ describe('envFlagOf', () => {
 
   it('reads a non-local env too, so the value is passed through rather than special-cased', () => {
     expect(envFlagOf(actingCommandFor(['import', '--env', 'preview', 'git']))).toBe('preview');
+  });
+
+  // `align setup --local` is how a user ENTERS local mode, and it is not spelled `--env local`.
+  // Without this the one command whose whole purpose is going private reported itself to the
+  // cloud on any machine that had run `align login`.
+  it('treats `setup --local` as the local env, since --local is not --env', () => {
+    const program = new Command();
+    program.exitOverride().name('align');
+    program
+      .command('setup')
+      .option('--env <env>', 'environment')
+      .option('--local', 'local-only setup')
+      .action(() => {});
+    expect(envFlagOf(actingCommandFor(['setup', '--local'], program))).toBe('local');
+  });
+
+  // The boundary: --local must not override an explicitly typed cloud env.
+  it('lets an explicit --env win over --local rather than forcing local', () => {
+    const program = new Command();
+    program.exitOverride().name('align');
+    program
+      .command('setup')
+      .option('--env <env>', 'environment')
+      .option('--local', 'local-only setup')
+      .action(() => {});
+    expect(envFlagOf(actingCommandFor(['setup', '--env', 'preview', '--local'], program))).toBe(
+      'preview',
+    );
   });
 });

@@ -20,10 +20,14 @@ const FIXTURE_ENVS = vi.hoisted(() => ({
     tenantId: 'tenant-123',
     mode: 'auth',
   },
+  // A token and tenant ON the local env, because config.ts promotes ALIGN_TOKEN and
+  // ALIGN_TENANT_ID into EVERY env - so `ALIGN_TOKEN=x align ask --env local` really does
+  // produce this shape. With authToken null here the token check did the suppressing and both
+  // tests below passed with the mode gate deleted, which is the state the gate exists for.
   local: {
     gatewayUrl: 'http://localhost:8080',
-    authToken: null,
-    tenantId: null,
+    authToken: 'jwt-token',
+    tenantId: 'tenant-123',
     mode: 'local-embedded',
   },
 }));
@@ -73,5 +77,24 @@ describe('recordInvocationUsage', () => {
     await recordInvocationUsage(undefined, 'ask');
 
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // `align setup` with no flag, where the user picked "Local only" at the prompt. There is no
+  // flag to read and the default env is still cloud, so the only evidence that this was a local
+  // session is that the run left local-embedded configured - which is what setLocalMode writes.
+  // A `setup` that ends with the machine in local mode is a local session by definition.
+  it('sends nothing for `setup` once local-embedded is configured, with no flag to read', async () => {
+    await recordInvocationUsage(undefined, 'setup');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // The boundary: the setup suppression is scoped to `setup`. Other commands still report, or
+  // configuring local mode once would silence cloud telemetry for good.
+  it('still reports a cloud command on a machine that also has local-embedded configured', async () => {
+    await recordInvocationUsage(undefined, 'decisions list');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.align.tech/telemetry/ingest');
   });
 });

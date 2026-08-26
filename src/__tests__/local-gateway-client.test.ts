@@ -154,6 +154,37 @@ describe('local-gateway-client', () => {
     expect(result.relevant_decisions).toEqual([]);
   });
 
+  // The widened signature accepts `title` because the cloud client does, and `align check
+  // --title` documents it as materially improving adjudication. Accepting it and dropping it is
+  // the same defect as dropping `depth`, one field over - and worse, because the old two-arg
+  // signature at least made it visibly unsupported.
+  it('checkAlignment adjudicates against the caller\'s title rather than a generic placeholder', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.75);
+    await client.captureDecision('Use Postgres for persistence', 'cli');
+    vi.mocked(classifyRelationship).mockClear();
+
+    await client.checkAlignment('diff body', undefined, { title: 'Move the main store to MySQL' });
+
+    expect(classifyRelationship).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Move the main store to MySQL' }),
+      expect.anything(),
+    );
+  });
+
+  // The default, so the assertion above cannot pass by the title being ignored in both cases.
+  it('checkAlignment falls back to "Proposed change" when no title is given', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.75);
+    await client.captureDecision('Use Postgres for persistence', 'cli');
+    vi.mocked(classifyRelationship).mockClear();
+
+    await client.checkAlignment('diff body');
+
+    expect(classifyRelationship).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Proposed change' }),
+      expect.anything(),
+    );
+  });
+
   // The other side of the boundary: an explicit 'full' adjudicates, same as no option at all.
   it('checkAlignment with explicit depth "full" still classifies the candidates', async () => {
     vi.mocked(cosineSimilarity).mockReturnValue(0.75);
