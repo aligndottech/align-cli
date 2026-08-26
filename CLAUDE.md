@@ -19,7 +19,15 @@ Every substantial change is tracked in Linear and traceable branch → ticket �
 
 - **Package manager: `npm`** (NOT pnpm). The lockfile is `package-lock.json`. Use `npm install` / `npm ci` — do not introduce `pnpm-lock.yaml`.
 - **Node ≥ 20** (CI uses Node 20).
-- **Publishing is gated on a git tag:** pushing a `v*` tag triggers `.github/workflows/publish.yml` → `npm publish --provenance --access public`. Do not publish manually; bump the version and push a tag.
+- **Publishing happens when the RELEASE PR merges, not when you push a tag.** There is no
+  `publish.yml` (this line used to name one): the `publish` job lives in
+  `.github/workflows/release-please.yml`, is gated on
+  `needs.release-please.outputs.releases_created == 'true'`, and runs typecheck, test and build before `npm publish --provenance --access public`.
+  So the whole release is: land your work on `main`, then merge the `chore(main): release cli
+  X.Y.Z` PR that release-please opens. Do not publish manually, and do not hand-push a tag - the
+  tag release-please creates is component-prefixed (`cli-v0.19.0`), so a `v*` trigger would not
+  match it even if one existed. **Merging is not shipping:** verify with
+  `npm view @aligndottech/cli version`, which lags the merge by a few minutes.
 - `bin.align → ./dist/index.js`; `files: ["dist", "README.md"]`. Build with `npm run build` (tsc).
 - **Running a local build:** `align` on PATH is the *globally installed* package, not your working tree. To test changes, run `node dist/index.js …` (after `npm run build`) or reinstall: `npm run build && npm pack && npm i -g ./aligndottech-cli-*.tgz --force`.
 
