@@ -27,6 +27,10 @@ inputs:
     description: 'When to fail the job: conflict (default), conflict-or-unknown, or never. "unknown" means the check could not run - failing on it is the strict choice and will block on an outage.'
     required: false
     default: 'conflict'
+  depth:
+    description: 'Adjudication depth passed to `align check --depth`: related, full, or exhaustive. Set `exhaustive` so a strict gate (fail-on: conflict-or-unknown) pays for a verdict instead of failing on the gateway similarity cost gate skipping low-similarity diffs (unknown/not_adjudicated). Requires @aligndottech/cli >= the release carrying --depth AND a gateway that knows the member - an older CLI rejects the option and an older gateway 400s the value, both of which surface through fail-on as could-not-check, never a silent pass. Left unset, nothing is sent and the gateway default applies, so existing pins and self-hosted gateways are untouched.'
+    required: false
+    default: ''
   cli-version:
     description: 'Version of @aligndottech/cli to run. Defaults to latest because --base (which this action requires) ships in the first release after 0.8.1; pin it to an exact version once that release is out, and for reproducible builds generally.'
     required: false
@@ -114,6 +118,13 @@ runs:
         # runner with the token in scope. An env value is passed to the shell as data.
         # Empty on any non-PR trigger (workflow_dispatch, push), which the guard below handles.
         PR_TITLE: ${{ github.event.pull_request.title }}
+        # Data, not interpolation, same as PR_TITLE - and an EXPLICIT input rather than a
+        # coupling to fail-on, deliberately (ALI-708 review): auto-appending under strict
+        # fail-on would have turned every pinned older CLI and every un-upgraded self-hosted
+        # gateway into a permanent red gate the moment this action updated, with no opt-out,
+        # and made this line a second reader of fail-on's vocabulary. The operator who sets
+        # depth owns having a stack that supports it; unset sends nothing.
+        DEPTH: ${{ inputs.depth }}
       run: |
         set -uo pipefail
 
@@ -123,6 +134,13 @@ runs:
         if [ -n "${PR_TITLE:-}" ]; then
           set -- "$@" --title "$PR_TITLE"
         fi
+        # The CLI validates the value and errors loudly on a typo (never a silent
+        # fall-through to the default), so it is passed through as data, unexamined.
+        if [ -n "${DEPTH:-}" ]; then
+          set -- "$@" --depth "$DEPTH"
+        fi
+        # end-of-arg-assembly - action-check-args.test.ts slices at this marker to execute
+        # the assembly above; keep it between the last `set --` and the install below.
 
         # Installed rather than npx'd so the optional dependency can be pruned.
         # `@huggingface/transformers` (359MB with onnxruntime) backs `--local` mode only,

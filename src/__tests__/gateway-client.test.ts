@@ -203,6 +203,35 @@ describe('gateway client', () => {
     expect(body).not.toHaveProperty('title');
   });
 
+  // ALI-708: `exhaustive` asks the gateway to adjudicate whatever it retrieved instead of
+  // skipping below its similarity cost gate - the member a strict CI gate sends.
+  it('checkAlignment sends the depth when one is supplied', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'aligned', confidence: 0.9, relevant_decisions: [], message: 'ok' }),
+    });
+
+    await createGatewayClient(localEnv).checkAlignment('diff content', 'main', { depth: 'exhaustive' });
+
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as Parameters<typeof fetch>[1]).body as string);
+    expect(body.depth).toBe('exhaustive');
+  });
+
+  // Second example: absent means absent, so the gateway's schema default stays the one
+  // writer of what an unspecified depth means.
+  it('checkAlignment omits the depth key entirely when none is supplied', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: 'aligned', confidence: 0.9, relevant_decisions: [], message: 'ok' }),
+    });
+
+    await createGatewayClient(localEnv).checkAlignment('diff content', 'main');
+
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as Parameters<typeof fetch>[1]).body as string);
+    expect(body.content).toBe('diff content');
+    expect(body).not.toHaveProperty('depth');
+  });
+
   it('returns unhealthy when connector returns 503', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
     const health = await createGatewayClient(localEnv).getConnectorHealth('slack');

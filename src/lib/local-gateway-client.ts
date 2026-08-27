@@ -7,6 +7,7 @@ import { citationFor, repositoryOf } from './decision-links.js';
 // local client returns the SAME shapes as the cloud client, so the CLI commands
 // (ask/search/check) work identically in local mode.
 import type { AlignmentResult, SearchResults } from './gateway-client.js';
+import type { CheckDepth } from './check-depth.js';
 
 /**
  * Cosine floor for linking two decisions as related on ingest.
@@ -227,7 +228,12 @@ export function createLocalGatewayClient(dbPath: string) {
     async checkAlignment(
       diff: string,
       _context?: string,
-      opts: { depth?: 'related' | 'full'; title?: string } = {},
+      // 'exhaustive' deliberately collapses into 'full' here: local mode has no gateway
+      // similarity cost gate to skip adjudication - so there is nothing extra to pay for.
+      // The member is accepted so one CheckDepth union serves both
+      // clients (ALI-708 review: the previous two-member spelling drifted behind the
+      // createGatewayClient cast, invisible to tsc).
+      opts: { depth?: CheckDepth; title?: string } = {},
     ): Promise<AlignmentResult> {
       // Stage 1: embeddings find candidate related decisions (free, local).
       //

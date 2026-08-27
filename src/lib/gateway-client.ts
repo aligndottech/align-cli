@@ -181,6 +181,7 @@ export interface DriftItem {
 // source of truth in @aligndottech/connector-core - imported + re-exported here
 // so the rest of the CLI keeps importing them from this module.
 import type { FetcherItem as BatchIngestItem, DecisionAuthor } from '@aligndottech/connector-core';
+import type { CheckDepth } from './check-depth.js';
 export type { DecisionAuthor, BatchIngestItem };
 
 export interface BatchIngestResult {
@@ -346,10 +347,14 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     // `depth: 'related'` returns the same embedding retrieval this endpoint already does and
     // skips the ~11s LLM adjudication (gateway #1415). The editor hook uses it because every
     // host budget is <=10s; `align check` and the PR bot keep the default 'full'.
+    // `depth: 'exhaustive'` is the other end (ALI-708): the gateway's similarity cost gate
+    // does not skip adjudication, for callers whose failure policy makes `unknown` fatal.
+    // Requires a gateway that knows the member - an older one rejects the VALUE with a 400
+    // (unknown keys it strips, unknown enum values it refuses), so ship the gateway first.
     async checkAlignment(
       diff: string,
       context?: string,
-      opts: { depth?: 'related' | 'full'; title?: string } = {},
+      opts: { depth?: CheckDepth; title?: string } = {},
     ): Promise<AlignmentResult> {
       return request<AlignmentResult>('/alignment/check', {
         method: 'POST',
