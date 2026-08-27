@@ -99,9 +99,18 @@ without saying what the caller does with it.
 
 Default behaviour on every host is: surface the finding, never deny the edit. `--block-on-critical`
 is the only path that denies, and only on a `critical` conflict, and never after the edit has
-already landed. It is currently inert: the hook is retrieval-only, which cannot assert a
-conflict, so nothing reaches the deny path until the deferred adjudication follow-up (ALI-570)
-lands.
+already landed.
+
+How a deny can happen at all, given the hook is retrieval-only inside its window (ALI-570):
+with the flag set, a hook whose retrieval found related decisions also spawns a detached
+adjudicator for that exact proposed content. The adjudicator runs the full check after the
+hook window closes and records a verdict keyed on a hash of the content, with a 15-minute
+expiry. A later PreToolUse proposing byte-identical content is answered from that verdict -
+denied if it holds a critical conflict, surfaced as context otherwise. Content identity is
+the point: an agent that adjusts its approach hashes differently and goes through untouched.
+
+Opting in has a cost worth stating: in local mode the adjudicator calls your own AI provider
+(the same terms as `align check`), which the default hook never does.
 
 This is deliberate. A guardrail that blocks on a false positive gets switched off, and then it
 protects nothing. Fail-open also covers align being missing, slow, unauthenticated or

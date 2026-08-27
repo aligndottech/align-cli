@@ -1,6 +1,10 @@
-import type { Command } from 'commander';
+import { type Command, Option } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
+import { spawn } from 'node:child_process';
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
@@ -8,6 +12,13 @@ import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo } 
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
+import {
+  adjudicationExistsFor,
+  blockableVerdictFor,
+  contentHashOf,
+  markAdjudicationPending,
+  recordVerdict,
+} from '../lib/advisory-verdict.js';
 import { CHECK_DEPTHS, type CheckDepth } from '../lib/check-depth.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
@@ -35,13 +46,18 @@ export function registerCheckCommand(program: Command): void {
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
     .option('--advisory', 'Agent hook mode: always exit 0, emit related (unadjudicated) decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
     .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, opencode, or text', 'claude')
-    .option('--block-on-critical', 'Reserved - accepted but currently no effect: the advisory hook is retrieval-only and never blocks. Gains meaning when deferred adjudication lands (ALI-570)')
+    .option('--block-on-critical', 'Advisory hook: adjudicate each proposed change in the background, and deny a RETRY of content already judged a critical conflict. Opt-in on purpose - in local mode adjudication calls your own AI provider (ALI-570)')
+    .addOption(
+      // The deferred adjudicator's entry point. Hidden: it is spawned by the advisory hook
+      // with a payload file, never typed by a person.
+      new Option('--adjudicate-deferred <file>', 'internal: run a deferred adjudication from a payload file').hideHelp(),
+    )
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
     .option('--title <text>', 'The decision being proposed, in words (e.g. the PR title). Without it the gateway adjudicates on the first 200 characters of the diff, which is a file header and a few + lines')
     .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')
     .option('--depth <depth>', `How deep an answer to request: ${CHECK_DEPTHS.join(', ')} - related is retrieval only, full (the gateway default) adjudicates behind its similarity cost gate, exhaustive adjudicates whatever was retrieved (for strict CI gates whose fail-on treats unknown as failure, ALI-708). Ignored in --advisory mode, which is retrieval-only by design`)
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
-    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; format?: AdvisoryFormat; ci: boolean; base?: string; title?: string; depth?: string; resolve?: string }) => {
+    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; adjudicateDeferred?: string; format?: AdvisoryFormat; ci: boolean; base?: string; title?: string; depth?: string; resolve?: string }) => {
       // A typo'd depth must not silently become the gateway default: for a strict CI
       // caller that quiet fall-through would reintroduce the exact unadjudicated skip
       // --depth exhaustive exists to remove (ALI-708). Above the advisory early-return, so
@@ -59,6 +75,13 @@ export function registerCheckCommand(program: Command): void {
         process.exit(EXIT_UNKNOWN);
       }
       const depth = opts.depth as CheckDepth | undefined;
+
+      // The spawned adjudicator (ALI-570). Dispatched before advisory: it is the child the
+      // advisory hook launched, doing the slow full check after the hook window closed.
+      if (opts.adjudicateDeferred) {
+        await runDeferredAdjudication(String(opts.adjudicateDeferred), opts.env);
+        return;
+      }
 
       // Advisory mode is the deterministic auto-alignment path (ALI-121/ALI-122):
       // non-blocking, fail-open, machine-readable. It owns the whole flow, never
@@ -286,6 +309,24 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       }
     };
 
+    // ALI-570: a deferred verdict answers a RETRY before any retrieval runs. Content
+    // identity, not file identity - only a proposal byte-identical to what the background
+    // adjudicator judged is answered here, so an adjusted approach hashes differently and
+    // goes through the normal path. Everything below the flag check is opt-in: without
+    // `--block-on-critical` there is no store lookup, no spawn, and (in local mode) no
+    // provider call, which is the egress default #143 established and this must not erode.
+    const cwd = process.cwd();
+    const contentHash = pre ? contentHashOf(text) : null;
+    if (opts.blockOnCritical && contentHash) {
+      const verdict = blockableVerdictFor(cwd, contentHash);
+      if (verdict && verdict.conflicts.length) {
+        // buildAdvisoryOutput decides blocking: deny only on pre + flag + a CRITICAL
+        // conflict (its own tested contract). Warnings surface as context.
+        emit(buildAdvisoryOutput(verdict.conflicts, renderOpts));
+        process.exit(0);
+      }
+    }
+
     // RETRIEVAL ONLY. Adjudication is ~11s and does not fit any host's hook budget, so it
     // moves to a follow-up rather than timing out here and printing nothing. Nothing is lost:
     // the LLM runs whenever retrieval returns anything, so no tenant was getting a verdict
@@ -313,8 +354,24 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // Genuinely nothing related: a real answer, so staying quiet is honest here.
     if (!found.length) process.exit(0);
 
+    // ALI-570: retrieval found decisions on this subject, so the proposed content is worth
+    // the slow full check - AFTER this hook returns. Spawned detached and unref'd so the
+    // hook's exit is never coupled to the adjudicator's lifetime; deduped by content hash so
+    // a pre/post pair (or an agent hammering edits) costs one adjudication, not N. PRE only:
+    // the proposed text is the artefact a retry re-presents byte-for-byte, where the POST
+    // diff is already landed and matches nothing an agent will propose again.
+    if (pre && opts.blockOnCritical && contentHash && !adjudicationExistsFor(cwd, contentHash)) {
+      spawnDeferredAdjudication({
+        text,
+        context,
+        cwd,
+        filePath: payload?.tool_input?.file_path ?? '',
+        contentHash,
+        envName,
+      });
+    }
+
     // Drop decisions the sibling hook already showed the agent moments ago.
-    const cwd = process.cwd();
     const seen = recentlySurfaced(cwd);
     const fresh = found.filter((d) => !seen.has(d.id));
     if (fresh.length) {
@@ -328,6 +385,69 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
 }
 
 type AdvisoryConflict = NonNullable<AlignmentResult['conflicts']>[number];
+
+interface AdjudicationPayload {
+  text: string;
+  context: string;
+  cwd: string;
+  filePath: string;
+  contentHash: string;
+  envName: EnvName;
+}
+
+/**
+ * Launch the deferred adjudicator (ALI-570). The payload travels by FILE, never argv:
+ * proposed content is arbitrary text of arbitrary size, and an argv would also parade it
+ * through `ps`. Fail-open like everything else on the advisory path - a spawn that cannot
+ * happen costs a verdict, never an edit.
+ */
+function spawnDeferredAdjudication(payload: AdjudicationPayload): void {
+  try {
+    const file = path.join(tmpdir(), `align-adjudicate-${payload.contentHash.slice(0, 12)}-${process.pid}.json`);
+    writeFileSync(file, JSON.stringify(payload), 'utf8');
+    markAdjudicationPending(payload.cwd, payload.contentHash);
+    // process.argv[1] is this CLI's own entry point, however it was installed.
+    spawn(process.execPath, [process.argv[1] ?? 'align', 'check', '--adjudicate-deferred', file, '--env', payload.envName], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
+  } catch {
+    // Best-effort: the pending marker (if written) expires on its own.
+  }
+}
+
+/**
+ * The adjudicator: the slow full check, run after the hook window has closed. Its whole
+ * output is one verdict row; a clean or unknowable result records an EMPTY verdict so the
+ * same content is not re-adjudicated inside the TTL. `unknown` maps to empty deliberately -
+ * could-not-check must stay fail-open (ALI-414), and a deny may only rest on an adjudicated
+ * CRITICAL conflict. Always exits 0: nothing downstream reads this process's exit code, and
+ * a crash here must never surface as anything at all.
+ */
+async function runDeferredAdjudication(payloadFile: string, env: EnvName): Promise<void> {
+  try {
+    const payload = JSON.parse(readFileSync(payloadFile, 'utf8')) as AdjudicationPayload;
+    try {
+      unlinkSync(payloadFile); // transport, not state: gone as soon as it is read
+    } catch {
+      // Already gone is fine.
+    }
+    const envName: EnvName = resolveEnv(env, { preferLocalEmbedded: true });
+    const client = createGatewayClient(createConfigStore().getEnvironment(envName));
+    const result = await client.checkAlignment(payload.text, payload.context, {});
+    const conflicts = result.status === 'conflicting' ? (result.conflicts ?? []) : [];
+    recordVerdict(payload.cwd, {
+      ts: Date.now(),
+      filePath: payload.filePath,
+      contentHash: payload.contentHash,
+      conflicts,
+    });
+  } catch {
+    // Fail open: no verdict. The pending marker expires (PENDING_TTL_MS) and a later hook
+    // invocation may spawn a fresh attempt.
+  }
+  process.exit(0);
+}
 
 type RelatedDecision = { id: string; title: string; summary?: string };
 

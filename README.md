@@ -163,7 +163,7 @@ What uses the network in local-only mode, all worth knowing before you point it 
 
 - The embedding model downloads once from huggingface.co (~23MB), on the first import.
 - `align import <tool>` calls that tool's API, read-only, with the token you pasted - that is what an import is. The data goes from your tool to your machine; none of it goes to Align.
-- **Only when an AI provider is available** - an API key in your environment, or a running Ollama, which needs no key - three surfaces call **your own provider**: `align ask` sends your question plus the titles and summaries of the decisions it retrieved (up to `--limit`, default 8), and `align check` and the MCP tool `align_check_alignment` send up to 2,000 characters of the proposed change paired with one retrieved decision at a time. The editor hook never does - it is retrieval only, provider or no provider.
+- **Only when an AI provider is available** - an API key in your environment, or a running Ollama, which needs no key - three surfaces call **your own provider**: `align ask` sends your question plus the titles and summaries of the decisions it retrieved (up to `--limit`, default 8), and `align check` and the MCP tool `align_check_alignment` send up to 2,000 characters of the proposed change paired with one retrieved decision at a time. The editor hook never does by default - it is retrieval only, provider or no provider. The one exception is explicit: adding `--block-on-critical` to your hook line opts that hook into background adjudication on the same terms as `align check`.
 - Ollama runs on your own machine by default, so those calls stay local - unless you have pointed `OLLAMA_HOST` at another box, in which case they go there.
 - With no provider available at all, nothing goes to any AI provider - retrieval is on-device, so the editor hook still surfaces related decisions - and nothing ever goes to Align. The network surface is then just the one-time model download and whatever imports you run.
 
@@ -323,6 +323,7 @@ Modes:
 | (default) | Human-readable output; exits `1` on any conflict. |
 | `--hook` | Pre-commit mode: silent when there's no context, only fails on **critical** conflicts. |
 | `--advisory` | Agent hook mode (detects pre vs post from the hook payload on stdin): **always exits 0**, emits related, unadjudicated decisions - or an explicit "could not check" notice - in the host's hook shape (`--format claude\|gemini\|pi\|opencode\|text`). Fail-open. |
+| `--advisory --block-on-critical` | Opt-in deferred adjudication: the hook additionally spawns a background full check of the proposed content, and a **retry of content already judged a critical conflict is denied** (Claude Code `permissionDecision: "deny"`), with the verdict expiring after 15 minutes. Adjusted content hashes differently and proceeds. In local mode the background check calls **your own AI provider**, which the default hook never does. |
 | `--ci` | Emits JSON to stdout; the 0/1/2 exit contract above. **Pass `--base`** or there is nothing to diff. |
 
 Useful flags: `--title "what this change decides"` improves adjudication on a bare diff;
