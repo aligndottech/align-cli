@@ -42,24 +42,24 @@ found=0
 workflow_run_text() {
   local dir="$ROOT/.github/workflows"
   [ -d "$dir" ] || return 0
-  find "$dir" -type f \( -name '*.yaml' -o -name '*.yml' \) -exec cat {} + 2>/dev/null \
-    | sed 's/#.*$//' \
-    | awk '
-        {
-          if (inblock) {
-            if ($0 ~ /^[ \t]*$/) next
-            match($0, /^[ ]*/)
-            if (RLENGTH > runcol) { print; next }
-            inblock = 0
-          }
-          if (match($0, /^[ ]*-?[ ]*run:[ ]*[|>]/)) {
-            match($0, /run:/); runcol = RSTART - 1
-            inblock = 1
-            next
-          }
-          if ($0 ~ /^[ ]*-?[ ]*run:[ ]/) print
+  find "$dir" -type f \( -name '*.yaml' -o -name '*.yml' \) -exec awk '
+      { sub(/#.*/, "", $0) }
+      FNR==1 { inblock = 0 }
+      {
+        if (inblock) {
+          if ($0 ~ /^[ \t]*$/) next
+          match($0, /^[ ]*/)
+          if (RLENGTH > runcol) { print; next }
+          inblock = 0
         }
-      '
+        if (match($0, /^[ ]*-?[ ]*run:[ ]*[|>]/)) {
+          match($0, /run:/); runcol = RSTART - 1
+          inblock = 1
+          next
+        }
+        if ($0 ~ /^[ ]*-?[ ]*run:[ ]/) print
+      }
+    ' {} + 2>/dev/null
 }
 
 WF_TEXT=$(workflow_run_text)
