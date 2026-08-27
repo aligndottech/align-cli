@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.20.0](https://github.com/aligndottech/align-cli/compare/cli-v0.19.1...cli-v0.20.0) (2026-08-27)
+
+
+### Features
+
+* **check:** --depth exhaustive - a strict gate pays for the verdict (ALI-708) ([678b50b](https://github.com/aligndottech/align-cli/commit/678b50ba3ff2bdd1ee0ef81c8ce2c35afb1be44f))
+* **check:** --depth exhaustive - a strict gate pays for the verdict (ALI-708) ([7491544](https://github.com/aligndottech/align-cli/commit/7491544719a2d03111c62939cbf71110398c4772))
+
+
+### Bug Fixes
+
+* tell the truth in --block-on-critical's help, fail the smoke loudly on a dropped optional dep, address review ([c9ac6d3](https://github.com/aligndottech/align-cli/commit/c9ac6d3040a04a3c3a75f34cb4008b1587f5bd7d))
+
 ## [0.19.1](https://github.com/aligndottech/align-cli/compare/cli-v0.19.0...cli-v0.19.1) (2026-08-26)
 
 
