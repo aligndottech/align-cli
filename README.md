@@ -38,6 +38,30 @@ Node 20+ required. MIT licensed.
 
 ## Quick start
 
+### No account, nothing leaves your machine
+
+```bash
+align setup --local                      # local graph, no sign-in; seeds from your git history
+align ask "why do we use postgres"       # answered from your own graph
+```
+
+Run it inside a git repository: `align setup --local` seeds the graph from that repo's commit
+history, so you have something to ask about straight away. `align import <tool>` adds more
+sources later.
+
+That is the whole free path. Your decisions live in a SQLite file on your machine and are
+never sent to Align. [Cloud or local-only](#cloud-or-local-only) sets out exactly what does
+and does not touch the network.
+
+With an AI provider available (an API key in your environment, or a running Ollama) `align ask`
+writes an answer with its sources. Without one it returns the matching decisions as a ranked
+list instead, which needs no key and never leaves your machine.
+
+### With an Align account
+
+Sync across machines, cross-tool relationship detection, and an upgrade path to a shared team
+workspace.
+
 ```bash
 align setup
 ```
@@ -52,6 +76,10 @@ align setup                              # connect tools (read-only OAuth) + con
 align import git                         # pull commit history - no token needed
 align ask "how does our auth work"       # natural language answer from your graph
 ```
+
+> **Seeing `401 unauthorized`?** Every command defaults to the hosted gateway, so it needs
+> `align login` first. If you meant the no-account path, run `align setup --local` (or
+> `align local start`) and the same commands will use your local graph instead.
 
 Want a hand setting this up? I do free 30 minute setup calls: https://calendly.com/tom-align/setup
 
@@ -327,7 +355,10 @@ Modes:
 | `--ci` | Emits JSON to stdout; the 0/1/2 exit contract above. **Pass `--base`** or there is nothing to diff. |
 
 Useful flags: `--title "what this change decides"` improves adjudication on a bare diff;
-`--base <ref>` diffs `base...HEAD` instead of the staged diff.
+`--base <ref>` diffs `base...HEAD` instead of the staged diff; `--depth related|full|exhaustive`
+sets how deep an answer to request, where `related` is retrieval only and `exhaustive`
+adjudicates everything retrieved, for a strict CI gate whose `fail-on` treats unknown as a
+failure. `--depth` is ignored under `--advisory`, which is retrieval only by design.
 
 In CI, always pass `--base` - a clean checkout has no staged diff, and a check with nothing to
 diff would pass without looking:
@@ -349,6 +380,17 @@ current diff is conflicting):
 ```bash
 align check --resolve <decision_id>:honored      # or overridden | context_changed
 ```
+
+An exit `2` can also mean the judge reached your change and declined to rule, which no re-run
+will change on its own. Answer it once, using the event id the failing check prints:
+
+```bash
+align adjudicate <event-id> --verdict accepted --note "why this may proceed"
+```
+
+`--verdict conflicting` records the opposite. The answer is matched against a digest of the
+content that was checked, so re-running the check on the same change finds it, and answering
+something you were never shown is not available.
 
 ## Write decisions into your agent's context files
 
@@ -497,6 +539,7 @@ align ask <query>            Ask a natural language question (or pass a file pat
 align search <query>         Keyword/semantic search - returns a ranked list
 align capture <url>          Capture a decision from a URL (platform auto-detected)
 align check                  Check current changes against the decision graph
+align adjudicate <event-id>  Answer a check that reached the judge and declined to rule (cloud)
 align import git             Import from Git commit history (no auth)
 align import github          Import from GitHub
 align import gitlab          Import from GitLab
