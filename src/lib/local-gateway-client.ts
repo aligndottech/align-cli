@@ -3,6 +3,7 @@ import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
 import { RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
 import { citationFor, repositoryOf } from './decision-links.js';
+import { contentWordQuery } from './search-query.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
 // (ask/search/check) work identically in local mode.
@@ -195,7 +196,18 @@ export function createLocalGatewayClient(dbPath: string) {
 
     async searchDecisions(query: string, limit = 10): Promise<SearchResults> {
       const embedding = await getEmbedding(query);
-      const similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD);
+      let similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD);
+      // A natural-language question embeds less densely than its subject does, so on a
+      // small graph it can miss a decision that its own content words hit. Retry once,
+      // only on an empty result, mirroring the gateway's own keyword-to-semantic
+      // fallback (align-stack#1706). The raw query still goes first, so ALI-105 holds
+      // and a query that already matched costs exactly one embedding.
+      if (!similar.length) {
+        const reduced = contentWordQuery(query);
+        if (reduced) {
+          similar = await findSimilar(await getEmbedding(reduced), limit, SEARCH_THRESHOLD);
+        }
+      }
       const results = similar
         .map(s => {
           const row = db.getDecisionById(s.decisionId);
