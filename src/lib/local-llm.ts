@@ -1,14 +1,6 @@
 export type AiProvider = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'mistral' | 'grok';
 
-export interface LocalLlmOptions {
-  provider?: AiProvider;
-  apiKey?: string;
-}
-
 export interface CallChatOptions {
-  /** Explicitly configured provider (e.g. written by `align setup`); takes priority. */
-  provider?: AiProvider;
-  apiKey?: string;
   maxTokens?: number;
   /**
    * Sampling temperature. Omit for the provider default; pass 0 for deterministic
@@ -552,11 +544,10 @@ export function hasConfiguredProvider(): boolean {
 
 /**
  * Provider-agnostic chat call. Resolution order:
- *   1. explicitly configured provider+key (e.g. from `align setup`)
- *   2. ALIGN_LLM_BASE_URL  - any OpenAI-compatible endpoint (Grok, OpenRouter,
+ *   1. ALIGN_LLM_BASE_URL  - any OpenAI-compatible endpoint (Grok, OpenRouter,
  *      Together, DeepSeek, LM Studio, vLLM, ...) via ALIGN_LLM_MODEL/ALIGN_LLM_API_KEY
- *   3. named providers by env key (Anthropic, OpenAI, Gemini, Groq, Mistral, Grok)
- *   4. local Ollama (no key)
+ *   2. named providers by env key (Anthropic, OpenAI, Gemini, Groq, Mistral, Grok)
+ *   3. local Ollama (no key)
  * Returns the model's text, or the reason there is none - see LlmFailure. The reason
  * is RETURNED rather than recorded in module state, so concurrent calls cannot read
  * each other's diagnosis.
@@ -593,16 +584,14 @@ export async function callChatDetailed(
     return undefined;
   };
 
-  // 1. configured provider (from align setup) takes priority
-  if (opts?.provider && opts.apiKey) {
-    const settled = settle(
-      await callProvider(opts.provider, opts.apiKey, system, user, maxTokens, temperature),
-      opts.provider,
-    );
-    if (settled) return settled;
-  }
+  // A "provider: ... from `align setup`" branch used to sit first here. Nothing ever
+  // supplied it - setup never collected or stored a provider key - so it was tested,
+  // documented (README and this file's own comment both claimed it), and unreachable.
+  // Deleted rather than kept: a mechanism with no caller reads as a feature and becomes
+  // documentation, which is exactly how it got into the README twice. If a future path
+  // needs explicit provider injection, add it WITH its caller.
 
-  // 2. generic OpenAI-compatible escape hatch - covers any provider
+  // 1. generic OpenAI-compatible escape hatch - covers any provider
   const baseUrl = process.env['ALIGN_LLM_BASE_URL'];
   if (baseUrl) {
     const key = process.env['ALIGN_LLM_API_KEY'] ?? '';
@@ -614,9 +603,8 @@ export async function callChatDetailed(
     if (settled) return settled;
   }
 
-  // 3. named providers via env keys, in priority order
+  // 2. named providers via env keys, in priority order
   for (const provider of ALL_PROVIDERS) {
-    if (opts?.provider === provider) continue; // already tried above
     const key = keyForProvider(provider);
     if (key) {
       const settled = settle(
@@ -627,7 +615,7 @@ export async function callChatDetailed(
     }
   }
 
-  // 4. local Ollama as last resort
+  // 3. local Ollama as last resort
   const settled = settle(await tryOllama(system, user, temperature), 'ollama');
   if (settled) return settled;
 
@@ -652,18 +640,16 @@ export async function callChat(
 export async function synthesiseDetailed(
   question: string,
   decisions: Array<{ id: string; title: string; summary: string }>,
-  options?: LocalLlmOptions,
 ): Promise<ChatResult> {
   const user = buildUserPrompt(question, decisions);
-  return callChatDetailed(SYNTHESIS_SYSTEM_PROMPT, user, { provider: options?.provider, apiKey: options?.apiKey });
+  return callChatDetailed(SYNTHESIS_SYSTEM_PROMPT, user);
 }
 
 /** Text-only wrapper on synthesiseDetailed, for callers that cannot use the reason. */
 export async function synthesiseLocally(
   question: string,
   decisions: Array<{ id: string; title: string; summary: string }>,
-  options?: LocalLlmOptions,
 ): Promise<string | null> {
-  const result = await synthesiseDetailed(question, decisions, options);
+  const result = await synthesiseDetailed(question, decisions);
   return result.ok ? result.text : null;
 }

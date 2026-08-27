@@ -153,31 +153,6 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
     expect(stopOf(r)?.detail).toBe('HTTP 500');
   });
 
-  it('an explicitly configured provider that answers garbage does NOT fall through to env keys', async () => {
-    // Distinct values on both sides: the env-keyed provider would answer, and the test
-    // is that it is never asked (the old chain fell through here).
-    vi.stubEnv('OPENAI_API_KEY', 'bait');
-    mockFetch.mockImplementation(async (url: unknown) =>
-      String(url).includes('anthropic')
-        ? { ok: true, json: async () => ({ content: [] }) }
-        : openAiResponse('the demotion that must not happen'));
-
-    const r = await callChatDetailed('s', 'u', { provider: 'anthropic', apiKey: 'cfg' });
-
-    expect(textOf(r)).toBeNull();
-    expect(urls().every(u => u.includes('anthropic'))).toBe(true);
-    expect(stopOf(r)?.provider).toBe('anthropic');
-  });
-
-  it('an explicitly configured provider with a bad key still falls through (availability)', async () => {
-    vi.stubEnv('OPENAI_API_KEY', 'good');
-    mockFetch.mockImplementation(async (url: unknown) =>
-      String(url).includes('anthropic') ? httpError(401, 'invalid x-api-key') : openAiResponse('env answer'));
-
-    const r = await callChatDetailed('s', 'u', { provider: 'anthropic', apiKey: 'revoked' });
-    expect(textOf(r)).toBe('env answer');
-  });
-
   it('each call carries its own outcome, so a stop cannot outlive its cause', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'k');
     mockFetch.mockImplementation(async () => httpError(429, ''));
