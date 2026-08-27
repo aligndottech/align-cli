@@ -27,14 +27,23 @@ RESULT="${1:-}"
 # into a green build - it is the only step in the chain that can overturn a failure.
 [ -n "$RESULT" ] || { echo "adjudicated=no reason=no-result"; exit 1; }
 
+# EVERY LINE OF THE NODE BLOCK BELOW LIVES INSIDE A SINGLE-QUOTED SHELL STRING. A bare
+# apostrophe anywhere in it - including in a comment - terminates that string, and a backtick
+# opens a command substitution. Either one leaves the script refusing every input, which looks
+# exactly like "nobody has adjudicated this" and would make the feature silently inert. Both
+# were hit while writing this; the suite caught them.
 read -r VERDICT REASON_CLASS <<EOF
 $(printf '%s' "$RESULT" | node -e '
 let raw = "";
 process.stdin.on("data", (c) => (raw += c));
 process.stdin.on("end", () => {
   try {
-    // The CLI writes one JSON object per line and may print other lines first, so take the
-    // LAST parseable line rather than assuming the whole stream is the object.
+    // The LAST non-empty line, where the CLI puts its JSON after any human-facing preamble.
+    // Deliberately NOT a backwards scan for the last PARSEABLE line, tempting as that is:
+    // the status and reason parsers in action.yml both read this same last line, so a stream
+    // whose JSON is not last already reads as status=error there and decide.sh fails on it.
+    // Being more tolerant here would find an acceptance in exactly the case the rest of the
+    // chain calls broken, and this is the one step that can turn a red gate green.
     const line = raw.trim().split("\n").filter(Boolean).pop() ?? "";
     const o = JSON.parse(line);
     const v = o?.prior_adjudication?.verdict ?? "none";

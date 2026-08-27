@@ -128,7 +128,17 @@ export interface AlignmentResult {
    * that class, so its absence is what stops a person signing off an outage.
    */
   check_event_id?: string;
-  /** A named person's answer for this exact content, if one already exists. */
+  /**
+   * A named person's answer for this exact content, if one already exists.
+   *
+   * The nested keys are camelCase while every other wire type in this file is snake_case,
+   * which looks like a mistake and is not. `request()` returns `res.json()` untransformed,
+   * so these have to match the gateway byte for byte, and its repository maps the row there:
+   * `adjudicatedBy: row.adjudicated_by` (align-stack, PostgresCheckAdjudicationRepository's
+   * toRecord). The outer key is snake_case because the ROUTE spells it, and the inner ones
+   * are camelCase because a use case does - two writers, one payload. Verified against the
+   * merged gateway rather than assumed; change either side and both move.
+   */
   prior_adjudication?: {
     verdict: 'accepted' | 'conflicting';
     adjudicatedBy: string;
@@ -386,7 +396,11 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       eventId: string,
       verdict: 'accepted' | 'conflicting',
       note?: string,
-    ): Promise<{ verdict: string; adjudicatedBy: string; alreadyAdjudicated: boolean }> {
+    ): Promise<{
+      verdict: 'accepted' | 'conflicting';
+      adjudicatedBy: string;
+      alreadyAdjudicated: boolean;
+    }> {
       return request(`/alignment/checks/${encodeURIComponent(eventId)}/adjudicate`, {
         method: 'POST',
         body: JSON.stringify({ verdict, ...(note ? { note } : {}) }),

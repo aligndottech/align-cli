@@ -24,9 +24,12 @@ const SCRIPT = join(
 // A missing script must be a hard failure, not a suite of passes against nothing.
 if (!existsSync(SCRIPT)) throw new Error(`FATAL: ${SCRIPT} is missing`);
 
-async function adjudicated(result: string): Promise<{ exitCode: number; out: string }> {
+// `args` rather than a single string, so a test can omit the argument entirely rather than
+// only passing an empty one. The script distinguishes the two ($1 unset vs empty) and both
+// have to land on a refusal, so both are exercised.
+async function adjudicated(...args: string[]): Promise<{ exitCode: number; out: string }> {
   try {
-    const { stdout } = await exec('bash', [SCRIPT, result]);
+    const { stdout } = await exec('bash', [SCRIPT, ...args]);
     return { exitCode: 0, out: stdout.trim() };
   } catch (err) {
     const e = err as { code?: number; stdout?: string; stderr?: string };
@@ -88,6 +91,12 @@ describe('adjudication override', () => {
 
   describe('every broken input reads as no answer', () => {
     it('no argument at all', async () => {
+      expect(await adjudicated()).toMatchObject({ exitCode: 1 });
+    });
+
+    // Its own case, because `${1:-}` and an explicitly empty `$1` reach the guard by
+    // different routes and only one of them was covered while this pair was one test.
+    it('an explicitly empty argument', async () => {
       expect(await adjudicated('')).toMatchObject({ exitCode: 1 });
     });
 
