@@ -95,6 +95,35 @@ The policy is a small script, `decide.sh`, covered by a truth table in
 Set `fail-on: never` to report into the job summary without ever failing - a good way to
 watch the signal before you make the check required.
 
+### When a check will not clear by re-running
+
+Under `fail-on: conflict-or-unknown`, most `unknown` results are transient: the analysis
+timed out or the service was briefly unavailable, and the re-run button fixes it.
+
+One kind does not. The judge can reach your change, find a relationship it cannot turn into
+either a pass or a conflict, and decline to rule - `reason_class: non_verdict`. That answer is
+a function of the diff and the recorded decisions, so re-running returns it again, forever.
+
+A person on your team resolves it:
+
+```
+align adjudicate <event-id> --verdict accepted --note "why"
+```
+
+The event id is in the failing check's annotation. Re-run the check on the same change and it
+passes on that answer, with a note naming who gave it. `--verdict conflicting` records the
+opposite, and the check stays red.
+
+Two properties worth knowing before you rely on it:
+
+- **The answer is matched to the content, not to the pull request.** Push a different change
+  and it is a different question, which nobody has answered yet.
+- **An outage is not adjudicable.** Only a `non_verdict` can be answered this way, so a
+  stale acceptance can never excuse a check that failed to run. That rule lives in
+  `adjudicated.sh`, with its own truth table in `src/__tests__/action-adjudicated.test.ts`,
+  and every malformed or missing input there reads as "no answer" - a broken parse leaves
+  the failure standing rather than turning it green.
+
 ## Making it a required check
 
 Add the job, let it run on a few PRs, and only then mark it required in your branch

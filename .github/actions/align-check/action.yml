@@ -234,6 +234,10 @@ runs:
 
     - name: Apply the fail-on policy
       shell: bash
+      env:
+        # Through env, like ALIGN_RESULT above: this payload carries text out of the graph,
+        # and interpolated into the script it would be substituted before bash parses it.
+        ALIGN_RESULT: ${{ steps.check.outputs.result }}
       run: |
         set -uo pipefail
         CODE="${{ steps.check.outputs.code }}"
@@ -254,6 +258,27 @@ runs:
           exit 1
         fi
 
+        # A NON-VERDICT a named human already answered (ALI-710). decide.sh stays untouched:
+        # it is right that an incomplete result fails, and this asks the separate question of
+        # whether someone has since answered THIS content. Only consulted when the policy has
+        # already decided to fail, so it can never turn a pass into a failure - and its own
+        # every-broken-input-is-a-refusal rule means a bad parse leaves the failure standing.
+        if [ "$DECISION" != "0" ]; then
+          case "$OUTCOME" in
+            *incomplete*)
+              set +e
+              ADJ="$(bash "${{ github.action_path }}/adjudicated.sh" "${ALIGN_RESULT:-}" 2>&1)"
+              ADJUDICATED=$?
+              set -e
+              if [ "$ADJUDICATED" = "0" ]; then
+                echo "$ADJ"
+                echo "::notice::Align check did not reach a verdict, and a person on your team reviewed and accepted this exact change. Passing on that answer."
+                exit 0
+              fi
+              ;;
+          esac
+        fi
+
         case "$OUTCOME" in
           *reason=conflict*)   echo "::error::Align check found a conflict with a recorded decision." ;;
           *incomplete*)
@@ -263,6 +288,15 @@ runs:
             SUFFIX=""
             [ -n "$REASON" ] && SUFFIX=", reason '$REASON'"
             echo "::warning::Align check did not complete (status '$STATUS'$SUFFIX, exit $CODE). Nothing was verified."
+            # A NON-VERDICT will not heal on a re-run: the judge answered and abstained, so
+            # the same diff returns the same answer forever. Say what actually moves it,
+            # rather than leaving a re-run button as the only visible affordance.
+            EVENT_ID="$(printf '%s' "${ALIGN_RESULT:-}" | tail -n 1 | node -e \
+              'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).check_event_id||"")}catch{process.stdout.write("")}})' \
+              2>/dev/null || echo '')"
+            if [ -n "$EVENT_ID" ]; then
+              echo "::warning::This one will not clear by re-running - the check reached the judge and it declined to rule. Someone on your team can review it and record the answer: align adjudicate $EVENT_ID --verdict accepted"
+            fi
             ;;
         esac
 

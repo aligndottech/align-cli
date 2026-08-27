@@ -7,6 +7,7 @@ import { registerCaptureCommand } from './commands/capture.js';
 import { registerImportCommand } from './commands/import.js';
 import { registerSearchCommand } from './commands/search.js';
 import { registerCheckCommand } from './commands/check.js';
+import { registerAdjudicateCommand } from './commands/adjudicate.js';
 import { registerMcpCommand } from './commands/mcp.js';
 import { registerLocalCommand } from './commands/local.js';
 import { registerDecisionsCommand } from './commands/decisions/index.js';
@@ -86,6 +87,7 @@ registerContextCommand(program);
 
 // Customer: CI/alignment check
 registerCheckCommand(program);
+registerAdjudicateCommand(program);
 
 // Customer: MCP server
 registerMcpCommand(program);

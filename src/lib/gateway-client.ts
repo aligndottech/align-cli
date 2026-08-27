@@ -112,6 +112,39 @@ export interface AlignmentResult {
   status: 'aligned' | 'conflicting' | 'no-context' | 'unknown' | 'retrieved';
   /** Populated only when `status` is `unknown`. */
   reason?: UnknownReason;
+  /**
+   * WHICH KIND of unknown, and therefore what remedies it (ALI-710).
+   *
+   * 'unavailable' - the check could not run, and a re-run can heal it.
+   * 'non_verdict' - the judge ran and abstained. A re-run returns the same answer forever,
+   *   so only a person can move it.
+   *
+   * Optional because an older gateway does not send it, and a consumer must treat its
+   * absence as "cannot tell" rather than as either class.
+   */
+  reason_class?: 'unavailable' | 'non_verdict';
+  /**
+   * The handle for a stable non-verdict - what `align adjudicate` takes. Present only on
+   * that class, so its absence is what stops a person signing off an outage.
+   */
+  check_event_id?: string;
+  /**
+   * A named person's answer for this exact content, if one already exists.
+   *
+   * The nested keys are camelCase while every other wire type in this file is snake_case,
+   * which looks like a mistake and is not. `request()` returns `res.json()` untransformed,
+   * so these have to match the gateway byte for byte, and its repository maps the row there:
+   * `adjudicatedBy: row.adjudicated_by` (align-stack, PostgresCheckAdjudicationRepository's
+   * toRecord). The outer key is snake_case because the ROUTE spells it, and the inner ones
+   * are camelCase because a use case does - two writers, one payload. Verified against the
+   * merged gateway rather than assumed; change either side and both move.
+   */
+  prior_adjudication?: {
+    verdict: 'accepted' | 'conflicting';
+    adjudicatedBy: string;
+    adjudicatedAt: string;
+    checkEventId: string;
+  };
   confidence: number;
   relevant_decisions: Array<{ id: string; title: string; summary: string; similarity: number; url?: string }>;
   conflicts?: Array<{
@@ -351,6 +384,29 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     // does not skip adjudication, for callers whose failure policy makes `unknown` fatal.
     // Requires a gateway that knows the member - an older one rejects the VALUE with a 400
     // (unknown keys it strips, unknown enum values it refuses), so ship the gateway first.
+    /**
+     * Answer a check that reached the judge and declined to rule (ALI-710).
+     *
+     * The gateway refuses a caller it can identify as an agent, so this is a human's act by
+     * construction rather than by convention. It also refuses an event that is not a
+     * non-verdict, which is why there is no verdict vocabulary for "could not check" here:
+     * an outage is not something a person can sign off.
+     */
+    async adjudicateCheck(
+      eventId: string,
+      verdict: 'accepted' | 'conflicting',
+      note?: string,
+    ): Promise<{
+      verdict: 'accepted' | 'conflicting';
+      adjudicatedBy: string;
+      alreadyAdjudicated: boolean;
+    }> {
+      return request(`/alignment/checks/${encodeURIComponent(eventId)}/adjudicate`, {
+        method: 'POST',
+        body: JSON.stringify({ verdict, ...(note ? { note } : {}) }),
+      });
+    },
+
     async checkAlignment(
       diff: string,
       context?: string,
