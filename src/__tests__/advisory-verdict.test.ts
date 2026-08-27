@@ -314,7 +314,16 @@ describe('the store never throws at the hook', () => {
 });
 
 describe('the store is not readable or plantable by other users', () => {
-  it('writes the store 0600 inside a 0700 directory', () => {
+  /**
+   * POSIX only, and deliberately skipped rather than loosened on Windows: Node there honours
+   * only the read-only bit, so the mode comes back 0o666 and asserting anything weaker would
+   * pass on both platforms while checking nothing on either.
+   *
+   * Nothing is lost by skipping it. The threat this hardening addresses is a shared /tmp
+   * (mode 1777) on a Linux build host; Windows already gives each user a private
+   * %LOCALAPPDATA%\Temp, so the directory is not shared to begin with.
+   */
+  it.skipIf(process.platform === 'win32')('writes the store 0600 inside a 0700 directory', () => {
     const cwd = track(freshCwd());
     recordVerdict(cwd, ENV, verdict(), T0);
 

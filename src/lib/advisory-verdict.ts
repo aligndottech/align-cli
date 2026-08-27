@@ -101,6 +101,11 @@ export function contentHashOf(text: string): string {
  *
  * Returns null when the directory cannot be established safely, and every caller then
  * degrades to "no store" rather than erroring - fail-open, as everywhere else here.
+ *
+ * The mode bits are POSIX-only; Windows honours just the read-only flag and reports 0o666.
+ * That costs nothing, because the threat is a SHARED tmp directory and Windows already gives
+ * each user a private %LOCALAPPDATA%\Temp - which is also why the uid falls back to a
+ * constant there rather than trying to synthesise one.
  */
 function storeDir(): string | null {
   try {
