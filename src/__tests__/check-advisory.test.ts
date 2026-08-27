@@ -294,3 +294,34 @@ describe('align check --advisory (fast tier)', () => {
     expect(JSON.parse(stdout).block).toBeUndefined();
   });
 });
+
+/**
+ * The --help text is a customer-facing promise, and this flag's promise was false: it said
+ * "deny an edit only on a CRITICAL conflict" while the advisory path is retrieval-only and
+ * hardcodes blocking off - the only implementation lives behind "NO RUNTIME CALLER until
+ * ALI-570" (buildAdvisoryOutput's own header). The README propagated the claim from here,
+ * which is how an inert flag became documentation twice over.
+ *
+ * Read from the commander Option object, not the source text, so a comment containing the
+ * banned words cannot satisfy or break it.
+ */
+describe('--block-on-critical help text tells the truth about being inert', () => {
+  function optionDescription(): string {
+    const program = new Command();
+    registerCheckCommand(program);
+    const check = program.commands.find(c => c.name() === 'check');
+    if (!check) throw new Error('check command not registered - the fixture never built it');
+    const opt = check.options.find(o => o.long === '--block-on-critical');
+    if (!opt) throw new Error('--block-on-critical not declared - removing it breaks committed hooks');
+    return opt.description;
+  }
+
+  it('does not promise to deny or block an edit', () => {
+    expect(optionDescription()).not.toMatch(/deny|blocks? an edit/i);
+  });
+
+  it('says it currently has no effect, and names the ticket that changes that', () => {
+    expect(optionDescription()).toMatch(/no effect/i);
+    expect(optionDescription()).toContain('ALI-570');
+  });
+});

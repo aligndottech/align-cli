@@ -85,6 +85,34 @@ ALIGN_BIN="$(command -v align.cmd 2>/dev/null || command -v align || true)"
 [ -n "$ALIGN_BIN" ] || { echo "FAIL: 'align' not on PATH after global install"; exit 1; }
 echo "installed: $ALIGN_BIN"
 
+# The embedding model's package is an OPTIONAL dependency, and npm drops a failed optional
+# subtree SILENTLY - no warning at default loglevel, exit 0. When that happens the failure
+# surfaces eight steps later as `align search` dying with "Cannot find package
+# '@huggingface/transformers'", which reads as a product bug. It happened twice in a row on
+# one PR (#147, node-22 leg): sharp had released that morning, the runner cache was cold, and
+# one dropped download failed the whole subtree. This matrix runs only on platforms the model
+# SUPPORTS, so absence here is an install failure, never a platform limitation.
+#
+# Resolved from the installed CLI package's own context - the same resolution the CLI performs
+# at runtime - not by peeking at a node_modules path, which hoisting would make a guess.
+CLI_PKG="$PREFIX/lib/node_modules/@aligndottech/cli"
+[ -d "$CLI_PKG" ] || CLI_PKG="$PREFIX/node_modules/@aligndottech/cli"   # Windows npm layout
+embeddings_dep_present() {
+  node -e 'require("module").createRequire(process.argv[1] + "/package.json").resolve("@huggingface/transformers")' "$CLI_PKG" >/dev/null 2>&1
+}
+if ! embeddings_dep_present; then
+  echo "WARN: optional dep @huggingface/transformers missing after install - retrying once (transient download drops are the observed cause)"
+  npm install -g --prefix "$PREFIX" --loglevel=error "$TARBALL" || true
+  if ! embeddings_dep_present; then
+    echo "FAIL: @huggingface/transformers did not install on a supported platform, twice."
+    echo "      npm skips failed optional deps silently. Before suspecting the CLI, check for a"
+    echo "      same-day release of sharp or onnxruntime (cold-cache downloads) or a registry issue."
+    exit 1
+  fi
+  echo "retry recovered the optional dep"
+fi
+echo "embeddings dep present"
+
 # ---------------------------------------------------------------------------
 # Fixture repo: a cold user's project. Three commits with decision-shaped
 # messages so `import git` has something real to extract.
