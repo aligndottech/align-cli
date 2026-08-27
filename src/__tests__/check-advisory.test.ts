@@ -22,6 +22,14 @@ vi.mock('../lib/git.js', () => ({
 
 vi.mock('node:fs', () => ({ existsSync: vi.fn(() => false), readFileSync: vi.fn() }));
 
+// Two tests below run `--block-on-critical`, which can reach spawnDeferredAdjudication.
+// Nothing here would spawn today - the fs mock is missing the write helpers, so the payload
+// write throws first - but that is ACCIDENTAL isolation. Completing that fs mock is a
+// one-line, entirely plausible future edit, and it would silently start launching real
+// detached `node <vitest-worker> check --adjudicate-deferred` processes from the suite.
+const mockSpawn = vi.fn(() => ({ unref: vi.fn(), on: vi.fn() }));
+vi.mock('node:child_process', () => ({ spawn: (...a: unknown[]) => mockSpawn(...a) }));
+
 const mockSearchDecisions = vi.fn();
 vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({

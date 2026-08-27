@@ -2,10 +2,14 @@
  * ALI-570: deferred adjudication for the advisory hook - buildAdvisoryOutput's runtime caller.
  *
  * The hook stays retrieval-only inside its window. Under `--block-on-critical` it ALSO
- * spawns a detached adjudicator for the proposed content and exits; the adjudicator runs the
+ * spawns a detached adjudicator for the proposed change and exits; the adjudicator runs the
  * full check after the hook window and records a verdict; the next PreToolUse proposing the
- * SAME content is answered from that verdict - a critical conflict as a Claude Code
+ * SAME change is answered from that verdict - a critical conflict as a Claude Code
  * `permissionDecision: 'deny'`, anything less as context.
+ *
+ * "The same change" means the tool, the target file and the text - not the text alone. A
+ * verdict keyed on text would let one deny answer an Edit to another file that happens to
+ * share a new_string, so the lookup ARGUMENTS are asserted here, not just its return value.
  *
  * Everything stays opt-in behind the flag, because in local mode adjudication is the
  * pipeline's only provider egress (#143 turned that off by default, deliberately): no flag,
@@ -15,7 +19,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerCheckCommand } from '../commands/check.js';
 import type * as AdvisoryVerdictModule from '../lib/advisory-verdict.js';
-import { contentHashOf, type StoredVerdict } from '../lib/advisory-verdict.js';
+import { contentHashOf, MAX_CONCURRENT_ADJUDICATIONS, type StoredVerdict } from '../lib/advisory-verdict.js';
 
 const mockCheckAlignment = vi.fn();
 
@@ -44,25 +48,31 @@ vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({ checkAlignment: mockCheckAlignment })),
 }));
 
+const mockMarkSurfaced = vi.fn();
 vi.mock('../lib/advisory-dedup.js', () => ({
   recentlySurfaced: vi.fn(() => new Set<string>()),
-  markSurfaced: vi.fn(),
+  markSurfaced: (...a: unknown[]) => mockMarkSurfaced(...a),
 }));
 
 const mockBlockableVerdictFor = vi.fn<(...args: unknown[]) => StoredVerdict | null>(() => null);
 const mockAdjudicationExistsFor = vi.fn(() => false);
 const mockMarkAdjudicationPending = vi.fn();
 const mockRecordVerdict = vi.fn();
+const mockInFlight = vi.fn(() => 0);
+const PAYLOAD_PATH = '/tmp/align-test/adjudicate-abc.json';
 vi.mock('../lib/advisory-verdict.js', async (importOriginal) => ({
   ...(await importOriginal<typeof AdvisoryVerdictModule>()),
   blockableVerdictFor: (...a: unknown[]) => mockBlockableVerdictFor(...a),
   adjudicationExistsFor: () => mockAdjudicationExistsFor(),
   markAdjudicationPending: (...a: unknown[]) => mockMarkAdjudicationPending(...a),
   recordVerdict: (...a: unknown[]) => mockRecordVerdict(...a),
+  inFlightAdjudications: () => mockInFlight(),
+  adjudicationPayloadPath: () => PAYLOAD_PATH,
 }));
 
 const mockUnref = vi.fn();
-const mockSpawn = vi.fn(() => ({ unref: mockUnref }));
+const mockOn = vi.fn();
+const mockSpawn = vi.fn(() => ({ unref: mockUnref, on: mockOn }));
 vi.mock('node:child_process', () => ({ spawn: (...a: unknown[]) => mockSpawn(...a) }));
 
 const mockWriteFileSync = vi.fn();
@@ -84,10 +94,17 @@ const PRE_PAYLOAD = {
   tool_input: { file_path: 'src/db.ts', content: PROPOSED },
 };
 
+/** Mirrors identityHashOf in check.ts: tool, file, replaced text, new text, NUL-joined. */
+function identityHash(toolName: string, filePath: string, oldString: string, text: string): string {
+  return contentHashOf([toolName, filePath, oldString, text].join('\0'));
+}
+const PRE_HASH = identityHash('Write', 'src/db.ts', '', PROPOSED);
+
 const CRITICAL_VERDICT: StoredVerdict = {
   ts: Date.now(),
   filePath: 'src/db.ts',
-  contentHash: contentHashOf(PROPOSED),
+  contentHash: PRE_HASH,
+  adjudicated: true,
   conflicts: [
     {
       decision_id: 'd-1',
@@ -135,6 +152,7 @@ beforeEach(() => {
   mockCheckAlignment.mockResolvedValue(RETRIEVED);
   mockBlockableVerdictFor.mockReturnValue(null);
   mockAdjudicationExistsFor.mockReturnValue(false);
+  mockInFlight.mockReturnValue(0);
 });
 
 describe('the verdict answers a retry (the DoD path)', () => {
@@ -181,6 +199,80 @@ describe('the verdict answers a retry (the DoD path)', () => {
 
     expect(mockCheckAlignment).toHaveBeenCalled();
   });
+
+  /**
+   * The feature's core safety claim, and the one nothing used to pin: the lookup is keyed on
+   * the CHANGE, so a deny cannot land on an unrelated later edit to the same file. Asserting
+   * only the return value leaves the key free - swapping the hash for one derived from the
+   * file path passed every test in this file.
+   */
+  it('looks the verdict up by change identity AND target file, never by file alone', async () => {
+    await runCheck(['--advisory', '--block-on-critical']);
+
+    expect(mockBlockableVerdictFor).toHaveBeenCalledWith(process.cwd(), 'prod', PRE_HASH, 'src/db.ts');
+  });
+
+  it('the same text in a DIFFERENT file is a different key', async () => {
+    mockReadHookPayload.mockResolvedValue({
+      ...PRE_PAYLOAD,
+      tool_input: { file_path: 'docs/scratch.md', content: PROPOSED },
+    });
+
+    await runCheck(['--advisory', '--block-on-critical']);
+
+    const [, , hash, file] = mockBlockableVerdictFor.mock.calls[0] as [string, string, string, string];
+    expect(file).toBe('docs/scratch.md');
+    expect(hash).not.toBe(PRE_HASH);
+    expect(hash).toBe(identityHash('Write', 'docs/scratch.md', '', PROPOSED));
+  });
+
+  it('an Edit is a different key from a Write of the same text', async () => {
+    mockReadHookPayload.mockResolvedValue({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Edit',
+      tool_input: { file_path: 'src/db.ts', old_string: 'postgres', new_string: PROPOSED },
+    });
+
+    await runCheck(['--advisory', '--block-on-critical']);
+
+    const [, , hash] = mockBlockableVerdictFor.mock.calls[0] as [string, string, string, string];
+    expect(hash).toBe(identityHash('Edit', 'src/db.ts', 'postgres', PROPOSED));
+    expect(hash).not.toBe(PRE_HASH);
+  });
+
+  it('records the surfaced decisions, so the sibling POST hook does not repeat them', async () => {
+    mockBlockableVerdictFor.mockReturnValue(CRITICAL_VERDICT);
+
+    await runCheck(['--advisory', '--block-on-critical']);
+
+    expect(mockMarkSurfaced).toHaveBeenCalledWith(process.cwd(), ['d-1']);
+  });
+
+  /**
+   * gemini's BeforeTool reads decision/reason and has no additionalContext channel, so
+   * buildAdvisoryOutput returns null for a non-blocking pre-check there. Exiting on that null
+   * would spend the verdict on silence AND skip retrieval - a silent capability loss on one
+   * host only. The fall-through is what lets AfterTool still carry the context.
+   */
+  it('falls through to retrieval when the host has no pre-edit context channel', async () => {
+    mockBlockableVerdictFor.mockReturnValue({
+      ...CRITICAL_VERDICT,
+      conflicts: [{ ...CRITICAL_VERDICT.conflicts[0]!, severity: 'warning' }],
+    });
+
+    await runCheck(['--advisory', '--block-on-critical', '--format', 'gemini']);
+
+    expect(mockCheckAlignment).toHaveBeenCalled();
+  });
+
+  it('still DENIES on gemini when the verdict is critical', async () => {
+    mockBlockableVerdictFor.mockReturnValue(CRITICAL_VERDICT);
+
+    const { stdout } = await runCheck(['--advisory', '--block-on-critical', '--format', 'gemini']);
+
+    expect(stdout).toContain('"decision":"deny"');
+    expect(mockCheckAlignment).not.toHaveBeenCalled();
+  });
 });
 
 describe('spawning the deferred adjudicator', () => {
@@ -190,10 +282,25 @@ describe('spawning the deferred adjudicator', () => {
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const [cmd, args, opts] = mockSpawn.mock.calls[0] as [string, string[], Record<string, unknown>];
     expect(cmd).toBe(process.execPath);
-    expect(args).toContain('--adjudicate-deferred');
-    expect(opts).toMatchObject({ detached: true, stdio: 'ignore' });
+    // The WHOLE argv, not just a token in it: dropping the payload path (so the child eats
+    // `--env` as the filename) or hardcoding argv[0] both ship a feature that never fires,
+    // and both are invisible to a `toContain`.
+    expect(args).toEqual([
+      process.argv[1],
+      'check',
+      '--adjudicate-deferred',
+      PAYLOAD_PATH,
+      '--env',
+      'prod',
+    ]);
+    // toEqual, not toMatchObject: an added `shell: true` would make the payload path a
+    // command-injection surface and toMatchObject cannot see an added key.
+    expect(opts).toEqual({ detached: true, stdio: 'ignore' });
     expect(mockUnref).toHaveBeenCalledTimes(1);
-    expect(mockMarkAdjudicationPending).toHaveBeenCalledWith(process.cwd(), contentHashOf(PROPOSED));
+    // spawn reports failure asynchronously, so the try/catch cannot see it. Without a
+    // listener an ENOENT/EMFILE takes the hook down with it.
+    expect(mockOn).toHaveBeenCalledWith('error', expect.any(Function));
+    expect(mockMarkAdjudicationPending).toHaveBeenCalledWith(process.cwd(), 'prod', PRE_HASH);
     // The payload travels by file, never argv: proposed content can be any size and any shape.
     const written = mockWriteFileSync.mock.calls.map(c => String(c[1])).join('');
     expect(written).toContain(PROPOSED);
@@ -212,6 +319,29 @@ describe('spawning the deferred adjudicator', () => {
     await runCheck(['--advisory', '--block-on-critical']);
 
     expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The hash dedup only catches a re-proposal of the SAME change, which is the rare case: an
+   * agent iterating produces different content every time. Without a cap that is one detached
+   * process and one full adjudication per edit, so the cap is what actually bounds the cost.
+   */
+  it('never spawns while the in-flight cap is already reached', async () => {
+    mockInFlight.mockReturnValue(MAX_CONCURRENT_ADJUDICATIONS);
+
+    await runCheck(['--advisory', '--block-on-critical']);
+
+    expect(mockSpawn).not.toHaveBeenCalled();
+    // Losing a verdict is the cost; the edit still goes through with its context.
+    expect(mockMarkAdjudicationPending).not.toHaveBeenCalled();
+  });
+
+  it('spawns while under the cap', async () => {
+    mockInFlight.mockReturnValue(MAX_CONCURRENT_ADJUDICATIONS - 1);
+
+    await runCheck(['--advisory', '--block-on-critical']);
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
   });
 
   it('never spawns when retrieval found nothing - there is nothing to adjudicate', async () => {
@@ -233,12 +363,12 @@ describe('spawning the deferred adjudicator', () => {
 
 describe('the adjudicator itself (--adjudicate-deferred)', () => {
   const PAYLOAD_FILE = '/tmp/align-adjudicate-test.json';
+  const IDENTITY = { toolName: 'Write', filePath: 'src/db.ts', oldString: '', text: PROPOSED };
   const PAYLOAD = {
-    text: PROPOSED,
+    identity: IDENTITY,
     context: 'src/db.ts',
     cwd: '/repo',
-    filePath: 'src/db.ts',
-    contentHash: contentHashOf(PROPOSED),
+    contentHash: PRE_HASH,
   };
 
   beforeEach(() => {
@@ -259,12 +389,13 @@ describe('the adjudicator itself (--adjudicate-deferred)', () => {
 
     expect(exitCode).toBe(0);
     // Full adjudication: no depth option, so the gateway default applies.
-    expect(mockCheckAlignment).toHaveBeenCalledWith(PROPOSED, 'src/db.ts', expect.not.objectContaining({ depth: 'related' }));
+    expect(mockCheckAlignment).toHaveBeenCalledWith(PROPOSED, 'src/db.ts', {});
     expect(mockRecordVerdict).toHaveBeenCalledTimes(1);
-    const [cwd, verdict] = mockRecordVerdict.mock.calls[0] as [string, StoredVerdict];
+    const [cwd, , verdict] = mockRecordVerdict.mock.calls[0] as [string, string, StoredVerdict];
     expect(cwd).toBe('/repo');
-    expect(verdict.contentHash).toBe(contentHashOf(PROPOSED));
+    expect(verdict.contentHash).toBe(PRE_HASH);
     expect(verdict.filePath).toBe('src/db.ts');
+    expect(verdict.adjudicated).toBe(true);
     expect(verdict.conflicts[0]).toMatchObject({ title: 'Use Postgres for persistence', severity: 'critical' });
     // The payload file is transport, not state: gone after the read.
     expect(mockUnlinkSync).toHaveBeenCalledWith(PAYLOAD_FILE);
@@ -282,8 +413,10 @@ describe('the adjudicator itself (--adjudicate-deferred)', () => {
 
     await runCheck(['--adjudicate-deferred', PAYLOAD_FILE]);
 
-    const [, verdict] = mockRecordVerdict.mock.calls[0] as [string, StoredVerdict];
+    const [, , verdict] = mockRecordVerdict.mock.calls[0] as [string, string, StoredVerdict];
     expect(verdict.conflicts).toEqual([]);
+    // A clean result IS a judgement, so it earns the full verdict lifetime.
+    expect(verdict.adjudicated).toBe(true);
   });
 
   /**
@@ -303,12 +436,48 @@ describe('the adjudicator itself (--adjudicate-deferred)', () => {
 
     await runCheck(['--adjudicate-deferred', PAYLOAD_FILE]);
 
-    const [, verdict] = mockRecordVerdict.mock.calls[0] as [string, StoredVerdict];
+    const [, , verdict] = mockRecordVerdict.mock.calls[0] as [string, string, StoredVerdict];
     expect(verdict.conflicts).toEqual([]);
+    // And it is recorded as NOT adjudicated, so it expires on the short marker TTL instead
+    // of masquerading as "adjudicated clean" for 15 minutes.
+    expect(verdict.adjudicated).toBe(false);
   });
 
   it('exits 0 and records nothing when the check itself throws', async () => {
     mockCheckAlignment.mockRejectedValue(new Error('gateway down'));
+
+    const { exitCode } = await runCheck(['--adjudicate-deferred', PAYLOAD_FILE]);
+
+    expect(exitCode).toBe(0);
+    expect(mockRecordVerdict).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The payload crosses a FILE, so "this hash names this text" is a premise, not a
+   * guarantee. Without the re-derivation a swapped payload binds an arbitrary verdict to an
+   * arbitrary change - which is the one logic route to a deny landing on content nobody
+   * judged. Deleting the check reddened nothing until this test existed.
+   */
+  it('refuses a payload whose hash does not match its own identity', async () => {
+    mockReadFileSync.mockReturnValue(JSON.stringify({ ...PAYLOAD, contentHash: 'not-the-hash-of-this' }));
+    mockCheckAlignment.mockResolvedValue({
+      status: 'conflicting',
+      confidence: 0.9,
+      relevant_decisions: [],
+      conflicts: [{ decision_id: 'd-1', title: 'Use Postgres', reason: 'r', severity: 'critical' }],
+    });
+
+    const { exitCode } = await runCheck(['--adjudicate-deferred', PAYLOAD_FILE]);
+
+    expect(exitCode).toBe(0);
+    expect(mockRecordVerdict).not.toHaveBeenCalled();
+    // Positive control: it never even asked the gateway, so the refusal is the guard and not
+    // a failure further down. Without this, "no verdict" is equally true of a thrown check.
+    expect(mockCheckAlignment).not.toHaveBeenCalled();
+  });
+
+  it('refuses a payload with no identity at all', async () => {
+    mockReadFileSync.mockReturnValue(JSON.stringify({ context: 'src/db.ts', cwd: '/repo', contentHash: PRE_HASH }));
 
     const { exitCode } = await runCheck(['--adjudicate-deferred', PAYLOAD_FILE]);
 
