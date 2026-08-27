@@ -22,6 +22,14 @@ vi.mock('../lib/git.js', () => ({
 
 vi.mock('node:fs', () => ({ existsSync: vi.fn(() => false), readFileSync: vi.fn() }));
 
+// Two tests below run `--block-on-critical`, which can reach spawnDeferredAdjudication.
+// Nothing here would spawn today - the fs mock is missing the write helpers, so the payload
+// write throws first - but that is ACCIDENTAL isolation. Completing that fs mock is a
+// one-line, entirely plausible future edit, and it would silently start launching real
+// detached `node <vitest-worker> check --adjudicate-deferred` processes from the suite.
+const mockSpawn = vi.fn(() => ({ unref: vi.fn(), on: vi.fn() }));
+vi.mock('node:child_process', () => ({ spawn: (...a: unknown[]) => mockSpawn(...a) }));
+
 const mockSearchDecisions = vi.fn();
 vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({
@@ -296,16 +304,16 @@ describe('align check --advisory (fast tier)', () => {
 });
 
 /**
- * The --help text is a customer-facing promise, and this flag's promise was false: it said
- * "deny an edit only on a CRITICAL conflict" while the advisory path is retrieval-only and
- * hardcodes blocking off - the only implementation lives behind "NO RUNTIME CALLER until
- * ALI-570" (buildAdvisoryOutput's own header). The README propagated the claim from here,
- * which is how an inert flag became documentation twice over.
+ * The --help text is a customer-facing promise. It said "deny an edit on a CRITICAL
+ * conflict" while the flag was inert; then it said "no effect" while ALI-570 was pending;
+ * now the flag is real and the description must carry BOTH halves of the new contract:
+ * what it does (background adjudication, deny a retry) and what it costs (in local mode,
+ * adjudication calls your own AI provider - the egress that is off by default since #143).
  *
  * Read from the commander Option object, not the source text, so a comment containing the
  * banned words cannot satisfy or break it.
  */
-describe('--block-on-critical help text tells the truth about being inert', () => {
+describe('--block-on-critical help text carries the deferred-adjudication contract', () => {
   function optionDescription(): string {
     const program = new Command();
     registerCheckCommand(program);
@@ -316,12 +324,17 @@ describe('--block-on-critical help text tells the truth about being inert', () =
     return opt.description;
   }
 
-  it('does not promise to deny or block an edit', () => {
-    expect(optionDescription()).not.toMatch(/deny|blocks? an edit/i);
+  it('no longer claims to be inert', () => {
+    expect(optionDescription()).not.toMatch(/no effect|reserved/i);
   });
 
-  it('says it currently has no effect, and names the ticket that changes that', () => {
-    expect(optionDescription()).toMatch(/no effect/i);
-    expect(optionDescription()).toContain('ALI-570');
+  it('says what it does: background adjudication, denying a retry on a critical conflict', () => {
+    expect(optionDescription()).toMatch(/background/i);
+    expect(optionDescription()).toMatch(/retry/i);
+    expect(optionDescription()).toMatch(/critical/i);
+  });
+
+  it('names the cost, because opting in re-enables provider egress in local mode', () => {
+    expect(optionDescription()).toMatch(/your own AI provider/i);
   });
 });
