@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.21.0](https://github.com/aligndottech/align-cli/compare/cli-v0.20.0...cli-v0.21.0) (2026-08-27)
+
+
+### Features
+
+* **check:** a human can answer a check that declined to rule (ALI-710) ([6f3dc60](https://github.com/aligndottech/align-cli/commit/6f3dc6066d45d41637f730c9021c57752ef85c7a))
+* **check:** a human can answer a check that declined to rule (ALI-710) ([3b805b2](https://github.com/aligndottech/align-cli/commit/3b805b2d845f8123e33f9da7e1c2f5f10bc5d178))
+* **check:** deferred adjudication for the advisory hook (ALI-570) ([c9122b6](https://github.com/aligndottech/align-cli/commit/c9122b69096c6cabb3c919abfd1804176b2f9b51))
+* **check:** deferred adjudication for the advisory hook (ALI-570) ([d3dcc07](https://github.com/aligndottech/align-cli/commit/d3dcc072fd57c333c99a84120f945a684bda12e3))
+
+
+### Bug Fixes
+
+* **action:** address the four review comments on the adjudication override (ALI-710) ([b58cd54](https://github.com/aligndottech/align-cli/commit/b58cd54ad23c9532dd3aa8221662de9f80201307))
+* **check:** address two fresh-context reviews of the deferred adjudication (ALI-570) ([562c4c3](https://github.com/aligndottech/align-cli/commit/562c4c3656c8b9d5d6f892c09103c7491c5f4164))
+* **test:** scope the store permission assertion to POSIX (ALI-570) ([93c82c5](https://github.com/aligndottech/align-cli/commit/93c82c5c1ab08b8b126cb03bed23d93e33a95e8a))
+
 ## [0.20.0](https://github.com/aligndottech/align-cli/compare/cli-v0.19.1...cli-v0.20.0) (2026-08-27)
 
 
