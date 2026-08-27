@@ -19,7 +19,8 @@ This repository is the open-source Align CLI and MCP server (`@aligndottech/cli`
 - The CLI connects to your tools **read-only** and stores data either in your own
   personal Align cloud tenant or, with `--local`, in a SQLite database on your
   machine. In `--local` mode the CLI never sends your decisions to Align. What does
-  use the network there: a one-time embedding-model download from huggingface.co,
+  use the network there: a one-time embedding-model download from huggingface.co;
+  read-only calls to whichever tools you import from, using the token you supply;
   and, when an AI provider is available (an API key, or a running Ollama, which
   needs none and honours `OLLAMA_HOST`), `align ask`, `align check` and the MCP
   `align_check_alignment` tool calling that provider. The README's "Cloud or

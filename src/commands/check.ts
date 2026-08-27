@@ -30,7 +30,7 @@ export function registerCheckCommand(program: Command): void {
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
     .option('--advisory', 'Agent hook mode: always exit 0, emit related (unadjudicated) decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
     .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, opencode, or text', 'claude')
-    .option('--block-on-critical', 'Advisory PreToolUse hook: deny an edit only on a CRITICAL conflict (default: never block, just surface context)')
+    .option('--block-on-critical', 'Reserved - accepted but currently no effect: the advisory hook is retrieval-only and never blocks. Gains meaning when deferred adjudication lands (ALI-570)')
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
     .option('--title <text>', 'The decision being proposed, in words (e.g. the PR title). Without it the gateway adjudicates on the first 200 characters of the diff, which is a file header and a few + lines')
     .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')

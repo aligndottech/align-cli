@@ -120,15 +120,14 @@ align ask src/auth/session.ts
 
 Align is **provider-agnostic** - `align ask` (and local relationship typing) uses **your own AI provider**. It resolves one, in order:
 
-1. A provider you configured explicitly during `align setup`, if you did.
-2. **Any OpenAI-compatible endpoint** via `ALIGN_LLM_BASE_URL` (+ `ALIGN_LLM_API_KEY`, `ALIGN_LLM_MODEL`) - covers OpenRouter, Together, DeepSeek, LM Studio, vLLM, or any self-hosted OpenAI-compatible server. This outranks the named keys below, so it wins even when `ANTHROPIC_API_KEY` is also set. Example:
+1. **Any OpenAI-compatible endpoint** via `ALIGN_LLM_BASE_URL` (+ `ALIGN_LLM_API_KEY`, `ALIGN_LLM_MODEL`) - covers OpenRouter, Together, DeepSeek, LM Studio, vLLM, or any self-hosted OpenAI-compatible server. This outranks the named keys below, so it wins even when `ANTHROPIC_API_KEY` is also set. Example:
    ```bash
    export ALIGN_LLM_BASE_URL=https://api.deepseek.com
    export ALIGN_LLM_API_KEY=sk-...
    export ALIGN_LLM_MODEL=deepseek-chat
    ```
-3. A named provider via env key: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `GROQ_API_KEY`, `MISTRAL_API_KEY`, or `GROK_API_KEY` (or `XAI_API_KEY`). Each has an optional model override (`ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`).
-4. [Ollama](https://ollama.com) running locally (auto-detected on `localhost:11434`, override `OLLAMA_HOST`), with a general-purpose model from a recognised family installed: `llama`, `mistral`, `gemma`, `phi`, `qwen` or `deepseek-r`. The installed version is read from Ollama itself, so a new release of any of those works the day it ships; families are tried in the order above, and within the first one you have installed, the newest wins.
+2. A named provider via env key: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `GROQ_API_KEY`, `MISTRAL_API_KEY`, or `GROK_API_KEY` (or `XAI_API_KEY`). Each has an optional model override (`ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`).
+3. [Ollama](https://ollama.com) running locally (auto-detected on `localhost:11434`, override `OLLAMA_HOST`), with a general-purpose model from a recognised family installed: `llama`, `mistral`, `gemma`, `phi`, `qwen` or `deepseek-r`. The installed version is read from Ollama itself, so a new release of any of those works the day it ships; families are tried in the order above, and within the first one you have installed, the newest wins.
 
    Ollama will not answer from a model outside those families, or from one tuned for a different job (any tag containing `coder`, `code`, `math`, `embed`, `guard`, `vision`, `uncensored` or `dolphin`). Such a model will still write fluent prose about your decisions, including relationships between them that do not exist, and it is not obvious from the output that anything went wrong. To use any model regardless, name it and it is used as-is:
 
@@ -163,9 +162,10 @@ align logout                 # clear stored credentials
 What uses the network in local-only mode, all worth knowing before you point it at work content:
 
 - The embedding model downloads once from huggingface.co (~23MB), on the first import.
+- `align import <tool>` calls that tool's API, read-only, with the token you pasted - that is what an import is. The data goes from your tool to your machine; none of it goes to Align.
 - **Only when an AI provider is available** - an API key in your environment, or a running Ollama, which needs no key - three surfaces call **your own provider**: `align ask` sends your question plus the titles and summaries of the decisions it retrieved (up to `--limit`, default 8), and `align check` and the MCP tool `align_check_alignment` send up to 2,000 characters of the proposed change paired with one retrieved decision at a time. The editor hook never does - it is retrieval only, provider or no provider.
 - Ollama runs on your own machine by default, so those calls stay local - unless you have pointed `OLLAMA_HOST` at another box, in which case they go there.
-- With no AI provider available at all, nothing else is sent to an AI provider after that first download (imports/capture still connect read-only to the tools you target); retrieval is on-device, so the editor hook still surfaces related decisions.
+- With no provider available at all, nothing goes to any AI provider - retrieval is on-device, so the editor hook still surfaces related decisions - and nothing ever goes to Align. The network surface is then just the one-time model download and whatever imports you run.
 
 How the local graph behaves:
 
