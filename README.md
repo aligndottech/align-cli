@@ -165,7 +165,7 @@ What uses the network in local-only mode, all worth knowing before you point it 
 - The embedding model downloads once from huggingface.co (~23MB), on the first import.
 - **Only when an AI provider is available** - an API key in your environment, or a running Ollama, which needs no key - three surfaces call **your own provider**: `align ask` sends your question plus the titles and summaries of the decisions it retrieved (up to `--limit`, default 8), and `align check` and the MCP tool `align_check_alignment` send up to 2,000 characters of the proposed change paired with one retrieved decision at a time. The editor hook never does - it is retrieval only, provider or no provider.
 - Ollama runs on your own machine by default, so those calls stay local - unless you have pointed `OLLAMA_HOST` at another box, in which case they go there.
-- With no provider available at all, nothing else goes out after that first download: retrieval is on-device, so the editor hook still surfaces related decisions.
+- With no AI provider available at all, nothing else is sent to an AI provider after that first download (imports/capture still connect read-only to the tools you target); retrieval is on-device, so the editor hook still surfaces related decisions.
 
 How the local graph behaves:
 
