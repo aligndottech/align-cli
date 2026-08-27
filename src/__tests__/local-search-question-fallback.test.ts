@@ -91,6 +91,21 @@ describe('local search: content-word fallback for natural-language questions', (
       expect(contentWordQuery('auth token rotation')).toBeNull();
     });
 
+    it('sees through trailing punctuation and contractions', () => {
+      // A real user types the question mark and the apostrophe. Matching the raw token
+      // against the scaffolding set misses both, so the scaffolding survives as a
+      // content word and dilutes exactly the vector this fallback exists to sharpen.
+      expect(contentWordQuery('Why do we use Postgres?')).toBe('use postgres');
+      expect(contentWordQuery("What's our auth approach?")).toBe('auth approach');
+    });
+
+    it('does not retry when only punctuation differs', () => {
+      // Trimming "postgres?" to "postgres" leaves the same query, so a second
+      // embedding would buy nothing.
+      expect(contentWordQuery('postgres?')).toBeNull();
+      expect(contentWordQuery('auth token.')).toBeNull();
+    });
+
     it('returns null when only scaffolding remains', () => {
       expect(contentWordQuery('why do we')).toBeNull();
       expect(contentWordQuery('what is it')).toBeNull();

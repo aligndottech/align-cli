@@ -30,9 +30,21 @@ const SCAFFOLDING = new Set([
   'that', 'this', 'it', 'its', 'there',
 ]);
 
+/** Trim leading and trailing punctuation, keeping any inside the word: `auth-token`,
+ *  `v2.0` and `@align/cli` are content, while `postgres?` and `why,` are not. */
+function trimEdges(token: string): string {
+  return token.replace(/^[^\p{L}\p{N}]+/gu, '').replace(/[^\p{L}\p{N}]+$/gu, '');
+}
+
+/** The form used ONLY for the scaffolding lookup, so `what's` is recognised as `what`
+ *  while the token kept in the reduced query stays whatever the user typed. */
+function lookupForm(token: string): string {
+  return token.replace(/n['\u2019]t$/u, '').replace(/['\u2019](s|re|m|ll|ve|d)$/u, '');
+}
+
 export function contentWordQuery(query: string): string | null {
-  const tokens = query.toLowerCase().replace(/[?]/g, ' ').split(/\s+/).filter(Boolean);
-  const kept = tokens.filter(t => !SCAFFOLDING.has(t));
+  const tokens = query.toLowerCase().split(/\s+/).map(trimEdges).filter(Boolean);
+  const kept = tokens.filter(t => !SCAFFOLDING.has(lookupForm(t)));
   if (!kept.length) return null;
   const reduced = kept.join(' ');
   return reduced === tokens.join(' ') ? null : reduced;
