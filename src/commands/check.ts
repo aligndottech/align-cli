@@ -126,7 +126,7 @@ export function registerCheckCommand(program: Command): void {
       if (opts.ci) {
         try {
           const result = await client.checkAlignment(diff, branch, checkOpts);
-          process.stdout.write(`${JSON.stringify(result)  }\n`);
+          process.stdout.write(`${JSON.stringify(result)}\n`);
           if (result.status === 'conflicting') process.exit(EXIT_CONFLICT);
           // CI is where a silent green costs the most: a check that could not run
           // must not be indistinguishable from a check that found nothing (ALI-414).
