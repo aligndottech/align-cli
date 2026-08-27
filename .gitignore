@@ -14,6 +14,11 @@ pnpm-lock.yaml
 # test coverage
 coverage/
 
+# The install smoke's embedding-model cache (ALI-713). Written by scripts/smoke-install.sh
+# when ALIGN_SMOKE_MODEL_CACHE is set, and restored by actions/cache in CI. ~23MB of model
+# weights - a build input, never a source file.
+.hf-model-cache/
+
 # Research, plans and session notes. Kept locally, not published: this repo is public
 # and these are working notes, not product documentation. align-stack (private) keeps its
 # thoughts/shared/ convention. Untracked in #95; this is the guard that keeps it that way.

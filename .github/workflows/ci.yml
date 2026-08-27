@@ -35,6 +35,14 @@ jobs:
       - name: Smoke harness guards
         run: bash scripts/__tests__/test-smoke-timeout.sh
 
+      # The other half of the smoke harness: where the embedding model caches, and the
+      # predicate that decides a failed step is huggingface.co rate-limiting us rather than
+      # our defect. That one turns a red gate into a warning, so it is a tested function
+      # rather than a grep - most of its cases are negative controls (404, 503, a 429 from
+      # another host) proving it refuses everything except the one thing it is for.
+      - name: Smoke model guards
+        run: bash scripts/__tests__/test-smoke-model.sh
+
       - name: Build
         run: npm run build
 
@@ -120,6 +128,16 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-2022, macos-latest]
         node: ['20', '22', '24']
+        include:
+          # ONE leg never restores the model cache, so the real download from
+          # huggingface.co is still exercised on every run. A cache covering all nine legs
+          # would remove the network from the gate by removing the thing it tests: after
+          # the first save nothing would ever fetch the model again, and the day the
+          # download broke, every leg would be green. This adds a key to the existing
+          # ubuntu/22 combination rather than creating a tenth job.
+          - os: ubuntu-latest
+            node: '22'
+            cold_model: 'true'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -129,10 +147,37 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: 'npm'
 
+      # ALI-713: the ~23MB embedding model is fetched from huggingface.co on first use, and
+      # huggingface rate-limits shared runner IPs. One 429 failed four steps of a PR that
+      # touched nothing near the model path, and a re-run passed with no code change - an
+      # unattributable red whose only remedy is to notice it is not yours, which is the same
+      # reading that excuses a real failure. Caching removes the network from eight legs.
+      #
+      # Keyed on the model and the dtype pin, because those decide which files are fetched
+      # (q8 -> model_quantized.onnx; see local-embeddings.ts, where the pin is load-bearing
+      # for vector compatibility). Bump -v1 to discard a bad cache.
+      #
+      # The path is a bare relative name on purpose: the smoke script resolves it against the
+      # repo root, so no Windows `D:\a\...` path has to survive Git Bash.
+      - name: Cache the local embedding model
+        if: matrix.cold_model != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .hf-model-cache
+          key: align-hf-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2-q8-v1
+
       - run: npm ci
 
       - run: npm run build
 
       - name: Pack, install globally, run the cold first-run sequence
         shell: bash
+        env:
+          # Empty on the cold leg, which is what makes it cold. Written in this direction
+          # deliberately: `cold_model == 'true' && '' || '.hf-model-cache'` reads correctly and
+          # is WRONG, because '' is falsy in a GitHub expression, so the `||` branch wins and
+          # the cold leg would silently be warm - the DoD's "a cold run still exercises the
+          # model path" quietly unmet with nothing in the log to say so. The truthy value has
+          # to be on the left of the `||`.
+          ALIGN_SMOKE_MODEL_CACHE: ${{ matrix.cold_model != 'true' && '.hf-model-cache' || '' }}
         run: bash scripts/smoke-install.sh

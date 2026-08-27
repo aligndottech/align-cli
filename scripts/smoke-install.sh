@@ -13,6 +13,21 @@
 # It proves nothing about whether the output is USEFUL - that is what human
 # testers are for. It proves the sequence a cold user types does not crash.
 #
+# WHICH FAILURES ARE OURS (ALI-713)
+# ---------------------------------
+# Every FAIL below is ours and blocks. Exactly one thing is not: huggingface.co returning
+# HTTP 429 for the ~23MB embedding model download, which it does to shared runner IPs on a
+# schedule nobody here controls or can see coming. That reports SKIP plus a workflow warning
+# and does not fail the run - see is_upstream_model_rate_limit in smoke-model.sh, which keys
+# on the exact upstream wording, the exact status and the huggingface host on one line.
+# A 404, a 503, a proxy failure or "model could not load" with no upstream status in it are
+# all OURS and stay red, because "the model would not load" is exactly what a genuinely
+# broken model path looks like.
+#
+# The skip is a last resort, not the fix. The fix is ALIGN_SMOKE_MODEL_CACHE below, which
+# takes the network out of the loop entirely; CI leaves one leg uncached on purpose so the
+# real download stays under test.
+#
 # Run locally:  npm run build && bash scripts/smoke-install.sh
 # CI:           the install-smoke matrix job (3 OS x 3 Node versions).
 set -u -o pipefail
@@ -20,6 +35,20 @@ set -u -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TIMEOUT="node $SCRIPT_DIR/smoke-timeout.mjs"
+# shellcheck source=smoke-model.sh
+. "$SCRIPT_DIR/smoke-model.sh"
+
+# Where to keep the downloaded embedding model between runs. Unset (the default) means every
+# run downloads it, which is the local-developer behaviour and the cold CI leg's behaviour.
+# A relative value is resolved against the repo root ON PURPOSE: the CI cache path is passed
+# as a bare name so a Windows `D:\a\...` path never has to survive Git Bash.
+MODEL_CACHE="${ALIGN_SMOKE_MODEL_CACHE:-}"
+if [ -n "$MODEL_CACHE" ]; then
+  case "$MODEL_CACHE" in
+    /*|[A-Za-z]:[\\/]*) ;;
+    *) MODEL_CACHE="$REPO_ROOT/$MODEL_CACHE" ;;
+  esac
+fi
 
 # ---------------------------------------------------------------------------
 # Preconditions are FATAL, not test failures (a missing subject passes any
@@ -114,6 +143,47 @@ fi
 echo "embeddings dep present"
 
 # ---------------------------------------------------------------------------
+# Restore the embedding model into the freshly installed package, so the run does
+# not have to ask huggingface.co for it (ALI-713).
+#
+# The CLI is installed into a mktemp prefix the EXIT trap deletes, so the model's
+# cache dies with the job unless it is copied in and out explicitly. There is no
+# environment variable for that directory - transformers.js reads only HF_TOKEN -
+# so the library is ASKED where it caches rather than the convention being rebuilt
+# here, which would be a second writer of its fact.
+#
+# Every branch reports what is actually on disk afterwards, never that the copy ran:
+# a WARM line means the weights are there, a COLD line means the download is about
+# to happen for real.
+# ---------------------------------------------------------------------------
+MODEL_RATE_LIMITED=0
+HF_CACHE_DIR=""
+model_weights_present() { # <dir>
+  [ -d "$1" ] && [ -n "$(find "$1" -type f -name '*.onnx' 2>/dev/null | head -1)" ]
+}
+if [ -n "$MODEL_CACHE" ]; then
+  # A failure to locate the cache dir must not fail the smoke: running cold is the
+  # status quo, and losing a whole matrix leg over a cache miss would be worse than
+  # the problem this fixes.
+  if ! HF_CACHE_DIR="$(hf_model_cache_dir "$CLI_PKG")" || [ -z "$HF_CACHE_DIR" ]; then
+    HF_CACHE_DIR=""
+    echo "WARN: could not ask @huggingface/transformers where it caches - running cold"
+  else
+    mkdir -p "$HF_CACHE_DIR"
+    if [ -d "$MODEL_CACHE" ] && [ -n "$(ls -A "$MODEL_CACHE" 2>/dev/null)" ]; then
+      cp -R "$MODEL_CACHE/." "$HF_CACHE_DIR/" || echo "WARN: model cache restore copy failed"
+    fi
+    if model_weights_present "$HF_CACHE_DIR"; then
+      echo "model cache: WARM - weights already in $HF_CACHE_DIR, no download needed"
+    else
+      echo "model cache: COLD - $MODEL_CACHE holds no weights, downloading from huggingface.co"
+    fi
+  fi
+else
+  echo "model cache: COLD - ALIGN_SMOKE_MODEL_CACHE is unset, downloading from huggingface.co"
+fi
+
+# ---------------------------------------------------------------------------
 # Fixture repo: a cold user's project. Three commits with decision-shaped
 # messages so `import git` has something real to extract.
 # ---------------------------------------------------------------------------
@@ -136,6 +206,9 @@ git -C "$FIXTURE" commit -qm "fix: decided to cap retries at 3 instead of infini
 # be loud (verification.md, "the defaulting fallback").
 # ---------------------------------------------------------------------------
 FAILURES=0
+SKIPPED=0
+fail_step() { echo "FAIL: $1"; FAILURES=$((FAILURES + 1)); }
+
 step() { # <name> <timeout-s> <cmd...>
   local name="$1" secs="$2"; shift 2
   echo ""
@@ -145,9 +218,55 @@ step() { # <name> <timeout-s> <cmd...>
   if [ $rc -eq 0 ]; then
     echo "PASS: $name"
   else
-    echo "FAIL: $name (exit $rc$([ $rc -eq 124 ] && echo ' = TIMED OUT / HUNG'))"
-    FAILURES=$((FAILURES + 1))
+    fail_step "$name (exit $rc$([ $rc -eq 124 ] && echo ' = TIMED OUT / HUNG'))"
   fi
+  return 0
+}
+
+skip_upstream() { # <name>
+  SKIPPED=$((SKIPPED + 1))
+  MODEL_RATE_LIMITED=1
+  echo "SKIP: $1 - huggingface.co returned HTTP 429 for the embedding model download."
+  echo "      Upstream rate limiting of a shared runner IP, not attributable to this change."
+  echo "::warning title=Embedding model download rate-limited (429)::$1 was skipped: huggingface.co rate-limited the ~23MB model download. Upstream, not this change - re-run the job."
+}
+
+# The only steps that may report SKIP instead of FAIL are the ones that load the on-device
+# embedding model: every `step_model` call below, plus the advisory hook's own branch, which
+# needs separate handling because it swallows its cause. Everything else keeps using `step`,
+# where a failure is unconditionally ours. Grep `step_model` for the current list rather than
+# trusting a count written here, which goes stale the first time someone adds a step.
+#
+# Output is captured rather than streamed because the exit code alone cannot classify these:
+# `align setup --local` and `align import git` both report a failed batch as a WARNING and
+# exit 0, which is how the ALI-713 run reported PASS for both while importing nothing.
+# classify_step_result therefore reads the 429 before the exit code (see smoke-model.sh).
+STEP_OUT=""
+STEP_RESULT=""
+step_model() { # <name> <timeout-s> <cmd...>
+  local name="$1" secs="$2"; shift 2
+  echo ""
+  echo "== $name =="
+  STEP_OUT="$($TIMEOUT "$secs" "$@" 2>&1)"
+  local rc=$?
+  printf '%s\n' "$STEP_OUT"
+  STEP_RESULT="$(classify_step_result "$rc" "$STEP_OUT")"
+  case "$STEP_RESULT" in
+    skip-upstream) skip_upstream "$name" ;;
+    pass)          echo "PASS: $name" ;;
+    *)             fail_step "$name (exit $rc$([ $rc -eq 124 ] && echo ' = TIMED OUT / HUNG'))" ;;
+  esac
+  return 0
+}
+
+# An import step that exits 0 having imported nothing is an assertion that cannot fail, and
+# it is what let the 429 through twice on the ALI-713 run. Both importing steps report
+# "Imported 0 decisions (1 batch failed)" and exit 0; a healthy run says "Imported 2
+# decisions" with no batch line at all (checked against a passing job, not assumed).
+assert_import_complete() { # <name> <output>
+  local warn
+  warn="$(printf '%s\n' "$2" | grep -E '[0-9]+ batch(es)? failed' | head -1)"
+  [ -n "$warn" ] && fail_step "$1 exited 0 but reported: $(printf '%s' "$warn" | tr -d '\r')"
   return 0
 }
 
@@ -157,12 +276,16 @@ step "align --version"          30  align --version
 step "align --help"             30  align --help
 # setup --local: the no-account path. stdin is closed by the timeout runner, so
 # this also asserts the connector multiselect cancels cleanly instead of hanging
-# (it has no --approve bypass). First import downloads the ~90MB embedding
-# model - the long timeout is the download, not the work.
-step "align setup --local"      600 align setup --local
-step "align import git"         300 align import git --approve --env local --limit 20
+# (it has no --approve bypass). It also runs the FIRST git import, which is where
+# the ~23MB embedding model is downloaded - the long timeout is that download, not
+# the work. (It said ~90MB, quoting the fp32 file the q8 pin exists to avoid; the
+# figure local-embeddings.ts already carries is the right one.)
+step_model "align setup --local" 600 align setup --local
+if [ "$STEP_RESULT" = pass ]; then assert_import_complete "align setup --local" "$STEP_OUT"; fi
+step_model "align import git"    300 align import git --approve --env local --limit 20
+if [ "$STEP_RESULT" = pass ]; then assert_import_complete "align import git" "$STEP_OUT"; fi
 step "align local status"       60  align local status
-step "align search (local)"     120 align search "postgres" --env local --limit 5
+step_model "align search (local)" 120 align search "postgres" --env local --limit 5
 step "align context sync"       60  align context sync --env local
 # The sync's whole contract is the written artifact, not its exit code: the
 # owned file must exist, and re-running must not change a byte (ALI-602 DoD).
@@ -191,7 +314,7 @@ rm -f /tmp/ctx-before.md
 # which quotes nothing, so `"why postgres"` arrived as two arguments and Commander bound
 # query="why" while silently discarding the rest. The runner refuses a space-bearing argument
 # outright now, so this is enforced rather than remembered.
-step "align ask (local, no key)" 120 align ask postgres --env local --limit 5
+step_model "align ask (local, no key)" 120 align ask postgres --env local --limit 5
 # The agent hook, on the payload Claude Code actually pipes. Retrieval only, so it needs no
 # provider key and makes no provider call - and in local mode that is not just a latency
 # choice, it is the only egress in the pipeline (local-gateway-client.ts honours depth).
@@ -233,14 +356,20 @@ echo "$ADVISORY_OUT"
 # this harness mangling any argument containing a space, which is fixed above and now refused
 # outright by the runner. A platform excuse that turns out to be a harness bug is worse than a
 # red gate, because it teaches the next reader to stop looking.
+#
+# The 429 case needs its own branch, and it is the one place the skip is inferred rather than
+# read: the hook DELIBERATELY swallows the cause and prints "could not check", so unlike every
+# other step its own output carries no evidence of why. So it may skip only when BOTH hold -
+# an earlier step in this same run produced the definitive 429 signature, AND the hook took
+# exactly its documented give-up path. Either condition alone leaves it a failure.
 if [ "$ADVISORY_RC" -ne 0 ]; then
-  echo "FAIL: advisory hook exited $ADVISORY_RC$([ "$ADVISORY_RC" -eq 124 ] && echo ' = TIMED OUT / HUNG')"
-  FAILURES=$((FAILURES + 1))
+  fail_step "advisory hook exited $ADVISORY_RC$([ "$ADVISORY_RC" -eq 124 ] && echo ' = TIMED OUT / HUNG')"
 elif printf '%s' "$ADVISORY_OUT" | grep -q "NOT been adjudicated"; then
   echo "PASS: advisory hook surfaced related decisions, retrieval-only, with no provider key"
+elif [ "$MODEL_RATE_LIMITED" -eq 1 ] && printf '%s' "$ADVISORY_OUT" | grep -q "could not check this change"; then
+  skip_upstream "advisory hook"
 else
-  echo "FAIL: advisory hook did not take the retrieval path (exit 0). Got: ${ADVISORY_OUT:-<no output>}"
-  FAILURES=$((FAILURES + 1))
+  fail_step "advisory hook did not take the retrieval path (exit 0). Got: ${ADVISORY_OUT:-<no output>}"
 fi
 step "align mcp --setup"        60  align mcp --setup --env local
 # Bare name, not $ALIGN_BIN: the handshake helper spawns through cmd.exe on
@@ -250,9 +379,45 @@ step "MCP handshake"            60  node "$SCRIPT_DIR/smoke-mcp-handshake.mjs" a
 
 rm -f "$TARBALL"
 
+# ---------------------------------------------------------------------------
+# Save the model back out, for the NEXT run. Three conditions, all of them about not
+# poisoning the cache: a run that hit a 429 has an incomplete cache, a directory with
+# no weights in it is not worth restoring, and a run with ANY failure in it may have
+# failed BECAUSE of the model - measured, not theorised: truncating the cached weights
+# reproduces the incident's exact five failures, and without this condition the run
+# then saved the truncated file straight back. When none holds, MODEL_CACHE is left
+# ABSENT rather than created empty - actions/cache stores nothing for a path that does
+# not exist, where an empty directory would be stored and then restored forever,
+# quietly guaranteeing a cold download it also stops reporting as cold.
+# ---------------------------------------------------------------------------
+if [ -n "$MODEL_CACHE" ] && [ -n "$HF_CACHE_DIR" ]; then
+  if [ "$MODEL_RATE_LIMITED" -ne 0 ]; then
+    echo "model cache: NOT SAVED - this run hit an upstream 429, so its cache is incomplete"
+  elif [ "$FAILURES" -ne 0 ]; then
+    echo "model cache: NOT SAVED - $FAILURES step(s) failed, so these weights are not known good"
+  elif ! model_weights_present "$HF_CACHE_DIR"; then
+    echo "model cache: NOT SAVED - no model weights under $HF_CACHE_DIR"
+  else
+    mkdir -p "$MODEL_CACHE"
+    if cp -R "$HF_CACHE_DIR/." "$MODEL_CACHE/"; then
+      echo "model cache: saved to $MODEL_CACHE ($(find "$MODEL_CACHE" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
+    else
+      echo "WARN: model cache save copy failed"
+    fi
+  fi
+fi
+
 echo ""
 if [ "$FAILURES" -ne 0 ]; then
-  echo "SMOKE RESULT: $FAILURES step(s) failed"
+  echo "SMOKE RESULT: $FAILURES step(s) failed, $SKIPPED skipped upstream"
   exit 1
+fi
+if [ "$SKIPPED" -ne 0 ]; then
+  # Deliberately exit 0. The skip is narrow (see the header) and loud (a workflow warning
+  # per step), and the alternative is a red gate nobody can act on: on the run that prompted
+  # this, a re-run passed with no code change and the only remedy available to the author was
+  # to notice the red was not theirs - which is the same reading that excuses a real failure.
+  echo "SMOKE RESULT: all steps passed except $SKIPPED skipped for an upstream huggingface.co 429"
+  exit 0
 fi
 echo "SMOKE RESULT: all steps passed"
