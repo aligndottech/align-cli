@@ -43,6 +43,16 @@ jobs:
       - name: Smoke model guards
         run: bash scripts/__tests__/test-smoke-model.sh
 
+      # And the guard that keeps the two steps above honest: each shell suite is wired to CI
+      # by hand, on its own run: line, so forgetting one is a single missing line that nothing
+      # reports. An unrun test passes locally and gates nothing - the failure mode is silence
+      # (ALI-714). Its own tests run first, because a broken guard reports a clean tree.
+      - name: Shell-suite runner guards
+        run: bash scripts/__tests__/test-check-test-runners.sh
+
+      - name: Every shell suite has a runner
+        run: bash scripts/check-test-runners.sh
+
       - name: Build
         run: npm run build
 
