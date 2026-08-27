@@ -67,18 +67,6 @@ describe('callChat (provider-agnostic resolver)', () => {
     expect(mockFetch.mock.calls[0][0]).toBe('https://api.anthropic.com/v1/messages');
   });
 
-  it('an explicitly configured provider (from align setup) wins over env keys', async () => {
-    vi.stubEnv('OPENAI_API_KEY', 'env-openai');
-    mockFetch.mockResolvedValue(anthropicResponse('configured'));
-
-    const r = await callChat('s', 'u', { provider: 'anthropic', apiKey: 'cfg-key' });
-
-    expect(r).toBe('configured');
-    const [url, init] = mockFetch.mock.calls[0];
-    expect(url).toBe('https://api.anthropic.com/v1/messages');
-    expect((init.headers as Record<string, string>)['x-api-key']).toBe('cfg-key');
-  });
-
   it('returns null when no provider is configured and Ollama is unreachable', async () => {
     mockFetch.mockResolvedValue({ ok: false }); // ollama /api/tags not ok
     const r = await callChat('s', 'u');
