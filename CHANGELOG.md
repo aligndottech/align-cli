@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.21.1](https://github.com/aligndottech/align-cli/compare/cli-v0.21.0...cli-v0.21.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* **ci:** cache the embedding model, and stop a huggingface 429 reading as our defect (ALI-713) ([eeed6c1](https://github.com/aligndottech/align-cli/commit/eeed6c1e2fadc82dffb5f072a4be5787e7c8be35))
+* **ci:** cache the embedding model, and stop a huggingface 429 reading as our defect (ALI-713) ([b8ec250](https://github.com/aligndottech/align-cli/commit/b8ec250d06f8a3c0e1628948253401c5ec788b2f))
+* **search:** a natural-language question no longer misses what its own keywords find (ALI-603) ([32485c0](https://github.com/aligndottech/align-cli/commit/32485c08a94e7da5ad5cdd19d1c1b35a1083d76e))
+* **search:** a natural-language question no longer misses what its own keywords find (ALI-603) ([f7c60ed](https://github.com/aligndottech/align-cli/commit/f7c60ed7facb3b9bd2320b14f3411344f9e0999e))
+* **search:** see through the punctuation and contractions a real question carries ([6ad1ffb](https://github.com/aligndottech/align-cli/commit/6ad1ffb5bf9042b77eac4214168517288ca471bd))
+
 ## [0.21.0](https://github.com/aligndottech/align-cli/compare/cli-v0.20.0...cli-v0.21.0) (2026-08-27)
 
 
