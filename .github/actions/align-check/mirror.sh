@@ -19,15 +19,42 @@ DEST="${1:?usage: mirror.sh <dest-dir> <ref>}"
 REF="${2:?usage: mirror.sh <dest-dir> <ref>}"
 
 mkdir -p "$DEST"
-# The four files that make up the action. annotate.mjs and decide.sh are resolved at
-# runtime through ${{ github.action_path }}, so they work unchanged at a repo root.
-FILES=(action.yml decide.sh annotate.mjs README.md)
+
+# The files the action resolves at runtime, DERIVED from action.yml rather than listed here.
+#
+# This used to be a hardcoded `FILES=(action.yml decide.sh annotate.mjs README.md)`, and the
+# test asserted the same hardcoded list back - two writers of one fact, with action.yml, the
+# file that actually decides what runs, being neither of them. When ALI-710 added
+# adjudicated.sh to action.yml, both copies stayed put, so the mirror would have published an
+# action.yml invoking a script absent from the repo. Nothing could see it: the YAML is valid,
+# the shell is valid, and the failure only appears when a stranger runs the published action.
+#
+# Reading the ONE file that names them cannot drift. A zero-match parse is a broken check
+# rather than an action with no scripts, so it exits non-zero instead of mirroring nothing.
+# `while read` and not `mapfile`: this runs under whatever bash the runner has, and macOS
+# still ships 3.2, where mapfile does not exist.
+RUNTIME=()
+while IFS= read -r f; do
+  [ -n "$f" ] && RUNTIME+=("$f")
+done < <(grep -oE '\$\{\{ *github\.action_path *\}\}/[A-Za-z0-9_.-]+' "$SRC/action.yml" \
+           | sed 's#.*/##' | sort -u)
+
+if [ "${#RUNTIME[@]}" -eq 0 ]; then
+  echo "mirror.sh: action.yml names no \${{ github.action_path }} files - refusing to publish a mirror whose runtime files could not be determined" >&2
+  exit 1
+fi
+
+FILES=(action.yml README.md "${RUNTIME[@]}")
 
 for f in "${FILES[@]}"; do
-  [ -f "$SRC/$f" ] || { echo "mirror.sh: missing source file $f" >&2; exit 1; }
+  [ -f "$SRC/$f" ] || { echo "mirror.sh: action.yml resolves $f at runtime, but it is not in $SRC" >&2; exit 1; }
   cp "$SRC/$f" "$DEST/$f"
 done
-chmod +x "$DEST/decide.sh"
+
+# Every mirrored shell script, not decide.sh by name - the same drift, one line down.
+for f in "${RUNTIME[@]}"; do
+  case "$f" in *.sh) chmod +x "$DEST/$f" ;; esac
+done
 
 # Point the README's examples at the published repo instead of the subdirectory path
 # nobody outside this repo should use. Count first: a rewrite that matches nothing exits
@@ -74,4 +101,4 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 EOF
 
-echo "mirror.sh: assembled $((${#FILES[@]} + 1)) files in $DEST"
+echo "mirror.sh: assembled $((${#FILES[@]} + 1)) files in $DEST (runtime: ${RUNTIME[*]})"
