@@ -28,11 +28,38 @@ async function mirror(ref = 'v2'): Promise<string> {
 }
 
 describe('mirror.sh', () => {
-  it('copies every file the action needs at runtime', async () => {
+  // DERIVED from action.yml, never a second hardcoded list. The list used to be spelled here
+  // and again in mirror.sh's FILES array, which is two writers of one fact: when ALI-710 added
+  // `adjudicated.sh` to action.yml, neither copy moved, so the test agreed with the script
+  // while both drifted from the file that decides what the action actually runs. The mirror
+  // would have published an action.yml calling a script that is not in the repo, and no syntax
+  // check can see that.
+  const runtimeFiles = (): string[] => {
+    const yml = readFileSync(join(ACTION_DIR, 'action.yml'), 'utf8');
+    const hits = [...yml.matchAll(/\$\{\{\s*github\.action_path\s*\}\}\/([A-Za-z0-9_.-]+)/g)].map(
+      (m) => m[1]
+    );
+    // A zero-match parse is a broken check, not an action with no scripts.
+    if (hits.length === 0) throw new Error('action.yml named no ${{ github.action_path }} files');
+    return [...new Set(hits)];
+  };
+
+  it('copies every file action.yml resolves at runtime', async () => {
+    const required = runtimeFiles();
+    // Positive control: the parse found the files we can see in the directory, so an empty
+    // or narrowed match cannot pass this vacuously.
+    expect(required).toContain('decide.sh');
+    expect(required).toContain('annotate.mjs');
+
     const dest = await mirror();
-    // annotate.mjs and decide.sh are resolved through ${{ github.action_path }}, so the
-    // published copy is broken in a way no syntax check would catch if either is missing.
-    for (const f of ['action.yml', 'decide.sh', 'annotate.mjs', 'README.md', 'LICENSE']) {
+    for (const f of required) {
+      expect(existsSync(join(dest, f)), `${f} is resolved by action.yml but missing from the mirror`).toBe(true);
+    }
+  });
+
+  it('copies the fixed files a published repo needs', async () => {
+    const dest = await mirror();
+    for (const f of ['action.yml', 'README.md', 'LICENSE']) {
       expect(existsSync(join(dest, f)), `${f} missing from the mirror`).toBe(true);
     }
   });
