@@ -27,7 +27,12 @@ async function mirror(ref = 'v2'): Promise<string> {
   return dest;
 }
 
-describe('mirror.sh', () => {
+// Each case spawns bash through mirror.sh, and process spawn on the Windows runner is slow
+// enough that the 5s default is marginal: #160 passed with one fewer invocation and #161
+// tipped it, timing out on a case whose logic had not changed. A timeout is the honest fix
+// for a slow subject; shrinking the suite to fit the default would have removed coverage to
+// make a clock happy.
+describe('mirror.sh', { timeout: 30_000 }, () => {
   // DERIVED from action.yml, never a second hardcoded list. The list used to be spelled here
   // and again in mirror.sh's FILES array, which is two writers of one fact: when ALI-710 added
   // `adjudicated.sh` to action.yml, neither copy moved, so the test agreed with the script
@@ -74,6 +79,28 @@ describe('mirror.sh', () => {
     const readme = readFileSync(join(dest, 'README.md'), 'utf8');
     expect(readme).toContain('aligndottech/decision-check@v2');
     expect(readme).not.toContain('aligndottech/align-cli/.github/actions/align-check@main');
+  });
+
+  // The assertion above is a CONTAINS, and `...@v2@main` contains `...@v2`. It passed while
+  // the mirror emitted exactly that: perl interpolated the `@main` inside the interpolated
+  // $SELF pattern as an empty array, so the match stopped at `...align-check` and left `@main`
+  // dangling on the replacement. Every published install line would have been unusable.
+  //
+  // So assert the WHOLE ref, anchored to end-of-line, rather than a prefix of it.
+  it('emits a usable ref, not a ref with the old one still stuck to it', async () => {
+    const dest = await mirror('v2');
+    const readme = readFileSync(join(dest, 'README.md'), 'utf8');
+
+    const uses = readme.split('\n').filter((l) => l.includes('uses:') && l.includes('decision-check'));
+    // Positive control: if the mirror emitted no decision-check line at all, an assertion
+    // over an empty list would pass vacuously.
+    expect(uses.length).toBeGreaterThan(0);
+
+    for (const line of uses) {
+      expect(line.trim(), 'a mirrored uses: line carries more than one @ref').toMatch(
+        /^- uses: aligndottech\/decision-check@v2$/
+      );
+    }
   });
 
   it('carries the ref through rather than hardcoding one', async () => {
