@@ -23,9 +23,18 @@ const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), '../../.github/acti
 // A missing script must be a hard failure, not a suite of passing tests against nothing.
 if (!existsSync(SCRIPT)) throw new Error(`FATAL: ${SCRIPT} is missing`);
 
-async function decide(code: string, status: string, failOn: string): Promise<{ exitCode: number; out: string }> {
+async function decide(
+  code: string,
+  status: string,
+  failOn: string,
+  severity?: string,
+  failOnSeverity?: string,
+): Promise<{ exitCode: number; out: string }> {
+  const args = [SCRIPT, code, status, failOn];
+  if (severity !== undefined) args.push(severity);
+  if (failOnSeverity !== undefined) args.push(failOnSeverity);
   try {
-    const { stdout } = await exec('bash', [SCRIPT, code, status, failOn]);
+    const { stdout } = await exec('bash', args);
     return { exitCode: 0, out: stdout.trim() };
   } catch (err) {
     const e = err as { code?: number; stdout?: string; stderr?: string };
@@ -180,5 +189,107 @@ describe('align-check action fail policy', () => {
       const r = await decide('', '', 'conflict');
       expect(r.exitCode).toBe(2);
     });
+  });
+});
+
+/**
+ * Severity gating (align-stack: a docs/research PR blocked by two WARNING conflicts).
+ *
+ * The conflicts were correct: a research document that records a change of direction
+ * genuinely does conflict with the decisions it supersedes. That is the graph working. But
+ * blocking a merge on it means any PR that deliberately changes direction is blocked by the
+ * gate whose entire job is to surface changes of direction, and the only escapes are bypass
+ * (unacceptable) or not writing the document.
+ *
+ * The product already draws this line on the agent path - `check.ts` blocks only on
+ * `severity === 'critical'`. CI was the surface that lacked it. So this is one policy
+ * reaching a second surface, not a new concept.
+ *
+ * Severity is NOT an LLM free choice: the gateway sends it, and local mode derives it from
+ * a confidence threshold (`local-gateway-client.ts:345`, >= 0.8 is critical). So "critical"
+ * means high-confidence, and blocking on high-confidence conflicts only is the intent.
+ *
+ * The load-bearing default: ABSENT severity is treated as CRITICAL. An older CLI or a
+ * self-hosted gateway that sends no severity therefore keeps today's exact behaviour, and
+ * this change can only ever unblock, never newly block. The opposite default would silently
+ * stop enforcing real conflicts for every adopter who has not upgraded - the fail-open
+ * direction .claude/rules/verification.md asks about for any control.
+ */
+describe('severity gating', () => {
+  describe('default (fail-on-severity unset = critical)', () => {
+    it('still fails a CRITICAL conflict', async () => {
+      const r = await decide('1', 'conflicting', 'conflict', 'critical');
+      expect(r.exitCode).toBe(1);
+      expect(r.out).toContain('reason=conflict');
+    });
+
+    it('does NOT fail a warning-only conflict', async () => {
+      const r = await decide('1', 'conflicting', 'conflict', 'warning');
+      expect(r.exitCode).toBe(0);
+    });
+
+    it('still REPORTS the warning conflict it let through', async () => {
+      // Passing must not mean silent. The reviewer still has to see it.
+      const r = await decide('1', 'conflicting', 'conflict', 'warning');
+      expect(r.out).toContain('conflict');
+      expect(r.out).toContain('warning');
+    });
+
+    it('fails when severity is ABSENT, so an older gateway is unchanged', async () => {
+      const r = await decide('1', 'conflicting', 'conflict', '');
+      expect(r.exitCode).toBe(1);
+      expect(r.out).toContain('reason=conflict');
+    });
+
+    it('fails on an UNRECOGNISED severity rather than letting it through', async () => {
+      const r = await decide('1', 'conflicting', 'conflict', 'moderate');
+      expect(r.exitCode).toBe(1);
+    });
+  });
+
+  describe('fail-on-severity=any restores the old behaviour', () => {
+    it('fails a warning-only conflict', async () => {
+      const r = await decide('1', 'conflicting', 'conflict', 'warning', 'any');
+      expect(r.exitCode).toBe(1);
+      expect(r.out).toContain('reason=conflict');
+    });
+
+    it('fails a critical conflict', async () => {
+      expect(await decide('1', 'conflicting', 'conflict', 'critical', 'any')).toMatchObject({ exitCode: 1 });
+    });
+  });
+
+  describe('severity does not touch the incomplete path', () => {
+    // A check that could not RUN is a different question from how severe a finding is.
+    // Under conflict-or-unknown an incomplete result must still fail whatever severity says.
+    it('still fails an incomplete check under conflict-or-unknown', async () => {
+      const r = await decide('2', 'unknown', 'conflict-or-unknown', 'warning');
+      expect(r.exitCode).toBe(1);
+      expect(r.out).toContain('incomplete');
+    });
+
+    it('still passes an incomplete check under conflict', async () => {
+      const r = await decide('2', 'unknown', 'conflict', 'warning');
+      expect(r.exitCode).toBe(0);
+    });
+
+    it('never fails under fail-on=never, whatever the severity', async () => {
+      expect(await decide('1', 'conflicting', 'never', 'critical')).toMatchObject({ exitCode: 0 });
+    });
+  });
+
+  describe('conflict-or-unknown gets the same severity treatment', () => {
+    it('lets a warning-only conflict through', async () => {
+      expect(await decide('1', 'conflicting', 'conflict-or-unknown', 'warning')).toMatchObject({ exitCode: 0 });
+    });
+
+    it('still fails a critical conflict', async () => {
+      expect(await decide('1', 'conflicting', 'conflict-or-unknown', 'critical')).toMatchObject({ exitCode: 1 });
+    });
+  });
+
+  it('rejects an unknown fail-on-severity rather than guessing', async () => {
+    const r = await decide('1', 'conflicting', 'conflict', 'warning', 'sometimes');
+    expect(r.exitCode).toBe(2);
   });
 });
