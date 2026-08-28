@@ -25,7 +25,7 @@ repository also exits `1`.
 |------|----------|
 | (default) | Human-readable output. Exits `1` on any conflict. |
 | `--hook` | Pre-commit mode. Silent when there's no context, only fails on **critical** conflicts. |
-| `--advisory` | Agent hook mode. **Always exits 0**, emits related unadjudicated decisions, or an explicit "could not check" notice, in the host's hook shape (`--format claude\|gemini\|pi\|opencode\|text`). Fail-open. |
+| `--advisory` | Agent hook mode. **Always exits 0**, emits related unadjudicated decisions, or an explicit "could not check" notice, in the host's hook shape (<code>--format claude&#124;gemini&#124;pi&#124;opencode&#124;text</code>). Fail-open. |
 | `--advisory --block-on-critical` | Opt-in deferred adjudication. See below. |
 | `--ci` | JSON to stdout, and the exit contract above. **Pass `--base`** or there is nothing to diff. |
 
