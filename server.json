@@ -6,12 +6,12 @@
     "url": "https://github.com/aligndottech/align-cli",
     "source": "github"
   },
-  "version": "0.21.1",
+  "version": "0.21.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@aligndottech/cli",
-      "version": "0.21.1",
+      "version": "0.21.2",
       "transport": {
         "type": "stdio"
       }
