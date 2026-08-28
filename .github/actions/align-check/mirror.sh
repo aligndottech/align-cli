@@ -61,13 +61,24 @@ done
 # 0 and leaves a README telling strangers to depend on a path that cannot be Marketplace
 # listed, which reads exactly like success.
 SELF='aligndottech/align-cli/.github/actions/align-check@main'
-BEFORE=$(grep -c "$SELF" "$DEST/README.md" || true)
+BEFORE=$(grep -cF "$SELF" "$DEST/README.md" || true)
 if [ "$BEFORE" -eq 0 ]; then
   echo "mirror.sh: found no '$SELF' references to rewrite - did the README change?" >&2
   exit 1
 fi
-perl -pi -e "s{\Q$SELF\E}{aligndottech/decision-check\@$REF}g" "$DEST/README.md"
-AFTER=$(grep -c "$SELF" "$DEST/README.md" || true)
+# Both values reach perl through the ENVIRONMENT, never interpolated into the perl source.
+#
+# `perl -e "s{\Q$SELF\E}{...}"` looks equivalent and is not: the shell substitutes $SELF
+# first, so perl then PARSES the result, and the `@main` inside it is an array variable.
+# Empty arrays interpolate to nothing, so the pattern silently shortened to
+# `...align-check` and the replacement produced `aligndottech/decision-check@v2@main` - an
+# unusable ref, published as the install instructions. It survived review because the test
+# asserted the README CONTAINS `...@v2`, which `...@v2@main` does.
+#
+# $ENV{...} is read at runtime from the hash, so no value can ever be parsed as perl.
+MIRROR_SELF="$SELF" MIRROR_DEST="aligndottech/decision-check@$REF" \
+  perl -pi -e 's{\Q$ENV{MIRROR_SELF}\E}{$ENV{MIRROR_DEST}}g' "$DEST/README.md"
+AFTER=$(grep -cF "$SELF" "$DEST/README.md" || true)
 if [ "$AFTER" -ne 0 ]; then
   echo "mirror.sh: $AFTER reference(s) survived the rewrite" >&2
   exit 1
