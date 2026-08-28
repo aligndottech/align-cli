@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.21.2](https://github.com/aligndottech/align-cli/compare/cli-v0.21.1...cli-v0.21.2) (2026-08-28)
+
+
+### Bug Fixes
+
+* **action:** a WARNING conflict should not block a merge ([63180f4](https://github.com/aligndottech/align-cli/commit/63180f4e5476fa5256e97e7ab830cf73d0f443cd))
+* **action:** a WARNING conflict should not block a merge ([4eaaacc](https://github.com/aligndottech/align-cli/commit/4eaaacc00dbf9796eab6a3fe3f2eb72c992684be))
+* **action:** mirror every file action.yml resolves, not a list that drifts (ALI-686) ([#160](https://github.com/aligndottech/align-cli/issues/160)) ([3994fb3](https://github.com/aligndottech/align-cli/commit/3994fb3167de5703cb5ca98bf4ce9b5680aae53d))
+* **action:** the mirror published an unusable ref, and the test could not see it ([#161](https://github.com/aligndottech/align-cli/issues/161)) ([eae0842](https://github.com/aligndottech/align-cli/commit/eae0842f331bc08c77845ed1ea7bee81cc8c3b84))
+
 ## [0.21.1](https://github.com/aligndottech/align-cli/compare/cli-v0.21.0...cli-v0.21.1) (2026-08-27)
 
 
