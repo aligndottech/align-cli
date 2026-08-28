@@ -23,8 +23,8 @@ This repository is the open-source Align CLI and MCP server (`@aligndottech/cli`
   read-only calls to whichever tools you import from, using the token you supply;
   and, when an AI provider is available (an API key, or a running Ollama, which
   needs none and honours `OLLAMA_HOST`), `align ask`, `align check` and the MCP
-  `align_check_alignment` tool calling that provider. The README's "Cloud or
-  local-only" section covers this in detail.
+  `align_check_alignment` tool calling that provider.
+  [docs/local-mode.md](docs/local-mode.md) covers this in detail.
 - The hosted Align gateway/graph is a separate service; vulnerabilities in the
   hosted product should also be reported through the channel above.
 
