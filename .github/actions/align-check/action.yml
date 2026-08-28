@@ -31,6 +31,10 @@ inputs:
     description: 'Adjudication depth passed to `align check --depth`: related, full, or exhaustive. Set `exhaustive` so a strict gate (fail-on: conflict-or-unknown) pays for a verdict instead of failing on the gateway similarity cost gate skipping low-similarity diffs (unknown/not_adjudicated). Requires @aligndottech/cli >= the release carrying --depth AND a gateway that knows the member - an older CLI rejects the option and an older gateway 400s the value, both of which surface through fail-on as could-not-check, never a silent pass. Left unset, nothing is sent and the gateway default applies, so existing pins and self-hosted gateways are untouched.'
     required: false
     default: ''
+  fail-on-severity:
+    description: 'Lowest conflict severity that fails the job: critical (default) or any. A conflict the graph rated a WARNING is a change of direction to review, not a wrong change - blocking on it means the gate that surfaces changes of direction is what stops you recording one. Absent or unrecognised severity always blocks, so an older CLI or a gateway that sends none behaves exactly as before.'
+    required: false
+    default: 'critical'
   cli-version:
     description: 'Version of @aligndottech/cli to run. Defaults to latest because --base (which this action requires) ships in the first release after 0.8.1; pin it to an exact version once that release is out, and for reproducible builds generally.'
     required: false
@@ -44,6 +48,9 @@ outputs:
   status:
     description: 'aligned, conflicting, unknown or error.'
     value: ${{ steps.check.outputs.status }}
+  severity:
+    description: 'Highest conflict severity found: critical or warning; empty when no severity was reported or the payload could not be parsed.'
+    value: ${{ steps.check.outputs.severity }}
   result:
     description: 'The full JSON result from the check.'
     value: ${{ steps.check.outputs.result }}
@@ -190,9 +197,17 @@ runs:
           'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).reason||"")}catch{process.stdout.write("")}})' \
           2>/dev/null || echo '')"
 
+        # The HIGHEST severity across the reported conflicts, so one critical among several
+        # warnings still blocks. Empty when the result carries none, which decide.sh treats
+        # as blocking - an unparseable or older payload must not silently stop enforcing.
+        SEVERITY="$(printf '%s' "$OUT" | tail -n 1 | node -e \
+          'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const c=JSON.parse(s).conflicts||[];process.stdout.write(c.some(x=>x&&x.severity==="critical")?"critical":c.some(x=>x&&x.severity==="warning")?"warning":"")}catch{process.stdout.write("")}})' \
+          2>/dev/null || echo '')"
+
         {
           echo "status=$STATUS"
           echo "reason=$REASON"
+          echo "severity=$SEVERITY"
           echo "code=$CODE"
           echo "result<<ALIGN_EOF"
           printf '%s\n' "$OUT"
@@ -248,7 +263,7 @@ runs:
         # alone is wrong: a CLI crash also exits 1 with no JSON, and reporting that as
         # "found a conflict" is a fabricated finding. See src/__tests__/action-decide.test.ts.
         set +e
-        OUTCOME="$(bash "${{ github.action_path }}/decide.sh" "$CODE" "$STATUS" "${{ inputs.fail-on }}" 2>&1)"
+        OUTCOME="$(bash "${{ github.action_path }}/decide.sh" "$CODE" "$STATUS" "${{ inputs.fail-on }}" "${{ steps.check.outputs.severity }}" "${{ inputs.fail-on-severity }}" 2>&1)"
         DECISION=$?
         set -e
         echo "$OUTCOME"
