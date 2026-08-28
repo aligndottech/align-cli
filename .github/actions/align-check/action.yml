@@ -49,7 +49,7 @@ outputs:
     description: 'aligned, conflicting, unknown or error.'
     value: ${{ steps.check.outputs.status }}
   severity:
-    description: 'Highest conflict severity found: critical, warning, or empty when none was reported.'
+    description: 'Highest conflict severity found: critical or warning; empty when no severity was reported or the payload could not be parsed.'
     value: ${{ steps.check.outputs.severity }}
   result:
     description: 'The full JSON result from the check.'
