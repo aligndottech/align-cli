@@ -27,7 +27,12 @@ async function mirror(ref = 'v2'): Promise<string> {
   return dest;
 }
 
-describe('mirror.sh', () => {
+// Each case spawns bash through mirror.sh, and process spawn on the Windows runner is slow
+// enough that the 5s default is marginal: #160 passed with one fewer invocation and #161
+// tipped it, timing out on a case whose logic had not changed. A timeout is the honest fix
+// for a slow subject; shrinking the suite to fit the default would have removed coverage to
+// make a clock happy.
+describe('mirror.sh', { timeout: 30_000 }, () => {
   // DERIVED from action.yml, never a second hardcoded list. The list used to be spelled here
   // and again in mirror.sh's FILES array, which is two writers of one fact: when ALI-710 added
   // `adjudicated.sh` to action.yml, neither copy moved, so the test agreed with the script
