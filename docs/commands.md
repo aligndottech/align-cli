@@ -76,3 +76,13 @@ align local reset            Wipe the local graph
 align env set <name>         Set default environment
 align env get                Show current environment
 ```
+
+## Telemetry
+
+```
+align telemetry on           Opt in to anonymous usage pings in local-only mode
+align telemetry off          Opt out (also the default until you say yes)
+align telemetry status       Show the effective state and why
+```
+
+See [Cloud or local-only](local-mode.md#telemetry) for what each mode actually sends.
