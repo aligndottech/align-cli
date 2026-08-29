@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/aligndottech/align-cli/compare/cli-v0.21.2...cli-v0.22.0) (2026-08-29)
+
+
+### Features
+
+* **action:** name the check_event_id and the remedy on the PR itself (ALI-728) ([#163](https://github.com/aligndottech/align-cli/issues/163)) ([33b7138](https://github.com/aligndottech/align-cli/commit/33b71387bcb182b36595b09bee5d650748883a3f))
+
 ## [0.21.2](https://github.com/aligndottech/align-cli/compare/cli-v0.21.1...cli-v0.21.2) (2026-08-28)
 
 
