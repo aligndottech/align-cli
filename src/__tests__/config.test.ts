@@ -105,4 +105,37 @@ describe('config store', () => {
     expect(c.getConnectorCloudId('prod', 'jira')).toBe('prod-cloud-id');
     expect(c.getConnectorCloudId('preview', 'jira')).toBe('preview-cloud-id');
   });
+
+  // ALI-618: install id and telemetry consent are global to the machine, not per-env - a
+  // local-only user has no `environments` entry to hang either off (unlike authToken/tenantId).
+  describe('anonymous local telemetry state', () => {
+    it('generates a v4 UUID install id on first read', () => {
+      const id = createConfigStore().getInstallId();
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    });
+
+    it('is stable across repeated reads', () => {
+      const c = createConfigStore();
+      const first = c.getInstallId();
+      const second = c.getInstallId();
+      expect(second).toBe(first);
+    });
+
+    it('has no telemetry consent recorded by default', () => {
+      expect(createConfigStore().getTelemetryConsent()).toBeUndefined();
+    });
+
+    it('persists a granted consent decision', () => {
+      const c = createConfigStore();
+      c.setTelemetryConsent('granted');
+      expect(c.getTelemetryConsent()).toBe('granted');
+    });
+
+    // Second example for the same rule: pins that the value is read back, not just truthy.
+    it('persists a declined consent decision distinctly from granted', () => {
+      const c = createConfigStore();
+      c.setTelemetryConsent('declined');
+      expect(c.getTelemetryConsent()).toBe('declined');
+    });
+  });
 });

@@ -15,6 +15,7 @@ import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { collectTokensViaOAuth, oauthFlowLabel } from '../lib/personal-oauth.js';
 import { isAuthExpiry } from '../lib/errors.js';
+import { maybeRequestTelemetryConsent } from '../lib/telemetry-consent.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -309,6 +310,12 @@ function writeAgentAlignment(envName: EnvName): void {
 // privacy/offline escape hatch; the default solo experience is a personal
 // cloud tenant (see the cloud path below).
 async function runLocalSetup(): Promise<void> {
+  // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
+  // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
+  // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
+  // function so a scripted `setup --local` never blocks on either of them.
+  const interactive = process.stdin.isTTY && process.stdout.isTTY;
+
   const { dbPath } = await initLocalMode({ quiet: false });
   p.log.success('Local graph ready - no account needed, your data stays on this machine.');
 
@@ -318,6 +325,11 @@ async function runLocalSetup(): Promise<void> {
   const config = createConfigStore();
   const localEnv = config.getEnvironment('local');
   const localClient = createGatewayClient(localEnv);
+
+  // ALI-618: one-time, never asked again once answered. Local mode has no account, so consent
+  // is the only thing that can ever turn this on - see usage-telemetry.ts's local-embedded
+  // branch, which reads this same stored decision.
+  await maybeRequestTelemetryConsent(config, Boolean(interactive));
 
   if (await isGitRepo()) {
     console.log('');
@@ -359,13 +371,7 @@ async function runLocalSetup(): Promise<void> {
     .filter((s) => s.id !== 'git' && s.tokenLabel)
     .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
   console.log('');
-  // Without a TTY this prompt cannot work: a piped stdin hangs on it forever
-  // and a closed stdin crashes clack's raw-mode init (uv_tty_init EINVAL) -
-  // AFTER local setup has already succeeded, so the exit code reports failure
-  // for work that worked. Both streams must be TTYs: with stdout redirected
-  // (`setup --local > log`) the prompt renders invisibly and waits on input
-  // the user cannot see. Scripted runs skip the optional prompt instead.
-  const interactive = process.stdin.isTTY && process.stdout.isTTY;
+  // `interactive` computed once, at the top of this function - see the comment there.
   const selected = interactive
     ? await p.multiselect({
         message: 'Connect more sources with a read-only token? (skip to finish)',

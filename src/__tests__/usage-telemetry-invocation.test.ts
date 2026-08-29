@@ -37,6 +37,11 @@ vi.mock('../lib/config.js', () => ({
     getDefaultEnv: () => 'prod',
     getEnvironment: (name: string) =>
       FIXTURE_ENVS[name as keyof typeof FIXTURE_ENVS] as EnvironmentConfig,
+    // ALI-618: recordCommandUsage's local-embedded branch now reads these too. No consent
+    // recorded here - these tests are about WHICH env gets addressed, not about the anonymous
+    // ping itself (that's usage-telemetry-anonymous.test.ts), so nothing should ever send.
+    getTelemetryConsent: () => undefined,
+    getInstallId: () => 'test-install-id',
   }),
 }));
 

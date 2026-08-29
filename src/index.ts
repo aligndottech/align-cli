@@ -19,6 +19,7 @@ import { registerDriftCommand } from './commands/drift.js';
 import { registerStatusCommand } from './commands/status.js';
 import { registerContextCommand } from './commands/context.js';
 import { registerEnvCommand } from './commands/env.js';
+import { registerTelemetryCommand } from './commands/telemetry.js';
 import { registerAskCommand } from './commands/why.js';
 import { registerSetupCommand } from './commands/setup.js';
 import { registerExportCommand } from './commands/export.js';
@@ -47,9 +48,11 @@ program
   .description('Align CLI - capture decisions, check alignment, and manage connectors')
   .version(version);
 
-// ALI-403: one usage event per invocation, cloud mode only, so CLI activation and weekly
-// retention are countable. No-ops in --local mode and under ALIGN_TELEMETRY=0. Runs after the
-// command's own work, so a slow or blackholed gateway cannot delay the output the user came for.
+// ALI-403/ALI-618: one usage event per invocation, so CLI activation and weekly retention are
+// countable in both cloud mode (opt-out) and local-embedded mode (opt-in, ALI-618 - a no-op
+// until `align telemetry on` is run). No-op under ALIGN_TELEMETRY=0 in either mode. Runs after
+// the command's own work, so a slow or blackholed gateway cannot delay the output the user came
+// for.
 program.hook('postAction', async (_thisCommand, actionCommand) => {
   const { envFlagOf, recordInvocationUsage } = await import('./lib/usage-telemetry.js');
   // Full path ("local ask"), not the leaf name ("ask"), so recordCommandUsage can exclude the
@@ -65,6 +68,7 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
 
 // Environment targeting
 registerEnvCommand(program);
+registerTelemetryCommand(program);
 
 // Auth + onboarding
 registerLoginCommands(program);

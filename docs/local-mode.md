@@ -7,7 +7,8 @@
   OAuth**, and `align ask` retrieval runs server-side.
 - **Local-only** (`align setup --local`). **No account, and no Align servers.** The graph,
   embeddings and search all live in a SQLite database on your machine, and the CLI never sends
-  your decisions to us.
+  your decisions, your code, or any file content to us. The one thing it can send - opt-in,
+  never by default - is an anonymous count of which commands you run; see Telemetry below.
 
 Pick cloud for sync and the team upgrade path, local for maximum privacy. You can start local
 and move to cloud later.
@@ -33,6 +34,24 @@ Worth knowing before you point it at work content.
 - With no provider available at all, nothing goes to any AI provider. Retrieval is on-device, so
   the editor hook still surfaces related decisions, and nothing ever goes to Align. The network
   surface is then the one-time model download and whatever imports you run.
+
+## Telemetry
+
+Two different models, by design, and `align telemetry status` always tells you which one
+applies to the environment you're running in and why.
+
+- **Cloud mode is opt-out.** You're already on an authenticated connection to Align's gateway,
+  so a usage event about a call you're already making isn't a new phone-home. Set
+  `ALIGN_TELEMETRY=0` to turn it off.
+- **Local-only mode is opt-in, and off until you say yes.** `setup --local` asks once, on first
+  run: send an anonymous count of which commands you run - no code, no decisions, no file names,
+  ever. Decline (or don't answer - a non-interactive run is never asked) and nothing is sent,
+  ever, until you run `align telemetry on`. The payload is exactly three fields: a random id
+  generated once for this machine, the command name, and the CLI version - nothing else.
+- **`ALIGN_TELEMETRY=0` always wins**, in both modes, over everything else including a prior
+  `align telemetry on`.
+- `align telemetry on` / `align telemetry off` change the local-only decision at any time.
+  `align telemetry status` prints the effective state and why.
 
 ## How the local graph behaves
 
