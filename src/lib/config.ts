@@ -18,6 +18,17 @@ const DEFAULTS: Record<EnvName, EnvironmentConfig> = {
   prod:    { gatewayUrl: 'https://api.align.tech',          authToken: null, tenantId: null, mode: 'auth' },
 };
 
+/**
+ * ALI-618: local-embedded mode never makes an HTTP call for its own operations (it reads a
+ * local embedded DB - see gateway-client.ts's `createLocalGatewayClient` branch), so the
+ * `local` env's `gatewayUrl` above (`http://localhost:8080`) is a leftover from the unrelated
+ * self-hosted `demo` mode and nothing real listens there. The anonymous usage ping
+ * (usage-telemetry.ts) has to reach somewhere real regardless of which env resolved to
+ * local-embedded, so it targets this - Align's actual hosted API, same single source of truth
+ * as `DEFAULTS.prod.gatewayUrl` rather than a second literal of the same URL.
+ */
+export const ALIGN_HOSTED_GATEWAY_URL = DEFAULTS.prod.gatewayUrl;
+
 /** ALI-618: local-only users have no account, so consent is stored on the machine, not the server. */
 export type TelemetryConsent = 'granted' | 'declined';
 

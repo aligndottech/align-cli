@@ -36,7 +36,11 @@ export function registerTelemetryCommand(program: Command): void {
     .action(async () => {
       const config = createConfigStore();
       const { resolveEnv } = await import('../lib/resolve-env.js');
-      const env = config.getEnvironment(resolveEnv(undefined));
+      // preferLocalEmbedded: true, or a never-logged-in local-only user (defaultEnv stays
+      // 'prod' by design, ALI-87) sees "cloud mode, opt-out default" here regardless of their
+      // actual local consent - the exact honesty gap this command exists to close. A
+      // fresh-context review caught this.
+      const env = config.getEnvironment(resolveEnv(undefined, { preferLocalEmbedded: true }));
       const status = getTelemetryStatus(env, config.getTelemetryConsent());
       console.log(status.reason);
     });

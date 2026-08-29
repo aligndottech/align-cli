@@ -1,4 +1,4 @@
-import type { EnvironmentConfig, TelemetryConsent } from './config.js';
+import { ALIGN_HOSTED_GATEWAY_URL, type EnvironmentConfig, type TelemetryConsent } from './config.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -30,6 +30,34 @@ function telemetryOptedOut(): boolean {
   const raw = process.env['ALIGN_TELEMETRY'];
   if (raw === undefined || raw.trim() === '') return false;
   return !OPT_IN_VALUES.has(raw.trim().toLowerCase());
+}
+
+/**
+ * POST with a hard timeout, and never throw - telemetry must never fail or delay a command. A
+ * blackholing proxy hangs rather than rejecting, so a bare `fetch` would freeze the CLI after
+ * its real work is done. The timer both aborts the request and wins the race, so we stop
+ * waiting even if the transport ignores the signal. Shared by the cloud and local-embedded send
+ * paths below, which were two copies of this exact race before extraction (fresh-context review).
+ */
+async function postWithTimeout(url: string, init: NonNullable<Parameters<typeof fetch>[1]>): Promise<void> {
+  const controller = new AbortController();
+  let giveUp: () => void = () => {};
+  const abandoned = new Promise<void>((resolve) => {
+    giveUp = resolve;
+  });
+  const timer = setTimeout(() => {
+    controller.abort();
+    giveUp();
+  }, TELEMETRY_TIMEOUT_MS);
+
+  try {
+    await Promise.race([fetch(url, { ...init, signal: controller.signal }), abandoned]);
+  } catch {
+    // Telemetry must never fail a command - see "resolves when the gateway rejects" and
+    // "gives up rather than hanging" in usage-telemetry.test.ts / usage-telemetry-anonymous.test.ts.
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface TelemetryStatus {
@@ -74,49 +102,25 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
   // a token can be in scope without cloud consent: ALIGN_TOKEN exported into the shell, or a
   // logged-in default env resolved by the caller.
   if (env.mode === 'local-embedded') {
-    await recordAnonymousCommandUsage(env, command);
+    await recordAnonymousCommandUsage(command);
     return;
   }
   if (!env.authToken || !env.tenantId) return;
 
-  // A blackholing proxy hangs rather than rejecting, so a bare await would freeze the CLI after
-  // its real work is done. The timer both aborts the request and wins the race, so we stop
-  // waiting even if the transport ignores the signal.
-  const controller = new AbortController();
-  let giveUp: () => void = () => {};
-  const abandoned = new Promise<void>((resolve) => {
-    giveUp = resolve;
+  await postWithTimeout(`${env.gatewayUrl}/telemetry/ingest`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.authToken}`,
+      'x-tenant-id': env.tenantId,
+    },
+    body: JSON.stringify({
+      eventName: 'cli.command',
+      category: 'engagement',
+      platform: 'cli',
+      properties: { command },
+    }),
   });
-  const timer = setTimeout(() => {
-    controller.abort();
-    giveUp();
-  }, TELEMETRY_TIMEOUT_MS);
-
-  try {
-    await Promise.race([
-      fetch(`${env.gatewayUrl}/telemetry/ingest`, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${env.authToken}`,
-          'x-tenant-id': env.tenantId,
-        },
-        body: JSON.stringify({
-          eventName: 'cli.command',
-          category: 'engagement',
-          platform: 'cli',
-          properties: { command },
-        }),
-      }),
-      abandoned,
-    ]);
-  } catch {
-    // Telemetry must never fail a command. Swallowing here is driven by a test, not defensive
-    // habit - see "resolves when the gateway rejects" in usage-telemetry.test.ts.
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /**
@@ -125,40 +129,28 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
  * payload carries exactly three fields (install id, command name, CLI version) so there is
  * nothing here for the gateway's strict schema to reject and nothing beyond what the consent
  * prompt promises. See usage-telemetry-anonymous.test.ts.
+ *
+ * Targets `ALIGN_HOSTED_GATEWAY_URL`, never a `gatewayUrl` off the env - local-embedded mode
+ * makes no HTTP call for its own work (an embedded local DB client, see gateway-client.ts), so
+ * the `local` env's `gatewayUrl` is a vestigial `demo`-mode default nothing real listens on.
+ * A fresh-context review caught this: the original version sent every local ping to
+ * `http://localhost:8080`, silently discarded, for every user who had not separately stood up
+ * a local dev gateway.
  */
-async function recordAnonymousCommandUsage(env: EnvironmentConfig, command: string): Promise<void> {
+async function recordAnonymousCommandUsage(command: string): Promise<void> {
   const { createConfigStore } = await import('./config.js');
   const config = createConfigStore();
   if (config.getTelemetryConsent() !== 'granted') return;
 
   const installId = config.getInstallId();
   const topLevelCommand = command.split(' ')[0] ?? command;
+  const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
 
-  const controller = new AbortController();
-  let giveUp: () => void = () => {};
-  const abandoned = new Promise<void>((resolve) => {
-    giveUp = resolve;
+  await postWithTimeout(`${target}/telemetry/anonymous`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ installId, command: topLevelCommand, cliVersion: pkg.version }),
   });
-  const timer = setTimeout(() => {
-    controller.abort();
-    giveUp();
-  }, TELEMETRY_TIMEOUT_MS);
-
-  try {
-    await Promise.race([
-      fetch(`${env.gatewayUrl}/telemetry/anonymous`, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ installId, command: topLevelCommand, cliVersion: pkg.version }),
-      }),
-      abandoned,
-    ]);
-  } catch {
-    // Telemetry must never fail a command - same discipline as recordCommandUsage above.
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /**
@@ -189,13 +181,17 @@ export function envFlagOf(cmd: { optsWithGlobals(): Record<string, unknown> }): 
  * the one thing PR #77 said local mode does not do. Only the three-member `local` command
  * group was excluded, and no local user types `align local ask`.
  *
- * `preferLocalEmbedded` is deliberately NOT passed: it is a routing preference for the
- * read commands, and asking for it here would be a second opinion on where the command
- * went. The flag and ALIGN_ENV are what the user chose explicitly, and those are what a
- * consent decision may rest on. Note that preference and this gate are today mutually
- * exclusive by arithmetic rather than by design - the redirect fires only when the cloud env
- * has no token, which is the same condition recordCommandUsage returns on - so if that token
- * check is ever relaxed to count tokenless users, pass the preference here as well.
+ * `preferLocalEmbedded` IS now passed (ALI-618) - this paragraph used to say it was
+ * deliberately withheld, on the reasoning that the flag/ALIGN_ENV the user explicitly chose is
+ * what a CLOUD consent decision may rest on. That reasoning never covered local telemetry: the
+ * redirect only ever fires when the cloud env has no token, which is exactly the case
+ * recordCommandUsage's cloud branch already drops on its own (`if (!env.authToken || ...)
+ * return`) - so passing it here cannot cause an extra cloud send, only let a genuinely
+ * never-logged-in user's BARE command reach the local-embedded branch at all. Without it, that
+ * exact audience - "never met Tom" - resolved to the tokenless cloud default on every bare
+ * command and recordCommandUsage silently dropped it: neither cloud nor local ever counted
+ * them, which defeated the whole point of adding local telemetry. A fresh-context review
+ * caught this too. Fixed in `usage-telemetry-invocation-local-only.test.ts`.
  *
  * `setup` is suppressed once local-embedded is configured. The interactive "Local only" choice
  * sets no flag, and the default env stays cloud on purpose, so the only evidence the session was
@@ -211,5 +207,5 @@ export async function recordInvocationUsage(
   const { resolveEnv } = await import('./resolve-env.js');
   const config = createConfigStore();
   if (command === 'setup' && config.getEnvironment('local').mode === 'local-embedded') return;
-  await recordCommandUsage(config.getEnvironment(resolveEnv(envFlag)), command);
+  await recordCommandUsage(config.getEnvironment(resolveEnv(envFlag, { preferLocalEmbedded: true })), command);
 }

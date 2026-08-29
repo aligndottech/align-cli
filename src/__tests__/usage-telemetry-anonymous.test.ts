@@ -12,9 +12,11 @@ import type { EnvironmentConfig } from '../lib/config.js';
 const getTelemetryConsent = vi.fn();
 const getInstallId = vi.fn();
 const INSTALL_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
 
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({ getTelemetryConsent, getInstallId }),
+  ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
 }));
 
 import { recordCommandUsage, TELEMETRY_TIMEOUT_MS } from '../lib/usage-telemetry.js';
@@ -22,8 +24,12 @@ import { recordCommandUsage, TELEMETRY_TIMEOUT_MS } from '../lib/usage-telemetry
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+// Deliberately NOT the hosted URL: local-embedded mode makes no HTTP call for its own work, so
+// this env's gatewayUrl is vestigial (config.ts's comment on ALIGN_HOSTED_GATEWAY_URL). If the
+// send target ever regresses to reading env.gatewayUrl, these tests must catch it - so the
+// fixture uses the REAL 'local' default (localhost:8080), not a copy of the hosted URL.
 const localEnv: EnvironmentConfig = {
-  gatewayUrl: 'https://api.align.tech',
+  gatewayUrl: 'http://localhost:8080',
   authToken: null,
   tenantId: null,
   mode: 'local-embedded',
@@ -73,7 +79,17 @@ describe('recordCommandUsage - local-embedded anonymous ping', () => {
     await recordCommandUsage(localEnv, 'search');
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.align.tech/telemetry/anonymous');
+    expect(mockFetch.mock.calls[0]?.[0]).toBe(`${HOSTED_URL}/telemetry/anonymous`);
+  });
+
+  // The regression this pins: an earlier version sent to env.gatewayUrl, silently discarded
+  // for every user without a local dev gateway running (fresh-context review finding).
+  it('never targets env.gatewayUrl, which is vestigial in local-embedded mode', async () => {
+    getTelemetryConsent.mockReturnValue('granted');
+
+    await recordCommandUsage(localEnv, 'search');
+
+    expect(mockFetch.mock.calls[0]?.[0]).not.toContain('localhost:8080');
   });
 
   // Second example for the same rule: a different command name is read, not hardcoded.
@@ -83,6 +99,17 @@ describe('recordCommandUsage - local-embedded anonymous ping', () => {
     await recordCommandUsage(localEnv, 'context');
 
     expect(sentBody()).toMatchObject({ command: 'context' });
+  });
+
+  // The postAction hook builds `command` from the full path ("import git"), and the gateway's
+  // enum only knows top-level names - so a subcommand must be truncated, not sent whole (which
+  // the gateway would reject as an unknown command and drop the ping entirely).
+  it('truncates a multi-word command to its top-level name', async () => {
+    getTelemetryConsent.mockReturnValue('granted');
+
+    await recordCommandUsage(localEnv, 'decisions list');
+
+    expect(sentBody()).toMatchObject({ command: 'decisions' });
   });
 
   // test 0 (local half) / 4: the global off switch wins over a granted local consent.
