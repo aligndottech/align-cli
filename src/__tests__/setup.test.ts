@@ -69,6 +69,11 @@ vi.mock('../lib/config.js', () => ({
     setConnectorCloudId: vi.fn(),
     getConnectorSiteBase: vi.fn().mockReturnValue(null),
     setConnectorSiteBase: vi.fn(),
+    // ALI-618: runLocalSetup's one-time consent prompt reads/writes these. Unset by default so
+    // the prompt fires under the forced-TTY describe block below and resolves via mockConfirm's
+    // default (false) - these tests are not about telemetry consent, so nothing here asserts on it.
+    getTelemetryConsent: vi.fn().mockReturnValue(undefined),
+    setTelemetryConsent: vi.fn(),
   })),
 }));
 

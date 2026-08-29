@@ -1,4 +1,5 @@
 import Conf from 'conf';
+import { randomUUID } from 'node:crypto';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -17,8 +18,17 @@ const DEFAULTS: Record<EnvName, EnvironmentConfig> = {
   prod:    { gatewayUrl: 'https://api.align.tech',          authToken: null, tenantId: null, mode: 'auth' },
 };
 
+/** ALI-618: local-only users have no account, so consent is stored on the machine, not the server. */
+export type TelemetryConsent = 'granted' | 'declined';
+
 export function createConfigStore() {
-  const store = new Conf<{ environments: Record<string, Partial<EnvironmentConfig>>; defaultEnv: EnvName; connectorTokens: Record<string, string> }>({
+  const store = new Conf<{
+    environments: Record<string, Partial<EnvironmentConfig>>;
+    defaultEnv: EnvName;
+    connectorTokens: Record<string, string>;
+    installId?: string;
+    telemetryConsent?: TelemetryConsent;
+  }>({
     projectName: 'align-cli',
     defaults: { environments: {}, defaultEnv: 'prod', connectorTokens: {} },
   });
@@ -93,6 +103,22 @@ export function createConfigStore() {
       const envs = getEnvs();
       const { [env]: _, ...rest } = envs;
       store.set('environments', rest);
+    },
+    // ALI-618: global to the machine's install, not per-environment - unlike authToken/tenantId,
+    // an anonymous local-mode user has no account for either to belong to. Generated once and
+    // persisted, never derived from anything identifying (no hostname, no MAC address).
+    getInstallId(): string {
+      const existing = store.get('installId');
+      if (existing) return existing;
+      const id = randomUUID();
+      store.set('installId', id);
+      return id;
+    },
+    getTelemetryConsent(): TelemetryConsent | undefined {
+      return store.get('telemetryConsent');
+    },
+    setTelemetryConsent(value: TelemetryConsent) {
+      store.set('telemetryConsent', value);
     },
   };
 }

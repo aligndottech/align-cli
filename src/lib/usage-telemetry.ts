@@ -1,15 +1,19 @@
-import type { EnvironmentConfig } from './config.js';
+import type { EnvironmentConfig, TelemetryConsent } from './config.js';
+import pkg from '../../package.json' with { type: 'json' };
 
 /**
  * ALI-403: emit one `cli.command` event per invocation so cloud CLI activation and weekly
  * retention are countable.
  *
- * Cloud mode only. A cloud user is already on an authenticated connection to our gateway, so
- * an event about a call already being made is not a new phone-home. `--local` users never
- * contact us and have no tenant, so counting them needs an explicit consent flow and its own
- * storage (`telemetry_events.tenant_id` is `NOT NULL REFERENCES tenants(id)`).
+ * Cloud mode is opt-out: a cloud user is already on an authenticated connection to our
+ * gateway, so an event about a call already being made is not a new phone-home. Local-embedded
+ * mode (ALI-618) is opt-in instead: `--local` users have no account and no tenant, so there is
+ * nothing to authenticate an event against, and nothing is sent until the user explicitly
+ * consents (see `config.ts`'s `getTelemetryConsent`, set by the one-time prompt in
+ * `commands/setup.ts`). Both modes send only a command name, never arguments or content.
  *
- * Set `ALIGN_TELEMETRY=0` (or `false` / `no` / `off`) to opt out entirely.
+ * `ALIGN_TELEMETRY=0` (or `false` / `no` / `off`) is the single global off switch and wins in
+ * both modes, over a granted local consent included (ALI-618 D3b - one consent model, not two).
  */
 export const TELEMETRY_TIMEOUT_MS = 2_000;
 
@@ -28,16 +32,51 @@ function telemetryOptedOut(): boolean {
   return !OPT_IN_VALUES.has(raw.trim().toLowerCase());
 }
 
+export interface TelemetryStatus {
+  enabled: boolean;
+  reason: string;
+}
+
+/**
+ * ALI-618 D3b: what `align telemetry status` prints. Takes the consent decision as a plain
+ * argument rather than reading `config.ts` itself, so the two consent MODELS stay visibly
+ * distinct in one function a reader can hold in their head - cloud's opt-out default and
+ * local's stored opt-in decision - with `ALIGN_TELEMETRY=0` as the one thing that overrides
+ * both, checked first.
+ */
+export function getTelemetryStatus(
+  env: EnvironmentConfig,
+  localConsent: TelemetryConsent | undefined,
+): TelemetryStatus {
+  if (telemetryOptedOut()) {
+    return { enabled: false, reason: 'off: ALIGN_TELEMETRY is set to an opt-out value' };
+  }
+  if (env.mode === 'local-embedded') {
+    if (localConsent === 'granted') {
+      return { enabled: true, reason: 'on: local mode, you opted in when asked' };
+    }
+    if (localConsent === 'declined') {
+      return { enabled: false, reason: 'off: local mode, you declined when asked' };
+    }
+    return { enabled: false, reason: 'off: local mode, you have not been asked yet' };
+  }
+  return { enabled: true, reason: 'on: cloud mode, opt-out default' };
+}
+
 export async function recordCommandUsage(env: EnvironmentConfig, command: string): Promise<void> {
   if (telemetryOptedOut()) return;
   // `align local ...` is the explicitly-offline path. Its caller may still hold a cloud token
   // (the hook may resolve an env other than the one the command used), so the token check below
   // is not enough on its own.
   if (command === 'local' || command.startsWith('local ')) return;
-  // The mode is the consent boundary (PR #77: cloud is opt-out, local is no-phone-home). It has
-  // to gate on its own because a token can be in scope without cloud consent: ALIGN_TOKEN
-  // exported into the shell, or a logged-in default env resolved by the caller.
-  if (env.mode === 'local-embedded') return;
+  // The mode is the consent boundary (PR #77: cloud is opt-out; ALI-618: local is opt-in via a
+  // stored consent decision, never a phone-home by default). It has to gate on its own because
+  // a token can be in scope without cloud consent: ALIGN_TOKEN exported into the shell, or a
+  // logged-in default env resolved by the caller.
+  if (env.mode === 'local-embedded') {
+    await recordAnonymousCommandUsage(env, command);
+    return;
+  }
   if (!env.authToken || !env.tenantId) return;
 
   // A blackholing proxy hangs rather than rejecting, so a bare await would freeze the CLI after
@@ -75,6 +114,48 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
   } catch {
     // Telemetry must never fail a command. Swallowing here is driven by a test, not defensive
     // habit - see "resolves when the gateway rejects" in usage-telemetry.test.ts.
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * ALI-618: the local-embedded sibling of the cloud send above. No Authorization, no tenant -
+ * there is neither. Gated on a machine-local consent decision instead of a token, and the
+ * payload carries exactly three fields (install id, command name, CLI version) so there is
+ * nothing here for the gateway's strict schema to reject and nothing beyond what the consent
+ * prompt promises. See usage-telemetry-anonymous.test.ts.
+ */
+async function recordAnonymousCommandUsage(env: EnvironmentConfig, command: string): Promise<void> {
+  const { createConfigStore } = await import('./config.js');
+  const config = createConfigStore();
+  if (config.getTelemetryConsent() !== 'granted') return;
+
+  const installId = config.getInstallId();
+  const topLevelCommand = command.split(' ')[0] ?? command;
+
+  const controller = new AbortController();
+  let giveUp: () => void = () => {};
+  const abandoned = new Promise<void>((resolve) => {
+    giveUp = resolve;
+  });
+  const timer = setTimeout(() => {
+    controller.abort();
+    giveUp();
+  }, TELEMETRY_TIMEOUT_MS);
+
+  try {
+    await Promise.race([
+      fetch(`${env.gatewayUrl}/telemetry/anonymous`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ installId, command: topLevelCommand, cliVersion: pkg.version }),
+      }),
+      abandoned,
+    ]);
+  } catch {
+    // Telemetry must never fail a command - same discipline as recordCommandUsage above.
   } finally {
     clearTimeout(timer);
   }
