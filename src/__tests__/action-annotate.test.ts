@@ -161,6 +161,86 @@ describe('annotate.mjs, run the way the action runs it', () => {
     expect(render('"a string"')[0]).toContain('could not be parsed');
   });
 });
+describe('the remedy notice (ALI-728)', () => {
+  // Measured 2026-08-28/29: three PRs blocked on this gate in one session, and the ONLY way
+  // to find the check_event_id a wrong flag needed to be rated against was to grep it out of
+  // raw CI job logs. This is that fixed - the annotation is the one surface guaranteed to be
+  // in front of whoever was just blocked (writing-voice.md's rendering-contract argument,
+  // applied to a gate).
+  function conflictingWithEvent(conflicts: unknown[], check_event_id?: string): string {
+    return JSON.stringify({
+      status: 'conflicting',
+      relevant_decisions: [],
+      conflicts,
+      message: 'x',
+      ...(check_event_id ? { check_event_id } : {}),
+    });
+  }
+
+  const EVENT_ID = '6d0b3185-2645-4dee-ae8a-40b8a5b1c3ea';
+
+  it('names the event id and every remedy command, once, alongside the per-conflict lines', () => {
+    const lines = render(conflictingWithEvent([CRITICAL], EVENT_ID));
+
+    // The per-conflict line is unaffected - this is additive, not a replacement.
+    expect(lines[0]).toContain('::error file=');
+
+    // Exactly one remedy line, not one per conflict/file - it names ONE event for the whole
+    // check, and a per-file repeat would just be noise.
+    const notices = lines.filter((l) => l.startsWith('::notice'));
+    expect(notices).toHaveLength(1);
+
+    const notice = notices[0];
+    expect(notice).toContain(EVENT_ID);
+    expect(notice).toContain('/align feedback yes');
+    expect(notice).toContain('/align feedback no');
+    expect(notice).toContain('/align accept supersession');
+    expect(notice).toContain('/align check');
+  });
+
+  // Positive control on the cause vocabulary, which is exactly the four values
+  // conflictFeedbackCauses.ts declares - drifting from that list is a defect the reader
+  // would only discover after typing a rejected command.
+  it('names all four false-positive cause codes', () => {
+    const [notice] = render(conflictingWithEvent([CRITICAL], EVENT_ID)).filter((l) =>
+      l.startsWith('::notice'),
+    );
+
+    for (const cause of ['stale_decision', 'not_actually_conflicting', 'wrong_scope', 'duplicate']) {
+      expect(notice).toContain(cause);
+    }
+  });
+
+  // Fails closed: an older gateway that sends no check_event_id must not print a command a
+  // human cannot complete. Nothing to reference is nothing to promise.
+  it('adds no remedy line when the gateway sent no check_event_id', () => {
+    const lines = render(conflicting([CRITICAL]));
+
+    expect(lines).toHaveLength(1);
+    expect(lines.some((l) => l.startsWith('::notice'))).toBe(false);
+  });
+
+  // A check_event_id with no conflicts is not a shape the gateway should ever send, but the
+  // renderer must not promise a remedy for nothing surfaced.
+  it('adds no remedy line when there are no conflicts to clear', () => {
+    const lines = render(conflictingWithEvent([], EVENT_ID));
+
+    expect(lines).toEqual([]);
+  });
+
+  // Same injection surface as the per-conflict body: an event id is server-issued and UUID
+  // shaped today, but the renderer must not trust that forever.
+  it('escapes a hostile check_event_id the same way conflict text is escaped', () => {
+    const hostileId = `evil${String.fromCharCode(10)}id 100% ${String.fromCharCode(13)} sure`;
+    const [notice] = render(conflictingWithEvent([CRITICAL], hostileId)).filter((l) =>
+      l.startsWith('::notice'),
+    );
+
+    expect(notice.split(String.fromCharCode(10))).toHaveLength(1);
+    expect(notice).toContain('100%25');
+  });
+});
+
 
 describe('the script is invoked the way the action invokes it', () => {
   // Every case above now runs the file, so the stdin wrapper and the exit code are already

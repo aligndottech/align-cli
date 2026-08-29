@@ -47,6 +47,47 @@ const COULD_NOT_RENDER =
   'rendered. The gate result itself is unaffected - see the job summary for the verdict.';
 
 /**
+ * ALI-728: the four false-positive causes a human can give `/align feedback no <cause>`.
+ *
+ * Authoritative source is align-stack's FP_CAUSE_VALUES
+ * (connectors/mcp-github/src/application/utils/conflictFeedbackCauses.ts) - a Zod enum the
+ * gateway's /alignment/conflicts/:eventId/feedback route also enforces. This is a SECOND
+ * writer, unavoidable across two repos with no shared package for four string literals, and
+ * it is named as one rather than left implicit: if either list widens, this one goes stale
+ * silently (no test here can see the other repo's file), so keep them in sync by hand.
+ */
+const FP_CAUSES = ['stale_decision', 'not_actually_conflicting', 'wrong_scope', 'duplicate'];
+
+/**
+ * The remedy for a wrong flag, named on the PR rather than left to be found in a job log.
+ *
+ * Measured 2026-08-28/29 (align-stack, three PRs in one session): the only way to find the
+ * check_event_id a wrong conflict needed to be rated against was to grep it out of raw CI job
+ * logs, because the required Gate emits annotations only - no comment, no event id, no
+ * remedy. The advisory App's Align Report DOES carry this, on the surface that is retiring
+ * (ALI-600) and that a Marketplace-only adopter never has at all. The annotation is the one
+ * surface guaranteed to be in front of whoever was just blocked, with no App required.
+ *
+ * A worked template, not an adjective telling the model to "explain how to fix it"
+ * (writing-voice.md: a template with placeholders beats prose about clarity every time).
+ *
+ * One line for the whole check, not per-conflict/file: it names ONE event, and repeating the
+ * same four commands per file would be exactly the wall-of-text writing-voice.md's rendering
+ * contracts exist to prevent.
+ */
+function remedyNotice(checkEventId) {
+  const causes = FP_CAUSES.join(', ');
+  const body = escapeData(
+    `Wrong? Reply on this PR: \`/align feedback yes\` if this is a real conflict, ` +
+      `\`/align feedback no <cause>\` if not (${causes}), or \`/align accept supersession\` if ` +
+      `this deliberately replaces the decision it names. event: ${checkEventId}. ` +
+      `Re-run with \`/align check\` after. Needs the Align GitHub App installed - a ` +
+      `Marketplace-Action-only repo has no listener for these yet (ALI-728).`,
+  );
+  return `::notice title=${escapeProperty('Align: how to clear this if it is wrong')}::${body}`;
+}
+
+/**
  * @param {string} raw the CLI's JSON result
  * @returns {string[]} workflow command lines, one per annotation
  */
@@ -98,6 +139,15 @@ export function annotationsFor(raw) {
     for (const file of files) {
       lines.push(`::${level} file=${escapeProperty(file)},line=1,title=${title}::${body}`);
     }
+  }
+
+  // ALI-728: ONE remedy line for the whole check, appended after every per-conflict line so
+  // it reads last - a human opens the Files Changed tab for the findings and the job summary
+  // for what to do about them, and this is the second half of that sentence. Nothing to
+  // reference (no id, no conflicts) is nothing to promise, so it stays silent rather than
+  // printing a command that cannot be completed.
+  if (typeof result.check_event_id === 'string' && result.check_event_id && conflicts.length > 0) {
+    lines.push(remedyNotice(result.check_event_id));
   }
 
   return lines;
