@@ -24,7 +24,11 @@ export function registerDecisionsCommand(program: Command): void {
       env: EnvName; platform?: string; status?: string; space?: string; limit: string;
     }) => {
       const config = createConfigStore();
-      const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env)));
+      // Held, not re-derived: the header below printed `opts.env`, which is the FLAG. With no
+      // flag that rendered "Decisions (undefined)" - hidden until now only because a bare call
+      // 401'd before it got this far (ALI-772).
+      const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
+      const client = createGatewayClient(config.getEnvironment(envName));
       const spinner = ora('Fetching decisions...').start();
 
       try {
@@ -41,7 +45,7 @@ export function registerDecisionsCommand(program: Command): void {
           return;
         }
 
-        console.log(chalk.bold(`\nDecisions (${opts.env})\n`));
+        console.log(chalk.bold(`\nDecisions (${envName})\n`));
         renderTable(
           [
             { header: 'ID', width: 38 },
@@ -63,7 +67,8 @@ export function registerDecisionsCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .action(async (id: string, opts: { env: EnvName }) => {
       const config = createConfigStore();
-      const env = config.getEnvironment(resolveEnv(opts.env));
+      const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
+      const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
       const spinner = ora(`Loading decision ${id}...`).start();
 
@@ -88,8 +93,13 @@ export function registerDecisionsCommand(program: Command): void {
           console.log(`\n  ${chalk.bold('Spaces:')} ${(d.spaces as Array<{ name: string }>).map(s => s.name).join(', ')}`);
         }
         console.log('');
-        console.log(chalk.dim(`View: ${resolveAppUrl(env)}/decisions/${d.id}`));
-        console.log('');
+        // A local graph has no web UI, so this line pointed a local-only user at
+        // http://localhost:5173/decisions/<id> - a dev server that is not running on their
+        // machine and never will be. Printing a dead link is worse than printing nothing.
+        if (envName !== 'local') {
+          console.log(chalk.dim(`View: ${resolveAppUrl(env)}/decisions/${d.id}`));
+          console.log('');
+        }
       } catch (err) {
         spinner.fail(chalk.red((err as Error).message));
         process.exit(1);

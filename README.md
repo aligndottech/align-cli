@@ -13,9 +13,11 @@ check before they build.
 
 ```bash
 curl -fsSL https://align.tech/install.sh | sh
-align setup --local
-align ask "why do we use postgres"
+align
 ```
+
+That is the whole thing. `align` sets itself up the first time you run it and asks whether you
+want it local-only or synced; after that it shows your graph and what to do next.
 
 A standalone binary. No Node, no npm, nothing else to install, and local-only mode works
 fully - on-device embeddings included, running on a WASM backend bundled inside the binary.
