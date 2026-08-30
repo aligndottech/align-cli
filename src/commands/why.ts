@@ -197,6 +197,7 @@ export function registerAskCommand(program: Command): void {
           // than telling someone who is already running a provider to configure one.
           const unvetted = synthFailure?.kind === 'unrecognised_local_models' ? synthFailure.models : null;
           const failure = synthFailure?.kind === 'provider_stopped' ? synthFailure : null;
+          const unavailable = synthFailure?.kind === 'providers_unavailable' ? synthFailure : null;
           if (unvetted) {
             console.log(chalk.dim('  No answer written: Ollama is running, but none of these'));
             console.log(chalk.dim('  models are recognised for decision synthesis.'));
@@ -210,6 +211,19 @@ export function registerAskCommand(program: Command): void {
             console.log(chalk.dim(`  No answer written: ${failure.model} (${failure.provider}) returned an`));
             console.log(chalk.dim(`  unusable response (${failure.detail}). A weaker model was not asked in`));
             console.log(chalk.dim('  its place. Retry, or configure a different provider.'));
+          } else if (unavailable) {
+            // ALI-766: a provider WAS configured and none of them answered. The key nudge
+            // below would be the wrong signpost - it reads as "your provider is not
+            // supported" to the one user who took the trouble to configure us.
+            // "did not answer", not "unreachable": this path also carries availability-class
+            // REJECTIONS (401/403/404), where the endpoint answered perfectly well and turned
+            // us down. The first wording contradicted this file's own test fixture, which
+            // asserts an HTTP 401 case.
+            console.log(chalk.dim('  No answer written: no configured provider answered.'));
+            for (const t of unavailable.tried) {
+              console.log(chalk.dim(`    - ${t.provider}: ${t.detail}`));
+            }
+            console.log(chalk.dim('  Check the endpoint and key, or configure a different provider.'));
           } else {
             console.log(chalk.dim('  Set ANTHROPIC_API_KEY (or OPENAI_API_KEY) for a conversational answer.'));
           }

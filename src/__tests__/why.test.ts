@@ -229,6 +229,59 @@ describe('align ask - file path mode', () => {
     expect(all).not.toContain('Set ANTHROPIC_API_KEY');
   });
 
+  // ALI-766: a configured provider that never answered is not the same as no provider,
+  // and the two need opposite remedies. Telling someone who pointed us at DeepSeek to set
+  // ANTHROPIC_API_KEY reads as "DeepSeek is not supported", which is false.
+  it('names the endpoint that was tried when a configured provider was unreachable', async () => {
+    mockSynthesise.mockResolvedValueOnce({
+      ok: false,
+      failure: {
+        kind: 'providers_unavailable',
+        tried: [{ provider: 'custom', detail: 'connect ECONNREFUSED 127.0.0.1:443' }],
+      },
+    });
+    const program = new Command();
+    registerAskCommand(program);
+
+    await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
+
+    const all = output.join('\n');
+    expect(all).toContain('custom');                 // which one was tried
+    expect(all).toContain('ECONNREFUSED');           // why it did not answer
+    expect(all).toContain('Chose Postgres');         // the ranked list still prints
+    // The whole point: this user HAS configured a provider. Sending them to set a key for
+    // a different one is the wrong signpost.
+    expect(all).not.toContain('Set ANTHROPIC_API_KEY');
+  });
+
+  it('lists every configured provider it tried, not just the first', async () => {
+    mockSynthesise.mockResolvedValueOnce({
+      ok: false,
+      failure: {
+        kind: 'providers_unavailable',
+        tried: [
+          { provider: 'custom', detail: 'connect ECONNREFUSED' },
+          { provider: 'openai', detail: 'HTTP 401' },
+        ],
+      },
+    });
+    const program = new Command();
+    registerAskCommand(program);
+
+    await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
+
+    const all = output.join('\n');
+    // Named individually rather than counted: "2 providers failed" tells the user nothing
+    // they can act on, and which one holds the dead key is the entire question.
+    expect(all).toContain('custom');
+    expect(all).toContain('openai');
+    expect(all).toContain('HTTP 401');
+    // An HTTP 401 means the endpoint answered and refused us, so the summary line must not
+    // call it unreachable. The first version of this message did, contradicting the very
+    // fixture above it - a review bot caught that, not this suite, so it is pinned now.
+    expect(all).not.toMatch(/unreachable/i);
+  });
+
   it('keeps the generic provider nudge when Ollama is not the reason', async () => {
     const program = new Command();
     registerAskCommand(program);
