@@ -262,6 +262,31 @@ export function createLocalDb(dbPath: string) {
       return inserted.id;
     },
 
+    /**
+     * The id this graph already holds for `(source_url, title)`, or null.
+     *
+     * Exists so a caller can tell an insert from a refresh (ALI-770): `insertDecision`
+     * upserts and returns the surviving id either way, so an import could not say whether
+     * it added anything. It reported every re-import as "Imported N decisions" while the
+     * graph did not move, which reads as having imported twice.
+     *
+     * Normalises through `identifyingSourceUrl` because that is what insertDecision STORES.
+     * Skipping it would miss every row whose URL carried a query string or fragment and
+     * report each as new - wrong in the one direction nobody questions, because "2 new" on
+     * a re-import looks exactly like working software.
+     *
+     * A null `sourceUrl` is always null here: SQLite treats each NULL in a unique index as
+     * distinct, so those rows never conflict and every one of them really is new.
+     */
+    findIdBySource(sourceUrl: string | null, title: string): string | null {
+      const identity = identifyingSourceUrl(sourceUrl);
+      if (identity === null) return null;
+      const row = db.prepare(
+        `SELECT id FROM decisions WHERE source_url = ? AND title = ?`
+      ).get(identity, title) as { id: string } | undefined;
+      return row?.id ?? null;
+    },
+
     listDecisions(): DecisionRow[] {
       return db.prepare(
         `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt FROM decisions ORDER BY created_at DESC`
