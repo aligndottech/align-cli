@@ -78,7 +78,8 @@ export function registerAskCommand(program: Command): void {
     .option('--limit <n>', 'Max answers', '8')
     .action(async (query: string, opts: { env?: EnvName; limit: string }) => {
       const config = createConfigStore();
-      const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true })));
+      const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
+      const client = createGatewayClient(config.getEnvironment(envName));
 
       // Pass the query through unchanged: the gateway's smart-search strategy
       // selector routes natural-language questions to semantic search. Stripping
@@ -98,6 +99,39 @@ export function registerAskCommand(program: Command): void {
             console.log(chalk.dim(`  No decisions found for ${query}.`));
             console.log(chalk.dim('  Import from more sources to build context:'));
           } else {
+            // "Build your graph first" is a claim about the GRAPH, and zero search results
+            // are only evidence about the QUERY. ALI-771: a tester was told to build a graph
+            // he had just filled, because the question `setup --local`'s outro suggests
+            // ("What decisions exist in this codebase?") is ABOUT the graph rather than in
+            // it, so it matches nothing semantically and falls under the threshold.
+            //
+            // Sending someone to re-import a full graph is the worse of the two errors: it
+            // reads as the import never having worked. So ask the graph before saying it is
+            // empty. One extra call, only on the path that was already returning nothing.
+            let graphHasDecisions: boolean | undefined;
+            try {
+              const some = await client.listDecisions({ limit: 1 });
+              graphHasDecisions = Array.isArray(some) && some.length > 0;
+            } catch {
+              // A cloud token that has expired throws here. Leave the answer unknown and
+              // keep the old message: this diagnostic must never make things worse than
+              // before it existed.
+            }
+
+            if (graphHasDecisions) {
+              // Printed with the env it actually resolved to, so it is runnable AS PRINTED -
+              // a bare `align decisions list` resolves to the cloud default and 401s for a
+              // local-only user (same shape as ALI-675's import hint).
+              const listCmd = envName === 'prod'
+                ? 'align decisions list'
+                : `align decisions list --env ${envName}`;
+              console.log(chalk.dim(`  Nothing matched "${query}", but your graph is not empty.`));
+              console.log(chalk.dim('  Try different words, or list what is in there:'));
+              console.log(chalk.dim(`    ${listCmd}`));
+              console.log('');
+              return;
+            }
+
             console.log(chalk.dim('  No decisions found. Build your graph first:'));
             console.log(chalk.dim('    align import git'));
           }
