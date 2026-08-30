@@ -9,13 +9,30 @@
  * `align import git`. Measured before this fix, macOS and ubuntu and windows alike: 2 decisions
  * after setup, 4 after the import, two rows per `git://commit/<sha>`.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
+
+/**
+ * File-scoped, not a global bump: every test here opens a real SQLite file on disk, runs the
+ * migration and closes it, and does that sixteen times. On Windows CI that costs 31.9s for the
+ * file where it costs 1.1s locally - about 28x - and one case crossed the 5s default and failed
+ * a job that passed on re-run with no change. A test sitting that close to its limit is a red
+ * nobody can act on, which is how people learn to ignore red.
+ *
+ * Raised here rather than in vitest.config.ts so a genuine hang anywhere else still fails fast.
+ *
+ * NOT MEASURED: whether ALI-740's move from better-sqlite3 to node:sqlite contributed to the
+ * Windows cost. The comparison is confounded - the same change also moved this matrix from
+ * windows-2022 to windows-latest - and the shape here (sixteen open/migrate/close cycles on a
+ * temp path) is nothing like real use, which opens the graph once. Worth measuring properly
+ * before anyone treats this number as a product fact.
+ */
+vi.setConfig({ testTimeout: 30_000 });
 
 const COMMIT_URL = 'git://commit/d0364cabfef7c371b0773c2d469c3ad1f304a1b2';
 
