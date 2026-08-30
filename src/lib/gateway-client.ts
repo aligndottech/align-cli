@@ -124,8 +124,11 @@ export interface AlignmentResult {
    */
   reason_class?: 'unavailable' | 'non_verdict';
   /**
-   * The handle for a stable non-verdict - what `align adjudicate` takes. Present only on
-   * that class, so its absence is what stops a person signing off an outage.
+   * The persisted event id behind this result - present on conflicting verdicts and
+   * stable non-verdicts, absent on aligned/no-context and on outages, so its absence is
+   * what stops a person signing off an outage. `align adjudicate` takes it (the gateway
+   * refuses adjudication of anything but a non-verdict); for a conflict it is what
+   * rating and the PR-outcome join key on (ALI-761).
    */
   check_event_id?: string;
   /**
@@ -410,10 +413,24 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     async checkAlignment(
       diff: string,
       context?: string,
-      opts: { depth?: CheckDepth; title?: string } = {},
+      opts: {
+        depth?: CheckDepth;
+        title?: string;
+        /**
+         * ALI-761: who is running the check ('github-actions' from the align-check action)
+         * and what it is checking ('github:acme/repo#12', the PR HEAD sha). Sent as a
+         * header + two body fields, CHECK-SCOPED on purpose: a client-wide platform claim
+         * would also relabel `align adjudicate`, which the gateway refuses from agents.
+         * All optional; absent means absent, so a caller outside CI changes nothing.
+         */
+        platform?: string;
+        subjectKey?: string;
+        headSha?: string;
+      } = {},
     ): Promise<AlignmentResult> {
       return request<AlignmentResult>('/alignment/check', {
         method: 'POST',
+        ...(opts.platform ? { headers: { 'x-align-platform': opts.platform } } : {}),
         body: JSON.stringify({
           action_type: 'pull_request',
           content: diff.slice(0, 8000),
@@ -428,6 +445,10 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
           // title has to mean absent, not present-and-empty. Sliced to 300 to match that
           // schema's max: a longer title is a 400, and truncating here beats failing the check.
           ...(opts.title ? { title: opts.title.slice(0, 300) } : {}),
+          // Labels only, never keys (the gateway matches adjudications on a digest of the
+          // content it was sent) - what makes a gate verdict joinable to its PR outcome.
+          ...(opts.subjectKey ? { subject_key: opts.subjectKey } : {}),
+          ...(opts.headSha ? { head_sha: opts.headSha } : {}),
         }),
       });
     },

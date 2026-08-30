@@ -49,7 +49,16 @@ Point it at your own gateway. Nothing else changes.
 | `cli-version` | `latest` | Version of `@aligndottech/cli` to run. Pin it to an exact version for reproducible builds. |
 | `working-directory` | `.` | Directory to run in. |
 
-Outputs: `status` (`aligned` / `conflicting` / `unknown` / `error`) and `result` (the raw JSON).
+Outputs: `status` (`aligned` / `conflicting` / `unknown` / `error`), `severity` (highest
+conflict severity, empty when none), `check-event-id` (the persisted event id behind a
+conflicting or non-verdict result - what `align adjudicate` takes for a non-verdict, and
+what rating and outcome tracking join on for a conflict; empty otherwise), and `result`
+(the raw JSON).
+
+The action also identifies the check to the gateway as `github-actions` on the PR's head
+commit, so conflict events are attributable to CI rather than blending into interactive
+traffic, and joinable to the PR they gated. That happens automatically; there is nothing to
+configure.
 
 ## What it diffs, and why that matters
 
@@ -152,6 +161,9 @@ Configure it with environment variables:
 | `ALIGN_TENANT_ID` | Tenant, when the token does not imply one |
 | `ALIGN_GATEWAY_URL` | Self-hosted gateway base URL |
 | `ALIGN_ENV` | `prod`, `preview` or `local` for Align cloud |
+| `ALIGN_PLATFORM` | Optional. Names the CI platform in the check's telemetry (the GitHub action sends `github-actions`). |
+| `ALIGN_SUBJECT_KEY` | Optional. A stable key for what is being checked, e.g. `gitlab:group/repo!42`, so repeated checks of one MR group together. |
+| `ALIGN_HEAD_SHA` | Optional. The commit under check, for joining the verdict to what happened to it. Malformed values are dropped, never fatal. |
 
 GitLab CI:
 

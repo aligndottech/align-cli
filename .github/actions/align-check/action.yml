@@ -54,6 +54,9 @@ outputs:
   result:
     description: 'The full JSON result from the check.'
     value: ${{ steps.check.outputs.result }}
+  check-event-id:
+    description: 'The persisted telemetry event id for this check, when one was minted (conflicting verdicts and stable non-verdicts). What `align adjudicate` and `rate_conflict` key on, and what joins this verdict to the PR outcome. Empty on aligned/no-context results.'
+    value: ${{ steps.check.outputs.check_event_id }}
 
 runs:
   using: 'composite'
@@ -132,6 +135,15 @@ runs:
         # and made this line a second reader of fail-on's vocabulary. The operator who sets
         # depth owns having a stack that supports it; unset sends nothing.
         DEPTH: ${{ inputs.depth }}
+        # PR identity for the gateway's conflict events (ALI-761): through `env`, never
+        # interpolated, same as PR_TITLE. HEAD_SHA comes from the EVENT payload because
+        # GITHUB_SHA on a pull_request is the MERGE commit, not the head. All empty on a
+        # non-PR trigger; the exports below skip what is absent, and an older pinned CLI
+        # ignores the env vars entirely - which is why these are env, not flags: a flag an
+        # older CLI rejects exits 1 with no JSON and freezes merges under fail-on.
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
       run: |
         set -uo pipefail
 
@@ -145,6 +157,17 @@ runs:
         # fall-through to the default), so it is passed through as data, unexamined.
         if [ -n "${DEPTH:-}" ]; then
           set -- "$@" --depth "$DEPTH"
+        fi
+        # CI identity for the CLI (ALI-761): this action IS GitHub Actions, so the platform
+        # claim is unconditional; the subject key and head sha only exist on PR triggers.
+        # The CLI validates fail-soft (a malformed sha costs the attribution, never the
+        # verdict), so these are passed through as data, unexamined.
+        export ALIGN_PLATFORM="github-actions"
+        if [ -n "${REPO:-}" ] && [ -n "${PR_NUMBER:-}" ]; then
+          export ALIGN_SUBJECT_KEY="github:${REPO}#${PR_NUMBER}"
+        fi
+        if [ -n "${HEAD_SHA:-}" ]; then
+          export ALIGN_HEAD_SHA="$HEAD_SHA"
         fi
         # end-of-arg-assembly - action-check-args.test.ts slices at this marker to execute
         # the assembly above; keep it between the last `set --` and the install below.
@@ -204,11 +227,20 @@ runs:
           'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const c=JSON.parse(s).conflicts||[];process.stdout.write(c.some(x=>x&&x.severity==="critical")?"critical":c.some(x=>x&&x.severity==="warning")?"warning":"")}catch{process.stdout.write("")}})' \
           2>/dev/null || echo '')"
 
+        # The persisted telemetry event id for this check (ALI-761): what a workflow needs
+        # to rate or adjudicate THIS verdict, and what joins it to the PR outcome later.
+        # Empty when the check surfaced no event (aligned/no-context), which is honest -
+        # an id is minted only when there is something to answer.
+        CHECK_EVENT_ID="$(printf '%s' "$OUT" | tail -n 1 | node -e \
+          'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).check_event_id||"")}catch{process.stdout.write("")}})' \
+          2>/dev/null || echo '')"
+
         {
           echo "status=$STATUS"
           echo "reason=$REASON"
           echo "severity=$SEVERITY"
           echo "code=$CODE"
+          echo "check_event_id=$CHECK_EVENT_ID"
           echo "result<<ALIGN_EOF"
           printf '%s\n' "$OUT"
           echo "ALIGN_EOF"
@@ -253,6 +285,8 @@ runs:
         # Through env, like ALIGN_RESULT above: this payload carries text out of the graph,
         # and interpolated into the script it would be substituted before bash parses it.
         ALIGN_RESULT: ${{ steps.check.outputs.result }}
+        # Parsed once, in the check step - one reader of the payload format, not two.
+        CHECK_EVENT_ID: ${{ steps.check.outputs.check_event_id }}
       run: |
         set -uo pipefail
         CODE="${{ steps.check.outputs.code }}"
@@ -306,9 +340,7 @@ runs:
             # A NON-VERDICT will not heal on a re-run: the judge answered and abstained, so
             # the same diff returns the same answer forever. Say what actually moves it,
             # rather than leaving a re-run button as the only visible affordance.
-            EVENT_ID="$(printf '%s' "${ALIGN_RESULT:-}" | tail -n 1 | node -e \
-              'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).check_event_id||"")}catch{process.stdout.write("")}})' \
-              2>/dev/null || echo '')"
+            EVENT_ID="${CHECK_EVENT_ID:-}"
             if [ -n "$EVENT_ID" ]; then
               echo "::warning::This one will not clear by re-running - the check reached the judge and it declined to rule. Someone on your team can review it and record the answer: align adjudicate $EVENT_ID --verdict accepted"
             fi

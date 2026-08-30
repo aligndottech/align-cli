@@ -38,6 +38,35 @@ function isCheckDepth(v: string): v is CheckDepth {
   return (CHECK_DEPTHS as readonly string[]).includes(v);
 }
 
+/**
+ * CI identity for the check, env-supplied by the align-check action (ALI-761 phase 2):
+ * ALIGN_PLATFORM ('github-actions'), ALIGN_SUBJECT_KEY ('github:acme/repo#12'),
+ * ALIGN_HEAD_SHA (the PR HEAD sha - GITHUB_SHA is the merge commit, so the action reads
+ * the event payload). Environment rather than argv, deliberately: a new flag against an
+ * older pinned CLI exits 1 with no JSON, decide.sh reads that as incomplete, and a
+ * required gate freezes every merge - env vars an older CLI ignores decouple the action
+ * bump from the CLI publish.
+ *
+ * Validation is fail-soft: the gateway 400s the whole check on a malformed head_sha
+ * (^[0-9a-f]{7,64}$) or an oversized subject_key, and a broken attribution field must
+ * cost the attribution, never the verdict. The platform gets the same treatment for a
+ * different reason: it is the one field that becomes an HTTP header, and undici throws at
+ * Request construction on a newline or any char above U+00FF - a throw the transport layer
+ * rewrites into "Cannot reach gateway", losing the whole verdict to an attribution field.
+ */
+export function ciIdentityFromEnv(
+  env: Record<string, string | undefined>,
+): { platform?: string; subjectKey?: string; headSha?: string } {
+  const platform = env['ALIGN_PLATFORM']?.trim();
+  const subjectKey = env['ALIGN_SUBJECT_KEY']?.trim().slice(0, 200);
+  const sha = env['ALIGN_HEAD_SHA']?.trim().toLowerCase();
+  return {
+    ...(platform && /^[\x21-\x7E]+$/.test(platform) ? { platform } : {}),
+    ...(subjectKey ? { subjectKey } : {}),
+    ...(sha && /^[0-9a-f]{7,64}$/.test(sha) ? { headSha: sha } : {}),
+  };
+}
+
 export function registerCheckCommand(program: Command): void {
   program
     .command('check')
@@ -145,7 +174,7 @@ export function registerCheckCommand(program: Command): void {
       const branch = await getCurrentBranch().catch(() => '');
       // One options object for both paths below, so the CI request and the interactive
       // request cannot silently diverge field by field.
-      const checkOpts = { title: opts.title, depth };
+      const checkOpts = { title: opts.title, depth, ...ciIdentityFromEnv(process.env) };
 
       if (opts.ci) {
         try {
