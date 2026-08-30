@@ -26,3 +26,34 @@ describe('getEmbedding error surfacing (launch packaging)', () => {
     await expect(getEmbedding('hello')).rejects.toThrow(/embedding model|download|connection|proxy/i);
   });
 });
+
+// ALI-740: the compiled binary carries no node_modules, so the transformers import
+// fails there too - but for a completely different reason than on Alpine, and the
+// npm-shaped advice ("reinstall on a supported platform") is wrong and unfollowable
+// for someone who downloaded a binary. The message has to name the situation it is
+// actually in.
+describe('getEmbedding error surfacing (binary distribution)', () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock('@huggingface/transformers');
+    vi.doUnmock('../lib/distribution.js');
+  });
+
+  it('tells a binary user how to get local embeddings, not to reinstall the package', async () => {
+    vi.doMock('../lib/distribution.js', () => ({ alignDistribution: () => 'binary' }));
+    vi.doMock('@huggingface/transformers', () => {
+      throw new Error("Cannot find module '@huggingface/transformers'");
+    });
+    const { getEmbedding } = await import('../lib/local-embeddings.js');
+    await expect(getEmbedding('hello')).rejects.toThrow(/standalone binary/i);
+  });
+
+  it('still gives the npm advice when this is the npm distribution', async () => {
+    vi.doMock('../lib/distribution.js', () => ({ alignDistribution: () => 'npm' }));
+    vi.doMock('@huggingface/transformers', () => {
+      throw new Error("Cannot find module '@huggingface/transformers'");
+    });
+    const { getEmbedding } = await import('../lib/local-embeddings.js');
+    await expect(getEmbedding('hello')).rejects.toThrow(/reinstall on a supported platform/i);
+  });
+});

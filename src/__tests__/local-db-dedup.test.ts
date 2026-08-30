@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
 
 const COMMIT_URL = 'git://commit/d0364cabfef7c371b0773c2d469c3ad1f304a1b2';
@@ -149,7 +149,7 @@ describe('local-db migration of a graph that already holds duplicates', () => {
    * would test my idea rather than the population the old writer left behind.
    */
   function seedDuplicatedV1(): { keptId: string; droppedId: string } {
-    const raw = new Database(dbPath);
+    const raw = new DatabaseSync(dbPath);
     raw.exec(`
       CREATE TABLE decisions (
         id TEXT PRIMARY KEY, title TEXT NOT NULL, summary TEXT NOT NULL, source_url TEXT,
@@ -179,7 +179,7 @@ describe('local-db migration of a graph that already holds duplicates', () => {
     }
     raw.prepare(`INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?,?,?,?,?)`)
       .run('link-1', 'second-id', 'other-id', 'relates', 0.7);
-    raw.pragma('user_version = 1');
+    raw.exec('PRAGMA user_version = 1');
     raw.close();
     return { keptId: 'first-id', droppedId: 'second-id' };
   }
@@ -206,7 +206,7 @@ describe('local-db migration of a graph that already holds duplicates', () => {
 
     // Read through a separate handle so this asserts what is ON DISK, not what the
     // migration believes it did.
-    const raw = new Database(dbPath, { readonly: true });
+    const raw = new DatabaseSync(dbPath, { readOnly: true });
     try {
       const orphanEmbeddings = raw.prepare(
         `SELECT COUNT(*) n FROM decision_embeddings e LEFT JOIN decisions d ON d.id = e.decision_id WHERE d.id IS NULL`,
@@ -234,7 +234,7 @@ describe('local-db migration of a graph that already holds duplicates', () => {
     // Go around insertDecision entirely: a raw INSERT of a colliding source_url must be
     // rejected by the database. If only the upsert prevented duplicates, a future second
     // writer could reintroduce them.
-    const raw = new Database(dbPath);
+    const raw = new DatabaseSync(dbPath);
     try {
       expect(() =>
         raw.prepare(`INSERT INTO decisions (id, title, summary, source_url, platform) VALUES (?,?,?,?,?)`)
@@ -252,7 +252,7 @@ describe('local-db migration of a graph that already holds duplicates', () => {
    * guarded - it is anecdote.
    */
   function seedRaw(rows: Array<[string, string | null, string]>, links: Array<[string, string, string]> = []): void {
-    const raw = new Database(dbPath);
+    const raw = new DatabaseSync(dbPath);
     raw.exec(`
       CREATE TABLE decisions (id TEXT PRIMARY KEY, title TEXT NOT NULL, summary TEXT NOT NULL,
         source_url TEXT, platform TEXT NOT NULL DEFAULT 'cli', created_at TEXT NOT NULL);
@@ -270,13 +270,13 @@ describe('local-db migration of a graph that already holds duplicates', () => {
     for (const [id, s, t] of links) {
       raw.prepare(`INSERT INTO decision_links (id,source_id,target_id,relation,confidence) VALUES (?,?,?,'relates',1.0)`).run(id, s, t);
     }
-    raw.pragma('user_version = 1');
+    raw.exec('PRAGMA user_version = 1');
     raw.close();
   }
 
   /** No orphan or null-FK row anywhere, read from a separate connection. */
   function assertReferentialIntegrity(): void {
-    const raw = new Database(dbPath, { readonly: true });
+    const raw = new DatabaseSync(dbPath, { readOnly: true });
     try {
       const orphanE = raw.prepare(`SELECT COUNT(*) n FROM decision_embeddings e LEFT JOIN decisions d ON d.id = e.decision_id WHERE d.id IS NULL`).get() as { n: number };
       const orphanL = raw.prepare(`SELECT COUNT(*) n FROM decision_links l LEFT JOIN decisions s ON s.id = l.source_id LEFT JOIN decisions t ON t.id = l.target_id WHERE s.id IS NULL OR t.id IS NULL`).get() as { n: number };
@@ -359,16 +359,16 @@ describe('local-db migration of a graph that already holds duplicates', () => {
     seedRaw([['a', 'u1', '10:00'], ['b', 'u1', '10:01']]);
     db = createLocalDb(dbPath);
     db.close();
-    const raw = new Database(dbPath);
-    raw.pragma('user_version = 1'); // index present, duplicates gone, version not yet stamped
+    const raw = new DatabaseSync(dbPath);
+    raw.exec('PRAGMA user_version = 1'); // index present, duplicates gone, version not yet stamped
     raw.close();
 
     db = createLocalDb(dbPath);
 
     expect(db.listDecisions().map(r => r.id)).toEqual(['a']);
-    const check = new Database(dbPath, { readonly: true });
+    const check = new DatabaseSync(dbPath, { readOnly: true });
     try {
-      expect(check.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+      expect((check.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
     } finally {
       check.close();
     }

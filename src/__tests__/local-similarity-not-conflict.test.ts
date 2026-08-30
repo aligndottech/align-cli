@@ -9,7 +9,7 @@
 // without it this fix is indistinguishable from deleting the feature.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -216,8 +216,8 @@ describe('ALI-503 migrating the artefacts already on disk', () => {
     db.insertLink({ sourceId: a, targetId: b, relation: 'conflicts_with', confidence: 0.7 });
     db.close();
 
-    const raw = new Database(dbPath);
-    raw.pragma('user_version = 0');
+    const raw = new DatabaseSync(dbPath);
+    raw.exec('PRAGMA user_version = 0');
     raw.close();
     return { a, b };
   }
@@ -258,8 +258,8 @@ describe('ALI-503 migrating the artefacts already on disk', () => {
     const db = createLocalDb(dbPath);
     db.close();
 
-    const raw = new Database(dbPath);
-    const version = raw.pragma('user_version', { simple: true });
+    const raw = new DatabaseSync(dbPath);
+    const version = (raw.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
     raw.close();
 
     // Against the constant, not a literal: the assertion is "migrate() stamped the version it

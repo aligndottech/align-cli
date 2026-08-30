@@ -12,7 +12,8 @@ npm install            # uses npm (package-lock.json), NOT pnpm
 npm run dev -- --help  # run the CLI from source
 ```
 
-Node 20 or newer is required.
+Node 22.16 or newer is required. That floor is `node:sqlite`, which the local graph
+uses: it is unflagged from 22.13 and `DatabaseSync.isTransaction` lands in 22.16.
 
 ## Before you open a PR
 

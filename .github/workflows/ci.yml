@@ -14,7 +14,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # The floor from package.json engines, not the newest runtime: this is the
+          # version a user on the oldest supported Node actually gets. 22.16 is where
+          # node:sqlite is unflagged AND DatabaseSync.isTransaction exists (ALI-740).
+          node-version: '22.16'
           cache: 'npm'
 
       - run: npm ci
@@ -43,6 +46,14 @@ jobs:
       - name: Smoke model guards
         run: bash scripts/__tests__/test-smoke-model.sh
 
+      # install.sh and scripts/build-binaries.sh are two writers of one fact - the asset
+      # names. A rename on either side 404s every install line in the README at once, with
+      # nothing red until a stranger runs it. This derives both sets and compares them, and
+      # exercises install.sh end to end against a local file:// release including a
+      # deliberately corrupted download (ALI-740).
+      - name: Install-asset parity + installer behaviour
+        run: bash scripts/__tests__/test-install-assets.sh
+
       # And the guard that keeps the two steps above honest: each shell suite is wired to CI
       # by hand, on its own run: line, so forgetting one is a single missing line that nothing
       # reports. An unrun test passes locally and gates nothing - the failure mode is silence
@@ -56,26 +67,28 @@ jobs:
       - name: Build
         run: npm run build
 
-  # Cross-platform: prove a fresh install (native deps build/prebuild), tests
-  # (exercise better-sqlite3 + the local DB), build, and the CLI binary all run on
-  # Windows + macOS. Kept separate so the required "test" context stays ubuntu-only.
+  # Cross-platform: prove a fresh install, tests (exercise the local DB), build, and
+  # the CLI binary all run on Windows + macOS. Kept separate so the required "test"
+  # context stays ubuntu-only.
+  #
+  # This matrix used to pin windows-2022 because `better-sqlite3` shipped no win32
+  # prebuild for the Node ABI in use, so `npm ci` compiled it through node-gyp, and
+  # node-gyp could not detect the Visual Studio on `windows-latest`. ALI-740 moved the
+  # local DB to `node:sqlite`, so there is no native build on any platform any more and
+  # the pin has no subject. Unpinned deliberately rather than left with a comment that
+  # no longer describes anything.
   cross-platform:
     strategy:
       fail-fast: false
       matrix:
-        # Pin Windows to 2022: `better-sqlite3` ships no win32 prebuild for this
-        # Node ABI, so `npm ci` compiles it via node-gyp - and node-gyp (bundled
-        # with Node 20) cannot detect the newer Visual Studio on `windows-latest`
-        # ("unknown version undefined at ...Visual Studio\18"). windows-2022 has
-        # a VS 2022 node-gyp recognises, so the native build succeeds.
-        os: [windows-2022, macos-latest]
+        os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.16'
           cache: 'npm'
 
       - run: npm ci
@@ -89,15 +102,16 @@ jobs:
       - name: Smoke - CLI binary runs
         run: node dist/index.js --version
 
-  # Same gate on Node 22 (not a required context, runs for coverage of the newer runtime).
-  test-node22:
+  # Same gate on the newest Node (not a required context). 22.16 is the floor and the
+  # required `test` job covers it, so the value here is the OTHER end of the range.
+  test-node24:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
 
       - run: npm ci
@@ -114,18 +128,56 @@ jobs:
       - name: Build
         run: npm run build
 
+  # Binary build + smoke (ALI-740). Every target is cross-compiled from ONE runner,
+  # which is only possible because the local graph has no native addon any more - see
+  # scripts/build-binaries.sh for the two ways this failed before `node:sqlite`.
+  #
+  # Building all 8 here rather than only the host one is the point: a target that stops
+  # compiling should fail on the PR that breaks it, not during a release. The smoke then
+  # runs the host binary, because `align --version` exits 0 on a binary whose first DB
+  # call dies, and that false green was believed once already.
+  #
+  # NOT a required context yet - same reasoning as install-smoke below: prove it stable
+  # first. A flaky required gate teaches everyone to ignore red.
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node is not needed to BUILD the binary. It is needed by the smoke, which reads
+      # the SQLite file back with node:sqlite - a separate process with no CLI code in
+      # it, so the schema assertions do not trust the writer.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'   # pinned: a Bun bump changes the runtime we ship
+
+      - run: npm ci
+
+      - name: Build every target
+        run: bash scripts/build-binaries.sh
+
+      - name: Smoke the host binary
+        run: bash scripts/smoke-binary.sh
+
+      - name: Sizes
+        run: ls -lh dist-bin/
+
   # Install smoke: become the user. Packs the real tarball, installs it globally
   # into a clean prefix, and runs the cold no-account first-run sequence
   # (setup --local, import git, search, mcp --setup, a real MCP stdio handshake),
   # asserting exit codes. This crosses the four layers the unit suite never sees:
-  # the tsc output in dist/, the package.json "files" list, the native install
-  # (better-sqlite3 + optional transformers), and Commander's argv parsing -
+  # the tsc output in dist/, the package.json "files" list, the optional install
+  # (@huggingface/transformers, still native), and Commander's argv parsing -
   # ALI-422 lived in that last one with every test green.
   #
-  # The OS x Node matrix is the whole point: the native-build step is the only
+  # The OS x Node matrix is the whole point: the optional native install is the only
   # part of the CLI whose answer differs by platform, and it is exactly the part
-  # no laptop can test for anyone else's machine. windows-2022 for the same
-  # node-gyp/VS reason documented on cross-platform above.
+  # no laptop can test for anyone else's machine. (The local DB no longer differs -
+  # ALI-740 moved it to node:sqlite - which is why windows is unpinned above.)
   #
   # NOT a required context yet - prove it stable first, then add it to branch
   # protection (a gate is only real once something requires it, but a flaky
@@ -136,8 +188,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-2022, macos-latest]
-        node: ['20', '22', '24']
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['22', '24']
         include:
           # ONE leg never restores the model cache, so the real download from
           # huggingface.co is still exercised on every run. A cache covering all nine legs
@@ -197,14 +249,18 @@ jobs:
       # writes the entry. The three legs share a key, so with the combined action the other
       # two race and lose, logging "Failed to save: Unable to reserve cache" - measured on
       # this PR's first run. It is harmless and it reads exactly like a broken cache, which
-      # is how a log line teaches people to stop looking. node 20 is the saver everywhere
+      # is how a log line teaches people to stop looking. node 24 is the saver everywhere
       # (ubuntu's 22 is the cold leg and has no cache at all).
+      #
+      # The saver MUST NOT be the cold leg's version, or the cold leg both skips the restore
+      # and writes the cache, and there is nothing in the log to say the gate lost its only
+      # real download. It moved 20 -> 24 with the matrix (ALI-740).
       #
       # The directory can legitimately be absent: smoke-install.sh refuses to write it after
       # a 429, after any failure, or with no weights on disk, and that run must stay green.
       - name: Was a model cache produced?
         id: model-cache-state
-        if: matrix.cold_model != 'true' && matrix.node == '20'
+        if: matrix.cold_model != 'true' && matrix.node == '24'
         shell: bash
         run: |
           if [ -d .hf-model-cache ] && [ -n "$(ls -A .hf-model-cache 2>/dev/null)" ]; then
@@ -215,7 +271,7 @@ jobs:
 
       - name: Save the local embedding model
         if: >-
-          matrix.cold_model != 'true' && matrix.node == '20'
+          matrix.cold_model != 'true' && matrix.node == '24'
           && steps.model-cache.outputs.cache-hit != 'true'
           && steps.model-cache-state.outputs.present == 'true'
         uses: actions/cache/save@v4

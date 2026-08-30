@@ -5,10 +5,14 @@
 # and types `align`. Four layers sit between those two and none of them is
 # covered by any test: the tsc output in dist/, the package.json "files" list
 # (a file missing from it is missing from npm, invisible in a checkout), the
-# native install step (better-sqlite3 + the optional transformers build), and
-# Commander's argv parsing (ALI-422 lived exactly there - green tests, broken
-# CLI). This script packs the real tarball, installs it globally into a clean
-# prefix, and runs the cold no-account first-run sequence, asserting exit codes.
+# optional install step (@huggingface/transformers, still native - the local graph
+# stopped being, see ALI-740), and Commander's argv parsing (ALI-422 lived exactly
+# there - green tests, broken CLI). This script packs the real tarball, installs it
+# globally into a clean prefix, and runs the cold no-account first-run sequence,
+# asserting exit codes.
+#
+# It covers the NPM artifact. The compiled binary is a different artifact with a
+# different failure mode, and has its own suite: scripts/smoke-binary.sh.
 #
 # It proves nothing about whether the output is USEFUL - that is what human
 # testers are for. It proves the sequence a cold user types does not crash.

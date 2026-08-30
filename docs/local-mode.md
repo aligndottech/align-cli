@@ -77,9 +77,23 @@ applies to the environment you're running in and why.
 
 ## Install notes
 
+There are two ways to install, and they differ on exactly one thing: on-device embeddings.
+
+| | Standalone binary (`install.sh`) | npm (`npm i -g @aligndottech/cli`) |
+|---|---|---|
+| Needs Node on your machine | no | yes, 22.16+ |
+| Cloud mode | yes | yes |
+| Local graph, capture, `local status`, `context sync` | yes | yes |
+| On-device embeddings, so `ask`/`search`/`check` in local mode | **not yet** | yes |
+
+The binary cannot currently carry the embedding model. `@huggingface/transformers` pulls
+`onnxruntime-node`, which is a native addon plus sibling shared libraries it loads itself at
+runtime, and a compiled binary has nowhere to put those. If you want local-only mode today,
+install from npm. The binary says so, and names the command, rather than failing obscurely.
+
 Cloud mode needs no native build.
 
-Local-only mode also uses an on-device embedding model (`@huggingface/transformers`, an optional
+Local-only mode uses an on-device embedding model (`@huggingface/transformers`, an optional
 dependency) that ships native binaries for macOS, glibc Linux and Windows (x64/arm64). On those
 platforms `npm i -g` just works.
 
