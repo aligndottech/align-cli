@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       releases_created: ${{ steps.rp.outputs.releases_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
     steps:
       # Enterprise policy blocks the default GITHUB_TOKEN from opening PRs, so
       # mint a token from the release-bot GitHub App (Contents + PRs: write).
@@ -42,7 +43,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # The floor from package.json engines. Publishing from a Node older than the
+          # package supports would typecheck and test against a runtime no user has.
+          node-version: '22.16'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
@@ -61,6 +64,68 @@ jobs:
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Standalone binaries, attached to the GitHub release (ALI-740).
+  #
+  # `npm install -g` needs a Node toolchain on the user's machine; a binary needs
+  # nothing. Every target cross-compiles from this one runner because the local graph
+  # has no native addon - see scripts/build-binaries.sh for what that cost.
+  #
+  # Independent of `publish` on purpose: npm and the binaries are two distribution
+  # channels, and a registry hiccup must not cost the binaries, or the reverse.
+  binaries:
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    permissions:
+      contents: write # upload release assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0' # pinned: this is the runtime we ship inside the binary
+
+      - name: Build every target
+        run: bash scripts/build-binaries.sh
+
+      # The tag is what decides WHERE these land. An empty one would make `gh release
+      # upload` fail confusingly, or worse, target the wrong release - so read it and
+      # stop, rather than passing an empty string down the pipe.
+      - name: Check the release tag resolved
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "FATAL: release-please reported a release but produced no tag_name."
+            echo "       Refusing to guess which release these binaries belong to."
+            exit 1
+          fi
+          echo "uploading to $TAG"
+
+      - name: Attach binaries to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: gh release upload "$TAG" dist-bin/* --clobber
+
+      # Verify the EFFECT, not the exit code of the upload. `gh release upload` can
+      # succeed per-file; what matters is that the release now carries every asset a
+      # user's install line can ask for.
+      - name: Verify every asset is on the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          listed="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          echo "$listed"
+          missing=0
+          for f in dist-bin/*; do
+            name="$(basename "$f")"
+            printf '%s\n' "$listed" | grep -qx "$name" || { echo "MISSING: $name"; missing=1; }
+          done
+          [ "$missing" -eq 0 ] || { echo "FATAL: the release is missing assets listed above"; exit 1; }
+          echo "all $(ls dist-bin | wc -l | tr -d ' ') assets present on $TAG"
 
   # Republish the record at registry.modelcontextprotocol.io after every npm
   # release, so the registry never describes a version npm does not have

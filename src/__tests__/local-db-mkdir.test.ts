@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createLocalDb } from '../lib/local-db.js';
 
 // Regression for the first-run crash: on a clean machine the local DB's parent
-// directory (e.g. ~/.config/align-cli) does not exist, and better-sqlite3 creates
+// directory (e.g. ~/.config/align-cli) does not exist, and SQLite creates
 // the file but NOT the directory, so `align setup --local` / `align local start`
 // died with `SqliteError: unable to open database file`. createLocalDb must create
 // the parent directory itself.

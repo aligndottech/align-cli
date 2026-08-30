@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -117,8 +117,8 @@ export function identifyingSourceUrl(raw: string | null): string | null {
  * is indistinguishable from this one today, and starts silently eating genuine conflicts the
  * moment anything writes one.
  */
-function migrate(db: Database.Database): void {
-  const version = db.pragma('user_version', { simple: true }) as number;
+function migrate(db: DatabaseSync): void {
+  const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
   if (version < 1) {
     db.exec(`UPDATE decision_links SET relation = 'relates' WHERE relation = 'conflicts_with'`);
   }
@@ -205,30 +205,32 @@ function migrate(db: Database.Database): void {
       // Stamped INSIDE the transaction. Outside it, a process killed between COMMIT and the
       // pragma replays the version-1 relabel on the next open, which turns an adjudicated
       // conflicts_with edge into relates - the exact silent loss the docstring above warns of.
-      db.pragma(`user_version = ${SCHEMA_VERSION}`);
+      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       db.exec('COMMIT');
     } catch (err) {
       // Guarded: SQLITE_FULL, IOERR, BUSY, NOMEM and INTERRUPT auto-roll-back, and an
       // unconditional ROLLBACK then throws "no transaction is active" and buries the real
       // cause - so a user whose disk filled mid-migration would be told the wrong thing.
-      if (db.inTransaction) db.exec('ROLLBACK');
+      if (db.isTransaction) db.exec('ROLLBACK');
       throw err;
     }
   }
   if (version < SCHEMA_VERSION) {
-    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 }
 
 export function createLocalDb(dbPath: string) {
-  // better-sqlite3 creates the DB file but not its parent directory, so on a clean
-  // machine (~/.config/align-cli absent) `align setup --local` crashed with "unable
-  // to open database file". Create the directory first. ':memory:' has no parent.
+  // SQLite creates the DB file but not its parent directory, so on a clean machine
+  // (~/.config/align-cli absent) `align setup --local` crashed with "unable to open
+  // database file". Create the directory first. ':memory:' has no parent.
+  //
+  // Still true after the move off better-sqlite3: node:sqlite does not mkdir either.
   if (dbPath !== ':memory:') {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
+  const db = new DatabaseSync(dbPath);
+  db.exec('PRAGMA journal_mode = WAL');
   db.exec(SCHEMA);
   migrate(db);
 
@@ -263,13 +265,13 @@ export function createLocalDb(dbPath: string) {
     listDecisions(): DecisionRow[] {
       return db.prepare(
         `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt FROM decisions ORDER BY created_at DESC`
-      ).all() as DecisionRow[];
+      ).all() as unknown as DecisionRow[];
     },
 
     getDecisionById(id: string): DecisionRow | null {
       return (db.prepare(
         `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt FROM decisions WHERE id = ?`
-      ).get(id) as DecisionRow | null) ?? null;
+      ).get(id) as unknown as DecisionRow | null) ?? null;
     },
 
     setEmbedding(decisionId: string, embedding: Float32Array): void {
@@ -281,7 +283,7 @@ export function createLocalDb(dbPath: string) {
     getEmbedding(decisionId: string): Float32Array | null {
       const row = db.prepare(
         `SELECT embedding FROM decision_embeddings WHERE decision_id = ?`
-      ).get(decisionId) as { embedding: Buffer } | null;
+      ).get(decisionId) as { embedding: Uint8Array } | null;
       if (!row) return null;
       return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
     },
@@ -289,7 +291,7 @@ export function createLocalDb(dbPath: string) {
     getAllEmbeddings(): Array<{ decisionId: string; embedding: Float32Array }> {
       const rows = db.prepare(
         `SELECT decision_id, embedding FROM decision_embeddings`
-      ).all() as Array<{ decision_id: string; embedding: Buffer }>;
+      ).all() as Array<{ decision_id: string; embedding: Uint8Array }>;
       return rows.map(r => ({
         decisionId: r.decision_id,
         embedding: new Float32Array(r.embedding.buffer, r.embedding.byteOffset, r.embedding.byteLength / 4),
@@ -316,10 +318,10 @@ export function createLocalDb(dbPath: string) {
 
     listLinks(filter?: { relation?: string; decisionId?: string }): LinkRow[] {
       let sql = `SELECT id, source_id as sourceId, target_id as targetId, relation, confidence FROM decision_links WHERE 1=1`;
-      const params: unknown[] = [];
+      const params: string[] = [];
       if (filter?.relation) { sql += ` AND relation = ?`; params.push(filter.relation); }
       if (filter?.decisionId) { sql += ` AND (source_id = ? OR target_id = ?)`; params.push(filter.decisionId, filter.decisionId); }
-      return db.prepare(sql).all(...params) as LinkRow[];
+      return db.prepare(sql).all(...params) as unknown as LinkRow[];
     },
 
     getStats(): DbStats {

@@ -18,7 +18,11 @@ Every substantial change is tracked in Linear and traceable branch → ticket �
 ## Repo specifics (READ THIS)
 
 - **Package manager: `npm`** (NOT pnpm). The lockfile is `package-lock.json`. Use `npm install` / `npm ci` - do not introduce `pnpm-lock.yaml`.
-- **Node ≥ 20** (CI uses Node 20).
+- **Node ≥ 22.16** (CI's required `test` job runs the floor, 22.16; `test-node24` runs the
+  other end). The floor is `node:sqlite`, which `src/lib/local-db.ts` uses for the local
+  graph - unflagged from 22.13, and `DatabaseSync.isTransaction` lands in 22.16. There is
+  **no native dependency left**, which is what lets one runner cross-compile all 8 binary
+  targets (ALI-740).
 - **Publishing happens when the RELEASE PR merges, not when you push a tag.** There is no
   `publish.yml` (this line used to name one): the `publish` job lives in
   `.github/workflows/release-please.yml`, is gated on

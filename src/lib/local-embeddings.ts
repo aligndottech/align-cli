@@ -1,3 +1,5 @@
+import { alignDistribution } from './distribution.js';
+
 type EmbeddingPipeline = (text: string, options: Record<string, unknown>) => Promise<Array<{ data: Float32Array }>>;
 let _pipe: EmbeddingPipeline | null = null;
 
@@ -18,11 +20,18 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
       const HF_TRANSFORMERS = '@huggingface/transformers';
       mod = (await import(HF_TRANSFORMERS)) as unknown as typeof mod;
     } catch (err) {
-      throw new Error(
-        'Local mode needs the on-device embedding model (@huggingface/transformers), which is not installed on this platform. ' +
-        'Use cloud mode (`align login`), or reinstall on a supported platform (macOS, glibc Linux, or Windows x64/arm64). ' +
-        `(${(err as Error).message})`,
-      );
+      // Two different situations produce the same failure here, and the npm advice is
+      // unfollowable for someone who downloaded a binary: there is no package for them
+      // to reinstall (ALI-740). The binary carries no node_modules at all, because
+      // onnxruntime-node is a native addon PLUS sibling shared libraries it dlopens
+      // itself, which `bun build --compile` cannot embed.
+      const base = 'Local mode needs the on-device embedding model (@huggingface/transformers), ';
+      const cause = `(${(err as Error).message})`;
+      const advice =
+        alignDistribution() === 'binary'
+          ? 'which the standalone binary does not yet carry. Use cloud mode (`align login`), or install via npm for on-device embeddings: npm install -g @aligndottech/cli.'
+          : 'which is not installed on this platform. Use cloud mode (`align login`), or reinstall on a supported platform (macOS, glibc Linux, or Windows x64/arm64).';
+      throw new Error(`${base}${advice} ${cause}`);
     }
     try {
       // First call downloads ~23MB from the Hugging Face Hub (huggingface.co), then caches.

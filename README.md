@@ -12,12 +12,19 @@ can tell what still stands, what conflicts, or why. Align pulls them into one gr
 check before they build.
 
 ```bash
-npm install -g @aligndottech/cli
+curl -fsSL https://raw.githubusercontent.com/aligndottech/align-cli/main/install.sh | sh
 align setup --local
 align ask "why do we use postgres"
 ```
 
-Node 20+. MIT. No account needed. Beta, pre-1.0.
+A standalone binary. No Node, no npm, nothing else to install. Linux, macOS and Windows,
+x64 and arm64, glibc and musl. Verified against the release's own checksums, and you can
+read [install.sh](install.sh) before you pipe it anywhere.
+
+Prefer npm, or already have Node? `npm install -g @aligndottech/cli` (Node 22.16+).
+Binaries for every platform are on the [releases page](https://github.com/aligndottech/align-cli/releases/latest).
+
+MIT. No account needed. Beta, pre-1.0.
 
 Run it inside a git repository. `--local` seeds the graph from your commit history, so you have
 something to ask about straight away, and your decisions stay in a SQLite file on your machine.
