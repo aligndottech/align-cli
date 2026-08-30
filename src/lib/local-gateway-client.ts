@@ -103,7 +103,7 @@ export function createLocalGatewayClient(dbPath: string) {
     input: string,
     platform: string,
     opts: { titleOverride?: string; sourceUrlOverride?: string | null } = {},
-  ): Promise<{ id: string; title: string; summary: string; sourceUrl: string | null; platform: string; related: Array<{ decisionId: string; score: number }> }> {
+  ): Promise<{ id: string; title: string; summary: string; sourceUrl: string | null; platform: string; related: Array<{ decisionId: string; score: number }>; created: boolean }> {
     let title = input.slice(0, 80);
     let summary = input;
     let sourceUrl: string | null = opts.sourceUrlOverride ?? null;
@@ -117,6 +117,11 @@ export function createLocalGatewayClient(dbPath: string) {
     }
     if (opts.titleOverride) title = opts.titleOverride.slice(0, 80);
 
+    // BEFORE the upsert: insertDecision returns the surviving id whether it inserted or
+    // refreshed, so this is the only moment the difference is visible. Without it a
+    // re-import reports every decision as imported while the graph does not move, which
+    // reads as having imported twice (ALI-770).
+    const created = db.findIdBySource(sourceUrl, title) === null;
     const id = db.insertDecision({ title, summary, sourceUrl, platform });
     // Embed title + summary so URL captures (whose summary is just "Captured
     // from <host>") still carry the path-derived title's semantic content.
@@ -131,7 +136,7 @@ export function createLocalGatewayClient(dbPath: string) {
       // align_get_conflicts MCP tool report manufactured findings as detections.
       db.insertLink({ sourceId: id, targetId: c.decisionId, relation: 'relates', confidence: c.score });
     }
-    return { id, title, summary, sourceUrl, platform, related: candidates };
+    return { id, title, summary, sourceUrl, platform, related: candidates, created };
   }
 
   return {
@@ -158,6 +163,7 @@ export function createLocalGatewayClient(dbPath: string) {
         });
         snapshots.push({
           id: r.id,
+          created: r.created,
           title: r.title,
           summary: r.summary,
           analysis: {

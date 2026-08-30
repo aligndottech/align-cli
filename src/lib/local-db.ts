@@ -262,6 +262,39 @@ export function createLocalDb(dbPath: string) {
       return inserted.id;
     },
 
+    /**
+     * The id this graph already holds for `(source_url, title)`, or null.
+     *
+     * Exists so a caller can tell an insert from a refresh (ALI-770): `insertDecision`
+     * upserts and returns the surviving id either way, so an import could not say whether
+     * it added anything. It reported every re-import as "Imported N decisions" while the
+     * graph did not move, which reads as having imported twice.
+     *
+     * Normalises through `identifyingSourceUrl` because that is what insertDecision STORES.
+     * That function does NOT strip query strings or fragments - it keeps the value verbatim,
+     * and only trims whitespace and turns a URL addressing a host and nothing on it into
+     * null. (An earlier version of this comment, and of the test beside it, claimed the
+     * stripping. The test failed and the claim was wrong; a review bot caught that the
+     * comment had kept it.)
+     *
+     * So what the normalisation buys here is the bare-origin case, and it is the one that
+     * matters: connector-core substitutes `https://teams.microsoft.com` for a Teams message
+     * with no permalink. Matching on that would find the first such row and report every
+     * later Teams message as already known - wrong in the one direction nobody questions,
+     * because "0 new" on a real import looks exactly like a no-op the user expected.
+     *
+     * A null `sourceUrl` is always null here: SQLite treats each NULL in a unique index as
+     * distinct, so those rows never conflict and every one of them really is new.
+     */
+    findIdBySource(sourceUrl: string | null, title: string): string | null {
+      const identity = identifyingSourceUrl(sourceUrl);
+      if (identity === null) return null;
+      const row = db.prepare(
+        `SELECT id FROM decisions WHERE source_url = ? AND title = ?`
+      ).get(identity, title) as { id: string } | undefined;
+      return row?.id ?? null;
+    },
+
     listDecisions(): DecisionRow[] {
       return db.prepare(
         `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt FROM decisions ORDER BY created_at DESC`

@@ -139,10 +139,20 @@ export async function runPersonalImport(
     BATCH_CONCURRENCY,
   );
 
+  // How many of those rows were NEW. Only the local client reports this; the cloud gateway
+  // does not, and `undefined` there must leave the existing message untouched rather than
+  // claiming everything was new (ALI-770).
+  let newCount = 0;
+  let knownCount = 0;
+
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (r.status === 'fulfilled') {
       total += r.value.snapshots.length;
+      for (const s of r.value.snapshots as Array<{ created?: boolean }>) {
+        if (s.created === true) newCount++;
+        else if (s.created === false) knownCount++;
+      }
       for (const s of r.value.snapshots) relatedCount += s.analysis?.relatedDecisions?.length ?? 0;
     } else {
       failures.push(`Batch ${i + 1}: ${(r.reason as Error).message}`);
@@ -161,8 +171,15 @@ export async function runPersonalImport(
     return total;
   }
 
+  // Said only when something was ALREADY known, which is the case that needs explaining.
+  // On a genuinely first import "(2 new, 0 already known)" is noise, and noise printed every
+  // time stops being read.
+  const knownNote = knownCount > 0
+    ? ` (${newCount} new, ${knownCount} already in your graph)`
+    : '';
+
   if (failures.length === 0) {
-    spinner!.succeed(`Imported ${total} decisions from ${opts.label}`);
+    spinner!.succeed(`Imported ${total} decisions from ${opts.label}${knownNote}`);
   } else {
     spinner!.warn(`Imported ${total} decisions (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`);
     for (const f of failures) p.log.warn(f);
