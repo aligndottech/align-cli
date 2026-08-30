@@ -88,6 +88,7 @@ align search "auth" --env local   # one-off override on any command
 | `ALIGN_LLM_BASE_URL` | Any OpenAI-compatible endpoint. Outranks the named keys above |
 | `ALIGN_LLM_API_KEY` | Bearer token for `ALIGN_LLM_BASE_URL` |
 | `ALIGN_LLM_MODEL` | Model name for `ALIGN_LLM_BASE_URL` (default `gpt-4o-mini`) |
+| `ALIGN_LLM_TIMEOUT_MS` | How long to wait for a model. Defaults to 15s for a hosted API and 5 minutes for one on your own machine or network, because a large quantised model on CPU takes minutes and there is no cost pressure to give up early on hardware you own. Set it if even that is not enough |
 | `OLLAMA_HOST` | Ollama host (default `http://localhost:11434`). Your own machine by default; point it at a shared box and local relationship typing goes there instead |
 | `ALIGN_OLLAMA_MODEL` | Use this Ollama model, whatever family it's from |
 | `ALIGN_INGEST_CONCURRENCY` | Concurrent ingest batch requests during imports (default `6`) |
