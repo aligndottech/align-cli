@@ -20,12 +20,17 @@ export function registerLocalCommand(program: Command): void {
       s.start('Setting up local graph...');
       const { dbPath } = await initLocalMode();
       s.stop('Local graph ready');
+
+      // initLocalMode used to wire every detected agent's global MCP config from inside
+      // itself, without asking. This is the same wiring, asked for (ALI-776).
+      const { connectDetectedAgents } = await import('./connect-agents.js');
+      await connectDetectedAgents('local');
+
       outro(
         `${chalk.green('Your local Align graph is ready.')}\n` +
         `  Graph stored at: ${chalk.dim(dbPath)}\n` +
         `  No account needed. Data stays on your machine.\n\n` +
-        `  Run ${chalk.cyan('align mcp --setup')} to wire up your IDE, or\n` +
-        `  run ${chalk.cyan('ALIGN_ENV=local align mcp')} to start the MCP server.`,
+        `  Run ${chalk.cyan('align')} any time to see your graph and what to do next.`,
       );
     });
 

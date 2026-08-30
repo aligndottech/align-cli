@@ -9,7 +9,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { createConfigStore, type EnvironmentConfig, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
+import { detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
 
 // Server-level instructions (ALI-120): surfaced to the agent so it reaches for
 // Align proactively - without the user prompting - the moment this MCP server is
@@ -255,6 +255,7 @@ export function registerMcpCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--setup', 'Interactively configure your MCP-capable agents to use Align as an MCP server')
     .option('--install', 'Configure agents - alias for --setup')
+    .option('--remove', 'Remove Align from your agents\' MCP config')
     .addHelpText('after', `
 Claude Code config (~/.claude.json or workspace .mcp.json):
   {
@@ -263,7 +264,11 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
     }
   }
 `)
-    .action(async (opts: { env: EnvName; setup?: boolean; install?: boolean }) => {
+    .action(async (opts: { env: EnvName; setup?: boolean; install?: boolean; remove?: boolean }) => {
+      if (opts.remove) {
+        await runMcpRemove();
+        return;
+      }
       if (opts.setup || opts.install) {
         await runMcpSetup(opts.env);
         return;
@@ -297,6 +302,49 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
       const transport = new StdioServerTransport();
       await server.connect(transport);
     });
+}
+
+/**
+ * The undo for the automatic wiring setup does (ALI-776).
+ *
+ * Setup connects detected agents without asking, which is only defensible because the write
+ * is additive and reversible. This is that reversibility, and it needs to be one command -
+ * "delete the align key from each of these JSON files" is not an undo anyone will perform.
+ *
+ * No prompt: the user typed --remove. Asking them to confirm the thing they just asked for
+ * is the ceremony this whole change is about removing.
+ */
+async function runMcpRemove(): Promise<void> {
+  p.intro(chalk.bgBlue.white(' align mcp --remove '));
+
+  const editors = detectEditors();
+  if (!editors.length) {
+    p.log.info('No MCP agent detected on this machine, so there is nothing to remove.');
+    p.outro('Done.');
+    return;
+  }
+
+  let removed = 0;
+  for (const target of editors) {
+    try {
+      if (removeMcpConfig(target)) {
+        removed++;
+        p.log.success(`${target.name}: align removed from ${target.configPath}`);
+      } else {
+        // Said explicitly rather than silently skipped: "nothing happened" and "it was never
+        // there" look identical otherwise, and only one of them is reassuring.
+        p.log.info(`${target.name}: no align entry, nothing to remove`);
+      }
+    } catch (err) {
+      p.log.warn(`${target.name}: ${(err as Error).message}`);
+    }
+  }
+
+  p.outro(
+    removed > 0
+      ? `Removed from ${removed} agent${removed === 1 ? '' : 's'}. Restart your editor. ${chalk.dim('align mcp --setup')} puts it back.`
+      : 'Nothing to remove.',
+  );
 }
 
 async function runMcpSetup(env?: EnvName): Promise<void> {

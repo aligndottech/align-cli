@@ -28,25 +28,33 @@ import { initLocalMode } from '../lib/local-mode.js';
 
 describe('initLocalMode', () => {
   it('calls setLocalMode with a path ending in .db', async () => {
-    await initLocalMode({ quiet: true });
+    await initLocalMode();
     expect(mockSetLocalMode).toHaveBeenCalledWith(expect.stringMatching(/\.db$/));
   });
 
   it('does not flip the global default env (would hijack non-MCP commands to a local client that lacks their methods)', async () => {
-    await initLocalMode({ quiet: true });
+    await initLocalMode();
     expect(mockSetDefaultEnv).not.toHaveBeenCalled();
   });
 
-  it('writes MCP configs for each detected editor when not quiet', async () => {
-    const fakeTarget = { name: 'Cursor', configPath: '/tmp/cursor/mcp.json', format: 'mcpServers' };
-    mockDetectEditors.mockReturnValueOnce([fakeTarget]);
-    await initLocalMode({ quiet: false });
-    expect(mockWriteMcpConfig).toHaveBeenCalledWith(fakeTarget, 'local');
-  });
-
-  it('skips MCP config writing when quiet=true', async () => {
+  /**
+   * These two used to assert the opposite: that initLocalMode writes every detected editor's
+   * MCP config when `quiet` is false. It did, silently, from a function whose name says it
+   * initialises a graph - and ~/.claude.json and a Claude Desktop config are user-level files
+   * people curate across every project.
+   *
+   * That write moved to connectDetectedAgents, which asks first (ALI-776). Pinned here so it
+   * cannot drift back into a function nobody would think to check for it.
+   */
+  it('does not touch any global editor config', async () => {
+    // No detected-editor fixture on purpose: initLocalMode no longer calls detectEditors at
+    // all, so staging one would suggest this exercises a path it does not. Asserting BOTH
+    // collaborators are untouched is the stronger claim anyway - it catches the write coming
+    // back by either route.
+    mockDetectEditors.mockClear();
     mockWriteMcpConfig.mockClear();
-    await initLocalMode({ quiet: true });
+    await initLocalMode();
+    expect(mockDetectEditors).not.toHaveBeenCalled();
     expect(mockWriteMcpConfig).not.toHaveBeenCalled();
   });
 });

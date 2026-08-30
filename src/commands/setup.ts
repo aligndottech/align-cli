@@ -7,7 +7,7 @@ import { execa } from 'execa';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
-import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
+import { connectDetectedAgents } from './connect-agents.js';
 import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { isGitRepo } from '../lib/git.js';
 import { initLocalMode } from '../lib/local-mode.js';
@@ -316,11 +316,17 @@ async function runLocalSetup(): Promise<void> {
   // function so a scripted `setup --local` never blocks on either of them.
   const interactive = process.stdin.isTTY && process.stdout.isTTY;
 
-  const { dbPath } = await initLocalMode({ quiet: false });
+  const { dbPath } = await initLocalMode();
   p.log.success('Local graph ready - no account needed, your data stays on this machine.');
 
   // Deterministic auto-alignment files target the local graph (advisory check runs --env local).
   writeAgentAlignment('local');
+
+  // The agents installed on this machine, not just the ones this project configures. Local
+  // setup skipped this and cloud did not, which is backwards: local mode is the one whose
+  // entire pitch is an agent on your own machine reading a graph that never leaves it.
+  console.log('');
+  await connectDetectedAgents('local');
 
   const config = createConfigStore();
   const localEnv = config.getEnvironment('local');
@@ -569,37 +575,14 @@ async function runCloudSetup(ctx: {
 
   // ---- Step 3: MCP editor config (before import - this is the payoff) ----
   console.log('');
-  const editors = detectEditors();
-  if (editors.length > 0) {
-    p.log.info(`Detected ${editors.length} agent${editors.length === 1 ? '' : 's'}: ${editors.map(e => e.name).join(', ')}`);
-    let selectedEditors: string[] = editors.map(e => e.name);
-    if (editors.length > 1) {
-      const sel = await p.multiselect({
-        message: 'Which agents to configure?',
-        options: editors.map(e => ({ value: e.name, label: e.name })),
-      });
-      if (!p.isCancel(sel)) selectedEditors = sel as string[];
-    }
-    for (const name of selectedEditors) {
-      const target = editors.find(e => e.name === name)!;
-      try {
-        writeMcpConfig(target, envName === 'prod' ? undefined : envName);
-        p.log.success(`${name}: align MCP connected`);
-      } catch (err) {
-        p.log.warn(`${name}: ${(err as Error).message}`);
-      }
-    }
-  } else {
-    // Agent-agnostic: Align is just an MCP server, so any MCP-capable agent works
-    // even when we can't auto-detect it. Hand over the portable config to paste.
-    const envArgs = envName !== 'prod' ? `, "--env", "${envName}"` : '';
-    p.log.info(
-      `No MCP agent detected automatically. Align works with any MCP-capable agent ` +
-      `(Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, pi, ...).\n` +
-      `Add this to your agent's MCP config (or re-run ${chalk.bold('align mcp --setup')} once it is installed):\n\n` +
-      `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
-    );
-  }
+  // Shared with the local path (ALI-776), which used to skip this entirely - so a local-only
+  // user got LESS agent wiring than a cloud one, on the mode where an agent running on your
+  // own machine is the whole point.
+  //
+  // It also ASKS now. This block wrote to a user-level config without a word whenever exactly
+  // one editor was detected; it only prompted at two or more. And the multiselect it used was
+  // unguarded, so `align setup --approve` with two agents installed hung.
+  const agents = await connectDetectedAgents(envName);
 
   // ---- Step 3b: Deterministic auto-alignment files (hook + nudges) ----
   writeAgentAlignment(envName);
@@ -636,7 +619,15 @@ async function runCloudSetup(ctx: {
   }
 
   // ---- Step 5: First-query prompt ----
-  if (editors.length > 0) {
+  // Only when something was actually WIRED, not merely detected: telling someone their agent
+  // is connected when they declined the prompt would be false.
+  //
+  // The question stays as it is, deliberately. ALI-771 removed it from the LOCAL outro
+  // because typing it into `align ask` matches nothing - it is about the graph rather than in
+  // it. Asked of an AGENT over MCP it is a good opening question, because the agent answers
+  // it by calling a list tool rather than a similarity search. Different surface, different
+  // advice.
+  if (agents.connected > 0) {
     console.log('');
     p.log.info(chalk.dim('Your agent is connected. Try asking:'));
     p.log.info(chalk.bold('  "What decisions exist in this codebase?"'));
