@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/aligndottech/align-cli/main/install.sh | sh
 #
 # Downloads the standalone binary for this platform from the latest GitHub release,
-# verifies its SHA-256 against the release's own SHASUMS file, and installs it.
+# verifies its SHA-256 against the release's own SHA256SUMS file, and installs it.
 #
 # POSIX sh on purpose: this runs on whatever shell a stranger's machine has, before
 # they have installed anything of ours. No bashisms, no arrays, no [[ ]].
