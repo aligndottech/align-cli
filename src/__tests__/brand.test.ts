@@ -49,6 +49,22 @@ describe('logoLines', () => {
     expect(dark).not.toContain('38;2;2;40;99');
   });
 
+  it('style "teal" actually paints the mark teal, with no white left in it', () => {
+    // Shipped once with the option wired to nothing: 'white' and 'teal' produced
+    // byte-identical output and every other test still passed. Only comparing the two
+    // caught it, so the comparison is the test.
+    const teal = logoLines({ color: true, truecolor: true, style: 'teal' }).join('');
+    expect(teal).toContain('38;2;67;182;172');
+    expect(teal).not.toContain('38;2;255;255;255');
+  });
+
+  it('each style produces a DIFFERENT rendering', () => {
+    const render = (style: 'white' | 'teal' | 'solid') =>
+      logoLines({ color: true, truecolor: true, style }).join('');
+    expect(render('white')).not.toEqual(render('teal'));
+    expect(render('teal')).not.toEqual(render('solid'));
+  });
+
   it('uses navy on a light background', () => {
     const light = logoLines({ color: true, truecolor: true, dark: false }).join('');
     expect(light).toContain('38;2;2;40;99');

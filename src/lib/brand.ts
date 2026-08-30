@@ -26,8 +26,8 @@ const TEAL_256 = 79;
 const NAVY_256 = 24;
 const WHITE_256 = 231;
 
-export const LOGO_WIDTH = 16;
-export const LOGO_ROWS = 5;
+export const LOGO_WIDTH = 20;
+export const LOGO_ROWS = 8;
 
 /**
  * The live positioning line, taken from align-frontend's hero (src/lib/seo.ts).
@@ -45,14 +45,34 @@ export const TAGLINE_LINES = [
  *   'x' mark over teal              'y' teal over mark
  */
 const SPRITE: readonly string[] = [
-  '     uNNNNu     ',
-  '    NNnuunNN    ',
-  '   NNn nn nNN   ',
-  'TTTTTTTTTTTTTTTT',
-  '  NNN      NNN  ',
+  '        unnu        ',
+  '       NnuunN       ',
+  '      NnunnunN      ',
+  '    uNNuNuuNuNNuuuuu',
+  'vvvvvvvvvvvvvvvvvv  ',
+  '   vvvvv    vvvvv   ',
+  '  uu  uu    uu  uu  ',
+  '  NNuNN      NNuNN  ',
+];
+
+/** Which brand colour the mark's strokes take. The pack ships a teal-only variant
+ * (F 2 R) as well as the white knockout (F 4 R), so both are on-brand. */
+export type MarkStyle = 'white' | 'teal' | 'solid';
+
+const SPRITE_SOLID: readonly string[] = [
+  '        uNNu        ',
+  '       NNnnNN       ',
+  '      NNnuunNN      ',
+  '    uNNNuNNuNNNuuuuu',
+  'vvvvvvvvvvvvvvvvvv  ',
+  '   vvvvv    vvvvv   ',
+  '  uuu uuu   uuu uuu ',
+  '  NNNuNNN   NNNuNNN ',
 ];
 
 export interface RenderOptions {
+  /** Mark styling; defaults to 'white'. */
+  style?: MarkStyle;
   /** Emit ANSI at all. Defaults to "stdout is a TTY and NO_COLOR is unset". */
   color?: boolean;
   /** Use 24-bit colour. Defaults to reading COLORTERM. */
@@ -105,7 +125,13 @@ export function logoLines(opts: RenderOptions = {}): string[] {
   const markRgb = resolveDark(opts) ? WHITE_RGB : NAVY_RGB;
   const mark256 = resolveDark(opts) ? WHITE_256 : NAVY_256;
 
-  return SPRITE.map((row) => {
+  const style = opts.style ?? 'white';
+  // 'teal' paints the strokes teal instead of the knockout white; 'solid' also swaps in
+  // the filled sprite, which reads bolder because the mass carries the colour rather
+  // than a one-cell outline.
+  const strokeRgb = style === 'white' ? markRgb : TEAL_RGB;
+  const stroke256 = style === 'white' ? mark256 : TEAL_256;
+  return (style === 'solid' ? SPRITE_SOLID : SPRITE).map((row) => {
     let out = '';
     for (const cell of row) {
       // Plain mode still uses the blocks: the shape is the point, and stripping
@@ -120,14 +146,14 @@ export function logoLines(opts: RenderOptions = {}): string[] {
       }
       switch (cell) {
         case ' ': out += ' '; break;
-        case 'N': out += `${fg(markRgb, mark256, truecolor)  }█${  RESET}`; break;
+        case 'N': out += `${fg(strokeRgb, stroke256, truecolor)  }█${  RESET}`; break;
         case 'T': out += `${fg(TEAL_RGB, TEAL_256, truecolor)  }█${  RESET}`; break;
-        case 'n': out += `${fg(markRgb, mark256, truecolor)  }▀${  RESET}`; break;
-        case 'u': out += `${fg(markRgb, mark256, truecolor)  }▄${  RESET}`; break;
+        case 'n': out += `${fg(strokeRgb, stroke256, truecolor)  }▀${  RESET}`; break;
+        case 'u': out += `${fg(strokeRgb, stroke256, truecolor)  }▄${  RESET}`; break;
         case 't': out += `${fg(TEAL_RGB, TEAL_256, truecolor)  }▀${  RESET}`; break;
         case 'v': out += `${fg(TEAL_RGB, TEAL_256, truecolor)  }▄${  RESET}`; break;
-        case 'x': out += `${fg(markRgb, mark256, truecolor) + bg(TEAL_RGB, TEAL_256, truecolor)  }▀${  RESET}`; break;
-        case 'y': out += `${fg(TEAL_RGB, TEAL_256, truecolor) + bg(markRgb, mark256, truecolor)  }▀${  RESET}`; break;
+        case 'x': out += `${fg(strokeRgb, stroke256, truecolor) + bg(TEAL_RGB, TEAL_256, truecolor)  }▀${  RESET}`; break;
+        case 'y': out += `${fg(TEAL_RGB, TEAL_256, truecolor) + bg(strokeRgb, stroke256, truecolor)  }▀${  RESET}`; break;
         default: out += ' ';
       }
     }
@@ -155,11 +181,11 @@ export function banner(opts: BannerOptions): string {
 
   const right: string[] = new Array(LOGO_ROWS).fill('');
   // Registered, not TM: Align is a registered trademark.
-  right[0] = `${bold}ALIGN®${reset}`;
-  right[1] = `${tealFg}${TAGLINE_LINES[0]}${reset}`;
-  right[2] = `${tealFg}${TAGLINE_LINES[1]}${reset}`;
+  right[1] = `${bold}ALIGN®${reset}`;
+  right[2] = `${tealFg}${TAGLINE_LINES[0]}${reset}`;
+  right[3] = `${tealFg}${TAGLINE_LINES[1]}${reset}`;
   const meta = opts.context ? `v${opts.version}  ${'\u00b7'}  ${opts.context}` : `v${opts.version}`;
-  right[4] = `${dim}${meta}${reset}`;
+  right[5] = `${dim}${meta}${reset}`;
 
   const mark = logoLines(opts);
   return mark.map((m, i) => (right[i] ? `${m}   ${right[i]}` : m)).join('\n');
