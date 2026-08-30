@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.1](https://github.com/aligndottech/align-cli/compare/cli-v0.24.0...cli-v0.24.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* a local model gets minutes, not the hosted-API 15 seconds (ALI-775) ([#178](https://github.com/aligndottech/align-cli/issues/178)) ([8cb8881](https://github.com/aligndottech/align-cli/commit/8cb8881a9d21b1f40056d6795a6fdaa7ccede0e1))
+
 ## [0.24.0](https://github.com/aligndottech/align-cli/compare/cli-v0.23.1...cli-v0.24.0) (2026-08-30)
 
 
