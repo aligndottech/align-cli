@@ -413,6 +413,32 @@ describe('align setup', () => {
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('prod'));
     });
 
+    it('--local --approve does NOT stop to ask about the gh token', async () => {
+      // Copilot on #183. --approve is "Skip confirmation prompts (for scripted use)",
+      // and the gh-token reuse added a p.confirm to that path. The unit test covers the
+      // DECISION; this covers the WIRING, which is the half that shipped broken earlier
+      // in this same PR when a formatter moved the call sites out from under an edit.
+      mockMultiselect.mockResolvedValue(['github']);
+      const { confirm } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+      const asked = (confirm as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => String((c[0] as { message?: string })?.message ?? ''))
+        .filter((m) => m.includes('Use its token'));
+      expect(asked).toEqual([]);
+    });
+
+    it('--local WITHOUT --approve still asks about the gh token', async () => {
+      // The negative control. Without it the test above passes just as well when the gh
+      // path never runs at all, which is the empty-world failure tdd.md warns about.
+      mockMultiselect.mockResolvedValue(['github']);
+      const { confirm } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const asked = (confirm as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => String((c[0] as { message?: string })?.message ?? ''))
+        .filter((m) => m.includes('Use its token'));
+      expect(asked.length).toBeGreaterThan(0);
+    });
+
     it('--local ASKS which sources to connect before it scans git', async () => {
       // Same ask-then-run shape as the cloud path. --local is the flow an outside tester
       // was on when the picker corrupted itself under a screenful of git output, so the

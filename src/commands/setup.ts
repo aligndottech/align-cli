@@ -4,7 +4,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import open from 'open';
 import { execa } from 'execa';
-import { CLI_TOKEN_SOURCES, detectCliToken, pickerMaxItems } from '../lib/setup-ux.js';
+import { CLI_TOKEN_SOURCES, cliTokenDecision, detectCliToken, pickerMaxItems } from '../lib/setup-ux.js';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
@@ -239,6 +239,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
 async function collectTokens(
   source: SetupSource,
   seed: Record<string, string> = {},
+  opts: { approve?: boolean } = {},
 ): Promise<Record<string, string> | null> {
   // `seed` pre-populates already-known fields (e.g. a self-managed host gathered
   // up front) so tokenUrl() resolves against the right host.
@@ -260,16 +261,21 @@ async function collectTokens(
     const cliSource = CLI_TOKEN_SOURCES[source.id];
     if (cliSource) {
       const cliToken = await detectCliToken(cliSource.bin, cliSource.args);
-      if (cliToken) {
-        const useCli = await p.confirm({
+      const decision = cliTokenDecision({ token: cliToken, approve: opts.approve ?? false });
+      let useCli = decision === 'use';
+      if (decision === 'ask') {
+        const answer = await p.confirm({
           message: `  Found ${cliSource.label}. Use its token? (no browser, nothing to create)`,
         });
-        if (p.isCancel(useCli)) return null;
-        if (useCli) {
-          tokens['token'] = cliToken;
-          p.log.success(`  Using your ${cliSource.label} token.`);
-          return tokens;
-        }
+        if (p.isCancel(answer)) return null;
+        useCli = answer;
+      }
+      if (useCli && cliToken) {
+        tokens['token'] = cliToken;
+        // Say it even under --approve: a scripted run that silently picks up a
+        // credential is the thing nobody can audit afterwards.
+        p.log.success(`  Using your ${cliSource.label} token.`);
+        return tokens;
       }
     }
     if (source.tokenUrl) {
@@ -332,7 +338,7 @@ function writeAgentAlignment(envName: EnvName): void {
 // seeds the graph from git history - all on the user's machine. This is the
 // privacy/offline escape hatch; the default solo experience is a personal
 // cloud tenant (see the cloud path below).
-async function runLocalSetup(): Promise<void> {
+async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
@@ -391,7 +397,7 @@ async function runLocalSetup(): Promise<void> {
       if (!source) continue;
       console.log('');
       p.log.step(chalk.bold(source.label));
-      const tokens = await collectTokens(source);
+      const tokens = await collectTokens(source, {}, { approve: opts.approve });
       if (!tokens) continue;
       localReady.push({ source, tokens });
     }
@@ -545,7 +551,7 @@ export async function runSetup(
     }
 
     if (mode === 'local') {
-      await runLocalSetup();
+      await runLocalSetup({ approve: opts.approve });
       return;
     }
 
@@ -594,7 +600,7 @@ async function runCloudSetup(ctx: {
       // Declined cloud login: offer the local escape hatch instead of failing.
       const wantLocal = await p.confirm({ message: 'Set up local-only mode instead? (no account, stays on this machine)' });
       if (!p.isCancel(wantLocal) && wantLocal) {
-        await runLocalSetup();
+        await runLocalSetup({ approve: opts.approve });
         return;
       }
       p.log.warn(`Run ${chalk.bold('align login')} when ready, then ${chalk.bold('align setup')}.`);
@@ -660,7 +666,7 @@ async function runCloudSetup(ctx: {
         // self-managed → PAT. Seed the host so tokenUrl() targets it, and drop the
         // gate field from extraFields so we don't re-ask it.
         const patSource = { ...source, extraFields: source.extraFields?.filter((f) => f.key !== gate) };
-        const collected = await collectTokens(patSource, { [gate]: hostValue });
+        const collected = await collectTokens(patSource, { [gate]: hostValue }, { approve: opts.approve });
         if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
         tokens = collected;
       } else {
@@ -679,7 +685,7 @@ async function runCloudSetup(ctx: {
       }
       tokens = collected;
     } else if (source.tokenLabel || (source.extraFields?.length ?? 0) > 0) {
-      const collected = await collectTokens(source);
+      const collected = await collectTokens(source, {}, { approve: opts.approve });
       if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
       tokens = collected;
     }

@@ -59,3 +59,19 @@ export async function detectCliToken(bin: string, args: string[]): Promise<strin
 export const CLI_TOKEN_SOURCES: Record<string, { bin: string; args: string[]; label: string }> = {
   github: { bin: 'gh', args: ['auth', 'token'], label: 'GitHub CLI (gh)' },
 };
+
+/**
+ * Whether to use a token found in a local CLI, ask first, or ignore it.
+ *
+ * Separate from the prompt chain on purpose. `--approve` is documented as "Skip
+ * confirmation prompts (for scripted use)", and this repo has already shipped one
+ * prompt that ignored it - setup.ts still carries the comment about `align setup
+ * --approve` hanging when two agents were installed. A rule buried in an async
+ * prompt chain is not testable; this is.
+ */
+export function cliTokenDecision(o: { token: string | null; approve: boolean }): 'use' | 'ask' | 'skip' {
+  if (!o.token) return 'skip';
+  // --approve means the affirmative, not the absence of the step: skipping the
+  // connector would silently drop a source the user could have had.
+  return o.approve ? 'use' : 'ask';
+}

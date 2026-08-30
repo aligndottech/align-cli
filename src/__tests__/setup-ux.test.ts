@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockExeca = vi.hoisted(() => vi.fn());
 vi.mock('execa', () => ({ execa: mockExeca }));
 
-import { detectCliToken, pickerMaxItems } from '../lib/setup-ux.js';
+import { cliTokenDecision, detectCliToken, pickerMaxItems } from '../lib/setup-ux.js';
 
 // David (outside tester, 2026-08-30) hit a corrupted connector picker: options
 // duplicated on screen ("Notion" three times) and scrolling misbehaved. Cause is
@@ -39,7 +39,9 @@ describe('pickerMaxItems', () => {
 });
 
 // David has `gh` authenticated already, and setup sent him to github.com to mint a PAT
-// by hand: "you may also want to intergrate with gh-cli / as I have that setup".
+// by hand. His words, quoted verbatim including the typo, because a paraphrase would
+// stop being evidence: "you may also want to intergrate [sic] with gh-cli / as I have
+// that setup".
 describe('detectCliToken', () => {
   beforeEach(() => { mockExeca.mockReset(); });
 
@@ -79,5 +81,32 @@ describe('detectCliToken', () => {
     expect(mockExeca).toHaveBeenCalledTimes(1);
     expect(mockExeca.mock.calls[0]?.[0]).toBe('glab');
     expect(mockExeca.mock.calls[0]?.[1]).toEqual(['auth', 'status']);
+  });
+});
+
+// Copilot on #183: `--approve` is documented as "Skip confirmation prompts (for scripted
+// use)", and the gh-token reuse added a p.confirm() to that path. This repo has already
+// been bitten once by an unguarded prompt under --approve (setup.ts still carries the
+// comment about two agents hanging it), so the decision is a function rather than an
+// `if` buried in an async prompt chain.
+describe('cliTokenDecision', () => {
+  it('skips when no CLI token was found', () => {
+    expect(cliTokenDecision({ token: null, approve: false })).toBe('skip');
+    expect(cliTokenDecision({ token: null, approve: true })).toBe('skip');
+  });
+
+  it('asks when a token was found in an ordinary interactive run', () => {
+    expect(cliTokenDecision({ token: 'gho_x', approve: false })).toBe('ask');
+  });
+
+  it('USES the token without asking under --approve', () => {
+    // The flag means "skip confirmation prompts", so the affirmative is the default.
+    // Skipping the connector instead would silently drop a source the user could have
+    // had, which is a worse reading of the same flag.
+    expect(cliTokenDecision({ token: 'gho_x', approve: true })).toBe('use');
+  });
+
+  it('treats an empty token as no token, whatever the flag says', () => {
+    expect(cliTokenDecision({ token: '', approve: true })).toBe('skip');
   });
 });
