@@ -4,6 +4,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import open from 'open';
 import { execa } from 'execa';
+import { CLI_TOKEN_SOURCES, cliTokenDecision, detectCliToken, pickerMaxItems } from '../lib/setup-ux.js';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
@@ -16,6 +17,10 @@ import { resolveAppUrl } from '../lib/env-resolver.js';
 import { collectTokensViaOAuth, oauthFlowLabel } from '../lib/personal-oauth.js';
 import { isAuthExpiry } from '../lib/errors.js';
 import { maybeRequestTelemetryConsent } from '../lib/telemetry-consent.js';
+import { commandIntro } from '../lib/brand.js';
+import pkg from '../../package.json' with { type: 'json' };
+const { version } = pkg;
+import { printBanner } from '../lib/brand.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -234,6 +239,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
 async function collectTokens(
   source: SetupSource,
   seed: Record<string, string> = {},
+  opts: { approve?: boolean } = {},
 ): Promise<Record<string, string> | null> {
   // `seed` pre-populates already-known fields (e.g. a self-managed host gathered
   // up front) so tokenUrl() resolves against the right host.
@@ -249,6 +255,29 @@ async function collectTokens(
 
   // Main token
   if (source.tokenLabel) {
+    // Reuse an already-authenticated local CLI before sending anyone to a browser to
+    // mint a PAT by hand. Asked for by an outside tester on 2026-08-30 who already had
+    // `gh` set up. Declining falls through to the browser flow unchanged.
+    const cliSource = CLI_TOKEN_SOURCES[source.id];
+    if (cliSource) {
+      const cliToken = await detectCliToken(cliSource.bin, cliSource.args);
+      const decision = cliTokenDecision({ token: cliToken, approve: opts.approve ?? false });
+      let useCli = decision === 'use';
+      if (decision === 'ask') {
+        const answer = await p.confirm({
+          message: `  Found ${cliSource.label}. Use its token? (no browser, nothing to create)`,
+        });
+        if (p.isCancel(answer)) return null;
+        useCli = answer;
+      }
+      if (useCli && cliToken) {
+        tokens['token'] = cliToken;
+        // Say it even under --approve: a scripted run that silently picks up a
+        // credential is the thing nobody can audit afterwards.
+        p.log.success(`  Using your ${cliSource.label} token.`);
+        return tokens;
+      }
+    }
     if (source.tokenUrl) {
       const url = typeof source.tokenUrl === 'function' ? source.tokenUrl(tokens) : source.tokenUrl;
       p.log.info(chalk.dim(`  Opening ${source.label} in browser...`));
@@ -309,7 +338,7 @@ function writeAgentAlignment(envName: EnvName): void {
 // seeds the graph from git history - all on the user's machine. This is the
 // privacy/offline escape hatch; the default solo experience is a personal
 // cloud tenant (see the cloud path below).
-async function runLocalSetup(): Promise<void> {
+async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
@@ -336,6 +365,43 @@ async function runLocalSetup(): Promise<void> {
   // is the only thing that can ever turn this on - see usage-telemetry.ts's local-embedded
   // branch, which reads this same stored decision.
   await maybeRequestTelemetryConsent(config, Boolean(interactive));
+
+  // Connectors: OAuth can't run offline (needs the hosted callback), so local mode
+  // connects via manual read-only token paste. Only sources with a tokenLabel are
+  // pasteable (Teams/Zoom have no personal token → excluded). See ALI-103.
+  //
+  // Asked BEFORE the git scan so every question lands on a clean screen and the rest of
+  // setup then runs without stopping. The picker used to sit under a screenful of import
+  // output, which is the condition that corrupted clack's redraw for an outside tester.
+  const localConnectors = buildSources(false)
+    .filter((s) => s.id !== 'git' && s.tokenLabel)
+    .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
+  console.log('');
+  // `interactive` computed once, at the top of this function - see the comment there.
+  const selected = interactive
+    ? await p.multiselect({
+        message: 'Connect more sources with a read-only token? (skip to finish)',
+        options: localConnectors.map((s) => ({ value: s.id, label: s.label, hint: s.description })),
+        required: false,
+        // Without maxItems clack renders all 7 and its in-place redraw miscounts
+        // once the list is taller than the viewport, painting duplicate rows.
+        maxItems: pickerMaxItems(process.stdout.rows, localConnectors.length),
+      })
+    : ([] as string[]);
+
+  // Collect every credential up front, so the automatic phase below never stops to ask.
+  const localReady: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
+  if (!p.isCancel(selected)) {
+    for (const id of selected as string[]) {
+      const source = localConnectors.find((s) => s.id === id);
+      if (!source) continue;
+      console.log('');
+      p.log.step(chalk.bold(source.label));
+      const tokens = await collectTokens(source, {}, { approve: opts.approve });
+      if (!tokens) continue;
+      localReady.push({ source, tokens });
+    }
+  }
 
   if (await isGitRepo()) {
     console.log('');
@@ -370,45 +436,23 @@ async function runLocalSetup(): Promise<void> {
     }
   }
 
-  // Connectors: OAuth can't run offline (needs the hosted callback), so local mode
-  // connects via manual read-only token paste. Only sources with a tokenLabel are
-  // pasteable (Teams/Zoom have no personal token → excluded). See ALI-103.
-  const localConnectors = buildSources(false)
-    .filter((s) => s.id !== 'git' && s.tokenLabel)
-    .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
-  console.log('');
-  // `interactive` computed once, at the top of this function - see the comment there.
-  const selected = interactive
-    ? await p.multiselect({
-        message: 'Connect more sources with a read-only token? (skip to finish)',
-        options: localConnectors.map((s) => ({ value: s.id, label: s.label, hint: s.description })),
-        required: false,
-      })
-    : ([] as string[]);
-  if (!p.isCancel(selected)) {
-    for (const id of selected as string[]) {
-      const source = localConnectors.find((s) => s.id === id);
-      if (!source) continue;
-      console.log('');
-      p.log.step(chalk.bold(source.label));
-      const tokens = await collectTokens(source);
-      if (!tokens) continue;
-      const spinner = p.spinner();
-      spinner.start(`Fetching from ${source.label}...`);
-      try {
-        const items = await source.fetch(tokens);
-        spinner.stop(`Found ${items.length} items`);
-        if (items.length) {
-          await runPersonalImport(items, localClient, {
-            label: source.label,
-            approve: true,
-            appUrl: resolveAppUrl(localEnv),
-            local: true,
-          });
-        }
-      } catch (e) {
-        spinner.stop(`Skipped ${source.label} - ${(e as Error).message}`);
+  // Now the automatic phase: fetch and import what the credentials above unlocked.
+  for (const { source, tokens } of localReady) {
+    const spinner = p.spinner();
+    spinner.start(`Fetching from ${source.label}...`);
+    try {
+      const items = await source.fetch(tokens);
+      spinner.stop(`Found ${items.length} items`);
+      if (items.length) {
+        await runPersonalImport(items, localClient, {
+          label: source.label,
+          approve: true,
+          appUrl: resolveAppUrl(localEnv),
+          local: true,
+        });
       }
+    } catch (e) {
+      spinner.stop(`Skipped ${source.label} - ${(e as Error).message}`);
     }
   }
 
@@ -479,7 +523,9 @@ export async function runSetup(
     const env = config.getEnvironment(envName);
     const client = createGatewayClient(env);
 
-    p.intro(chalk.bgMagenta.white(' align setup '));
+    // The one place a full brand moment belongs: first run, before any questions.
+    printBanner({ version });
+    p.intro(commandIntro('align setup'));
 
     // ---- Step 0: Cloud (default) vs local (--local) ----
     // Solo defaults to a personal CLOUD tenant: telemetry, the real cloud
@@ -505,7 +551,7 @@ export async function runSetup(
     }
 
     if (mode === 'local') {
-      await runLocalSetup();
+      await runLocalSetup({ approve: opts.approve });
       return;
     }
 
@@ -554,7 +600,7 @@ async function runCloudSetup(ctx: {
       // Declined cloud login: offer the local escape hatch instead of failing.
       const wantLocal = await p.confirm({ message: 'Set up local-only mode instead? (no account, stays on this machine)' });
       if (!p.isCancel(wantLocal) && wantLocal) {
-        await runLocalSetup();
+        await runLocalSetup({ approve: opts.approve });
         return;
       }
       p.log.warn(`Run ${chalk.bold('align login')} when ready, then ${chalk.bold('align setup')}.`);
@@ -573,21 +619,95 @@ async function runCloudSetup(ctx: {
     );
   }
 
-  // ---- Step 3: MCP editor config (before import - this is the payoff) ----
+  // ---- Step 3: Ask which tools the user actually has ----
+  // Everything interactive happens before anything runs: pick your sources here, hand
+  // over credentials next, and from then on setup does not ask again. This also keeps the
+  // picker near the top of a clean screen rather than under a screenful of import output,
+  // which is the condition that corrupted clack's in-place redraw for an outside tester.
+  // Order by OAuth scope tier so frictionless personal-account connectors come
+  // first, then Atlassian (site-scoped), then workspace-admin (Slack/Teams).
+  console.log('');
+  const connectorSources = buildSources(false)
+    .filter(s => s.id !== 'git')
+    .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
+  const selectedIds = await p.multiselect({
+    message: 'Connect more sources for richer context? (skip to finish)',
+    options: connectorSources.map(s => ({ value: s.id, label: s.label, hint: s.description })),
+    required: false,
+    maxItems: pickerMaxItems(process.stdout.rows, connectorSources.length),
+  });
+  if (p.isCancel(selectedIds)) { p.cancel('Cancelled.'); process.exit(0); }
+  const selectedSources = connectorSources.filter(s => (selectedIds as string[]).includes(s.id));
+
+  // ---- Step 4: Collect all credentials up front (consents back-to-back) ----
+  // Interactive auth (browser OAuth, token paste) can only happen one at a
+  // time, so we gather every connector's creds first instead of interleaving
+  // a slow fetch+import between each sign-in.
+  const readyConnectors: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
+  // OAuth keys connected during this run, so an Atlassian sibling (Jira <->
+  // Confluence, one shared app + token) reuses the token instead of opening a
+  // second browser - even under --reset.
+  const connectedThisRun = new Set<string>();
+  for (const source of selectedSources) {
+    console.log('');
+    p.log.step(chalk.bold(source.label));
+
+    let tokens: Record<string, string> = {};
+    if (source.oauthKey && source.hostGatedOAuth) {
+      // Host-gated: blank host field → OAuth (SaaS default); a self-managed host
+      // → token-paste fallback (the fixed OAuth app can't serve arbitrary hosts).
+      const gate = source.hostGatedOAuth.field;
+      const gateLabel = source.extraFields?.find((f) => f.key === gate)?.label ?? gate;
+      const host = await p.text({ message: `  ${gateLabel}:`, placeholder: 'gitlab.com', defaultValue: '' });
+      if (p.isCancel(host)) { p.cancel('Cancelled.'); process.exit(0); }
+      // p.text returns undefined on a blank submit (not ''), so coerce before trim.
+      const hostValue = (typeof host === 'string' ? host : '').trim();
+      if (hostValue) {
+        // self-managed → PAT. Seed the host so tokenUrl() targets it, and drop the
+        // gate field from extraFields so we don't re-ask it.
+        const patSource = { ...source, extraFields: source.extraFields?.filter((f) => f.key !== gate) };
+        const collected = await collectTokens(patSource, { [gate]: hostValue }, { approve: opts.approve });
+        if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
+        tokens = collected;
+      } else {
+        const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false, connectedThisRun);
+        if (!collected) {
+          p.log.warn(`Skipping ${source.label} - no token obtained.`);
+          continue;
+        }
+        tokens = collected;
+      }
+    } else if (source.oauthKey) {
+      const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false, connectedThisRun);
+      if (!collected) {
+        p.log.warn(`Skipping ${source.label} - no token obtained.`);
+        continue;
+      }
+      tokens = collected;
+    } else if (source.tokenLabel || (source.extraFields?.length ?? 0) > 0) {
+      const collected = await collectTokens(source, {}, { approve: opts.approve });
+      if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
+      tokens = collected;
+    }
+    readyConnectors.push({ source, tokens });
+  }
+
+  // ---- Step 5: MCP editor config (before import - this is the payoff) ----
   console.log('');
   // Shared with the local path (ALI-776), which used to skip this entirely - so a local-only
   // user got LESS agent wiring than a cloud one, on the mode where an agent running on your
   // own machine is the whole point.
   //
-  // It also ASKS now. This block wrote to a user-level config without a word whenever exactly
-  // one editor was detected; it only prompted at two or more. And the multiselect it used was
-  // unguarded, so `align setup --approve` with two agents installed hung.
+  // It does NOT ask: it wires every detected agent and discloses each file it touched, with
+  // `align mcp --remove` as the undo. This block used to write to a user-level config without
+  // a word when exactly one editor was detected and prompt only at two or more, and that
+  // multiselect was unguarded, so `align setup --approve` with two agents installed hung.
   const agents = await connectDetectedAgents(envName);
 
-  // ---- Step 3b: Deterministic auto-alignment files (hook + nudges) ----
+  // ---- Step 5b: Deterministic auto-alignment files (hook + nudges) ----
   writeAgentAlignment(envName);
 
-  // ---- Step 4: Git auto-import (zero-auth baseline graph seed) ----
+  // ---- Step 6: Git auto-import (zero-auth baseline graph seed) ----
   let totalDecisions = 0;
   const sourcesImported: string[] = [];
   const gitAvailable = await isGitRepo();
@@ -618,93 +738,10 @@ async function runCloudSetup(ctx: {
     }
   }
 
-  // ---- Step 5: First-query prompt ----
-  // Only when something was actually WIRED, not merely detected: telling someone their agent
-  // is connected when they declined the prompt would be false.
-  //
-  // The question stays as it is, deliberately. ALI-771 removed it from the LOCAL outro
-  // because typing it into `align ask` matches nothing - it is about the graph rather than in
-  // it. Asked of an AGENT over MCP it is a good opening question, because the agent answers
-  // it by calling a list tool rather than a similarity search. Different surface, different
-  // advice.
-  if (agents.connected > 0) {
-    console.log('');
-    p.log.info(chalk.dim('Your agent is connected. Try asking:'));
-    p.log.info(chalk.bold('  "What decisions exist in this codebase?"'));
-  }
-
-  // ---- Step 6: Optional connectors ----
-  // Order by OAuth scope tier so frictionless personal-account connectors come
-  // first, then Atlassian (site-scoped), then workspace-admin (Slack/Teams).
-  console.log('');
-  const connectorSources = buildSources(false)
-    .filter(s => s.id !== 'git')
-    .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
-  const selectedIds = await p.multiselect({
-    message: 'Connect more sources for richer context? (skip to finish)',
-    options: connectorSources.map(s => ({ value: s.id, label: s.label, hint: s.description })),
-    required: false,
-  });
-  if (p.isCancel(selectedIds)) { p.cancel('Cancelled.'); process.exit(0); }
-  const selectedSources = connectorSources.filter(s => (selectedIds as string[]).includes(s.id));
-
-  // ---- Step 7a: Collect all credentials up front (consents back-to-back) ----
-  // Interactive auth (browser OAuth, token paste) can only happen one at a
-  // time, so we gather every connector's creds first instead of interleaving
-  // a slow fetch+import between each sign-in.
-  const readyConnectors: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
-  // OAuth keys connected during this run, so an Atlassian sibling (Jira <->
-  // Confluence, one shared app + token) reuses the token instead of opening a
-  // second browser - even under --reset.
-  const connectedThisRun = new Set<string>();
-  for (const source of selectedSources) {
-    console.log('');
-    p.log.step(chalk.bold(source.label));
-
-    let tokens: Record<string, string> = {};
-    if (source.oauthKey && source.hostGatedOAuth) {
-      // Host-gated: blank host field → OAuth (SaaS default); a self-managed host
-      // → token-paste fallback (the fixed OAuth app can't serve arbitrary hosts).
-      const gate = source.hostGatedOAuth.field;
-      const gateLabel = source.extraFields?.find((f) => f.key === gate)?.label ?? gate;
-      const host = await p.text({ message: `  ${gateLabel}:`, placeholder: 'gitlab.com', defaultValue: '' });
-      if (p.isCancel(host)) { p.cancel('Cancelled.'); process.exit(0); }
-      // p.text returns undefined on a blank submit (not ''), so coerce before trim.
-      const hostValue = (typeof host === 'string' ? host : '').trim();
-      if (hostValue) {
-        // self-managed → PAT. Seed the host so tokenUrl() targets it, and drop the
-        // gate field from extraFields so we don't re-ask it.
-        const patSource = { ...source, extraFields: source.extraFields?.filter((f) => f.key !== gate) };
-        const collected = await collectTokens(patSource, { [gate]: hostValue });
-        if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
-        tokens = collected;
-      } else {
-        const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false, connectedThisRun);
-        if (!collected) {
-          p.log.warn(`Skipping ${source.label} - no token obtained.`);
-          continue;
-        }
-        tokens = collected;
-      }
-    } else if (source.oauthKey) {
-      const collected = await collectTokensViaOAuth(source, client, config, envName, opts.reset ?? false, connectedThisRun);
-      if (!collected) {
-        p.log.warn(`Skipping ${source.label} - no token obtained.`);
-        continue;
-      }
-      tokens = collected;
-    } else if (source.tokenLabel || (source.extraFields?.length ?? 0) > 0) {
-      const collected = await collectTokens(source);
-      if (!collected) { p.cancel('Cancelled.'); process.exit(0); }
-      tokens = collected;
-    }
-    readyConnectors.push({ source, tokens });
-  }
-
-  // ---- Step 7b: Fetch every connector concurrently (independent network I/O),
+  // ---- Step 7: Fetch every connector concurrently (independent network I/O),
   // then import each result sequentially so per-connector output stays readable.
   // Imports are already internally batch-parallel (see runPersonalImport). Auth
-  // (7a) stays sequential because interactive browser/paste must be one at a time. ----
+  // (step 4) stays sequential because interactive browser/paste must be one at a time. ----
   type FetchResult =
     | { source: SetupSource; items: PersonalImportItem[] }
     | { source: SetupSource; authExpired: true }
@@ -733,7 +770,7 @@ async function runCloudSetup(ctx: {
   fetchSpinner.stop(`Fetched ${n} source${n === 1 ? '' : 's'}`);
 
   // Resolve any expired-token connectors interactively first (sequential, and
-  // rare - 7a just minted fresh tokens), collecting everything ready to import.
+  // rare - step 4 just minted fresh tokens), collecting everything ready to import.
   const ready: Array<{ source: SetupSource; items: PersonalImportItem[] }> = [];
   for (const result of fetched) {
     const source = result.source;
@@ -818,6 +855,21 @@ async function runCloudSetup(ctx: {
   const sourceLine = sourcesImported.length > 0
     ? `\n  Sources: ${sourcesImported.join(', ')}`
     : '';
+
+  // ---- Step 8: First-query prompt ----
+  // Only when something was actually WIRED, not merely detected: telling someone their agent
+  // is connected when they declined the prompt would be false.
+  //
+  // The question stays as it is, deliberately. ALI-771 removed it from the LOCAL outro
+  // because typing it into `align ask` matches nothing - it is about the graph rather than in
+  // it. Asked of an AGENT over MCP it is a good opening question, because the agent answers
+  // it by calling a list tool rather than a similarity search. Different surface, different
+  // advice.
+  if (agents.connected > 0) {
+    console.log('');
+    p.log.info(chalk.dim('Your agent is connected. Try asking:'));
+    p.log.info(chalk.bold('  "What decisions exist in this codebase?"'));
+  }
 
   const outroText = [
     chalk.bold('Setup complete.\n'),

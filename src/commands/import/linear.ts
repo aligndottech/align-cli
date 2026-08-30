@@ -8,6 +8,7 @@ import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchLinearItems } from '../../lib/fetchers/linear.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
+import { commandIntro } from '../../lib/brand.js';
 
 interface LinearImportOpts {
   token?: string;
@@ -47,7 +48,7 @@ export function registerImportLinearCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro('align import linear');
+      p.intro(commandIntro('align import linear'));
       const spinner = p.spinner();
       spinner.start('Fetching your Linear issues...');
       try {

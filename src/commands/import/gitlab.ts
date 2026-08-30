@@ -8,6 +8,7 @@ import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchGitLabItems } from '../../lib/fetchers/gitlab.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
+import { commandIntro } from '../../lib/brand.js';
 
 interface GitLabImportOpts {
   token?: string;
@@ -56,7 +57,7 @@ export function registerImportGitLabCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro('align import gitlab');
+      p.intro(commandIntro('align import gitlab'));
       const spinner = p.spinner();
       spinner.start('Fetching your GitLab merge requests...');
       try {

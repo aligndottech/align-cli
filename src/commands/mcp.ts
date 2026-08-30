@@ -10,6 +10,7 @@ import chalk from 'chalk';
 import { createConfigStore, type EnvironmentConfig, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
+import { commandIntro } from '../lib/brand.js';
 
 // Server-level instructions (ALI-120): surfaced to the agent so it reaches for
 // Align proactively - without the user prompting - the moment this MCP server is
@@ -315,7 +316,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
  * is the ceremony this whole change is about removing.
  */
 async function runMcpRemove(): Promise<void> {
-  p.intro(chalk.bgBlue.white(' align mcp --remove '));
+  p.intro(commandIntro('align mcp --remove'));
 
   const editors = detectEditors();
   if (!editors.length) {
@@ -348,7 +349,7 @@ async function runMcpRemove(): Promise<void> {
 }
 
 async function runMcpSetup(env?: EnvName): Promise<void> {
-  p.intro(chalk.bgBlue.white(' align mcp --setup '));
+  p.intro(commandIntro('align mcp --setup'));
 
   const editors = detectEditors();
   if (!editors.length) {

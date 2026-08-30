@@ -8,6 +8,7 @@ import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchNotionItems } from '../../lib/fetchers/notion.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
+import { commandIntro } from '../../lib/brand.js';
 
 interface NotionImportOpts {
   token?: string;
@@ -51,7 +52,7 @@ Create an integration at: notion.so/my-integrations`)
         process.exit(1);
       }
 
-      p.intro('align import notion');
+      p.intro(commandIntro('align import notion'));
       p.log.info('Only pages shared with your integration are fetched. See --help for setup instructions.');
 
       const spinner = p.spinner();

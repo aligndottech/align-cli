@@ -13,6 +13,7 @@ import {
   isNgrokInstalled,
 } from '../../lib/process.js';
 import { SLACK_REQUIRED_SCOPES } from '../../types.js';
+import { commandIntro } from '../../lib/brand.js';
 
 const REQUIRED_SLACK_ENV_VARS = [
   'SLACK_CLIENT_ID',
@@ -54,7 +55,7 @@ export function registerDevCommands(program: Command): void {
     .command('setup')
     .description('Interactive wizard to set up local Slack development')
     .action(async () => {
-      p.intro(chalk.bgBlue.white(' align dev setup '));
+      p.intro(commandIntro('align dev setup'));
 
       const config = createConfigStore();
       const repoRoot = process.cwd();
