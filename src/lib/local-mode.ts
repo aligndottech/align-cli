@@ -2,7 +2,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { createConfigStore } from './config.js';
 import { createLocalDb } from './local-db.js';
-import { detectEditors, writeMcpConfig } from './mcp-setup.js';
 
 export function getLocalDbPath(): string {
   let configDir: string;
@@ -16,13 +15,18 @@ export function getLocalDbPath(): string {
   return path.join(configDir, 'local.db');
 }
 
-export async function initLocalMode(opts: { quiet?: boolean } = {}) {
+/**
+ * `quiet` is gone (ALI-776). It gated exactly one thing - writing every detected editor's
+ * global MCP config - and that moved to connectDetectedAgents, which asks first. An option
+ * that no longer changes anything reads as a feature and outlives the behaviour it named.
+ */
+export async function initLocalMode() {
   const dbPath = getLocalDbPath();
   const config = createConfigStore();
   config.setLocalMode(dbPath);
   // Do NOT flip the global default env to 'local'. The MCP server is wired to
   // local mode via the '--env local' flag written into each editor's MCP config
-  // (see writeMcpConfig below), so the agent uses local mode without hijacking
+  // by connectDetectedAgents, so the agent uses local mode without hijacking
   // every other `align` command - those would hit a local client that does not
   // implement cloud-only methods and crash.
 
@@ -30,12 +34,14 @@ export async function initLocalMode(opts: { quiet?: boolean } = {}) {
   const db = createLocalDb(dbPath);
   db.close();
 
-  if (!opts.quiet) {
-    const editors = detectEditors();
-    for (const target of editors) {
-      writeMcpConfig(target, 'local');
-    }
-  }
-
+  // This used to write every detected editor's GLOBAL MCP config right here, whenever
+  // `quiet` was false - silently, from a function whose name says it initialises a graph.
+  // ~/.claude.json and a Claude Desktop config are user-level files people curate across
+  // every project, and editing one without a word is the kind of thing someone finds weeks
+  // later and resents (ALI-776).
+  //
+  // connectDetectedAgents is the single writer now, and it asks. Both callers of this
+  // function invoke it immediately afterwards, so nothing lost the wiring - it just gained
+  // a question.
   return { dbPath };
 }
