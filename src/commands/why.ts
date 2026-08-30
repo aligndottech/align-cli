@@ -119,12 +119,10 @@ export function registerAskCommand(program: Command): void {
             }
 
             if (graphHasDecisions) {
-              // Printed with the env it actually resolved to, so it is runnable AS PRINTED -
-              // a bare `align decisions list` resolves to the cloud default and 401s for a
-              // local-only user (same shape as ALI-675's import hint).
-              const listCmd = envName === 'prod'
-                ? 'align decisions list'
-                : `align decisions list --env ${envName}`;
+              // Unqualified since ALI-772: `decisions` now prefers the local graph the same
+              // way ask, search and import do, so the bare command is the right one to print
+              // for every user. It carried `--env ${envName}` while that was not true.
+              const listCmd = 'align decisions list';
               console.log(chalk.dim(`  Nothing matched "${query}", but your graph is not empty.`));
               console.log(chalk.dim('  Try different words, or list what is in there:'));
               console.log(chalk.dim(`    ${listCmd}`));

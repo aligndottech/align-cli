@@ -23,6 +23,7 @@ import { registerTelemetryCommand } from './commands/telemetry.js';
 import { registerAskCommand } from './commands/why.js';
 import { registerSetupCommand } from './commands/setup.js';
 import { registerExportCommand } from './commands/export.js';
+import { runDefaultAction } from './commands/default-action.js';
 
 // Last-resort guard so no command ever dumps a raw Node stack trace at a user.
 // Individual commands still handle their own expected errors; this only catches
@@ -105,4 +106,10 @@ if (process.env.ALIGN_INTERNAL === '1') {
   registerDevCommands(program);
 }
 
-program.parse();
+// `align` with no arguments (ALI-773). Without this Commander prints a twenty-command help
+// wall, which is what a new user's first instinct gets them. Registered AFTER every command
+// so it only fires when none of them matched; `align --help` and `align -V` are handled by
+// Commander before this runs.
+program.action(runDefaultAction);
+
+program.parseAsync().catch(handleFatal);

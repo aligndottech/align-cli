@@ -181,6 +181,39 @@ export function createLocalGatewayClient(dbPath: string) {
       return { snapshots };
     },
 
+    /**
+     * One decision by id, for `align decisions show` (ALI-772).
+     *
+     * `decisions` was left off the preferLocalEmbedded redirect that ask, search and import
+     * have, so the obvious command for "show me my graph" resolved to an unauthenticated
+     * cloud default and 401'd for a no-account user. The redirect could not be added while
+     * this method was missing: `show` would have failed with `client.getDecision is not a
+     * function`, which is worse than the 401 it replaced.
+     *
+     * A missing id THROWS rather than returning null: the renderer reads `d.id` straight
+     * away, so null would surface as "Cannot read properties of null", which is the raw
+     * stack trace the CLI's fatal handler exists to avoid.
+     *
+     * `ai` and `spaces` are cloud-side enrichment and simply absent here. The renderer
+     * already guards both with optional chaining, so there is nothing to fake.
+     */
+    async getDecision(id: string) {
+      const row = db.getDecisionById(id);
+      if (!row) {
+        throw new Error(`No decision ${id} in your local graph. \`align decisions list\` shows what is there.`);
+      }
+      return {
+        id: row.id,
+        title: row.title,
+        summary: row.summary,
+        platform: row.platform,
+        source_url: row.sourceUrl,
+        created_at: row.createdAt,
+        external_references: [] as unknown[],
+        spaces: [] as unknown[],
+      };
+    },
+
     // ALI-602: `align context sync --env local` lists the graph without a query.
     // The db reads newest-first; the renderer re-sorts deterministically, so the
     // order here only decides WHICH rows survive the limit (newest do).

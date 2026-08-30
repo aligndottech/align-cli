@@ -436,8 +436,12 @@ async function runLocalSetup(): Promise<void> {
   p.outro(
     `${chalk.green('You are set up in local mode.')}\n` +
     `  Graph: ${chalk.dim(dbPath)}\n` +
-    `  Ask your agent: ${chalk.bold('"What decisions exist in this codebase?"')}\n` +
-    `  ${chalk.dim('align local status')} shows stats; ${chalk.dim('align local reset')} wipes it.`,
+    `  Run ${chalk.bold('align')} any time to see your graph and what to do next.\n` +
+    // Deliberately NOT "What decisions exist in this codebase?", which this line used to
+    // suggest. That question is ABOUT the graph rather than IN it, so on-device search
+    // matches nothing and a tester was told his freshly imported graph was empty (ALI-771).
+    // It is a fine thing to ask an AGENT over MCP, and a bad first thing to type here.
+    `  Ask it something real: ${chalk.bold('align ask "why <a thing you decided>"')}`,
   );
 }
 
@@ -449,45 +453,59 @@ export function registerSetupCommand(program: Command): void {
     .option('--approve', 'Skip confirmation prompts (for scripted use)')
     .option('--local', 'Set up local-only mode (no account, no cloud)')
     .option('--reset', 'Clear cached OAuth tokens and re-authenticate all connectors')
-    .action(async (opts: { env?: EnvName; approve?: boolean; local?: boolean; reset?: boolean }) => {
-      const config = createConfigStore();
-      const envName = resolveEnv(opts.env);
-      const env = config.getEnvironment(envName);
-      const client = createGatewayClient(env);
-
-      p.intro(chalk.bgMagenta.white(' align setup '));
-
-      // ---- Step 0: Cloud (default) vs local (--local) ----
-      // Solo defaults to a personal CLOUD tenant: telemetry, the real cloud
-      // relationship classifier, backup, and a clean upgrade path to a team
-      // (reuses the personal->org join flow). --local is the opt-in offline
-      // escape hatch; --approve runs the cloud path non-interactively.
-      let mode: 'cloud' | 'local';
-      if (opts.local) {
-        mode = 'local';
-      } else if (opts.approve) {
-        mode = 'cloud';
-      } else {
-        const choice = await p.select({
-          message: 'How are you using Align?',
-          options: [
-            { value: 'cloud', label: 'Cloud (recommended) - your personal decision graph', hint: 'syncs, backed up, upgradeable to a team' },
-            { value: 'local', label: 'Local only - private, offline, no account', hint: 'stays on this machine (--local)' },
-          ],
-          initialValue: 'cloud',
-        });
-        if (p.isCancel(choice)) { p.cancel('Cancelled.'); process.exit(0); }
-        mode = choice as 'cloud' | 'local';
-      }
-
-      if (mode === 'local') {
-        await runLocalSetup();
-        return;
-      }
-
-      await runCloudSetup({ opts, config, env, client, envName });
-    });
+    .action(runSetup);
 }
+
+/**
+ * The onboarding flow, extracted from the `setup` action so `align` with no arguments can run
+ * exactly the same thing (ALI-773). A new user's first instinct is to type the tool's name,
+ * and that printed a twenty-command help wall.
+ *
+ * A pure move: the body below is the action's, unchanged apart from indentation. Both callers
+ * share one implementation rather than the bare path re-parsing `setup` through Commander,
+ * which would fire the postAction telemetry hook twice for one invocation.
+ */
+export async function runSetup(
+  opts: { env?: EnvName; approve?: boolean; local?: boolean; reset?: boolean } = {},
+): Promise<void> {
+    const config = createConfigStore();
+    const envName = resolveEnv(opts.env);
+    const env = config.getEnvironment(envName);
+    const client = createGatewayClient(env);
+
+    p.intro(chalk.bgMagenta.white(' align setup '));
+
+    // ---- Step 0: Cloud (default) vs local (--local) ----
+    // Solo defaults to a personal CLOUD tenant: telemetry, the real cloud
+    // relationship classifier, backup, and a clean upgrade path to a team
+    // (reuses the personal->org join flow). --local is the opt-in offline
+    // escape hatch; --approve runs the cloud path non-interactively.
+    let mode: 'cloud' | 'local';
+    if (opts.local) {
+      mode = 'local';
+    } else if (opts.approve) {
+      mode = 'cloud';
+    } else {
+      const choice = await p.select({
+        message: 'How are you using Align?',
+        options: [
+          { value: 'cloud', label: 'Cloud (recommended) - your personal decision graph', hint: 'syncs, backed up, upgradeable to a team' },
+          { value: 'local', label: 'Local only - private, offline, no account', hint: 'stays on this machine (--local)' },
+        ],
+        initialValue: 'cloud',
+      });
+      if (p.isCancel(choice)) { p.cancel('Cancelled.'); process.exit(0); }
+      mode = choice as 'cloud' | 'local';
+    }
+
+    if (mode === 'local') {
+      await runLocalSetup();
+      return;
+    }
+
+    await runCloudSetup({ opts, config, env, client, envName });
+}
+
 
 // Cloud (personal-tenant) onboarding: verify login, wire MCP, seed from git,
 // then offer personal-scoped connectors. A personal-email login lands on an

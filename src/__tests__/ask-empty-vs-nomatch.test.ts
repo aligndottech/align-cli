@@ -83,19 +83,16 @@ describe('align ask: an empty graph and a query that matched nothing are differe
    * form satisfies - so it would have passed against exactly the bug. A review bot caught
    * that; the exact string is pinned now, in both directions.
    */
-  it('suggests the command qualified with the env it resolved to', async () => {
-    resolveEnv.mockReturnValue('local');
-    listDecisions.mockResolvedValue([{ id: 'a', title: 'Chose Postgres' }]);
-    const out = await ask();
-    expect(out).toContain('align decisions list --env local');
-  });
-
-  it('suggests the bare command on prod, where it is the correct one', async () => {
-    resolveEnv.mockReturnValue('prod');
-    listDecisions.mockResolvedValue([{ id: 'a', title: 'Chose Postgres' }]);
-    const out = await ask();
-    expect(out).toContain('align decisions list');
-    expect(out).not.toContain('--env');
+  // ALI-772 made `decisions` prefer the local graph like ask, search and import, so the bare
+  // command is now correct for every user. It was qualified while that was not true.
+  it('suggests the bare command, with no env flag to decode', async () => {
+    for (const env of ['local', 'prod'] as const) {
+      resolveEnv.mockReturnValue(env);
+      listDecisions.mockResolvedValue([{ id: 'a', title: 'Chose Postgres' }]);
+      const out = await ask();
+      expect(out).toContain('align decisions list');
+      expect(out).not.toContain('--env');
+    }
   });
 
   /**
