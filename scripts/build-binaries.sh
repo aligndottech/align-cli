@@ -36,7 +36,25 @@ OUT_DIR="$REPO_ROOT/dist-bin"
 command -v bun >/dev/null || {
   echo "FATAL: bun is not on PATH. Install it: https://bun.sh"; exit 1;
 }
-[ -f "$REPO_ROOT/src/index.ts" ] || { echo "FATAL: src/index.ts missing"; exit 1; }
+# src/index.bun.ts, not src/index.ts: the binary registers a WASM embedding backend before
+# the CLI starts, and that module statically imports the two ORT assets so --compile embeds
+# them (ALI-744). Building src/index.ts would produce a binary with no local embeddings.
+[ -f "$REPO_ROOT/src/index.bun.ts" ] || { echo "FATAL: src/index.bun.ts missing"; exit 1; }
+# The ORT assets are resolved out of node_modules at BUILD time and embedded, so check for the
+# exact FILES rather than the package: npm hoisting can move onnxruntime-web out of the nested
+# path src/lib/local-embeddings-wasm.ts imports, and a partial install can leave the package
+# present with the assets absent. Both produce a bun "Could not resolve" naming a path nobody
+# recognises; this names the cause.
+ORT_DIST="$REPO_ROOT/node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist"
+for asset in ort-wasm-simd-threaded.asyncify.wasm ort-wasm-simd-threaded.asyncify.mjs; do
+  [ -f "$ORT_DIST/$asset" ] || {
+    echo "FATAL: $ORT_DIST/$asset is missing."
+    echo "       The binary embeds the ORT wasm runtime from there (ALI-744). Run 'npm ci'."
+    echo "       If npm hoisted onnxruntime-web to the top level, the import path in"
+    echo "       src/lib/local-embeddings-wasm.ts needs updating to match."
+    exit 1
+  }
+done
 
 # The asset name a user downloads, mapped to the bun --target that produces it.
 # Keep the left column stable: install.sh computes it from `uname` and any rename
@@ -68,11 +86,13 @@ for row in $TARGETS; do
   outfile="$OUT_DIR/align-$name$ext"
 
   echo "== $name ($target) =="
-  # --bytecode moves parse cost from every startup to build time. Not applied to the
-  # windows targets: it is the least exercised combination here and a slower start is
-  # a better failure than a binary that will not run.
+  # NO --bytecode, deliberately. It moves parse cost to build time, and it emits
+  # CommonJS - so `import.meta` becomes a syntax error at runtime and every command dies
+  # with "import.meta is only valid inside modules". The transformers WEB build bundled in
+  # for on-device embeddings (ALI-744) uses import.meta to locate its wasm, so the whole
+  # binary is unusable with it. The build still SUCCEEDS, which is why this is a comment
+  # and a smoke test rather than a thing anyone would notice.
   extra=""
-  case "$name" in windows-*) ;; *) extra="--bytecode" ;; esac
 
   # --define is what makes src/lib/distribution.ts answer "binary". It is a build-time
   # fact, so the CLI never has to sniff its own runtime to work out how it was shipped.
@@ -81,7 +101,7 @@ for row in $TARGETS; do
   # shellcheck disable=SC2086
   bun build --compile --target="$target" $extra \
     --define '__ALIGN_DIST__="binary"' \
-    "$REPO_ROOT/src/index.ts" --outfile "$outfile"
+    "$REPO_ROOT/src/index.bun.ts" --outfile "$outfile"
 
   [ -f "$outfile" ] || { echo "FATAL: bun reported success but $outfile does not exist"; exit 1; }
   built=$((built + 1))

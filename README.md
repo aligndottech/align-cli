@@ -17,9 +17,10 @@ align setup --local
 align ask "why do we use postgres"
 ```
 
-A standalone binary. No Node, no npm, nothing else to install. Linux, macOS and Windows,
-x64 and arm64, glibc and musl. Verified against the release's own checksums, and you can
-read [install.sh](install.sh) before you pipe it anywhere.
+A standalone binary. No Node, no npm, nothing else to install, and local-only mode works
+fully - on-device embeddings included, running on a WASM backend bundled inside the binary.
+Linux, macOS and Windows, x64 and arm64, glibc and musl. Verified against the release's own
+checksums, and you can read [install.sh](install.sh) before you pipe it anywhere.
 
 Prefer npm, or already have Node? `npm install -g @aligndottech/cli` (Node 22.16+).
 Binaries for every platform are on the [releases page](https://github.com/aligndottech/align-cli/releases/latest).

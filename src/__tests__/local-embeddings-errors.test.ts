@@ -27,11 +27,10 @@ describe('getEmbedding error surfacing (launch packaging)', () => {
   });
 });
 
-// ALI-740: the compiled binary carries no node_modules, so the transformers import
-// fails there too - but for a completely different reason than on Alpine, and the
-// npm-shaped advice ("reinstall on a supported platform") is wrong and unfollowable
-// for someone who downloaded a binary. The message has to name the situation it is
-// actually in.
+// ALI-740/744: the binary bundles a WASM backend and registers it at startup, so it should
+// never reach the native loader below. If it does, its own build is broken - and the
+// npm-shaped advice ("reinstall on a supported platform") is unfollowable for someone who
+// downloaded a binary. The message has to name the situation it is actually in.
 describe('getEmbedding error surfacing (binary distribution)', () => {
   afterEach(() => {
     vi.resetModules();
@@ -39,13 +38,13 @@ describe('getEmbedding error surfacing (binary distribution)', () => {
     vi.doUnmock('../lib/distribution.js');
   });
 
-  it('tells a binary user how to get local embeddings, not to reinstall the package', async () => {
+  it('names a missing WASM backend as a build defect, not a platform limit', async () => {
     vi.doMock('../lib/distribution.js', () => ({ alignDistribution: () => 'binary' }));
     vi.doMock('@huggingface/transformers', () => {
       throw new Error("Cannot find module '@huggingface/transformers'");
     });
     const { getEmbedding } = await import('../lib/local-embeddings.js');
-    await expect(getEmbedding('hello')).rejects.toThrow(/standalone binary/i);
+    await expect(getEmbedding('hello')).rejects.toThrow(/standalone binary did not register/i);
   });
 
   it('still gives the npm advice when this is the npm distribution', async () => {

@@ -24,6 +24,10 @@ set -u -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# The huggingface.co 429 classifier, shared with smoke-install.sh. A second copy of that
+# judgement would drift from the first (code-style.md, "two writers of one fact").
+# shellcheck source=smoke-model.sh
+. "$SCRIPT_DIR/smoke-model.sh"
 
 # ---------------------------------------------------------------------------
 # Which binary. Preconditions are FATAL, never test failures: a missing subject
@@ -60,6 +64,7 @@ BIN="${ALIGN_SMOKE_BINARY:-$REPO_ROOT/dist-bin/$ASSET}"
 command -v node >/dev/null || { echo "FATAL: node not on PATH (needed to read the DB back independently)"; exit 1; }
 
 FAILURES=0
+SKIPPED=0
 fail() { echo "FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 pass() { echo "PASS: $1"; }
 
@@ -76,6 +81,28 @@ export APPDATA="$FAKE_HOME/AppData/Roaming" LOCALAPPDATA="$FAKE_HOME/AppData/Loc
 export XDG_CONFIG_HOME="$FAKE_HOME/.config" XDG_DATA_HOME="$FAKE_HOME/.local/share"
 export XDG_CACHE_HOME="$FAKE_HOME/.cache"
 mkdir -p "$APPDATA" "$LOCALAPPDATA" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+
+# Where the ~23MB model is cached BETWEEN runs. The isolation above puts the default cache
+# inside a temp dir that dies with the job, so without this every CI run re-downloads it and
+# the gate depends on huggingface.co being reachable and unthrottled. A relative value is
+# resolved against the repo root, so a Windows D:\a\... path never has to survive Git Bash.
+# Unset (the default) means cold, which is the local-developer behaviour.
+SMOKE_MODEL_CACHE="${ALIGN_SMOKE_MODEL_CACHE:-}"
+if [ -n "$SMOKE_MODEL_CACHE" ]; then
+  case "$SMOKE_MODEL_CACHE" in
+    /*|[A-Za-z]:[\\/]*) ;;
+    *) SMOKE_MODEL_CACHE="$REPO_ROOT/$SMOKE_MODEL_CACHE" ;;
+  esac
+  mkdir -p "$SMOKE_MODEL_CACHE"
+  export ALIGN_MODEL_CACHE="$SMOKE_MODEL_CACHE"
+  if [ -n "$(ls -A "$SMOKE_MODEL_CACHE" 2>/dev/null)" ]; then
+    echo "model cache: WARM - $SMOKE_MODEL_CACHE has content, no download expected"
+  else
+    echo "model cache: COLD - $SMOKE_MODEL_CACHE is empty, downloading from huggingface.co"
+  fi
+else
+  echo "model cache: COLD - ALIGN_SMOKE_MODEL_CACHE unset, downloading from huggingface.co"
+fi
 
 echo "binary under test: $BIN ($(wc -c < "$BIN" | tr -d ' ') bytes)"
 
@@ -116,7 +143,7 @@ else
   # Read it back with a DIFFERENT reader than the one that wrote it. node:sqlite here
   # is the same engine, but a separate process with no CLI code in it, so this asserts
   # the bytes on disk are a real database rather than trusting the writer.
-  SCHEMA_JSON="$(node -e '
+  SCHEMA_JSON="$(node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite");
     const db = new DatabaseSync(process.argv[1], { readOnly: true });
     // The sqlite_% filter is applied in JS, not in SQL: this whole program is inside a
@@ -130,7 +157,7 @@ else
       indexes: names("index"),
       userVersion: db.prepare("PRAGMA user_version").get().user_version,
     }));
-  ' "$DB" 2>&1)" || { fail "could not read $DB back as SQLite: $SCHEMA_JSON"; SCHEMA_JSON=""; }
+  ' "$DB" 2>"$TMP/schema.err")" || { fail "could not read $DB back as SQLite: $(cat "$TMP/schema.err")"; SCHEMA_JSON=""; }
 
   if [ -n "$SCHEMA_JSON" ]; then
     echo "  schema: $SCHEMA_JSON"
@@ -187,33 +214,124 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. It knows it is a binary.
+# 5. ON-DEVICE EMBEDDINGS, in the binary. The reason ALI-744 exists.
 #
-# src/lib/distribution.ts reads a build-time --define, and vitest can never see that
-# define - so this is the ONLY place the 'binary' branch is actually exercised. Under
-# npm the same path prints "reinstall on a supported platform", which is advice a
-# binary user cannot follow (there is no package for them to reinstall).
+# This is the claim nothing else can make: vitest never sees the `--define` that selects
+# the WASM backend, and never sees the embedded ORT assets, so a compiled artifact is the
+# only place the backend can be exercised at all.
 #
-# Asserted through the real embedding path rather than by adding a debug flag, because
-# the message is the deliverable and a flag would test the flag.
+# Driven end to end (import writes vectors, search reads them back) rather than by calling
+# an embedding helper, because the failure this guards against is structural - a binary
+# built from the wrong entry point registers no backend and every one of these steps still
+# exits 0 having embedded nothing.
+#
+# The one-time ~23MB model download from huggingface.co happens here. A 429 from a shared
+# runner IP is upstream and reports SKIP; every other failure is ours. Same rule, and the
+# same classifier, as smoke-install.sh.
 # ---------------------------------------------------------------------------
-ASK_OUT="$("$BIN" ask something --env local --limit 1 2>&1)"
-printf '%s\n' "$ASK_OUT" | sed 's/^/  | /'
-if printf '%s' "$ASK_OUT" | grep -qi "standalone binary does not yet carry"; then
-  pass "the embedding path reports the binary-specific message"
-elif printf '%s' "$ASK_OUT" | grep -qi "reinstall on a supported platform"; then
-  fail "the binary printed the NPM advice - --define __ALIGN_DIST__ did not reach the build"
+FIXTURE="$TMP/project"
+mkdir -p "$FIXTURE"
+git -C "$FIXTURE" init -q -b main
+git -C "$FIXTURE" config user.email smoke@example.invalid
+git -C "$FIXTURE" config user.name "Smoke Tester"
+echo "db=postgres" > "$FIXTURE/config.ini"
+git -C "$FIXTURE" add config.ini
+git -C "$FIXTURE" commit -qm "feat: use Postgres over SQLite for the main store because we need concurrent writers"
+echo "retries=3" >> "$FIXTURE/config.ini"
+git -C "$FIXTURE" add config.ini
+git -C "$FIXTURE" commit -qm "fix: decided to cap retries at 3 instead of infinite backoff to bound queue latency"
+
+cd "$FIXTURE"
+echo ""
+echo "== import git (downloads the model on a cold cache, then embeds) =="
+IMPORT_OUT="$("$BIN" import git --approve --env local --limit 20 2>&1)"; IMPORT_RC=$?
+printf '%s\n' "$IMPORT_OUT" | sed 's/^/  | /'
+IMPORT_VERDICT="$(classify_step_result "$IMPORT_RC" "$IMPORT_OUT")"
+
+if [ "$IMPORT_VERDICT" = skip-upstream ]; then
+  SKIPPED=$((SKIPPED + 1))
+  echo "SKIP: import git - huggingface.co returned HTTP 429 for the model download."
+  echo "      Upstream rate limiting of a shared runner IP, not attributable to this change."
+  echo "::warning title=Embedding model download rate-limited (429)::The binary embedding smoke was skipped: huggingface.co rate-limited the ~23MB model download. Upstream, not this change - re-run the job."
+elif [ "$IMPORT_VERDICT" != pass ]; then
+  fail "import git exited $IMPORT_RC in the binary"
 else
-  # Not a failure: if a future build does carry the embedding runtime, this path
-  # succeeds and there is no message to find. Say which case happened rather than
-  # asserting an absence that both outcomes satisfy.
-  echo "NOTE: no distribution-specific embedding message in this output - either the"
-  echo "      embedding runtime is now present, or the command did not reach that path."
+  # An import that exits 0 having imported nothing is an assertion that cannot fail.
+  if printf '%s' "$IMPORT_OUT" | grep -qE '[0-9]+ batch(es)? failed'; then
+    fail "import git exited 0 but reported a failed batch - embeddings did not run"
+  else
+    pass "import git completed with no failed batch"
+  fi
+
+  # The EFFECT: rows on disk, not the line the command printed. Decisions AND embeddings,
+  # because those fail independently and only the pair says which happened: 0 decisions
+  # means the import wrote somewhere else, while decisions-without-embeddings means the
+  # backend produced nothing.
+  COUNTS="$(node --no-warnings -e '
+    const { DatabaseSync } = require("node:sqlite");
+    const db = new DatabaseSync(process.argv[1], { readOnly: true });
+    const n = (t) => db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n;
+    process.stdout.write(n("decisions") + " " + n("decision_embeddings"));
+  ' "$DB" 2>"$TMP/counts.err")" || COUNTS=""
+  DEC="${COUNTS%% *}"
+  EMB="${COUNTS##* }"
+  echo "  rows: decisions=$DEC decision_embeddings=$EMB (db=$DB)"
+  echo "  model cache after run: $(ls -A "${ALIGN_MODEL_CACHE:-$XDG_CACHE_HOME/align-cli/models}" 2>/dev/null | wc -l | tr -d ' ') file(s)"
+
+  # A count that is not a number means the CHECK broke, not that the graph is empty, and
+  # those must not look alike. This exact confusion cost two CI rounds: `2>&1` folded Node's
+  # "SQLite is an experimental feature" warning into the value, so EMB was the last word of
+  # the warning ("created)"), the numeric test failed, and it read as 0 vectors - a red
+  # blaming the product for a bug in this script. Node 22 warns and Node 24 does not, so it
+  # was green locally and red in CI, which is the signature of an unestablished precondition.
+  is_count() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+  if ! is_count "$DEC" || ! is_count "$EMB"; then
+    fail "row counts came back as '$COUNTS' (not two integers). stderr: $(cat "$TMP/counts.err" 2>/dev/null | head -2)"
+    DEC=-1; EMB=-1
+  elif [ "$DEC" -gt 0 ]; then
+    pass "the binary wrote $DEC decision(s) to the graph it opened"
+  else
+    fail "import reported success but the graph this smoke opened holds 0 decisions - wrong DB?"
+  fi
+  if [ "$EMB" -gt 0 ] 2>/dev/null; then
+    pass "the binary wrote $EMB embedding vector(s) on device"
+  elif [ "$EMB" = "-1" ]; then
+    : # already reported as a broken check above; do not blame the product twice
+  else
+    fail "0 embedding vectors after a successful import - the WASM backend produced nothing"
+  fi
+
+  # And that they are usable: search ranks on cosine over those vectors.
+  SEARCH_OUT="$("$BIN" search "postgres" --env local --limit 5 2>&1)"; SEARCH_RC=$?
+  printf '%s\n' "$SEARCH_OUT" | sed 's/^/  | /'
+  if [ $SEARCH_RC -ne 0 ]; then
+    fail "search exited $SEARCH_RC"
+  elif printf '%s' "$SEARCH_OUT" | grep -qi "postgres"; then
+    pass "search retrieved a decision through on-device similarity"
+  else
+    fail "search exited 0 but returned nothing for a term that is in the graph"
+  fi
+
+  # The npm-shaped advice must never appear in a binary: it tells the user to reinstall a
+  # package they never installed. Meaningful as an absence only because the checks above
+  # established the path really ran.
+  if printf '%s\n%s' "$IMPORT_OUT" "$SEARCH_OUT" | grep -qi "reinstall on a supported platform"; then
+    fail "the binary printed the npm advice - the WASM backend was not registered"
+  else
+    pass "no npm-shaped advice in the binary's output"
+  fi
 fi
 
 echo ""
 if [ "$FAILURES" -ne 0 ]; then
-  echo "BINARY SMOKE RESULT: $FAILURES check(s) failed"
+  echo "BINARY SMOKE RESULT: $FAILURES check(s) failed, $SKIPPED skipped upstream"
   exit 1
+fi
+if [ "$SKIPPED" -ne 0 ]; then
+  # Same narrow, loud exception as smoke-install.sh: a huggingface.co 429 on a shared runner
+  # IP is not attributable to this change, and a red nobody can act on teaches people to
+  # ignore red. Everything except the model download stays unconditionally ours.
+  echo "BINARY SMOKE RESULT: all checks passed except $SKIPPED skipped for an upstream huggingface.co 429"
+  exit 0
 fi
 echo "BINARY SMOKE RESULT: all checks passed"

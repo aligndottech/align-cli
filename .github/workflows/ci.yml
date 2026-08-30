@@ -157,11 +157,35 @@ jobs:
 
       - run: npm ci
 
+      # The ~23MB embedding model is fetched from huggingface.co the first time the binary
+      # embeds anything, and huggingface rate-limits shared runner IPs. Caching keeps that
+      # off the critical path; smoke-binary.sh still reports a 429 as SKIP rather than FAIL,
+      # so a throttled run is survivable either way. Keyed on the model and the dtype pin,
+      # which is what decides which files are fetched. Bump -v1 to discard a bad cache.
+      - name: Restore the embedding model
+        id: model-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .hf-model-cache
+          key: align-binary-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2-q8-v1
+
       - name: Build every target
         run: bash scripts/build-binaries.sh
 
+      # Builds all 8; smokes the host one. `align --version` exits 0 on a binary whose first
+      # DB call dies AND on one that embeds nothing, so this drives a real import and asserts
+      # vectors landed on disk.
       - name: Smoke the host binary
+        env:
+          ALIGN_SMOKE_MODEL_CACHE: .hf-model-cache
         run: bash scripts/smoke-binary.sh
+
+      - name: Save the embedding model
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .hf-model-cache
+          key: align-binary-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2-q8-v1
 
       - name: Sizes
         run: ls -lh dist-bin/

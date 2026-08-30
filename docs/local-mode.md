@@ -77,21 +77,23 @@ applies to the environment you're running in and why.
 
 ## Install notes
 
-There are two ways to install, and they differ on exactly one thing: on-device embeddings.
+Two ways to install, and local-only mode works fully in both.
 
 | | Standalone binary (`install.sh`) | npm (`npm i -g @aligndottech/cli`) |
 |---|---|---|
 | Needs Node on your machine | no | yes, 22.16+ |
 | Cloud mode | yes | yes |
 | Local graph, capture, `local status`, `context sync` | yes | yes |
-| On-device embeddings, so `ask`/`search`/`check` in local mode | **not yet** | yes |
+| On-device embeddings, so `ask`/`search`/`check` in local mode | yes | yes |
+| Embedding backend | WASM, bundled in | native (`onnxruntime-node`) |
 
-The binary cannot currently carry the embedding model. `@huggingface/transformers` pulls
-`onnxruntime-node`, which is a native addon plus sibling shared libraries it loads itself at
-runtime, and a compiled binary has nowhere to put those. If you want local-only mode today,
-install from npm. The binary says so, and names the command, rather than failing obscurely.
+The two backends run the same quantized model and produce the same vectors: measured cosine
+agreement 1.000000000, worst per-dimension difference 2.98e-08, and the pairwise similarity
+that retrieval actually ranks on shifts by 2.1e-08. So a binary and an npm install can share
+one local graph, and you can move between them.
 
-Cloud mode needs no native build.
+The binary carries its embedding runtime inside itself, so the only thing local mode downloads
+is the model below. Cloud mode downloads nothing and needs no native build.
 
 Local-only mode uses an on-device embedding model (`@huggingface/transformers`, an optional
 dependency) that ships native binaries for macOS, glibc Linux and Windows (x64/arm64). On those
