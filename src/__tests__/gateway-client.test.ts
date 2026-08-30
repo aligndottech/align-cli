@@ -359,6 +359,54 @@ describe('gateway client', () => {
     });
   });
 
+  // ALI-761 phase 2: the check carries who ran it (platform) and what it checked
+  // (subject_key, head_sha), so the gateway's conflict events stop landing unattributable
+  // and unjoinable. Everything here is CHECK-SCOPED on purpose: a client-wide platform
+  // claim would also relabel `align adjudicate`, which the gateway refuses from agents.
+  describe('checkAlignment CI identity (ALI-761)', () => {
+    const SHA = 'a'.repeat(40);
+
+    it('sends subject_key and head_sha in the body and the platform as a header', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'aligned' }) });
+      await createGatewayClient(localEnv).checkAlignment('diff', 'branch', {
+        platform: 'github-actions',
+        subjectKey: 'github:aligndottech/align-stack#1950',
+        headSha: SHA,
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body.subject_key).toBe('github:aligndottech/align-stack#1950');
+      expect(body.head_sha).toBe(SHA);
+      expect(sentHeaders()).toMatchObject({
+        'x-align-platform': 'github-actions',
+        // The frozen identity block must survive the extra header, not be replaced by it.
+        'x-align-client': 'cli',
+      });
+    });
+
+    it('sends NONE of them when the opts are absent - absent means absent', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'aligned' }) });
+      await createGatewayClient(localEnv).checkAlignment('diff', 'branch');
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body.content).toBe('diff'); // positive control: the request really carried the check
+      expect('subject_key' in body).toBe(false);
+      expect('head_sha' in body).toBe(false);
+      expect('x-align-platform' in sentHeaders()).toBe(false);
+    });
+
+    it('does not leak the platform header onto other requests from the same client', async () => {
+      const client = createGatewayClient(localEnv);
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'aligned' }) });
+      await client.checkAlignment('diff', 'branch', { platform: 'github-actions' });
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ all: [], enabled: [] }) });
+      await client.listConnectors();
+
+      expect(sentHeaders(0)).toMatchObject({ 'x-align-platform': 'github-actions' });
+      expect('x-align-platform' in sentHeaders(1)).toBe(false);
+    });
+  });
+
   describe('getConflicts honest totals (ALI-587)', () => {
     // Until this change the client fetched one 50-row page and its consumer (the MCP tool)
     // served it to agents as the complete conflict set. The gateway's total_count is

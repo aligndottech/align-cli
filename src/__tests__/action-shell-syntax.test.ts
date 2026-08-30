@@ -30,6 +30,7 @@ const ACTION = join(dirname(fileURLToPath(import.meta.url)), '../../.github/acti
 if (!existsSync(ACTION)) throw new Error(`FATAL: ${ACTION} is missing`);
 
 interface CompositeAction {
+  outputs?: Record<string, { value?: string }>;
   runs: { steps: Array<{ name?: string; run?: string; shell?: string; env?: Record<string, string> }> };
 }
 
@@ -96,6 +97,27 @@ describe('composite action shell blocks', () => {
     expect(withTitle).toHaveLength(1);
     expect(withTitle[0]?.env?.PR_TITLE).toContain('github.event.pull_request.title');
     expect(withTitle[0]?.run).toContain('--title');
+  });
+
+  it('supplies the PR identity through env, so the exports have data to send (ALI-761)', () => {
+    const check = action.runs.steps.find(s => s.env?.HEAD_SHA);
+
+    expect(check).toBeDefined();
+    // The EVENT head sha, deliberately: github.sha on a pull_request is the synthetic
+    // merge commit, which matches no commit anyone pushed and joins to nothing.
+    expect(check?.env?.HEAD_SHA).toContain('github.event.pull_request.head.sha');
+    expect(check?.env?.HEAD_SHA).not.toMatch(/github\.sha\b/);
+    expect(check?.env?.PR_NUMBER).toContain('github.event.pull_request.number');
+    expect(check?.env?.REPO).toContain('github.repository');
+  });
+
+  it('declares check-event-id as an action output, wired to the check step', () => {
+    // The id is what `align adjudicate` and the phase-3 outcome recorder key on; a step
+    // output that no `outputs:` mapping exposes is invisible to every consuming workflow.
+    expect(action.outputs?.['check-event-id']?.value).toContain('steps.check.outputs.check_event_id');
+
+    const check = action.runs.steps.find(s => s.env?.HEAD_SHA);
+    expect(check?.run).toContain('check_event_id=$CHECK_EVENT_ID');
   });
 
   it('detects a syntax error when one is present', async () => {
