@@ -143,7 +143,7 @@ else
   # Read it back with a DIFFERENT reader than the one that wrote it. node:sqlite here
   # is the same engine, but a separate process with no CLI code in it, so this asserts
   # the bytes on disk are a real database rather than trusting the writer.
-  SCHEMA_JSON="$(node -e '
+  SCHEMA_JSON="$(node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite");
     const db = new DatabaseSync(process.argv[1], { readOnly: true });
     // The sqlite_% filter is applied in JS, not in SQL: this whole program is inside a
@@ -157,7 +157,7 @@ else
       indexes: names("index"),
       userVersion: db.prepare("PRAGMA user_version").get().user_version,
     }));
-  ' "$DB" 2>&1)" || { fail "could not read $DB back as SQLite: $SCHEMA_JSON"; SCHEMA_JSON=""; }
+  ' "$DB" 2>"$TMP/schema.err")" || { fail "could not read $DB back as SQLite: $(cat "$TMP/schema.err")"; SCHEMA_JSON=""; }
 
   if [ -n "$SCHEMA_JSON" ]; then
     echo "  schema: $SCHEMA_JSON"
@@ -267,27 +267,36 @@ else
   # because those fail independently and only the pair says which happened: 0 decisions
   # means the import wrote somewhere else, while decisions-without-embeddings means the
   # backend produced nothing.
-  COUNTS="$(node -e '
+  COUNTS="$(node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite");
     const db = new DatabaseSync(process.argv[1], { readOnly: true });
     const n = (t) => db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n;
     process.stdout.write(n("decisions") + " " + n("decision_embeddings"));
-  ' "$DB" 2>&1)" || COUNTS="err err"
+  ' "$DB" 2>"$TMP/counts.err")" || COUNTS=""
   DEC="${COUNTS%% *}"
   EMB="${COUNTS##* }"
   echo "  rows: decisions=$DEC decision_embeddings=$EMB (db=$DB)"
   echo "  model cache after run: $(ls -A "${ALIGN_MODEL_CACHE:-$XDG_CACHE_HOME/align-cli/models}" 2>/dev/null | wc -l | tr -d ' ') file(s)"
-  if [ "$DEC" = "err" ] || [ -z "$DEC" ]; then
-    fail "could not count rows in the graph"
-  elif [ "$DEC" -gt 0 ] 2>/dev/null; then
+
+  # A count that is not a number means the CHECK broke, not that the graph is empty, and
+  # those must not look alike. This exact confusion cost two CI rounds: `2>&1` folded Node's
+  # "SQLite is an experimental feature" warning into the value, so EMB was the last word of
+  # the warning ("created)"), the numeric test failed, and it read as 0 vectors - a red
+  # blaming the product for a bug in this script. Node 22 warns and Node 24 does not, so it
+  # was green locally and red in CI, which is the signature of an unestablished precondition.
+  is_count() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+  if ! is_count "$DEC" || ! is_count "$EMB"; then
+    fail "row counts came back as '$COUNTS' (not two integers). stderr: $(cat "$TMP/counts.err" 2>/dev/null | head -2)"
+    DEC=-1; EMB=-1
+  elif [ "$DEC" -gt 0 ]; then
     pass "the binary wrote $DEC decision(s) to the graph it opened"
   else
     fail "import reported success but the graph this smoke opened holds 0 decisions - wrong DB?"
   fi
-  if [ "$EMB" = "err" ] || [ -z "$EMB" ]; then
-    fail "could not count rows in decision_embeddings"
-  elif [ "$EMB" -gt 0 ] 2>/dev/null; then
+  if [ "$EMB" -gt 0 ] 2>/dev/null; then
     pass "the binary wrote $EMB embedding vector(s) on device"
+  elif [ "$EMB" = "-1" ]; then
+    : # already reported as a broken check above; do not blame the product twice
   else
     fail "0 embedding vectors after a successful import - the WASM backend produced nothing"
   fi
