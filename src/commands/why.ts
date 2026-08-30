@@ -215,7 +215,11 @@ export function registerAskCommand(program: Command): void {
             // ALI-766: a provider WAS configured and none of them answered. The key nudge
             // below would be the wrong signpost - it reads as "your provider is not
             // supported" to the one user who took the trouble to configure us.
-            console.log(chalk.dim('  No answer written: every configured provider was unreachable.'));
+            // "did not answer", not "unreachable": this path also carries availability-class
+            // REJECTIONS (401/403/404), where the endpoint answered perfectly well and turned
+            // us down. The first wording contradicted this file's own test fixture, which
+            // asserts an HTTP 401 case.
+            console.log(chalk.dim('  No answer written: no configured provider answered.'));
             for (const t of unavailable.tried) {
               console.log(chalk.dim(`    - ${t.provider}: ${t.detail}`));
             }

@@ -276,6 +276,10 @@ describe('align ask - file path mode', () => {
     expect(all).toContain('custom');
     expect(all).toContain('openai');
     expect(all).toContain('HTTP 401');
+    // An HTTP 401 means the endpoint answered and refused us, so the summary line must not
+    // call it unreachable. The first version of this message did, contradicting the very
+    // fixture above it - a review bot caught that, not this suite, so it is pinned now.
+    expect(all).not.toMatch(/unreachable/i);
   });
 
   it('keeps the generic provider nudge when Ollama is not the reason', async () => {
