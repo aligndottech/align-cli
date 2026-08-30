@@ -24,9 +24,7 @@ export function registerLocalCommand(program: Command): void {
       // initLocalMode used to wire every detected agent's global MCP config from inside
       // itself, without asking. This is the same wiring, asked for (ALI-776).
       const { connectDetectedAgents } = await import('./connect-agents.js');
-      await connectDetectedAgents('local', {
-        interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-      });
+      await connectDetectedAgents('local');
 
       outro(
         `${chalk.green('Your local Align graph is ready.')}\n` +

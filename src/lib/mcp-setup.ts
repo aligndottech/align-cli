@@ -215,6 +215,52 @@ function writeJsonConfig(target: EditorTarget, env?: string): void {
   writeFileSync(target.configPath, JSON.stringify(existing, null, 2), 'utf8');
 }
 
+/**
+ * Take Align back out of an agent's MCP config (ALI-776).
+ *
+ * Setup wires detected agents automatically rather than asking, which is only defensible
+ * because the write is additive AND reversible. This is the reversible half - without it,
+ * "you can hand-edit the JSON" is the undo, and that is not one.
+ *
+ * Removes exactly the `align` entry and nothing else, mirroring what writeMcpConfig added.
+ * Returns whether there was anything to remove, so the caller can say "nothing to undo"
+ * rather than implying it did something.
+ *
+ * Throws on a config it cannot parse rather than rewriting it - the same rule
+ * writeJsonConfig follows, and for the same reason: a rewrite would destroy whatever the
+ * user was part-way through editing.
+ */
+export function removeMcpConfig(target: EditorTarget): boolean {
+  if (!existsSync(target.configPath)) return false;
+
+  if (target.format === 'codex') {
+    const existing = readConfig(target.configPath, 'codex');
+    const start = existing.indexOf(CODEX_BLOCK_START);
+    const end = existing.indexOf(CODEX_BLOCK_END);
+    // Both markers, in order. A half-present fence means someone edited inside it, and
+    // guessing where the block ends would take their work with it.
+    if (start === -1 || end === -1 || end < start) return false;
+    const without = `${existing.slice(0, start)}${existing.slice(end + CODEX_BLOCK_END.length)}`;
+    writeFileSync(target.configPath, `${without.replace(/\n{3,}/g, '\n\n').replace(/^\s+/, '')}`, 'utf8');
+    return true;
+  }
+
+  const raw = readConfig(target.configPath, target.format);
+  if (!raw.trim()) return false;
+  let existing: Record<string, unknown>;
+  try {
+    existing = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error(`${target.configPath} contains invalid JSON - fix it manually, or delete the "align" entry by hand`);
+  }
+  const key = jsonTopKey(target.format);
+  const servers = existing[key] as Record<string, unknown> | undefined;
+  if (!servers || !('align' in servers)) return false;
+  delete servers['align'];
+  writeFileSync(target.configPath, JSON.stringify(existing, null, 2), 'utf8');
+  return true;
+}
+
 export function writeMcpConfig(target: EditorTarget, env?: string): void {
   if (target.format === 'codex') {
     writeCodexConfig(target.configPath, env);

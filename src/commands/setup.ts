@@ -309,7 +309,7 @@ function writeAgentAlignment(envName: EnvName): void {
 // seeds the graph from git history - all on the user's machine. This is the
 // privacy/offline escape hatch; the default solo experience is a personal
 // cloud tenant (see the cloud path below).
-async function runLocalSetup(approve = false): Promise<void> {
+async function runLocalSetup(): Promise<void> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
@@ -326,7 +326,7 @@ async function runLocalSetup(approve = false): Promise<void> {
   // setup skipped this and cloud did not, which is backwards: local mode is the one whose
   // entire pitch is an agent on your own machine reading a graph that never leaves it.
   console.log('');
-  await connectDetectedAgents('local', { interactive, assumeYes: approve });
+  await connectDetectedAgents('local');
 
   const config = createConfigStore();
   const localEnv = config.getEnvironment('local');
@@ -505,7 +505,7 @@ export async function runSetup(
     }
 
     if (mode === 'local') {
-      await runLocalSetup(Boolean(opts.approve));
+      await runLocalSetup();
       return;
     }
 
@@ -554,7 +554,7 @@ async function runCloudSetup(ctx: {
       // Declined cloud login: offer the local escape hatch instead of failing.
       const wantLocal = await p.confirm({ message: 'Set up local-only mode instead? (no account, stays on this machine)' });
       if (!p.isCancel(wantLocal) && wantLocal) {
-        await runLocalSetup(Boolean(opts.approve));
+        await runLocalSetup();
         return;
       }
       p.log.warn(`Run ${chalk.bold('align login')} when ready, then ${chalk.bold('align setup')}.`);
@@ -582,10 +582,7 @@ async function runCloudSetup(ctx: {
   // It also ASKS now. This block wrote to a user-level config without a word whenever exactly
   // one editor was detected; it only prompted at two or more. And the multiselect it used was
   // unguarded, so `align setup --approve` with two agents installed hung.
-  const agents = await connectDetectedAgents(envName, {
-    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-    assumeYes: Boolean(ctx.opts.approve),
-  });
+  const agents = await connectDetectedAgents(envName);
 
   // ---- Step 3b: Deterministic auto-alignment files (hook + nudges) ----
   writeAgentAlignment(envName);

@@ -5,11 +5,10 @@ const writeMcpConfig = vi.hoisted(() => vi.fn());
 vi.mock('../lib/mcp-setup.js', () => ({ detectEditors, writeMcpConfig }));
 
 const confirm = vi.hoisted(() => vi.fn());
-const isCancel = vi.hoisted(() => vi.fn().mockReturnValue(false));
 const logged: string[] = [];
 vi.mock('@clack/prompts', () => ({
   confirm,
-  isCancel,
+  isCancel: vi.fn().mockReturnValue(false),
   log: {
     info: (m: string) => logged.push(m),
     success: (m: string) => logged.push(m),
@@ -17,116 +16,111 @@ vi.mock('@clack/prompts', () => ({
   },
 }));
 
-vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
 import { connectDetectedAgents } from '../commands/connect-agents.js';
 
 const CLAUDE = { name: 'Claude Desktop', configPath: '/home/d/.config/Claude/x.json', format: 'mcpServers' };
 const CURSOR = { name: 'Cursor', configPath: '/home/d/.cursor/mcp.json', format: 'mcpServers' };
 
 /**
- * ALI-776. Local setup wired the PROJECT (.mcp.json and the agent hooks) but never the
- * globally installed agents, while cloud setup did - so a local-only user, the one for whom
- * an agent on their own machine is the entire point, got less.
+ * ALI-776. Setup wires the agents installed on this machine.
  *
- * Closing that gap means writing to files OUTSIDE the repo the user ran us in
- * (~/.claude.json, a Claude Desktop config). Those are user-level files people curate, so
- * this asks once rather than editing them silently - which is what the cloud path did
- * whenever exactly one editor was detected.
+ * An earlier version of this asked first, on the grounds that a global editor config is a
+ * user-level file. Two facts moved it: the write is ADDITIVE (one `align` key, everything
+ * else preserved, and it throws rather than overwriting a config it cannot parse), and an
+ * agent reading your graph IS the product - so a prompt costs every user a keystroke in
+ * order to let a few decline the only thing that makes Align do anything.
+ *
+ * The trade only holds with disclosure and a real undo, so both are asserted here.
  */
 describe('connectDetectedAgents', () => {
   beforeEach(() => {
     logged.length = 0;
     detectEditors.mockReset();
     writeMcpConfig.mockReset();
-    confirm.mockReset().mockResolvedValue(true);
-    isCancel.mockReturnValue(false);
+    confirm.mockReset();
   });
 
-  it('writes nothing and says nothing useless when no agent is installed', async () => {
-    detectEditors.mockReturnValue([]);
-    await connectDetectedAgents('local', { interactive: true });
-    expect(writeMcpConfig).not.toHaveBeenCalled();
-    // Still hands over the portable config, because Align is just an MCP server and works
-    // with agents we cannot detect.
-    expect(logged.join(' ')).toMatch(/mcpServers/);
-  });
-
-  it('asks before touching a global config, and writes when told yes', async () => {
+  it('wires every detected agent without asking', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-    await connectDetectedAgents('local', { interactive: true });
-    expect(confirm).toHaveBeenCalledTimes(1);
+    const r = await connectDetectedAgents('local');
+    expect(confirm).not.toHaveBeenCalled();
     expect(writeMcpConfig).toHaveBeenCalledTimes(2);
-    // env threaded through, or a local user's agent would point at the cloud graph
+    expect(r).toEqual({ detected: 2, connected: 2 });
+  });
+
+  it('threads the env, or a local user\'s agent reads the cloud graph', async () => {
+    detectEditors.mockReturnValue([CLAUDE]);
+    await connectDetectedAgents('local');
     expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, 'local');
-  });
-
-  it('writes nothing when told no, and says how to do it later', async () => {
-    detectEditors.mockReturnValue([CLAUDE]);
-    confirm.mockResolvedValue(false);
-    await connectDetectedAgents('local', { interactive: true });
-    expect(writeMcpConfig).not.toHaveBeenCalled();
-    // Env-qualified: bare `align mcp --setup` resolves to the cloud default, so telling a
-    // local user to run it would wire their agent to prod - the graph they did not build.
-    expect(logged.join(' ')).toContain('align mcp --setup --env local');
-  });
-
-  it('qualifies the manual command with the env everywhere it appears', async () => {
-    for (const [env, expected] of [
-      ['local', 'align mcp --setup --env local'],
-      ['prod', 'align mcp --setup'],
-    ] as const) {
-      for (const editors of [[], [CLAUDE]]) {
-        logged.length = 0;
-        detectEditors.mockReturnValue(editors);
-        await connectDetectedAgents(env, { interactive: false });
-        const out = logged.join(' ');
-        expect(out).toContain(expected);
-        if (env === 'prod') expect(out).not.toContain('--env');
-      }
-    }
-  });
-
-  it('treats a cancelled prompt as no', async () => {
-    detectEditors.mockReturnValue([CLAUDE]);
-    isCancel.mockReturnValue(true);
-    await connectDetectedAgents('local', { interactive: true });
-    expect(writeMcpConfig).not.toHaveBeenCalled();
-  });
-
-  /**
-   * Without a TTY there is nobody to ask, and silently editing a user-level file is exactly
-   * what this design refuses to do. It also must not PROMPT, or `align setup --approve` hangs
-   * - which is a live bug today: the cloud path's multiselect is unguarded.
-   */
-  // `--approve` is consent given up front, so a scripted run must still get its agents
-  // wired rather than silently losing them.
-  it('writes without asking when --approve was passed', async () => {
-    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-    await connectDetectedAgents('local', { interactive: false, assumeYes: true });
-    expect(confirm).not.toHaveBeenCalled();
-    expect(writeMcpConfig).toHaveBeenCalledTimes(2);
-  });
-
-  it('neither prompts nor writes when there is no TTY', async () => {
-    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-    await connectDetectedAgents('local', { interactive: false });
-    expect(confirm).not.toHaveBeenCalled();
-    expect(writeMcpConfig).not.toHaveBeenCalled();
-    expect(logged.join(' ')).toMatch(/align mcp --setup/);
-  });
-
-  it('keeps going when one agent fails to write', async () => {
-    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-    writeMcpConfig.mockImplementationOnce(() => { throw new Error('permission denied'); });
-    await connectDetectedAgents('local', { interactive: true });
-    expect(writeMcpConfig).toHaveBeenCalledTimes(2);      // did not abort on the first
-    expect(logged.join(' ')).toMatch(/permission denied/); // and said so
   });
 
   it('passes undefined for prod, so the agent gets the default env', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
-    await connectDetectedAgents('prod', { interactive: true });
+    await connectDetectedAgents('prod');
     expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, undefined);
+  });
+
+  /**
+   * The disclosure IS the consent here. Naming the agent is not enough - "Cursor: connected"
+   * does not tell anyone which file changed, and this is what the user gets in place of
+   * being asked.
+   */
+  it('names the exact files it touched and how to undo it', async () => {
+    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+    await connectDetectedAgents('local');
+    const out = logged.join('\n');
+    expect(out).toContain(CLAUDE.configPath);
+    expect(out).toContain(CURSOR.configPath);
+    expect(out).toContain('align mcp --remove');
+    // and the promise that makes an unasked write acceptable
+    expect(out).toMatch(/Nothing else in them was changed/);
+  });
+
+  it('agrees in number when it touched exactly one file', async () => {
+    detectEditors.mockReturnValue([CLAUDE]);
+    await connectDetectedAgents('local');
+    const out = logged.join('\n');
+    expect(out).toContain('this file');
+    expect(out).toContain('Nothing else in it was changed');
+    expect(out).not.toContain('these files');
+  });
+
+  it('says nothing about files when it wrote none', async () => {
+    detectEditors.mockReturnValue([]);
+    await connectDetectedAgents('local');
+    expect(logged.join('\n')).not.toContain('align mcp --remove');
+  });
+
+  it('keeps going, and does not claim a file it failed to write', async () => {
+    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+    writeMcpConfig.mockImplementationOnce(() => { throw new Error('permission denied'); });
+    const r = await connectDetectedAgents('local');
+    expect(writeMcpConfig).toHaveBeenCalledTimes(2);      // did not abort on the first
+    expect(r).toEqual({ detected: 2, connected: 1 });
+    const out = logged.join('\n');
+    expect(out).toContain('permission denied');
+    expect(out).not.toContain(CLAUDE.configPath);          // the one that failed
+    expect(out).toContain(CURSOR.configPath);
+  });
+
+  it('hands over a portable config when no agent is installed', async () => {
+    detectEditors.mockReturnValue([]);
+    await connectDetectedAgents('local');
+    expect(writeMcpConfig).not.toHaveBeenCalled();
+    expect(logged.join('\n')).toMatch(/mcpServers/);
+  });
+
+  // Bare `align mcp --setup` resolves to the cloud default, so telling a local user to run it
+  // would wire their agent to prod - the graph they did not just build.
+  it('qualifies the manual command with the env', async () => {
+    detectEditors.mockReturnValue([]);
+    await connectDetectedAgents('local');
+    expect(logged.join('\n')).toContain('align mcp --setup --env local');
+
+    logged.length = 0;
+    await connectDetectedAgents('prod');
+    const out = logged.join('\n');
+    expect(out).toContain('align mcp --setup');
+    expect(out).not.toContain('--env');
   });
 });
