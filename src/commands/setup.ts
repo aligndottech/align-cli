@@ -360,6 +360,43 @@ async function runLocalSetup(): Promise<void> {
   // branch, which reads this same stored decision.
   await maybeRequestTelemetryConsent(config, Boolean(interactive));
 
+  // Connectors: OAuth can't run offline (needs the hosted callback), so local mode
+  // connects via manual read-only token paste. Only sources with a tokenLabel are
+  // pasteable (Teams/Zoom have no personal token → excluded). See ALI-103.
+  //
+  // Asked BEFORE the git scan so every question lands on a clean screen and the rest of
+  // setup then runs without stopping. The picker used to sit under a screenful of import
+  // output, which is the condition that corrupted clack's redraw for an outside tester.
+  const localConnectors = buildSources(false)
+    .filter((s) => s.id !== 'git' && s.tokenLabel)
+    .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
+  console.log('');
+  // `interactive` computed once, at the top of this function - see the comment there.
+  const selected = interactive
+    ? await p.multiselect({
+        message: 'Connect more sources with a read-only token? (skip to finish)',
+        options: localConnectors.map((s) => ({ value: s.id, label: s.label, hint: s.description })),
+        required: false,
+        // Without maxItems clack renders all 7 and its in-place redraw miscounts
+        // once the list is taller than the viewport, painting duplicate rows.
+        maxItems: pickerMaxItems(process.stdout.rows, localConnectors.length),
+      })
+    : ([] as string[]);
+
+  // Collect every credential up front, so the automatic phase below never stops to ask.
+  const localReady: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
+  if (!p.isCancel(selected)) {
+    for (const id of selected as string[]) {
+      const source = localConnectors.find((s) => s.id === id);
+      if (!source) continue;
+      console.log('');
+      p.log.step(chalk.bold(source.label));
+      const tokens = await collectTokens(source);
+      if (!tokens) continue;
+      localReady.push({ source, tokens });
+    }
+  }
+
   if (await isGitRepo()) {
     console.log('');
     p.log.info(chalk.dim('First import downloads a local embedding model (~23MB, from huggingface.co), one time.'));
@@ -393,48 +430,23 @@ async function runLocalSetup(): Promise<void> {
     }
   }
 
-  // Connectors: OAuth can't run offline (needs the hosted callback), so local mode
-  // connects via manual read-only token paste. Only sources with a tokenLabel are
-  // pasteable (Teams/Zoom have no personal token → excluded). See ALI-103.
-  const localConnectors = buildSources(false)
-    .filter((s) => s.id !== 'git' && s.tokenLabel)
-    .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
-  console.log('');
-  // `interactive` computed once, at the top of this function - see the comment there.
-  const selected = interactive
-    ? await p.multiselect({
-        message: 'Connect more sources with a read-only token? (skip to finish)',
-        options: localConnectors.map((s) => ({ value: s.id, label: s.label, hint: s.description })),
-        required: false,
-        // Without maxItems clack renders all 7 and its in-place redraw miscounts
-        // once the list is taller than the viewport, painting duplicate rows.
-        maxItems: pickerMaxItems(process.stdout.rows, localConnectors.length),
-      })
-    : ([] as string[]);
-  if (!p.isCancel(selected)) {
-    for (const id of selected as string[]) {
-      const source = localConnectors.find((s) => s.id === id);
-      if (!source) continue;
-      console.log('');
-      p.log.step(chalk.bold(source.label));
-      const tokens = await collectTokens(source);
-      if (!tokens) continue;
-      const spinner = p.spinner();
-      spinner.start(`Fetching from ${source.label}...`);
-      try {
-        const items = await source.fetch(tokens);
-        spinner.stop(`Found ${items.length} items`);
-        if (items.length) {
-          await runPersonalImport(items, localClient, {
-            label: source.label,
-            approve: true,
-            appUrl: resolveAppUrl(localEnv),
-            local: true,
-          });
-        }
-      } catch (e) {
-        spinner.stop(`Skipped ${source.label} - ${(e as Error).message}`);
+  // Now the automatic phase: fetch and import what the credentials above unlocked.
+  for (const { source, tokens } of localReady) {
+    const spinner = p.spinner();
+    spinner.start(`Fetching from ${source.label}...`);
+    try {
+      const items = await source.fetch(tokens);
+      spinner.stop(`Found ${items.length} items`);
+      if (items.length) {
+        await runPersonalImport(items, localClient, {
+          label: source.label,
+          approve: true,
+          appUrl: resolveAppUrl(localEnv),
+          local: true,
+        });
       }
+    } catch (e) {
+      spinner.stop(`Skipped ${source.label} - ${(e as Error).message}`);
     }
   }
 
@@ -601,68 +613,11 @@ async function runCloudSetup(ctx: {
     );
   }
 
-  // ---- Step 3: MCP editor config (before import - this is the payoff) ----
-  console.log('');
-  // Shared with the local path (ALI-776), which used to skip this entirely - so a local-only
-  // user got LESS agent wiring than a cloud one, on the mode where an agent running on your
-  // own machine is the whole point.
-  //
-  // It does NOT ask: it wires every detected agent and discloses each file it touched, with
-  // `align mcp --remove` as the undo. This block used to write to a user-level config without
-  // a word when exactly one editor was detected and prompt only at two or more, and that
-  // multiselect was unguarded, so `align setup --approve` with two agents installed hung.
-  const agents = await connectDetectedAgents(envName);
-
-  // ---- Step 3b: Deterministic auto-alignment files (hook + nudges) ----
-  writeAgentAlignment(envName);
-
-  // ---- Step 4: Git auto-import (zero-auth baseline graph seed) ----
-  let totalDecisions = 0;
-  const sourcesImported: string[] = [];
-  const gitAvailable = await isGitRepo();
-
-  if (gitAvailable) {
-    console.log('');
-    const gitSpinner = p.spinner();
-    gitSpinner.start('Scanning git history...');
-    try {
-      const gitSource = buildSources(true).find(s => s.id === 'git')!;
-      const items = await gitSource.fetch({});
-      // Stop the scan spinner before runPersonalImport - it starts its own
-      // progress spinner, and two animated spinners on one line flicker.
-      if (items.length) {
-        gitSpinner.stop(`Found ${items.length} commits worth importing`);
-        const ingested = await runPersonalImport(items, client, {
-          label: 'Git',
-          approve: true,
-          appUrl: resolveAppUrl(env),
-        });
-        totalDecisions += ingested;
-        if (ingested > 0) sourcesImported.push('Git');
-      } else {
-        gitSpinner.stop('No decisions found in git history');
-      }
-    } catch {
-      gitSpinner.stop('Git import skipped');
-    }
-  }
-
-  // ---- Step 5: First-query prompt ----
-  // Only when something was actually WIRED, not merely detected: telling someone their agent
-  // is connected when they declined the prompt would be false.
-  //
-  // The question stays as it is, deliberately. ALI-771 removed it from the LOCAL outro
-  // because typing it into `align ask` matches nothing - it is about the graph rather than in
-  // it. Asked of an AGENT over MCP it is a good opening question, because the agent answers
-  // it by calling a list tool rather than a similarity search. Different surface, different
-  // advice.
-  if (agents.connected > 0) {
-    console.log('');
-    p.log.info(chalk.dim('Your agent is connected. Try asking:'));
-    p.log.info(chalk.bold('  "What decisions exist in this codebase?"'));
-  }
-
-  // ---- Step 6: Optional connectors ----
+  // ---- Step 3: Ask which tools the user actually has ----
+  // Everything interactive happens before anything runs: pick your sources here, hand
+  // over credentials next, and from then on setup does not ask again. This also keeps the
+  // picker near the top of a clean screen rather than under a screenful of import output,
+  // which is the condition that corrupted clack's in-place redraw for an outside tester.
   // Order by OAuth scope tier so frictionless personal-account connectors come
   // first, then Atlassian (site-scoped), then workspace-admin (Slack/Teams).
   console.log('');
@@ -678,7 +633,7 @@ async function runCloudSetup(ctx: {
   if (p.isCancel(selectedIds)) { p.cancel('Cancelled.'); process.exit(0); }
   const selectedSources = connectorSources.filter(s => (selectedIds as string[]).includes(s.id));
 
-  // ---- Step 7a: Collect all credentials up front (consents back-to-back) ----
+  // ---- Step 4: Collect all credentials up front (consents back-to-back) ----
   // Interactive auth (browser OAuth, token paste) can only happen one at a
   // time, so we gather every connector's creds first instead of interleaving
   // a slow fetch+import between each sign-in.
@@ -731,10 +686,56 @@ async function runCloudSetup(ctx: {
     readyConnectors.push({ source, tokens });
   }
 
-  // ---- Step 7b: Fetch every connector concurrently (independent network I/O),
+  // ---- Step 5: MCP editor config (before import - this is the payoff) ----
+  console.log('');
+  // Shared with the local path (ALI-776), which used to skip this entirely - so a local-only
+  // user got LESS agent wiring than a cloud one, on the mode where an agent running on your
+  // own machine is the whole point.
+  //
+  // It does NOT ask: it wires every detected agent and discloses each file it touched, with
+  // `align mcp --remove` as the undo. This block used to write to a user-level config without
+  // a word when exactly one editor was detected and prompt only at two or more, and that
+  // multiselect was unguarded, so `align setup --approve` with two agents installed hung.
+  const agents = await connectDetectedAgents(envName);
+
+  // ---- Step 5b: Deterministic auto-alignment files (hook + nudges) ----
+  writeAgentAlignment(envName);
+
+  // ---- Step 6: Git auto-import (zero-auth baseline graph seed) ----
+  let totalDecisions = 0;
+  const sourcesImported: string[] = [];
+  const gitAvailable = await isGitRepo();
+
+  if (gitAvailable) {
+    console.log('');
+    const gitSpinner = p.spinner();
+    gitSpinner.start('Scanning git history...');
+    try {
+      const gitSource = buildSources(true).find(s => s.id === 'git')!;
+      const items = await gitSource.fetch({});
+      // Stop the scan spinner before runPersonalImport - it starts its own
+      // progress spinner, and two animated spinners on one line flicker.
+      if (items.length) {
+        gitSpinner.stop(`Found ${items.length} commits worth importing`);
+        const ingested = await runPersonalImport(items, client, {
+          label: 'Git',
+          approve: true,
+          appUrl: resolveAppUrl(env),
+        });
+        totalDecisions += ingested;
+        if (ingested > 0) sourcesImported.push('Git');
+      } else {
+        gitSpinner.stop('No decisions found in git history');
+      }
+    } catch {
+      gitSpinner.stop('Git import skipped');
+    }
+  }
+
+  // ---- Step 7: Fetch every connector concurrently (independent network I/O),
   // then import each result sequentially so per-connector output stays readable.
   // Imports are already internally batch-parallel (see runPersonalImport). Auth
-  // (7a) stays sequential because interactive browser/paste must be one at a time. ----
+  // (step 4) stays sequential because interactive browser/paste must be one at a time. ----
   type FetchResult =
     | { source: SetupSource; items: PersonalImportItem[] }
     | { source: SetupSource; authExpired: true }
@@ -763,7 +764,7 @@ async function runCloudSetup(ctx: {
   fetchSpinner.stop(`Fetched ${n} source${n === 1 ? '' : 's'}`);
 
   // Resolve any expired-token connectors interactively first (sequential, and
-  // rare - 7a just minted fresh tokens), collecting everything ready to import.
+  // rare - step 4 just minted fresh tokens), collecting everything ready to import.
   const ready: Array<{ source: SetupSource; items: PersonalImportItem[] }> = [];
   for (const result of fetched) {
     const source = result.source;
@@ -848,6 +849,21 @@ async function runCloudSetup(ctx: {
   const sourceLine = sourcesImported.length > 0
     ? `\n  Sources: ${sourcesImported.join(', ')}`
     : '';
+
+  // ---- Step 8: First-query prompt ----
+  // Only when something was actually WIRED, not merely detected: telling someone their agent
+  // is connected when they declined the prompt would be false.
+  //
+  // The question stays as it is, deliberately. ALI-771 removed it from the LOCAL outro
+  // because typing it into `align ask` matches nothing - it is about the graph rather than in
+  // it. Asked of an AGENT over MCP it is a good opening question, because the agent answers
+  // it by calling a list tool rather than a similarity search. Different surface, different
+  // advice.
+  if (agents.connected > 0) {
+    console.log('');
+    p.log.info(chalk.dim('Your agent is connected. Try asking:'));
+    p.log.info(chalk.bold('  "What decisions exist in this codebase?"'));
+  }
 
   const outroText = [
     chalk.bold('Setup complete.\n'),

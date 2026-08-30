@@ -262,6 +262,18 @@ describe('align setup', () => {
     expect(firstSite).toBeLessThan(firstWorkspace);
   });
 
+  it('ASKS which sources to connect before it starts importing anything', async () => {
+    // The flow is "pick your tools, then it runs": every question up front, then the
+    // automatic phase. It also keeps the picker off the bottom of a screenful of git
+    // output, which is the condition that corrupted clack's redraw for a tester.
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    const askedAt = mockMultiselect.mock.invocationCallOrder[0];
+    const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
+    expect(askedAt).toBeDefined();
+    expect(importedAt).toBeDefined();
+    expect(askedAt).toBeLessThan(importedAt!);
+  });
+
   it('bounds the connector multiselect to the viewport so clack cannot duplicate rows', async () => {
     // An outside tester saw the picker paint "Notion" three times and scroll badly.
     // clack redraws in place and miscounts once the option list is taller than the
@@ -399,6 +411,18 @@ describe('align setup', () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align env set local'));
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('prod'));
+    });
+
+    it('--local ASKS which sources to connect before it scans git', async () => {
+      // Same ask-then-run shape as the cloud path. --local is the flow an outside tester
+      // was on when the picker corrupted itself under a screenful of git output, so the
+      // ordering matters more here, not less.
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const askedAt = mockMultiselect.mock.invocationCallOrder[0];
+      const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
+      expect(askedAt).toBeDefined();
+      expect(importedAt).toBeDefined();
+      expect(askedAt).toBeLessThan(importedAt!);
     });
 
     it('--local names ALIGN_ENV as the cause when the shell exports it, and does not suggest a remedy it overrides', async () => {
