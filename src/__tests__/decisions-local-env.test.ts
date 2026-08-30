@@ -17,19 +17,27 @@ import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 describe('local client: getDecision', () => {
   let dir: string;
   let dbPath: string;
+  let client: ReturnType<typeof createLocalGatewayClient> | undefined;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-getdec-'));
     dbPath = path.join(dir, 'local.db');
   });
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => {
+    // Closed before the directory goes, or Windows refuses to unlink a file that is still
+    // open: "EBUSY: resource busy or locked". Linux unlinks an open file happily, so this
+    // only ever fails on the windows leg - which is exactly what it did.
+    client?.close();
+    client = undefined;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 
   it('returns the decision the graph holds', async () => {
     const db = createLocalDb(dbPath);
     const id = db.insertDecision({ title: 'Use Postgres', summary: 'concurrent writers', sourceUrl: 'git://commit/a', platform: 'git' });
     db.close();
 
-    const client = createLocalGatewayClient(dbPath);
+    client = createLocalGatewayClient(dbPath);
     const d = await client.getDecision(id);
     expect(d.id).toBe(id);
     expect(d.title).toBe('Use Postgres');
@@ -45,7 +53,7 @@ describe('local client: getDecision', () => {
   it('throws a message naming the id when the graph does not hold it', async () => {
     const db = createLocalDb(dbPath);
     db.close();
-    const client = createLocalGatewayClient(dbPath);
+    client = createLocalGatewayClient(dbPath);
     await expect(client.getDecision('nope-1234')).rejects.toThrow(/nope-1234/);
   });
 });
