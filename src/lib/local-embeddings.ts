@@ -3,7 +3,47 @@ import { alignDistribution } from './distribution.js';
 type EmbeddingPipeline = (text: string, options: Record<string, unknown>) => Promise<Array<{ data: Float32Array }>>;
 let _pipe: EmbeddingPipeline | null = null;
 
+/**
+ * A backend that produces the pipeline, injected at the entry point.
+ *
+ * The standalone binary cannot use the default loader below: `@huggingface/transformers`
+ * resolves `onnxruntime-node`, and a compiled binary does not resolve bare specifiers for
+ * files outside itself - measured, and true whatever the on-disk layout (ALI-744). So the
+ * binary registers a WASM backend instead, from `src/index.bun.ts`.
+ *
+ * Injected rather than branched on `alignDistribution()` here, because the WASM module has
+ * to statically import two ORT assets so `bun build --compile` embeds them - and a static
+ * import of a `.wasm` is neither typecheckable by tsc nor loadable by Node. Keeping it
+ * behind a registration hook means npm's build never compiles or ships that file at all.
+ */
+export type EmbeddingBackend = () => Promise<EmbeddingPipeline>;
+let _backend: EmbeddingBackend | null = null;
+
+export function setEmbeddingBackend(backend: EmbeddingBackend): void {
+  _backend = backend;
+  _pipe = null; // a backend swapped after first use must not keep serving the old pipeline
+}
+
+/** Test seam. Not for production paths - the binary registers exactly once, at startup. */
+export function resetEmbeddingBackend(): void {
+  _backend = null;
+  _pipe = null;
+}
+
 export async function getEmbedding(text: string): Promise<Float32Array> {
+  if (!_pipe && _backend) {
+    try {
+      _pipe = await _backend();
+    } catch (err) {
+      // Wrapped, because an unwrapped failure here reaches the user as a raw ORT or fetch
+      // error. The overwhelmingly likely cause is the one-time model download, so say that.
+      throw new Error(
+        'Could not start the on-device embedding model (~23MB, Xenova/all-MiniLM-L6-v2, ' +
+        'downloaded once from huggingface.co and then cached). Check your internet ' +
+        `connection or proxy and try again. (${(err as Error).message})`,
+      );
+    }
+  }
   if (!_pipe) {
     let mod: { pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown> };
     try {
@@ -29,7 +69,7 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
       const cause = `(${(err as Error).message})`;
       const advice =
         alignDistribution() === 'binary'
-          ? 'which the standalone binary does not yet carry. Use cloud mode (`align login`), or install via npm for on-device embeddings: npm install -g @aligndottech/cli.'
+          ? 'and the standalone binary did not register its bundled WASM backend. That is a build defect rather than a limit of your machine - please report it. Cloud mode (`align login`) works meanwhile.'
           : 'which is not installed on this platform. Use cloud mode (`align login`), or reinstall on a supported platform (macOS, glibc Linux, or Windows x64/arm64).';
       throw new Error(`${base}${advice} ${cause}`);
     }

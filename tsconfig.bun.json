@@ -1,0 +1,12 @@
+{
+  // The Bun-only sources. tsc must CHECK these (they are real code with real types) and must
+  // never EMIT them: dist/ is the npm artifact, and these import assets Node cannot load.
+  //
+  // Without this file they would be unchecked entirely - the failure mode being a type error
+  // that only ever surfaces as a broken binary, which is the slowest possible way to find one.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/index.bun.ts", "src/lib/**/*.ts", "src/types/**/*.d.ts"]
+}
