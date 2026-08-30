@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.25.0](https://github.com/aligndottech/align-cli/compare/cli-v0.24.1...cli-v0.25.0) (2026-08-30)
+
+
+### Features
+
+* **check:** attribute CI checks to platform, PR and head sha (ALI-761) ([#180](https://github.com/aligndottech/align-cli/issues/180)) ([753831a](https://github.com/aligndottech/align-cli/commit/753831a52c4bf359645dfe502279f74a9bf58c4b))
+* wire agents automatically, disclose it, and ship the undo (ALI-776) ([#181](https://github.com/aligndottech/align-cli/issues/181)) ([3529d15](https://github.com/aligndottech/align-cli/commit/3529d151557866ad552e68d38d38017346feb1d8))
+
 ## [0.24.1](https://github.com/aligndottech/align-cli/compare/cli-v0.24.0...cli-v0.24.1) (2026-08-30)
 
 
