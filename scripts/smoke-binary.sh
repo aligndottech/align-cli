@@ -263,14 +263,27 @@ else
     pass "import git completed with no failed batch"
   fi
 
-  # The EFFECT: vectors on disk. `decision_embeddings` is written only by setEmbedding,
-  # which only runs once getEmbedding has returned - so a non-zero count here is proof the
-  # WASM backend actually produced vectors, not merely that a command exited 0.
-  EMB="$(node -e '
+  # The EFFECT: rows on disk, not the line the command printed. Decisions AND embeddings,
+  # because those fail independently and only the pair says which happened: 0 decisions
+  # means the import wrote somewhere else, while decisions-without-embeddings means the
+  # backend produced nothing.
+  COUNTS="$(node -e '
     const { DatabaseSync } = require("node:sqlite");
     const db = new DatabaseSync(process.argv[1], { readOnly: true });
-    process.stdout.write(String(db.prepare("SELECT COUNT(*) n FROM decision_embeddings").get().n));
-  ' "$DB" 2>&1)" || EMB="err"
+    const n = (t) => db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n;
+    process.stdout.write(n("decisions") + " " + n("decision_embeddings"));
+  ' "$DB" 2>&1)" || COUNTS="err err"
+  DEC="${COUNTS%% *}"
+  EMB="${COUNTS##* }"
+  echo "  rows: decisions=$DEC decision_embeddings=$EMB (db=$DB)"
+  echo "  model cache after run: $(ls -A "${ALIGN_MODEL_CACHE:-$XDG_CACHE_HOME/align-cli/models}" 2>/dev/null | wc -l | tr -d ' ') file(s)"
+  if [ "$DEC" = "err" ] || [ -z "$DEC" ]; then
+    fail "could not count rows in the graph"
+  elif [ "$DEC" -gt 0 ] 2>/dev/null; then
+    pass "the binary wrote $DEC decision(s) to the graph it opened"
+  else
+    fail "import reported success but the graph this smoke opened holds 0 decisions - wrong DB?"
+  fi
   if [ "$EMB" = "err" ] || [ -z "$EMB" ]; then
     fail "could not count rows in decision_embeddings"
   elif [ "$EMB" -gt 0 ] 2>/dev/null; then
