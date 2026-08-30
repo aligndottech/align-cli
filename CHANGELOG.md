@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.23.0](https://github.com/aligndottech/align-cli/compare/cli-v0.22.0...cli-v0.23.0) (2026-08-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* engines.node moves from >=20 to >=22.16. That is where node:sqlite is unflagged (22.13) and DatabaseSync.isTransaction exists (22.16). Node 20 is already EOL.
+
+### Features
+
+* on-device embeddings in the standalone binary, via a bundled WASM backend (ALI-744) ([#169](https://github.com/aligndottech/align-cli/issues/169)) ([56c7698](https://github.com/aligndottech/align-cli/commit/56c769875cdaf9fcccd14bf1cab0798bd5a6b7a5))
+* ship standalone binaries, and drop the last native dependency (ALI-740) ([#167](https://github.com/aligndottech/align-cli/issues/167)) ([1cd567f](https://github.com/aligndottech/align-cli/commit/1cd567fa6803a887cba9845cc31264add3e31329))
+* **telemetry:** anonymous opt-in usage pings for local-only users (ALI-618) ([#165](https://github.com/aligndottech/align-cli/issues/165)) ([1883304](https://github.com/aligndottech/align-cli/commit/18833047c5d5c3a9993d8e89825ef432c94596a3))
+
 ## [0.22.0](https://github.com/aligndottech/align-cli/compare/cli-v0.21.2...cli-v0.22.0) (2026-08-29)
 
 
