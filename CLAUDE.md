@@ -28,7 +28,13 @@ Every substantial change is tracked in Linear and traceable branch â†’ ticket â†
   `.github/workflows/release-please.yml`, is gated on
   `needs.release-please.outputs.releases_created == 'true'`, and runs typecheck, test and build before `npm publish --provenance --access public`.
   So the whole release is: land your work on `main`, then merge the `chore(main): release cli
-  X.Y.Z` PR that release-please opens. Do not publish manually, and do not hand-push a tag - the
+  X.Y.Z` PR that release-please opens.
+- **This package is 0.x, and `bump-minor-pre-major` is set** so a `BREAKING CHANGE:` footer
+  bumps the MINOR (0.22 -> 0.23) instead of proposing 1.0.0. Without it, ALI-740's Node-floor
+  bump silently retitled the open release PR to `release cli 1.0.0` - a promise about API
+  stability made by a commit footer, on a package whose own README says "Beta, pre-1.0".
+  `bump-patch-for-minor-pre-major` is deliberately NOT set: features should still bump the
+  minor. Going to 1.0.0 is a decision someone makes, not a side effect. Do not publish manually, and do not hand-push a tag - the
   tag release-please creates is component-prefixed (`cli-v0.19.0`), so a `v*` trigger would not
   match it even if one existed. **Merging is not shipping:** verify with
   `npm view @aligndottech/cli version`, which lags the merge by a few minutes.
