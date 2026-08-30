@@ -82,6 +82,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16'
+          cache: 'npm'
+
+      - run: npm ci
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.4.0' # pinned: this is the runtime we ship inside the binary
