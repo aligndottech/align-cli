@@ -89,23 +89,30 @@ export async function createWasmEmbeddingPipeline(): Promise<EmbeddingPipeline> 
   // the check runs inside this window, and nothing else observes the value in between.
   const realName = process.release?.name;
   try { (process.release as { name: string }).name = 'bun'; } catch { /* frozen: fall through */ }
-  let mod: { pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown>; env: Record<string, never> };
+  // Named locally rather than `typeof import(...)`, which consistent-type-imports forbids.
+  // Only the two members used here; the shape comes from src/types/assets.d.ts.
+  let mod: {
+    env: Record<string, unknown>;
+    pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown>;
+  };
   try {
-    mod = await import('../../node_modules/@huggingface/transformers/dist/transformers.web.js') as never;
+    mod = await import('../../node_modules/@huggingface/transformers/dist/transformers.web.js');
   } finally {
     try { if (realName) (process.release as { name: string }).name = realName; } catch { /* frozen */ }
   }
 
-  const env = mod.env as unknown as Record<string, never> & Record<string, unknown>;
+  const env = mod.env;
   // allowLocalModels would send it looking for a browser-relative "/models/..." path, which
   // fetch() rejects as an invalid URL before it ever tries huggingface.co.
-  (env as Record<string, unknown>)['allowLocalModels'] = false;
-  (env as Record<string, unknown>)['useBrowserCache'] = false;   // no Cache API here
-  (env as Record<string, unknown>)['useFSCache'] = false;        // the web build has none
-  (env as Record<string, unknown>)['useCustomCache'] = true;
-  (env as Record<string, unknown>)['customCache'] = fsCache(modelCacheDir());
+  env['allowLocalModels'] = false;
+  env['useBrowserCache'] = false;   // no Cache API here
+  env['useFSCache'] = false;        // the web build has none
+  env['useCustomCache'] = true;
+  env['customCache'] = fsCache(modelCacheDir());
 
-  const backends = (env as { backends: { onnx: { wasm: Record<string, unknown> } } }).backends;
+  // Through unknown: env is an untyped bag, and asserting a nested shape on it directly is a
+  // cast TypeScript rightly refuses.
+  const backends = env['backends'] as unknown as { onnx: { wasm: Record<string, unknown> } };
   // EXACT file paths, not a directory prefix: Bun content-hashes embedded asset names, so
   // "<dir>/ort-wasm-simd-threaded.asyncify.wasm" does not exist. Left as a prefix, ORT falls
   // back to a jsDelivr URL and a compiled binary cannot import a remote module.
@@ -116,7 +123,7 @@ export async function createWasmEmbeddingPipeline(): Promise<EmbeddingPipeline> 
   // to appear on both backends or the two distributions write incompatible vectors.
   return (await mod.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
     dtype: 'q8',
-  })) as unknown as EmbeddingPipeline;
+  })) as EmbeddingPipeline;
 }
 
 export function registerWasmEmbeddingBackend(): void {

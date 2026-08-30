@@ -40,13 +40,21 @@ command -v bun >/dev/null || {
 # the CLI starts, and that module statically imports the two ORT assets so --compile embeds
 # them (ALI-744). Building src/index.ts would produce a binary with no local embeddings.
 [ -f "$REPO_ROOT/src/index.bun.ts" ] || { echo "FATAL: src/index.bun.ts missing"; exit 1; }
-# The ORT assets are resolved out of node_modules at BUILD time, so a fresh checkout without
-# an install produces "Could not resolve" rather than a silently embedding-less binary.
-[ -d "$REPO_ROOT/node_modules/@huggingface/transformers" ] || {
-  echo "FATAL: node_modules/@huggingface/transformers is missing - run 'npm ci' first."
-  echo "       The binary embeds its ORT wasm assets from there at build time."
-  exit 1
-}
+# The ORT assets are resolved out of node_modules at BUILD time and embedded, so check for the
+# exact FILES rather than the package: npm hoisting can move onnxruntime-web out of the nested
+# path src/lib/local-embeddings-wasm.ts imports, and a partial install can leave the package
+# present with the assets absent. Both produce a bun "Could not resolve" naming a path nobody
+# recognises; this names the cause.
+ORT_DIST="$REPO_ROOT/node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist"
+for asset in ort-wasm-simd-threaded.asyncify.wasm ort-wasm-simd-threaded.asyncify.mjs; do
+  [ -f "$ORT_DIST/$asset" ] || {
+    echo "FATAL: $ORT_DIST/$asset is missing."
+    echo "       The binary embeds the ORT wasm runtime from there (ALI-744). Run 'npm ci'."
+    echo "       If npm hoisted onnxruntime-web to the top level, the import path in"
+    echo "       src/lib/local-embeddings-wasm.ts needs updating to match."
+    exit 1
+  }
+done
 
 # The asset name a user downloads, mapped to the bun --target that produces it.
 # Keep the left column stable: install.sh computes it from `uname` and any rename

@@ -2,11 +2,15 @@
   // The Bun-only sources. tsc must CHECK these (they are real code with real types) and must
   // never EMIT them: dist/ is the npm artifact, and these import assets Node cannot load.
   //
-  // Without this file they would be unchecked entirely - the failure mode being a type error
-  // that only ever surfaces as a broken binary, which is the slowest possible way to find one.
+  // `exclude` MUST be restated. It is inherited from the base when extending, and the base
+  // excludes exactly the two files this config exists to check - so without this the gate ran
+  // over 44 unrelated files, examined neither Bun-only file, and passed. Verified by injecting
+  // `const x: number = "str"` into local-embeddings-wasm.ts: undetected before, caught after.
+  // A review bot found it; the green did not.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["src/index.bun.ts", "src/lib/**/*.ts", "src/types/**/*.d.ts"]
+  "include": ["src/index.bun.ts", "src/lib/**/*.ts", "src/types/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "**/__tests__/**"]
 }
