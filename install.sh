@@ -1,7 +1,11 @@
 #!/bin/sh
 # Align CLI installer (ALI-740).
 #
-#   curl -fsSL https://raw.githubusercontent.com/aligndottech/align-cli/main/install.sh | sh
+#   curl -fsSL https://align.tech/install.sh | sh
+#
+# That URL is a 302 to this file on `main` (the redirect lives in align-frontend). It is
+# what the homepage and /waitlist advertise, so it is what this header advertises too -
+# the install command is one fact, and it had two writers that already disagreed.
 #
 # Downloads the standalone binary for this platform from the latest GitHub release,
 # verifies its SHA-256 against the release's own SHA256SUMS file, and installs it.

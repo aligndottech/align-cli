@@ -12,7 +12,7 @@ can tell what still stands, what conflicts, or why. Align pulls them into one gr
 check before they build.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aligndottech/align-cli/main/install.sh | sh
+curl -fsSL https://align.tech/install.sh | sh
 align setup --local
 align ask "why do we use postgres"
 ```
