@@ -8,6 +8,7 @@ import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchZoomItems } from '../../lib/fetchers/zoom.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
+import { commandIntro } from '../../lib/brand.js';
 
 interface ZoomImportOpts {
   token?: string;
@@ -47,7 +48,7 @@ export function registerImportZoomCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro('align import zoom');
+      p.intro(commandIntro('align import zoom'));
       const spinner = p.spinner();
       spinner.start('Fetching cloud recording transcripts from Zoom...');
       try {

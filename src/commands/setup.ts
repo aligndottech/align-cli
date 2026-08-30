@@ -4,6 +4,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import open from 'open';
 import { execa } from 'execa';
+import { CLI_TOKEN_SOURCES, detectCliToken, pickerMaxItems } from '../lib/setup-ux.js';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
@@ -16,6 +17,10 @@ import { resolveAppUrl } from '../lib/env-resolver.js';
 import { collectTokensViaOAuth, oauthFlowLabel } from '../lib/personal-oauth.js';
 import { isAuthExpiry } from '../lib/errors.js';
 import { maybeRequestTelemetryConsent } from '../lib/telemetry-consent.js';
+import { commandIntro } from '../lib/brand.js';
+import pkg from '../../package.json' with { type: 'json' };
+const { version } = pkg;
+import { printBanner } from '../lib/brand.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -249,6 +254,24 @@ async function collectTokens(
 
   // Main token
   if (source.tokenLabel) {
+    // Reuse an already-authenticated local CLI before sending anyone to a browser to
+    // mint a PAT by hand. Asked for by an outside tester on 2026-08-30 who already had
+    // `gh` set up. Declining falls through to the browser flow unchanged.
+    const cliSource = CLI_TOKEN_SOURCES[source.id];
+    if (cliSource) {
+      const cliToken = await detectCliToken(cliSource.bin, cliSource.args);
+      if (cliToken) {
+        const useCli = await p.confirm({
+          message: `  Found ${cliSource.label}. Use its token? (no browser, nothing to create)`,
+        });
+        if (p.isCancel(useCli)) return null;
+        if (useCli) {
+          tokens['token'] = cliToken;
+          p.log.success(`  Using your ${cliSource.label} token.`);
+          return tokens;
+        }
+      }
+    }
     if (source.tokenUrl) {
       const url = typeof source.tokenUrl === 'function' ? source.tokenUrl(tokens) : source.tokenUrl;
       p.log.info(chalk.dim(`  Opening ${source.label} in browser...`));
@@ -383,6 +406,9 @@ async function runLocalSetup(): Promise<void> {
         message: 'Connect more sources with a read-only token? (skip to finish)',
         options: localConnectors.map((s) => ({ value: s.id, label: s.label, hint: s.description })),
         required: false,
+        // Without maxItems clack renders all 7 and its in-place redraw miscounts
+        // once the list is taller than the viewport, painting duplicate rows.
+        maxItems: pickerMaxItems(process.stdout.rows, localConnectors.length),
       })
     : ([] as string[]);
   if (!p.isCancel(selected)) {
@@ -479,7 +505,9 @@ export async function runSetup(
     const env = config.getEnvironment(envName);
     const client = createGatewayClient(env);
 
-    p.intro(chalk.bgMagenta.white(' align setup '));
+    // The one place a full brand moment belongs: first run, before any questions.
+    printBanner({ version });
+    p.intro(commandIntro('align setup'));
 
     // ---- Step 0: Cloud (default) vs local (--local) ----
     // Solo defaults to a personal CLOUD tenant: telemetry, the real cloud
@@ -579,9 +607,10 @@ async function runCloudSetup(ctx: {
   // user got LESS agent wiring than a cloud one, on the mode where an agent running on your
   // own machine is the whole point.
   //
-  // It also ASKS now. This block wrote to a user-level config without a word whenever exactly
-  // one editor was detected; it only prompted at two or more. And the multiselect it used was
-  // unguarded, so `align setup --approve` with two agents installed hung.
+  // It does NOT ask: it wires every detected agent and discloses each file it touched, with
+  // `align mcp --remove` as the undo. This block used to write to a user-level config without
+  // a word when exactly one editor was detected and prompt only at two or more, and that
+  // multiselect was unguarded, so `align setup --approve` with two agents installed hung.
   const agents = await connectDetectedAgents(envName);
 
   // ---- Step 3b: Deterministic auto-alignment files (hook + nudges) ----
@@ -644,6 +673,7 @@ async function runCloudSetup(ctx: {
     message: 'Connect more sources for richer context? (skip to finish)',
     options: connectorSources.map(s => ({ value: s.id, label: s.label, hint: s.description })),
     required: false,
+    maxItems: pickerMaxItems(process.stdout.rows, connectorSources.length),
   });
   if (p.isCancel(selectedIds)) { p.cancel('Cancelled.'); process.exit(0); }
   const selectedSources = connectorSources.filter(s => (selectedIds as string[]).includes(s.id));

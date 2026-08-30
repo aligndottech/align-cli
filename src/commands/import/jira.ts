@@ -9,6 +9,7 @@ import { fetchJiraItems } from '../../lib/fetchers/jira.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { PERSONAL_OAUTH_KEYS, personalCredsForImport } from '../../lib/personal-oauth.js';
 import { AuthExpiredError } from '../../lib/errors.js';
+import { commandIntro } from '../../lib/brand.js';
 
 interface JiraImportOpts {
   email?: string;
@@ -71,7 +72,7 @@ export function registerImportJiraCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro('align import jira');
+      p.intro(commandIntro('align import jira'));
       const spinner = p.spinner();
       spinner.start('Fetching your Jira issues...');
       try {

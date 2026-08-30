@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { loginInteractive } from '../lib/login-flow.js';
+import { commandIntro } from '../lib/brand.js';
 
 export function registerLoginCommands(program: Command): void {
   program
@@ -23,7 +24,7 @@ export function registerLoginCommands(program: Command): void {
         return;
       }
 
-      p.intro(chalk.bgMagenta.white(' align login '));
+      p.intro(commandIntro('align login'));
       const ok = await loginInteractive(env, envName, config);
       if (!ok) process.exit(1);
       p.outro(chalk.green('Ready. Run: align setup'));

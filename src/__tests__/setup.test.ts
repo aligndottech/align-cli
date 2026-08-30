@@ -262,6 +262,21 @@ describe('align setup', () => {
     expect(firstSite).toBeLessThan(firstWorkspace);
   });
 
+  it('bounds the connector multiselect to the viewport so clack cannot duplicate rows', async () => {
+    // An outside tester saw the picker paint "Notion" three times and scroll badly.
+    // clack redraws in place and miscounts once the option list is taller than the
+    // terminal, which is reachable here: 8+ connectors under a screenful of git output.
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    const connectorCall = mockMultiselect.mock.calls.find(
+      (c: any[]) => c[0]?.message?.includes('Connect more sources'),
+    );
+    expect(connectorCall).toBeDefined();
+    const opts = connectorCall![0];
+    expect(typeof opts.maxItems).toBe('number');
+    expect(opts.maxItems).toBeGreaterThan(0);
+    expect(opts.maxItems).toBeLessThanOrEqual(opts.options.length);
+  });
+
   it('labels Slack and Teams as needing workspace/org admin', async () => {
     await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
     const connectorCall = mockMultiselect.mock.calls.find(

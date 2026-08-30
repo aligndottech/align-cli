@@ -2,6 +2,8 @@ import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { runSetup } from './setup.js';
+import pkg from '../../package.json' with { type: 'json' };
+import { printBanner } from '../lib/brand.js';
 
 /**
  * What `align` does with no arguments (ALI-773).
@@ -21,6 +23,9 @@ import { runSetup } from './setup.js';
  * `align --help` still prints the full command list; Commander handles that before this runs.
  */
 export async function runDefaultAction(): Promise<void> {
+  // Typing the bare tool name is the other first-contact moment, so it gets the
+  // same lockup. printBanner is a no-op off a TTY, so piped output stays clean.
+  printBanner({ version: pkg.version });
   const config = createConfigStore();
   const local = config.getEnvironment('local');
   const defaultEnv = config.getDefaultEnv();

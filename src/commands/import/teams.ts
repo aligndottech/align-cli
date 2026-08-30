@@ -8,6 +8,7 @@ import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchTeamsItems } from '../../lib/fetchers/teams.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
+import { commandIntro } from '../../lib/brand.js';
 
 interface TeamsImportOpts {
   token?: string;
@@ -53,7 +54,7 @@ export function registerImportTeamsCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro('align import teams');
+      p.intro(commandIntro('align import teams'));
       const spinner = p.spinner();
       spinner.start('Fetching channel messages from Microsoft Teams...');
       try {

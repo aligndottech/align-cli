@@ -9,6 +9,7 @@ import { fetchConfluenceItems } from '../../lib/fetchers/confluence.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { PERSONAL_OAUTH_KEYS, personalCredsForImport } from '../../lib/personal-oauth.js';
 import { AuthExpiredError } from '../../lib/errors.js';
+import { commandIntro } from '../../lib/brand.js';
 
 interface ConfluenceImportOpts {
   email?: string;
@@ -72,7 +73,7 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro('align import confluence');
+      p.intro(commandIntro('align import confluence'));
       const spinner = p.spinner();
       spinner.start('Fetching your Confluence pages...');
       try {

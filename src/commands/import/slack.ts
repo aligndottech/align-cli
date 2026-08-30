@@ -9,6 +9,7 @@ import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchSlackItems } from '../../lib/fetchers/slack.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
+import { commandIntro } from '../../lib/brand.js';
 
 interface SlackImportOpts {
   token?: string;
@@ -57,7 +58,7 @@ export function registerImportSlackCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro('align import slack');
+      p.intro(commandIntro('align import slack'));
       const spinner = p.spinner();
       spinner.start('Fetching decision threads from Slack...');
       try {

@@ -7,6 +7,7 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { buildCommitUrl, formatCommitAsText, getCommitHistory, getRemoteUrl, isGitRepo } from '../../lib/git.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { commandIntro } from '../../lib/brand.js';
 
 interface GitImportOpts {
   limit: string;
@@ -39,7 +40,7 @@ export function registerImportGitCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
-      p.intro('align import git');
+      p.intro(commandIntro('align import git'));
 
       const spinner = p.spinner();
       spinner.start('Reading git history...');
