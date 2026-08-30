@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/aligndottech/align-cli/compare/cli-v0.23.0...cli-v0.23.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* a configured provider that never answered is not "no provider" (ALI-766) ([#170](https://github.com/aligndottech/align-cli/issues/170)) ([6ffb0b1](https://github.com/aligndottech/align-cli/commit/6ffb0b11d5583479d3448db17cf3e2510fe008a9))
+
 ## [0.23.0](https://github.com/aligndottech/align-cli/compare/cli-v0.22.0...cli-v0.23.0) (2026-08-30)
 
 
