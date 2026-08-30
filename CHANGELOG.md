@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.24.0](https://github.com/aligndottech/align-cli/compare/cli-v0.23.1...cli-v0.24.0) (2026-08-30)
+
+
+### Features
+
+* `align` sets you up, and no command needs an --env flag (ALI-773, ALI-772) ([#176](https://github.com/aligndottech/align-cli/issues/176)) ([eb81028](https://github.com/aligndottech/align-cli/commit/eb8102824a9779a302fd89225a22861041373a90))
+
+
+### Bug Fixes
+
+* do not claim the graph is empty when only the query matched nothing (ALI-771) ([#174](https://github.com/aligndottech/align-cli/issues/174)) ([92d40d4](https://github.com/aligndottech/align-cli/commit/92d40d48ebf3cc589dc43d2b9ab8312ce7207a9f))
+* say how many decisions were actually new on a re-import (ALI-770) ([#173](https://github.com/aligndottech/align-cli/issues/173)) ([c0dac29](https://github.com/aligndottech/align-cli/commit/c0dac29d2ee708f04892801348e1a3de9f9d0206))
+
 ## [0.23.1](https://github.com/aligndottech/align-cli/compare/cli-v0.23.0...cli-v0.23.1) (2026-08-30)
 
 
