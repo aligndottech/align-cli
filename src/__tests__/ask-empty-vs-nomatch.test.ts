@@ -5,7 +5,8 @@ vi.mock('node:fs', () => ({ existsSync: vi.fn().mockReturnValue(false) }));
 vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({ getEnvironment: vi.fn(() => ({ mode: 'local-embedded' })) })),
 }));
-vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('local') }));
+const resolveEnv = vi.hoisted(() => vi.fn().mockReturnValue('local'));
+vi.mock('../lib/resolve-env.js', () => ({ resolveEnv }));
 vi.mock('../lib/local-llm.js', () => ({
   synthesiseDetailed: vi.fn().mockResolvedValue({ ok: false, failure: { kind: 'no_provider' } }),
   RECOMMENDED_OLLAMA_PULL: 'llama3.2',
@@ -45,6 +46,7 @@ async function ask(q = 'What decisions exist in this codebase?') {
  */
 describe('align ask: an empty graph and a query that matched nothing are different', () => {
   beforeEach(() => {
+    resolveEnv.mockReturnValue('local');
     searchDecisions.mockReset();
     listDecisions.mockReset();
     searchDecisions.mockResolvedValue({ results: [], count: 0, strategy: 'semantic' });
@@ -68,7 +70,32 @@ describe('align ask: an empty graph and a query that matched nothing are differe
     const out = await ask();
     expect(out).toMatch(/nothing matched|no match/i);
     // Naming a way forward that is not "import again", which is the wrong remedy here.
-    expect(out).toMatch(/align decisions list|different|rephrase/i);
+    expect(out).toMatch(/align decisions list/);
+  });
+
+  /**
+   * The suggested command has to be runnable AS PRINTED. A bare `align decisions list`
+   * resolves to the cloud default and 401s for a local-only user (ALI-772), so printing it
+   * to the person this message exists for would hand them a second auth error on top of the
+   * one this fix is about.
+   *
+   * The first version of this suite asserted /align decisions list/ alone, which the BARE
+   * form satisfies - so it would have passed against exactly the bug. A review bot caught
+   * that; the exact string is pinned now, in both directions.
+   */
+  it('suggests the command qualified with the env it resolved to', async () => {
+    resolveEnv.mockReturnValue('local');
+    listDecisions.mockResolvedValue([{ id: 'a', title: 'Chose Postgres' }]);
+    const out = await ask();
+    expect(out).toContain('align decisions list --env local');
+  });
+
+  it('suggests the bare command on prod, where it is the correct one', async () => {
+    resolveEnv.mockReturnValue('prod');
+    listDecisions.mockResolvedValue([{ id: 'a', title: 'Chose Postgres' }]);
+    const out = await ask();
+    expect(out).toContain('align decisions list');
+    expect(out).not.toContain('--env');
   });
 
   /**
