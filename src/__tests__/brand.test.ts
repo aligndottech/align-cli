@@ -72,8 +72,13 @@ describe('banner', () => {
     expect(strip(banner({ version: '0.25.0', color: false })).split('\n')).toHaveLength(LOGO_ROWS);
   });
 
-  it('carries the tagline from the brand pack', () => {
-    expect(strip(banner({ version: '0.25.0', color: false }))).toMatch(/clarity/i);
+  it('carries the LIVE positioning line, not the retired tagline', () => {
+    // 'Collaboration with clarity built in' is retired. The live line is the frontend
+    // hero (align-frontend src/lib/seo.ts), and it is two lines.
+    const out = strip(banner({ version: '0.25.0', color: false }));
+    expect(out).toContain('Your AI agents know the code.');
+    expect(out).toContain("They don't know the company.");
+    expect(out).not.toMatch(/clarity built in/i);
   });
 });
 

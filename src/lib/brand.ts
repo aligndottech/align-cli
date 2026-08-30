@@ -1,9 +1,11 @@
 /**
  * Align brand rendering for the terminal.
  *
- * The mark is derived from the real asset (FAVICON/android-icon-192x192.png in the
- * Align brand pack) rather than hand-drawn, downsampled to a 16x16 pixel grid and
- * packed two pixel-rows per terminal row using half-block characters.
+ * The mark is AUTHORED at terminal resolution, not downsampled from the vector logo.
+ * Resampling the detailed mark to this size was tried first and read as mud: the thin
+ * strokes and the inner triangle turn to noise below about 40 rows. So this is pixel
+ * art of the mark - chevron, inner triangle, the teal bar and the two feet - drawn to
+ * survive at 16x5 cells, packed two pixel rows per terminal row with half blocks.
  *
  * On a dark terminal the navy strokes are rendered WHITE, following the brand pack's
  * own knockout variant (F 4 R): navy on a dark background is invisible, which is why
@@ -25,9 +27,16 @@ const NAVY_256 = 24;
 const WHITE_256 = 231;
 
 export const LOGO_WIDTH = 16;
-export const LOGO_ROWS = 8;
+export const LOGO_ROWS = 5;
 
-export const TAGLINE = 'Collaboration with clarity built in';
+/**
+ * The live positioning line, taken from align-frontend's hero (src/lib/seo.ts).
+ * 'Collaboration with clarity built in' is RETIRED - do not reintroduce it.
+ */
+export const TAGLINE_LINES = [
+  'Your AI agents know the code.',
+  "They don't know the company.",
+] as const;
 
 /**
  * One character per terminal cell, encoding the two pixel rows it covers:
@@ -36,14 +45,11 @@ export const TAGLINE = 'Collaboration with clarity built in';
  *   'x' mark over teal              'y' teal over mark
  */
 const SPRITE: readonly string[] = [
-  '       uNu      ',
-  '      uN Nu     ',
-  '     uN u Nu    ',
-  '    uN NnN N    ',
-  '    nnnnNnnnnNN ',
-  'vTTTTTTTTTTTTT  ',
-  '  vTtTT    TtTT ',
-  ' uNuuN     NuuNN',
+  '     uNNNNu     ',
+  '    NNnuunNN    ',
+  '   NNn nn nNN   ',
+  'TTTTTTTTTTTTTTTT',
+  '  NNN      NNN  ',
 ];
 
 export interface RenderOptions {
@@ -149,10 +155,9 @@ export function banner(opts: BannerOptions): string {
 
   const right: string[] = new Array(LOGO_ROWS).fill('');
   // Registered, not TM: Align is a registered trademark.
-  right[1] = `${bold}ALIGN®${reset}`;
-  right[2] = `${tealFg}${TAGLINE}${reset}`;
-  // Version and context share a line: two dim lines two rows apart read as scattered
-  // next to a mark this small.
+  right[0] = `${bold}ALIGN®${reset}`;
+  right[1] = `${tealFg}${TAGLINE_LINES[0]}${reset}`;
+  right[2] = `${tealFg}${TAGLINE_LINES[1]}${reset}`;
   const meta = opts.context ? `v${opts.version}  ${'\u00b7'}  ${opts.context}` : `v${opts.version}`;
   right[4] = `${dim}${meta}${reset}`;
 
