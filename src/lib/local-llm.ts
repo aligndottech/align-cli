@@ -348,7 +348,17 @@ export function resolveOllamaModel(installed: string[], override?: string): Olla
 export type LlmFailure =
   | { kind: 'no_provider' }
   | { kind: 'unrecognised_local_models'; models: string[] }
-  | { kind: 'provider_stopped'; provider: string; model: string; detail: string };
+  | { kind: 'provider_stopped'; provider: string; model: string; detail: string }
+  /**
+   * Every provider the user CONFIGURED was unavailable, so the chain ran out (ALI-766).
+   *
+   * Distinct from `no_provider`, which now means only "nothing was configured". They need
+   * opposite remedies - "set a key" against "your endpoint is unreachable or your key is
+   * dead" - and collapsing them told anyone who had pointed the CLI at DeepSeek, OpenRouter,
+   * LM Studio or vLLM and typo'd the URL to go and set ANTHROPIC_API_KEY. That reads as
+   * "your provider is not supported", which is false.
+   */
+  | { kind: 'providers_unavailable'; tried: Array<{ provider: string; detail: string }> };
 
 export type ChatResult =
   | { ok: true; text: string }
@@ -570,8 +580,17 @@ export async function callChatDetailed(
   // cannot clear it mid-flight - which is the whole point of this shape.
   let unrecognised: string[] | undefined;
 
+  // Every CONFIGURED provider that turned out to be unavailable, in the order tried. Local
+  // for the same reason as `unrecognised`: a sibling call must not see this one's attempts.
+  const tried: Array<{ provider: string; detail: string }> = [];
+
   // An answer or a stop settles the chain; availability advances it (undefined).
-  const settle = (outcome: AdapterOutcome, provider: string): ChatResult | undefined => {
+  //
+  // `configured` says whether the USER asked for this provider. It is a parameter rather
+  // than an `!== 'ollama'` test because the distinction is the whole point: the Ollama probe
+  // runs on every machine, so counting its absence as a failed attempt would mean "set a
+  // key" - the correct advice for someone who has configured nothing - is never shown again.
+  const settle = (outcome: AdapterOutcome, provider: string, configured: boolean): ChatResult | undefined => {
     if (outcome.kind === 'answer') return { ok: true, text: outcome.text };
     if (outcome.kind === 'failed') {
       return { ok: false, failure: { kind: 'provider_stopped', provider, model: outcome.model, detail: outcome.detail } };
@@ -581,6 +600,7 @@ export async function callChatDetailed(
     // `kind === 'unavailable'` check: a fourth AdapterOutcome variant would make this
     // line a type error, where an explicit check would silently route it to advance.
     if (outcome.unrecognisedModels) unrecognised = outcome.unrecognisedModels;
+    if (configured) tried.push({ provider, detail: outcome.detail });
     return undefined;
   };
 
@@ -599,6 +619,7 @@ export async function callChatDetailed(
     const settled = settle(
       await tryOpenAiCompatible(system, user, chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
       'custom',
+      true,
     );
     if (settled) return settled;
   }
@@ -610,20 +631,28 @@ export async function callChatDetailed(
       const settled = settle(
         await callProvider(provider, key, system, user, maxTokens, temperature),
         provider,
+        true,
       );
       if (settled) return settled;
     }
   }
 
   // 3. local Ollama as last resort
-  const settled = settle(await tryOllama(system, user, temperature), 'ollama');
+  // configured=false: the probe runs whether or not anyone asked for Ollama.
+  const settled = settle(await tryOllama(system, user, temperature), 'ollama', false);
   if (settled) return settled;
 
   // Nothing answered. An unrecognised local model is the more specific diagnosis and
   // its remedy is the opposite of "configure a provider", so it wins (ALI-420).
-  return unrecognised
-    ? { ok: false, failure: { kind: 'unrecognised_local_models', models: unrecognised } }
-    : { ok: false, failure: { kind: 'no_provider' } };
+  if (unrecognised) {
+    return { ok: false, failure: { kind: 'unrecognised_local_models', models: unrecognised } };
+  }
+  // Something WAS configured and none of it answered. Saying "set a key" here is the wrong
+  // signpost, and it lands on the one user who took the trouble to configure us (ALI-766).
+  if (tried.length > 0) {
+    return { ok: false, failure: { kind: 'providers_unavailable', tried } };
+  }
+  return { ok: false, failure: { kind: 'no_provider' } };
 }
 
 /** Text-only convenience wrapper. Use callChatDetailed when you need to say WHY. */
