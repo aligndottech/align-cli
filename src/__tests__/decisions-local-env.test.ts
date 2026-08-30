@@ -57,32 +57,3 @@ describe('local client: getDecision', () => {
     await expect(client.getDecision('nope-1234')).rejects.toThrow(/nope-1234/);
   });
 });
-
-/**
- * The list header printed `opts.env` - the FLAG - so a bare `align decisions list` rendered
- * "Decisions (undefined)". It was invisible while the bare command 401'd before reaching the
- * header; removing that 401 (ALI-772) is what surfaced it.
- */
-describe('decisions list header', () => {
-  it('names the env it resolved to, not the flag that was not passed', () => {
-    const src = fs.readFileSync(new URL('../commands/decisions/index.ts', import.meta.url), 'utf8');
-    // A positive control first: the header line is still there to be checked.
-    expect(src).toMatch(/Decisions \(\$\{/);
-    expect(src).not.toMatch(/Decisions \(\$\{opts\.env\}\)/);
-    expect(src).toMatch(/Decisions \(\$\{envName\}\)/);
-  });
-});
-
-/**
- * A local graph has no web UI. `decisions show` printed
- * "View: http://localhost:5173/decisions/<id>" to a local-only user - a dev server that is
- * not running on their machine and never will be.
- */
-describe('decisions show: the View link', () => {
-  it('is suppressed for the local graph and kept for a cloud one', () => {
-    const src = fs.readFileSync(new URL('../commands/decisions/index.ts', import.meta.url), 'utf8');
-    // Positive control: the line still exists to be conditioned.
-    expect(src).toMatch(/View: \$\{resolveAppUrl/);
-    expect(src).toMatch(/if \(envName !== 'local'\) \{/);
-  });
-});

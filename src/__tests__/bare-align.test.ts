@@ -90,9 +90,12 @@ describe('bare `align`', () => {
   });
 
   /**
-   * Every command it prints has to be runnable AS PRINTED. A bare `align decisions list`
-   * resolves to the cloud default and 401s for a local-only user (ALI-772), so suggesting it
-   * unqualified would hand a brand-new user an auth error as their next step.
+   * Every command it prints has to be runnable AS PRINTED, and with nothing to decode.
+   *
+   * `align decisions list` used to resolve to the cloud default and 401 for a local-only
+   * user, which is why an earlier draft printed `--env local` on every line. ALI-772 (this
+   * same change) made `decisions` prefer the local graph like ask, search and import, so the
+   * bare command is now correct for everyone and the flag would only teach one nobody needs.
    */
   it('suggests commands qualified with the env they resolve to', async () => {
     getEnvironment.mockImplementation((n: string) =>

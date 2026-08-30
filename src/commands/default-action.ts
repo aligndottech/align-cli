@@ -12,7 +12,10 @@ import { runSetup } from './setup.js';
  *
  * The tool already knows whether it is set up, so it acts on that:
  *   - not set up  -> run the onboarding `align setup` runs. That flow asks cloud-or-local
- *                    itself, which is why no `--local` flag is needed and never was.
+ *                    itself, so nobody has to know `--local` to get the offline path. The
+ *                    flag still earns its place where there is nothing to ask: the non-TTY
+ *                    branch below suggests `--local --approve` precisely because a scripted
+ *                    run cannot answer the question.
  *   - set up      -> say which graph is in play and the two or three things worth doing next.
  *
  * `align --help` still prints the full command list; Commander handles that before this runs.
