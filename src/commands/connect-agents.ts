@@ -34,6 +34,11 @@ export async function connectDetectedAgents(
   // writeMcpConfig takes undefined for prod: the default env needs no --env argument in the
   // spawned server's command line.
   const envArg = envName === 'prod' ? undefined : envName;
+  // Every mention of the manual command below carries the env, so it is runnable AS PRINTED.
+  // Bare `align mcp --setup` resolves to the cloud default, so telling a local user to run it
+  // would wire their agent to prod - the graph they did not just build. Same trap as the bare
+  // `align decisions list` in ALI-772.
+  const setupCmd = `align mcp --setup${envArg ? ` --env ${envArg}` : ''}`;
 
   if (editors.length === 0) {
     // Align is just an MCP server, so any MCP-capable agent works even when we cannot detect
@@ -42,7 +47,7 @@ export async function connectDetectedAgents(
     p.log.info(
       'No MCP agent detected automatically. Align works with any MCP-capable agent ' +
       '(Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, pi, ...).\n' +
-      `Add this to your agent's MCP config (or re-run ${chalk.bold('align mcp --setup')} once it is installed):\n\n` +
+      `Add this to your agent's MCP config (or re-run ${chalk.bold(setupCmd)} once it is installed):\n\n` +
       `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
     );
     return { detected: 0, connected: 0 };
@@ -56,7 +61,7 @@ export async function connectDetectedAgents(
   // refuses) nor prompt (a hang - which is what the old unguarded multiselect did).
   if (!opts.assumeYes && !opts.interactive) {
     p.log.info(
-      `Detected ${names}. Run ${chalk.bold('align mcp --setup')} to connect ${editors.length === 1 ? 'it' : 'them'} to Align.`,
+      `Detected ${names}. Run ${chalk.bold(setupCmd)} to connect ${editors.length === 1 ? 'it' : 'them'} to Align.`,
     );
     return { detected: editors.length, connected: 0 };
   }
@@ -68,7 +73,7 @@ export async function connectDetectedAgents(
         initialValue: true,
       });
   if (p.isCancel(ok) || !ok) {
-    p.log.info(`Skipped. ${chalk.bold('align mcp --setup')} connects them any time.`);
+    p.log.info(`Skipped. ${chalk.bold(setupCmd)} connects them any time.`);
     return { detected: editors.length, connected: 0 };
   }
 

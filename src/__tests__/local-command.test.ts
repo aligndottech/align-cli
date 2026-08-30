@@ -47,10 +47,14 @@ describe('initLocalMode', () => {
    * cannot drift back into a function nobody would think to check for it.
    */
   it('does not touch any global editor config', async () => {
-    const fakeTarget = { name: 'Cursor', configPath: '/tmp/cursor/mcp.json', format: 'mcpServers' };
-    mockDetectEditors.mockReturnValue([fakeTarget]);
+    // No detected-editor fixture on purpose: initLocalMode no longer calls detectEditors at
+    // all, so staging one would suggest this exercises a path it does not. Asserting BOTH
+    // collaborators are untouched is the stronger claim anyway - it catches the write coming
+    // back by either route.
+    mockDetectEditors.mockClear();
     mockWriteMcpConfig.mockClear();
     await initLocalMode();
+    expect(mockDetectEditors).not.toHaveBeenCalled();
     expect(mockWriteMcpConfig).not.toHaveBeenCalled();
   });
 });

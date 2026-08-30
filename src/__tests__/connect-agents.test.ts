@@ -66,7 +66,25 @@ describe('connectDetectedAgents', () => {
     confirm.mockResolvedValue(false);
     await connectDetectedAgents('local', { interactive: true });
     expect(writeMcpConfig).not.toHaveBeenCalled();
-    expect(logged.join(' ')).toMatch(/align mcp --setup/);
+    // Env-qualified: bare `align mcp --setup` resolves to the cloud default, so telling a
+    // local user to run it would wire their agent to prod - the graph they did not build.
+    expect(logged.join(' ')).toContain('align mcp --setup --env local');
+  });
+
+  it('qualifies the manual command with the env everywhere it appears', async () => {
+    for (const [env, expected] of [
+      ['local', 'align mcp --setup --env local'],
+      ['prod', 'align mcp --setup'],
+    ] as const) {
+      for (const editors of [[], [CLAUDE]]) {
+        logged.length = 0;
+        detectEditors.mockReturnValue(editors);
+        await connectDetectedAgents(env, { interactive: false });
+        const out = logged.join(' ');
+        expect(out).toContain(expected);
+        if (env === 'prod') expect(out).not.toContain('--env');
+      }
+    }
   });
 
   it('treats a cancelled prompt as no', async () => {
