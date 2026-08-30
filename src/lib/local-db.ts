@@ -271,9 +271,17 @@ export function createLocalDb(dbPath: string) {
      * graph did not move, which reads as having imported twice.
      *
      * Normalises through `identifyingSourceUrl` because that is what insertDecision STORES.
-     * Skipping it would miss every row whose URL carried a query string or fragment and
-     * report each as new - wrong in the one direction nobody questions, because "2 new" on
-     * a re-import looks exactly like working software.
+     * That function does NOT strip query strings or fragments - it keeps the value verbatim,
+     * and only trims whitespace and turns a URL addressing a host and nothing on it into
+     * null. (An earlier version of this comment, and of the test beside it, claimed the
+     * stripping. The test failed and the claim was wrong; a review bot caught that the
+     * comment had kept it.)
+     *
+     * So what the normalisation buys here is the bare-origin case, and it is the one that
+     * matters: connector-core substitutes `https://teams.microsoft.com` for a Teams message
+     * with no permalink. Matching on that would find the first such row and report every
+     * later Teams message as already known - wrong in the one direction nobody questions,
+     * because "0 new" on a real import looks exactly like a no-op the user expected.
      *
      * A null `sourceUrl` is always null here: SQLite treats each NULL in a unique index as
      * distinct, so those rows never conflict and every one of them really is new.
