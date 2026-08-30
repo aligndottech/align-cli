@@ -53,6 +53,78 @@ type AdapterOutcome =
   | { kind: 'unavailable'; detail: string; unrecognisedModels?: string[] }
   | { kind: 'failed'; model: string; detail: string };
 
+/**
+ * How long to wait for a model, and why it is not one number (ALI-775).
+ *
+ * 15s is right for a hosted API: api.anthropic.com taking longer than that means something is
+ * wrong, and waiting will not fix it. It is nonsense for a model running on the user's own
+ * machine. A 27B at IQ2_M on four CPU threads generating 256 tokens takes MINUTES, and a
+ * tester running llama.cpp in podman got "returned an unusable response (timed out)" on a
+ * configuration our own docs recommend.
+ *
+ * There is also no cost pressure to bail early on hardware you already own - the reason a
+ * short timeout is prudent against a paid API does not apply at all here.
+ */
+const HOSTED_TIMEOUT_MS = 15_000;
+const LOCAL_TIMEOUT_MS = 300_000;
+
+/**
+ * Is this endpoint on the user's own machine or network?
+ *
+ * Parsed, never pattern-matched against the raw string: a substring test for "localhost"
+ * matches `https://localhost.evil.com` and would hand a remote host a five-minute timeout.
+ * The private-range checks are exact for the same reason - 172.16-172.31 is the block, and
+ * 172.32 is not in it.
+ */
+export function isLocalEndpoint(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  // URL KEEPS the brackets on an IPv6 literal: `http://[::1]:8080` gives hostname `[::1]`,
+  // not `::1`. An earlier version of this comment asserted the opposite and the test for
+  // ::1 failed on it - the claim was wrong, not the test.
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0') return true;
+  // Docker and podman both expose the host under these names from inside a container.
+  if (host === 'host.docker.internal' || host === 'host.containers.internal') return true;
+  if (host.endsWith('.local') || host.endsWith('.localhost')) return true;
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 10) return true;                       // 10.0.0.0/8
+    if (a === 127) return true;                      // loopback
+    if (a === 192 && b === 168) return true;         // 192.168.0.0/16
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12, and NOT 172.32
+  }
+  return false;
+}
+
+/**
+ * The timeout for one endpoint. ALIGN_LLM_TIMEOUT_MS overrides both defaults, for a slow
+ * remote endpoint or a local model larger than even five minutes covers.
+ *
+ * An unusable override WARNS rather than silently falling back. Number('9O000') is NaN, and a
+ * NaN here would leave someone certain they had raised the limit while nothing had changed -
+ * which is the whole class of bug this file keeps producing.
+ */
+export function resolveLlmTimeoutMs(endpoint: string): number {
+  const raw = process.env['ALIGN_LLM_TIMEOUT_MS'];
+  const fallback = isLocalEndpoint(endpoint) ? LOCAL_TIMEOUT_MS : HOSTED_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error(
+      `align: ignoring ALIGN_LLM_TIMEOUT_MS=${JSON.stringify(raw)} - it must be a positive ` +
+      `number of milliseconds. Using ${fallback}ms.`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
 /** Classify a non-2xx response: availability-class advances, anything else stops. */
 async function classifyHttpFailure(res: Response, model: string): Promise<AdapterOutcome> {
   const detail = `HTTP ${res.status}`;
@@ -80,10 +152,16 @@ async function classifyHttpFailure(res: Response, model: string): Promise<Adapte
  * nothing, which is the harder failure to notice. A connection or DNS error genuinely
  * means nothing answered, so that advances.
  */
-function classifyThrownFetch(err: unknown, model: string): AdapterOutcome {
+function classifyThrownFetch(err: unknown, model: string, timeoutMs?: number): AdapterOutcome {
   const name = (err as { name?: string } | undefined)?.name;
   if (name === 'TimeoutError' || name === 'AbortError') {
-    return { kind: 'failed', model, detail: 'timed out' };
+    // Naming the limit and the override, because "timed out" reads as "your model is
+    // broken" when it means "we stopped waiting" - and on a local model that is a setting
+    // (ALI-775).
+    const detail = timeoutMs
+      ? `timed out after ${Math.round(timeoutMs / 1000)}s (raise ALIGN_LLM_TIMEOUT_MS)`
+      : 'timed out';
+    return { kind: 'failed', model, detail };
   }
   return { kind: 'unavailable', detail: String(err) };
 }
@@ -124,9 +202,12 @@ async function tryOpenAiCompatible(
   model: string,
   key: string,
   maxTokens = 256,
-  timeoutMs = 15000,
+  timeoutMs?: number,
   temperature?: number,
 ): Promise<AdapterOutcome> {
+  // Decided by WHERE the endpoint is. 15s is right for a hosted API and hopeless for a model
+  // on the user's own CPU - see resolveLlmTimeoutMs (ALI-775).
+  const limitMs = timeoutMs ?? resolveLlmTimeoutMs(endpoint);
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -144,10 +225,10 @@ async function tryOpenAiCompatible(
           { role: 'user', content: user },
         ],
       }),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.timeout(limitMs),
     });
   } catch (err) {
-    return classifyThrownFetch(err, model);
+    return classifyThrownFetch(err, model, limitMs);
   }
   if (!res.ok) return classifyHttpFailure(res, model);
   return parseAdapterResponse<{ choices?: Array<{ message?: { content?: string } }> }>(
@@ -162,6 +243,7 @@ async function tryAnthropic(
   temperature?: number,
 ): Promise<AdapterOutcome> {
   const model = process.env['ALIGN_ANTHROPIC_MODEL'] || 'claude-haiku-4-5-20251001';
+  const anthropicTimeoutMs = resolveLlmTimeoutMs('https://api.anthropic.com');
   let res: Response;
   try {
     res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -178,10 +260,13 @@ async function tryAnthropic(
         system,
         messages: [{ role: 'user', content: user }],
       }),
-      signal: AbortSignal.timeout(15000),
+      // Always hosted, so this resolves to the short limit - but it goes through the same
+      // helper so ALIGN_LLM_TIMEOUT_MS means "the LLM timeout" rather than "the timeout for
+      // one of the four providers" (ALI-775).
+      signal: AbortSignal.timeout(anthropicTimeoutMs),
     });
   } catch (err) {
-    return classifyThrownFetch(err, model);
+    return classifyThrownFetch(err, model, anthropicTimeoutMs);
   }
   if (!res.ok) return classifyHttpFailure(res, model);
   // First block with text, not content[0]: a thinking or tool-use block can lead, and
@@ -199,6 +284,7 @@ async function tryGemini(
   temperature?: number,
 ): Promise<AdapterOutcome> {
   const geminiModel = process.env['ALIGN_GEMINI_MODEL'] || 'gemini-1.5-flash';
+  const geminiTimeoutMs = resolveLlmTimeoutMs('https://generativelanguage.googleapis.com');
   let res: Response;
   try {
     res = await fetch(
@@ -214,11 +300,11 @@ async function tryGemini(
             ...(temperature !== undefined ? { temperature } : {}),
           },
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(geminiTimeoutMs),
       },
     );
   } catch (err) {
-    return classifyThrownFetch(err, geminiModel);
+    return classifyThrownFetch(err, geminiModel, geminiTimeoutMs);
   }
   if (!res.ok) return classifyHttpFailure(res, geminiModel);
   // First part with text, for the same reason as Anthropic's blocks above.
@@ -475,7 +561,10 @@ async function tryOllama(
           { role: 'user', content: user },
         ],
       }),
-      signal: AbortSignal.timeout(30000),
+      // Ollama is local by definition, so it uses the same limit as any other local endpoint
+      // rather than the 30s guess it carried - which was already an acknowledgement that
+      // local is slower, just not by enough (ALI-775).
+      signal: AbortSignal.timeout(resolveLlmTimeoutMs(host)),
     });
   } catch (err) {
     // Past selection, Ollama is a CHOSEN provider like any other, so every failure here
