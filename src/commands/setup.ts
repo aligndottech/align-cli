@@ -236,7 +236,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       // Requires the Notion OAuth app + sealed creds. See ALI-104.
       oauthKey: 'notion-personal',
       // Local-mode token paste: a read-only internal integration secret.
-      tokenLabel: 'Integration secret (secret_...)',
+      tokenLabel: 'Integration secret (ntn_...)',
       // Read-only tier: Align only reads. Notion integration capabilities are set
       // at creation - keep it to "Read content" (no insert/update). See ALI-98.
       tokenHint: 'Create an integration with ONLY "Read content" capability (no insert/update), then copy its Internal Integration Secret',
