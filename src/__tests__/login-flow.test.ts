@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockWaitForCallback = vi.hoisted(() => vi.fn());
 const mockWhoami = vi.hoisted(() => vi.fn());
 
+const mockSpinnerStop = vi.hoisted(() => vi.fn());
+const mockTryOpenUrl = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+vi.mock('../lib/open-url.js', () => ({ tryOpenUrl: mockTryOpenUrl }));
 vi.mock('@clack/prompts', () => ({
-  spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
+  spinner: () => ({ start: vi.fn(), stop: mockSpinnerStop }),
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock('open', () => ({ default: vi.fn().mockResolvedValue(undefined) }));
@@ -79,5 +82,48 @@ describe('loginInteractive', () => {
     const ok = await loginInteractive(env, 'prod', cast(config));
     expect(ok).toBe(false);
     expect(config.setAuthToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('the spinner message follows the opener verdict', () => {
+  // The message fires inside onBound, which the shared mock never invokes - so this
+  // block drives it: the callback mock calls onBound (as the real server does on
+  // bind), and the gateway's cli-init fetch is stubbed to hand back a login URL.
+  async function runLoginFlow(): Promise<void> {
+    mockWaitForCallback.mockImplementation(async (opts: { onBound?: (p: number, n: string) => Promise<void> }) => {
+      await opts.onBound?.(7654, 'nonce');
+      return { data: { token: 'tok' }, port: 7654 };
+    });
+    mockWhoami.mockResolvedValue({ user: { email: 'a@b.com' }, tenant: { id: 't1', name: 'Acme' } });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: 'https://gw/login-url' }),
+    }));
+    try {
+      await loginInteractive(env, 'prod', cast(fakeConfig()));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+
+  // Copilot on #202: routing through tryOpenUrl while still printing "Browser
+  // opened" repeats the exact lie the paste path told in 0.28.0 - the boolean
+  // exists, so the message must follow it.
+  it('claims the browser opened only when it plausibly did', async () => {
+    mockSpinnerStop.mockClear();
+    mockTryOpenUrl.mockResolvedValueOnce(true);
+    await runLoginFlow().catch(() => {});
+    const said = mockSpinnerStop.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(said).toContain('Browser opened');
+  });
+
+  it('says it could NOT open one when the opener failed, with the URL', async () => {
+    mockSpinnerStop.mockClear();
+    mockTryOpenUrl.mockResolvedValueOnce(false);
+    await runLoginFlow().catch(() => {});
+    const said = mockSpinnerStop.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(said).toMatch(/could not open/i);
+    expect(said).not.toContain('Browser opened');
+    expect(said).toContain('https://');
   });
 });
