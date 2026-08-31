@@ -5,6 +5,7 @@ import { CLI_CALLBACK_PORTS, waitForCallback } from './cli-oauth.js';
 import { exchangePkceCode, SECRET_FREE_CONNECTORS } from './secret-free-oauth.js';
 import { buildAuthorizeUrl, createPkcePair } from './pkce.js';
 import { pollForDeviceToken, requestDeviceCode } from './device-flow.js';
+import { checkGithubAppInstallation } from './github-install-check.js';
 
 /**
  * Connector sign-in for TRUE LOCAL mode, with no hosted call and no client secret.
@@ -58,9 +59,35 @@ async function runDeviceFlow(
     tokenUrl, clientId, deviceCode: code.deviceCode,
     intervalMs: code.intervalMs, expiresAt: code.expiresAt,
   });
-  if (result.ok) { spin.stop(`${id} connected`); return result.accessToken; }
-  spin.stop(`${id} not connected (${result.reason})`);
-  return null;
+  if (!result.ok) { spin.stop(`${id} not connected (${result.reason})`); return null; }
+  spin.stop(`${id} connected`);
+
+  // Authorizing the App and INSTALLING it are separate grants, and installing on an
+  // organisation belongs to its owner. So a token here can legitimately see nothing,
+  // and the user finds out much later as an import that returns no decisions.
+  if (id === 'github') await reportGithubInstallation(result.accessToken);
+  return result.accessToken;
+}
+
+async function reportGithubInstallation(token: string): Promise<void> {
+  const check = await checkGithubAppInstallation(token);
+  if (check.errored || check.installed) {
+    if (!check.errored && check.accounts.length) {
+      p.log.info(chalk.dim(`  Reading from: ${check.accounts.join(', ')}`));
+    }
+    return;
+  }
+
+  const slug = process.env.ALIGN_GITHUB_APP_SLUG || 'align-personal';
+  p.log.warn(
+    `  Signed in, but the Align GitHub App is not installed on any account yet,\n` +
+    `  so it can read no repositories.\n\n` +
+    `  Install it (read-only) here:\n` +
+    `    ${chalk.bold(`https://github.com/apps/${slug}/installations/new`)}\n\n` +
+    `  On a personal account that takes one click. On an organisation, GitHub sends\n` +
+    `  a request to an owner - your setup finishes either way, and imports start\n` +
+    `  working once it is approved.`,
+  );
 }
 
 async function runPkceFlow(

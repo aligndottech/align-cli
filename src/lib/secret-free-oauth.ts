@@ -24,6 +24,13 @@ export type SecretFreeKind = 'device' | 'pkce';
 
 export interface SecretFreeConfig {
   kind: SecretFreeKind;
+  /**
+   * Whether the token this flow yields can WRITE. False for every flow shipped here,
+   * and asserted as such by a test - ALI-94 / ALI-98: the free, CLI and personal tier
+   * never holds write capability. Modelled rather than assumed so that adding a
+   * write-capable provider is a visible, deliberate act rather than a silent one.
+   */
+  writeCapable?: boolean;
   /** Public client id. Not a secret - it appears in every authorize URL. */
   clientIdEnv: string;
   authorizeUrl?: string;
@@ -35,13 +42,18 @@ export interface SecretFreeConfig {
 }
 
 export const SECRET_FREE_CONNECTORS: Record<string, SecretFreeConfig> = {
+  // The read-only GitHub APP. Default on purpose: the safe path is what you get by
+  // not choosing. Its `scope` is deliberately empty - a GitHub App's user-to-server
+  // access is governed by the App's configured permissions and the scope is IGNORED.
+  // #194 shipped OAuth-style scopes here, which did nothing and implied a control
+  // that was not there; the real guarantee is Contents/Issues/PRs: Read on the App.
   github: {
     kind: 'device',
-    clientIdEnv: 'ALIGN_GITHUB_PUBLIC_CLIENT_ID',
+    clientIdEnv: 'ALIGN_GITHUB_APP_PUBLIC_CLIENT_ID',
     deviceCodeUrl: 'https://github.com/login/device/code',
     tokenUrl: 'https://github.com/login/oauth/access_token',
-    // read:user + repo read. No write, no admin, no delete.
-    scope: 'read:user repo:status public_repo',
+    scope: '',
+    writeCapable: false,
   },
   gitlab: {
     kind: 'pkce',

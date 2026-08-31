@@ -77,3 +77,32 @@ describe('SECRET_FREE_CONNECTORS', () => {
     }
   });
 });
+
+describe('the read-only invariant (ALI-94 / ALI-98)', () => {
+  // The decision this file is governed by: the free, CLI and personal tier must
+  // never hold write capability. PR #195 originally shipped a user-selectable
+  // write-capable GitHub path here and the decision graph flagged it as a conflict.
+  // It was dropped rather than superseded, and this is what keeps it dropped - a
+  // comment cannot fail, and the last one describing this had already gone stale.
+  it('ships no write-capable flow', () => {
+    const writable = Object.entries(SECRET_FREE_CONNECTORS)
+      .filter(([, cfg]) => cfg.writeCapable)
+      .map(([id]) => id);
+    expect(writable).toEqual([]);
+  });
+
+  it('names a scope for every flow that uses one, and none that can write', () => {
+    // Positive control: prove the map is populated before asserting over it, or an
+    // empty map passes both of these vacuously.
+    const ids = Object.keys(SECRET_FREE_CONNECTORS);
+    expect(ids.length).toBeGreaterThan(0);
+
+    for (const [id, cfg] of Object.entries(SECRET_FREE_CONNECTORS)) {
+      // GitHub Apps IGNORE scope - permissions live on the App - so empty is correct
+      // there and would be a defect anywhere else.
+      if (id === 'github') { expect(cfg.scope).toBe(''); continue; }
+      expect(cfg.scope, `${id} must declare a scope`).not.toBe('');
+      expect(cfg.scope, `${id} scope must not grant write`).not.toMatch(/\b(write|api|admin)\b/);
+    }
+  });
+});
