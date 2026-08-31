@@ -26,8 +26,8 @@ const TEAL_256 = 79;
 const NAVY_256 = 24;
 const WHITE_256 = 231;
 
-export const LOGO_WIDTH = 20;
-export const LOGO_ROWS = 8;
+export const LOGO_WIDTH = 12;
+export const LOGO_ROWS = 7;
 
 /**
  * The live positioning line, taken from align-frontend's hero (src/lib/seo.ts).
@@ -39,36 +39,52 @@ export const TAGLINE_LINES = [
 ] as const;
 
 /**
- * One character per terminal cell, encoding the two pixel rows it covers:
- *   ' ' both empty   'N' both mark    'T' both teal
- *   'n' mark on top  'u' mark below   't' teal on top   'v' teal below
- *   'x' mark over teal              'y' teal over mark
+ * The part align-frontend wraps in <span class="accent">, which resolves to --teal.
+ * Everything else in the headline takes the heading colour, so colouring both lines
+ * teal (as this did at first) is not what the site does.
  */
-const SPRITE: readonly string[] = [
-  '        unnu        ',
-  '       NnuunN       ',
-  '      NnunnunN      ',
-  '    uNNuNuuNuNNuuuuu',
-  'vvvvvvvvvvvvvvvvvv  ',
-  '   vvvvv    vvvvv   ',
-  '  uu  uu    uu  uu  ',
-  '  NNuNN      NNuNN  ',
+export const TAGLINE_ACCENT = "don't know the company.";
+
+/**
+ * The mark, drawn with QUADRANT block characters: each cell carries a 2x2 subpixel
+ * grid, so a diagonal steps half as far as it does with half-blocks.
+ *
+ * Half-blocks were the first attempt and the result read as a stepped ziggurat rather
+ * than an A: they subdivide vertically only, so a 45-degree edge staircases a full cell
+ * at a time. The mark is also SOLID rather than an outline, which is the other half of
+ * why a small sprite reads as smooth - mass hides the steps that a one-pixel stroke
+ * puts on display.
+ *
+ * GLYPHS holds the shape, COLOURS names each cell's brand colour. A test asserts they
+ * agree cell for cell. The white/teal boundary falls on a cell edge on purpose, so no
+ * cell has to carry two colours.
+ */
+const GLYPHS: readonly string[] = [
+  '    ▗██▖    ',
+  '    █▛▜█    ',
+  '   ▟█  █▙   ',
+  '  ▟█▘  ▝█▙  ',
+  ' ▟█▘    ▝█▙ ',
+  '████████████',
+  '  ███  ███  ',
+];
+
+const COLOURS: readonly string[] = [
+  '    NNNN    ',
+  '    NNNN    ',
+  '   NN  NN   ',
+  '  NNN  NNN  ',
+  ' NNN    NNN ',
+  'TTTTTTTTTTTT',
+  '  TTT  TTT  ',
 ];
 
 /** Which brand colour the mark's strokes take. The pack ships a teal-only variant
- * (F 2 R) as well as the white knockout (F 4 R), so both are on-brand. */
-export type MarkStyle = 'white' | 'teal' | 'solid';
-
-const SPRITE_SOLID: readonly string[] = [
-  '        uNNu        ',
-  '       NNnnNN       ',
-  '      NNnuunNN      ',
-  '    uNNNuNNuNNNuuuuu',
-  'vvvvvvvvvvvvvvvvvv  ',
-  '   vvvvv    vvvvv   ',
-  '  uuu uuu   uuu uuu ',
-  '  NNNuNNN   NNNuNNN ',
-];
+ * (F 2 R) as well as the white knockout (F 4 R), so both are on-brand.
+ *
+ * A third 'solid' style used to swap in a filled sprite. The mark is drawn solid now, so
+ * it had nothing left to offer and was removed rather than kept as a synonym. */
+export type MarkStyle = 'white' | 'teal';
 
 export interface RenderOptions {
   /** Mark styling; defaults to 'white'. */
@@ -122,40 +138,22 @@ const RESET = '\x1b[0m';
 export function logoLines(opts: RenderOptions = {}): string[] {
   const color = resolveColor(opts);
   const truecolor = resolveTruecolor(opts);
+  const style = opts.style ?? 'white';
   const markRgb = resolveDark(opts) ? WHITE_RGB : NAVY_RGB;
   const mark256 = resolveDark(opts) ? WHITE_256 : NAVY_256;
-
-  const style = opts.style ?? 'white';
-  // 'teal' paints the strokes teal instead of the knockout white; 'solid' also swaps in
-  // the filled sprite, which reads bolder because the mass carries the colour rather
-  // than a one-cell outline.
   const strokeRgb = style === 'white' ? markRgb : TEAL_RGB;
   const stroke256 = style === 'white' ? mark256 : TEAL_256;
-  return (style === 'solid' ? SPRITE_SOLID : SPRITE).map((row) => {
+
+  return GLYPHS.map((row, y) => {
+    if (!color) return row;
+    const mask = COLOURS[y] ?? '';
     let out = '';
-    for (const cell of row) {
-      // Plain mode still uses the blocks: the shape is the point, and stripping
-      // colour must not change the width or the silhouette.
-      if (!color) {
-        out += cell === ' ' ? ' '
-          : cell === 'N' || cell === 'T' ? '█'
-          : cell === 'n' || cell === 't' ? '▀'
-          : cell === 'u' || cell === 'v' ? '▄'
-          : '█';
-        continue;
-      }
-      switch (cell) {
-        case ' ': out += ' '; break;
-        case 'N': out += `${fg(strokeRgb, stroke256, truecolor)  }█${  RESET}`; break;
-        case 'T': out += `${fg(TEAL_RGB, TEAL_256, truecolor)  }█${  RESET}`; break;
-        case 'n': out += `${fg(strokeRgb, stroke256, truecolor)  }▀${  RESET}`; break;
-        case 'u': out += `${fg(strokeRgb, stroke256, truecolor)  }▄${  RESET}`; break;
-        case 't': out += `${fg(TEAL_RGB, TEAL_256, truecolor)  }▀${  RESET}`; break;
-        case 'v': out += `${fg(TEAL_RGB, TEAL_256, truecolor)  }▄${  RESET}`; break;
-        case 'x': out += `${fg(strokeRgb, stroke256, truecolor) + bg(TEAL_RGB, TEAL_256, truecolor)  }▀${  RESET}`; break;
-        case 'y': out += `${fg(TEAL_RGB, TEAL_256, truecolor) + bg(strokeRgb, stroke256, truecolor)  }▀${  RESET}`; break;
-        default: out += ' ';
-      }
+    for (let x = 0; x < row.length; x++) {
+      const ch = row[x] as string;
+      const c = mask[x];
+      if (c === 'N') out += `${fg(strokeRgb, stroke256, truecolor)}${ch}${RESET}`;
+      else if (c === 'T') out += `${fg(TEAL_RGB, TEAL_256, truecolor)}${ch}${RESET}`;
+      else out += ch;
     }
     return out;
   });
@@ -171,19 +169,34 @@ export interface BannerOptions extends RenderOptions {
  * The full lockup: the mark on the left, wordmark and tagline to its right, so the
  * whole thing is only as tall as the mark (LOGO_ROWS) rather than stacking.
  */
+/** Split the second headline line into its plain lead and its accented tail. */
+function splitAccent(line: string): [string, string] {
+  const i = line.indexOf(TAGLINE_ACCENT);
+  // Fall back to colouring the whole line rather than dropping the accent silently,
+  // so a reworded tagline degrades visibly instead of losing a colour nobody notices.
+  return i < 0 ? ['', line] : [line.slice(0, i), line.slice(i)];
+}
+
 export function banner(opts: BannerOptions): string {
   const color = resolveColor(opts);
   const truecolor = resolveTruecolor(opts);
   const dim = color ? '\x1b[2m' : '';
   const bold = color ? '\x1b[1m' : '';
   const tealFg = color ? fg(TEAL_RGB, TEAL_256, truecolor) : '';
+  // The headline takes the mark colour, which is white on dark and navy on light,
+  // so it reads against whichever ground the terminal has.
+  const headline = color
+    ? fg(resolveDark(opts) ? WHITE_RGB : NAVY_RGB, resolveDark(opts) ? WHITE_256 : NAVY_256, truecolor)
+    : '';
   const reset = color ? RESET : '';
 
   const right: string[] = new Array(LOGO_ROWS).fill('');
   // Registered, not TM: Align is a registered trademark.
   right[1] = `${bold}ALIGN®${reset}`;
-  right[2] = `${tealFg}${TAGLINE_LINES[0]}${reset}`;
-  right[3] = `${tealFg}${TAGLINE_LINES[1]}${reset}`;
+  // Match the site: the headline is the heading colour and only the accent span is teal.
+  right[2] = `${headline}${TAGLINE_LINES[0]}${reset}`;
+  const [lead, accent] = splitAccent(TAGLINE_LINES[1]);
+  right[3] = `${headline}${lead}${reset}${tealFg}${accent}${reset}`;
   const meta = opts.context ? `v${opts.version}  ${'\u00b7'}  ${opts.context}` : `v${opts.version}`;
   right[5] = `${dim}${meta}${reset}`;
 
