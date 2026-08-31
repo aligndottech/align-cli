@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.1](https://github.com/aligndottech/align-cli/compare/cli-v0.28.0...cli-v0.28.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **setup:** always print token URLs so a failed browser-open is never a dead end ([#203](https://github.com/aligndottech/align-cli/issues/203)) ([86e3a3f](https://github.com/aligndottech/align-cli/commit/86e3a3f2d4531d2a8a8374bd92ed06096cee82f5))
+
 ## [0.28.0](https://github.com/aligndottech/align-cli/compare/cli-v0.27.0...cli-v0.28.0) (2026-08-31)
 
 
