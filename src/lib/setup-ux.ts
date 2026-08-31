@@ -1,4 +1,5 @@
 import { execa } from 'execa';
+import { type ScopeVerdict, verifyReadOnlyGithubToken } from './token-scope-gate.js';
 
 /**
  * Sizing and credential-discovery helpers for `align setup`.
@@ -55,10 +56,56 @@ export async function detectCliToken(bin: string, args: string[]): Promise<strin
   }
 }
 
-/** Connectors whose token can be read from an already-authenticated local CLI. */
-export const CLI_TOKEN_SOURCES: Record<string, { bin: string; args: string[]; label: string }> = {
-  github: { bin: 'gh', args: ['auth', 'token'], label: 'GitHub CLI (gh)' },
+/**
+ * Connectors whose token can be read from an already-authenticated local CLI.
+ *
+ * `verify` is REQUIRED, not optional. A reused credential was minted for something
+ * else, so it is taken only on positive confirmation it cannot write (ALI-98) - and
+ * making the field mandatory means a future source (glab, linear) cannot ship reuse
+ * without deciding how to prove read-only-ness for its provider. The ungated version
+ * of this table shipped in #183 and silently held gh's repo-scoped (write-capable)
+ * token in the free tier.
+ */
+export const CLI_TOKEN_SOURCES: Record<
+  string,
+  {
+    bin: string;
+    args: string[];
+    label: string;
+    verify: (token: string) => Promise<ScopeVerdict>;
+  }
+> = {
+  github: {
+    bin: 'gh',
+    args: ['auth', 'token'],
+    label: 'GitHub CLI (gh)',
+    verify: (t) => verifyReadOnlyGithubToken(t),
+  },
 };
+
+/**
+ * Detect AND verify in one step, so the decision layer (and therefore --approve) can
+ * never see an unverified token. `refused` carries the reason for the user: a silent
+ * null here would read as "gh not installed" when the truth is "gh is installed and
+ * its token can write".
+ */
+export async function detectVerifiedCliToken(
+  source: (typeof CLI_TOKEN_SOURCES)[string],
+): Promise<{ token: string } | { refused: string } | null> {
+  const token = await detectCliToken(source.bin, source.args);
+  if (!token) return null;
+
+  let verdict: ScopeVerdict;
+  try {
+    verdict = await source.verify(token);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { refused: `could not verify token: ${msg}` };
+  }
+
+  if (!verdict.ok) return { refused: verdict.reason ?? 'not confirmed read-only' };
+  return { token };
+}
 
 /**
  * Whether to use a token found in a local CLI, ask first, or ignore it.
