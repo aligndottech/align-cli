@@ -62,6 +62,9 @@ applies to the environment you're running in and why.
   can revoke it at the provider any time without involving Align. Tokens are stored on this
   machine and only ever used to read. OAuth sign-in belongs to the personal cloud path,
   where Align's hosted apps do that work with one click.
+- **The token page URL is always printed** before Align tries to open your browser,
+  so if nothing opens you can click or copy the link from the terminal. A detected
+  browser failure says so instead of pretending it worked.
 - **If you already use the GitHub CLI**, setup offers to reuse its token - and only after
   confirming with GitHub that the token cannot write. A `gh auth login` token usually
   carries the `repo` scope (read *and* write), and Align's local mode refuses those: you
