@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.1](https://github.com/aligndottech/align-cli/compare/cli-v0.26.0...cli-v0.26.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **ask:** tell people a local model works, because it does ([#185](https://github.com/aligndottech/align-cli/issues/185)) ([3472c68](https://github.com/aligndottech/align-cli/commit/3472c68659757c44b7539920af010e6f1cedeb78))
+
 ## [0.26.0](https://github.com/aligndottech/align-cli/compare/cli-v0.25.0...cli-v0.26.0) (2026-08-30)
 
 
