@@ -5,7 +5,7 @@ import { CLI_CALLBACK_PORTS, waitForCallback } from './cli-oauth.js';
 import { exchangePkceCode, SECRET_FREE_CONNECTORS } from './secret-free-oauth.js';
 import { buildAuthorizeUrl, createPkcePair } from './pkce.js';
 import { pollForDeviceToken, requestDeviceCode } from './device-flow.js';
-import { chooseGithubVariant } from './github-choice.js';
+import { checkGithubAppInstallation } from './github-install-check.js';
 
 /**
  * Connector sign-in for TRUE LOCAL mode, with no hosted call and no client secret.
@@ -20,26 +20,6 @@ import { chooseGithubVariant } from './github-choice.js';
  * than fail, because a broken sign-in that blocks setup is worse than a paste.
  */
 export async function trySecretFreeOAuth(connectorId: string): Promise<string | null> {
-  // GitHub is the one connector with two secret-free paths, and choosing between
-  // them is a decision only the user can make: the read-only App may not be
-  // installable on their org, and the alternative is write-capable. See ALI-98's
-  // 2026-08-31 amendment.
-  if (connectorId === 'github') {
-    const variant = await chooseGithubVariant({
-      'github-app': process.env['ALIGN_GITHUB_APP_PUBLIC_CLIENT_ID'],
-      'github-oauth': process.env['ALIGN_GITHUB_OAUTH_PUBLIC_CLIENT_ID'],
-    });
-    if (!variant) return null;
-    const clientId = process.env[variant.clientIdEnv];
-    if (!clientId) return null;
-    try {
-      return await runDeviceFlow(connectorId, variant.deviceCodeUrl, variant.tokenUrl, clientId, variant.scope);
-    } catch (err) {
-      p.log.warn(`  ${connectorId}: sign-in failed (${(err as Error).message}). Falling back to a token paste.`);
-      return null;
-    }
-  }
-
   const cfg = SECRET_FREE_CONNECTORS[connectorId];
   if (!cfg) return null;
 
@@ -79,9 +59,35 @@ async function runDeviceFlow(
     tokenUrl, clientId, deviceCode: code.deviceCode,
     intervalMs: code.intervalMs, expiresAt: code.expiresAt,
   });
-  if (result.ok) { spin.stop(`${id} connected`); return result.accessToken; }
-  spin.stop(`${id} not connected (${result.reason})`);
-  return null;
+  if (!result.ok) { spin.stop(`${id} not connected (${result.reason})`); return null; }
+  spin.stop(`${id} connected`);
+
+  // Authorizing the App and INSTALLING it are separate grants, and installing on an
+  // organisation belongs to its owner. So a token here can legitimately see nothing,
+  // and the user finds out much later as an import that returns no decisions.
+  if (id === 'github') await reportGithubInstallation(result.accessToken);
+  return result.accessToken;
+}
+
+async function reportGithubInstallation(token: string): Promise<void> {
+  const check = await checkGithubAppInstallation(token);
+  if (check.errored || check.installed) {
+    if (!check.errored && check.accounts.length) {
+      p.log.info(chalk.dim(`  Reading from: ${check.accounts.join(', ')}`));
+    }
+    return;
+  }
+
+  const slug = process.env.ALIGN_GITHUB_APP_SLUG || 'align-personal';
+  p.log.warn(
+    `  Signed in, but the Align GitHub App is not installed on any account yet,\n` +
+    `  so it can read no repositories.\n\n` +
+    `  Install it (read-only) here:\n` +
+    `    ${chalk.bold(`https://github.com/apps/${slug}/installations/new`)}\n\n` +
+    `  On a personal account that takes one click. On an organisation, GitHub sends\n` +
+    `  a request to an owner - your setup finishes either way, and imports start\n` +
+    `  working once it is approved.`,
+  );
 }
 
 async function runPkceFlow(
