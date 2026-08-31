@@ -87,8 +87,12 @@ export async function collectTokensViaOAuth(
       try {
         const result = await client.startCliOAuth(key, port, nonce);
         authUrl = result.authUrl;
-        await tryOpenUrl(authUrl); // failure is fine: the next line prints the URL
-        spinner.stop(`Browser opened for ${oauthFlowLabel(source)}. If nothing happened, visit:\n  ${chalk.bold(authUrl)}`);
+        const opened = await tryOpenUrl(authUrl);
+        spinner.stop(
+          opened
+            ? `Browser opened for ${oauthFlowLabel(source)}. If nothing happened, visit:\n  ${chalk.bold(authUrl)}`
+            : `Could not open a browser for ${oauthFlowLabel(source)}. Approve it at:\n  ${chalk.bold(authUrl)}`,
+        );
         p.log.info('Waiting for you to approve in the browser (2 min timeout)...');
       } catch (e) {
         spinner.stop(`Could not start OAuth for ${source.label}: ${(e as Error).message}`);

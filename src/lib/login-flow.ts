@@ -29,8 +29,14 @@ export async function loginInteractive(
         if (!res.ok) throw new Error(`Gateway returned ${res.status}`);
         const body = await res.json() as { url: string };
         loginUrl = body.url;
-        await tryOpenUrl(loginUrl); // failure is fine: the next line prints the URL
-        spinner.stop(`Browser opened. If nothing happened, visit:\n  ${chalk.bold(loginUrl)}`);
+        const opened = await tryOpenUrl(loginUrl);
+        // The message follows the boolean: claiming "Browser opened" over a detected
+        // failure is the same lie the paste path told in 0.28.0.
+        spinner.stop(
+          opened
+            ? `Browser opened. If nothing happened, visit:\n  ${chalk.bold(loginUrl)}`
+            : `Could not open a browser here. Log in at:\n  ${chalk.bold(loginUrl)}`,
+        );
         p.log.info('Waiting for you to log in (2 min timeout)...');
       } catch (e) {
         spinner.stop(`Could not open browser: ${(e as Error).message}`);

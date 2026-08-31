@@ -25,7 +25,11 @@ export async function tryOpenUrl(
       const timer = setTimeout(() => { cleanup(); resolve(true); }, graceMs);
       const onExit = (code: number | null): void => {
         cleanup();
-        resolve(code === 0 || code === null);
+        // Only a clean 0 is success. code === null means terminated by signal, which
+        // is not a handoff - and the cost of a wrong answer is asymmetric: a false
+        // warning costs a glance at the printed link, a false success recreates the
+        // stranded-at-the-prompt state this helper exists to end.
+        resolve(code === 0);
       };
       const onError = (): void => { cleanup(); resolve(false); };
       const cleanup = (): void => {
