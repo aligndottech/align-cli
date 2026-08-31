@@ -23,6 +23,7 @@ const { version } = pkg;
 import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
 import { trySecretFreeOAuth } from '../lib/local-oauth.js';
+import { supportsSecretFreeOAuth } from '../lib/secret-free-oauth.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -396,6 +397,30 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
     .filter((s) => s.id !== 'git' && s.tokenLabel)
     .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
   console.log('');
+  // Say WHY, at the point of use. This reason used to live only in the comment above:
+  // the user was sent to a provider page to mint a token with no explanation, which reads
+  // as the tool being clumsy rather than as the privacy trade they chose. The constraint
+  // is the provider's, not ours - OAuth needs a client secret, and a secret inside a
+  // distributed binary is not a secret. See ALI-778.
+  if (interactive && localConnectors.length > 0) {
+    // Split by what each provider actually allows, because after ALI-778 the answer
+    // differs per connector and a blanket "these all need a paste" is simply false.
+    // GitHub, GitLab, Linear and Zoom support a secret-free sign-in (device flow or
+    // PKCE) that needs no hosted call. Notion and Atlassian mandate a client secret
+    // on token exchange, so a paste is the only option their design leaves.
+    const pasteOnly = localConnectors.filter((s) => !supportsSecretFreeOAuth(s.id));
+    p.log.info(
+      chalk.dim(
+        `Nothing leaves this machine here, so any token you give is stored locally\n` +
+        `  and only ever used to read.${ 
+        pasteOnly.length > 0
+          ? `\n  ${pasteOnly.map((s) => s.label).join(', ')} need a pasted token: their\n` +
+            '  sign-in requires a secret we would have to hold on a server, which local\n' +
+            '  mode deliberately does not do.'
+          : ''}`,
+      ),
+    );
+  }
   // `interactive` computed once, at the top of this function - see the comment there.
   const selected = interactive
     ? await p.multiselect({
