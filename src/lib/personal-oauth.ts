@@ -5,7 +5,7 @@
 // connector's oauth key - the gateway's CLI branch never writes them server-side.
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
-import open from 'open';
+import { tryOpenUrl } from './open-url.js';
 import type { createConfigStore, EnvName } from './config.js';
 import type { createGatewayClient } from './gateway-client.js';
 import { CLI_CALLBACK_PORTS, waitForCallback } from './cli-oauth.js';
@@ -87,7 +87,7 @@ export async function collectTokensViaOAuth(
       try {
         const result = await client.startCliOAuth(key, port, nonce);
         authUrl = result.authUrl;
-        await open(authUrl).catch(() => {});
+        await tryOpenUrl(authUrl); // failure is fine: the next line prints the URL
         spinner.stop(`Browser opened for ${oauthFlowLabel(source)}. If nothing happened, visit:\n  ${chalk.bold(authUrl)}`);
         p.log.info('Waiting for you to approve in the browser (2 min timeout)...');
       } catch (e) {

@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
-import open from 'open';
+import { tryOpenUrl } from './open-url.js';
 import { createGatewayClient, GatewayError } from './gateway-client.js';
 import { CLI_CALLBACK_PORTS, waitForCallback } from './cli-oauth.js';
 import type { createConfigStore, EnvironmentConfig, EnvName } from './config.js';
@@ -29,7 +29,7 @@ export async function loginInteractive(
         if (!res.ok) throw new Error(`Gateway returned ${res.status}`);
         const body = await res.json() as { url: string };
         loginUrl = body.url;
-        await open(loginUrl).catch(() => {});
+        await tryOpenUrl(loginUrl); // failure is fine: the next line prints the URL
         spinner.stop(`Browser opened. If nothing happened, visit:\n  ${chalk.bold(loginUrl)}`);
         p.log.info('Waiting for you to log in (2 min timeout)...');
       } catch (e) {

@@ -444,6 +444,40 @@ describe('align setup', () => {
       expect(asked.length).toBeGreaterThan(0);
     });
 
+    it('prints the token URL itself, so a silent browser failure leaves a path', async () => {
+      // Field report (0.28.0, Tom): "Opening GitHub in browser..." printed, no browser
+      // appeared, and the URL was nowhere - open()'s failure was swallowed by
+      // `.catch(() => {})` and the announcement had already claimed success. The two
+      // OAuth flows print "If nothing happened, visit: <url>"; the paste path never
+      // got that line. The URL is printed UNCONDITIONALLY, because open() resolving
+      // does not prove a tab appeared anywhere the user can see it.
+      mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'token can write' });
+      mockMultiselect.mockResolvedValue(['github']);
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('\n');
+      expect(said).toContain('https://github.com/settings/personal-access-tokens/new');
+      expect(said).toMatch(/if nothing opened|If nothing/i);
+    });
+
+    it('warns and points at the printed link when the opener visibly fails', async () => {
+      // A child-exit failure carries no message (xdg-open just exits 4), so the warn
+      // is generic by design; the URL line above it is the actionable part.
+      const open = (await import('open')).default;
+      (open as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('xdg-open not found'));
+      mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'token can write' });
+      mockMultiselect.mockResolvedValue(['github']);
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const warned = (log.warn as ReturnType<typeof vi.fn>).mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('\n');
+      expect(warned).toMatch(/could not open a browser/i);
+      expect(warned).toMatch(/link above/i);
+    });
+
     it('opens the GitHub PAT page with every permission pre-selected read-only', async () => {
       // The scope-choosing IS the manual work (Tom, 2026-08-31): a user handed a bare
       // token page has to know which four permissions to pick and which level. GitHub

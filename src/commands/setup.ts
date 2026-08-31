@@ -2,7 +2,7 @@ import { resolveEnv } from '../lib/resolve-env.js';
 import type { Command } from 'commander';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
-import open from 'open';
+import { tryOpenUrl } from '../lib/open-url.js';
 import { execa } from 'execa';
 import { CLI_TOKEN_SOURCES, cliTokenDecision, detectVerifiedCliToken, pickerMaxItems } from '../lib/setup-ux.js';
 import { createConfigStore, type EnvName } from '../lib/config.js';
@@ -316,8 +316,16 @@ async function collectTokens(
     }
     if (source.tokenUrl) {
       const url = typeof source.tokenUrl === 'function' ? source.tokenUrl(tokens) : source.tokenUrl;
-      p.log.info(chalk.dim(`  Opening ${source.label} in browser...`));
-      await open(url).catch(() => {});
+      // The URL is printed UNCONDITIONALLY, and before the attempt. open() resolving
+      // proves a child spawned, not that a tab appeared anywhere the user can see -
+      // the 0.28.0 field failure was "Opening..." with nothing opened and no URL to
+      // click, on every connector. Modern terminals make the printed URL clickable,
+      // so this line IS the fallback.
+      p.log.info(chalk.dim(`  Opening ${source.label} in your browser. If nothing opened, visit:\n    ${url}`));
+      const opened = await tryOpenUrl(url);
+      if (!opened) {
+        p.log.warn(`  Could not open a browser here (the opener failed). Use the link above.`);
+      }
     }
     if (source.tokenHint) {
       p.log.info(chalk.dim(`  ${source.tokenHint}`));
