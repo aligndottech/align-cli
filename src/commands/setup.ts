@@ -264,8 +264,11 @@ async function collectTokens(
   // up front) so tokenUrl() resolves against the right host.
   const tokens: Record<string, string> = { ...seed };
 
-  // Extra fields first (email, domain for Jira/Confluence)
+  // Extra fields first (email, domain for Jira/Confluence). A field the seed
+  // already carries is not re-asked - that is what a seed IS, and the cloud
+  // host-gate path used to have to filter extraFields by hand to get this.
   for (const field of source.extraFields ?? []) {
+    if (tokens[field.key] !== undefined) continue;
     // defaultValue '' so a blank submit renders empty, not the literal "undefined".
     const val = await guardedPrompt(field.label, () =>
       p.text({ message: `  ${field.label}:`, defaultValue: '' }),
@@ -275,8 +278,8 @@ async function collectTokens(
     tokens[field.key] = (val ?? '') as string;
   }
 
-  // Main token
-  if (source.tokenLabel) {
+  // Main token. A seeded token skips the whole block - no browser open, no paste.
+  if (source.tokenLabel && tokens['token'] === undefined) {
     // No OAuth here, by design (Tom, 2026-08-31, superseding ALI-778's local
     // direction): local mode is the user's personal graph, so the credential is one
     // they mint, scope and revoke themselves. The device-flow/PKCE machinery this
@@ -465,13 +468,28 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   // Collect every credential up front, so the automatic phase below never stops to ask.
   const localReady: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
   if (!p.isCancel(selected)) {
+    const atlassianShared: Record<string, string> = {};
     for (const id of selected as string[]) {
       const source = localConnectors.find((s) => s.id === id);
       if (!source) continue;
       console.log('');
       p.log.step(chalk.bold(source.label));
-      const tokens = await collectTokens(source, {}, { approve: opts.approve });
+      // Jira and Confluence share one Atlassian account: same email, same site
+      // domain, same id.atlassian.com API token. Ask once, reuse for the other, and
+      // SAY so - the same disclosure rule as the gh-token reuse, because a silently
+      // absorbed credential is the thing nobody can audit afterwards.
+      const isAtlassian = source.id === 'jira' || source.id === 'confluence';
+      const seed = isAtlassian ? { ...atlassianShared } : {};
+      if (isAtlassian && seed['token'] !== undefined) {
+        p.log.info(chalk.dim('  Using your Atlassian email, domain and API token from the previous connector.'));
+      }
+      const tokens = await collectTokens(source, seed, { approve: opts.approve });
       if (!tokens) continue;
+      if (isAtlassian) {
+        for (const k of ['email', 'domain', 'token']) {
+          if (tokens[k] !== undefined) atlassianShared[k] = tokens[k];
+        }
+      }
       localReady.push({ source, tokens });
     }
   }
