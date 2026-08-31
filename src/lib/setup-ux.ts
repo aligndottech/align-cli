@@ -94,7 +94,15 @@ export async function detectVerifiedCliToken(
 ): Promise<{ token: string } | { refused: string } | null> {
   const token = await detectCliToken(source.bin, source.args);
   if (!token) return null;
-  const verdict = await source.verify(token);
+
+  let verdict: ScopeVerdict;
+  try {
+    verdict = await source.verify(token);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { refused: `could not verify token: ${msg}` };
+  }
+
   if (!verdict.ok) return { refused: verdict.reason ?? 'not confirmed read-only' };
   return { token };
 }
