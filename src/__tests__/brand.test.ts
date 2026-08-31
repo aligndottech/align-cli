@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { banner, BRAND, commandIntro, LOGO_ROWS, LOGO_WIDTH, logoLines } from '../lib/brand.js';
+import { banner, BRAND, commandIntro, LOGO_ROWS, LOGO_WIDTH, logoLines, TAGLINE_ACCENT, TAGLINE_LINES } from '../lib/brand.js';
 
 const ESC = '\x1b';
 // eslint-disable-next-line no-control-regex -- ESC is the thing under test here
@@ -59,10 +59,11 @@ describe('logoLines', () => {
   });
 
   it('each style produces a DIFFERENT rendering', () => {
-    const render = (style: 'white' | 'teal' | 'solid') =>
+    // 'solid' was dropped: the sprite is drawn solid now, so that style rendered
+    // identically to 'teal' and was a synonym pretending to be a choice.
+    const render = (style: 'white' | 'teal') =>
       logoLines({ color: true, truecolor: true, style }).join('');
     expect(render('white')).not.toEqual(render('teal'));
-    expect(render('teal')).not.toEqual(render('solid'));
   });
 
   it('uses navy on a light background', () => {
@@ -95,6 +96,38 @@ describe('banner', () => {
     expect(out).toContain('Your AI agents know the code.');
     expect(out).toContain("They don't know the company.");
     expect(out).not.toMatch(/clarity built in/i);
+  });
+});
+
+describe('the headline follows align-frontend, not a flat teal block', () => {
+  // The site puts <span class="accent"> on "don't know the company." only; the rest of
+  // the h1 takes the heading colour. Rendering both lines teal (the first version) is a
+  // different design from the one the site ships.
+  const WHITE = '38;2;255;255;255';
+  const TEAL = '38;2;67;182;172';
+  const lineWith = (needle: string) =>
+    banner({ version: '1.2.3', color: true, truecolor: true, dark: true })
+      .split('\n')
+      // eslint-disable-next-line no-control-regex -- ESC is the thing under test here
+      .find((l) => l.replace(/\x1b\[[0-9;]*m/g, '').includes(needle)) ?? '';
+
+  it('renders the first headline line in the heading colour, not teal', () => {
+    const line = lineWith('know the code');
+    expect(line).toContain(WHITE);
+    // The mark shares this row, and the mark is white on dark, so teal here could only
+    // come from the text.
+    expect(line).not.toContain(TEAL);
+  });
+
+  it('splits the second line, colouring only the accent phrase', () => {
+    const line = lineWith('know the company');
+    expect(line).toContain(WHITE);   // "They "
+    expect(line).toContain(TEAL);    // "don't know the company."
+  });
+
+  it('puts the accent boundary exactly where the site puts it', () => {
+    const [lead] = TAGLINE_LINES[1].split(TAGLINE_ACCENT);
+    expect(lead).toBe('They ');
   });
 });
 
