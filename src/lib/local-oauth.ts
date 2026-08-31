@@ -24,9 +24,9 @@ export async function trySecretFreeOAuth(connectorId: string): Promise<string | 
   const cfg = SECRET_FREE_CONNECTORS[connectorId];
   if (!cfg) return null;
 
-  // Public client ids are committed in public-client-ids.ts - they are not secrets
-  // and appear in every authorize URL - with the env var kept as an override for a
-  // self-managed instance. Null means we cannot ship one for this connector yet, and
+  // Public client ids are committed in public-client-ids.ts - they are not secrets,
+  // travelling in the authorize URL for PKCE and in the device-code request body for
+  // device flow - with the env var kept as an override for a self-managed instance. Null means we cannot ship one for this connector yet, and
   // `pendingConnectors()` records why; fall through to the paste quietly.
   //
   // This used to read process.env directly while a comment claimed the ids shipped in

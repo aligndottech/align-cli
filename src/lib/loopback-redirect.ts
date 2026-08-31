@@ -67,8 +67,6 @@ export function waitForLoopbackRedirect(
       };
 
       const server = createServer((req, res) => {
-        // A browser follows the provider's 302 with a GET. Anything else is not this
-        // flow; answer plainly rather than resolving on it.
         const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
         const q = url.searchParams;
 
@@ -76,6 +74,15 @@ export function waitForLoopbackRedirect(
           res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' }).end(body);
           if (err) { clearTimeout(timer); shutdown(); reject(err); }
         };
+
+        // A browser follows the provider's 302 with a GET, and this now CHECKS that
+        // rather than only saying it. Without the check a POST carrying the right
+        // state would complete the flow - a comment describing a control that is not
+        // there, which is the defect class this whole change exists to remove.
+        if (req.method !== 'GET') {
+          finish(405, PAGE('Unexpected request', 'Align only accepts the browser redirect here.'));
+          return;
+        }
 
         // Checked, not just sent. Without this a stray request to a fixed, publicly
         // known port could complete the flow.
@@ -120,7 +127,16 @@ export function waitForLoopbackRedirect(
         reject(err);
       });
 
-      server.listen(port, '127.0.0.1', () => { void opts.onBound?.(port, state); });
+      // onBound is where the browser gets opened. Awaited, because discarding the
+      // promise makes a failure there an unhandled rejection AND leaves the flow
+      // waiting out its full timeout while the user looks at nothing.
+      server.listen(port, '127.0.0.1', () => {
+        Promise.resolve(opts.onBound?.(port, state)).catch((err: Error) => {
+          clearTimeout(timer);
+          shutdown();
+          reject(err);
+        });
+      });
     };
 
     tryPort(ports);

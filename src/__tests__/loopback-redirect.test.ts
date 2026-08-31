@@ -70,3 +70,40 @@ describe('waitForLoopbackRedirect', () => {
   });
 });
 
+
+describe('waitForLoopbackRedirect, contract edges', () => {
+  it('refuses a non-GET even when the state matches', async () => {
+    // The handler comment said a browser follows the provider's 302 with a GET, and
+    // checked nothing. A POST carrying the right state would have completed the flow:
+    // a comment describing a control that is not there, which is the defect class
+    // this whole change exists to remove. Caught in review, not by me.
+    let bound = 0, state = '';
+    const pending = waitForLoopbackRedirect({
+      ports: [7811],
+      timeoutMs: 400,
+      onBound: (port, s) => { bound = port; state = s; },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const settled = expect(pending).rejects.toThrow(/timed out/i);
+    const res = await fetch(`http://127.0.0.1:${bound}/callback?code=c&state=${state}`, {
+      method: 'POST',
+    });
+    expect(res.status).toBe(405);
+    await settled;
+  });
+
+  it('fails fast when onBound rejects, instead of waiting out the timeout', async () => {
+    // onBound is where the browser is opened. Discarding that promise made a failure
+    // there an unhandled rejection AND left the flow sitting for its full timeout
+    // while the user looked at nothing.
+    const t0 = Date.now();
+    await expect(
+      waitForLoopbackRedirect({
+        ports: [7812],
+        timeoutMs: 30_000,
+        onBound: () => Promise.reject(new Error('could not open browser')),
+      }),
+    ).rejects.toThrow(/could not open browser/);
+    expect(Date.now() - t0).toBeLessThan(5_000);
+  });
+});
