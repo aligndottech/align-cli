@@ -240,7 +240,10 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       // Read-only tier: Align only reads. Notion integration capabilities are set
       // at creation - keep it to "Read content" (no insert/update). See ALI-98.
       tokenHint: 'Create an integration with ONLY "Read content" capability (no insert/update), then copy its Internal Integration Secret',
-      tokenUrl: 'https://www.notion.so/my-integrations',
+      // The developer console's tokens page directly, not the legacy my-integrations
+      // landing (both resolve; this one is where the secret actually lives - Tom,
+      // from a live run, 2026-08-31).
+      tokenUrl: 'https://app.notion.com/developers/tokens',
       fetch: async (t) => {
         const { fetchNotionItems } = await import('../lib/fetchers/notion.js');
         return fetchNotionItems({ token: t['token']!, limit: 250 });
