@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.2](https://github.com/aligndottech/align-cli/compare/cli-v0.26.1...cli-v0.26.2) (2026-08-31)
+
+
+### Bug Fixes
+
+* **brand:** draw the mark with quadrants, and match the site's headline colours ([#187](https://github.com/aligndottech/align-cli/issues/187)) ([1264883](https://github.com/aligndottech/align-cli/commit/1264883fa64d92df0157516cab86eddd09997e54))
+
 ## [0.26.1](https://github.com/aligndottech/align-cli/compare/cli-v0.26.0...cli-v0.26.1) (2026-08-31)
 
 
