@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.29.0](https://github.com/aligndottech/align-cli/compare/cli-v0.28.1...cli-v0.29.0) (2026-08-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* **setup:** upgrade clack to 1.x, ending doubled keystrokes and phantom submits ([#207](https://github.com/aligndottech/align-cli/issues/207))
+
+### Features
+
+* **setup:** open Linear at the key-creation dialog, not the settings landing ([#205](https://github.com/aligndottech/align-cli/issues/205)) ([c0724e4](https://github.com/aligndottech/align-cli/commit/c0724e4c6ea24548ce1db67db1ff8a8e1861953a))
+
+
+### Bug Fixes
+
+* **setup:** upgrade clack to 1.x, ending doubled keystrokes and phantom submits ([#207](https://github.com/aligndottech/align-cli/issues/207)) ([2d11fcc](https://github.com/aligndottech/align-cli/commit/2d11fcce96f01e2fe2a5b9705119a8c43ecb612d))
+
 ## [0.28.1](https://github.com/aligndottech/align-cli/compare/cli-v0.28.0...cli-v0.28.1) (2026-08-31)
 
 
