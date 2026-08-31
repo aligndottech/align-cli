@@ -5,6 +5,7 @@ import { CLI_CALLBACK_PORTS, waitForCallback } from './cli-oauth.js';
 import { exchangePkceCode, SECRET_FREE_CONNECTORS } from './secret-free-oauth.js';
 import { buildAuthorizeUrl, createPkcePair } from './pkce.js';
 import { pollForDeviceToken, requestDeviceCode } from './device-flow.js';
+import { chooseGithubVariant } from './github-choice.js';
 
 /**
  * Connector sign-in for TRUE LOCAL mode, with no hosted call and no client secret.
@@ -19,6 +20,26 @@ import { pollForDeviceToken, requestDeviceCode } from './device-flow.js';
  * than fail, because a broken sign-in that blocks setup is worse than a paste.
  */
 export async function trySecretFreeOAuth(connectorId: string): Promise<string | null> {
+  // GitHub is the one connector with two secret-free paths, and choosing between
+  // them is a decision only the user can make: the read-only App may not be
+  // installable on their org, and the alternative is write-capable. See ALI-98's
+  // 2026-08-31 amendment.
+  if (connectorId === 'github') {
+    const variant = await chooseGithubVariant({
+      'github-app': process.env['ALIGN_GITHUB_APP_PUBLIC_CLIENT_ID'],
+      'github-oauth': process.env['ALIGN_GITHUB_OAUTH_PUBLIC_CLIENT_ID'],
+    });
+    if (!variant) return null;
+    const clientId = process.env[variant.clientIdEnv];
+    if (!clientId) return null;
+    try {
+      return await runDeviceFlow(connectorId, variant.deviceCodeUrl, variant.tokenUrl, clientId, variant.scope);
+    } catch (err) {
+      p.log.warn(`  ${connectorId}: sign-in failed (${(err as Error).message}). Falling back to a token paste.`);
+      return null;
+    }
+  }
+
   const cfg = SECRET_FREE_CONNECTORS[connectorId];
   if (!cfg) return null;
 

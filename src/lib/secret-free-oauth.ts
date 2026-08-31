@@ -24,6 +24,13 @@ export type SecretFreeKind = 'device' | 'pkce';
 
 export interface SecretFreeConfig {
   kind: SecretFreeKind;
+  /**
+   * Whether the token this flow yields can WRITE. False everywhere except GitHub's
+   * OAuth App fallback, where classic OAuth's `repo` scope is read+write and no
+   * read-only-private equivalent exists. Surfaced so the CLI can disclose it: ALI-98
+   * permits a write-capable token in true local, but never a silent one.
+   */
+  writeCapable?: boolean;
   /** Public client id. Not a secret - it appears in every authorize URL. */
   clientIdEnv: string;
   authorizeUrl?: string;
@@ -35,13 +42,18 @@ export interface SecretFreeConfig {
 }
 
 export const SECRET_FREE_CONNECTORS: Record<string, SecretFreeConfig> = {
+  // The read-only GitHub APP. Default on purpose: the safe path is what you get by
+  // not choosing. Its `scope` is deliberately empty - a GitHub App's user-to-server
+  // access is governed by the App's configured permissions and the scope is IGNORED.
+  // #194 shipped OAuth-style scopes here, which did nothing and implied a control
+  // that was not there; the real guarantee is Contents/Issues/PRs: Read on the App.
   github: {
     kind: 'device',
-    clientIdEnv: 'ALIGN_GITHUB_PUBLIC_CLIENT_ID',
+    clientIdEnv: 'ALIGN_GITHUB_APP_PUBLIC_CLIENT_ID',
     deviceCodeUrl: 'https://github.com/login/device/code',
     tokenUrl: 'https://github.com/login/oauth/access_token',
-    // read:user + repo read. No write, no admin, no delete.
-    scope: 'read:user repo:status public_repo',
+    scope: '',
+    writeCapable: false,
   },
   gitlab: {
     kind: 'pkce',
@@ -106,4 +118,67 @@ export async function exchangePkceCode(req: PkceExchangeRequest): Promise<Exchan
   const err = String(body['error'] ?? res.status);
   const desc = body['error_description'] ? `: ${String(body['error_description'])}` : '';
   return { ok: false, reason: `${err}${desc}` };
+}
+
+
+export interface GithubVariant {
+  id: 'github-app' | 'github-oauth';
+  label: string;
+  kind: SecretFreeKind;
+  clientIdEnv: string;
+  deviceCodeUrl: string;
+  tokenUrl: string;
+  scope: string;
+  writeCapable: boolean;
+  /** Stated to the user before they choose. Empty for the recommended path. */
+  tradeoff: string;
+}
+
+/**
+ * The two ways to sign in to GitHub from true local, in recommended order.
+ *
+ * These are not interchangeable and the difference is not cosmetic:
+ *
+ *   App    genuinely read-only, but must be INSTALLED, and GitHub's docs say "the
+ *          user or organization owner who installed the app can decide what
+ *          repositories the app can access". On an org the user does not own, that
+ *          is someone else's veto - the exact dependency true local exists to avoid.
+ *   OAuth  no installation, "can access every repository that the user who
+ *          authorized the app can access", but `repo` is read AND write because
+ *          classic OAuth has no read-only-private scope.
+ *
+ * Shipping both is permitted by ALI-98 as amended 2026-08-31. Its actual prohibition
+ * is on a SILENT fallback, which is why `tradeoff` is not optional here.
+ */
+export function githubVariants(): GithubVariant[] {
+  return [
+    {
+      id: 'github-app',
+      label: 'GitHub App (read-only)',
+      kind: 'device',
+      clientIdEnv: 'ALIGN_GITHUB_APP_PUBLIC_CLIENT_ID',
+      deviceCodeUrl: 'https://github.com/login/device/code',
+      tokenUrl: 'https://github.com/login/oauth/access_token',
+      // Ignored for a GitHub App - permissions govern. Empty rather than a
+      // plausible-looking scope string that does nothing.
+      scope: '',
+      writeCapable: false,
+      tradeoff: '',
+    },
+    {
+      id: 'github-oauth',
+      label: 'GitHub OAuth (no install needed)',
+      kind: 'device',
+      clientIdEnv: 'ALIGN_GITHUB_OAUTH_PUBLIC_CLIENT_ID',
+      deviceCodeUrl: 'https://github.com/login/device/code',
+      tokenUrl: 'https://github.com/login/oauth/access_token',
+      // `repo` covers private repositories. It is read AND write; there is no
+      // read-only-private alternative in classic OAuth, which is the whole reason
+      // this variant carries a warning.
+      scope: 'read:user repo',
+      writeCapable: true,
+      tradeoff:
+        'needs no install or owner approval, but the token it creates can write as well as read',
+    },
+  ];
 }
