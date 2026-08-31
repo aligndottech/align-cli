@@ -26,8 +26,8 @@ const TEAL_256 = 79;
 const NAVY_256 = 24;
 const WHITE_256 = 231;
 
-export const LOGO_WIDTH = 12;
-export const LOGO_ROWS = 7;
+export const LOGO_WIDTH = 32;
+export const LOGO_ROWS = 10;
 
 /**
  * The live positioning line, taken from align-frontend's hero (src/lib/seo.ts).
@@ -46,37 +46,46 @@ export const TAGLINE_LINES = [
 export const TAGLINE_ACCENT = "don't know the company.";
 
 /**
- * The mark, drawn with QUADRANT block characters: each cell carries a 2x2 subpixel
- * grid, so a diagonal steps half as far as it does with half-blocks.
+ * The mark, DERIVED from the real logo rather than hand-drawn.
  *
- * Half-blocks were the first attempt and the result read as a stepped ziggurat rather
- * than an A: they subdivide vertically only, so a 45-degree edge staircases a full cell
- * at a time. The mark is also SOLID rather than an outline, which is the other half of
- * why a small sprite reads as smooth - mass hides the steps that a one-pixel stroke
- * puts on display.
+ * Sampled directly from the brand pack's F 1 R.png by area coverage at 32x20 pixels,
+ * which is why the geometry is the actual mark and not an approximation of it: a hollow
+ * triangle with a nested hollow triangle inside, a navy base bar that overhangs to the
+ * RIGHT only, a teal bar that overhangs to the LEFT, two short teal segments, and two
+ * slanted navy feet. Earlier hand-drawn versions got every one of those details wrong,
+ * because they were reconstructed from memory instead of read off the asset.
  *
- * GLYPHS holds the shape, COLOURS names each cell's brand colour. A test asserts they
- * agree cell for cell. The white/teal boundary falls on a cell edge on purpose, so no
- * cell has to carry two colours.
+ * Only block and half-block glyphs are used. Quadrant characters were tried in 0.26.2
+ * and render blurry and inset in many terminal fonts, which is the one thing a logo
+ * cannot afford; these three are universally hinted.
+ *
+ * GLYPHS holds the shape, COLOURS names each cell's brand colour, and a test asserts
+ * they agree cell for cell.
  */
 const GLYPHS: readonly string[] = [
-  '    ▗██▖    ',
-  '    █▛▜█    ',
-  '   ▟█  █▙   ',
-  '  ▟█▘  ▝█▙  ',
-  ' ▟█▘    ▝█▙ ',
-  '████████████',
-  '  ███  ███  ',
+  '               ▄██▄             ',
+  '             ▄██▀▀█▄            ',
+  '            ▄█▀ ▄  ██▄          ',
+  '          ▄██  ███▄ ▀██         ',
+  '         ██▀ ▄█▀ ▀██  ██▄       ',
+  '       ▄██████████████████████  ',
+  '▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄    ',
+  '▀▀▀▀▀█████████▀▀▀▀▀▀▀███████▄   ',
+  '    ▄█▀▀▀▀▀██        ▀██▀▀▀▀██  ',
+  '   █████████          ▀████████▄',
 ];
 
 const COLOURS: readonly string[] = [
-  '    NNNN    ',
-  '    NNNN    ',
-  '   NN  NN   ',
-  '  NNN  NNN  ',
-  ' NNN    NNN ',
-  'TTTTTTTTTTTT',
-  '  TTT  TTT  ',
+  '               NNNN             ',
+  '             NNNNNNN            ',
+  '            NNN N  NNN          ',
+  '          NNN  NNNN NNN         ',
+  '         NNN NNN NNN  NNN       ',
+  '       NNNNNNNNNNNNNNNNNNNNNNN  ',
+  'TTTTTTTTTTTTTTTTTTTTTTTTTTTT    ',
+  'TTTTTTTTTTTTTTTTTTTTTTTTTTTTT   ',
+  '    NTTTTTTTT        TTTTTTTTT  ',
+  '   NNNNNNNNN          NNNNNNNNNN',
 ];
 
 /** Which brand colour the mark's strokes take. The pack ships a teal-only variant
@@ -161,8 +170,6 @@ export function logoLines(opts: RenderOptions = {}): string[] {
 
 export interface BannerOptions extends RenderOptions {
   version: string;
-  /** Optional context line, e.g. "local graph" or "preview". */
-  context?: string;
 }
 
 /**
@@ -192,13 +199,20 @@ export function banner(opts: BannerOptions): string {
 
   const right: string[] = new Array(LOGO_ROWS).fill('');
   // Registered, not TM: Align is a registered trademark.
-  right[1] = `${bold}ALIGN®${reset}`;
+  // Centre the text block against the mark's height instead of pinning rows: the
+  // sprite has changed height three times and hardcoded indices drifted each time.
+  const textTop = Math.max(0, Math.floor((LOGO_ROWS - 4) / 2));
+  right[textTop] = `${bold}ALIGN®${reset}`;
   // Match the site: the headline is the heading colour and only the accent span is teal.
-  right[2] = `${headline}${TAGLINE_LINES[0]}${reset}`;
+  right[textTop + 1] = `${headline}${TAGLINE_LINES[0]}${reset}`;
   const [lead, accent] = splitAccent(TAGLINE_LINES[1]);
-  right[3] = `${headline}${lead}${reset}${tealFg}${accent}${reset}`;
-  const meta = opts.context ? `v${opts.version}  ${'\u00b7'}  ${opts.context}` : `v${opts.version}`;
-  right[5] = `${dim}${meta}${reset}`;
+  right[textTop + 2] = `${headline}${lead}${reset}${tealFg}${accent}${reset}`;
+  // Version only. A graph label ('local graph', 'personal cloud') cannot go here:
+  // both callers print the banner BEFORE they know which graph is in play, so any
+  // such line would be a guess, and guessing 'local' at a cloud user implies their
+  // data stayed on the machine when it did not.
+  const meta = `v${opts.version}`;
+  right[textTop + 4] = `${dim}${meta}${reset}`;
 
   const mark = logoLines(opts);
   return mark.map((m, i) => (right[i] ? `${m}   ${right[i]}` : m)).join('\n');

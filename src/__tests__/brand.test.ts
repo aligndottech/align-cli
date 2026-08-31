@@ -131,6 +131,21 @@ describe('the headline follows align-frontend, not a flat teal block', () => {
   });
 });
 
+describe('the banner claims nothing it cannot know', () => {
+  it('shows the version and no graph label', () => {
+    // The banner prints BEFORE either caller knows which graph is in play:
+    // setup.ts:527 runs before the cloud/local decision at 535, and
+    // default-action.ts:28 runs before hasLocal/hasCloud are read at 34-35. A
+    // "local graph" style context line was therefore unfillable by construction,
+    // and naming the wrong graph is worse than naming none - a personal cloud user
+    // told they are local would reasonably conclude their data never left the
+    // machine. Tom caught this on 2026-08-31 reading a preview.
+    const out = strip(banner({ version: '9.9.9', color: false }));
+    expect(out).toContain('v9.9.9');
+    expect(out).not.toMatch(/local graph|personal cloud|preview/i);
+  });
+});
+
 describe('commandIntro', () => {
   it('keeps the command label', () => {
     expect(strip(commandIntro('align setup', { color: false }))).toContain('align setup');
