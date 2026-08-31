@@ -26,8 +26,8 @@ const TEAL_256 = 79;
 const NAVY_256 = 24;
 const WHITE_256 = 231;
 
-export const LOGO_WIDTH = 32;
-export const LOGO_ROWS = 10;
+export const LOGO_WIDTH = 20;
+export const LOGO_ROWS = 6;
 
 /**
  * The live positioning line, taken from align-frontend's hero (src/lib/seo.ts).
@@ -48,12 +48,16 @@ export const TAGLINE_ACCENT = "don't know the company.";
 /**
  * The mark, DERIVED from the real logo rather than hand-drawn.
  *
- * Sampled directly from the brand pack's F 1 R.png by area coverage at 32x20 pixels,
- * which is why the geometry is the actual mark and not an approximation of it: a hollow
+ * Downscaled (stroke-preserving area coverage, 2026-08-31) from the approved 32x10
+ * sprite, which was itself sampled from the brand pack's F 1 R.png at 32x20 pixels -
+ * so the geometry is the actual mark and not an approximation of it: a hollow
  * triangle with a nested hollow triangle inside, a navy base bar that overhangs to the
  * RIGHT only, a teal bar that overhangs to the LEFT, two short teal segments, and two
  * slanted navy feet. Earlier hand-drawn versions got every one of those details wrong,
- * because they were reconstructed from memory instead of read off the asset.
+ * because they were reconstructed from memory instead of read off the asset. The one
+ * hand edit at this size is the feet row's COLOUR mask: the teal bar's lower edge
+ * bleeds into it when multiple source pixel rows are averaged into a single cell row at this scale, and the approved
+ * sprite's bottom row is navy feet throughout - coverage was left exactly as derived.
  *
  * Only block and half-block glyphs are used. Quadrant characters were tried in 0.26.2
  * and render blurry and inset in many terminal fonts, which is the one thing a logo
@@ -63,29 +67,21 @@ export const TAGLINE_ACCENT = "don't know the company.";
  * they agree cell for cell.
  */
 const GLYPHS: readonly string[] = [
-  '               ▄██▄             ',
-  '             ▄██▀▀█▄            ',
-  '            ▄█▀ ▄  ██▄          ',
-  '          ▄██  ███▄ ▀██         ',
-  '         ██▀ ▄█▀ ▀██  ██▄       ',
-  '       ▄██████████████████████  ',
-  '▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄    ',
-  '▀▀▀▀▀█████████▀▀▀▀▀▀▀███████▄   ',
-  '    ▄█▀▀▀▀▀██        ▀██▀▀▀▀██  ',
-  '   █████████          ▀████████▄',
+  '         ▄██        ',
+  '       ▄█▀▄ █▄      ',
+  '      █▀▄█▀█▄▀█     ',
+  '     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ',
+  '▀▀▀██████▀▀▀▀█████  ',
+  '  ██▄▄██      █▄▄██▄',
 ];
 
 const COLOURS: readonly string[] = [
-  '               NNNN             ',
-  '             NNNNNNN            ',
-  '            NNN N  NNN          ',
-  '          NNN  NNNN NNN         ',
-  '         NNN NNN NNN  NNN       ',
-  '       NNNNNNNNNNNNNNNNNNNNNNN  ',
-  'TTTTTTTTTTTTTTTTTTTTTTTTTTTT    ',
-  'TTTTTTTTTTTTTTTTTTTTTTTTTTTTT   ',
-  '    NTTTTTTTT        TTTTTTTTT  ',
-  '   NNNNNNNNN          NNNNNNNNNN',
+  '         NNN        ',
+  '       NNNN NN      ',
+  '      NNNNNNNNN     ',
+  '     NNNNNNNNNNNNNN ',
+  'TTTTTTTTTTTTTTTTTT  ',
+  '  NNNNNN      NNNNNN',
 ];
 
 /** Which brand colour the mark's strokes take. The pack ships a teal-only variant
