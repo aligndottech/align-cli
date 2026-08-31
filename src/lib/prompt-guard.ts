@@ -54,10 +54,12 @@ export async function guardedPrompt<T>(
 
   try {
     return await Promise.race([
-      run().catch((err: Error) => {
-        p.log.warn(`${label}: the prompt failed (${err.message}). Skipping it.`);
-        return null;
-      }),
+      Promise.resolve()
+        .then(run)
+        .catch((err: Error) => {
+          p.log.warn(`${label}: the prompt failed (${err.message}). Skipping it.`);
+          return null;
+        }),
       bridged,
     ]);
   } finally {
