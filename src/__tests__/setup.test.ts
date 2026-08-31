@@ -600,6 +600,43 @@ describe('align setup', () => {
       expect(said).toMatch(/Local mode uses read-only tokens/);
     });
 
+    it('asks for the Atlassian email, domain and API token ONCE across Jira and Confluence', async () => {
+      // One id.atlassian.com API token serves both products, and the email and site
+      // domain are the same account facts - so asking twice is pure friction, typed
+      // out loud by a field report. The second connector reuses the first's answers
+      // and SAYS so, in the same disclosure style as the gh-token reuse.
+      mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']);
+      const { log, password, text } = await import('@clack/prompts');
+      const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
+      const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+      const emailAsks = (text as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => String((c[0] as { message?: string })?.message ?? ''))
+        .filter((m) => m.includes('Atlassian account email'));
+      expect(emailAsks).toHaveLength(1);
+      const domainAsks = (text as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => String((c[0] as { message?: string })?.message ?? ''))
+        .filter((m) => m.includes('Atlassian domain'));
+      expect(domainAsks).toHaveLength(1);
+      // Only these two connectors are selected, so exactly one token paste total.
+      expect(password).toHaveBeenCalledTimes(1);
+
+      // Both fetchers ran with the SAME credential set - the reuse is real, not a
+      // skipped connector (positive control for the single-ask assertions above).
+      expect(fetchJiraItems).toHaveBeenCalled();
+      expect(fetchConfluenceItems).toHaveBeenCalled();
+      const jiraArgs = (fetchJiraItems as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Record<string, string>;
+      const confArgs = (fetchConfluenceItems as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Record<string, string>;
+      expect(confArgs['token']).toBe(jiraArgs['token']);
+
+      // And it is disclosed, not silent.
+      const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('\n');
+      expect(said).toMatch(/using your atlassian .* from/i);
+    });
+
     it('--local ASKS which sources to connect before it scans git', async () => {
       // Same ask-then-run shape as the cloud path. --local is the flow an outside tester
       // was on when the picker corrupted itself under a screenful of git output, so the

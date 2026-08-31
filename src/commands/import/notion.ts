@@ -22,7 +22,7 @@ export function registerImportNotionCommand(importCmd: Command): void {
   importCmd
     .command('notion')
     .description('Import your Notion pages (internal integration token)')
-    .option('--token <token>', 'Notion integration token (secret_...)')
+    .option('--token <token>', 'Notion integration token (ntn_...)')
     .option('--personal', 'Connect your own Notion via browser OAuth (Align personal app) instead of a token')
     .option('--limit <n>', 'Max pages to import', '50')
     .option('--approve', 'Skip confirmation prompt')
