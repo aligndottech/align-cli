@@ -51,7 +51,12 @@ export interface AuthorizeUrlOptions {
   scope: string;
   state: string;
   challenge: string;
-  /** Provider-specific extras, e.g. Notion's `owner=user`. */
+  /**
+   * Provider-specific extras appended to the authorize URL. Unused today: no entry
+   * in SECRET_FREE_CONNECTORS sets it. The example here used to be Notion's
+   * `owner=user`, which is the one connector that must never reach this code - its
+   * exchange is HTTP Basic with a client secret, so it has no PKCE flow to extend.
+   */
   extra?: Record<string, string>;
 }
 

@@ -9,6 +9,7 @@ const mockWhoami = vi.hoisted(() => vi.fn().mockResolvedValue({
   tenant: { name: 'Test Org', id: 'tid' },
 }));
 const mockIngestBatch = vi.hoisted(() => vi.fn().mockResolvedValue({ snapshots: [] }));
+const mockTrySecretFreeOAuth = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const mockListDecisionLinks = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockStartCliOAuth = vi.hoisted(() => vi.fn().mockResolvedValue({ authUrl: 'https://github.com/login/oauth/authorize?state=abc' }));
 // mockStartCliOAuth accepts (key, port, nonce) - the mock ignores nonce but tests still pass
@@ -44,6 +45,7 @@ vi.mock('../lib/cli-oauth.js', () => ({
 }));
 
 vi.mock('open', () => ({ default: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../lib/local-oauth.js', () => ({ trySecretFreeOAuth: mockTrySecretFreeOAuth }));
 
 vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({
@@ -549,6 +551,43 @@ describe('align setup', () => {
       expect(mockIngestBatch).toHaveBeenCalled();
       expect(mockWaitForCallback).not.toHaveBeenCalled();
       expect(mockWhoami).not.toHaveBeenCalled();
+    });
+
+    describe('secret-free sign-in is confined to the local path', () => {
+      // collectTokens has three callers: one local and two on the cloud path. The cloud
+      // path has a hosted broker holding the client secret AND has already resolved the
+      // user's host, so running a secret-free flow there would send a self-managed
+      // GitLab user to gitlab.com - SECRET_FREE_CONNECTORS hardcodes that authorize URL,
+      // and the call sat above the host gate that knows better.
+
+      it('is attempted on the local path', async () => {
+        mockMultiselect.mockResolvedValueOnce(['linear']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        // Positive control for the negative assertion below: if this never fires, the
+        // "not called" test passes because the wiring is broken rather than because the
+        // gate works, and both read as green.
+        expect(mockTrySecretFreeOAuth).toHaveBeenCalledWith('linear');
+      });
+
+      it('is NOT attempted on the cloud path, even where that path pastes a token', async () => {
+        // Drives the SELF-MANAGED GitLab branch on purpose: it is the cloud call site
+        // that reaches collectTokens, and the one the leak would have broken, by
+        // sending a gitlab.mycompany.com user to gitlab.com's authorize URL.
+        //
+        // Selecting nothing here would also pass, and would prove nothing at all:
+        // collectTokens is never called, so the assertion is satisfied by absence.
+        // That version of this test survived an injection that deleted the gate.
+        const open = (await import('open')).default;
+        mockMultiselect.mockResolvedValueOnce(['gitlab']);
+        const { text } = await import('@clack/prompts');
+        (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('gitlab.mycompany.com');
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+        // The cloud path did run and did reach the paste, so the check below is real.
+        expect(open).toHaveBeenCalledWith(
+          'https://gitlab.mycompany.com/-/user_settings/personal_access_tokens',
+        );
+        expect(mockTrySecretFreeOAuth).not.toHaveBeenCalled();
+      });
     });
 
     it('--local does NOT offer Teams or Zoom (no personal token)', async () => {
