@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.3](https://github.com/aligndottech/align-cli/compare/cli-v0.26.2...cli-v0.26.3) (2026-08-31)
+
+
+### Bug Fixes
+
+* **setup:** crashing prompt no longer kills the run; mark derived from the real logo ([#189](https://github.com/aligndottech/align-cli/issues/189)) ([c253798](https://github.com/aligndottech/align-cli/commit/c2537987698d1f52652db417ae0bc39c26769679))
+
 ## [0.26.2](https://github.com/aligndottech/align-cli/compare/cli-v0.26.1...cli-v0.26.2) (2026-08-31)
 
 
