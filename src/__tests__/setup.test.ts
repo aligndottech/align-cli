@@ -439,6 +439,30 @@ describe('align setup', () => {
       expect(asked.length).toBeGreaterThan(0);
     });
 
+    it("does not abort the whole run when a third-party prompt library throws", async () => {
+      // Real crash, David 2026-08-31: `align: undefined is not an object (evaluating
+      // 'this.value.replaceAll')`. That is clack's OWN PasswordPrompt.masked getter,
+      // not our code - confirmed by reading node_modules/@clack/core, where render()
+      // reads this.value.replaceAll(...) unconditionally and this.value can still be
+      // undefined at that point. The exact trigger needs David's terminal to
+      // reproduce, but the crash propagating uncaught and killing the ENTIRE setup
+      // run - discarding every connector already configured - does not need the
+      // trigger to be fixed.
+      mockMultiselect.mockResolvedValueOnce(['github']);
+      const { password, log } = await import('@clack/prompts');
+      (password as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new TypeError("Cannot read properties of undefined (reading 'replaceAll')"),
+      );
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      // The process must not have died: reaching the outro is proof of that, since
+      // handleFatal in index.ts calls process.exit(1) and this test would then never
+      // observe anything after the throw.
+      const warned = (log.warn as ReturnType<typeof vi.fn>).mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .some((m: string) => m.includes('GitHub') || m.includes('token'));
+      expect(warned).toBe(true);
+    });
+
     it('--local ASKS which sources to connect before it scans git', async () => {
       // Same ask-then-run shape as the cloud path. --local is the flow an outside tester
       // was on when the picker corrupted itself under a screenful of git output, so the
