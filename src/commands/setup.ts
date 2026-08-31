@@ -23,7 +23,7 @@ const { version } = pkg;
 import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
 import { trySecretFreeOAuth } from '../lib/local-oauth.js';
-import { supportsSecretFreeOAuth } from '../lib/secret-free-oauth.js';
+import { canRunSecretFreeOAuth, supportsSecretFreeOAuth } from '../lib/secret-free-oauth.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -242,7 +242,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
 async function collectTokens(
   source: SetupSource,
   seed: Record<string, string> = {},
-  opts: { approve?: boolean } = {},
+  opts: { approve?: boolean; secretFree?: boolean } = {},
 ): Promise<Record<string, string> | null> {
   // `seed` pre-populates already-known fields (e.g. a self-managed host gathered
   // up front) so tokenUrl() resolves against the right host.
@@ -266,7 +266,12 @@ async function collectTokens(
     // call. Returns null when the connector has no such flow, when this build has
     // no public client id, or when the user declines - all of which fall through to
     // the paste below rather than failing. See ALI-778.
-    const viaOAuth = await trySecretFreeOAuth(source.id);
+    // Local path ONLY. This function has three callers and two of them are the CLOUD
+    // path, where a hosted OAuth broker already holds the client secret and has
+    // already resolved the right host. Running a secret-free flow there would send a
+    // self-managed GitLab user to gitlab.com, because SECRET_FREE_CONNECTORS hardcodes
+    // that authorize URL and this call is made before the host gate is consulted.
+    const viaOAuth = opts.secretFree ? await trySecretFreeOAuth(source.id) : null;
     if (viaOAuth) {
       tokens['token'] = viaOAuth;
       return tokens;
@@ -386,8 +391,11 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   // branch, which reads this same stored decision.
   await maybeRequestTelemetryConsent(config, Boolean(interactive));
 
-  // Connectors: OAuth can't run offline (needs the hosted callback), so local mode
-  // connects via manual read-only token paste. Only sources with a tokenLabel are
+  // Connectors: local mode uses a secret-free browser sign-in where the provider and
+  // our app registration both allow it, and a read-only token paste otherwise. This
+  // used to say OAuth 'can't run offline (needs the hosted callback)', which ALI-778
+  // disproved - a loopback redirect needs no hosted callback - while the sentence sat
+  // fifteen lines above the block that says so. Only sources with a tokenLabel are
   // pasteable (Teams/Zoom have no personal token → excluded). See ALI-103.
   //
   // Asked BEFORE the git scan so every question lands on a clean screen and the rest of
@@ -403,23 +411,39 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   // is the provider's, not ours - OAuth needs a client secret, and a secret inside a
   // distributed binary is not a secret. See ALI-778.
   if (interactive && localConnectors.length > 0) {
-    // Split by what each provider actually allows, because after ALI-778 the answer
-    // differs per connector and a blanket "these all need a paste" is simply false.
-    // GitHub, GitLab, Linear and Zoom support a secret-free sign-in (device flow or
-    // PKCE) that needs no hosted call. Notion and Atlassian mandate a client secret
-    // on token exchange, so a paste is the only option their design leaves.
-    const pasteOnly = localConnectors.filter((s) => !supportsSecretFreeOAuth(s.id));
-    p.log.info(
-      chalk.dim(
-        `Nothing leaves this machine here, so any token you give is stored locally\n` +
-        `  and only ever used to read.${ 
-        pasteOnly.length > 0
-          ? `\n  ${pasteOnly.map((s) => s.label).join(', ')} need a pasted token: their\n` +
-            '  sign-in requires a secret we would have to hold on a server, which local\n' +
-            '  mode deliberately does not do.'
-          : ''}`,
-      ),
+    // TWO reasons, never one. Naming only the provider-limited connectors is an
+    // affirmative claim that the others will not ask for a paste - and they will,
+    // whenever we have no client id for them. That was the shipped behaviour: the
+    // user picked GitHub expecting a browser, got a password prompt, and the message
+    // had already blamed the provider.
+    //
+    //   providerPaste - the provider mandates a client secret on exchange. Permanent.
+    //   notYet        - the provider offers a secret-free flow and WE cannot run it
+    //                   yet. Ours to fix, and it disappears from this list by itself
+    //                   the moment public-client-ids.ts carries an id.
+    const providerPaste = localConnectors.filter((s) => !supportsSecretFreeOAuth(s.id));
+    const notYet = localConnectors.filter(
+      (s) => supportsSecretFreeOAuth(s.id) && !canRunSecretFreeOAuth(s.id),
     );
+    const lines = [
+      'Nothing leaves this machine here, so any token you give is stored locally',
+      '  and only ever used to read.',
+    ];
+    if (providerPaste.length > 0) {
+      lines.push(
+        `  ${providerPaste.map((s) => s.label).join(', ')} need a pasted token: their`,
+        '  sign-in requires a secret we would have to hold on a server, which local',
+        '  mode deliberately does not do.',
+      );
+    }
+    if (notYet.length > 0) {
+      lines.push(
+        `  ${notYet.map((s) => s.label).join(', ')} need one too, for now: they support a`,
+        '  browser sign-in that needs no secret, and the Align app for it is not',
+        '  published yet. That one is on us, not on them.',
+      );
+    }
+    p.log.info(chalk.dim(lines.join('\n')));
   }
   // `interactive` computed once, at the top of this function - see the comment there.
   const selected = interactive
@@ -441,7 +465,7 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
       if (!source) continue;
       console.log('');
       p.log.step(chalk.bold(source.label));
-      const tokens = await collectTokens(source, {}, { approve: opts.approve });
+      const tokens = await collectTokens(source, {}, { approve: opts.approve, secretFree: true });
       if (!tokens) continue;
       localReady.push({ source, tokens });
     }

@@ -20,6 +20,8 @@
  * cannot complete.
  */
 
+import { resolveClientId } from './public-client-ids.js';
+
 export type SecretFreeKind = 'device' | 'pkce';
 
 export interface SecretFreeConfig {
@@ -31,25 +33,33 @@ export interface SecretFreeConfig {
    * write-capable provider is a visible, deliberate act rather than a silent one.
    */
   writeCapable?: boolean;
-  /** Public client id. Not a secret - it appears in every authorize URL. */
-  clientIdEnv: string;
+  // The client id itself lives in public-client-ids.ts, which owns both the committed
+  // value and the name of the env var that overrides it. Naming it here too made this
+  // config the second writer of one fact, and the field went dead the moment the
+  // resolver stopped reading it.
   authorizeUrl?: string;
   deviceCodeUrl?: string;
   tokenUrl: string;
-  /** Read-only. ALI-94 / ALI-98: the personal and CLI tier never holds write. */
+  /**
+   * Read-only. ALI-94 / ALI-98: the personal and CLI tier never holds write.
+   *
+   * Sent in the authorize URL for a PKCE flow, and in the device-code POST body for a
+   * device flow - so it is not, as this file once said of the client id, something
+   * that "appears in every authorize URL". GitHub has no authorize URL at all.
+   */
   scope: string;
   extra?: Record<string, string>;
 }
 
 export const SECRET_FREE_CONNECTORS: Record<string, SecretFreeConfig> = {
-  // The read-only GitHub APP. Default on purpose: the safe path is what you get by
-  // not choosing. Its `scope` is deliberately empty - a GitHub App's user-to-server
+  // The read-only GitHub APP, and the ONLY GitHub path - #195 removed the OAuth
+  // alternative and its prompt, so there is nothing to choose between. Its `scope` is
+  // deliberately empty - a GitHub App's user-to-server
   // access is governed by the App's configured permissions and the scope is IGNORED.
   // #194 shipped OAuth-style scopes here, which did nothing and implied a control
   // that was not there; the real guarantee is Contents/Issues/PRs: Read on the App.
   github: {
     kind: 'device',
-    clientIdEnv: 'ALIGN_GITHUB_APP_PUBLIC_CLIENT_ID',
     deviceCodeUrl: 'https://github.com/login/device/code',
     tokenUrl: 'https://github.com/login/oauth/access_token',
     scope: '',
@@ -57,7 +67,6 @@ export const SECRET_FREE_CONNECTORS: Record<string, SecretFreeConfig> = {
   },
   gitlab: {
     kind: 'pkce',
-    clientIdEnv: 'ALIGN_GITLAB_PUBLIC_CLIENT_ID',
     authorizeUrl: 'https://gitlab.com/oauth/authorize',
     tokenUrl: 'https://gitlab.com/oauth/token',
     // read_api, never `api` - the latter grants write. See ALI-98.
@@ -65,14 +74,12 @@ export const SECRET_FREE_CONNECTORS: Record<string, SecretFreeConfig> = {
   },
   linear: {
     kind: 'pkce',
-    clientIdEnv: 'ALIGN_LINEAR_PUBLIC_CLIENT_ID',
     authorizeUrl: 'https://linear.app/oauth/authorize',
     tokenUrl: 'https://api.linear.app/oauth/token',
     scope: 'read',
   },
   zoom: {
     kind: 'pkce',
-    clientIdEnv: 'ALIGN_ZOOM_PUBLIC_CLIENT_ID',
     authorizeUrl: 'https://zoom.us/oauth/authorize',
     tokenUrl: 'https://zoom.us/oauth/token',
     scope: 'recording:read',
@@ -118,4 +125,20 @@ export async function exchangePkceCode(req: PkceExchangeRequest): Promise<Exchan
   const err = String(body['error'] ?? res.status);
   const desc = body['error_description'] ? `: ${String(body['error_description'])}` : '';
   return { ok: false, reason: `${err}${desc}` };
+}
+
+/**
+ * Can we actually run a secret-free sign-in for this connector, here, today?
+ *
+ * `supportsSecretFreeOAuth` answers whether the PROVIDER offers one, which is a
+ * permanent fact about their design. This answers whether we can use it, which also
+ * needs a public client id we have shipped. Keeping them apart is what lets the CLI
+ * give the user the true reason for a token paste instead of a plausible one.
+ */
+export function canRunSecretFreeOAuth(
+  connectorId: string,
+  env?: Record<string, string | undefined>,
+): boolean {
+  if (!supportsSecretFreeOAuth(connectorId)) return false;
+  return resolveClientId(connectorId, env) !== null;
 }

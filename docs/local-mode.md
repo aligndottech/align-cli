@@ -56,8 +56,18 @@ applies to the environment you're running in and why.
 ## How the local graph behaves
 
 - Seeds from your git history out of the box. Other sources connect by pasting a **read-only
-  personal token**, since OAuth needs the hosted callback and isn't available offline. Add
-  `--env local` to any `align import <tool>` run.
+  personal token**. Add `--env local` to any `align import <tool>` run.
+- **Why a paste, per source.** Two different reasons, and setup tells you which applies:
+  - Notion, Jira, Confluence and Slack mandate a client secret when exchanging a token.
+    A secret inside a distributed binary is not a secret, so local mode will not hold one
+    and a paste is the only option their design leaves. This will not change.
+  - GitHub, GitLab, Linear and Zoom support a browser sign-in that needs **no** secret
+    (device flow, or PKCE with a loopback redirect). Nothing is sent to Align on that path.
+    They still need a paste today only because the Align apps for it are not published yet.
+    That one is ours to fix.
+
+  This page used to say OAuth "needs the hosted callback and isn't available offline",
+  which is not true of either flow: both complete between your browser and the provider.
 - **Re-importing is safe.** A decision is identified by its source URL and title, so running the
   same import twice updates what changed rather than duplicating the graph.
 - Related decisions surface on-device by semantic similarity. Typed relationships (supersedes,
