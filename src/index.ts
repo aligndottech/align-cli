@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { applyClackBunCompat } from './lib/clack-bun-compat.js';
+
+// Before ANY prompt can construct: the shipped binaries run on Bun, where
+// @clack/core reads an uninitialised value in states Node never reaches. Three field
+// crashes across three releases came from this one seam. See clack-bun-compat.ts.
+applyClackBunCompat();
 import pkg from '../package.json' with { type: 'json' };
 const { version } = pkg;
 import { registerLoginCommands } from './commands/login.js';
