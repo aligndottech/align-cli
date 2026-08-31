@@ -657,7 +657,10 @@ describe('align setup', () => {
       const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
       mockIngestBatch.mockClear();
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
-      // pasted a token (no OAuth) and fetched + imported into the local graph
+      // pasted a token (no OAuth) and fetched + imported into the local graph -
+      // with the browser pointed at the key-CREATION dialog, not the settings landing
+      const open = (await import('open')).default;
+      expect(open).toHaveBeenCalledWith('https://linear.app/settings/account/security/api-keys/new');
       expect(password).toHaveBeenCalled();
       expect(fetchLinearItems).toHaveBeenCalled();
       expect(mockIngestBatch).toHaveBeenCalled();
@@ -947,7 +950,12 @@ describe('align setup', () => {
       // OAuth path runs the browser callback flow; paste path would instead open
       // the settings/API token page.
       expect(mockWaitForCallback).toHaveBeenCalled();
-      expect(open).not.toHaveBeenCalledWith('https://linear.app/settings/api');
+      // Any linear.app settings page, not one literal URL: a negative pinned to the
+      // exact old string goes vacuous the moment the paste URL changes.
+      const settingsOpens = (open as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => String(c[0]))
+        .filter((u) => u.includes('linear.app/settings'));
+      expect(settingsOpens).toEqual([]);
     });
 
     it('uses browser OAuth for Notion (read-only), not an integration-secret paste', async () => {

@@ -214,8 +214,12 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       oauthKey: 'linear-personal',
       // Local-mode token paste: a Linear personal API key (read-only graph).
       tokenLabel: 'Personal API key (lin_api_...)',
+      // Linear documents no pre-fill params for API keys (only linear.new, for
+      // issues), so the deepest available link is the creation dialog itself. The
+      // slugless form routes to the signed-in user's own workspace - never hardcode
+      // a workspace slug here, it 404s for everyone outside that workspace.
       tokenHint: 'Click Create key, then copy it here',
-      tokenUrl: 'https://linear.app/settings/api',
+      tokenUrl: 'https://linear.app/settings/account/security/api-keys/new',
       fetch: async (t) => {
         const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
         return fetchLinearItems({ token: t['token']!, limit: 250 });
