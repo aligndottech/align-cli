@@ -3,7 +3,7 @@ import {
   canRunSecretFreeOAuth,
   supportsSecretFreeOAuth,
 } from '../lib/secret-free-oauth.js';
-import { PUBLIC_CLIENT_IDS } from '../lib/public-client-ids.js';
+import { pendingConnectors, PUBLIC_CLIENT_IDS } from '../lib/public-client-ids.js';
 
 /**
  * Two different questions, which setup's copy conflated into one and got wrong.
@@ -17,11 +17,32 @@ import { PUBLIC_CLIENT_IDS } from '../lib/public-client-ids.js';
  * had already committed to was the provider's design, when the real reason was ours.
  */
 describe('secret-free availability', () => {
+  // Fixtures, not the live map. The first version of this test used github as its
+  // example of "supported but our app is missing", so it went red the moment github's
+  // App shipped - punishing the good outcome and training the next person to edit the
+  // test rather than read it. The LOGIC is what belongs here; the live data gets its
+  // own assertion below, which is meant to change deliberately.
+  const SHIPPED = { gitlab: { value: 'an-id' } } as Record<string, { value: string | null }>;
+  const PENDING = { gitlab: { value: null, pending: 'no app yet' } } as Record<
+    string,
+    { value: string | null; pending?: string }
+  >;
+
   it('separates "the provider allows it" from "we can do it today"', () => {
-    // github's provider supports device flow; our App does not exist yet.
-    expect(supportsSecretFreeOAuth('github')).toBe(true);
-    expect(PUBLIC_CLIENT_IDS.github.value).toBeNull();
-    expect(canRunSecretFreeOAuth('github')).toBe(false);
+    // Same connector, same provider support, opposite answers - so the only thing
+    // under test is whether an id is available.
+    expect(supportsSecretFreeOAuth('gitlab')).toBe(true);
+    expect(canRunSecretFreeOAuth('gitlab', {}, PENDING)).toBe(false);
+    expect(canRunSecretFreeOAuth('gitlab', {}, SHIPPED)).toBe(true);
+  });
+
+  it('records which connectors are live today, and which are still waiting', () => {
+    // A deliberate snapshot of the live map, not logic. Update it when an app ships;
+    // if it fails unexpectedly, an id changed and someone should know why.
+    const live = Object.keys(PUBLIC_CLIENT_IDS).filter((id) => canRunSecretFreeOAuth(id));
+    const waiting = pendingConnectors().map((p) => p.id).sort();
+    expect(live).toEqual(['github']);
+    expect(waiting).toEqual(['gitlab', 'linear', 'zoom']);
   });
 
   it('never claims we can run one the provider does not offer', () => {

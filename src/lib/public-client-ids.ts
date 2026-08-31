@@ -20,6 +20,15 @@ export interface PublicClientId {
   value: string | null;
   /** Why it is null. Required whenever value is null. */
   pending?: string;
+  /**
+   * GitHub only: the App's slug, for the installation link.
+   *
+   * It lives here rather than in an env var because it is a public fact about our own
+   * app, exactly like the client id beside it, and the two are only ever correct
+   * together. #196 removed a GUESSED default ('align-personal') that built a 404
+   * install link; an unset env var was the honest stand-in until the app existed.
+   */
+  slug?: string;
 }
 
 /**
@@ -32,12 +41,16 @@ export interface PublicClientId {
  * without a secret, so each row below needs its own answer.
  */
 export const PUBLIC_CLIENT_IDS: Record<string, PublicClientId> = {
+  // Align CLI, App id 4783216, owned by @aligndottech. Verified 2026-08-31 against
+  // GitHub rather than taken on trust: POST /login/device/code returned a real
+  // device_code, so Device Flow is genuinely enabled (it is opt-in per app and off by
+  // default, which is the setting that fails silently); GET /apps/align-cli reports
+  // contents=read, issues=read, metadata=read, pull_requests=read and no events, which
+  // is where the read-only guarantee actually lives - a GitHub App IGNORES the OAuth
+  // scope field, so no CLI-side test can see it.
   github: {
-    value: null,
-    pending:
-      'the read-only GitHub App does not exist yet. The org has align-bot-prod, ' +
-      'align-preview, align-bot-dev, align-actions-runner and align-release-bot, ' +
-      'and no personal app. Device flow is also opt-in per app once it is created.',
+    value: 'Iv23liYLBYF1E7nAQS7D',
+    slug: 'align-cli',
   },
   gitlab: {
     value: null,
@@ -100,4 +113,19 @@ export function pendingConnectors(): { id: string; reason: string }[] {
   return Object.entries(PUBLIC_CLIENT_IDS)
     .filter(([, e]) => e.value === null)
     .map(([id, e]) => ({ id, reason: e.pending ?? 'no reason recorded' }));
+}
+
+/**
+ * Where to install the GitHub App, or null when we do not know.
+ *
+ * Null is a real answer, not a gap. #196 removed a guessed slug that built a
+ * plausible 404: the user follows it, lands on a GitHub error, and cannot tell whether
+ * the app is broken or their org blocked it. No link beats a wrong one.
+ */
+export function githubInstallUrl(
+  env: Record<string, string | undefined> = process.env,
+  ids: Record<string, PublicClientId> = PUBLIC_CLIENT_IDS,
+): string | null {
+  const slug = env.ALIGN_GITHUB_APP_SLUG || ids.github?.slug;
+  return slug ? `https://github.com/apps/${slug}/installations/new` : null;
 }

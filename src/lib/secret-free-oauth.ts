@@ -20,7 +20,7 @@
  * cannot complete.
  */
 
-import { resolveClientId } from './public-client-ids.js';
+import { type PublicClientId, resolveClientId } from './public-client-ids.js';
 
 export type SecretFreeKind = 'device' | 'pkce';
 
@@ -138,7 +138,8 @@ export async function exchangePkceCode(req: PkceExchangeRequest): Promise<Exchan
 export function canRunSecretFreeOAuth(
   connectorId: string,
   env?: Record<string, string | undefined>,
+  ids?: Record<string, PublicClientId>,
 ): boolean {
   if (!supportsSecretFreeOAuth(connectorId)) return false;
-  return resolveClientId(connectorId, env) !== null;
+  return resolveClientId(connectorId, env, ids) !== null;
 }

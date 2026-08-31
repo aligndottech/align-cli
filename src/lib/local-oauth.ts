@@ -6,7 +6,7 @@ import { exchangePkceCode, SECRET_FREE_CONNECTORS } from './secret-free-oauth.js
 import { buildAuthorizeUrl, createPkcePair } from './pkce.js';
 import { pollForDeviceToken, requestDeviceCode } from './device-flow.js';
 import { checkGithubAppInstallation } from './github-install-check.js';
-import { resolveClientId } from './public-client-ids.js';
+import { githubInstallUrl, resolveClientId } from './public-client-ids.js';
 
 /**
  * Connector sign-in for TRUE LOCAL mode, with no hosted call and no client secret.
@@ -84,13 +84,12 @@ async function reportGithubInstallation(token: string): Promise<void> {
     return;
   }
 
-  // No default slug. A guessed one builds a plausible URL that 404s, which is worse
-  // than no link: the user follows it, lands on a GitHub error, and cannot tell
-  // whether the app or their org is at fault. 'align-personal' was invented here and
-  // matches nothing in the org.
-  const slug = process.env.ALIGN_GITHUB_APP_SLUG;
-  const where = slug
-    ? `  Install it (read-only) here:\n    ${chalk.bold(`https://github.com/apps/${slug}/installations/new`)}`
+  // The slug travels with the client id in public-client-ids.ts, because both are
+  // public facts about the same app and are only ever right together. Null still
+  // yields no link rather than a guessed one - see #196.
+  const install = githubInstallUrl();
+  const where = install
+    ? `  Install it (read-only) here:\n    ${chalk.bold(install)}`
     : `  Install the Align GitHub App (read-only) on the account that owns your repos.\n` +
       `  Your existing installations: ${chalk.bold('https://github.com/settings/installations')}`;
 
