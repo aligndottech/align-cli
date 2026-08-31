@@ -21,6 +21,7 @@ import { commandIntro } from '../lib/brand.js';
 import pkg from '../../package.json' with { type: 'json' };
 const { version } = pkg;
 import { printBanner } from '../lib/brand.js';
+import { guardedPrompt } from '../lib/prompt-guard.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -248,7 +249,10 @@ async function collectTokens(
   // Extra fields first (email, domain for Jira/Confluence)
   for (const field of source.extraFields ?? []) {
     // defaultValue '' so a blank submit renders empty, not the literal "undefined".
-    const val = await p.text({ message: `  ${field.label}:`, defaultValue: '' });
+    const val = await guardedPrompt(field.label, () =>
+      p.text({ message: `  ${field.label}:`, defaultValue: '' }),
+    );
+    if (val === null) return null;
     if (p.isCancel(val)) return null;
     tokens[field.key] = (val ?? '') as string;
   }
@@ -286,24 +290,10 @@ async function collectTokens(
     if (source.tokenHint) {
       p.log.info(chalk.dim(`  ${source.tokenHint}`));
     }
-    // p.password() is wrapped: @clack/prompts@0.9.1's PasswordPrompt.masked getter
-    // reads this.value.replaceAll unconditionally, and this.value can still be
-    // undefined on an early render - a bug in the library, fixed upstream in
-    // @clack/core 1.x, which is a major version this repo has not moved to yet.
-    // `initialValue` looked like the fix and is not: it is not even in this
-    // version's PasswordOptions type, and testing it directly against
-    // @clack/core showed it does not reach `value` for PasswordPrompt anyway.
-    // Un-wrapped, the throw is uncaught and kills the WHOLE setup run via
-    // index.ts's handleFatal, discarding every connector already configured. This
-    // is a fallback for a specific third-party defect, not a general try/catch -
-    // see verification.md on adding error handling only at a real boundary.
-    let token: string | symbol;
-    try {
-      token = await p.password({ message: `  ${source.tokenLabel}:` });
-    } catch (err) {
-      p.log.warn(`Skipping ${source.label} - the prompt failed: ${(err as Error).message}`);
-      return null;
-    }
+    const token = await guardedPrompt(source.label, () =>
+      p.password({ message: `  ${source.tokenLabel}:` }),
+    );
+    if (token === null) return null;
     if (p.isCancel(token)) return null;
     tokens['token'] = token as string;
   }
@@ -675,7 +665,10 @@ async function runCloudSetup(ctx: {
       // → token-paste fallback (the fixed OAuth app can't serve arbitrary hosts).
       const gate = source.hostGatedOAuth.field;
       const gateLabel = source.extraFields?.find((f) => f.key === gate)?.label ?? gate;
-      const host = await p.text({ message: `  ${gateLabel}:`, placeholder: 'gitlab.com', defaultValue: '' });
+      const host = await guardedPrompt(gateLabel, () =>
+        p.text({ message: `  ${gateLabel}:`, placeholder: 'gitlab.com', defaultValue: '' }),
+      );
+      if (host === null) continue;
       if (p.isCancel(host)) { p.cancel('Cancelled.'); process.exit(0); }
       // p.text returns undefined on a blank submit (not ''), so coerce before trim.
       const hostValue = (typeof host === 'string' ? host : '').trim();
