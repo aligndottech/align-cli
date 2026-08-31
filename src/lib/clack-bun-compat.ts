@@ -43,6 +43,7 @@ export function applyClackBunCompat(): {
 
   Object.defineProperty(PasswordPrompt.prototype, 'masked', {
     configurable: true,
+    enumerable: maskedDesc.enumerable,
     get(this: { value?: unknown }) {
       if (this.value === undefined) this.value = '';
       return originals.masked.call(this);
@@ -50,6 +51,7 @@ export function applyClackBunCompat(): {
   });
   Object.defineProperty(TextPrompt.prototype, 'valueWithCursor', {
     configurable: true,
+    enumerable: cursorDesc.enumerable,
     get(this: { value?: unknown }) {
       if (this.value === undefined) this.value = '';
       return originals.valueWithCursor.call(this);
