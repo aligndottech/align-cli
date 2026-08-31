@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.28.0](https://github.com/aligndottech/align-cli/compare/cli-v0.27.0...cli-v0.28.0) (2026-08-31)
+
+
+### Features
+
+* **brand:** the mark at 20x6, downscaled from the approved sprite ([#200](https://github.com/aligndottech/align-cli/issues/200)) ([5f28e19](https://github.com/aligndottech/align-cli/commit/5f28e199d6aa7932eb48ed068b6c2aa648e99c41))
+
+
+### Bug Fixes
+
+* **setup:** end the Bun prompt-crash class, not another instance of it ([#199](https://github.com/aligndottech/align-cli/issues/199)) ([7ddd541](https://github.com/aligndottech/align-cli/commit/7ddd5418c05d2b520ddc5876c02f351a6704a03a))
+
 ## [0.27.0](https://github.com/aligndottech/align-cli/compare/cli-v0.26.3...cli-v0.27.0) (2026-08-31)
 
 
