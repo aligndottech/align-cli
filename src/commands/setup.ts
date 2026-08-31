@@ -286,7 +286,24 @@ async function collectTokens(
     if (source.tokenHint) {
       p.log.info(chalk.dim(`  ${source.tokenHint}`));
     }
-    const token = await p.password({ message: `  ${source.tokenLabel}:` });
+    // p.password() is wrapped: @clack/prompts@0.9.1's PasswordPrompt.masked getter
+    // reads this.value.replaceAll unconditionally, and this.value can still be
+    // undefined on an early render - a bug in the library, fixed upstream in
+    // @clack/core 1.x, which is a major version this repo has not moved to yet.
+    // `initialValue` looked like the fix and is not: it is not even in this
+    // version's PasswordOptions type, and testing it directly against
+    // @clack/core showed it does not reach `value` for PasswordPrompt anyway.
+    // Un-wrapped, the throw is uncaught and kills the WHOLE setup run via
+    // index.ts's handleFatal, discarding every connector already configured. This
+    // is a fallback for a specific third-party defect, not a general try/catch -
+    // see verification.md on adding error handling only at a real boundary.
+    let token: string | symbol;
+    try {
+      token = await p.password({ message: `  ${source.tokenLabel}:` });
+    } catch (err) {
+      p.log.warn(`Skipping ${source.label} - the prompt failed: ${(err as Error).message}`);
+      return null;
+    }
     if (p.isCancel(token)) return null;
     tokens['token'] = token as string;
   }

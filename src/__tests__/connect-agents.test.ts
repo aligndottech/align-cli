@@ -124,3 +124,27 @@ describe('connectDetectedAgents', () => {
     expect(out).not.toContain('--env');
   });
 });
+
+
+describe("connectDetectedAgents - the zero-editors message", () => {
+  beforeEach(() => {
+    logged.length = 0;
+    detectEditors.mockReset();
+    writeMcpConfig.mockReset();
+  });
+
+  it("does not say NOTHING was detected, since .mcp.json already covers project-scoped agents", () => {
+    // David, 2026-08-31: he was in an active Claude Code session - .claude/settings.json
+    // in his own paste proves it - and still got "No MCP agent detected automatically".
+    // That is technically true of detectEditors() (which only checks the GLOBAL
+    // ~/.claude.json) and false of his actual outcome: writeAgentAlignment had already
+    // written .mcp.json a few lines earlier in the SAME run, which this file's own header
+    // comment says Claude Code reads. The message needs to say that, not imply nothing
+    // was wired.
+    detectEditors.mockReturnValue([]);
+    connectDetectedAgents("local");
+    const all = logged.join("\n");
+    expect(all).toContain(".mcp.json");
+    expect(all).toMatch(/claude code|pi/i);
+  });
+});

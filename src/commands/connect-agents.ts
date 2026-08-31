@@ -36,13 +36,19 @@ export async function connectDetectedAgents(
   const envSuffix = envArg ? ` --env ${envArg}` : '';
 
   if (editors.length === 0) {
-    // Align is just an MCP server, so any MCP-capable agent works even when we cannot detect
-    // one. Hand over the portable config rather than implying it is unsupported.
+    // Named GLOBAL deliberately: detectEditors() only checks each agent's global config
+    // (~/.claude.json etc). .mcp.json was already written by writeAgentAlignment, earlier
+    // in this same run, and Claude Code and pi both read it - so "detected: 0" here is true
+    // of the global check and false of the actual outcome for those two. Saying only "no
+    // agent detected" implied nothing was wired, which cost a user (David, 2026-08-31) a
+    // confused "shouldn't this have worked" while sitting inside a working Claude Code
+    // session the whole time.
     const envArgs = envArg ? `, "--env", "${envArg}"` : '';
     p.log.info(
-      'No MCP agent detected automatically. Align works with any MCP-capable agent ' +
-      '(Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, pi, ...).\n' +
-      `Add this to your agent's MCP config (or re-run ${chalk.bold(`align mcp --setup${envSuffix}`)} once it is installed):\n\n` +
+      'No agent found a GLOBAL config to connect to. Claude Code and pi already read the ' +
+      'project\'s .mcp.json (written above), so those need nothing further. Other MCP-capable ' +
+      'agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...) work too - add this to ' +
+      `their config (or re-run ${chalk.bold(`align mcp --setup${envSuffix}`)} once installed):\n\n` +
       `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
     );
     return { detected: 0, connected: 0 };
