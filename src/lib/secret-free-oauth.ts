@@ -156,12 +156,12 @@ export function githubVariants(): GithubVariant[] {
       id: 'github-app',
       label: 'GitHub App (read-only)',
       kind: 'device',
-      clientIdEnv: 'ALIGN_GITHUB_APP_PUBLIC_CLIENT_ID',
-      deviceCodeUrl: 'https://github.com/login/device/code',
-      tokenUrl: 'https://github.com/login/oauth/access_token',
+      clientIdEnv: SECRET_FREE_CONNECTORS.github.clientIdEnv,
+      deviceCodeUrl: SECRET_FREE_CONNECTORS.github.deviceCodeUrl!,
+      tokenUrl: SECRET_FREE_CONNECTORS.github.tokenUrl,
       // Ignored for a GitHub App - permissions govern. Empty rather than a
       // plausible-looking scope string that does nothing.
-      scope: '',
+      scope: SECRET_FREE_CONNECTORS.github.scope,
       writeCapable: false,
       tradeoff: '',
     },
