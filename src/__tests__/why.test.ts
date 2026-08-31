@@ -30,7 +30,11 @@ vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('p
 // case, which keeps every list-rendering test below valid.
 const mockSynthesise = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ ok: false, failure: { kind: 'no_provider' } }));
-vi.mock('../lib/local-llm.js', () => ({
+// Spread the real module rather than listing exports: a hand-built fake constrains what
+// production code may call, so adding one import to why.ts broke 11 tests here that had
+// nothing to do with it. Only the network-touching function is replaced.
+vi.mock('../lib/local-llm.js', async (importActual) => ({
+  ...(await importActual<typeof LocalLlm>()),
   synthesiseDetailed: mockSynthesise,
   RECOMMENDED_OLLAMA_PULL: 'llama3.2',
 }));
@@ -39,6 +43,7 @@ const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { output.push(args.join(' ')); });
 
 import { registerAskCommand } from '../commands/why.js';
+import type * as LocalLlm from '../lib/local-llm.js';
 
 describe('align ask', () => {
   beforeEach(() => { output.length = 0; });
@@ -289,7 +294,12 @@ describe('align ask - file path mode', () => {
     await program.parseAsync(['node', 'align', 'ask', 'why postgres']);
 
     const all = output.join('\n');
-    expect(all).toContain('Set ANTHROPIC_API_KEY');
+    // The generic nudge still appears; it now names the LOCAL routes too, because
+    // telling someone running llama.cpp to set ANTHROPIC_API_KEY reads as "unsupported".
+    expect(all).toContain('ANTHROPIC_API_KEY');
+    expect(all).toContain('ALIGN_LLM_BASE_URL');
+    // Still not the Ollama-specific remedy: that one is for an Ollama that IS running
+    // with no recognised model, which is a different situation with a different fix.
     expect(all).not.toContain('ollama pull');
   });
 });

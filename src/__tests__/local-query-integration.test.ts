@@ -18,7 +18,10 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 // The whole module surface `ask` uses, not just the call this file cares about: a
 // partial fake makes any NEW read from local-llm.js crash here rather than in the suite
 // that owns it (ALI-420 added a second read from this module and hit exactly that).
-vi.mock('../lib/local-llm.js', () => ({
+// Spread the real module: a hand-built fake constrains what production code may call,
+// so one new import in why.ts broke this test, which is about local query results.
+vi.mock('../lib/local-llm.js', async (importActual) => ({
+  ...(await importActual<typeof LocalLlm>()),
   synthesiseDetailed: vi.fn().mockResolvedValue({ ok: false, failure: { kind: 'no_provider' } }),
   RECOMMENDED_OLLAMA_PULL: 'llama3.2',
 }));
@@ -41,6 +44,7 @@ vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn(() => 'local') }));
 import { createLocalDb } from '../lib/local-db.js';
 import { registerAskCommand } from '../commands/why.js';
 import { registerSearchCommand } from '../commands/search.js';
+import type * as LocalLlm from '../lib/local-llm.js';
 
 const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { output.push(a.join(' ')); });
