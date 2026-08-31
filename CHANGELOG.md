@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/aligndottech/align-cli/compare/cli-v0.25.0...cli-v0.26.0) (2026-08-30)
+
+
+### Features
+
+* **setup:** ask-first flow, branded CLI, bounded picker, gh token reuse ([#183](https://github.com/aligndottech/align-cli/issues/183)) ([bdd218b](https://github.com/aligndottech/align-cli/commit/bdd218be7c6bab231a749c561b0e4efdfde363b7))
+
 ## [0.25.0](https://github.com/aligndottech/align-cli/compare/cli-v0.24.1...cli-v0.25.0) (2026-08-30)
 
 
