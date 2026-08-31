@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.27.0](https://github.com/aligndottech/align-cli/compare/cli-v0.26.3...cli-v0.27.0) (2026-08-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* **local:** true local is PAT-only for every connector; OAuth is the cloud path ([#198](https://github.com/aligndottech/align-cli/issues/198))
+
+### Features
+
+* **local:** secret-free OAuth for GitHub, GitLab, Linear and Zoom (ALI-778) ([#194](https://github.com/aligndottech/align-cli/issues/194)) ([b0de840](https://github.com/aligndottech/align-cli/commit/b0de8407990cc8783677e2269c8d4cee55ba7dd7))
+* **local:** true local is PAT-only for every connector; OAuth is the cloud path ([#198](https://github.com/aligndottech/align-cli/issues/198)) ([96ba9a9](https://github.com/aligndottech/align-cli/commit/96ba9a9879d4c03f1d4a327a47693b27b23413ea))
+* **setup:** say why true local needs a pasted token ([#193](https://github.com/aligndottech/align-cli/issues/193)) ([4245272](https://github.com/aligndottech/align-cli/commit/42452723477955259c623d1810e696961231c80e))
+
+
+### Bug Fixes
+
+* **local:** make secret-free OAuth actually reachable, and say the true reason when it is not ([#196](https://github.com/aligndottech/align-cli/issues/196)) ([8318fdc](https://github.com/aligndottech/align-cli/commit/8318fdcdcda586db6676f8930540341f4f7e12fc))
+* **local:** one read-only GitHub path, and verify the App can actually see anything ([#195](https://github.com/aligndottech/align-cli/issues/195)) ([c433396](https://github.com/aligndottech/align-cli/commit/c4333965955e7c433ff6fb7a86553ab4129b7a29))
+* **setup:** guard every crashing prompt, not just the password one ([#191](https://github.com/aligndottech/align-cli/issues/191)) ([3d83e46](https://github.com/aligndottech/align-cli/commit/3d83e466240a2053624219e816c7a2db1f7c97c8))
+
 ## [0.26.3](https://github.com/aligndottech/align-cli/compare/cli-v0.26.2...cli-v0.26.3) (2026-08-31)
 
 
