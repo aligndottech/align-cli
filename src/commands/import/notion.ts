@@ -30,7 +30,7 @@ export function registerImportNotionCommand(importCmd: Command): void {
     .addHelpText('after', `
 Note: Only pages explicitly shared with your Notion integration are visible.
 To share a page: open it in Notion → ... menu → Add connections → select your integration.
-Create an integration at: app.notion.com/developers/tokens`)
+Create an integration at: https://app.notion.com/developers/tokens`)
     .action(async (_opts: NotionImportOpts, cmd: Command) => {
       const opts = subcommandOpts<NotionImportOpts>(cmd);
       const config = createConfigStore();
