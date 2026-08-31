@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.1](https://github.com/aligndottech/align-cli/compare/cli-v0.29.0...cli-v0.29.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **setup:** Notion tokens are ntn_ now, and Atlassian facts are asked once ([#208](https://github.com/aligndottech/align-cli/issues/208)) ([25e1495](https://github.com/aligndottech/align-cli/commit/25e149510482f787e04eb0626607f3209da3d627))
+
 ## [0.29.0](https://github.com/aligndottech/align-cli/compare/cli-v0.28.1...cli-v0.29.0) (2026-08-31)
 
 
