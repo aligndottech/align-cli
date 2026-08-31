@@ -444,6 +444,47 @@ describe('align setup', () => {
       expect(asked.length).toBeGreaterThan(0);
     });
 
+    it('opens the GitHub PAT page with every permission pre-selected read-only', async () => {
+      // The scope-choosing IS the manual work (Tom, 2026-08-31): a user handed a bare
+      // token page has to know which four permissions to pick and which level. GitHub
+      // documents query-param pre-fill for the fine-grained form, so the CLI chooses
+      // them in the URL and the user only clicks Generate, then copies.
+      mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'token can write' });
+      mockMultiselect.mockResolvedValue(['github']);
+      const open = (await import('open')).default;
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const urls = (open as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+      const pat = urls.find((u) => u.includes('personal-access-tokens/new'));
+      expect(pat).toBeDefined();
+      const q = new URL(pat!).searchParams;
+      // Exactly the permissions the fetcher needs, every one read - and pinned as
+      // read so a future edit to write goes red here, not in review.
+      expect(q.get('contents')).toBe('read');
+      expect(q.get('issues')).toBe('read');
+      expect(q.get('pull_requests')).toBe('read');
+      expect(q.get('name')).toBeTruthy();
+      expect(q.get('expires_in')).toBeTruthy();
+      expect(pat).not.toMatch(/=write|=admin/);
+    });
+
+    it('opens the GitLab PAT page with read_api pre-selected, on the USER host', async () => {
+      // GitLab documents ?name=&scopes= pre-fill, and the docs example is
+      // gitlab.example.com - so a self-managed host gets the same pre-fill, on
+      // its own domain.
+      mockMultiselect.mockResolvedValue(['gitlab']);
+      const { text } = await import('@clack/prompts');
+      (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('gitlab.mycompany.com');
+      const open = (await import('open')).default;
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const urls = (open as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+      const pat = urls.find((u) => u.includes('personal_access_tokens'));
+      expect(pat).toBeDefined();
+      const u = new URL(pat!);
+      expect(u.hostname).toBe('gitlab.mycompany.com');
+      expect(u.searchParams.get('scopes')).toBe('read_api');
+      expect(u.searchParams.get('name')).toBeTruthy();
+    });
+
     it('refuses a write-capable gh token, says why, and falls through to the paste', async () => {
       // The gate that closes the ALI-98 hole #183 shipped: gh auth login issues
       // repo-scoped (read+write) tokens, and the reuse path took them silently.
@@ -907,7 +948,7 @@ describe('align setup', () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
       // self-managed → token page on that host, no OAuth callback
       expect(open).toHaveBeenCalledWith(
-        'https://gitlab.mycompany.com/-/user_settings/personal_access_tokens',
+        'https://gitlab.mycompany.com/-/user_settings/personal_access_tokens?name=Align+CLI&scopes=read_api',
       );
       expect(mockWaitForCallback).not.toHaveBeenCalled();
     });

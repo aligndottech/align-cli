@@ -80,8 +80,17 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       oauthKey: 'github-personal',
       // Token-paste metadata is used only by local mode (cloud uses oauthKey/OAuth).
       tokenLabel: 'Personal access token',
-      tokenHint: 'Use a fine-grained token, read-only: Contents, Issues, Pull requests = Read',
-      tokenUrl: 'https://github.com/settings/personal-access-tokens/new',
+      // The page opens with every permission pre-selected read-only via GitHub's
+      // documented query-param pre-fill - choosing scopes was the manual work, so the
+      // URL does it. The test pins each param as `read`, so an edit to `write` goes
+      // red rather than into review.
+      tokenHint: 'Everything is pre-selected (read-only). Click Generate token, then copy it here',
+      tokenUrl:
+        'https://github.com/settings/personal-access-tokens/new' +
+        '?name=Align+CLI+%28read-only%29' +
+        '&description=Read-only+import+of+your+PRs+and+issues+into+your+local+Align+graph' +
+        '&expires_in=90' +
+        '&contents=read&issues=read&pull_requests=read',
       fetch: async (t) => {
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
         return fetchGitHubItems({ token: t['token']!, limit: 250 });
@@ -97,6 +106,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       oauthKey: 'jira-personal',
       // Local-mode token paste (read-only Atlassian API token + email + site).
       tokenLabel: 'API token',
+      tokenHint: 'Click Create API token, name it anything, then copy it here',
       tokenUrl: 'https://id.atlassian.com/manage-profile/security/api-tokens',
       extraFields: [
         { key: 'email', label: 'Atlassian account email' },
@@ -116,6 +126,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       oauthKey: 'confluence-personal',
       // Local-mode token paste (read-only Atlassian API token + email + site).
       tokenLabel: 'API token',
+      tokenHint: 'Click Create API token, name it anything, then copy it here',
       tokenUrl: 'https://id.atlassian.com/manage-profile/security/api-tokens',
       extraFields: [
         { key: 'email', label: 'Atlassian account email' },
@@ -178,10 +189,12 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       tokenLabel: 'Personal access token',
       // Read-only tier: steer users to the read-only scope. `api` would grant
       // write; `read_api` is read-only and all Align's import needs. See ALI-98.
-      tokenHint: 'Select ONLY "read_api" (not "api") so the token stays read-only',
+      // read_api arrives pre-selected via GitLab's documented ?name=&scopes= pre-fill,
+      // which works on self-managed hosts too - the docs example is gitlab.example.com.
+      tokenHint: 'read_api is pre-selected (read-only). Click Create, then copy the token here',
       tokenUrl: (t) => {
         const base = t['domain'] ? `https://${t['domain']}` : 'https://gitlab.com';
-        return `${base}/-/user_settings/personal_access_tokens`;
+        return `${base}/-/user_settings/personal_access_tokens?name=Align+CLI&scopes=read_api`;
       },
       extraFields: [
         { key: 'domain', label: 'GitLab domain (leave blank for gitlab.com)' },
@@ -201,6 +214,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       oauthKey: 'linear-personal',
       // Local-mode token paste: a Linear personal API key (read-only graph).
       tokenLabel: 'Personal API key (lin_api_...)',
+      tokenHint: 'Click Create key, then copy it here',
       tokenUrl: 'https://linear.app/settings/api',
       fetch: async (t) => {
         const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
