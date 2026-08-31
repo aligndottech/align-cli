@@ -771,3 +771,46 @@ export async function synthesiseLocally(
   const result = await synthesiseDetailed(question, decisions);
   return result.ok ? result.text : null;
 }
+
+/**
+ * What to print when NOTHING is configured, as opposed to when a configured provider
+ * failed - those need opposite remedies and `providers_unavailable` covers the other one.
+ *
+ * One writer, used by every caller. Two sites used to word this themselves and they had
+ * drifted: one mentioned a local Ollama and the other named only cloud keys, so which
+ * advice you got depended on which command you happened to run.
+ *
+ * It names the LOCAL options because the old wording did not, and an outside tester
+ * running DeepSeek on llama.cpp was told to set ANTHROPIC_API_KEY - which reads as "your
+ * setup is unsupported" to the one user who took the trouble to configure something.
+ * This file's own comment on `providers_unavailable` already names LM Studio and vLLM
+ * users as expected, so the hint was contradicting its neighbour.
+ *
+ * The two local paths are deliberately listed apart: `tryOllama` probes
+ * http://localhost:11434 with nothing set, while an OpenAI-compatible server needs
+ * ALIGN_LLM_BASE_URL. Collapsing them would tell Ollama users to configure something
+ * they do not need.
+ */
+/**
+ * The same advice as one sentence, for messages that cannot carry four lines.
+ *
+ * Deliberately next to noProviderHintLines: these are two renderings of one fact, and a
+ * parity test asserts both name all three routes. They drifted once already - the block
+ * form named only cloud keys while this one said "or run a local Ollama" - so which
+ * advice a user got depended on which command they ran.
+ */
+export function noProviderHintInline(purpose: string): string {
+  return (
+    ` Set a cloud key (ANTHROPIC_API_KEY), or point ALIGN_LLM_BASE_URL at a local server` +
+    ` (llama.cpp, LM Studio, vLLM), or run Ollama, so ${purpose}.`
+  );
+}
+
+export function noProviderHintLines(): string[] {
+  return [
+    'No answer written: no LLM configured. Any one of these works:',
+    '  cloud    ANTHROPIC_API_KEY, OPENAI_API_KEY or GEMINI_API_KEY',
+    '  local    ALIGN_LLM_BASE_URL=http://localhost:8080/v1 (llama.cpp, LM Studio, vLLM)',
+    '  ollama   no config needed, detected on localhost:11434 when running',
+  ];
+}

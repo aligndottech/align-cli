@@ -1,7 +1,7 @@
 import { createLocalDb } from './local-db.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
-import { RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
+import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
 import { citationFor, repositoryOf } from './decision-links.js';
 import { contentWordQuery } from './search-query.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
@@ -411,7 +411,7 @@ export function createLocalGatewayClient(dbPath: string) {
         const hint = unclassified.failureReason === 'unvetted_local_model'
           ? ` Ollama is running, but no recognised model is installed: \`ollama pull ${RECOMMENDED_OLLAMA_PULL}\`, or set ALIGN_OLLAMA_MODEL to name your own.`
           : unclassified.failureReason === 'no_llm_key'
-            ? ' Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or run a local Ollama) so these can be classified.'
+            ? noProviderHintInline('these can be classified')
             : failure?.kind === 'provider_stopped'
               ? ` ${failure.model} (${failure.provider}) returned an unusable response (${failure.detail}), and no weaker model was asked in its place.`
               : '';

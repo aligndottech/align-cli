@@ -7,7 +7,7 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import type { SearchResults } from '../lib/gateway-client.js';
 import { citationFor } from '../lib/decision-links.js';
-import { type LlmFailure, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
+import { type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
 import { formatWhen } from '../lib/format-date.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
@@ -257,7 +257,7 @@ export function registerAskCommand(program: Command): void {
             }
             console.log(chalk.dim('  Check the endpoint and key, or configure a different provider.'));
           } else {
-            console.log(chalk.dim('  Set ANTHROPIC_API_KEY (or OPENAI_API_KEY) for a conversational answer.'));
+            for (const line of noProviderHintLines()) console.log(chalk.dim(`  ${line}`));
           }
           console.log('');
         }
