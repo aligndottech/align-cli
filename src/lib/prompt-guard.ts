@@ -45,6 +45,7 @@ export async function guardedPrompt<T>(
   let onUncaught: ((err: Error) => void) | undefined;
   const bridged = new Promise<null>((resolve) => {
     onUncaught = (err: Error) => {
+      process.removeListener('uncaughtException', onUncaught!);
       p.log.warn(`${label}: the prompt failed (${err.message}). Skipping it.`);
       resolve(null);
     };
