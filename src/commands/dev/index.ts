@@ -110,7 +110,7 @@ export function registerDevCommands(program: Command): void {
         for (const varName of missingVars) {
           const value = await p.text({
             message: `${varName}:`,
-            validate: (v) => !v.trim() ? 'Required' : undefined,
+            validate: (v) => !v?.trim() ? 'Required' : undefined,
           });
           if (p.isCancel(value)) { p.cancel('Cancelled.'); process.exit(0); }
           updateEnvVar(envPath, varName, value as string);
