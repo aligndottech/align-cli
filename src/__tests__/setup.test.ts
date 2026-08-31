@@ -463,6 +463,24 @@ describe('align setup', () => {
       expect(warned).toBe(true);
     });
 
+    it('--local explains WHY a token paste is needed, before asking for one', async () => {
+      // True local means no hosted call, and OAuth needs a client secret that cannot ship
+      // in a distributed binary - so these connectors need a pasted token. That reason
+      // lived only in a code comment: the user was sent to a provider page to mint a PAT
+      // with no explanation, which reads as the tool being awkward rather than as a
+      // deliberate privacy trade they are choosing. See ALI-778.
+      mockMultiselect.mockResolvedValue([]);
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('\n');
+      // Assert on the SUBSTANCE - that it names the privacy reason and the token -
+      // rather than on an exact phrase, which would break on any rewording.
+      expect(said).toMatch(/nothing leaves|stays on this machine|never leaves/i);
+      expect(said).toMatch(/token/i);
+    });
+
     it('--local ASKS which sources to connect before it scans git', async () => {
       // Same ask-then-run shape as the cloud path. --local is the flow an outside tester
       // was on when the picker corrupted itself under a screenful of git output, so the

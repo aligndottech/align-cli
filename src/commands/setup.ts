@@ -396,6 +396,20 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
     .filter((s) => s.id !== 'git' && s.tokenLabel)
     .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
   console.log('');
+  // Say WHY, at the point of use. This reason used to live only in the comment above:
+  // the user was sent to a provider page to mint a token with no explanation, which reads
+  // as the tool being clumsy rather than as the privacy trade they chose. The constraint
+  // is the provider's, not ours - OAuth needs a client secret, and a secret inside a
+  // distributed binary is not a secret. See ALI-778.
+  if (interactive && localConnectors.length > 0) {
+    p.log.info(
+      chalk.dim(
+        'These use a read-only token you paste, not a browser sign-in.\n' +
+        "  Signing in would mean calling Align's servers, and in local mode nothing leaves\n" +
+        '  this machine. The token is stored locally and only ever used to read.',
+      ),
+    );
+  }
   // `interactive` computed once, at the top of this function - see the comment there.
   const selected = interactive
     ? await p.multiselect({
