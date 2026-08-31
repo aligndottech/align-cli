@@ -801,7 +801,7 @@ export async function synthesiseLocally(
  */
 export function noProviderHintInline(purpose: string): string {
   return (
-    ` Set a cloud key (ANTHROPIC_API_KEY), or point ALIGN_LLM_BASE_URL at a local server` +
+    ` Set a cloud key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY), or point ALIGN_LLM_BASE_URL at a local server` +
     ` (llama.cpp, LM Studio, vLLM), or run Ollama, so ${purpose}.`
   );
 }
@@ -809,7 +809,7 @@ export function noProviderHintInline(purpose: string): string {
 export function noProviderHintLines(): string[] {
   return [
     'No answer written: no LLM configured. Any one of these works:',
-    '  cloud    ANTHROPIC_API_KEY, OPENAI_API_KEY or GEMINI_API_KEY',
+    '  cloud    set a cloud key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)',
     '  local    ALIGN_LLM_BASE_URL=http://localhost:8080/v1 (llama.cpp, LM Studio, vLLM)',
     '  ollama   no config needed, detected on localhost:11434 when running',
   ];
