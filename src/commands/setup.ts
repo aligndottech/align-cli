@@ -22,6 +22,7 @@ import pkg from '../../package.json' with { type: 'json' };
 const { version } = pkg;
 import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
+import { trySecretFreeOAuth } from '../lib/local-oauth.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -259,6 +260,17 @@ async function collectTokens(
 
   // Main token
   if (source.tokenLabel) {
+    // Secret-free OAuth first: device flow (GitHub) or PKCE (GitLab, Linear, Zoom)
+    // needs no client secret, so true local can run a real sign-in with no hosted
+    // call. Returns null when the connector has no such flow, when this build has
+    // no public client id, or when the user declines - all of which fall through to
+    // the paste below rather than failing. See ALI-778.
+    const viaOAuth = await trySecretFreeOAuth(source.id);
+    if (viaOAuth) {
+      tokens['token'] = viaOAuth;
+      return tokens;
+    }
+
     // Reuse an already-authenticated local CLI before sending anyone to a browser to
     // mint a PAT by hand. Asked for by an outside tester on 2026-08-30 who already had
     // `gh` set up. Declining falls through to the browser flow unchanged.
