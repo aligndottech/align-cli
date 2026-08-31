@@ -56,7 +56,7 @@ export const TAGLINE_ACCENT = "don't know the company.";
  * slanted navy feet. Earlier hand-drawn versions got every one of those details wrong,
  * because they were reconstructed from memory instead of read off the asset. The one
  * hand edit at this size is the feet row's COLOUR mask: the teal bar's lower edge
- * bleeds into it when 20 source pixels merge into one cell row, and the approved
+ * bleeds into it when multiple source pixel rows are averaged into a single cell row at this scale, and the approved
  * sprite's bottom row is navy feet throughout - coverage was left exactly as derived.
  *
  * Only block and half-block glyphs are used. Quadrant characters were tried in 0.26.2
