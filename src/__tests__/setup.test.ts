@@ -9,7 +9,10 @@ const mockWhoami = vi.hoisted(() => vi.fn().mockResolvedValue({
   tenant: { name: 'Test Org', id: 'tid' },
 }));
 const mockIngestBatch = vi.hoisted(() => vi.fn().mockResolvedValue({ snapshots: [] }));
-const mockTrySecretFreeOAuth = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+// The reuse gate. Default ok so the pre-existing reuse tests keep their subject (the
+// ask/approve semantics); the refusal tests flip it per-case. Without this mock the
+// real verifier makes a REAL network call to GitHub from inside the suite.
+const mockVerifyReadOnly = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true }));
 const mockListDecisionLinks = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockStartCliOAuth = vi.hoisted(() => vi.fn().mockResolvedValue({ authUrl: 'https://github.com/login/oauth/authorize?state=abc' }));
 // mockStartCliOAuth accepts (key, port, nonce) - the mock ignores nonce but tests still pass
@@ -45,7 +48,7 @@ vi.mock('../lib/cli-oauth.js', () => ({
 }));
 
 vi.mock('open', () => ({ default: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('../lib/local-oauth.js', () => ({ trySecretFreeOAuth: mockTrySecretFreeOAuth }));
+vi.mock('../lib/token-scope-gate.js', () => ({ verifyReadOnlyGithubToken: mockVerifyReadOnly }));
 
 vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({
@@ -441,6 +444,40 @@ describe('align setup', () => {
       expect(asked.length).toBeGreaterThan(0);
     });
 
+    it('refuses a write-capable gh token, says why, and falls through to the paste', async () => {
+      // The gate that closes the ALI-98 hole #183 shipped: gh auth login issues
+      // repo-scoped (read+write) tokens, and the reuse path took them silently.
+      mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'token can write (scopes: repo)' });
+      mockMultiselect.mockResolvedValue(['github']);
+      const { confirm, log, password } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      // Never offered for reuse...
+      const asked = (confirm as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => String((c[0] as { message?: string })?.message ?? ''))
+        .filter((m) => m.includes('Use its token'));
+      expect(asked).toEqual([]);
+      // ...the reason is said out loud (a silent skip reads as "gh not installed")...
+      const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('\n');
+      expect(said).toContain('token can write');
+      // ...and the paste path still runs, so the user is never blocked.
+      expect(password).toHaveBeenCalled();
+    });
+
+    it('--approve cannot bypass the gate: an unverified token is never auto-used', async () => {
+      // The gate lives in DETECTION, so the decision layer (which --approve drives)
+      // never sees a token that was not positively confirmed read-only.
+      mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'could not confirm' });
+      mockMultiselect.mockResolvedValue(['github']);
+      const { log } = await import('@clack/prompts');
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+      const used = (log.success as ReturnType<typeof vi.fn>).mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .filter((m) => m.includes('Using your GitHub CLI'));
+      expect(used).toEqual([]);
+    });
+
     it("does not abort the whole run when a third-party prompt library throws", async () => {
       // Real crash, David 2026-08-31: `align: undefined is not an object (evaluating
       // 'this.value.replaceAll')`. That is clack's OWN PasswordPrompt.masked getter,
@@ -465,27 +502,27 @@ describe('align setup', () => {
       expect(warned).toBe(true);
     });
 
-    it('--local explains WHY a token paste is needed, before asking for one', async () => {
-      // True local means no hosted call, and OAuth needs a client secret that cannot ship
-      // in a distributed binary - so these connectors need a pasted token. That reason
-      // lived only in a code comment: the user was sent to a provider page to mint a PAT
-      // with no explanation, which reads as the tool being awkward rather than as a
-      // deliberate privacy trade they are choosing. See ALI-778.
+    it('--local states the token-paste DESIGN, before asking for anything', async () => {
+      // Tom, 2026-08-31, superseding ALI-778's local direction: local mode is the
+      // user's personal graph, so the credential is one they mint and control. The
+      // message owns that as the design. Two earlier framings are asserted ABSENT
+      // because each shipped and then had to be corrected: blaming the provider
+      // ("requires a secret we would have to hold"), and blaming ourselves ("the
+      // Align app is not published yet").
       mockMultiselect.mockResolvedValue([]);
       const { log } = await import('@clack/prompts');
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
       const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
         .map((c: unknown[]) => String(c[0]))
         .join('\n');
-      // Assert on the SUBSTANCE - that it names the privacy reason and the token -
-      // rather than on an exact phrase, which would break on any rewording.
-      expect(said).toMatch(/nothing leaves|stays on this machine|never leaves/i);
-      // Names the paste-only connectors SPECIFICALLY. After ALI-778 a blanket "these
-      // all need a paste" is false - GitHub, GitLab, Linear and Zoom can sign in with
-      // no secret and no hosted call - so asserting the split is the point, not
-      // merely that some explanation appeared.
-      expect(said).toMatch(/Notion|Jira|Confluence/);
-      expect(said).not.toMatch(/These use a read-only token you paste/);
+      // Substance, not exact phrasing: ownership of the credential, and locality.
+      expect(said).toMatch(/you create yourself|yours.*credential|credential is too/i);
+      expect(said).toMatch(/read-only/i);
+      // The retired framings stay retired.
+      expect(said).not.toMatch(/not published yet|on us, not on them/i);
+      expect(said).not.toMatch(/requires a secret we would have to hold/i);
+      // Positive control for those negatives: the message itself was found at all.
+      expect(said).toMatch(/Local mode uses read-only tokens/);
     });
 
     it('--local ASKS which sources to connect before it scans git', async () => {
@@ -551,43 +588,6 @@ describe('align setup', () => {
       expect(mockIngestBatch).toHaveBeenCalled();
       expect(mockWaitForCallback).not.toHaveBeenCalled();
       expect(mockWhoami).not.toHaveBeenCalled();
-    });
-
-    describe('secret-free sign-in is confined to the local path', () => {
-      // collectTokens has three callers: one local and two on the cloud path. The cloud
-      // path has a hosted broker holding the client secret AND has already resolved the
-      // user's host, so running a secret-free flow there would send a self-managed
-      // GitLab user to gitlab.com - SECRET_FREE_CONNECTORS hardcodes that authorize URL,
-      // and the call sat above the host gate that knows better.
-
-      it('is attempted on the local path', async () => {
-        mockMultiselect.mockResolvedValueOnce(['linear']);
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
-        // Positive control for the negative assertion below: if this never fires, the
-        // "not called" test passes because the wiring is broken rather than because the
-        // gate works, and both read as green.
-        expect(mockTrySecretFreeOAuth).toHaveBeenCalledWith('linear');
-      });
-
-      it('is NOT attempted on the cloud path, even where that path pastes a token', async () => {
-        // Drives the SELF-MANAGED GitLab branch on purpose: it is the cloud call site
-        // that reaches collectTokens, and the one the leak would have broken, by
-        // sending a gitlab.mycompany.com user to gitlab.com's authorize URL.
-        //
-        // Selecting nothing here would also pass, and would prove nothing at all:
-        // collectTokens is never called, so the assertion is satisfied by absence.
-        // That version of this test survived an injection that deleted the gate.
-        const open = (await import('open')).default;
-        mockMultiselect.mockResolvedValueOnce(['gitlab']);
-        const { text } = await import('@clack/prompts');
-        (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('gitlab.mycompany.com');
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-        // The cloud path did run and did reach the paste, so the check below is real.
-        expect(open).toHaveBeenCalledWith(
-          'https://gitlab.mycompany.com/-/user_settings/personal_access_tokens',
-        );
-        expect(mockTrySecretFreeOAuth).not.toHaveBeenCalled();
-      });
     });
 
     it('--local does NOT offer Teams or Zoom (no personal token)', async () => {

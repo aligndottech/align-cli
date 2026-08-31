@@ -4,7 +4,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import open from 'open';
 import { execa } from 'execa';
-import { CLI_TOKEN_SOURCES, cliTokenDecision, detectCliToken, pickerMaxItems } from '../lib/setup-ux.js';
+import { CLI_TOKEN_SOURCES, cliTokenDecision, detectVerifiedCliToken, pickerMaxItems } from '../lib/setup-ux.js';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
@@ -22,8 +22,6 @@ import pkg from '../../package.json' with { type: 'json' };
 const { version } = pkg;
 import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
-import { trySecretFreeOAuth } from '../lib/local-oauth.js';
-import { canRunSecretFreeOAuth, supportsSecretFreeOAuth } from '../lib/secret-free-oauth.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -242,7 +240,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
 async function collectTokens(
   source: SetupSource,
   seed: Record<string, string> = {},
-  opts: { approve?: boolean; secretFree?: boolean } = {},
+  opts: { approve?: boolean } = {},
 ): Promise<Record<string, string> | null> {
   // `seed` pre-populates already-known fields (e.g. a self-managed host gathered
   // up front) so tokenUrl() resolves against the right host.
@@ -261,28 +259,30 @@ async function collectTokens(
 
   // Main token
   if (source.tokenLabel) {
-    // Secret-free OAuth first: device flow (GitHub) or PKCE (GitLab, Linear, Zoom)
-    // needs no client secret, so true local can run a real sign-in with no hosted
-    // call. Returns null when the connector has no such flow, when this build has
-    // no public client id, or when the user declines - all of which fall through to
-    // the paste below rather than failing. See ALI-778.
-    // Local path ONLY. This function has three callers and two of them are the CLOUD
-    // path, where a hosted OAuth broker already holds the client secret and has
-    // already resolved the right host. Running a secret-free flow there would send a
-    // self-managed GitLab user to gitlab.com, because SECRET_FREE_CONNECTORS hardcodes
-    // that authorize URL and this call is made before the host gate is consulted.
-    const viaOAuth = opts.secretFree ? await trySecretFreeOAuth(source.id) : null;
-    if (viaOAuth) {
-      tokens['token'] = viaOAuth;
-      return tokens;
-    }
+    // No OAuth here, by design (Tom, 2026-08-31, superseding ALI-778's local
+    // direction): local mode is the user's personal graph, so the credential is one
+    // they mint, scope and revoke themselves. The device-flow/PKCE machinery this
+    // block used to try first is deleted - recover it from the history of PR #196 if
+    // it is ever wanted again. OAuth lives on the personal-cloud path, where the
+    // hosted broker holds the client secrets.
 
     // Reuse an already-authenticated local CLI before sending anyone to a browser to
     // mint a PAT by hand. Asked for by an outside tester on 2026-08-30 who already had
     // `gh` set up. Declining falls through to the browser flow unchanged.
     const cliSource = CLI_TOKEN_SOURCES[source.id];
     if (cliSource) {
-      const cliToken = await detectCliToken(cliSource.bin, cliSource.args);
+      // Detection verifies read-only-ness BEFORE the decision layer, so --approve can
+      // never auto-accept a token that was not positively confirmed (ALI-98). A
+      // refusal is said out loud: a silent skip here reads as "gh not installed" when
+      // the truth is "gh is installed and its token can write".
+      const detected = await detectVerifiedCliToken(cliSource);
+      if (detected && 'refused' in detected) {
+        p.log.info(chalk.dim(
+          `  Found ${cliSource.label}, but will not reuse its token: ${detected.refused}.\n` +
+          `  Local mode only ever reads, so paste a read-only token below instead.`,
+        ));
+      }
+      const cliToken = detected && 'token' in detected ? detected.token : null;
       const decision = cliTokenDecision({ token: cliToken, approve: opts.approve ?? false });
       let useCli = decision === 'use';
       if (decision === 'ask') {
@@ -391,11 +391,11 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   // branch, which reads this same stored decision.
   await maybeRequestTelemetryConsent(config, Boolean(interactive));
 
-  // Connectors: local mode uses a secret-free browser sign-in where the provider and
-  // our app registration both allow it, and a read-only token paste otherwise. This
-  // used to say OAuth 'can't run offline (needs the hosted callback)', which ALI-778
-  // disproved - a loopback redirect needs no hosted callback - while the sentence sat
-  // fifteen lines above the block that says so. Only sources with a tokenLabel are
+  // Connectors: local mode connects by a read-only token the user mints themselves,
+  // for every connector - their personal graph, their credential. OAuth belongs to
+  // the personal-cloud path, where the hosted broker holds the client secrets. (This
+  // paragraph has now said three different things; the design statement printed to
+  // the user below is the durable version.) Only sources with a tokenLabel are
   // pasteable (Teams/Zoom have no personal token → excluded). See ALI-103.
   //
   // Asked BEFORE the git scan so every question lands on a clean screen and the rest of
@@ -411,39 +411,18 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   // is the provider's, not ours - OAuth needs a client secret, and a secret inside a
   // distributed binary is not a secret. See ALI-778.
   if (interactive && localConnectors.length > 0) {
-    // TWO reasons, never one. Naming only the provider-limited connectors is an
-    // affirmative claim that the others will not ask for a paste - and they will,
-    // whenever we have no client id for them. That was the shipped behaviour: the
-    // user picked GitHub expecting a browser, got a password prompt, and the message
-    // had already blamed the provider.
-    //
-    //   providerPaste - the provider mandates a client secret on exchange. Permanent.
-    //   notYet        - the provider offers a secret-free flow and WE cannot run it
-    //                   yet. Ours to fix, and it disappears from this list by itself
-    //                   the moment public-client-ids.ts carries an id.
-    const providerPaste = localConnectors.filter((s) => !supportsSecretFreeOAuth(s.id));
-    const notYet = localConnectors.filter(
-      (s) => supportsSecretFreeOAuth(s.id) && !canRunSecretFreeOAuth(s.id),
+    // ONE story, stated as the design it is (Tom, 2026-08-31, superseding ALI-778's
+    // local-OAuth direction): this is the user's PERSONAL graph, so the credential is
+    // one they mint, scope and can revoke themselves. Earlier versions blamed the
+    // provider ("their sign-in requires a secret"), then blamed us ("the Align app is
+    // not published yet"). Both framed the paste as a defect; it is the point.
+    p.log.info(
+      chalk.dim(
+        `Local mode uses read-only tokens you create yourself: this graph is yours,\n` +
+        `  so the credential is too - scoped by you, revocable by you. Tokens are\n` +
+        `  stored on this machine and only ever used to read.`,
+      ),
     );
-    const lines = [
-      'Nothing leaves this machine here, so any token you give is stored locally',
-      '  and only ever used to read.',
-    ];
-    if (providerPaste.length > 0) {
-      lines.push(
-        `  ${providerPaste.map((s) => s.label).join(', ')} need a pasted token: their`,
-        '  sign-in requires a secret we would have to hold on a server, which local',
-        '  mode deliberately does not do.',
-      );
-    }
-    if (notYet.length > 0) {
-      lines.push(
-        `  ${notYet.map((s) => s.label).join(', ')} need one too, for now: they support a`,
-        '  browser sign-in that needs no secret, and the Align app for it is not',
-        '  published yet. That one is on us, not on them.',
-      );
-    }
-    p.log.info(chalk.dim(lines.join('\n')));
   }
   // `interactive` computed once, at the top of this function - see the comment there.
   const selected = interactive
@@ -465,7 +444,7 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
       if (!source) continue;
       console.log('');
       p.log.step(chalk.bold(source.label));
-      const tokens = await collectTokens(source, {}, { approve: opts.approve, secretFree: true });
+      const tokens = await collectTokens(source, {}, { approve: opts.approve });
       if (!tokens) continue;
       localReady.push({ source, tokens });
     }
