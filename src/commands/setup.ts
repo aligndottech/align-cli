@@ -23,6 +23,7 @@ const { version } = pkg;
 import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
 import { trySecretFreeOAuth } from '../lib/local-oauth.js';
+import { supportsSecretFreeOAuth } from '../lib/secret-free-oauth.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -402,11 +403,21 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   // is the provider's, not ours - OAuth needs a client secret, and a secret inside a
   // distributed binary is not a secret. See ALI-778.
   if (interactive && localConnectors.length > 0) {
+    // Split by what each provider actually allows, because after ALI-778 the answer
+    // differs per connector and a blanket "these all need a paste" is simply false.
+    // GitHub, GitLab, Linear and Zoom support a secret-free sign-in (device flow or
+    // PKCE) that needs no hosted call. Notion and Atlassian mandate a client secret
+    // on token exchange, so a paste is the only option their design leaves.
+    const pasteOnly = localConnectors.filter((s) => !supportsSecretFreeOAuth(s.id));
     p.log.info(
       chalk.dim(
-        'These use a read-only token you paste, not a browser sign-in.\n' +
-        "  Signing in would mean calling Align's servers, and in local mode nothing leaves\n" +
-        '  this machine. The token is stored locally and only ever used to read.',
+        `Nothing leaves this machine here, so any token you give is stored locally\n` +
+        `  and only ever used to read.${ 
+        pasteOnly.length > 0
+          ? `\n  ${pasteOnly.map((s) => s.label).join(', ')} need a pasted token: their\n` +
+            '  sign-in requires a secret we would have to hold on a server, which local\n' +
+            '  mode deliberately does not do.'
+          : ''}`,
       ),
     );
   }

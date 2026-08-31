@@ -478,7 +478,12 @@ describe('align setup', () => {
       // Assert on the SUBSTANCE - that it names the privacy reason and the token -
       // rather than on an exact phrase, which would break on any rewording.
       expect(said).toMatch(/nothing leaves|stays on this machine|never leaves/i);
-      expect(said).toMatch(/token/i);
+      // Names the paste-only connectors SPECIFICALLY. After ALI-778 a blanket "these
+      // all need a paste" is false - GitHub, GitLab, Linear and Zoom can sign in with
+      // no secret and no hosted call - so asserting the split is the point, not
+      // merely that some explanation appeared.
+      expect(said).toMatch(/Notion|Jira|Confluence/);
+      expect(said).not.toMatch(/These use a read-only token you paste/);
     });
 
     it('--local ASKS which sources to connect before it scans git', async () => {
