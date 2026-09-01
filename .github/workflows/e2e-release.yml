@@ -1,0 +1,228 @@
+# ALI-797: the real-user E2E. Runs on every freshly cut (pre)release, on runners that
+# have never seen this repo's toolchain - the closest CI gets to a stranger's laptop -
+# and drives the ADVERTISED install path end to end: install.sh resolving the release's
+# own binaries, then the zero-credential golden path, asserting CONTENT (the answer, the
+# funnel stages) rather than exit codes (a step can exit 0 having done nothing - the
+# align-cli#154 lesson). Green here is what promote-release.yml requires.
+#
+# The golden run this automates was first performed by hand against preview on
+# 2026-09-01 (ALI-795's ticket carries the row-level evidence); this workflow replays it
+# against a local telemetry sink so the assertion reads the exact payloads sent, with no
+# external service in the loop.
+name: E2E Release
+run-name: E2E ${{ github.event.release.tag_name || inputs.tag }}
+
+on:
+  release:
+    types: [published] # fires for prereleases too, which is the staged case
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to test (e.g. cli-v0.31.0)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  binary-e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      # The tag's own tree: the install.sh under test is the one this release shipped,
+      # not whatever main has moved to since.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      # The binaries job uploads assets AFTER the release event fires, so wait for the
+      # ones this leg needs rather than failing on a race. Absence after the timeout is
+      # a real failure: an install line a user could be running right now would 404.
+      - name: Wait for this platform's assets on the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          asset="$(ALIGN_DRY_RUN=1 sh install.sh)"
+          echo "waiting for: $asset + SHA256SUMS on $TAG"
+          for i in $(seq 1 40); do
+            listed="$(gh release view "$TAG" --json assets --jq '.assets[].name' || true)"
+            if printf '%s\n' "$listed" | grep -qx "$asset" && printf '%s\n' "$listed" | grep -qx "SHA256SUMS"; then
+              echo "assets present after $((i*30))s"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "FATAL: $asset / SHA256SUMS not on $TAG after 20 minutes"
+          exit 1
+
+      # ~23MB embedding model, cached exactly as ci.yml's binary job caches it - the
+      # HF rate-limit lesson (ALI-713). A cold cache still works, just slower.
+      - name: Restore the embedding model
+        id: model-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .hf-model-cache
+          key: align-binary-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2-q8-v1
+
+      # A local sink standing in for the gateway: the assertion then reads the EXACT
+      # payloads the CLI sent, with no external service (and no preview writes) in the
+      # loop. 201 {ok:true} is what the real /telemetry/anonymous returns.
+      - name: Start the telemetry sink
+        run: |
+          cat > "$RUNNER_TEMP/sink.js" << 'JS'
+          const http = require('http');
+          const fs = require('fs');
+          const out = process.argv[2];
+          http.createServer((req, res) => {
+            let body = '';
+            req.on('data', c => { body += c; });
+            req.on('end', () => {
+              fs.appendFileSync(out, JSON.stringify({ path: req.url, body }) + '\n');
+              res.writeHead(201, { 'content-type': 'application/json' });
+              res.end('{"ok":true}');
+            });
+          }).listen(4547, '127.0.0.1', () => console.log('sink up'));
+          JS
+          node "$RUNNER_TEMP/sink.js" "$RUNNER_TEMP/sink.jsonl" &
+          echo $! > "$RUNNER_TEMP/sink.pid"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -s -o /dev/null http://127.0.0.1:4547/; then echo ready; exit 0; fi
+            sleep 1
+          done
+          echo "FATAL: sink never came up"; exit 1
+
+      # A repo shaped like a real one: decision commits with bodies and refs, a noise
+      # commit the filter must drop, and a PR merge whose description carries the
+      # decision - the shapes ALI-792 exists to capture.
+      - name: Build the fixture repo
+        run: |
+          set -eu
+          FIX="$RUNNER_TEMP/fixture"
+          mkdir -p "$FIX" && cd "$FIX"
+          git init -q -b main
+          git config user.email e2e@align.tech
+          git config user.name "E2E"
+          echo a > a.txt && git add . && git commit -qm "feat(auth): switch to JWT for stateless sessions
+
+          We decided against server-side sessions. Refs ALI-123 and closes #45.
+          See https://align.slack.com/archives/C123/p456 for the thread."
+          echo b > b.txt && git add . && git commit -qm "short subject"
+          git checkout -qb feat
+          echo c > c.txt && git add . && git commit -qm "feat: add rate limiting to the public API endpoints"
+          git checkout -q main
+          git merge -q --no-ff feat -m "Merge pull request #78 from align/feat
+
+          Adopt token-bucket rate limiting on all public endpoints"
+
+      # THE advertised path: the release's own install.sh resolving the release's own
+      # assets, checksum verification included. Asserts the version the binary REPORTS,
+      # because "the script exited 0" is not "the right binary runs here".
+      - name: Install via install.sh
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/bin"
+          ALIGN_VERSION="$TAG" ALIGN_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
+          version="${TAG#cli-v}"
+          reported="$("$RUNNER_TEMP/bin/align" --version)"
+          echo "binary reports: $reported (expect $version)"
+          printf '%s\n' "$reported" | grep -q "$version" || {
+            echo "FATAL: installed binary does not report $version"; exit 1; }
+
+      # The zero-credential golden path, in a home the binary has never seen. The fake
+      # ~/.claude.json is what makes agent detection (and the mcp_wired stage) fire on
+      # a headless runner. DISPLAY-less browser-opens print URLs instead of dying - the
+      # fresh-align-test.sh lesson about over-isolation manufacturing fake bugs.
+      - name: Run the golden path
+        env:
+          ALIGN_GATEWAY_URL: http://127.0.0.1:4547
+        run: |
+          set -eu
+          export HOME="$RUNNER_TEMP/home"
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+          mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+          echo '{}' > "$HOME/.claude.json"
+          export ALIGN_MODEL_CACHE="$GITHUB_WORKSPACE/.hf-model-cache"
+          ALIGN="$RUNNER_TEMP/bin/align"
+          cd "$RUNNER_TEMP/fixture"
+
+          "$ALIGN" telemetry on
+          "$ALIGN" setup --local --approve > "$RUNNER_TEMP/setup.log" 2>&1 || {
+            echo "FATAL: setup failed"; cat "$RUNNER_TEMP/setup.log"; exit 1; }
+          cat "$RUNNER_TEMP/setup.log"
+
+          "$ALIGN" ask "why did we switch to JWT" > "$RUNNER_TEMP/ask.log" 2>&1 || {
+            echo "FATAL: ask failed"; cat "$RUNNER_TEMP/ask.log"; exit 1; }
+          cat "$RUNNER_TEMP/ask.log"
+
+      # Content assertions. Each names what a user would actually see or send;
+      # every one of these was watched fail against a pre-fix binary during the
+      # hand-run this automates.
+      - name: Assert the answer and the funnel
+        run: |
+          set -eu
+          fail=0
+          expect() { # <file> <pattern> <why>
+            if grep -Fq -- "$2" "$1"; then
+              echo "ok: $3"
+            else
+              echo "MISSING: $3 (pattern: $2)"; fail=1
+            fi
+          }
+          expect "$RUNNER_TEMP/setup.log" "Imported 3 decisions" "all three decision commits imported (merge promoted, noise dropped)"
+          expect "$RUNNER_TEMP/setup.log" "align MCP connected" "agent wiring ran"
+          expect "$RUNNER_TEMP/ask.log" "switch to JWT" "ask answered with the decision"
+          expect "$RUNNER_TEMP/ask.log" "ALI-123" "the commit BODY reached the answer (ALI-792)"
+          expect "$RUNNER_TEMP/sink.jsonl" "cli.funnel.import_completed" "import_completed stage sent"
+          expect "$RUNNER_TEMP/sink.jsonl" "import git" "activation-by-source command path sent"
+          expect "$RUNNER_TEMP/sink.jsonl" "cli.funnel.first_useful_decision" "activation stage sent"
+          expect "$RUNNER_TEMP/sink.jsonl" "cli.funnel.mcp_wired" "mcp_wired stage sent"
+          echo "--- sink contents ---"
+          cat "$RUNNER_TEMP/sink.jsonl" || true
+          exit "$fail"
+
+      - name: Save the embedding model
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .hf-model-cache
+          key: align-binary-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2-q8-v1
+
+  # The npm channel gets its own smoke: the staged dist-tag resolves, installs, and the
+  # installed CLI reports the released version. Full golden coverage rides the binary
+  # legs; this leg exists because npm and the binaries are separate channels that fail
+  # separately (the same reason release-please.yml builds them in separate jobs).
+  npm-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16'
+
+      - name: Install from the next dist-tag and verify the version
+        run: |
+          set -eu
+          version="${TAG#cli-v}"
+          # Registry propagation lags the publish job by seconds to minutes - retry
+          # rather than fail the gate on lag.
+          for i in $(seq 1 20); do
+            npm install -g "@aligndottech/cli@next" >/dev/null 2>&1 || true
+            reported="$(align --version 2>/dev/null || true)"
+            if printf '%s\n' "$reported" | grep -q "$version"; then
+              echo "npm-installed CLI reports: $reported"
+              break
+            fi
+            [ "$i" = 20 ] && { echo "FATAL: @aligndottech/cli@next did not resolve to $version (reported: $reported)"; exit 1; }
+            sleep 30
+          done
+          next="$(npm view @aligndottech/cli dist-tags.next)"
+          [ "$next" = "$version" ] || {
+            echo "FATAL: dist-tag next is $next, expected $version"; exit 1; }
