@@ -167,7 +167,7 @@ jobs:
           set -eu
           fail=0
           expect() { # <file> <pattern> <why>
-            if grep -q "$2" "$1"; then
+            if grep -Fq -- "$2" "$1"; then
               echo "ok: $3"
             else
               echo "MISSING: $3 (pattern: $2)"; fail=1
