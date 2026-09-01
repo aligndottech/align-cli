@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.30.0](https://github.com/aligndottech/align-cli/compare/cli-v0.29.1...cli-v0.30.0) (2026-09-01)
+
+
+### Features
+
+* **local:** relative linking - each decision's top-3 neighbours join the graph (ALI-785) ([#212](https://github.com/aligndottech/align-cli/issues/212)) ([dbfccbf](https://github.com/aligndottech/align-cli/commit/dbfccbf5cf5708c8defe64be140d108ce83d492f))
+
+
+### Bug Fixes
+
+* **setup:** open Notion at the developer console's tokens page ([#210](https://github.com/aligndottech/align-cli/issues/210)) ([c85cccc](https://github.com/aligndottech/align-cli/commit/c85cccc7f441467a19573a62b43b3ce331351d50))
+
 ## [0.29.1](https://github.com/aligndottech/align-cli/compare/cli-v0.29.0...cli-v0.29.1) (2026-08-31)
 
 
