@@ -80,6 +80,10 @@ async function readAdrFiles(repoRoot: string): Promise<Array<{ relPath: string; 
       out.push({ relPath, content });
     }
   }
+  // readdir order is not guaranteed sorted or stable across platforms, and it decides which
+  // ADRs survive `limit` when there are more than it allows - sort so that choice is the same
+  // on every run rather than whatever the filesystem happened to hand back.
+  out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
   return out;
 }
 
@@ -140,10 +144,21 @@ async function readAgentRulesItems(
       continue; // file not present in this repo - not an error
     }
     const stripped = stripAlignOwnedContent(raw);
+    // Two `## Section` with the same text (a Database section under both a gateway and a
+    // brain heading, say) would otherwise slugify to the same anchor and collide on
+    // source_url, which is the dedup/identity key downstream - one of the two would be
+    // silently dropped rather than imported.
+    const seenSlugs = new Map<string, number>();
     for (const section of splitIntoSections(stripped)) {
       if (section.body.length < MIN_CHUNK_CHARS) continue;
       const title = section.heading ?? firstHeading(section.body) ?? humanizeFilename(file);
-      const anchor = section.heading ? `#${slugify(section.heading)}` : '';
+      let anchor = '';
+      if (section.heading) {
+        const slug = slugify(section.heading);
+        const seen = seenSlugs.get(slug) ?? 0;
+        seenSlugs.set(slug, seen + 1);
+        anchor = `#${slug}${seen > 0 ? `-${seen + 1}` : ''}`;
+      }
       items.push({
         source_url: `${buildBlobUrl(remoteUrl, branch, file)}${anchor}`,
         platform: 'docs',
@@ -158,16 +173,21 @@ async function readAgentRulesItems(
 export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Promise<PersonalImportItem[]> {
   const repoRoot = opts.cwd ?? process.cwd();
   const gitOpts = opts.cwd ? { cwd: opts.cwd } : undefined;
-  const [remoteUrl, branch] = await Promise.all([
+  const [remoteUrl, branch, adrFiles] = await Promise.all([
     getRemoteUrl(gitOpts),
     getCurrentBranch(gitOpts).catch(() => 'main'),
-  ]);
-
-  const [adrFiles, agentRulesItems] = await Promise.all([
     readAdrFiles(repoRoot),
-    readAgentRulesItems(repoRoot, remoteUrl, branch),
   ]);
-  const adrItems = adrFiles.map(({ relPath, content }) => adrItem(relPath, content, remoteUrl, branch));
 
+  const adrItems = adrFiles
+    .slice(0, opts.limit)
+    .map(({ relPath, content }) => adrItem(relPath, content, remoteUrl, branch));
+
+  // ADRs alone already fill the limit: reading and stripping CLAUDE.md/AGENTS.md would be
+  // work whose result gets sliced away, so skip it rather than doing it and throwing it out.
+  const remaining = opts.limit - adrItems.length;
+  if (remaining <= 0) return adrItems;
+
+  const agentRulesItems = await readAgentRulesItems(repoRoot, remoteUrl, branch);
   return [...adrItems, ...agentRulesItems].slice(0, opts.limit);
 }

@@ -1,10 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 
 vi.mock('execa', () => ({ execa: vi.fn() }));
+
+// Wraps the real readFile (still calls through - readdir/readFile fixtures below are on a
+// real temp dir, not a fake fs) so the "skips reading agent-rules files" test can assert on
+// which paths were actually opened, not just on what the final array contains.
+const readFileSpy = vi.hoisted(() => vi.fn());
+const readdirSpy = vi.hoisted(() => vi.fn());
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal();
+  readFileSpy.mockImplementation((actual as { readFile: typeof readFileSpy }).readFile);
+  readdirSpy.mockImplementation((actual as { readdir: typeof readdirSpy }).readdir);
+  return { ...actual, readFile: readFileSpy, readdir: readdirSpy };
+});
 
 import { fetchDocsItems } from '../../lib/fetchers/docs.js';
 
@@ -277,5 +290,93 @@ describe('fetchDocsItems - limit and combination', () => {
     const items = await fetchDocsItems({ limit: 1, cwd: repo });
 
     expect(items).toHaveLength(1);
+  });
+
+  it('picks ADRs in a deterministic (sorted) order, independent of readdir order', async () => {
+    // ALI-793 review (Copilot): the combined array was sliced to the limit AFTER building it
+    // from readdir's order, which the filesystem does not guarantee is sorted or stable
+    // across platforms - so which ADR "won" when there were more than the limit could vary
+    // run to run. A real temp dir cannot pin this (this filesystem already happens to return
+    // sorted order, so a fixture built from real writes cannot fail without the fix) - force
+    // readdir to hand back the unsorted order explicitly, so this test can actually fail.
+    repo = mkdtempSync(join(tmpdir(), 'align-793-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '0001-first.md'), '# First ADR\n\nSorts first by filename.');
+    writeFileSync(join(repo, 'docs', 'adr', '0002-second.md'), '# Second ADR\n\nSorts second by filename.');
+    mockGit(null);
+
+    const dirent = (name: string) => ({ name, isFile: () => true }) as unknown as Dirent;
+    readdirSpy.mockImplementationOnce(async () => [dirent('0002-second.md'), dirent('0001-first.md')]);
+
+    const items = await fetchDocsItems({ limit: 1, cwd: repo });
+
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe('First ADR');
+  });
+
+  it('skips reading CLAUDE.md/AGENTS.md entirely once the ADRs alone already fill the limit', async () => {
+    // ALI-793 review (Copilot): reading and parsing the agent-rules files is wasted work once
+    // there is no room left for their items - assert it on the actual filesystem call, not
+    // just on the returned array (which would look identical either way).
+    repo = mkdtempSync(join(tmpdir(), 'align-793-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
+    mockGit(null);
+
+    const items = await fetchDocsItems({ limit: 1, cwd: repo });
+
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe('ADR One');
+    const readPaths = readFileSpy.mock.calls.map((c) => String(c[0]));
+    expect(readPaths.some((p) => p.endsWith('CLAUDE.md'))).toBe(false);
+  });
+
+  it('still reads CLAUDE.md/AGENTS.md when the ADRs do not already fill the limit', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-793-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
+    mockGit(null);
+
+    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+
+    expect(items.map((i) => i.title).sort()).toEqual(['ADR One', 'Database']);
+  });
+});
+
+describe('fetchDocsItems - duplicate headings', () => {
+  let repo: string;
+  afterEach(() => {
+    vi.clearAllMocks();
+    if (repo) rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('disambiguates two ## sections sharing the same heading text, so their source_urls do not collide', async () => {
+    // ALI-793 review (Copilot): two sections with the same heading previously got the same
+    // `#slug` anchor, so their source_url (the dedup/identity key downstream) collided and
+    // one of the two items would be silently lost.
+    repo = mkdtempSync(join(tmpdir(), 'align-793-'));
+    writeFileSync(
+      join(repo, 'CLAUDE.md'),
+      [
+        '# Proj',
+        '',
+        '## Database',
+        '',
+        'The gateway service uses Postgres for the decision store, tenant-scoped.',
+        '',
+        '## Database',
+        '',
+        'The brain service ALSO talks to its own Postgres instance for embeddings.',
+      ].join('\n'),
+    );
+    mockGit(null);
+
+    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+
+    expect(items).toHaveLength(2);
+    const urls = items.map((i) => i.source_url);
+    expect(new Set(urls).size).toBe(2);
   });
 });
