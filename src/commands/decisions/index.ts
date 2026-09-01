@@ -6,6 +6,7 @@ import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
 import { renderTable } from '../../lib/table.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
+import { resolveScopeOpts } from '../../lib/repo-identity.js';
 
 export function registerDecisionsCommand(program: Command): void {
   const decisions = program
@@ -19,9 +20,11 @@ export function registerDecisionsCommand(program: Command): void {
     .option('--platform <p>', 'Filter by platform (slack, jira, github, etc.)')
     .option('--status <s>', 'Filter by status (active, superseded, archived)')
     .option('--space <slug>', 'Filter by space slug')
+    .option('--repo <name>', 'Scope to one repo - short name, owner/repo, or full identity (local mode only)')
+    .option('--all', 'List every repo, not just the current one (local mode only)')
     .option('--limit <n>', 'Max results', '20')
     .action(async (opts: {
-      env: EnvName; platform?: string; status?: string; space?: string; limit: string;
+      env: EnvName; platform?: string; status?: string; space?: string; repo?: string; all?: boolean; limit: string;
     }) => {
       const config = createConfigStore();
       // Held, not re-derived: the header below printed `opts.env`, which is the FLAG. With no
@@ -29,6 +32,7 @@ export function registerDecisionsCommand(program: Command): void {
       // 401'd before it got this far (ALI-772).
       const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const client = createGatewayClient(config.getEnvironment(envName));
+      const scope = resolveScopeOpts({ repo: opts.repo, all: opts.all }, envName, (m) => console.log(chalk.yellow(m)));
       const spinner = ora('Fetching decisions...').start();
 
       try {
@@ -36,6 +40,10 @@ export function registerDecisionsCommand(program: Command): void {
         if (opts.platform) params['platform'] = opts.platform;
         if (opts.status) params['status'] = opts.status;
         if (opts.space) params['space'] = opts.space;
+        // ALI-798: only local mode has a repo dimension - resolveScopeOpts already dropped
+        // (and warned about) repo/all in any other mode, so `scope` is undefined there.
+        if (scope?.repo !== undefined) params['repo'] = scope.repo;
+        if (scope?.all) params['all'] = scope.all;
 
         const decisions = await client.listDecisions(params);
         spinner.stop();
