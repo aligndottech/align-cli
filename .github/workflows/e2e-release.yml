@@ -178,10 +178,16 @@ jobs:
           expect "$RUNNER_TEMP/setup.log" "align MCP connected" "agent wiring ran"
           expect "$RUNNER_TEMP/ask.log" "switch to JWT" "ask answered with the decision"
           expect "$RUNNER_TEMP/ask.log" "ALI-123" "the commit BODY reached the answer (ALI-792)"
-          expect "$RUNNER_TEMP/sink.jsonl" "cli.funnel.import_completed" "import_completed stage sent"
+          # WIRE format, not the server's derived event name: the client sends
+          # stage as a payload field and the gateway constructs cli.funnel.<stage>
+          # server-side (telemetryAnonymousRoutes.ts). The first real E2E run
+          # (cli-v0.31.0) went red on exactly this - the product was green, the
+          # assertions read the wrong side of the wire. Escaped quotes because the
+          # sink stores each body as a JSON-encoded string inside a JSON line.
+          expect "$RUNNER_TEMP/sink.jsonl" '\"stage\":\"import_completed\"' "import_completed stage sent"
           expect "$RUNNER_TEMP/sink.jsonl" "import git" "activation-by-source command path sent"
-          expect "$RUNNER_TEMP/sink.jsonl" "cli.funnel.first_useful_decision" "activation stage sent"
-          expect "$RUNNER_TEMP/sink.jsonl" "cli.funnel.mcp_wired" "mcp_wired stage sent"
+          expect "$RUNNER_TEMP/sink.jsonl" '\"stage\":\"first_useful_decision\"' "activation stage sent"
+          expect "$RUNNER_TEMP/sink.jsonl" '\"stage\":\"mcp_wired\"' "mcp_wired stage sent"
           echo "--- sink contents ---"
           cat "$RUNNER_TEMP/sink.jsonl" || true
           exit "$fail"
