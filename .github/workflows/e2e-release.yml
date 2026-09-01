@@ -213,14 +213,15 @@ jobs:
           # Registry propagation lags the publish job by seconds to minutes - retry
           # rather than fail the gate on lag.
           for i in $(seq 1 20); do
-            if npm install -g "@aligndottech/cli@$version" 2>/dev/null; then break; fi
-            [ "$i" = 20 ] && { echo "FATAL: @aligndottech/cli@$version never became installable"; exit 1; }
+            npm install -g "@aligndottech/cli@next" >/dev/null 2>&1 || true
+            reported="$(align --version 2>/dev/null || true)"
+            if printf '%s\n' "$reported" | grep -q "$version"; then
+              echo "npm-installed CLI reports: $reported"
+              break
+            fi
+            [ "$i" = 20 ] && { echo "FATAL: @aligndottech/cli@next did not resolve to $version (reported: $reported)"; exit 1; }
             sleep 30
           done
-          reported="$(align --version)"
-          echo "npm-installed CLI reports: $reported"
-          printf '%s\n' "$reported" | grep -q "$version" || {
-            echo "FATAL: npm-installed CLI does not report $version"; exit 1; }
           next="$(npm view @aligndottech/cli dist-tags.next)"
           [ "$next" = "$version" ] || {
             echo "FATAL: dist-tag next is $next, expected $version"; exit 1; }
