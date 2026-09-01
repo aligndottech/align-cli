@@ -1,5 +1,6 @@
 import { execa } from 'execa';
 import { type ScopeVerdict, verifyReadOnlyGithubToken } from './token-scope-gate.js';
+import * as readline from 'node:readline';
 
 /**
  * Sizing and credential-discovery helpers for `align setup`.
@@ -89,6 +90,23 @@ export const CLI_TOKEN_SOURCES: Record<
  * null here would read as "gh not installed" when the truth is "gh is installed and
  * its token can write".
  */
+/**
+ * Clear the terminal before the connector picker (ALI-794 component 5).
+ *
+ * Moving the found-decisions summary before the picker reintroduces the exact
+ * condition that used to corrupt clack's in-place redraw for an outside tester
+ * (2026-08-30): a screenful of import output sitting above a multiselect. That
+ * was fixed then by asking the picker BEFORE the git scan; inverting the order
+ * again means the picker needs its own clean canvas instead. A no-op off a real
+ * TTY, so piped/non-interactive output is never sent a control sequence it did
+ * not ask for.
+ */
+export function clearScreenForPicker(stream: typeof process.stdout = process.stdout): void {
+  if (!stream.isTTY) return;
+  readline.cursorTo(stream, 0, 0);
+  readline.clearScreenDown(stream);
+}
+
 export async function detectVerifiedCliToken(
   source: (typeof CLI_TOKEN_SOURCES)[string],
 ): Promise<{ token: string } | { refused: string } | null> {

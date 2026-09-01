@@ -12,6 +12,22 @@ export interface EnvironmentConfig {
   localDbPath?: string;
 }
 
+/**
+ * The fork point for ALI-794's value-first onboarding order: nothing configured
+ * yet on this machine, in either mode. A returning user (they already have a
+ * local graph, or they are logged in to cloud) keeps the existing
+ * mode-question-first `align setup` flow - this only widens the door for a
+ * genuinely first run.
+ */
+export function isFreshInstall(config: {
+  getEnvironment(env: EnvName): EnvironmentConfig;
+  getDefaultEnv(): EnvName;
+}): boolean {
+  const hasLocal = config.getEnvironment('local').mode === 'local-embedded';
+  const hasCloud = Boolean(config.getEnvironment(config.getDefaultEnv()).authToken);
+  return !hasLocal && !hasCloud;
+}
+
 const DEFAULTS: Record<EnvName, EnvironmentConfig> = {
   local:   { gatewayUrl: 'http://localhost:8080',          authToken: null, tenantId: null, mode: 'demo' },
   preview: { gatewayUrl: 'https://api.preview.align.tech', authToken: null, tenantId: null, mode: 'auth' },

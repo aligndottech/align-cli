@@ -80,16 +80,25 @@ export function renderValueReadout(r: ValueRollup, opts: { mode: 'cloud' | 'loca
   // ALI-503: offline, nothing can write a conflict link, so "N conflicts caught" was either
   // fabricated from cosine similarity or a permanent zero that reads as a broken counter.
   // Report what the local graph genuinely knows instead.
-  const headline = opts.mode === 'local'
-    ? `  ${r.similarDecisions} similar decisions found`
-    : `  ${r.conflictsCaught} conflicts caught`;
-  const lines = [
-    `  ${r.decisions} decisions in your graph`,
-    headline,
-    `  ${r.duplicates} duplicates found`,
-    `  ${r.supersessions} decisions superseded`,
-    `  reuse rate: ${reuse}`,
-  ];
+  const lines = [`  ${r.decisions} decisions in your graph`];
+  if (opts.mode === 'local') {
+    // ALI-794: offline, nothing writes a similarity, duplicate or supersession link on a
+    // first run, so all three are structurally zero and a row of them reads as a broken
+    // dashboard to someone ninety seconds into the tool. HIDDEN AT ZERO, never deleted -
+    // localValueRollup still counts the real relations (ALI-503's positive control), so a
+    // genuine one appears the moment it exists. Deleting the line would make that
+    // impossible and would look identical from here.
+    if (r.similarDecisions > 0) lines.push(`  ${r.similarDecisions} similar decisions found`);
+    if (r.duplicates > 0) lines.push(`  ${r.duplicates} duplicates found`);
+    if (r.supersessions > 0) lines.push(`  ${r.supersessions} decisions superseded`);
+  } else {
+    // Cloud can write every one of these, so a zero there is a measurement rather than a
+    // gap, and the no-vanity-collapse rule keeps the labels visible.
+    lines.push(`  ${r.conflictsCaught} conflicts caught`);
+    lines.push(`  ${r.duplicates} duplicates found`);
+    lines.push(`  ${r.supersessions} decisions superseded`);
+  }
+  lines.push(`  reuse rate: ${reuse}`);
   if (r.healthGrade) {
     lines.push(`  health: ${r.healthGrade}`);
   }
