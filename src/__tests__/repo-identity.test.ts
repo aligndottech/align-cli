@@ -36,6 +36,21 @@ describe('repoFromSourceUrl', () => {
     expect(repoFromSourceUrl('https://gitlab.com/group/sub/repo/-/commit/abc1234')).toBe('gitlab.com/group/sub/repo');
   });
 
+  /**
+   * Copilot review on #225: `GitLabFetcher.fetch` (connector-core) stamps every imported
+   * merge request's `source_url` with GitLab's own `web_url`, which is
+   * `.../-/merge_requests/<iid>` - a verb this regex did not list. Every GitLab import
+   * would have landed unattributed, silently defeating repo scoping for GitLab users
+   * specifically (verified against connector-core's actual fetcher, not just the claim).
+   */
+  it('parses a hosted GitLab merge request URL - the shape GitLabFetcher actually emits', () => {
+    expect(repoFromSourceUrl('https://gitlab.com/acme/widgets/-/merge_requests/42')).toBe('gitlab.com/acme/widgets');
+  });
+
+  it('parses a GitLab subgroup merge request URL too (a second example, not just the top level)', () => {
+    expect(repoFromSourceUrl('https://gitlab.com/group/sub/repo/-/merge_requests/7')).toBe('gitlab.com/group/sub/repo');
+  });
+
   it.each([
     ['git://commit/abc1234', 'a remoteless git commit'],
     ['https://aligndottech.atlassian.net/browse/ALI-1', 'a Jira ticket URL'],

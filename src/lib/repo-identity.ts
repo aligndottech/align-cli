@@ -23,8 +23,14 @@ import { getRemoteUrl, getRepoRoot, isGitRepo } from './git.js';
  * `gitlab.com/g/repo/-/commit/x` and a plain `commit`/`pull`/`issues` path match, and a
  * GitLab subgroup path (`group/sub/repo`) survives intact rather than being cut at the
  * first slash.
+ *
+ * `merge_requests` (Copilot review, #225): GitLab's own name for a pull request, and the
+ * verb `GitLabFetcher.fetch` (connector-core) actually stamps on `source_url` via `web_url`
+ * - without it, every GitLab import landed unattributed, silently defeating repo scoping
+ * for GitLab users specifically. Verified against the fetcher's real output, not just the
+ * URL shape.
  */
-const HOSTED_REPO = /^https?:\/\/([^/\s]+)\/(.+?)(?:\/-)?\/(?:commit|pull|issues)\/[0-9a-zA-Z]+(?:[/?#]|$)/;
+const HOSTED_REPO = /^https?:\/\/([^/\s]+)\/(.+?)(?:\/-)?\/(?:commit|pull|issues|merge_requests)\/[0-9a-zA-Z]+(?:[/?#]|$)/;
 
 export function repoFromSourceUrl(sourceUrl: string | null | undefined): string | null {
   if (!sourceUrl) return null;
