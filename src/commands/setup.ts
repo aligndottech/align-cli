@@ -452,15 +452,37 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
       chalk.dim(
         `Local mode uses read-only tokens you create yourself: this graph is yours,\n` +
         `  so the credential is too - scoped by you, revocable by you. Tokens are\n` +
-        `  stored on this machine and only ever used to read.`,
+        `  saved on this machine, readable only by you, and only ever used to read.\n` +
+        `  Remove them any time with \`align local forget\`.`,
       ),
     );
+  }
+
+  // ALI-802: what a previous run already collected. Until this existed, setup asked for every
+  // token on every run - it gathered credentials, spent them on one fetch and never called the
+  // store that was sitting there. Read before the picker so the picker can say what is saved.
+  const savedTokens = new Map<string, Record<string, string>>();
+  for (const source of localConnectors) {
+    const saved = config.getConnectorFields('local', source.id);
+    if (saved?.['token']) savedTokens.set(source.id, saved);
+  }
+  if (interactive && savedTokens.size > 0) {
+    const names = localConnectors.filter((s) => savedTokens.has(s.id)).map((s) => s.label).join(', ');
+    // Named out loud rather than silently reused: a credential nobody can see being used is
+    // the one nobody can audit, which is the same reason the gh-token reuse announces itself.
+    p.log.info(chalk.dim(`Using your saved read-only tokens for: ${names}.`));
   }
   // `interactive` computed once, at the top of this function - see the comment there.
   const selected = interactive
     ? await p.multiselect({
         message: 'Connect more sources with a read-only token? (skip to finish)',
-        options: localConnectors.map((s) => ({ value: s.id, label: s.label, hint: s.description })),
+        options: localConnectors.map((s) => ({
+          value: s.id,
+          label: s.label,
+          // A saved connector stays in the list so an expired or wrong token can be replaced
+          // without a separate command - selecting it asks again and overwrites what is saved.
+          hint: savedTokens.has(s.id) ? 'saved - select to replace' : s.description,
+        })),
         required: false,
         // Without maxItems clack renders all 7 and its in-place redraw miscounts
         // once the list is taller than the viewport, painting duplicate rows.
@@ -494,6 +516,20 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
         }
       }
       localReady.push({ source, tokens });
+    }
+  }
+
+  // Saved connectors the user did not pick for replacement still import - that is the whole
+  // point of having saved them. Appended after the freshly collected ones so a connector
+  // selected for replacement is never also imported with its old token.
+  // Cancelling the picker (Esc) means "do no connector work", the same as it does for the
+  // collection block above; only an empty SUBMIT means "skip to finish, use what I have". They
+  // arrive as different values and must not collapse into the same branch.
+  if (!p.isCancel(selected)) {
+    const replacing = new Set(selected as string[]);
+    for (const source of localConnectors) {
+      const saved = savedTokens.get(source.id);
+      if (saved && !replacing.has(source.id)) localReady.push({ source, tokens: saved });
     }
   }
 
@@ -537,6 +573,11 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
     spinner.start(`Fetching from ${source.label}...`);
     try {
       const items = await source.fetch(tokens);
+      // Saved only once the fetch it unlocked has succeeded. A token that never worked is not
+      // worth remembering, and storing one would turn the next run's honest "paste a token"
+      // into a silent empty import. Re-saving an already-saved token is a harmless no-op, so
+      // there is one rule here rather than a branch that has to stay in step with the reuse.
+      config.saveConnectorFields('local', source.id, tokens);
       spinner.stop(`Found ${items.length} items`);
       if (items.length) {
         await runPersonalImport(items, localClient, {

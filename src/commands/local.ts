@@ -50,6 +50,28 @@ export function registerLocalCommand(program: Command): void {
       console.log(`\n${  renderValueReadout(rollup, { mode: 'local' })  }\n`);
     });
 
+  // Local mode asks you to mint read-only tokens and then keeps them, so it owes you a way to
+  // hand them back. The provider is still the place to revoke - this only forgets our copy.
+  local
+    .command('forget [connector]')
+    .description('Remove saved read-only tokens (all, or one named connector)')
+    .action((connector?: string) => {
+      const config = createConfigStore();
+      if (!connector) {
+        config.forgetAllConnectors('local');
+        console.log('Removed every saved read-only token. Setup will ask again next time.');
+        return;
+      }
+      // Distinguish "removed it" from "there was nothing there": silence on a no-op reads as
+      // success, and leaves someone believing a credential is gone that was never stored.
+      if (!config.getConnectorFields('local', connector)) {
+        console.log(`Nothing saved for ${connector}.`);
+        return;
+      }
+      config.forgetConnector('local', connector);
+      console.log(`Removed the saved token for ${connector}. Revoke it at the provider too if you are done with it.`);
+    });
+
   local
     .command('reset')
     .description('Wipe local graph and reset config')
@@ -72,6 +94,9 @@ export function registerLocalCommand(program: Command): void {
         }
       }
       config.clearLocalMode();
-      console.log('Local graph wiped. Run `align local start` to reinitialize.');
+      // "Reset config" has to include the saved read-only tokens, or the promise is false in
+      // exactly the way the setup copy used to be (ALI-802).
+      config.forgetAllConnectors('local');
+      console.log('Local graph wiped and saved tokens removed. Run `align local start` to reinitialize.');
     });
 }
