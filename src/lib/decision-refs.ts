@@ -18,7 +18,11 @@
  * missing source is imported.
  */
 
-import { citationFor } from './decision-links.js';
+// localCitationFor, not the shared citationFor: it also parses GitLab MR/issue
+// URLs (commit-cite.ts), which citationFor's CODE_REF cannot see at all - without
+// it, refIdentityFor('gitlab', ...) could never produce a 'code' candidate for a
+// real GitLab source (ALI-796 review finding).
+import { localCitationFor } from './commit-cite.js';
 
 export interface DecisionRef {
   ref: string;
@@ -112,10 +116,10 @@ export function refIdentityFor(platform: string, sourceUrl: string | null | unde
   const urlPlatform = classifyUrl(sourceUrl);
   if (urlPlatform) candidates.push({ ref: sourceUrl, platform: urlPlatform });
 
-  const key = citationFor(sourceUrl);
+  const key = localCitationFor(sourceUrl);
   if (!key) return candidates;
 
-  // citationFor returns the bare ticket key for a jira/linear URL - the same shape
+  // localCitationFor returns the bare ticket key for a jira/linear URL - the same shape
   // extractRefs stores a bare KEY-123 mention as ('tracker', ambiguous by construction).
   if (platform === 'jira' || platform === 'linear') {
     candidates.push({ ref: key, platform: 'tracker' });

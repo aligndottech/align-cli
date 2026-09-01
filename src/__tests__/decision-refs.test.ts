@@ -161,4 +161,12 @@ describe('refIdentityFor', () => {
   it('returns nothing for a plain commit url (not citable by any other decision)', () => {
     expect(refIdentityFor('git', 'https://github.com/align/cli/commit/abc1234def')).toEqual([]);
   });
+
+  // ALI-796 review finding: the shared citationFor cannot parse a real GitLab MR/issue
+  // URL (no "/pull/" or "/issues/" with no separator), so a GitLab-sourced decision could
+  // never resolve a pre-existing bare "#N" gap. localCitationFor closes that gap.
+  it('identifies a gitlab decision by its URL and its bare #N', () => {
+    const candidates = refIdentityFor('gitlab', 'https://gitlab.com/align/cli/-/merge_requests/78');
+    expect(candidates).toContainEqual({ ref: '#78', platform: 'code' });
+  });
 });

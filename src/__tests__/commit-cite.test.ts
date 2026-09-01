@@ -25,6 +25,28 @@ describe('localCitationFor', () => {
     expect(localCitationFor('git://commit/abc1234def5678')).toBe('abc1234');
   });
 
+  // ALI-796 review finding: the shared CODE_REF only matches GitHub's `/pull|issues/N`
+  // path shape. A real GitLab MR/issue URL never matches it, so `citationFor` returns
+  // undefined for every GitLab source - which made refIdentityFor('gitlab', ...) always
+  // return [], so a decision imported from GitLab could never resolve a pre-existing
+  // '#N' gap, even once the gitlab connector was marked "connected" and the gap line
+  // silently disappeared.
+  it('cites a GitLab merge request through its /-/ path', () => {
+    expect(localCitationFor('https://gitlab.com/align/cli/-/merge_requests/78')).toBe('cli#78');
+  });
+
+  it('cites a GitLab issue through its /-/ path', () => {
+    expect(localCitationFor('https://gitlab.com/align/cli/-/issues/12')).toBe('cli#12');
+  });
+
+  it('cites a GitLab subgroup merge request by its repo (last path segment)', () => {
+    expect(localCitationFor('https://gitlab.com/group/subgroup/repo/-/merge_requests/9')).toBe('repo#9');
+  });
+
+  it('cites an older GitLab MR/issue URL that omits the /-/ separator', () => {
+    expect(localCitationFor('https://gitlab.example.com/align/cli/merge_requests/3')).toBe('cli#3');
+  });
+
   it('delegates PR and ticket URLs to the shared citationFor unchanged', () => {
     expect(localCitationFor('https://github.com/align/cli/pull/78')).toBe('cli#78');
     expect(localCitationFor('https://linear.app/align/issue/ALI-788/launch')).toBe('ALI-788');
