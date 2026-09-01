@@ -79,6 +79,7 @@ align ask "how does our auth work"   # natural language answer with sources
 align search "authentication"        # ranked list, no AI needed
 align ask src/auth/session.ts        # a file path finds decisions about that file
 align import git                     # pull commit history, no token
+align import docs                    # pull ADRs + your CLAUDE.md/AGENTS.md, no token
 align import jira --token ...        # add more sources
 align capture <url>                  # capture one decision from a PR, ticket or thread
 align check                          # check your staged diff against the graph

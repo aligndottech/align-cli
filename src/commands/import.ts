@@ -9,6 +9,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { renderTable } from '../lib/table.js';
 import { registerImportGitCommand } from './import/git.js';
+import { registerImportDocsCommand } from './import/docs.js';
 import { registerImportGitHubCommand } from './import/github.js';
 import { registerImportGitLabCommand } from './import/gitlab.js';
 import { registerImportLinearCommand } from './import/linear.js';
@@ -309,6 +310,7 @@ export function registerImportCommand(program: Command): void {
 
   registerImportListCommands(importCmd);
   registerImportGitCommand(importCmd);
+  registerImportDocsCommand(importCmd);
   registerImportGitHubCommand(importCmd);
   registerImportGitLabCommand(importCmd);
   registerImportLinearCommand(importCmd);

@@ -42,6 +42,23 @@ align import git
 | `--to` | - | End date (ISO) |
 | `--approve` | - | Skip confirmation prompt |
 
+## Docs
+
+No auth needed, same as Git. Reads ADR directories (`docs/adr`, `doc/adr`, `docs/decisions`,
+`doc/decisions`, `adr/` - whichever convention your repo uses) and your own CLAUDE.md/AGENTS.md
+content, split by section. It never re-imports what `align setup` already wrote into those files
+(the managed nudge block and the `.align/decisions.md` import line) - that would be a feedback
+loop, not a decision.
+
+```bash
+align import docs
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--limit` | `500` | Max items to import |
+| `--approve` | - | Skip confirmation prompt |
+
 ## GitHub and GitLab
 
 ```bash

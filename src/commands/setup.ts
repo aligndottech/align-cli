@@ -11,6 +11,7 @@ import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '
 import { connectDetectedAgents } from './connect-agents.js';
 import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { isGitRepo } from '../lib/git.js';
+import { fetchDocsItems } from '../lib/fetchers/docs.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
@@ -567,6 +568,31 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
     }
   }
 
+  // ALI-793: ADRs + the user's own CLAUDE.md/AGENTS.md content, same zero-auth tier as
+  // git above and independent of it - a repo can carry decision-shaped docs with no git
+  // history worth mining, or vice versa. fetchDocsItems degrades gracefully with no git
+  // remote (falls back to a stable git:// identifier), so this runs unconditionally.
+  console.log('');
+  const localDocsSpinner = p.spinner();
+  localDocsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
+  try {
+    const docsItems = await fetchDocsItems({ limit: 500 });
+    if (docsItems.length) {
+      localDocsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
+      await runPersonalImport(docsItems, localClient, {
+        label: 'repo docs',
+        approve: true,
+        appUrl: resolveAppUrl(localEnv),
+        local: true,
+        funnel: { env: localEnv, source: 'docs' },
+      });
+    } else {
+      localDocsSpinner.stop('No ADRs or CLAUDE.md/AGENTS.md content found');
+    }
+  } catch (e) {
+    localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
+  }
+
   // Now the automatic phase: fetch and import what the credentials above unlocked.
   for (const { source, tokens } of localReady) {
     const spinner = p.spinner();
@@ -877,6 +903,30 @@ async function runCloudSetup(ctx: {
     } catch {
       gitSpinner.stop('Git import skipped');
     }
+  }
+
+  // ---- Step 6b: Docs auto-import (ADRs + your own CLAUDE.md/AGENTS.md, zero-auth) ----
+  // Independent of gitAvailable: fetchDocsItems degrades gracefully with no git remote.
+  console.log('');
+  const docsSpinner = p.spinner();
+  docsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
+  try {
+    const docsItems = await fetchDocsItems({ limit: 500 });
+    if (docsItems.length) {
+      docsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
+      const ingested = await runPersonalImport(docsItems, client, {
+        label: 'repo docs',
+        approve: true,
+        appUrl: resolveAppUrl(env),
+        funnel: { env, source: 'docs' },
+      });
+      totalDecisions += ingested;
+      if (ingested > 0) sourcesImported.push('Docs');
+    } else {
+      docsSpinner.stop('No ADRs or CLAUDE.md/AGENTS.md content found');
+    }
+  } catch {
+    docsSpinner.stop('Docs import skipped');
   }
 
   // ---- Step 7: Fetch every connector concurrently (independent network I/O),
