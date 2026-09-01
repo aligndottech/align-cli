@@ -11,6 +11,7 @@ import { type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesi
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { formatWhen } from '../lib/format-date.js';
 import { resolveScopeOpts } from '../lib/repo-identity.js';
+import { askTrailingLine } from '../lib/connect-prompt.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -62,6 +63,17 @@ function sourceLink(d: SearchHit): string | null {
 }
 
 /**
+ * The trailing gap line under a source (ALI-796): only when this decision's own refs
+ * carry something the graph cannot read yet. Absent for a cloud result, which carries
+ * no external_references (the hosted gateway does not store decision_refs yet).
+ */
+function gapLine(d: SearchHit, isConnected: (connectorId: string) => boolean): string | null {
+  if (!d.external_references?.length) return null;
+  const line = askTrailingLine(d.external_references, isConnected);
+  return line ? chalk.dim(`      ${line}`) : null;
+}
+
+/**
  * "5 decisions across github, linear, slack" - printed only when results
  * genuinely span more than one platform. The claim is earned, never decorative:
  * a single-platform result set prints nothing.
@@ -87,6 +99,10 @@ export function registerAskCommand(program: Command): void {
       // ALI-798: undefined means "no opinion" - searchDecisions applies its own default
       // (current repo, or everywhere outside one) exactly as if neither flag were typed.
       const scope = resolveScopeOpts({ repo: opts.repo, all: opts.all }, envName, (m) => console.log(chalk.yellow(`  ${m}`)));
+      // ALI-796: same "does local mode hold a saved token" check status.ts and local.ts
+      // use. Only ever consulted when a result carries external_references, which today
+      // means local mode - a cloud result has none.
+      const isConnected = (id: string) => config.getConnectorFields(envName, id) !== null;
 
       // Pass the query through unchanged: the gateway's smart-search strategy
       // selector routes natural-language questions to semantic search. Stripping
@@ -201,6 +217,8 @@ export function registerAskCommand(program: Command): void {
               console.log(sourceLine(d));
               const link = sourceLink(d);
               if (link) console.log(link);
+              const gap = gapLine(d, isConnected);
+              if (gap) console.log(gap);
             }
             console.log('');
             if (results.count >= 5) {
@@ -251,6 +269,8 @@ export function registerAskCommand(program: Command): void {
           const platformLabel = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
           console.log(chalk.dim(`  id: ${d.id}`) + citeLabel + platformLabel + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
           if (d.source_url) console.log(chalk.dim(`  ${d.source_url}`));
+          const gap = gapLine(d, isConnected);
+          if (gap) console.log(gap);
           // Who to talk to (ALI-118).
           if (d.author?.name) console.log(chalk.cyan(`  talk to: ${d.author.name}`));
           console.log('');

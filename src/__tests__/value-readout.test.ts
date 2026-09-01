@@ -9,6 +9,7 @@ const base: ValueRollup = {
   supersessions: 4,
   reuseRate: 0.72,
   healthGrade: 'B',
+  gaps: [],
 };
 
 // strip ANSI so assertions aren't colour-dependent
@@ -35,7 +36,7 @@ describe('renderValueReadout (ALI-215)', () => {
   });
 
   it('keeps the value labels on an empty graph (no vanity collapse)', () => {
-    const empty: ValueRollup = { decisions: 3, conflictsCaught: 0, duplicates: 0, supersessions: 0, reuseRate: null, healthGrade: null };
+    const empty: ValueRollup = { decisions: 3, conflictsCaught: 0, duplicates: 0, supersessions: 0, reuseRate: null, healthGrade: null, gaps: [] };
     const out = plain(renderValueReadout(empty, { mode: 'cloud' }));
     expect(out).toMatch(/conflicts caught/i);
     expect(out).toMatch(/0/);
@@ -52,7 +53,7 @@ describe('renderValueReadout (ALI-215)', () => {
   });
 
   it('does not nudge on an empty graph (nudge must be earned)', () => {
-    const empty: ValueRollup = { decisions: 0, conflictsCaught: 0, duplicates: 0, supersessions: 0, reuseRate: null, healthGrade: null };
+    const empty: ValueRollup = { decisions: 0, conflictsCaught: 0, duplicates: 0, supersessions: 0, reuseRate: null, healthGrade: null, gaps: [] };
     const out = plain(renderValueReadout(empty, { mode: 'cloud' }));
     expect(out).not.toMatch(/pricing/i);
   });

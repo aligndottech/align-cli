@@ -3,7 +3,7 @@
  * tools where the rest of the story lives (ALI-792).
  *
  * These refs are the foundation of the gap-driven connect prompt ("12 decisions cite
- * Jira keys I can't read - `align connect jira`"): a ref whose platform has no
+ * Jira keys I can't read - `align import jira`"): a ref whose platform has no
  * connected source is a gap the graph can name. Until this module, the git import
  * discarded the commit body, so every one of these shapes died before ingest.
  *
@@ -11,7 +11,14 @@
  * for a bare KEY-123 that cannot distinguish Jira from Linear, and 'code' for a #N
  * pull/issue number that belongs to whichever forge hosts the repo. Only shapes a
  * connect prompt can act on are extracted - an arbitrary web URL is not a gap.
+ *
+ * `refIdentityFor` at the bottom of this file is the inverse: given a decision's OWN
+ * (platform, sourceUrl), what shape would ANOTHER decision's text have cited it as.
+ * That is the ALI-796 payoff - resolving a pre-existing gap into a real link once the
+ * missing source is imported.
  */
+
+import { citationFor } from './decision-links.js';
 
 export interface DecisionRef {
   ref: string;
@@ -84,4 +91,41 @@ export function extractRefs(text: string): DecisionRef[] {
   }
 
   return [...found.values()];
+}
+
+
+/**
+ * The inverse of extractRefs: what THIS decision's own identity would be recorded as,
+ * if some other decision's text cited it. Used at ingest to resolve a pre-existing gap
+ * into a real link the moment the missing source is imported (ALI-796) - "Jira key ->
+ * imported Jira decision".
+ *
+ * Deliberately narrow, matching extractRefs' own restraint: only jira/linear/github/
+ * gitlab source items have a citable identity. A slack message or a bare `cli` capture
+ * can be POINTED AT (via extractRefs) but nothing else could plausibly cite one by a
+ * short key, so there is no second candidate shape to check.
+ */
+export function refIdentityFor(platform: string, sourceUrl: string | null | undefined): DecisionRef[] {
+  const candidates: DecisionRef[] = [];
+  if (!sourceUrl) return candidates;
+
+  const urlPlatform = classifyUrl(sourceUrl);
+  if (urlPlatform) candidates.push({ ref: sourceUrl, platform: urlPlatform });
+
+  const key = citationFor(sourceUrl);
+  if (!key) return candidates;
+
+  // citationFor returns the bare ticket key for a jira/linear URL - the same shape
+  // extractRefs stores a bare KEY-123 mention as ('tracker', ambiguous by construction).
+  if (platform === 'jira' || platform === 'linear') {
+    candidates.push({ ref: key, platform: 'tracker' });
+  }
+  // ...and "repo#N" for a github/gitlab pull or issue URL - only the "#N" tail matches
+  // extractRefs' bare-mention shape, since a commit message says "closes #78", not
+  // "closes cli#78".
+  const hashIdx = key.lastIndexOf('#');
+  if (hashIdx !== -1 && (platform === 'github' || platform === 'gitlab')) {
+    candidates.push({ ref: key.slice(hashIdx), platform: 'code' });
+  }
+  return candidates;
 }

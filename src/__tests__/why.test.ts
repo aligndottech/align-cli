@@ -20,6 +20,8 @@ vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: 'tok' }),
     getDefaultEnv: vi.fn().mockReturnValue('prod'),
+    // ALI-796: absent by default (nothing connected) - specific tests override per connector.
+    getConnectorFields: vi.fn().mockReturnValue(null),
   })),
 }));
 
@@ -466,5 +468,45 @@ describe('align ask - the fallback derives cites too (one contract means one con
     const all = output.join('\n');
     expect(all).toContain('(align-stack#1582)');
     vi.clearAllMocks();
+  });
+});
+
+describe('align ask names a gap on a decision it returns (ALI-796)', () => {
+  async function runAskWithResult(externalReferences: Array<{ ref: string; platform: string }>) {
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue({
+        results: [{
+          id: 'd1', title: 'Switch to JWT', summary: 'Refs a ticket the graph cannot read.',
+          status: 'active', similarity: 0.9, platform: 'git',
+          external_references: externalReferences,
+        }],
+        count: 1, strategy: 'semantic' as const,
+      }),
+    });
+    const { createConfigStore } = await import('../lib/config.js');
+    (createConfigStore as ReturnType<typeof vi.fn>).mockReturnValue({
+      getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: 'tok' }),
+      getDefaultEnv: vi.fn().mockReturnValue('prod'),
+      getConnectorFields: vi.fn().mockReturnValue(null),
+    });
+    mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'no_provider' } });
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'why did we switch auth']);
+    return output.join('\n');
+  }
+
+  beforeEach(() => { output.length = 0; });
+  afterEach(() => vi.clearAllMocks());
+
+  it('names the unresolved ref under the decision that carries it', async () => {
+    const all = await runAskWithResult([{ ref: 'ALI-123', platform: 'tracker' }]);
+    expect(all).toContain("cites a ticket-tracker ref I can't read - align import jira or align import linear");
+  });
+
+  it('says nothing for a decision with no external references', async () => {
+    const all = await runAskWithResult([]);
+    expect(all).not.toMatch(/I can't read/);
   });
 });

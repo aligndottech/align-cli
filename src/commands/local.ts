@@ -45,7 +45,10 @@ export function registerLocalCommand(program: Command): void {
         return;
       }
       const db = createLocalDb(env.localDbPath ?? getLocalDbPath());
-      const rollup = localValueRollup(db);
+      // ALI-796: same check as `align status` and `align local forget` - connected means
+      // local mode holds a saved token for it.
+      const isConnected = (id: string) => config.getConnectorFields('local', id) !== null;
+      const rollup = localValueRollup(db, isConnected);
       db.close();
       console.log(`\n${  renderValueReadout(rollup, { mode: 'local' })  }\n`);
     });

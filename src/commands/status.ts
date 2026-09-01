@@ -16,13 +16,18 @@ export function registerStatusCommand(program: Command): void {
       // preferLocalEmbedded: a no-account local user must read the local graph. Without it
       // their five cloud requests all 401, settle() swallows each one, and status prints an
       // all-zero readout - a silent wrong answer (ALI-505).
-      const env = createConfigStore().getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true }));
+      const config = createConfigStore();
+      const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
+      const env = config.getEnvironment(envName);
 
       if (env.mode === 'local-embedded') {
         // Same readout `align local status` gives: the honest offline subset. Reuse rate and
         // health need the cloud graph, and renderValueReadout's local mode says so.
         const db = createLocalDb(env.localDbPath ?? getLocalDbPath());
-        const rollup = localValueRollup(db);
+        // ALI-796: a connector counts as connected once local mode holds a saved token for
+        // it - the same check `align local forget` uses to tell "removed" from "nothing saved".
+        const isConnected = (id: string) => config.getConnectorFields(envName, id) !== null;
+        const rollup = localValueRollup(db, isConnected);
         db.close();
         console.log(`\n${renderValueReadout(rollup, { mode: 'local' })}\n`);
         return;

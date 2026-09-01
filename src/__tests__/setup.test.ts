@@ -114,16 +114,23 @@ vi.mock('../lib/local-mode.js', () => ({
 // from the mocked ingest client above. Mocked here too, or every test that imports git
 // via --local opens a REAL sqlite file at the fixed dbPath the mocks share - across many
 // tests in this file, that is lock contention and stray state on disk, not a unit test.
+//
+// ALI-796: the setup summary's gap-driven pull reads decision_refs directly (the same
+// way status.ts and local.ts do), not through the mocked cloud-shaped `localClient`
+// above. Default to no refs so every pre-existing local-mode test stays silent on it.
+//
+// One `createLocalDb` mock for both - vitest only honours the last `vi.mock` call per
+// module path, so this has to be a single merged shape, not two competing ones.
 const mockLocalDbClose = vi.hoisted(() => vi.fn());
-const mockCreateLocalDb = vi.hoisted(() => vi.fn(() => ({
+const mockLocalDb = vi.hoisted(() => ({
   getStats: () => ({ decisions: 0 }),
   listDecisions: () => [],
   listLinks: () => [],
+  getAllRefs: vi.fn(() => [] as Array<{ decisionId: string; ref: string; platform: string }>),
   close: mockLocalDbClose,
-})));
-vi.mock('../lib/local-db.js', () => ({
-  createLocalDb: mockCreateLocalDb,
 }));
+const mockCreateLocalDb = vi.hoisted(() => vi.fn(() => mockLocalDb));
+vi.mock('../lib/local-db.js', () => ({ createLocalDb: mockCreateLocalDb }));
 
 const mockLoginInteractive = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock('../lib/login-flow.js', () => ({
@@ -979,6 +986,33 @@ describe('align setup', () => {
           expect.objectContaining({ message: 'How are you using Align?' }),
         );
       });
+    });
+  });
+
+  describe('--local names its own gaps at the end of setup (ALI-796)', () => {
+    it('names an unresolved-ref gap and the command that fills it in', async () => {
+      mockLocalDb.getAllRefs.mockReturnValueOnce([{ decisionId: 'a', ref: 'ALI-1', platform: 'jira' }]);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const { outro } = await import('@clack/prompts');
+      const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(text).toContain("1 decision references Jira keys I can't read - align import jira when you want it filled in.");
+    });
+
+    it('says nothing when the graph has no gap to name', async () => {
+      mockLocalDb.getAllRefs.mockReturnValueOnce([]);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const { outro } = await import('@clack/prompts');
+      const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(text).not.toMatch(/I can't read/);
+    });
+
+    it('says nothing once the connector is already connected', async () => {
+      mockLocalDb.getAllRefs.mockReturnValueOnce([{ decisionId: 'a', ref: 'ALI-1', platform: 'jira' }]);
+      mockGetConnectorFields.mockImplementation((_env: string, id: string) => (id === 'jira' ? { token: 'x' } : null));
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const { outro } = await import('@clack/prompts');
+      const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(text).not.toMatch(/I can't read/);
     });
   });
 

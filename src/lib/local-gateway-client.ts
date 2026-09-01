@@ -5,7 +5,7 @@ import { type ClassificationOutcome, classifyRelationship } from './local-relati
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
 import { repositoryOf } from './decision-links.js';
 import { localCitationFor } from './commit-cite.js';
-import { extractRefs } from './decision-refs.js';
+import { extractRefs, refIdentityFor } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
@@ -220,6 +220,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     const created = db.findIdBySource(sourceUrl, title) === null;
     const id = db.insertDecision({ title, summary, sourceUrl, platform, repo });
     db.replaceRefs(id, refs);
+    // ALI-796's payoff: if some earlier decision already cited THIS one (a git commit
+    // citing a Jira key before Jira was ever connected), resolve that gap into a real
+    // link now that the cited item has arrived. Harmless no-op for platforms with no
+    // citable identity (refIdentityFor returns [] for a plain git/slack/cli capture).
+    db.resolveRefs(id, refIdentityFor(platform, sourceUrl));
     // Embed title + summary so URL captures (whose summary is just "Captured
     // from <host>") still carry the path-derived title's semantic content.
     const embedText = title === summary ? summary : `${title}. ${summary}`;
@@ -380,6 +385,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             // No decision_url: a local-embedded decision lives only in this machine's
             // SQLite file, so any Align URL built for it would 404 wherever it pointed.
             // Absent beats fabricated - a wrong link looks clickable.
+            // ALI-796: what this decision cites, so `align ask` can name a gap.
+            external_references: db.getRefs(row.id),
           };
         })
         .filter((d): d is NonNullable<typeof d> => d !== null);

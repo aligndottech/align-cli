@@ -59,3 +59,34 @@ describe('localValueRollup (ALI-215 - honest local subset)', () => {
     expect(out.healthGrade).toBeNull();
   });
 });
+
+describe('localValueRollup gaps (ALI-796)', () => {
+  it('names an unresolved-ref gap when the connector is not connected', () => {
+    const db = createLocalDb(':memory:');
+    const citer = db.insertDecision({ title: 'A', summary: 'Refs ALI-123', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'ALI-123', platform: 'tracker' }]);
+
+    const out = localValueRollup(db, () => false);
+    db.close();
+
+    expect(out.gaps).toEqual([{ platform: 'tracker', decisions: 1, connectors: ['jira', 'linear'] }]);
+  });
+
+  it('omits a gap once its connector is connected', () => {
+    const db = createLocalDb(':memory:');
+    const citer = db.insertDecision({ title: 'A', summary: 'Refs ALI-123', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'ALI-123', platform: 'tracker' }]);
+
+    const out = localValueRollup(db, (id) => id === 'jira');
+    db.close();
+
+    expect(out.gaps).toEqual([]);
+  });
+
+  it('defaults to no gaps when no connection check is given', () => {
+    const db = createLocalDb(':memory:');
+    const out = localValueRollup(db);
+    db.close();
+    expect(out.gaps).toEqual([]);
+  });
+});

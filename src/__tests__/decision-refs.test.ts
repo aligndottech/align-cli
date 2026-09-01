@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractRefs } from '../lib/decision-refs.js';
+import { extractRefs, refIdentityFor } from '../lib/decision-refs.js';
 
 // ALI-792: the refs a decision's text carries are the foundation of the gap-driven
 // connect prompt ("12 decisions cite Jira keys I can't read"). Every shape here is one
@@ -119,5 +119,46 @@ describe('extractRefs', () => {
   // not a reference to something the graph cannot see.
   it('ignores commit URLs (a decision does not reference itself)', () => {
     expect(extractRefs('URL: https://github.com/align/cli/commit/abc123')).toEqual([]);
+  });
+});
+
+// ALI-796: the inverse of extractRefs - what this decision's OWN identity would be
+// recorded AS if some other decision cited it. This is the matching side of the
+// gap-driven pull's payoff: "resolve refs into real links where the fetched item
+// matches" needs a way to ask "does this newly-imported decision resolve any
+// pre-existing citation".
+describe('refIdentityFor', () => {
+  it('identifies a jira decision by its URL and its bare ticket key', () => {
+    const candidates = refIdentityFor('jira', 'https://acme.atlassian.net/browse/PAY-31');
+    expect(candidates).toContainEqual({ ref: 'https://acme.atlassian.net/browse/PAY-31', platform: 'jira' });
+    expect(candidates).toContainEqual({ ref: 'PAY-31', platform: 'tracker' });
+  });
+
+  it('identifies a linear decision by its URL and its bare ticket key', () => {
+    const candidates = refIdentityFor('linear', 'https://linear.app/align/issue/ALI-788/launch');
+    expect(candidates).toContainEqual({
+      ref: 'https://linear.app/align/issue/ALI-788/launch',
+      platform: 'linear',
+    });
+    expect(candidates).toContainEqual({ ref: 'ALI-788', platform: 'tracker' });
+  });
+
+  it('identifies a github decision by its URL and its bare #N', () => {
+    const candidates = refIdentityFor('github', 'https://github.com/align/cli/pull/78');
+    expect(candidates).toContainEqual({ ref: 'https://github.com/align/cli/pull/78', platform: 'github' });
+    expect(candidates).toContainEqual({ ref: '#78', platform: 'code' });
+  });
+
+  it('identifies a slack decision by its URL alone (no ticket key)', () => {
+    const candidates = refIdentityFor('slack', 'https://align.slack.com/archives/C123/p456');
+    expect(candidates).toEqual([{ ref: 'https://align.slack.com/archives/C123/p456', platform: 'slack' }]);
+  });
+
+  it('returns nothing for a decision with no source url', () => {
+    expect(refIdentityFor('cli', null)).toEqual([]);
+  });
+
+  it('returns nothing for a plain commit url (not citable by any other decision)', () => {
+    expect(refIdentityFor('git', 'https://github.com/align/cli/commit/abc1234def')).toEqual([]);
   });
 });

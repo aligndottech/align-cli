@@ -5,6 +5,8 @@
  * missing /decisions/reuse-rate must not blank the whole readout.
  */
 
+import { statusGapLine, type UnresolvedGap, unresolvedGaps } from './connect-prompt.js';
+
 export interface ValueRollup {
   decisions: number;
   conflictsCaught: number;
@@ -18,6 +20,13 @@ export interface ValueRollup {
   supersessions: number;
   reuseRate: number | null;
   healthGrade: string | null;
+  /**
+   * ALI-796: unresolved-ref gaps the local graph can name for itself - a decision
+   * cites a Jira key, but nothing has connected Jira yet. Local-only: decision_refs
+   * lives in the local SQLite graph (local-db.ts), so the hosted gateway has none to
+   * report and fetchValueRollup always sets this to [].
+   */
+  gaps: UnresolvedGap[];
 }
 
 /**
@@ -65,6 +74,8 @@ export async function fetchValueRollup(client: ValueRollupClient): Promise<Value
     supersessions: links?.supersessions_count ?? 0,
     reuseRate: reuse ? reuse.rate : null,
     healthGrade: health?.compositeScore?.grade ?? null,
+    // Cloud has no decision_refs table yet (see the `gaps` field doc above).
+    gaps: [],
   };
 }
 
@@ -106,6 +117,12 @@ export function renderValueReadout(r: ValueRollup, opts: { mode: 'cloud' | 'loca
     lines.push('');
     lines.push('  Reuse rate and health need the cloud graph - run `align login` to see them.');
   }
+  // ALI-796: name the gaps the graph can see for itself - one line per platform, only
+  // when there is one to name. Local-only, same as similarDecisions above.
+  if (r.gaps.length) {
+    lines.push('');
+    for (const gap of r.gaps) lines.push(statusGapLine(gap));
+  }
   // similarDecisions is deliberately absent: buying the upsell with a cosine artefact is
   // the defect this ticket exists to remove, not a smaller version of it (ALI-503).
   const hasValue = (opts.mode === 'local' && r.decisions >= LOCAL_SHARE_THRESHOLD)
@@ -120,14 +137,23 @@ export function renderValueReadout(r: ValueRollup, opts: { mode: 'cloud' | 'loca
 export interface LocalRollupDb {
   getStats(): { decisions: number };
   listLinks(filter?: { relation?: string }): unknown[];
+  /** ALI-796: every ref across every decision, for the gap resolver. */
+  getAllRefs(): Array<{ decisionId: string; ref: string; platform: string }>;
 }
 
 /**
  * The offline honest subset: decisions + conflict/duplicate/supersession counts derivable
  * from the local decision_links table. Reuse rate and composite health need the gateway,
  * so they are null here - we do NOT fabricate them offline (ALI-215 decision).
+ *
+ * `isConnected` defaults to "nothing is connected", which only matters when the graph
+ * actually carries refs - both real callers (status.ts, local.ts) always pass a real
+ * check, and a fixture with no refs gets `gaps: []` regardless of the default.
  */
-export function localValueRollup(db: LocalRollupDb): ValueRollup {
+export function localValueRollup(
+  db: LocalRollupDb,
+  isConnected: (connectorId: string) => boolean = () => false,
+): ValueRollup {
   const count = (relation: string) => db.listLinks({ relation }).length;
   return {
     decisions: db.getStats().decisions,
@@ -140,5 +166,6 @@ export function localValueRollup(db: LocalRollupDb): ValueRollup {
     supersessions: count('supersedes'),
     reuseRate: null,
     healthGrade: null,
+    gaps: unresolvedGaps(db.getAllRefs(), isConnected),
   };
 }
