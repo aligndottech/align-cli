@@ -193,3 +193,49 @@ describe('runPersonalImport', () => {
     consoleLog.mockClear();
   });
 });
+
+// ALI-795: import_completed rides runPersonalImport so every import path (the import
+// commands, setup's seeding) counts through one point. Only when the caller passes the
+// funnel option - the option carries the env the consent decision needs.
+const recordFunnelStage = vi.hoisted(() => vi.fn());
+vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
+
+describe('import_completed funnel stage (ALI-795)', () => {
+  beforeEach(() => {
+    recordFunnelStage.mockReset();
+  });
+
+  it('emits with the source when the funnel option is passed', async () => {
+    const env = { mode: 'local-embedded' };
+    await runPersonalImport(makeItems(2), makeClient(), {
+      label: 'git history',
+      approve: true,
+      appUrl: 'https://app.align.tech',
+      quiet: true,
+      funnel: { env: env as never, source: 'git' },
+    });
+    expect(recordFunnelStage).toHaveBeenCalledTimes(1);
+    expect(recordFunnelStage).toHaveBeenCalledWith(env, 'import_completed', 'import git');
+  });
+
+  it('emits nothing without the funnel option', async () => {
+    await runPersonalImport(makeItems(2), makeClient(), {
+      label: 'git history',
+      approve: true,
+      appUrl: 'https://app.align.tech',
+      quiet: true,
+    });
+    expect(recordFunnelStage).not.toHaveBeenCalled();
+  });
+
+  it('emits nothing when the import found no items', async () => {
+    await runPersonalImport([], makeClient(), {
+      label: 'git history',
+      approve: true,
+      appUrl: 'https://app.align.tech',
+      quiet: true,
+      funnel: { env: { mode: 'local-embedded' } as never, source: 'git' },
+    });
+    expect(recordFunnelStage).not.toHaveBeenCalled();
+  });
+});

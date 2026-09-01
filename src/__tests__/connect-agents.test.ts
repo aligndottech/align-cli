@@ -148,3 +148,33 @@ describe("connectDetectedAgents - the zero-editors message", () => {
     expect(all).toMatch(/claude code|pi/i);
   });
 });
+
+// ALI-795: mcp_wired is a funnel stage - the emitter fires from inside
+// connectDetectedAgents (the single choke point every wiring path goes through)
+// so setup, `align local start` and `align mcp --setup` all count without three
+// separate call sites.
+const recordFunnelStage = vi.hoisted(() => vi.fn());
+vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
+const getEnvironment = vi.hoisted(() => vi.fn(() => ({ mode: 'local-embedded' })));
+vi.mock('../lib/config.js', () => ({ createConfigStore: () => ({ getEnvironment }) }));
+
+describe('mcp_wired funnel stage (ALI-795)', () => {
+  beforeEach(() => {
+    recordFunnelStage.mockReset();
+    detectEditors.mockReset();
+    writeMcpConfig.mockReset();
+  });
+
+  it('emits once when at least one agent was wired', async () => {
+    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+    await connectDetectedAgents('local');
+    expect(recordFunnelStage).toHaveBeenCalledTimes(1);
+    expect(recordFunnelStage).toHaveBeenCalledWith(expect.anything(), 'mcp_wired', 'mcp');
+  });
+
+  it('emits nothing when no agent was detected', async () => {
+    detectEditors.mockReturnValue([]);
+    await connectDetectedAgents('local');
+    expect(recordFunnelStage).not.toHaveBeenCalled();
+  });
+});

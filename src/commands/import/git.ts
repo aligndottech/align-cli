@@ -73,6 +73,7 @@ export function registerImportGitCommand(importCmd: Command): void {
         label: 'git history',
         approve: opts.approve,
         appUrl: resolveAppUrl(env),
+        funnel: { env, source: 'git' },
       });
     });
 }

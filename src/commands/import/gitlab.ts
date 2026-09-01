@@ -63,7 +63,7 @@ export function registerImportGitLabCommand(importCmd: Command): void {
       try {
         const items = await fetchGitLabItems({ token, domain: opts.domain, limit: parseInt(opts.limit, 10) });
         spinner.stop(`Found ${items.length} items`);
-        await runPersonalImport(items, client, { label: 'GitLab', approve: opts.approve, appUrl: resolveAppUrl(env) });
+        await runPersonalImport(items, client, { label: 'GitLab', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'gitlab' } });
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

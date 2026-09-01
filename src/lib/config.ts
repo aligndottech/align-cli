@@ -39,6 +39,7 @@ export function createConfigStore() {
     connectorTokens: Record<string, string>;
     installId?: string;
     telemetryConsent?: TelemetryConsent;
+    funnelStagesRecorded?: string[];
   }>({
     projectName: 'align-cli',
     defaults: { environments: {}, defaultEnv: 'prod', connectorTokens: {} },
@@ -130,6 +131,16 @@ export function createConfigStore() {
     },
     setTelemetryConsent(value: TelemetryConsent) {
       store.set('telemetryConsent', value);
+    },
+    // ALI-795: which one-shot funnel stages this install has already emitted. Per-install
+    // like installId (a funnel counts an install once); the emitter consults it so the
+    // guard has exactly one enforcement point rather than one per call site.
+    wasFunnelStageRecorded(stage: string): boolean {
+      return (store.get('funnelStagesRecorded') ?? []).includes(stage);
+    },
+    markFunnelStageRecorded(stage: string): void {
+      const existing = store.get('funnelStagesRecorded') ?? [];
+      if (!existing.includes(stage)) store.set('funnelStagesRecorded', [...existing, stage]);
     },
   };
 }

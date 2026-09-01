@@ -101,15 +101,25 @@ describe('recordCommandUsage - local-embedded anonymous ping', () => {
     expect(sentBody()).toMatchObject({ command: 'context' });
   });
 
-  // The postAction hook builds `command` from the full path ("import git"), and the gateway's
-  // enum only knows top-level names - so a subcommand must be truncated, not sent whole (which
-  // the gateway would reject as an unknown command and drop the ping entirely).
-  it('truncates a multi-word command to its top-level name', async () => {
+  // ALI-795: the gateway accepts a two-word command path now (align-stack#1990), so the
+  // ping carries "import git" whole - truncating to "import" made activation-by-source
+  // unreadable, which was the whole point of the ticket. Anything past two words is
+  // still cut: the postAction hook never builds more, so a third word would be a bug's
+  // output, not a command path.
+  it('sends the full two-word command path (no longer truncating to the top level)', async () => {
     getTelemetryConsent.mockReturnValue('granted');
 
     await recordCommandUsage(localEnv, 'decisions list');
 
-    expect(sentBody()).toMatchObject({ command: 'decisions' });
+    expect(sentBody()).toMatchObject({ command: 'decisions list' });
+  });
+
+  it('caps at two words - arguments can never ride the command field', async () => {
+    getTelemetryConsent.mockReturnValue('granted');
+
+    await recordCommandUsage(localEnv, 'import git --deep');
+
+    expect(sentBody()).toMatchObject({ command: 'import git' });
   });
 
   // test 0 (local half) / 4: the global off switch wins over a granted local consent.

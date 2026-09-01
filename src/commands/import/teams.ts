@@ -63,7 +63,7 @@ export function registerImportTeamsCommand(importCmd: Command): void {
           limit: parseInt(opts.limit, 10),
         });
         spinner.stop(`Found ${items.length} messages`);
-        await runPersonalImport(items, client, { label: 'Teams', approve: opts.approve, appUrl: resolveAppUrl(env) });
+        await runPersonalImport(items, client, { label: 'Teams', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'teams' } });
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

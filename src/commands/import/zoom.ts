@@ -57,7 +57,7 @@ export function registerImportZoomCommand(importCmd: Command): void {
           limit: parseInt(opts.limit, 10),
         });
         spinner.stop(`Found ${items.length} recordings with transcripts`);
-        await runPersonalImport(items, client, { label: 'Zoom', approve: opts.approve, appUrl: resolveAppUrl(env) });
+        await runPersonalImport(items, client, { label: 'Zoom', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'zoom' } });
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

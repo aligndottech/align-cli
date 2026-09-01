@@ -143,14 +143,111 @@ async function recordAnonymousCommandUsage(command: string): Promise<void> {
   if (config.getTelemetryConsent() !== 'granted') return;
 
   const installId = config.getInstallId();
-  const topLevelCommand = command.split(' ')[0] ?? command;
+  const commandPath = commandPathOf(command);
   const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
 
   await postWithTimeout(`${target}/telemetry/anonymous`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ installId, command: topLevelCommand, cliVersion: pkg.version }),
+    body: JSON.stringify({ installId, command: commandPath, cliVersion: pkg.version }),
   });
+}
+
+/**
+ * ALI-795: the command groups whose second word is a SUBCOMMAND, mirroring the gateway's
+ * SUBCOMMAND_PARENTS (telemetryAnonymousRoutes.ts, align-stack#1990) - the two lists must
+ * agree or pings silently 400. A query-taking command (ask, search, capture...) sends its
+ * top-level word only, so a user's one-word query can never ride the command field.
+ */
+const SUBCOMMAND_PARENTS = new Set(['context', 'decisions', 'env', 'import', 'links', 'spaces', 'telemetry']);
+
+/** "import git" stays whole (activation-by-source is the point); "ask <anything>" and
+ *  every non-group command collapse to the top-level word. */
+function commandPathOf(command: string): string {
+  const [top, sub] = command.split(' ');
+  if (top !== undefined && sub !== undefined && SUBCOMMAND_PARENTS.has(top)) return `${top} ${sub}`;
+  return top ?? command;
+}
+
+/**
+ * ALI-795: the activation-funnel stages, matching the gateway's closed enum
+ * (telemetryAnonymousRoutes.ts). Repeat-use and D7 are deliberately absent - both derive
+ * server-side from install_id timestamps, so a client event would be a second writer.
+ */
+export type FunnelStage =
+  | 'setup_started'
+  | 'setup_completed'
+  | 'import_completed'
+  | 'mcp_wired'
+  | 'first_useful_decision';
+
+/**
+ * The single funnel-stage emitter. Same consent model as recordCommandUsage, no new
+ * consent surface: cloud is opt-out behind a token, local is opt-in behind the stored
+ * decision, ALIGN_TELEMETRY=0 beats both. `command` is the stage's provenance
+ * ("first_useful_decision via ask"), never arguments or content.
+ *
+ * first_useful_decision is once-per-install, guarded HERE rather than at call sites so
+ * there is exactly one enforcement point. Marked before the send, deliberately: a ping
+ * lost to a timeout costs one funnel row in the undercount direction, while marking
+ * after would re-send forever on a machine that cannot reach the gateway.
+ */
+export async function recordFunnelStage(
+  env: EnvironmentConfig,
+  stage: FunnelStage,
+  command: string,
+): Promise<void> {
+  // The whole body is guarded: telemetry must never fail or delay a command (the same
+  // invariant postWithTimeout enforces for the network half, extended to the config
+  // half). The concrete case: an emitter call site inside a command's try block plus a
+  // config store missing a method turned a working `align ask` into exit(1) - 25 tests
+  // in a file this change never touched said so (tdd.md's hand-built-fake rule).
+  try {
+    if (telemetryOptedOut()) return;
+
+    const { createConfigStore } = await import('./config.js');
+    const config = createConfigStore();
+    if (stage === 'first_useful_decision') {
+      if (config.wasFunnelStageRecorded(stage)) return;
+      config.markFunnelStageRecorded(stage);
+    }
+
+    const commandPath = commandPathOf(command);
+
+    if (env.mode === 'local-embedded') {
+      if (config.getTelemetryConsent() !== 'granted') return;
+      const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
+      await postWithTimeout(`${target}/telemetry/anonymous`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          installId: config.getInstallId(),
+          command: commandPath,
+          cliVersion: pkg.version,
+          stage,
+        }),
+      });
+      return;
+    }
+
+    if (!env.authToken || !env.tenantId) return;
+    await postWithTimeout(`${env.gatewayUrl}/telemetry/ingest`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.authToken}`,
+        'x-tenant-id': env.tenantId,
+      },
+      body: JSON.stringify({
+        eventName: `cli.funnel.${stage}`,
+        category: 'engagement',
+        platform: 'cli',
+        properties: { command: commandPath },
+      }),
+    });
+  } catch {
+    // Swallowed for the reason above. The funnel loses one row; the command survives.
+  }
 }
 
 /**

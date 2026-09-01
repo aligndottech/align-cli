@@ -106,3 +106,44 @@ describe('align ask: an empty graph and a query that matched nothing are differe
     expect(out).toMatch(/Build your graph first/);
   });
 });
+
+// ALI-795: a non-empty answer IS the funnel's activation moment. Emitted from the
+// success path only - an empty result is not a useful decision, whatever the reason.
+const recordFunnelStage = vi.hoisted(() => vi.fn());
+vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
+
+// Superset of the file's earlier local-llm mock (last registration wins): the non-empty
+// path below is the first test in this file to reach noProviderHintLines(), which the
+// original mock did not export - the renderer threw and exit(1)'d, a red for the wrong
+// reason (caught by reading the failure message, per tdd.md).
+vi.mock('../lib/local-llm.js', () => ({
+  synthesiseDetailed: vi.fn().mockResolvedValue({ ok: false, failure: { kind: 'no_provider' } }),
+  RECOMMENDED_OLLAMA_PULL: 'llama3.2',
+  noProviderHintLines: () => [],
+}));
+
+describe('first_useful_decision funnel stage (ALI-795)', () => {
+  beforeEach(() => {
+    recordFunnelStage.mockReset();
+    resolveEnv.mockReturnValue('local');
+    searchDecisions.mockReset();
+    listDecisions.mockReset();
+  });
+
+  it('emits when ask returns at least one result', async () => {
+    searchDecisions.mockResolvedValue({
+      results: [{ id: '1', title: 'Use JWT for sessions', summary: 's', platform: 'git', similarity: 0.8, source_url: null }],
+      count: 1,
+      strategy: 'semantic',
+    });
+    await ask('why jwt');
+    expect(recordFunnelStage).toHaveBeenCalledWith(expect.anything(), 'first_useful_decision', 'ask');
+  });
+
+  it('emits nothing on an empty result, empty graph or not', async () => {
+    searchDecisions.mockResolvedValue({ results: [], count: 0, strategy: 'semantic' });
+    listDecisions.mockResolvedValue([]);
+    await ask();
+    expect(recordFunnelStage).not.toHaveBeenCalled();
+  });
+});
