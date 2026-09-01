@@ -54,7 +54,7 @@ export function registerImportLinearCommand(importCmd: Command): void {
       try {
         const items = await fetchLinearItems({ token, limit: parseInt(opts.limit, 10) });
         spinner.stop(`Found ${items.length} items`);
-        await runPersonalImport(items, client, { label: 'Linear', approve: opts.approve, appUrl: resolveAppUrl(env) });
+        await runPersonalImport(items, client, { label: 'Linear', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'linear' } });
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

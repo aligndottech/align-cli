@@ -86,7 +86,7 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
           limit: parseInt(opts.limit, 10),
         });
         spinner.stop(`Found ${items.length} pages`);
-        await runPersonalImport(items, client, { label: 'Confluence', approve: opts.approve, appUrl: resolveAppUrl(env) });
+        await runPersonalImport(items, client, { label: 'Confluence', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'confluence' } });
       } catch (err) {
         spinner.stop('');
         if (err instanceof AuthExpiredError) {

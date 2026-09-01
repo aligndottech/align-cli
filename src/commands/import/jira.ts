@@ -85,7 +85,7 @@ export function registerImportJiraCommand(importCmd: Command): void {
           limit: parseInt(opts.limit, 10),
         });
         spinner.stop(`Found ${items.length} items`);
-        await runPersonalImport(items, client, { label: 'Jira', approve: opts.approve, appUrl: resolveAppUrl(env) });
+        await runPersonalImport(items, client, { label: 'Jira', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'jira' } });
       } catch (err) {
         spinner.stop('');
         if (err instanceof AuthExpiredError) {

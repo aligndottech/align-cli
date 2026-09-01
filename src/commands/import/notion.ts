@@ -60,7 +60,7 @@ Create an integration at: https://app.notion.com/developers/tokens`)
       try {
         const items = await fetchNotionItems({ token, limit: parseInt(opts.limit, 10) });
         spinner.stop(`Found ${items.length} pages`);
-        await runPersonalImport(items, client, { label: 'Notion', approve: opts.approve, appUrl: resolveAppUrl(env) });
+        await runPersonalImport(items, client, { label: 'Notion', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'notion' } });
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

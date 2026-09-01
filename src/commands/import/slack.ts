@@ -68,7 +68,7 @@ export function registerImportSlackCommand(importCmd: Command): void {
           daysBack: parseInt(opts.daysBack, 10),
         });
         spinner.stop(`Found ${items.length} threads`);
-        await runPersonalImport(items, client, { label: 'Slack', approve: opts.approve, appUrl: resolveAppUrl(env) });
+        await runPersonalImport(items, client, { label: 'Slack', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'slack' } });
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

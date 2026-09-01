@@ -512,6 +512,7 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
           approve: true,
           appUrl: resolveAppUrl(localEnv),
           local: true,
+          funnel: { env: localEnv, source: 'git' },
         });
       } else {
         gitSpinner.stop('No decisions found in git history');
@@ -543,6 +544,7 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
           approve: true,
           appUrl: resolveAppUrl(localEnv),
           local: true,
+          funnel: { env: localEnv, source: source.id },
         });
       }
     } catch (e) {
@@ -824,6 +826,7 @@ async function runCloudSetup(ctx: {
           label: 'Git',
           approve: true,
           appUrl: resolveAppUrl(env),
+          funnel: { env, source: 'git' },
         });
         totalDecisions += ingested;
         if (ingested > 0) sourcesImported.push('Git');
@@ -923,6 +926,7 @@ async function runCloudSetup(ctx: {
           approve: true,
           appUrl: resolveAppUrl(env),
           quiet: true,
+          funnel: { env, source: source.id },
           // Async ingest (ALI-114): return at DB-write speed; titles + links
           // enrich in the background. Connection counts show as 0 here and fill in later.
           deferEnrichment: true,

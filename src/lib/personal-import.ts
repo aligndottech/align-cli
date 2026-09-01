@@ -4,6 +4,8 @@ import * as p from '@clack/prompts';
 import { renderTable } from './table.js';
 import { GatewayError } from './gateway-client.js';
 import type { BatchIngestItem, createGatewayClient } from './gateway-client.js';
+import type { EnvironmentConfig } from './config.js';
+import { recordFunnelStage } from './usage-telemetry.js';
 
 export type PersonalImportItem = BatchIngestItem;
 
@@ -77,7 +79,13 @@ export async function runWithConcurrency<T>(
 export async function runPersonalImport(
   items: PersonalImportItem[],
   client: ReturnType<typeof createGatewayClient>,
-  opts: { label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean; local?: boolean },
+  opts: {
+    label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean; local?: boolean;
+    /** ALI-795: when present, emit the import_completed funnel stage after ingest.
+     *  Carries the env because the consent decision needs it; source is the connector
+     *  id ('git', 'jira'), which becomes the stage's provenance command. */
+    funnel?: { env: EnvironmentConfig; source: string };
+  },
 ): Promise<number> {
   if (!items.length) {
     p.log.warn(`No items found from ${opts.label}.`);
@@ -157,6 +165,14 @@ export async function runPersonalImport(
     } else {
       failures.push(`Batch ${i + 1}: ${(r.reason as Error).message}`);
     }
+  }
+
+  // ALI-795: ingest ran (the empty-items case returned above), so the funnel stage
+  // fires whichever rendering branch follows. Consent gating lives in the emitter.
+  // No await (Copilot on #215): never-throws, and the completion line must not wait
+  // on the telemetry timeout.
+  if (opts.funnel) {
+    void recordFunnelStage(opts.funnel.env, 'import_completed', `import ${opts.funnel.source}`);
   }
 
   // Quiet mode: one compact completion line; the shared footer is printed once

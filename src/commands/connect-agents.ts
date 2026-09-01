@@ -79,5 +79,16 @@ export async function connectDetectedAgents(
     );
   }
 
+  // ALI-795: mcp_wired is a funnel stage, emitted from this single choke point so
+  // setup, `align local start` and `align mcp --setup` all count without three call
+  // sites. Consent gating lives inside recordFunnelStage.
+  if (touched.length > 0) {
+    const { recordFunnelStage } = await import('../lib/usage-telemetry.js');
+    const { createConfigStore } = await import('../lib/config.js');
+    // No await (Copilot on #215): the emitter never throws, and setup has more work
+    // after this - telemetry must not add its 2s worst case to the wiring step.
+    void recordFunnelStage(createConfigStore().getEnvironment(envName), 'mcp_wired', 'mcp');
+  }
+
   return { detected: editors.length, connected: touched.length };
 }

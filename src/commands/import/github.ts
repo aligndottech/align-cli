@@ -54,7 +54,7 @@ export function registerImportGitHubCommand(importCmd: Command): void {
       try {
         const items = await fetchGitHubItems({ token, limit: parseInt(opts.limit, 10) });
         spinner.stop(`Found ${items.length} items`);
-        await runPersonalImport(items, client, { label: 'GitHub', approve: opts.approve, appUrl: resolveAppUrl(env) });
+        await runPersonalImport(items, client, { label: 'GitHub', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'github' } });
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);
