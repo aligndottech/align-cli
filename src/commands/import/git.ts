@@ -5,7 +5,7 @@ import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
 import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
-import { buildCommitUrl, formatCommitAsText, getCommitHistory, getRemoteUrl, isGitRepo } from '../../lib/git.js';
+import { buildCommitUrl, formatCommitAsText, getCommitHistoryDetailed, getRemoteUrl, isGitRepo } from '../../lib/git.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { commandIntro } from '../../lib/brand.js';
 
@@ -44,14 +44,21 @@ export function registerImportGitCommand(importCmd: Command): void {
 
       const spinner = p.spinner();
       spinner.start('Reading git history...');
-      const commits = await getCommitHistory({
+      const { commits, scanned } = await getCommitHistoryDetailed({
         limit: parseInt(opts.limit, 10),
         from: opts.from,
         to: opts.to,
         branch: opts.branch,
       });
       const remoteUrl = await getRemoteUrl();
-      spinner.stop(`Found ${commits.length} commits worth importing`);
+      // ALI-804: report both directions - "N commits worth importing" alone reads as "this
+      // is everything found", not as a kept fraction, which is the exact perception problem
+      // the ticket is about. Only say so when something was actually dropped, so a small
+      // scan (nothing filtered) still gets the plain, uncluttered message.
+      const dropped = scanned - commits.length;
+      spinner.stop(dropped > 0
+        ? `Scanned ${scanned} commits, kept ${commits.length} with a stated reason (${dropped} skipped - no rationale in the commit)`
+        : `Found ${commits.length} commits worth importing`);
 
       if (remoteUrl) {
         const remote = remoteUrl.includes('github.com') ? 'GitHub'
