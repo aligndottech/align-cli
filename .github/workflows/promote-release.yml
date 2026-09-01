@@ -104,7 +104,7 @@ jobs:
           ref: ${{ inputs.tag }} # server.json must be the promoted version's copy
 
       # Pinned version + checksum, not releases/latest: this runs in the
-      # RELEASE workflow, and an unpinned latest means a changed or compromised
+      # promotion workflow, and an unpinned latest means a changed or compromised
       # upstream asset executes here with our OIDC identity. The hash was
       # verified against an independent download of the pinned artifact, not
       # copied from the checksums file alone. Bumping the version means
