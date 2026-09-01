@@ -42,8 +42,8 @@ const cloudEnv: EnvironmentConfig = {
   gatewayUrl: 'https://api.align.tech',
   authToken: 'token-1',
   tenantId: 'tenant-1',
-  mode: 'cloud',
-} as EnvironmentConfig;
+  mode: 'auth',
+};
 
 function sentTo(): { url: string; body: Record<string, unknown> } {
   const args = mockFetch.mock.calls[0];
@@ -148,6 +148,25 @@ describe('recordFunnelStage', () => {
       await recordFunnelStage(localEnv, 'import_completed', 'import git');
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    // Copilot on #215: marking before the consent/token check permanently burned the
+    // stage for exactly the opt-in cohort - a not-yet-consented user's first real
+    // answer marked the install, and consenting later could never emit it.
+    it('does NOT mark when local consent is missing, so a later opt-in still emits', async () => {
+      getTelemetryConsent.mockReturnValue(undefined);
+
+      await recordFunnelStage(localEnv, 'first_useful_decision', 'ask');
+
+      expect(markFunnelStageRecorded).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('does NOT mark when the cloud token is missing, so a later login still emits', async () => {
+      await recordFunnelStage({ ...cloudEnv, authToken: null }, 'first_useful_decision', 'ask');
+
+      expect(markFunnelStageRecorded).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 

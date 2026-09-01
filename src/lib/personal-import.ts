@@ -169,8 +169,10 @@ export async function runPersonalImport(
 
   // ALI-795: ingest ran (the empty-items case returned above), so the funnel stage
   // fires whichever rendering branch follows. Consent gating lives in the emitter.
+  // No await (Copilot on #215): never-throws, and the completion line must not wait
+  // on the telemetry timeout.
   if (opts.funnel) {
-    await recordFunnelStage(opts.funnel.env, 'import_completed', `import ${opts.funnel.source}`);
+    void recordFunnelStage(opts.funnel.env, 'import_completed', `import ${opts.funnel.source}`);
   }
 
   // Quiet mode: one compact completion line; the shared footer is printed once

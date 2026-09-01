@@ -141,8 +141,11 @@ export function registerAskCommand(program: Command): void {
 
         // ALI-795: a non-empty answer is the funnel's activation moment - emitted here,
         // before rendering branches (the synthesized-answer path returns early). The
-        // once-per-install guard lives inside recordFunnelStage.
-        await recordFunnelStage(config.getEnvironment(envName), 'first_useful_decision', 'ask');
+        // once-per-install guard lives inside recordFunnelStage. Fired without await
+        // (Copilot on #215): a blackholed gateway would otherwise stall the answer by
+        // the 2s telemetry timeout; the emitter never throws, and the postAction hook's
+        // own awaited send keeps the process alive long enough for this one to land.
+        void recordFunnelStage(config.getEnvironment(envName), 'first_useful_decision', 'ask');
 
         // Conversational synthesis for natural-language questions (not file paths).
         // Uses the user's own AI provider (configured key / env var / local Ollama)

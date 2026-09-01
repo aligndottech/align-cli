@@ -207,15 +207,24 @@ export async function recordFunnelStage(
 
     const { createConfigStore } = await import('./config.js');
     const config = createConfigStore();
-    if (stage === 'first_useful_decision') {
-      if (config.wasFunnelStageRecorded(stage)) return;
-      config.markFunnelStageRecorded(stage);
-    }
+    if (stage === 'first_useful_decision' && config.wasFunnelStageRecorded(stage)) return;
+
+    // Whether this call CAN send, checked before the once-mark (Copilot on #215):
+    // marking an unsendable call permanently burned the stage for exactly the opt-in
+    // cohort - a not-yet-consented user's first real answer marked the install, and
+    // consenting later could never emit it. Mark only when a send follows, and still
+    // BEFORE the network call so an unreachable gateway undercounts rather than
+    // re-sending forever.
+    const isLocal = env.mode === 'local-embedded';
+    const canSend = isLocal
+      ? config.getTelemetryConsent() === 'granted'
+      : Boolean(env.authToken && env.tenantId);
+    if (!canSend) return;
+    if (stage === 'first_useful_decision') config.markFunnelStageRecorded(stage);
 
     const commandPath = commandPathOf(command);
 
-    if (env.mode === 'local-embedded') {
-      if (config.getTelemetryConsent() !== 'granted') return;
+    if (isLocal) {
       const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
       await postWithTimeout(`${target}/telemetry/anonymous`, {
         method: 'POST',
@@ -230,13 +239,12 @@ export async function recordFunnelStage(
       return;
     }
 
-    if (!env.authToken || !env.tenantId) return;
     await postWithTimeout(`${env.gatewayUrl}/telemetry/ingest`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${env.authToken}`,
-        'x-tenant-id': env.tenantId,
+        'x-tenant-id': env.tenantId as string,
       },
       body: JSON.stringify({
         eventName: `cli.funnel.${stage}`,

@@ -85,7 +85,9 @@ export async function connectDetectedAgents(
   if (touched.length > 0) {
     const { recordFunnelStage } = await import('../lib/usage-telemetry.js');
     const { createConfigStore } = await import('../lib/config.js');
-    await recordFunnelStage(createConfigStore().getEnvironment(envName), 'mcp_wired', 'mcp');
+    // No await (Copilot on #215): the emitter never throws, and setup has more work
+    // after this - telemetry must not add its 2s worst case to the wiring step.
+    void recordFunnelStage(createConfigStore().getEnvironment(envName), 'mcp_wired', 'mcp');
   }
 
   return { detected: editors.length, connected: touched.length };
