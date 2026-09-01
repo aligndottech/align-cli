@@ -522,10 +522,15 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   // Saved connectors the user did not pick for replacement still import - that is the whole
   // point of having saved them. Appended after the freshly collected ones so a connector
   // selected for replacement is never also imported with its old token.
-  const replacing = new Set(p.isCancel(selected) ? [] : (selected as string[]));
-  for (const source of localConnectors) {
-    const saved = savedTokens.get(source.id);
-    if (saved && !replacing.has(source.id)) localReady.push({ source, tokens: saved });
+  // Cancelling the picker (Esc) means "do no connector work", the same as it does for the
+  // collection block above; only an empty SUBMIT means "skip to finish, use what I have". They
+  // arrive as different values and must not collapse into the same branch.
+  if (!p.isCancel(selected)) {
+    const replacing = new Set(selected as string[]);
+    for (const source of localConnectors) {
+      const saved = savedTokens.get(source.id);
+      if (saved && !replacing.has(source.id)) localReady.push({ source, tokens: saved });
+    }
   }
 
   if (await isGitRepo()) {

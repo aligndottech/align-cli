@@ -673,6 +673,38 @@ describe('align setup', () => {
         expect(mockSaveConnectorFields).not.toHaveBeenCalled();
       });
 
+      // Cancelling the picker (Esc) and submitting it empty ("skip to finish") are different
+      // intents, and the saved-token path is the first thing in this flow that can tell them
+      // apart. The pair is asserted together because one without the other passes trivially.
+      it('imports nothing when the picker is CANCELLED, even with tokens saved', async () => {
+        const cancelled = Symbol('cancel');
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(cancelled as unknown as string[]);
+        const { isCancel } = await import('@clack/prompts');
+        (isCancel as unknown as ReturnType<typeof vi.fn>).mockImplementation((v: unknown) => v === cancelled);
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(fetchGitHubItems).not.toHaveBeenCalled();
+      });
+
+      it('still imports saved connectors when the picker is SKIPPED (submitted empty)', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce([]);
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(fetchGitHubItems).toHaveBeenCalledWith(
+          expect.objectContaining({ token: 'ghp_saved_last_time' }),
+        );
+      });
+
       it('tells the user where the tokens are kept and how to remove them', async () => {
         // The trust copy used to promise "stored on this machine" while nothing was stored.
         // It is asserted here so the sentence and the behaviour cannot drift apart again.

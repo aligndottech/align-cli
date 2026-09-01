@@ -113,8 +113,13 @@ export function createConfigStore() {
     },
     saveConnectorFields(env: EnvName, connectorKey: string, fields: Record<string, string>) {
       const { token, ...extras } = fields;
+      // An empty token would be stored as a connector that reads as saved and cannot be used:
+      // setup's reuse check is truthy so it would ask again, while getConnectorFields and
+      // `local forget` would both report a credential that is not there. Refuse it here, where
+      // there is one writer, rather than teaching every reader to distrust the value.
+      if (!token) throw new Error(`saveConnectorFields: ${connectorKey} needs a non-empty token`);
       const prefix = fieldPrefix(env, connectorKey);
-      const updated = { ...getTokens(), [`${env}:${connectorKey}`]: token ?? '' };
+      const updated = { ...getTokens(), [`${env}:${connectorKey}`]: token };
       for (const [name, value] of Object.entries(extras)) updated[`${prefix}${name}`] = value;
       store.set('connectorTokens', updated);
     },

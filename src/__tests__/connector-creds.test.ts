@@ -104,6 +104,17 @@ describe('local connector credentials', () => {
     expect(config.getConnectorFields('prod', 'github')).toEqual({ token: 'prod-token' });
   });
 
+  // A stored empty token is a state nothing can use: setup treats it as unsaved (the reuse check
+  // is truthy), while getConnectorFields reports the connector as saved and `local forget` claims
+  // to remove something real. Refuse it at the writer rather than leaving the readers to disagree.
+  it('refuses to save a connector with no token', () => {
+    const config = createConfigStore();
+
+    expect(() => config.saveConnectorFields('local', 'github', { token: '' })).toThrow(/token/i);
+    expect(() => config.saveConnectorFields('local', 'github', {} as Record<string, string>)).toThrow(/token/i);
+    expect(config.getConnectorFields('local', 'github')).toBeNull();
+  });
+
   it('forgets every connector in one environment, leaving the others', () => {
     const config = createConfigStore();
     config.saveConnectorFields('local', 'jira', { token: 'jira-token', email: 'dev@example.com' });
