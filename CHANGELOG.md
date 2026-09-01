@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.31.0](https://github.com/aligndottech/align-cli/compare/cli-v0.30.0...cli-v0.31.0) (2026-09-01)
+
+
+### Features
+
+* **import:** read the commit body and merges, extract refs, cite git decisions (ALI-792) ([#213](https://github.com/aligndottech/align-cli/issues/213)) ([f6d222a](https://github.com/aligndottech/align-cli/commit/f6d222ab81270a85a03e169c140266a7a2b30396))
+* **release:** staged releases with a real-user E2E gate and one-command promotion ([#216](https://github.com/aligndottech/align-cli/issues/216)) ([07bd555](https://github.com/aligndottech/align-cli/commit/07bd555fed44f4758c95e3d7f9cc64600962d183))
+* **telemetry:** funnel-stage emitters - first_useful_decision, import_completed, mcp_wired ([#215](https://github.com/aligndottech/align-cli/issues/215)) ([9dad6fd](https://github.com/aligndottech/align-cli/commit/9dad6fd0d315bdb06f7ecfd3934b8d1d43243f7c))
+
 ## [0.30.0](https://github.com/aligndottech/align-cli/compare/cli-v0.29.1...cli-v0.30.0) (2026-09-01)
 
 
