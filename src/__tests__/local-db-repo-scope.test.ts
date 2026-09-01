@@ -42,7 +42,12 @@ describe('the repo column', () => {
   it('is on a fresh database, and SCHEMA_VERSION is 3', () => {
     expect(SCHEMA_VERSION).toBe(3);
     db = createLocalDb(dbPath);
-    const cols = new DatabaseSync(dbPath).prepare('PRAGMA table_info(decisions)').all() as Array<{ name: string }>;
+    // A throwaway inline `new DatabaseSync(dbPath)` is never closed, so its handle survives
+    // this test and races afterEach's `fs.rmSync` - harmless on Linux/macOS, EBUSY on
+    // Windows (the same reason `raw` below gets its own `.close()`).
+    const inspect = new DatabaseSync(dbPath);
+    const cols = inspect.prepare('PRAGMA table_info(decisions)').all() as Array<{ name: string }>;
+    inspect.close();
     expect(cols.some((c) => c.name === 'repo')).toBe(true);
   });
 
@@ -122,7 +127,11 @@ describe('migrating a v2 graph backfills repo from source_url', () => {
     expect(remoteless?.repo).toBeNull();
 
     // And the version is now stamped 3, so re-opening does not re-run the backfill.
-    const version = (new DatabaseSync(dbPath).prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+    // Same throwaway-handle leak as the first test in this file - close it before the
+    // directory removal in afterEach, or Windows EBUSYs on the unlink.
+    const versionCheck = new DatabaseSync(dbPath);
+    const version = (versionCheck.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+    versionCheck.close();
     expect(version).toBe(SCHEMA_VERSION);
   });
 });
