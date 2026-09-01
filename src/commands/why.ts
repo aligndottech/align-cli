@@ -6,7 +6,7 @@ import ora from 'ora';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import type { SearchResults } from '../lib/gateway-client.js';
-import { citationFor } from '../lib/decision-links.js';
+import { localCitationFor } from '../lib/commit-cite.js';
 import { type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
 import { formatWhen } from '../lib/format-date.js';
 
@@ -44,7 +44,7 @@ function sourceLine(d: SearchHit): string {
   // Derive the cite when the wire omits it (the prod REST path predates
   // align-stack#1442); the UUID is the last resort, kept only because
   // `align decisions show <id>` consumes it.
-  const cite = d.cite ?? citationFor(d.source_url);
+  const cite = d.cite ?? localCitationFor(d.source_url);
   const ref = cite ? ` (${cite})` : ` (${d.id})`;
   const platform = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
   const statusLabel = d.status && d.status !== 'active' ? chalk.yellow(` [${d.status}]`) : '';
@@ -211,7 +211,7 @@ export function registerAskCommand(program: Command): void {
           // consumes the id, and a cite is not an id (the autofix's ref-swap
           // on this line would have broken that flow exactly when a cite is
           // derivable, which is most of the time).
-          const cite = d.cite ?? citationFor(d.source_url);
+          const cite = d.cite ?? localCitationFor(d.source_url);
           const citeLabel = cite ? chalk.dim(` (${cite})`) : '';
           const platformLabel = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
           console.log(chalk.dim(`  id: ${d.id}`) + citeLabel + platformLabel + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));

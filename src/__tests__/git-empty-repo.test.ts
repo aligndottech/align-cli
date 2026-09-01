@@ -24,11 +24,11 @@ describe('getCommitHistory on an empty repo (no commits yet)', () => {
   it('still parses commits when git log succeeds', async () => {
     const SEP = '\x1f';
     mockExeca.mockResolvedValueOnce({
-      stdout: `COMMIT${SEP}abc123${SEP}Adopt PostgreSQL for the decision store${SEP}Tom${SEP}2026-01-01\nsrc/db.ts`,
+      stdout: `COMMIT${SEP}f0e1d2c3b4a5f0e1d2c3b4a5f0e1d2c3b4a5f0e1${SEP}Adopt PostgreSQL for the decision store${SEP}Tom${SEP}2026-01-01${SEP}${SEP}END\n\nsrc/db.ts`,
     });
     const commits = await getCommitHistory({ limit: 10 });
     expect(commits).toHaveLength(1);
-    expect(commits[0]).toMatchObject({ sha: 'abc123', subject: 'Adopt PostgreSQL for the decision store', author: 'Tom' });
+    expect(commits[0]).toMatchObject({ sha: 'f0e1d2c3b4a5f0e1d2c3b4a5f0e1d2c3b4a5f0e1', subject: 'Adopt PostgreSQL for the decision store', author: 'Tom' });
   });
 
   it('rethrows non-empty-repo git failures (does not silently swallow real errors)', async () => {

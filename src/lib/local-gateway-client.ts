@@ -2,7 +2,9 @@ import { createLocalDb } from './local-db.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
-import { citationFor, repositoryOf } from './decision-links.js';
+import { repositoryOf } from './decision-links.js';
+import { localCitationFor } from './commit-cite.js';
+import { extractRefs } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
@@ -119,15 +121,26 @@ export function createLocalGatewayClient(dbPath: string) {
     let title = input.slice(0, 80);
     let summary = input;
     let sourceUrl: string | null = opts.sourceUrlOverride ?? null;
+    let capturedAsUrl = false;
     if (opts.sourceUrlOverride === undefined) {
       try {
         const url = new URL(input);
         sourceUrl = url.href;
         title = url.pathname.split('/').filter(Boolean).pop() ?? url.hostname;
         summary = `Captured from ${url.hostname}`;
+        capturedAsUrl = true;
       } catch { /* plain text - use as-is */ }
     }
     if (opts.titleOverride) title = opts.titleOverride.slice(0, 80);
+
+    // ALI-792: what the text points at, stored beside the decision. When the whole
+    // input IS the URL being captured, there is nothing to point at - and comparing
+    // the extracted ref against the WHATWG-normalized href leaks on every
+    // normalization delta (default-port stripping, scheme case), so the URL-capture
+    // branch skips extraction outright rather than filtering (review finding,
+    // 2026-09-01). Batch ingest still filters the decision's own source_url so a
+    // raw_text that quotes its own address is not a self-reference.
+    const refs = capturedAsUrl ? [] : extractRefs(input).filter(r => r.ref !== sourceUrl);
 
     // BEFORE the upsert: insertDecision returns the surviving id whether it inserted or
     // refreshed, so this is the only moment the difference is visible. Without it a
@@ -135,6 +148,7 @@ export function createLocalGatewayClient(dbPath: string) {
     // reads as having imported twice (ALI-770).
     const created = db.findIdBySource(sourceUrl, title) === null;
     const id = db.insertDecision({ title, summary, sourceUrl, platform });
+    db.replaceRefs(id, refs);
     // Embed title + summary so URL captures (whose summary is just "Captured
     // from <host>") still carry the path-derived title's semantic content.
     const embedText = title === summary ? summary : `${title}. ${summary}`;
@@ -229,7 +243,7 @@ export function createLocalGatewayClient(dbPath: string) {
         platform: row.platform,
         source_url: row.sourceUrl,
         created_at: row.createdAt,
-        external_references: [] as unknown[],
+        external_references: db.getRefs(row.id),
         spaces: [] as unknown[],
       };
     },
@@ -240,7 +254,7 @@ export function createLocalGatewayClient(dbPath: string) {
     async listDecisions(params: { limit?: number } = {}) {
       const limit = params.limit ?? 200;
       return db.listDecisions().slice(0, limit).map((row) => {
-        const cite = citationFor(row.sourceUrl);
+        const cite = localCitationFor(row.sourceUrl);
         return {
           id: row.id,
           title: row.title,
@@ -275,7 +289,7 @@ export function createLocalGatewayClient(dbPath: string) {
           // nothing downstream could say which repository a decision came from. The
           // hosted connector has derived both since #1441; this is that parity.
           const repository = repositoryOf(row.sourceUrl);
-          const cite = citationFor(row.sourceUrl);
+          const cite = localCitationFor(row.sourceUrl);
           return {
             id: row.id,
             title: row.title,

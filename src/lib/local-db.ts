@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS decision_links (
   confidence REAL NOT NULL DEFAULT 1.0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS decision_refs (
+  decision_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+  ref TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  PRIMARY KEY (decision_id, ref)
+);
 `;
 
 /**
@@ -349,6 +356,38 @@ export function createLocalDb(dbPath: string) {
       ).run(randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
     },
 
+    /**
+     * ALI-792: what this decision's text points at (ticket keys, #N, tool URLs).
+     * REPLACE semantics, deliberately: insertDecision refreshes the summary on
+     * re-import (a rewritten commit message should be current), so the refs derived
+     * from that text must follow it - appending would keep refs the text no longer
+     * carries, and the gap prompt (ALI-796) would name gaps that no longer exist.
+     */
+    replaceRefs(decisionId: string, refs: Array<{ ref: string; platform: string }>): void {
+      // One transaction, for the same reason migrate() uses one: the advisory hook
+      // opens this DB on every agent edit, so a concurrent reader is the normal case
+      // and must never observe the refs half-replaced. IMMEDIATE, matching migrate's
+      // reasoning about WAL and SQLITE_BUSY_SNAPSHOT.
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare(`DELETE FROM decision_refs WHERE decision_id = ?`).run(decisionId);
+        const insert = db.prepare(
+          `INSERT OR IGNORE INTO decision_refs (decision_id, ref, platform) VALUES (?, ?, ?)`
+        );
+        for (const r of refs) insert.run(decisionId, r.ref, r.platform);
+        db.exec('COMMIT');
+      } catch (err) {
+        if (db.isTransaction) db.exec('ROLLBACK');
+        throw err;
+      }
+    },
+
+    getRefs(decisionId: string): Array<{ ref: string; platform: string }> {
+      return db.prepare(
+        `SELECT ref, platform FROM decision_refs WHERE decision_id = ? ORDER BY rowid`
+      ).all(decisionId) as unknown as Array<{ ref: string; platform: string }>;
+    },
+
     listLinks(filter?: { relation?: string; decisionId?: string }): LinkRow[] {
       let sql = `SELECT id, source_id as sourceId, target_id as targetId, relation, confidence FROM decision_links WHERE 1=1`;
       const params: string[] = [];
@@ -366,7 +405,10 @@ export function createLocalDb(dbPath: string) {
     },
 
     dropAll(): void {
-      db.exec(`DELETE FROM decision_links; DELETE FROM decision_embeddings; DELETE FROM decisions;`);
+      // decision_refs listed explicitly: SQLite leaves foreign_keys OFF unless asked,
+      // so the schema's ON DELETE CASCADE never fires (same fact the v2 migration
+      // documents above).
+      db.exec(`DELETE FROM decision_refs; DELETE FROM decision_links; DELETE FROM decision_embeddings; DELETE FROM decisions;`);
     },
 
     close(): void {
