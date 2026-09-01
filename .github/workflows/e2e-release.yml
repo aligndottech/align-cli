@@ -10,6 +10,7 @@
 # against a local telemetry sink so the assertion reads the exact payloads sent, with no
 # external service in the loop.
 name: E2E Release
+run-name: E2E ${{ github.event.release.tag_name || inputs.tag }}
 
 on:
   release:
