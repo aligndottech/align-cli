@@ -72,6 +72,16 @@ export const RELATES_THRESHOLD = 0.45;
  * `align search`, which has run at 0.25 all along - as has MCP `align_get_related_decisions`.
  */
 export const RETRIEVAL_RELATES_THRESHOLD = 0.3;
+// ALI-785: the ABSOLUTE floor above is unreachable for cross-register pairs on
+// MiniLM-L6 - measured on a 403-decision six-source corpus, near-duplicates score
+// ~0.95, genuine cross-tool paraphrases 0.45-0.62, background noise 0.28-0.40, and
+// 0 of 1,729 links crossed a platform. So linking also takes each item's top few
+// neighbours RELATIVE to its own ranking, floored where the noise band ends. 0.45 is
+// the adjudication floor the product already uses elsewhere; text-cleaning schemes
+// were lab-tested first and moved nothing (title+cleaned scored 0.274 vs 0.286 raw).
+export const RELATED_TOP_K = 3;
+export const RELATED_FLOOR = 0.45;
+
 // Below this similarity between a decision and new content, the content is
 // considered to have drifted from the decision.
 export const DRIFT_THRESHOLD = 0.5;
@@ -91,7 +101,9 @@ export function createLocalGatewayClient(dbPath: string) {
       .map(e => ({ decisionId: e.decisionId, score: cosineSimilarity(embedding, e.embedding) }))
       .filter(e => e.score >= threshold)
       // ALI-218: id tiebreaker so equal-similarity candidates slice deterministically.
-      .sort((a, b) => b.score - a.score || a.decisionId.localeCompare(b.decisionId))
+      // Code-unit tiebreak, not localeCompare: collation varies by machine locale,
+      // and which equal-scored candidate makes the slice must not.
+      .sort((a, b) => b.score - a.score || (a.decisionId < b.decisionId ? -1 : a.decisionId > b.decisionId ? 1 : 0))
       .slice(0, topK);
   }
 
@@ -129,7 +141,15 @@ export function createLocalGatewayClient(dbPath: string) {
     const embedding = await getEmbedding(embedText);
     db.setEmbedding(id, embedding);
 
-    const candidates = await findSimilar(embedding, 10, SIMILARITY_THRESHOLD, id);
+    // One ranked pass, two rules united. Absolute (>= SIMILARITY_THRESHOLD, cap 10)
+    // as before, PLUS the top RELATED_TOP_K overall when they clear RELATED_FLOOR -
+    // the cross-tool edges live between those two lines (see RELATED_FLOOR's note).
+    // If the top-K are all absolute matches the relative rule adds nothing, which is
+    // the correct degenerate case rather than a special one.
+    const ranked = await findSimilar(embedding, 10, 0, id);
+    const candidates = ranked.filter(
+      (c, i) => c.score >= SIMILARITY_THRESHOLD || (i < RELATED_TOP_K && c.score >= RELATED_FLOOR),
+    );
     for (const c of candidates) {
       // ALI-503: `relates`, not `conflicts_with`. This is a cosine score with no judgement
       // behind it, and labelling it a conflict made `align local status` and the
