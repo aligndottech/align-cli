@@ -44,7 +44,7 @@ export function registerImportGitCommand(importCmd: Command): void {
 
       const spinner = p.spinner();
       spinner.start('Reading git history...');
-      const { commits, scanned } = await getCommitHistoryDetailed({
+      const { commits, scanned, rejectedByRationale } = await getCommitHistoryDetailed({
         limit: parseInt(opts.limit, 10),
         from: opts.from,
         to: opts.to,
@@ -53,11 +53,13 @@ export function registerImportGitCommand(importCmd: Command): void {
       const remoteUrl = await getRemoteUrl();
       // ALI-804: report both directions - "N commits worth importing" alone reads as "this
       // is everything found", not as a kept fraction, which is the exact perception problem
-      // the ticket is about. Only say so when something was actually dropped, so a small
-      // scan (nothing filtered) still gets the plain, uncluttered message.
-      const dropped = scanned - commits.length;
-      spinner.stop(dropped > 0
-        ? `Scanned ${scanned} commits, kept ${commits.length} with a stated reason (${dropped} skipped - no rationale in the commit)`
+      // the ticket is about. Only say so when the rationale gate actually dropped something,
+      // so a small scan (nothing filtered) still gets the plain, uncluttered message. Uses
+      // rejectedByRationale specifically, not scanned - commits.length: that difference also
+      // includes the PRE-EXISTING subject-shape rejections (chore/wip/merge/too-short), which
+      // never reached this gate at all and are not "no stated reason" (Copilot review, PR #223).
+      spinner.stop(rejectedByRationale > 0
+        ? `Scanned ${scanned} commits, kept ${commits.length} as likely decisions (${rejectedByRationale} skipped for stating no reason)`
         : `Found ${commits.length} commits worth importing`);
 
       if (remoteUrl) {

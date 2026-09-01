@@ -15,6 +15,12 @@ export interface CommitHistoryResult {
    *  `commits.length` is a fraction OF. Needed to report "fewer, better rows" honestly
    *  (ALI-804): `commits.length` alone reads as "this is everything", not as a kept count. */
   scanned: number;
+  /** Commits whose subject passed isDecisionCommit's shape check but whose body stated
+   *  no reason (ALI-804's rationale gate) - the "what changed, not why" case. Kept
+   *  separate from `scanned - commits.length`, which also includes the PRE-EXISTING
+   *  subject-shape rejections (chore/wip/merge/too-short) - folding those into "no
+   *  stated reason" overstates what THIS gate did (Copilot review, PR #223). */
+  rejectedByRationale: number;
 }
 
 /**
@@ -73,13 +79,14 @@ export async function getCommitHistoryDetailed(opts: {
     // Other git failures (e.g. a bad --branch) still surface.
     const e = err as { exitCode?: number; stderr?: string };
     if (e.exitCode === 128 && /does not have any commits|bad default revision/i.test(e.stderr ?? '')) {
-      return { commits: [], scanned: 0 };
+      return { commits: [], scanned: 0, rejectedByRationale: 0 };
     }
     throw err;
   }
 
   const commits: GitCommit[] = [];
   let scanned = 0;
+  let rejectedByRationale = 0;
   let sha = '', subject = '', author = '', date = '';
   let bodyLines: string[] = [];
   let files: string[] = [];
@@ -89,6 +96,7 @@ export async function getCommitHistoryDetailed(opts: {
     if (mode === 'idle' || !sha) return;
     scanned++;
     const shaped = resolveCommitShape(subject, bodyLines.join('\n').trimEnd());
+    if (!isDecisionCommit(shaped.subject)) return;
     // A promoted merge (ALI-792) already cleared an extra bar: its subject came from the
     // body's own first line via isDecisionCommit, and its body always retains the original
     // "Merge pull request #N from x/y" line for the PR ref - so it never needs to ALSO
@@ -96,9 +104,11 @@ export async function getCommitHistoryDetailed(opts: {
     // is unvetted prose, so the body has to state why, or it is pure "what changed"
     // (ALI-804 - the whole complaint this filter exists to answer).
     const wasPromotedMerge = shaped.subject !== subject;
-    if (isDecisionCommit(shaped.subject) && (wasPromotedMerge || hasStatedRationale(shaped.subject, shaped.body))) {
-      commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, filesChanged: files.slice(0, 10) });
+    if (!wasPromotedMerge && !hasStatedRationale(shaped.subject, shaped.body)) {
+      rejectedByRationale++;
+      return;
     }
+    commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, filesChanged: files.slice(0, 10) });
   };
 
   // A header line must carry a full 40-hex sha in the second field. Without the check,
@@ -149,7 +159,7 @@ export async function getCommitHistoryDetailed(opts: {
   }
   flush();
 
-  return { commits, scanned };
+  return { commits, scanned, rejectedByRationale };
 }
 
 export async function getCommitHistory(opts: Parameters<typeof getCommitHistoryDetailed>[0]): Promise<GitCommit[]> {
@@ -186,8 +196,11 @@ export function isDecisionCommit(subject: string): boolean {
 // nothing but the trailer.
 const TRAILER_LINE_RE = /^(co-authored-by|signed-off-by|reviewed-by|acked-by|helped-by|cc|refs?|closes?|fixes?|resolves?)\s*:\s*\S/i;
 // Attribution lines an agent appends (e.g. "🤖 Generated with [Claude Code](...)")
-// carry no rationale either - it's who/what wrote the commit, not why.
-const GENERATED_WITH_RE = /generated with/i;
+// carry no rationale either - it's who/what wrote the commit, not why. Anchored to the
+// START of the line (past an optional bot emoji): unanchored, this also matched mid-
+// sentence, so a real reason like "Regenerated with a fresh script..." was wrongly
+// stripped as if it were an attribution line (Copilot review, PR #223).
+const GENERATED_WITH_RE = /^(?:🤖\s*)?generated (with|by)\b/i;
 
 function normalizeForEcho(s: string): string {
   return s.toLowerCase().replace(/^[*\-•]\s*/, '').replace(/[^a-z0-9]+/g, ' ').trim();

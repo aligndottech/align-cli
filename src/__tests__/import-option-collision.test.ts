@@ -30,7 +30,7 @@ vi.mock('@clack/prompts', () => ({
 }));
 vi.mock('../lib/git.js', () => ({
   isGitRepo: vi.fn().mockResolvedValue(true),
-  getCommitHistoryDetailed: vi.fn().mockResolvedValue({ commits: [{ sha: 'abc123', subject: 'feat: a commit' }], scanned: 1 }),
+  getCommitHistoryDetailed: vi.fn().mockResolvedValue({ commits: [{ sha: 'abc123', subject: 'feat: a commit' }], scanned: 1, rejectedByRationale: 0 }),
   getRemoteUrl: vi.fn().mockResolvedValue(null),
   buildCommitUrl: vi.fn(() => 'git://commit/abc123'),
   formatCommitAsText: vi.fn(() => 'commit text'),

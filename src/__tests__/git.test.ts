@@ -152,6 +152,20 @@ describe('hasStatedRationale', () => {
     )).toBe(false);
   });
 
+  it('rejects the same attribution line without the emoji prefix', () => {
+    expect(hasStatedRationale('fix: correct null check', 'Generated with Claude Code')).toBe(false);
+  });
+
+  // Copilot review (PR #223): the unanchored /generated with/i also matched mid-sentence,
+  // so a genuine reason like "Regenerated with a fresh script..." was wrongly stripped as
+  // if it were an attribution line - the opposite of what the check is for.
+  it('accepts a real reason that happens to contain "generated with" mid-sentence', () => {
+    expect(hasStatedRationale(
+      'fix: correct null check',
+      'Regenerated with a fresh script to fix the encoding bug.',
+    )).toBe(true);
+  });
+
   it('accepts real content sitting alongside a trailer - the trailer does not poison it', () => {
     expect(hasStatedRationale(
       'fix: correct null check',
