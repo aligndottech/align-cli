@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.2](https://github.com/aligndottech/align-cli/compare/cli-v0.31.1...cli-v0.31.2) (2026-09-01)
+
+
+### Bug Fixes
+
+* **local:** keep the read-only tokens setup asks for (ALI-802) ([#219](https://github.com/aligndottech/align-cli/issues/219)) ([a478988](https://github.com/aligndottech/align-cli/commit/a478988805707cfd47cfcc090a9d9f23e443ea8f))
+
 ## [0.31.1](https://github.com/aligndottech/align-cli/compare/cli-v0.31.0...cli-v0.31.1) (2026-09-01)
 
 
