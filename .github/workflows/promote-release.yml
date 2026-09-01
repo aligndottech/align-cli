@@ -93,9 +93,10 @@ jobs:
           for attempt in 1 2 3 4 5; do
             npm_latest="$(npm view @aligndottech/cli dist-tags.latest)"
             [ "$npm_latest" = "${{ steps.ver.outputs.version }}" ] && break
-            echo "npm latest is $npm_latest (attempt $attempt/5, want ${{ steps.ver.outputs.version }}) - retrying"
-            sleep 5
-          done
+            if [ "$attempt" -lt 5 ]; then
+              echo "npm latest is $npm_latest (attempt $attempt/5, want ${{ steps.ver.outputs.version }}) - retrying"
+              sleep 5
+            fi
           [ "$npm_latest" = "${{ steps.ver.outputs.version }}" ] || {
             echo "FATAL: npm latest is $npm_latest after 5 attempts, expected ${{ steps.ver.outputs.version }}"; exit 1; }
           gh_latest="$(gh release view --json tagName --jq .tagName)"
