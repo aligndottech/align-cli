@@ -1,0 +1,133 @@
+# ALI-797: promotion is the ONLY step that makes a release public, and it ships the
+# identical bytes the E2E and the human pass tested - one dist-tag move and one
+# prerelease flag flip, no rebuild anywhere. Runbook: docs/RELEASING.md.
+name: Promote Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to promote (e.g. cli-v0.31.0)'
+        required: true
+      force:
+        description: 'Promote even if the E2E run for this tag is not green (break-glass only - say why in the run)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # flip prerelease -> latest on the release
+  id-token: write # npm provenance-adjacent + MCP registry OIDC login
+  actions: read # read the E2E run conclusion for the gate
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The gate: a promotion without a green E2E for THIS tag is refused, because an
+      # unexercised promote is exactly the "ship what you didn't test" this pipeline
+      # exists to prevent. `force` exists for a broken E2E harness, not a red one.
+      - name: Require a green E2E run for this tag
+        if: ${{ !inputs.force }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          conclusion="$(gh run list --workflow=e2e-release.yml --json conclusion,displayTitle \
+            --jq "[.[] | select(.displayTitle | contains(\"$TAG\"))][0].conclusion // \"absent\"")"
+          echo "e2e for $TAG: $conclusion"
+          if [ "$conclusion" != "success" ]; then
+            echo "FATAL: the most recent E2E run for $TAG is '$conclusion', not success."
+            echo "       Fix the release (or the harness) and re-run e2e-release.yml first."
+            echo "       force=true overrides - break-glass only."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16'
+          registry-url: 'https://registry.npmjs.org'
+
+      # cli-vX.Y.Z -> X.Y.Z. Derived here once; an empty result stops the job before
+      # any mutation, rather than dist-tagging an empty string.
+      - name: Resolve the version from the tag
+        id: ver
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          version="${TAG#cli-v}"
+          if [ -z "$version" ] || [ "$version" = "$TAG" ]; then
+            echo "FATAL: tag '$TAG' does not look like cli-vX.Y.Z"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The whole npm promotion: the tarball tested under `next` becomes `latest`.
+      - name: Promote the npm dist-tag
+        run: npm dist-tag add "@aligndottech/cli@${{ steps.ver.outputs.version }}" latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # The whole GitHub promotion: releases/latest/download (install.sh's default
+      # path) now serves this release's assets - the same files the E2E installed.
+      - name: Flip the release from prerelease to latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ inputs.tag }}" --prerelease=false --latest
+
+      # Verify the EFFECT of both promotions, not the commands' exit codes.
+      - name: Verify latest points here on both channels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm_latest="$(npm view @aligndottech/cli dist-tags.latest)"
+          [ "$npm_latest" = "${{ steps.ver.outputs.version }}" ] || {
+            echo "FATAL: npm latest is $npm_latest, expected ${{ steps.ver.outputs.version }}"; exit 1; }
+          gh_latest="$(gh release view --json tagName --jq .tagName)"
+          [ "$gh_latest" = "${{ inputs.tag }}" ] || {
+            echo "FATAL: GitHub latest release is $gh_latest, expected ${{ inputs.tag }}"; exit 1; }
+          echo "latest = ${{ inputs.tag }} on npm and GitHub"
+
+  # Moved here from release-please.yml (ALI-797): the MCP registry should describe the
+  # version a stranger actually gets, which is only true after promotion. Everything
+  # below is the previous job verbatim, pinned publisher included.
+  mcp-registry:
+    needs: promote
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC login to the MCP registry
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }} # server.json must be the promoted version's copy
+
+      # Pinned version + checksum, not releases/latest: this runs in the
+      # RELEASE workflow, and an unpinned latest means a changed or compromised
+      # upstream asset executes here with our OIDC identity. The hash was
+      # verified against an independent download of the pinned artifact, not
+      # copied from the checksums file alone. Bumping the version means
+      # updating both lines - deliberately, that is the point.
+      - name: Install mcp-publisher (pinned + checksum-verified)
+        run: |
+          MCP_PUBLISHER_VERSION="v1.8.1"
+          MCP_PUBLISHER_SHA256="a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+          curl -sSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+
+      - name: Login to the MCP registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json
+        run: |
+          # npm metadata can lag by a few seconds, and the registry reads it to
+          # check mcpName - retry rather than fail the promotion on propagation delay.
+          n=0
+          until ./mcp-publisher publish; do
+            n=$((n+1))
+            [ "$n" -ge 3 ] && { echo "registry publish failed after $n attempts"; exit 1; }
+            sleep 30
+          done
