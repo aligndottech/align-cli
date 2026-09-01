@@ -80,7 +80,7 @@ export const RETRIEVAL_RELATES_THRESHOLD = 0.3;
 // the adjudication floor the product already uses elsewhere; text-cleaning schemes
 // were lab-tested first and moved nothing (title+cleaned scored 0.274 vs 0.286 raw).
 export const RELATED_TOP_K = 3;
-export const RELATED_FLOOR = 0.45;
+export const RELATED_FLOOR = RELATES_THRESHOLD;
 
 // Below this similarity between a decision and new content, the content is
 // considered to have drifted from the decision.
