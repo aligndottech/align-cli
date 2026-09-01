@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.1](https://github.com/aligndottech/align-cli/compare/cli-v0.31.0...cli-v0.31.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* **e2e:** assert the WIRE format - stage is a client payload field, cli.funnel.* is server-derived ([#217](https://github.com/aligndottech/align-cli/issues/217)) ([bcb4ca0](https://github.com/aligndottech/align-cli/commit/bcb4ca072f2be09bb86d01659ce85289e0e8a03d))
+
 ## [0.31.0](https://github.com/aligndottech/align-cli/compare/cli-v0.30.0...cli-v0.31.0) (2026-09-01)
 
 
