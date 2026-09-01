@@ -17,12 +17,19 @@ export async function getCommitHistory(opts: {
 }): Promise<GitCommit[]> {
   const SEP = '\x1f';
   const MARKER = `COMMIT${SEP}`;
+  const BODY_END = `${SEP}END`;
 
   // --name-only fetches metadata + file list in one git invocation,
   // replacing the previous O(N) approach of one git show --stat per commit.
+  //
+  // ALI-792: %b (the body) is in the format now, and merges are no longer excluded.
+  // The body is where the evidence lives - ticket refs, closes #N, thread links, and
+  // on squash-merge repos the whole PR description - and it was previously discarded
+  // (body was hard-coded ''). A non-empty %b always ends with a newline, so the
+  // SEP+END terminator lands on its own line; an empty %b puts it inline on the
+  // header line. Measured against real git output, 2026-09-01, not inferred.
   const args = [
-    `--format=COMMIT${SEP}%H${SEP}%s${SEP}%aN${SEP}%aI`,
-    '--no-merges',
+    `--format=COMMIT${SEP}%H${SEP}%s${SEP}%aN${SEP}%aI${SEP}%b${SEP}END`,
     '--name-only',
     '-n', String(opts.limit ?? 500),
   ];
@@ -47,12 +54,15 @@ export async function getCommitHistory(opts: {
 
   const commits: GitCommit[] = [];
   let sha = '', subject = '', author = '', date = '';
+  let bodyLines: string[] = [];
   let files: string[] = [];
-  let active = false;
+  let mode: 'idle' | 'body' | 'files' = 'idle';
 
   const flush = () => {
-    if (active && sha && isDecisionCommit(subject)) {
-      commits.push({ sha, subject, body: '', author, date, filesChanged: files.slice(0, 10) });
+    if (mode === 'idle' || !sha) return;
+    const shaped = resolveCommitShape(subject, bodyLines.join('\n').trimEnd());
+    if (isDecisionCommit(shaped.subject)) {
+      commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, filesChanged: files.slice(0, 10) });
     }
   };
 
@@ -64,15 +74,48 @@ export async function getCommitHistory(opts: {
       subject = parts[2] ?? '';
       author = parts[3] ?? '';
       date = parts[4] ?? '';
+      bodyLines = [];
       files = [];
-      active = true;
-    } else if (active && line.trim()) {
+      // An empty body renders SEP+END inline on the header line (parts: [..., '', 'END']);
+      // a non-empty body continues on following lines until the terminator line.
+      if (parts[parts.length - 1] === 'END') {
+        mode = 'files';
+      } else {
+        bodyLines.push(parts.slice(5).join(SEP));
+        mode = 'body';
+      }
+    } else if (mode === 'body') {
+      if (line === BODY_END) {
+        mode = 'files';
+      } else {
+        bodyLines.push(line);
+      }
+    } else if (mode === 'files' && line.trim()) {
       files.push(line.trim());
     }
   }
   flush();
 
   return commits;
+}
+
+/**
+ * A merge commit's boilerplate subject hides the decision its body carries: on GitHub's
+ * default merge flow the PR title and description live in the BODY ("Merge pull request
+ * #78 from x/y" \n\n "Adopt token-bucket rate limiting..."). Promote the body's first
+ * line to the subject when it would pass the decision filter on its own, and keep the
+ * original merge subject in the body so the #N PR ref survives into the ingested text.
+ * A merge whose body has nothing decision-shaped keeps its boilerplate subject and is
+ * excluded by isDecisionCommit exactly as before.
+ */
+function resolveCommitShape(subject: string, body: string): { subject: string; body: string } {
+  if (!/^merge\b/i.test(subject.trim())) return { subject, body };
+  const lines = body.split('\n');
+  const firstIdx = lines.findIndex(l => l.trim());
+  const first = firstIdx === -1 ? '' : lines[firstIdx].trim();
+  if (!isDecisionCommit(first)) return { subject, body };
+  const rest = lines.slice(firstIdx + 1).join('\n').trim();
+  return { subject: first, body: [subject, rest].filter(Boolean).join('\n') };
 }
 
 export function isDecisionCommit(subject: string): boolean {

@@ -136,3 +136,88 @@ describe('formatCommitAsText', () => {
     expect(text).toContain('Replaces session tokens with stateless JWTs.');
   });
 });
+
+// ALI-792: the old format hard-coded body: '' and passed --no-merges, so every ref a
+// commit body carried (ALI-123, closes #45, slack links, squash-merge PR descriptions)
+// died before ingest. These pin the new single-invocation parser. Field separator is
+// \x1f and a non-empty body is terminated by a line reading "\x1fEND" (measured against
+// real git output, 2026-09-01 - an EMPTY body puts END inline on the header line).
+describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
+  const SEP = '';
+  const stdoutOf = (lines: string[]) => lines.join('\n');
+
+  const mockLog = (stdout: string) => {
+    vi.mocked(execa).mockResolvedValueOnce({ stdout, stderr: '' } as Awaited<ReturnType<typeof execa>>);
+  };
+
+  it('populates a multi-line body and still parses the file list after it', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}abc111${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}We decided against server-side sessions. Refs ALI-123 and closes #45.`,
+      'See https://align.slack.com/archives/C123/p456 for the thread.',
+      `${SEP}END`,
+      '',
+      'src/auth.ts',
+      'src/middleware.ts',
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(1);
+    expect(commits[0].body).toContain('Refs ALI-123 and closes #45.');
+    expect(commits[0].body).toContain('slack.com/archives/C123');
+    expect(commits[0].filesChanged).toEqual(['src/auth.ts', 'src/middleware.ts']);
+  });
+
+  it('keeps body empty when the commit has none (END inline on the header line)', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}abc222${SEP}Switch database from Postgres to CockroachDB${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${SEP}END`,
+      '',
+      'db/schema.sql',
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(1);
+    expect(commits[0].body).toBe('');
+    expect(commits[0].filesChanged).toEqual(['db/schema.sql']);
+  });
+
+  it('no longer passes --no-merges (merge bodies carry the PR description)', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog('');
+    await getCommitHistory({});
+    const call = vi.mocked(execa).mock.calls.at(-1);
+    expect(call?.[1]).not.toContain('--no-merges');
+  });
+
+  it('promotes a boilerplate merge subject to the body first line and keeps the PR ref', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}abc333${SEP}Merge pull request #78 from align/feat${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}Adopt token-bucket rate limiting on all public endpoints`,
+      `${SEP}END`,
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(1);
+    expect(commits[0].subject).toBe('Adopt token-bucket rate limiting on all public endpoints');
+    // The original merge subject moves INTO the body so "#78" survives into the
+    // ingested text and the ref extractor - dropping it would lose the PR pointer.
+    expect(commits[0].body).toContain('Merge pull request #78');
+  });
+
+  it('still excludes a bare "Merge branch" with no meaningful body', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}abc444${SEP}Merge branch 'main' into feature/x${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${SEP}END`,
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(0);
+  });
+
+  it('excludes a merge whose body first line is itself boilerplate-short', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}abc555${SEP}Merge pull request #9 from align/tiny${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}fix typo`,
+      `${SEP}END`,
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(0);
+  });
+});

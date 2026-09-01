@@ -2,7 +2,9 @@ import { createLocalDb } from './local-db.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
-import { citationFor, repositoryOf } from './decision-links.js';
+import { repositoryOf } from './decision-links.js';
+import { localCitationFor } from './commit-cite.js';
+import { extractRefs } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
@@ -129,12 +131,18 @@ export function createLocalGatewayClient(dbPath: string) {
     }
     if (opts.titleOverride) title = opts.titleOverride.slice(0, 80);
 
+    // ALI-792: what the text points at, stored beside the decision. The decision's own
+    // source_url is filtered out - `align capture <jira-url>` must not record the
+    // decision as referencing itself, or the gap prompt counts it as a missing source.
+    const refs = extractRefs(input).filter(r => r.ref !== sourceUrl);
+
     // BEFORE the upsert: insertDecision returns the surviving id whether it inserted or
     // refreshed, so this is the only moment the difference is visible. Without it a
     // re-import reports every decision as imported while the graph does not move, which
     // reads as having imported twice (ALI-770).
     const created = db.findIdBySource(sourceUrl, title) === null;
     const id = db.insertDecision({ title, summary, sourceUrl, platform });
+    db.replaceRefs(id, refs);
     // Embed title + summary so URL captures (whose summary is just "Captured
     // from <host>") still carry the path-derived title's semantic content.
     const embedText = title === summary ? summary : `${title}. ${summary}`;
@@ -229,7 +237,7 @@ export function createLocalGatewayClient(dbPath: string) {
         platform: row.platform,
         source_url: row.sourceUrl,
         created_at: row.createdAt,
-        external_references: [] as unknown[],
+        external_references: db.getRefs(row.id),
         spaces: [] as unknown[],
       };
     },
@@ -240,7 +248,7 @@ export function createLocalGatewayClient(dbPath: string) {
     async listDecisions(params: { limit?: number } = {}) {
       const limit = params.limit ?? 200;
       return db.listDecisions().slice(0, limit).map((row) => {
-        const cite = citationFor(row.sourceUrl);
+        const cite = localCitationFor(row.sourceUrl);
         return {
           id: row.id,
           title: row.title,
@@ -275,7 +283,7 @@ export function createLocalGatewayClient(dbPath: string) {
           // nothing downstream could say which repository a decision came from. The
           // hosted connector has derived both since #1441; this is that parity.
           const repository = repositoryOf(row.sourceUrl);
-          const cite = citationFor(row.sourceUrl);
+          const cite = localCitationFor(row.sourceUrl);
           return {
             id: row.id,
             title: row.title,

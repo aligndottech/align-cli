@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS decision_links (
   confidence REAL NOT NULL DEFAULT 1.0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS decision_refs (
+  decision_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+  ref TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  PRIMARY KEY (decision_id, ref)
+);
 `;
 
 /**
@@ -347,6 +354,27 @@ export function createLocalDb(dbPath: string) {
          ON CONFLICT(source_id, target_id, relation)
            DO UPDATE SET confidence = MAX(confidence, excluded.confidence)`
       ).run(randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
+    },
+
+    /**
+     * ALI-792: what this decision's text points at (ticket keys, #N, tool URLs).
+     * REPLACE semantics, deliberately: insertDecision refreshes the summary on
+     * re-import (a rewritten commit message should be current), so the refs derived
+     * from that text must follow it - appending would keep refs the text no longer
+     * carries, and the gap prompt (ALI-796) would name gaps that no longer exist.
+     */
+    replaceRefs(decisionId: string, refs: Array<{ ref: string; platform: string }>): void {
+      db.prepare(`DELETE FROM decision_refs WHERE decision_id = ?`).run(decisionId);
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO decision_refs (decision_id, ref, platform) VALUES (?, ?, ?)`
+      );
+      for (const r of refs) insert.run(decisionId, r.ref, r.platform);
+    },
+
+    getRefs(decisionId: string): Array<{ ref: string; platform: string }> {
+      return db.prepare(
+        `SELECT ref, platform FROM decision_refs WHERE decision_id = ? ORDER BY rowid`
+      ).all(decisionId) as unknown as Array<{ ref: string; platform: string }>;
     },
 
     listLinks(filter?: { relation?: string; decisionId?: string }): LinkRow[] {

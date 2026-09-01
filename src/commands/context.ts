@@ -23,7 +23,7 @@ import path from 'node:path';
 import { createConfigStore } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
-import { citationFor } from '../lib/decision-links.js';
+import { localCitationFor } from '../lib/commit-cite.js';
 import {
   ALIGN_CONTEXT_PATH,
   ALIGN_IMPORT_LINE,
@@ -65,7 +65,7 @@ export function registerContextCommand(program: Command): void {
         const rows = await client.listDecisions({ limit, status: 'active' });
         decisions = rows.map((d) => ({
           title: d.title,
-          ...(citationFor(d.source_url) ? { cite: citationFor(d.source_url) } : {}),
+          ...(localCitationFor(d.source_url) ? { cite: localCitationFor(d.source_url) } : {}),
           ...(d.source_url ? { sourceUrl: d.source_url } : {}),
         }));
       } catch (err) {
