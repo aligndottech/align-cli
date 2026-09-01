@@ -188,8 +188,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Fixture repo: a cold user's project. Three commits with decision-shaped
-# messages so `import git` has something real to extract.
+# Fixture repo: a cold user's project. Three commits, two with a real BODY
+# stating the reason - ALI-804's hasStatedRationale() requires a non-empty
+# body (git.ts), so a rationale folded into the subject line alone (the
+# original shape here) is filtered out same as a chore commit. Two -m flags
+# give each commit a subject and a separate body paragraph.
 # ---------------------------------------------------------------------------
 FIXTURE="$SMOKE_TMP/project"
 mkdir -p "$FIXTURE"
@@ -199,10 +202,12 @@ git -C "$FIXTURE" add README.md
 git -C "$FIXTURE" commit -qm "chore: initial commit"
 echo "db=postgres" > "$FIXTURE/config.ini"
 git -C "$FIXTURE" add config.ini
-git -C "$FIXTURE" commit -qm "feat: use Postgres over SQLite for the main store because we need concurrent writers"
+git -C "$FIXTURE" commit -qm "feat: use Postgres over SQLite for the main store" \
+  -m "We need concurrent writers, and SQLite serializes them."
 echo "retries=3" >> "$FIXTURE/config.ini"
 git -C "$FIXTURE" add config.ini
-git -C "$FIXTURE" commit -qm "fix: decided to cap retries at 3 instead of infinite backoff to bound queue latency"
+git -C "$FIXTURE" commit -qm "fix: cap retries at 3" \
+  -m "Bounds queue latency instead of the infinite backoff we had before."
 
 # ---------------------------------------------------------------------------
 # The cold sequence. Each step: bounded by a portable timeout, exit code read

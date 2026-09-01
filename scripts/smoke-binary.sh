@@ -236,10 +236,15 @@ git -C "$FIXTURE" config user.email smoke@example.invalid
 git -C "$FIXTURE" config user.name "Smoke Tester"
 echo "db=postgres" > "$FIXTURE/config.ini"
 git -C "$FIXTURE" add config.ini
-git -C "$FIXTURE" commit -qm "feat: use Postgres over SQLite for the main store because we need concurrent writers"
+# ALI-804's hasStatedRationale() (git.ts) requires a non-empty BODY - rationale folded
+# into the subject alone (this fixture's original shape) is filtered same as a chore
+# commit. Two -m flags give each commit a subject and a separate body paragraph.
+git -C "$FIXTURE" commit -qm "feat: use Postgres over SQLite for the main store" \
+  -m "We need concurrent writers, and SQLite serializes them."
 echo "retries=3" >> "$FIXTURE/config.ini"
 git -C "$FIXTURE" add config.ini
-git -C "$FIXTURE" commit -qm "fix: decided to cap retries at 3 instead of infinite backoff to bound queue latency"
+git -C "$FIXTURE" commit -qm "fix: cap retries at 3" \
+  -m "Bounds queue latency instead of the infinite backoff we had before."
 
 cd "$FIXTURE"
 echo ""
