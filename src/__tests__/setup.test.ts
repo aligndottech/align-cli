@@ -61,6 +61,12 @@ vi.mock('../lib/gateway-client.js', () => ({
 
 const mockGetConnectorToken = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSetConnectorToken = vi.hoisted(() => vi.fn());
+// ALI-802: saved local credentials. Default to "nothing saved" so every pre-existing test
+// keeps its subject - the connect-from-scratch flow - rather than silently taking the new
+// reuse path.
+const mockGetConnectorFields = vi.hoisted(() => vi.fn().mockReturnValue(null));
+const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
+const mockForgetConnector = vi.hoisted(() => vi.fn());
 
 vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
@@ -70,6 +76,9 @@ vi.mock('../lib/config.js', () => ({
     setTenantId: vi.fn(),
     getConnectorToken: mockGetConnectorToken,
     setConnectorToken: mockSetConnectorToken,
+    getConnectorFields: mockGetConnectorFields,
+    saveConnectorFields: mockSaveConnectorFields,
+    forgetConnector: mockForgetConnector,
     getConnectorCloudId: vi.fn().mockReturnValue(null),
     setConnectorCloudId: vi.fn(),
     getConnectorSiteBase: vi.fn().mockReturnValue(null),
@@ -598,6 +607,86 @@ describe('align setup', () => {
       expect(said).not.toMatch(/requires a secret we would have to hold/i);
       // Positive control for those negatives: the message itself was found at all.
       expect(said).toMatch(/Local mode uses read-only tokens/);
+    });
+
+    // ALI-802. Reported by an outside tester who was asked to paste the same GitHub PAT on
+    // every run: setup collected credentials, used them for one fetch and dropped them. The
+    // storage API already existed and setup never called it.
+    describe('saved read-only tokens', () => {
+      it('imports from a saved connector without asking for anything', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce([]);
+        const { password } = await import('@clack/prompts');
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(fetchGitHubItems).toHaveBeenCalledWith(
+          expect.objectContaining({ token: 'ghp_saved_last_time' }),
+        );
+        expect(password).not.toHaveBeenCalled();
+      });
+
+      it('says which connectors it is using saved tokens for', async () => {
+        // A silent reuse is indistinguishable from having done nothing, which is the same
+        // disclosure rule the gh-token reuse above already follows.
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce([]);
+        const { log } = await import('@clack/prompts');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
+          .map((c: unknown[]) => String(c[0]))
+          .join('\n');
+        expect(said).toMatch(/saved read-only token/i);
+        expect(said).toMatch(/GitHub/);
+      });
+
+      it('saves a newly pasted token once the fetch it unlocked has succeeded', async () => {
+        // After the fetch, not before: a token that never worked is not worth remembering,
+        // and storing it would make the next run fail silently instead of asking again.
+        mockGetConnectorFields.mockReturnValue(null);
+        mockMultiselect.mockResolvedValueOnce(['github']);
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(mockSaveConnectorFields).toHaveBeenCalledWith(
+          'local',
+          'github',
+          expect.objectContaining({ token: 'test-token' }),
+        );
+      });
+
+      it('does not save a token whose fetch failed', async () => {
+        mockGetConnectorFields.mockReturnValue(null);
+        mockMultiselect.mockResolvedValueOnce(['github']);
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+        (fetchGitHubItems as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('401 Bad credentials'));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(mockSaveConnectorFields).not.toHaveBeenCalled();
+      });
+
+      it('tells the user where the tokens are kept and how to remove them', async () => {
+        // The trust copy used to promise "stored on this machine" while nothing was stored.
+        // It is asserted here so the sentence and the behaviour cannot drift apart again.
+        mockGetConnectorFields.mockReturnValue(null);
+        mockMultiselect.mockResolvedValueOnce([]);
+        const { log } = await import('@clack/prompts');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
+          .map((c: unknown[]) => String(c[0]))
+          .join('\n');
+        expect(said).toMatch(/align local forget/);
+      });
     });
 
     it('asks for the Atlassian email, domain and API token ONCE across Jira and Confluence', async () => {

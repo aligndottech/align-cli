@@ -43,9 +43,18 @@ export function createConfigStore() {
   }>({
     projectName: 'align-cli',
     defaults: { environments: {}, defaultEnv: 'prod', connectorTokens: {} },
+    // This file holds the read-only tokens local mode asks for, so it is a credential file
+    // rather than ordinary config. 0600 is also what the setup copy promises the user.
+    configFileMode: 0o600,
   });
 
   const getEnvs = () => store.get('environments') as Record<string, Partial<EnvironmentConfig>>;
+  const getTokens = () => store.get('connectorTokens') as Record<string, string>;
+
+  // Extra fields (an Atlassian email, a GitLab domain) live beside the token under a `field:`
+  // segment. The OAuth path already writes `<env>:<key>:cloudId` and `:siteBase` in this same
+  // map, and the segment is what stops a connector field of either name colliding with them.
+  const fieldPrefix = (env: EnvName, connectorKey: string) => `${env}:${connectorKey}:field:`;
 
   return {
     getEnvironment(env: EnvName): EnvironmentConfig {
@@ -83,6 +92,46 @@ export function createConfigStore() {
     setConnectorToken(env: EnvName, connectorKey: string, token: string) {
       const tokens = store.get('connectorTokens') as Record<string, string>;
       store.set('connectorTokens', { ...tokens, [`${env}:${connectorKey}`]: token });
+    },
+    /**
+     * Everything local mode collected for one connector: the token plus whatever extra fields
+     * that connector asks for. `null` means nothing is stored, which is what setup uses to tell
+     * "never connected" from "connected with a token and no extras" - GitHub is the second case,
+     * and reading it as the first is how it ended up re-asking on every run (ALI-802).
+     */
+    getConnectorFields(env: EnvName, connectorKey: string): Record<string, string> | null {
+      const tokens = getTokens();
+      const token = tokens[`${env}:${connectorKey}`];
+      if (token === undefined) return null;
+
+      const prefix = fieldPrefix(env, connectorKey);
+      const fields: Record<string, string> = { token };
+      for (const [key, value] of Object.entries(tokens)) {
+        if (key.startsWith(prefix)) fields[key.slice(prefix.length)] = value;
+      }
+      return fields;
+    },
+    saveConnectorFields(env: EnvName, connectorKey: string, fields: Record<string, string>) {
+      const { token, ...extras } = fields;
+      const prefix = fieldPrefix(env, connectorKey);
+      const updated = { ...getTokens(), [`${env}:${connectorKey}`]: token ?? '' };
+      for (const [name, value] of Object.entries(extras)) updated[`${prefix}${name}`] = value;
+      store.set('connectorTokens', updated);
+    },
+    /** Drops every key this connector owns - token, extra fields, and any OAuth cloudId/siteBase. */
+    forgetConnector(env: EnvName, connectorKey: string) {
+      const owned = `${env}:${connectorKey}`;
+      const kept = Object.fromEntries(
+        Object.entries(getTokens()).filter(([key]) => key !== owned && !key.startsWith(`${owned}:`)),
+      );
+      store.set('connectorTokens', kept);
+    },
+    /** Every connector in one environment. The other environments' credentials are untouched. */
+    forgetAllConnectors(env: EnvName) {
+      const kept = Object.fromEntries(
+        Object.entries(getTokens()).filter(([key]) => !key.startsWith(`${env}:`)),
+      );
+      store.set('connectorTokens', kept);
     },
     getConnectorCloudId(env: EnvName, connectorKey: string): string | null {
       const tokens = store.get('connectorTokens') as Record<string, string>;
