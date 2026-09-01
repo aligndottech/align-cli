@@ -77,13 +77,28 @@ jobs:
         run: gh release edit "${{ inputs.tag }}" --prerelease=false --latest
 
       # Verify the EFFECT of both promotions, not the commands' exit codes.
+      #
+      # npm's registry write and its read path are not the same store - `npm dist-tag add`
+      # returning 0 means the write was accepted, not that a read a few hundred ms later sees
+      # it (measured on cli-v0.31.2: the add printed "+latest: ...@0.31.2" at T, this check
+      # read back 0.31.1 at T+700ms, and `npm view` a minute later already showed 0.31.2 -
+      # the promotion was correct throughout, only this check's timing was wrong). Retrying a
+      # READ is safe here specifically because nothing about it is a mutation to reorder or
+      # double up - unlike the writes above, which stay bare and unretried.
       - name: Verify latest points here on both channels
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npm_latest="$(npm view @aligndottech/cli dist-tags.latest)"
+          npm_latest=""
+          for attempt in 1 2 3 4 5; do
+            npm_latest="$(npm view @aligndottech/cli dist-tags.latest)"
+            [ "$npm_latest" = "${{ steps.ver.outputs.version }}" ] && break
+            if [ "$attempt" -lt 5 ]; then
+              echo "npm latest is $npm_latest (attempt $attempt/5, want ${{ steps.ver.outputs.version }}) - retrying"
+              sleep 5
+            fi
           [ "$npm_latest" = "${{ steps.ver.outputs.version }}" ] || {
-            echo "FATAL: npm latest is $npm_latest, expected ${{ steps.ver.outputs.version }}"; exit 1; }
+            echo "FATAL: npm latest is $npm_latest after 5 attempts, expected ${{ steps.ver.outputs.version }}"; exit 1; }
           gh_latest="$(gh release view --json tagName --jq .tagName)"
           [ "$gh_latest" = "${{ inputs.tag }}" ] || {
             echo "FATAL: GitHub latest release is $gh_latest, expected ${{ inputs.tag }}"; exit 1; }
