@@ -11,7 +11,11 @@
  */
 import { citationFor } from './decision-links.js';
 
-const HOSTED_COMMIT = /^https?:\/\/[^/\s]+\/[^/\s]+\/([^/\s]+?)(?:\/-)?\/commit\/([0-9a-f]{7,40})(?:[/?#]|$)/;
+// The repo is the LAST path segment before /commit (with GitLab's /-/ marker allowed in
+// between), so subgroup paths (gitlab.com/group/subgroup/repo/-/commit/sha) cite by the
+// repo rather than failing to undefined - buildCommitUrl emits exactly that shape for
+// subgroup remotes (review finding, 2026-09-01).
+const HOSTED_COMMIT = /^https?:\/\/[^/\s]+\/(?:[^/\s]+\/)*?([^/\s]+?)(?:\/-)?\/commit\/([0-9a-f]{7,40})(?:[/?#]|$)/;
 const LOCAL_COMMIT = /^git:\/\/commit\/([0-9a-f]{7,40})(?:[/?#]|$)/;
 
 /** "cli@abc1234" for a hosted commit, "abc1234" for a remoteless one, else whatever

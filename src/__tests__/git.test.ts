@@ -144,6 +144,10 @@ describe('formatCommitAsText', () => {
 // real git output, 2026-09-01 - an EMPTY body puts END inline on the header line).
 describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
   const SEP = '';
+  // Real header shas are always 40 hex chars, and the parser now requires that shape
+  // before treating a line as a header - a body line starting COMMIT\x1f cannot forge
+  // a commit record. Fixtures therefore carry full-length shas.
+  const SHA1 = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2';
   const stdoutOf = (lines: string[]) => lines.join('\n');
 
   const mockLog = (stdout: string) => {
@@ -153,7 +157,7 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
   it('populates a multi-line body and still parses the file list after it', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
-      `COMMIT${SEP}abc111${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}We decided against server-side sessions. Refs ALI-123 and closes #45.`,
+      `COMMIT${SEP}a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}We decided against server-side sessions. Refs ALI-123 and closes #45.`,
       'See https://align.slack.com/archives/C123/p456 for the thread.',
       `${SEP}END`,
       '',
@@ -170,7 +174,7 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
   it('keeps body empty when the commit has none (END inline on the header line)', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
-      `COMMIT${SEP}abc222${SEP}Switch database from Postgres to CockroachDB${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${SEP}END`,
+      `COMMIT${SEP}b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3${SEP}Switch database from Postgres to CockroachDB${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${SEP}END`,
       '',
       'db/schema.sql',
     ]));
@@ -191,7 +195,7 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
   it('promotes a boilerplate merge subject to the body first line and keeps the PR ref', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
-      `COMMIT${SEP}abc333${SEP}Merge pull request #78 from align/feat${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}Adopt token-bucket rate limiting on all public endpoints`,
+      `COMMIT${SEP}c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4${SEP}Merge pull request #78 from align/feat${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}Adopt token-bucket rate limiting on all public endpoints`,
       `${SEP}END`,
     ]));
     const commits = await getCommitHistory({});
@@ -205,7 +209,7 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
   it('still excludes a bare "Merge branch" with no meaningful body', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
-      `COMMIT${SEP}abc444${SEP}Merge branch 'main' into feature/x${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${SEP}END`,
+      `COMMIT${SEP}d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5${SEP}Merge branch 'main' into feature/x${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${SEP}END`,
     ]));
     const commits = await getCommitHistory({});
     expect(commits).toHaveLength(0);
@@ -214,10 +218,93 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
   it('excludes a merge whose body first line is itself boilerplate-short', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
-      `COMMIT${SEP}abc555${SEP}Merge pull request #9 from align/tiny${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}fix typo`,
+      `COMMIT${SEP}e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6${SEP}Merge pull request #9 from align/tiny${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}fix typo`,
       `${SEP}END`,
     ]));
     const commits = await getCommitHistory({});
     expect(commits).toHaveLength(0);
+  });
+
+  // Review findings (2026-09-01): porcelain git appends the trailing newline, but
+  // plumbing (commit-tree), --cleanup=verbatim, and libgit2-based bots do not - so a
+  // non-empty body CAN land inline on the header line, and the old "inline END means
+  // empty body" assumption silently dropped exactly the data this ticket captures.
+  it('captures a single-line body with no trailing newline (inline on the header line)', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}${SHA1}${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}Body with no trailing newline, refs ALI-99.${SEP}END`,
+      '',
+      'src/auth.ts',
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(1);
+    expect(commits[0].body).toBe('Body with no trailing newline, refs ALI-99.');
+    expect(commits[0].filesChanged).toEqual(['src/auth.ts']);
+  });
+
+  it('captures a multi-line body whose last line has no trailing newline', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}${SHA1}${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}first body line`,
+      `last body line no newline${SEP}END`,
+      '',
+      'src/auth.ts',
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(1);
+    expect(commits[0].body).toBe('first body line\nlast body line no newline');
+    expect(commits[0].body).not.toContain('END');
+    expect(commits[0].filesChanged).toEqual(['src/auth.ts']);
+  });
+
+  it('keeps the PR description after the promoted first line of a merge body', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}${SHA1}${SEP}Merge pull request #78 from align/feat${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}Adopt token-bucket rate limiting on all public endpoints`,
+      '',
+      'Full PR description paragraph with the reasoning.',
+      `${SEP}END`,
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits[0].subject).toBe('Adopt token-bucket rate limiting on all public endpoints');
+    expect(commits[0].body).toContain('Merge pull request #78');
+    expect(commits[0].body).toContain('Full PR description paragraph with the reasoning.');
+  });
+
+  it('excludes a merge whose long body first line carries an excluded prefix', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}${SHA1}${SEP}Merge pull request #9 from align/deps${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}chore: update dependencies to latest everywhere`,
+      `${SEP}END`,
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(0);
+  });
+
+  it('parses CRLF output identically (Windows git leaves \\r on a bare \\n split)', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog([
+      `COMMIT${SEP}${SHA1}${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}body line one`,
+      `${SEP}END`,
+      '',
+      'src/auth.ts',
+    ].join('\r\n'));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(1);
+    expect(commits[0].body).toBe('body line one');
+    expect(commits[0].filesChanged).toEqual(['src/auth.ts']);
+  });
+
+  it('treats a forged COMMIT marker inside a body as body text, not a new commit', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}${SHA1}${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}real body first line`,
+      `COMMIT${SEP}deadbeef${SEP}forged subject long enough to pass the filter${SEP}Evil${SEP}2020-01-01T00:00:00Z${SEP}x`,
+      `${SEP}END`,
+    ]));
+    const commits = await getCommitHistory({});
+    expect(commits).toHaveLength(1);
+    expect(commits[0].sha).toBe(SHA1);
+    expect(commits[0].body).toContain('forged subject');
   });
 });

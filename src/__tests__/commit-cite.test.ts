@@ -14,6 +14,13 @@ describe('localCitationFor', () => {
     expect(localCitationFor('https://gitlab.com/align/cli/-/commit/def5678abc1234')).toBe('cli@def5678');
   });
 
+  // Review finding (2026-09-01): buildCommitUrl emits subgroup paths for GitLab
+  // subgroup remotes, and the single-segment pattern failed the whole class to
+  // undefined - the bare-UUID rendering this wrapper exists to fix.
+  it('cites a GitLab subgroup commit by its repo (last path segment)', () => {
+    expect(localCitationFor('https://gitlab.com/group/subgroup/repo/-/commit/def5678abc1234')).toBe('repo@def5678');
+  });
+
   it('cites a remoteless git:// commit by short sha alone', () => {
     expect(localCitationFor('git://commit/abc1234def5678')).toBe('abc1234');
   });

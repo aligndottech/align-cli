@@ -18,14 +18,27 @@ export interface DecisionRef {
   platform: 'github' | 'jira' | 'confluence' | 'linear' | 'slack' | 'tracker' | 'code';
 }
 
-const URL_PATTERN = /https?:\/\/[^\s<>"')]+/g;
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 /** Trailing prose punctuation is not part of a URL someone pasted mid-sentence. */
 const TRAILING_PUNCTUATION = /[.,;:!?\]]+$/;
 
 const TICKET_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/g;
+/**
+ * KEY-N shapes that are technical vocabulary, not tracker tickets (review finding,
+ * 2026-09-01): UTF-8, SHA-256, ISO-8601, RFC-8446, TLS-1.3, X86-64, AES-256, MD-5
+ * are routine in commit bodies, and CVE-2024-N names an advisory no connector can
+ * fill. Matched on the letter prefix, so SHA-256 and SHA-512 both stay out.
+ */
+const VOCABULARY_PREFIXES = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'TLS', 'X86', 'AES', 'MD', 'CVE']);
 /** `#N` only when it starts a word (after whitespace, "(", or start of line) and is
  *  immediately followed by digits - "# 45" is a markdown heading, not an issue. */
 const ISSUE_NUMBER = /(?:^|[\s(])(#\d+)\b/gm;
+
+function countOf(s: string, ch: string): number {
+  let n = 0;
+  for (const c of s) if (c === ch) n++;
+  return n;
+}
 
 function classifyUrl(url: string): DecisionRef['platform'] | null {
   if (/slack\.com\/archives\//.test(url)) return 'slack';
@@ -50,13 +63,20 @@ export function extractRefs(text: string): DecisionRef[] {
   // every linked ticket.
   let remaining = text;
   for (const raw of text.match(URL_PATTERN) ?? []) {
-    const url = raw.replace(TRAILING_PUNCTUATION, '');
+    let url = raw.replace(TRAILING_PUNCTUATION, '');
+    // A ")" belongs to the URL only while an "(" inside it is unclosed - Confluence
+    // pretty-URLs carry balanced parens ("...Auth+(v2)"), while "(see <url>)" wraps
+    // the whole thing in prose parens that are not part of it.
+    while (url.endsWith(')') && countOf(url, '(') < countOf(url, ')')) {
+      url = url.slice(0, -1).replace(TRAILING_PUNCTUATION, '');
+    }
     const platform = classifyUrl(url);
     if (platform) add(url, platform);
     remaining = remaining.replace(raw, ' ');
   }
 
   for (const key of remaining.match(TICKET_KEY) ?? []) {
+    if (VOCABULARY_PREFIXES.has(key.slice(0, key.indexOf('-')))) continue;
     add(key, 'tracker');
   }
   for (const m of remaining.matchAll(ISSUE_NUMBER)) {

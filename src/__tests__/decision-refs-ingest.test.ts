@@ -82,6 +82,17 @@ describe('refs at ingest', () => {
     expect(d.external_references).toEqual([]);
   });
 
+  // Review finding (2026-09-01): WHATWG href normalization (default-port stripping,
+  // case folding) made the literal-equality self-URL filter leak - the captured URL
+  // came back as its own "gap".
+  it('does not self-reference when the captured URL normalizes differently', async () => {
+    const withPort = await client.captureDecision('https://acme.atlassian.net:443/browse/PAY-31');
+    expect((await client.getDecision(withPort.id)).external_references).toEqual([]);
+
+    const upperScheme = await client.captureDecision('HTTPS://ACME.atlassian.net/browse/PAY-32');
+    expect((await client.getDecision(upperScheme.id)).external_references).toEqual([]);
+  });
+
   it('returns an empty list for a decision whose text carries no refs', async () => {
     const { snapshots } = await client.ingestBatch([{
       raw_text: 'Switch database from Postgres to CockroachDB',

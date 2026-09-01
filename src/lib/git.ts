@@ -14,6 +14,9 @@ export async function getCommitHistory(opts: {
   from?: string;
   to?: string;
   branch?: string;
+  /** Run git in this directory instead of the process cwd. Lets tests point at a
+   *  fixture repo without process.chdir, which leaks across concurrent workers. */
+  cwd?: string;
 }): Promise<GitCommit[]> {
   const SEP = '\x1f';
   const MARKER = `COMMIT${SEP}`;
@@ -25,9 +28,17 @@ export async function getCommitHistory(opts: {
   // ALI-792: %b (the body) is in the format now, and merges are no longer excluded.
   // The body is where the evidence lives - ticket refs, closes #N, thread links, and
   // on squash-merge repos the whole PR description - and it was previously discarded
-  // (body was hard-coded ''). A non-empty %b always ends with a newline, so the
-  // SEP+END terminator lands on its own line; an empty %b puts it inline on the
-  // header line. Measured against real git output, 2026-09-01, not inferred.
+  // (body was hard-coded ''). Porcelain-created commits end a non-empty %b with a
+  // newline, so the SEP+END terminator usually lands on its own line - but commits
+  // from plumbing (commit-tree), --cleanup=verbatim, or libgit2-based bots can lack
+  // the trailing newline, putting a REAL body inline on the header line or leaving
+  // the terminator as a suffix on the last body line. The parser handles all three
+  // placements; assuming inline END meant "empty body" silently dropped exactly the
+  // data this format change exists to capture (caught in review, 2026-09-01).
+  //
+  // Merges now consume -n limit slots (they were previously excluded pre-limit), so
+  // on merge-heavy repos the same limit reaches less far back - accepted trade for
+  // capturing PR descriptions.
   const args = [
     `--format=COMMIT${SEP}%H${SEP}%s${SEP}%aN${SEP}%aI${SEP}%b${SEP}END`,
     '--name-only',
@@ -39,7 +50,7 @@ export async function getCommitHistory(opts: {
 
   let stdout: string;
   try {
-    ({ stdout } = await execa('git', ['log', ...args]));
+    ({ stdout } = await execa('git', ['log', ...args], opts.cwd ? { cwd: opts.cwd } : {}));
   } catch (err) {
     // A freshly initialised repo with no commits makes `git log` exit 128
     // ("does not have any commits yet"). Return [] so `align import git` /
@@ -66,19 +77,33 @@ export async function getCommitHistory(opts: {
     }
   };
 
-  for (const line of stdout.split('\n')) {
-    if (line.startsWith(MARKER)) {
+  // A header line must carry a full 40-hex sha in the second field. Without the check,
+  // a commit BODY containing a line that starts with "COMMIT\x1f" (git preserves \x1f
+  // in messages) would flush the real commit early and parse a forged record with
+  // attacker-chosen sha/author/date - and that sha would be interpolated into a
+  // source_url. Real `git log` headers always carry the full sha, so this refuses
+  // nothing legitimate.
+  const isHeader = (parts: string[]) => /^[0-9a-f]{40}$/.test(parts[1] ?? '');
+
+  // \r?\n, not \n: a Windows git (or a \r\n-bearing message) leaves a trailing \r on
+  // every line under a bare \n split, which silently breaks the exact-match END
+  // comparisons below and pollutes bodies (Copilot review, PR #213).
+  for (const line of stdout.split(/\r?\n/)) {
+    const parts = line.startsWith(MARKER) ? line.split(SEP) : null;
+    if (parts && isHeader(parts)) {
       flush();
-      const parts = line.split(SEP);
       sha = parts[1] ?? '';
       subject = parts[2] ?? '';
       author = parts[3] ?? '';
       date = parts[4] ?? '';
       bodyLines = [];
       files = [];
-      // An empty body renders SEP+END inline on the header line (parts: [..., '', 'END']);
-      // a non-empty body continues on following lines until the terminator line.
+      // Terminator inline on the header line covers BOTH an empty body and a
+      // single-line body with no trailing newline: the body is whatever sits between
+      // the date field and the END token (empty string for a truly empty body).
       if (parts[parts.length - 1] === 'END') {
+        const inlineBody = parts.slice(5, -1).join(SEP);
+        if (inlineBody) bodyLines.push(inlineBody);
         mode = 'files';
       } else {
         bodyLines.push(parts.slice(5).join(SEP));
@@ -86,6 +111,10 @@ export async function getCommitHistory(opts: {
       }
     } else if (mode === 'body') {
       if (line === BODY_END) {
+        mode = 'files';
+      } else if (line.endsWith(BODY_END)) {
+        // Last body line with no trailing newline: the terminator rides the line.
+        bodyLines.push(line.slice(0, -BODY_END.length));
         mode = 'files';
       } else {
         bodyLines.push(line);

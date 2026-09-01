@@ -14,14 +14,12 @@ import { getCommitHistory } from '../lib/git.js';
  */
 describe('getCommitHistory against real git output', () => {
   let repo: string;
-  let previousCwd: string;
 
   const git = (args: string[]) =>
     execa('git', args, { cwd: repo, env: { ...process.env, GIT_AUTHOR_NAME: 'Real Git', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'Real Git', GIT_COMMITTER_EMAIL: 't@t' } });
 
   beforeAll(async () => {
     repo = mkdtempSync(join(tmpdir(), 'align-792-'));
-    previousCwd = process.cwd();
     await git(['init', '-q', '-b', 'main']);
 
     writeFileSync(join(repo, 'a.txt'), 'a');
@@ -40,19 +38,17 @@ describe('getCommitHistory against real git output', () => {
     await git(['checkout', '-q', 'main']);
     await git(['merge', '-q', '--no-ff', 'feat', '-m',
       'Merge pull request #78 from align/feat\n\nAdopt token-bucket rate limiting on all public endpoints']);
-
-    // getCommitHistory runs git in the process cwd; this file contains only this suite,
-    // so the chdir cannot leak into unrelated tests sharing a worker.
-    process.chdir(repo);
   });
 
   afterAll(() => {
-    process.chdir(previousCwd);
     rmSync(repo, { recursive: true, force: true });
   });
 
   it('parses bodies, files and the promoted merge from a real repository', async () => {
-    const commits = await getCommitHistory({});
+    // cwd option rather than process.chdir: vitest runs files concurrently in worker
+    // threads, and a chdir would leak into any test resolving relative paths
+    // (Copilot review, PR #213).
+    const commits = await getCommitHistory({ cwd: repo });
 
     const subjects = commits.map(c => c.subject);
     // "short subject" is excluded by the decision filter; the other three survive.

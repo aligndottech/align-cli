@@ -121,20 +121,26 @@ export function createLocalGatewayClient(dbPath: string) {
     let title = input.slice(0, 80);
     let summary = input;
     let sourceUrl: string | null = opts.sourceUrlOverride ?? null;
+    let capturedAsUrl = false;
     if (opts.sourceUrlOverride === undefined) {
       try {
         const url = new URL(input);
         sourceUrl = url.href;
         title = url.pathname.split('/').filter(Boolean).pop() ?? url.hostname;
         summary = `Captured from ${url.hostname}`;
+        capturedAsUrl = true;
       } catch { /* plain text - use as-is */ }
     }
     if (opts.titleOverride) title = opts.titleOverride.slice(0, 80);
 
-    // ALI-792: what the text points at, stored beside the decision. The decision's own
-    // source_url is filtered out - `align capture <jira-url>` must not record the
-    // decision as referencing itself, or the gap prompt counts it as a missing source.
-    const refs = extractRefs(input).filter(r => r.ref !== sourceUrl);
+    // ALI-792: what the text points at, stored beside the decision. When the whole
+    // input IS the URL being captured, there is nothing to point at - and comparing
+    // the extracted ref against the WHATWG-normalized href leaks on every
+    // normalization delta (default-port stripping, scheme case), so the URL-capture
+    // branch skips extraction outright rather than filtering (review finding,
+    // 2026-09-01). Batch ingest still filters the decision's own source_url so a
+    // raw_text that quotes its own address is not a self-reference.
+    const refs = capturedAsUrl ? [] : extractRefs(input).filter(r => r.ref !== sourceUrl);
 
     // BEFORE the upsert: insertDecision returns the surviving id whether it inserted or
     // refreshed, so this is the only moment the difference is visible. Without it a
