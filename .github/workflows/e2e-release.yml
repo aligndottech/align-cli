@@ -184,7 +184,7 @@ jobs:
           # came from a real body line) and is kept; the bare "short subject" commit stays
           # dropped as designed. Net: JWT (real body) + merge (promoted) = 2 kept of 4 raw
           # commits, verified against the real filter function before this was written.
-          expect "$RUNNER_TEMP/setup.log" "Git: 2 decision" "the JWT commit plus the promoted merge imported (bare merge-branch commit and noise both correctly dropped)"
+          expect "$RUNNER_TEMP/setup.log" "Git: 2 decisions, 1 connection" "the JWT commit plus the promoted merge imported (bare merge-branch commit and noise both correctly dropped)"
           expect "$RUNNER_TEMP/setup.log" "align MCP connected" "agent wiring ran"
           expect "$RUNNER_TEMP/ask.log" "switch to JWT" "ask answered with the decision"
           expect "$RUNNER_TEMP/ask.log" "ALI-123" "the commit BODY reached the answer (ALI-792)"
