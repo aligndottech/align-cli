@@ -765,7 +765,7 @@ export async function callChat(
  * house style rather than just swapping the character and leaving the spacing wrong.
  */
 function stripEmDash(text: string): string {
-  return text.replace(/\s*—\s*/g, ' - ');
+  return text.replace(/[^\S\r\n]*—[^\S\r\n]*/g, ' - ');
 }
 
 /** Synthesise a natural-language answer from retrieved decisions, using any configured provider. */
