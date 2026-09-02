@@ -97,6 +97,7 @@ jobs:
               echo "npm latest is $npm_latest (attempt $attempt/5, want ${{ steps.ver.outputs.version }}) - retrying"
               sleep 5
             fi
+          done
           [ "$npm_latest" = "${{ steps.ver.outputs.version }}" ] || {
             echo "FATAL: npm latest is $npm_latest after 5 attempts, expected ${{ steps.ver.outputs.version }}"; exit 1; }
           gh_latest="$(gh release view --json tagName --jq .tagName)"
