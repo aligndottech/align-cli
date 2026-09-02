@@ -68,7 +68,7 @@ describe('renderValueReadout offline zero counters (ALI-794 component 4)', () =>
   // control), so the moment one is genuinely non-zero it appears.
   const offlineEmpty: ValueRollup = {
     decisions: 47, conflictsCaught: 0, similarDecisions: 0, duplicates: 0,
-    supersessions: 0, reuseRate: null, healthGrade: null,
+    supersessions: 0, reuseRate: null, healthGrade: null, gaps: [],
   };
 
   it('hides the three permanently-zero counters in local mode', () => {

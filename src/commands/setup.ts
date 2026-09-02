@@ -25,7 +25,6 @@ import pkg from '../../package.json' with { type: 'json' };
 const { version } = pkg;
 import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
-import { createLocalDb } from '../lib/local-db.js';
 import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 
 // ---------------------------------------------------------------------------
