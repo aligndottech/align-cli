@@ -98,4 +98,16 @@ describe('askTrailingLine', () => {
   it('returns null for a decision with no refs', () => {
     expect(askTrailingLine([], () => false)).toBeNull();
   });
+
+  // Copilot review finding (PR #227): 'code' labels as "issue-tracker", which starts
+  // with a vowel sound - "cites a issue-tracker ref" is ungrammatical.
+  it('uses "an" before a vowel-starting label', () => {
+    const line = askTrailingLine([{ platform: 'code' }], () => false);
+    expect(line).toBe("cites an issue-tracker ref I can't read - align import github or align import gitlab");
+  });
+
+  it('keeps "a" before a consonant-starting label', () => {
+    const line = askTrailingLine([{ platform: 'tracker' }], () => false);
+    expect(line).toBe("cites a ticket-tracker ref I can't read - align import jira or align import linear");
+  });
 });

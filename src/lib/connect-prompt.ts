@@ -51,6 +51,11 @@ function connectCommands(connectors: string[]): string {
   return connectors.map((c) => `align import ${c}`).join(' or ');
 }
 
+/** "a" or "an", by the label's first letter - "a Jira ref" but "an issue-tracker ref". */
+function articleFor(label: string): string {
+  return /^[aeiou]/i.test(label) ? 'an' : 'a';
+}
+
 /**
  * The gaps a graph can name for itself: unresolved-ref counts per platform, for
  * platforms with no connected source. Pure - the caller supplies both the refs
@@ -118,7 +123,7 @@ export function askTrailingLine(
     const connectors = CANDIDATE_CONNECTORS[r.platform as DecisionRef['platform']];
     if (connectors && !connectors.some(isConnected)) {
       const label = PLATFORM_LABEL[r.platform] ?? r.platform;
-      return `cites a ${label} ref I can't read - ${connectCommands(connectors)}`;
+      return `cites ${articleFor(label)} ${label} ref I can't read - ${connectCommands(connectors)}`;
     }
   }
   return null;

@@ -51,6 +51,19 @@ function countOf(s: string, ch: string): number {
   return n;
 }
 
+/**
+ * gitlab.com is a fixed, known SaaS host - unlike GitHub Enterprise Server, which can
+ * run on any hostname a company chooses, so the pull/issues detector below cannot be
+ * host-restricted in general without breaking GHES support (that is the whole reason
+ * it matches by path shape rather than by domain). gitlab.com is the one host that CAN
+ * be excluded safely: it is never GitHub, under any deployment. Without this, a
+ * gitlab.com issue URL (both the old bare form and the current `/-/issues/N` form)
+ * matches the same `/issues/\d+/` shape and was misclassified as 'github' - so the
+ * gap-driven pull told a Jira/Confluence-less GitLab user to connect the wrong
+ * connector (Copilot review finding, PR #227).
+ */
+const GITLAB_COM_HOST = /^https?:\/\/gitlab\.com\//;
+
 function classifyUrl(url: string): DecisionRef['platform'] | null {
   if (/slack\.com\/archives\//.test(url)) return 'slack';
   if (/linear\.app\//.test(url)) return 'linear';
@@ -59,6 +72,7 @@ function classifyUrl(url: string): DecisionRef['platform'] | null {
   // A commit URL is the decision's OWN address (formatCommitAsText appends it),
   // not a reference to something the graph cannot see.
   if (/\/commit\//.test(url)) return null;
+  if (GITLAB_COM_HOST.test(url)) return null;
   if (/\/(?:pull|issues)\/\d+/.test(url)) return 'github';
   return null;
 }

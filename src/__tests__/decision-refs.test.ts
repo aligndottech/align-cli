@@ -61,6 +61,33 @@ describe('extractRefs', () => {
     });
   });
 
+  // Copilot review finding (PR #227): the github detector matches ANY host with a
+  // /pull/N or /issues/N path (deliberately, for GHES support - see classifyUrl's own
+  // comment), which collides with gitlab.com's issue URL shape. gitlab.com is a fixed,
+  // known SaaS host (unlike GHES, which uses an arbitrary hostname a URL alone cannot
+  // distinguish from GitHub), so it is the one host this CAN exclude safely - a
+  // mislabeled 'github' ref would tell the gap-driven pull to ask for the wrong
+  // connector (ALI-796). Not extracting it at all is the honest fallback: the file's
+  // own docstring says "an arbitrary web URL is not a gap", and the bare "#78" shape
+  // in the same commit message still resolves via the 'code' bucket regardless.
+  it('does NOT classify a gitlab.com issue URL as github', () => {
+    const refs = extractRefs('closes https://gitlab.com/align/cli/issues/78');
+    expect(refs.find((r) => r.platform === 'github')).toBeUndefined();
+  });
+
+  it('does NOT classify a gitlab.com issue URL (new /-/ path) as github either', () => {
+    const refs = extractRefs('closes https://gitlab.com/align/cli/-/issues/78');
+    expect(refs.find((r) => r.platform === 'github')).toBeUndefined();
+  });
+
+  it('still classifies a GitHub Enterprise Server host as github (the reason the detector is host-agnostic)', () => {
+    const refs = extractRefs('supersedes https://ghes.acme.internal/align/cli/pull/78');
+    expect(refs).toContainEqual({
+      ref: 'https://ghes.acme.internal/align/cli/pull/78',
+      platform: 'github',
+    });
+  });
+
   // A ticket key inside a URL must not ALSO surface as a bare tracker ref - one
   // mention, one ref, or the gap prompt double-counts every linked ticket.
   it('does not double-count a ticket key that only appears inside a URL', () => {
@@ -167,6 +194,18 @@ describe('refIdentityFor', () => {
   // never resolve a pre-existing bare "#N" gap. localCitationFor closes that gap.
   it('identifies a gitlab decision by its URL and its bare #N', () => {
     const candidates = refIdentityFor('gitlab', 'https://gitlab.com/align/cli/-/merge_requests/78');
+    expect(candidates).toContainEqual({ ref: '#78', platform: 'code' });
+  });
+
+  // Copilot review finding (PR #227): classifyUrl no longer mislabels a gitlab.com
+  // issue URL as 'github' (see the extractRefs test above), so the URL-shaped
+  // candidate is correctly absent here too - the citing side never stores it under
+  // 'github' either, so producing a 'github' candidate would just be a second wrong
+  // label rather than a match. The bare "#N" candidate (from the ticket key) still
+  // covers the payoff for this shape.
+  it('does not identify a gitlab issue by a mislabeled github URL candidate', () => {
+    const candidates = refIdentityFor('gitlab', 'https://gitlab.com/align/cli/issues/78');
+    expect(candidates.find((c) => c.platform === 'github')).toBeUndefined();
     expect(candidates).toContainEqual({ ref: '#78', platform: 'code' });
   });
 });
