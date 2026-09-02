@@ -135,4 +135,18 @@ describe('local connector credentials', () => {
 
     expect(constructorOptions[0]?.['configFileMode']).toBe(0o600);
   });
+
+  // Bug found live 2026-09-02: `conf`'s own default is `projectSuffix: 'nodejs'`
+  // (node_modules/conf/dist/source/index.js), so without disabling it every real
+  // install writes to `~/.config/align-cli-nodejs`, not the `~/.config/align-cli`
+  // every comment and doc in this repo already claimed - including local-mode.ts's
+  // own hand-written directory for the local graph DB, which lives in a DIFFERENT
+  // directory as a result. `rm -rf ~/.config/align-cli` (the documented reset
+  // instruction) silently did nothing to the saved tokens/telemetry-consent/auth
+  // config, which is why a wiped local DB still reported "Signed in prod".
+  it('disables the projectSuffix conf would otherwise add', () => {
+    createConfigStore();
+
+    expect(constructorOptions[0]?.['projectSuffix']).toBe('');
+  });
 });

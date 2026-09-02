@@ -1,17 +1,20 @@
-import os from 'node:os';
 import path from 'node:path';
+import envPaths from 'env-paths';
 import { createConfigStore } from './config.js';
 import { createLocalDb } from './local-db.js';
 
+/**
+ * Was a hand-rolled darwin/win32/linux branch, independent of the ONE conf.ts already
+ * uses under the hood. Two writers of the same platform-directory fact had already
+ * drifted (config.ts's conf instance wrote to a `-nodejs`-suffixed directory this file
+ * never knew about), and would drift further on Windows even with that fixed - env-paths
+ * nests config under a `Config` subdirectory this hand-written branch never added, and
+ * the Linux branch never honoured XDG_CONFIG_HOME the way env-paths does. Deferring to
+ * env-paths directly, with the same `suffix: ''` config.ts passes, makes this the same
+ * directory createConfigStore() resolves to, by construction rather than by convention.
+ */
 export function getLocalDbPath(): string {
-  let configDir: string;
-  if (process.platform === 'darwin') {
-    configDir = path.join(os.homedir(), 'Library', 'Preferences', 'align-cli');
-  } else if (process.platform === 'win32') {
-    configDir = path.join(process.env['APPDATA'] ?? os.homedir(), 'align-cli');
-  } else {
-    configDir = path.join(os.homedir(), '.config', 'align-cli');
-  }
+  const configDir = envPaths('align-cli', { suffix: '' }).config;
   return path.join(configDir, 'local.db');
 }
 
