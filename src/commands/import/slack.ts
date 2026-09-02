@@ -12,6 +12,7 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
+import { IMPORT_LIMITS, SLACK_DAYS_BACK } from '../../lib/import-defaults.js';
 
 interface SlackImportOpts {
   token?: string;
@@ -28,8 +29,8 @@ export function registerImportSlackCommand(importCmd: Command): void {
     .description('Import decision threads from Slack (xoxp- user token) [experimental]')
     .option('--token <token>', 'Slack user OAuth token (xoxp-...)')
     .option('--personal', 'Connect your own Slack via browser OAuth (Align personal app) instead of a token')
-    .option('--limit <n>', 'Max threads to import', '50')
-    .option('--days-back <n>', 'How many days back to scan', '90')
+    .option('--limit <n>', 'Max threads to import', String(IMPORT_LIMITS.slack))
+    .option('--days-back <n>', 'How many days back to scan', String(SLACK_DAYS_BACK))
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: SlackImportOpts, cmd: Command) => {

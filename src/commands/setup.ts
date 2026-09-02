@@ -17,6 +17,7 @@ import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
 import { createCaptureCollector, toCaptureSource } from '../lib/capture-report.js';
 import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
+import { IMPORT_LIMITS, SLACK_DAYS_BACK } from '../lib/import-defaults.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
@@ -75,7 +76,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Commit history from this repo - no token needed',
       fetch: async () => {
         const { fetchGitItems } = await import('../lib/fetchers/git.js');
-        return fetchGitItems({ limit: 500 });
+        return fetchGitItems({ limit: IMPORT_LIMITS.git });
       },
     });
   }
@@ -102,7 +103,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
         '&contents=read&issues=read&pull_requests=read',
       fetch: async (t) => {
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
-        return fetchGitHubItems({ token: t['token']!, limit: 250 });
+        return fetchGitHubItems({ token: t['token']!, limit: IMPORT_LIMITS.github });
       },
     },
     {
@@ -123,7 +124,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       ],
       fetch: async (t) => {
         const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
-        return fetchJiraItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: 250 });
+        return fetchJiraItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: IMPORT_LIMITS.jira });
       },
     },
     {
@@ -143,7 +144,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       ],
       fetch: async (t) => {
         const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
-        return fetchConfluenceItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: 250 });
+        return fetchConfluenceItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], limit: IMPORT_LIMITS.confluence });
       },
     },
     {
@@ -160,7 +161,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       tokenUrl: 'https://api.slack.com/apps',
       fetch: async (t) => {
         const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
-        return fetchSlackItems({ token: t['token']!, limit: 250, daysBack: 90 });
+        return fetchSlackItems({ token: t['token']!, limit: IMPORT_LIMITS.slack, daysBack: SLACK_DAYS_BACK });
       },
     },
     {
@@ -171,7 +172,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       oauthKey: 'teams',
       fetch: async (t) => {
         const { fetchTeamsItems } = await import('../lib/fetchers/teams.js');
-        return fetchTeamsItems({ token: t['token']!, limit: 250 });
+        return fetchTeamsItems({ token: t['token']!, limit: IMPORT_LIMITS.teams });
       },
     },
     {
@@ -182,7 +183,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       oauthKey: 'zoom',
       fetch: async (t) => {
         const { fetchZoomItems } = await import('../lib/fetchers/zoom.js');
-        return fetchZoomItems({ token: t['token']!, limit: 50 });
+        return fetchZoomItems({ token: t['token']!, limit: IMPORT_LIMITS.zoom });
       },
     },
     {
@@ -210,7 +211,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       ],
       fetch: async (t) => {
         const { fetchGitLabItems } = await import('../lib/fetchers/gitlab.js');
-        return fetchGitLabItems({ token: t['token']!, domain: t['domain'] || undefined, limit: 250 });
+        return fetchGitLabItems({ token: t['token']!, domain: t['domain'] || undefined, limit: IMPORT_LIMITS.gitlab });
       },
     },
     {
@@ -231,7 +232,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       tokenUrl: 'https://linear.app/settings/account/security/api-keys/new',
       fetch: async (t) => {
         const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
-        return fetchLinearItems({ token: t['token']!, limit: 250 });
+        return fetchLinearItems({ token: t['token']!, limit: IMPORT_LIMITS.linear });
       },
     },
     {
@@ -255,7 +256,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       tokenUrl: 'https://app.notion.com/developers/tokens',
       fetch: async (t) => {
         const { fetchNotionItems } = await import('../lib/fetchers/notion.js');
-        return fetchNotionItems({ token: t['token']!, limit: 250 });
+        return fetchNotionItems({ token: t['token']!, limit: IMPORT_LIMITS.notion });
       },
     },
   );
@@ -503,7 +504,7 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   const localDocsSpinner = p.spinner();
   localDocsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
   try {
-    const docs = await fetchDocsItems({ limit: 500 });
+    const docs = await fetchDocsItems({ limit: IMPORT_LIMITS.docs });
     capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
     const docsItems = docs.items;
     if (docsItems.length) {
@@ -1086,7 +1087,7 @@ async function runCloudSetup(ctx: {
   const docsSpinner = p.spinner();
   docsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
   try {
-    const docs = await fetchDocsItems({ limit: 500 });
+    const docs = await fetchDocsItems({ limit: IMPORT_LIMITS.docs });
     capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
     const docsItems = docs.items;
     if (docsItems.length) {

@@ -39,8 +39,11 @@ afterEach(() => {
 });
 
 describe('the repo column', () => {
-  it('is on a fresh database, and SCHEMA_VERSION is 3', () => {
-    expect(SCHEMA_VERSION).toBe(3);
+  it('is on a fresh database, and the schema is at least the version that added it (3)', () => {
+    // The repo column arrived at 3. Later steps (decided_at at 4, ALI-829) keep it, so this
+    // pins a floor rather than the current number - the exact literal is one fact with
+    // migrate() and is derived, not asserted, in local-db-dedup.test.ts.
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(3);
     db = createLocalDb(dbPath);
     // A throwaway inline `new DatabaseSync(dbPath)` is never closed, so its handle survives
     // this test and races afterEach's `fs.rmSync` - harmless on Linux/macOS, EBUSY on

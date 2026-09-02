@@ -11,6 +11,7 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
+import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
 
 interface GitLabImportOpts {
   token?: string;
@@ -28,7 +29,7 @@ export function registerImportGitLabCommand(importCmd: Command): void {
     .option('--token <token>', 'GitLab personal access token (glpat-...)')
     .option('--personal', 'Connect your own GitLab via browser OAuth (gitlab.com only)')
     .option('--domain <domain>', 'GitLab domain for self-hosted (default: gitlab.com)')
-    .option('--limit <n>', 'Max items to import', '100')
+    .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.gitlab))
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: GitLabImportOpts, cmd: Command) => {

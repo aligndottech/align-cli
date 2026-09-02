@@ -13,7 +13,7 @@ export async function fetchJiraItems(opts: {
   limit?: number;
 }): Promise<CaptureFetchResult> {
   try {
-    return await withCaptureReport(opts, () => new JiraFetcher().fetch(opts));
+    return await withCaptureReport(opts, new JiraFetcher());
   } catch (e) {
     if (e instanceof FetcherAuthError) throw new AuthExpiredError(e.connector);
     throw e;

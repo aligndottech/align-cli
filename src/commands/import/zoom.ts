@@ -11,6 +11,7 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
+import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
 
 interface ZoomImportOpts {
   token?: string;
@@ -26,7 +27,7 @@ export function registerImportZoomCommand(importCmd: Command): void {
     .description('Import cloud recording transcripts from Zoom')
     .option('--token <token>', 'Zoom OAuth access token')
     .option('--personal', 'Connect via browser OAuth (Align Zoom app) instead of pasting a token')
-    .option('--limit <n>', 'Max recordings to import', '30')
+    .option('--limit <n>', 'Max recordings to import', String(IMPORT_LIMITS.zoom))
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: ZoomImportOpts, cmd: Command) => {

@@ -58,6 +58,11 @@ export interface CapturedDecision {
    * so nothing downstream could cite a decision (ALI-602 needs to).
    */
   source_url?: string | null;
+  /** The minute the row was imported (local) or captured (cloud). */
+  created_at?: string;
+  /** ALI-829: when the decision was MADE, from the source's own timestamp. Local mode
+   *  only today; absent, never null, when the source did not say. */
+  decided_at?: string;
   ai?: {
     risks?: string[];
     actions?: Array<{ text: string }>;
@@ -69,6 +74,9 @@ export interface SearchResults {
   results: Array<{
     id: string; title: string; summary: string; status: string;
     similarity?: number; author?: DecisionAuthor | null; created_at?: string;
+    // ALI-829: the source's own date, beside created_at and never instead of it - two
+    // fields, two meanings. Local mode only today.
+    decided_at?: string;
     // Attribution an agent needs to CITE a decision rather than just repeat its
     // title: which repository it came from, how a human writes it (align-cli#76),
     // and the URL it was decided at. Optional because a decision from Slack or a
@@ -653,12 +661,22 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     },
 
     async ingestBatch(items: BatchIngestItem[], opts?: { deferEnrichment?: boolean }): Promise<BatchIngestResult> {
+      // ALI-829: the fetchers carry the source's own date as `created_at`; the gateway's
+      // BatchIngestSchema (align-stack ingestRoutes.ts, ALI-622) takes it as `decided_at`
+      // and strips unknown keys, so sent under the wrong name it silently vanishes. One
+      // rename at the wire, and a cloud row gets the same date a local row does.
+      // Typed locally: connector-core 0.5.0's FetcherItem has no created_at (0.6.0's does),
+      // and this must compile against both.
+      const decisions = (items as Array<BatchIngestItem & { created_at?: string }>).map(({ created_at, ...rest }) => ({
+        ...rest,
+        ...(created_at ? { decided_at: created_at } : {}),
+      }));
       // defer_enrichment (ALI-114): the gateway inserts snapshots with raw titles
       // and runs synthesis + relationship analysis in the background, returning
       // immediately. Older gateways ignore the unknown field (Zod strips it).
       return request<BatchIngestResult>('/ingest/batch', {
         method: 'POST',
-        body: JSON.stringify({ decisions: items, ...(opts?.deferEnrichment ? { defer_enrichment: true } : {}) }),
+        body: JSON.stringify({ decisions, ...(opts?.deferEnrichment ? { defer_enrichment: true } : {}) }),
       });
     },
 

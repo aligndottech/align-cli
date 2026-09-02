@@ -98,6 +98,23 @@ describe('ALI-462 a tenant with no token must not be sent to a cloud gateway', (
   });
 });
 
+describe('ingestBatch sends the source date under the name the gateway reads (ALI-829)', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('renames created_at to decided_at on the wire, and sends neither when there is no date', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ snapshots: [] }) });
+    await createGatewayClient(localEnv).ingestBatch([
+      { source_url: 'https://x/1', platform: 'git', raw_text: 'a', created_at: '2026-01-11T08:30:00+01:00' },
+      { source_url: 'https://x/2', platform: 'git', raw_text: 'b' },
+    ]);
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as { body: string }).body) as { decisions: Array<Record<string, unknown>> };
+    expect(body.decisions[0]!.decided_at).toBe('2026-01-11T08:30:00+01:00');
+    expect('created_at' in body.decisions[0]!).toBe(false);
+    expect('decided_at' in body.decisions[1]!).toBe(false);
+    expect('created_at' in body.decisions[1]!).toBe(false);
+  });
+});
+
 describe('gateway client', () => {
   beforeEach(() => mockFetch.mockReset());
 

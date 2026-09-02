@@ -16,6 +16,25 @@ vi.mock('@aligndottech/connector-core', () => {
         return [{ source_url: 'u', platform, raw_text: 'x' }];
       }
     };
+  // A 0.6.0-shaped fetcher: reports what it could not reach. `fetch` throws so the test
+  // can prove the wrapper took the reporting path rather than reading twice.
+  const reportingFetcher = (platform: string) =>
+    class {
+      async fetch(): Promise<never> {
+        throw new Error('fetch() must not be called when fetchWithReport exists');
+      }
+      async fetchWithReport(o: { limit?: number }) {
+        return {
+          items: [{ source_url: 'u', platform, raw_text: 'x' }],
+          report: {
+            platform,
+            scanned: 4,
+            ...(o.limit !== undefined ? { requested: o.limit } : {}),
+            skips: [{ kind: 'shape', count: 3, detail: 'threads with no human message (bot or system output only)' }],
+          },
+        };
+      }
+    };
   const atlassianFetcher = (connector: string, platform: string) =>
     class {
       async fetch(o: { token: string }) {
@@ -27,7 +46,7 @@ vi.mock('@aligndottech/connector-core', () => {
     FetcherAuthError,
     GitHubFetcher: arrayFetcher('github'),
     GitLabFetcher: arrayFetcher('gitlab'),
-    SlackFetcher: arrayFetcher('slack'),
+    SlackFetcher: reportingFetcher('slack'),
     TeamsFetcher: arrayFetcher('teams'),
     ZoomFetcher: arrayFetcher('zoom'),
     LinearFetcher: arrayFetcher('linear'),
@@ -86,14 +105,30 @@ describe('CLI fetcher wrappers delegate to connector-core', () => {
     expect(results.map((r) => r.items[0].platform)).toEqual([
       'github', 'gitlab', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'linear', 'notion',
     ]);
-    // ALI-827: on 0.5.0 no core fetcher reports, so every wrapper says only what it can
-    // count - one item came back, nothing was asked for by number, nothing to explain.
-    for (const r of results) expect(r.report).toEqual({ scanned: 1, skips: [] });
+    // ALI-827: a core fetcher that cannot report (every 0.5.0 one) gets the fallback - one
+    // item came back, nothing was asked for by number, nothing to explain. ALI-829: one that
+    // can (Slack, mocked 0.6.0-shaped above) has its own report carried through, kind dropped.
+    results.forEach((r, i) => {
+      if (r.items[0].platform === 'slack') {
+        expect(r.report, `result ${i}`).toEqual({
+          scanned: 4,
+          skips: [{ count: 3, detail: 'threads with no human message (bot or system output only)' }],
+        });
+      } else {
+        expect(r.report, `result ${i}`).toEqual({ scanned: 1, skips: [] });
+      }
+    });
   });
 
-  it('a wrapper given a limit echoes it as the request', async () => {
-    const { report } = await fetchSlackItems({ token: 't', limit: 25 });
+  it('a fallback wrapper given a limit echoes it as the request', async () => {
+    const { report } = await fetchTeamsItems({ token: 't', limit: 25 });
     expect(report).toEqual({ scanned: 1, requested: 25, skips: [] });
+  });
+
+  it('a reporting wrapper hands the limit to fetchWithReport and returns ITS requested', async () => {
+    const { report } = await fetchSlackItems({ token: 't', limit: 25 });
+    expect(report.requested).toBe(25);
+    expect(report.scanned).toBe(4);
   });
 
   it('git wrapper reads history ONCE and injects it into the core fetcher', async () => {

@@ -12,6 +12,7 @@ import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { PERSONAL_OAUTH_KEYS, personalCredsForImport } from '../../lib/personal-oauth.js';
 import { AuthExpiredError } from '../../lib/errors.js';
 import { commandIntro } from '../../lib/brand.js';
+import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
 
 interface JiraImportOpts {
   email?: string;
@@ -31,7 +32,7 @@ export function registerImportJiraCommand(importCmd: Command): void {
     .option('--token <token>', 'Atlassian API token (or uses cached OAuth token from align setup)')
     .option('--personal', 'Connect via browser OAuth (Align personal Atlassian app) instead of a token')
     .option('--domain <domain>', 'Jira domain, e.g. company.atlassian.net (for API token auth)')
-    .option('--limit <n>', 'Max items to import', '100')
+    .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.jira))
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: JiraImportOpts, cmd: Command) => {

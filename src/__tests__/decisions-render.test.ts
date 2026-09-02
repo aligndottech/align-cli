@@ -66,6 +66,28 @@ describe('decisions list rendering', () => {
     listDecisions.mockResolvedValue([{ id: 'a1', title: 'Chose Postgres', platform: 'git', status: 'active' }]);
     expect(await run(['list', '--env', 'prod'])).toContain('Decisions (prod)');
   });
+
+  // ALI-829 R27a
+  it('shows a DECIDED column with the source date when the row carries one', async () => {
+    listDecisions.mockResolvedValue([
+      { id: 'a1', title: 'Chose Postgres', platform: 'git', status: 'active', decided_at: '2026-03-01T09:00:00.000Z' },
+    ]);
+    const out = await run(['list']);
+    expect(out).toContain('DECIDED');
+    expect(out).toContain('1 Mar 2026');
+  });
+
+  // ALI-829 R27b
+  it('leaves the DECIDED cell empty for a row with no source date - never "Invalid Date", never the ingest minute', async () => {
+    listDecisions.mockResolvedValue([
+      { id: 'a1', title: 'Chose Postgres', platform: 'git', status: 'active', created_at: '2026-05-30T09:00:00.000Z' },
+      { id: 'a2', title: 'Chose Redis', platform: 'git', status: 'active', decided_at: '2026-03-01T09:00:00.000Z' },
+    ]);
+    const out = await run(['list']);
+    expect(out).toContain('1 Mar 2026');          // the dated row, the positive control
+    expect(out).not.toContain('Invalid Date');
+    expect(out).not.toContain('30 May 2026');      // created_at is not a decision date
+  });
 });
 
 describe('decisions show rendering', () => {

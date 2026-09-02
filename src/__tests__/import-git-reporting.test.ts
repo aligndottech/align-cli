@@ -43,6 +43,7 @@ vi.mock('../lib/config.js', () => ({
 
 const { registerImportCommand } = await import('../commands/import.js');
 const { getCommitHistoryDetailed } = await import('../lib/git.js');
+const { runPersonalImport } = await import('../lib/personal-import.js');
 
 async function run(argv: string[]): Promise<void> {
   const program = new Command();
@@ -113,6 +114,20 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     await run(['import', 'git', '--limit', '10']);
     const printed = logSpy.mock.calls.flat().join('\n');
     expect(printed).toContain('Git: 3 commits of up to 10 requested');
+  });
+
+  // ALI-829: the row's decided_at comes from the commit's own date, so the command has to
+  // hand it over. `git log --format=%aI` is strict ISO-8601; ingest normalises to Z.
+  it('hands each commit date over as created_at, for decided_at', async () => {
+    vi.mocked(getCommitHistoryDetailed).mockResolvedValue({
+      commits: [{ ...commit, date: '2026-01-11T08:30:00+01:00' }],
+      scanned: 1,
+      rejectedByRationale: 0,
+    });
+    await run(['import', 'git']);
+    const items = vi.mocked(runPersonalImport).mock.calls.at(-1)?.[0] as Array<{ created_at?: string }>;
+    expect(items).toHaveLength(1);
+    expect(items[0].created_at).toBe('2026-01-11T08:30:00+01:00');
   });
 
   // ALI-827 R6b

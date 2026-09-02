@@ -364,6 +364,54 @@ describe('align ask - source attribution parity with the MCP surface (cite/platf
     expect(all).not.toContain('c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3');
   });
 
+  // ALI-829 R28a: a local result carries decided_at beside created_at; the source line
+  // shows the decision's own date. Both dates are older than 30 days so formatWhen prints
+  // an absolute date and the two are distinguishable (18 Aug vs 19 Aug would both be
+  // "N days ago" only while this test is young).
+  it('synthesis sources show the decided date when the result carries one', async () => {
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue({
+        ...RICH_RESULTS,
+        results: [{ ...RICH_RESULTS.results[0], created_at: '2026-05-30T10:00:00Z', decided_at: '2026-03-01T10:00:00Z' }],
+        count: 1,
+      }),
+    });
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'The release workflow is the single writer.' });
+    const all = await runAsk();
+    expect(all).toContain('1 Mar 2026');
+    expect(all).not.toContain('30 May 2026');
+  });
+
+  // ALI-829 R28b: a cloud result has no decided_at, and the line is what it always was.
+  it('synthesis sources fall back to created_at when there is no decided date (cloud mode unchanged)', async () => {
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue({
+        ...RICH_RESULTS,
+        results: [{ ...RICH_RESULTS.results[0], created_at: '2026-05-30T10:00:00Z' }],
+        count: 1,
+      }),
+    });
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'The release workflow is the single writer.' });
+    const all = await runAsk();
+    expect(all).toContain('30 May 2026');
+  });
+
+  it('the list fallback shows the decided date too - one derivation, both paths', async () => {
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue({
+        ...RICH_RESULTS,
+        results: [{ ...RICH_RESULTS.results[0], created_at: '2026-05-30T10:00:00Z', decided_at: '2026-03-01T10:00:00Z' }],
+        count: 1,
+      }),
+    });
+    const all = await runAsk();   // default mock: no provider, so the list renders
+    expect(all).toContain('1 Mar 2026');
+    expect(all).not.toContain('30 May 2026');
+  });
+
   it('synthesis sources carry the platform tag and the source link', async () => {
     mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'The release workflow is the single writer.' });
     const all = await runAsk();

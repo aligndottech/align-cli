@@ -11,6 +11,7 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
+import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
 
 interface NotionImportOpts {
   token?: string;
@@ -26,7 +27,7 @@ export function registerImportNotionCommand(importCmd: Command): void {
     .description('Import your Notion pages (internal integration token)')
     .option('--token <token>', 'Notion integration token (ntn_...)')
     .option('--personal', 'Connect your own Notion via browser OAuth (Align personal app) instead of a token')
-    .option('--limit <n>', 'Max pages to import', '50')
+    .option('--limit <n>', 'Max pages to import', String(IMPORT_LIMITS.notion))
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .addHelpText('after', `

@@ -35,6 +35,20 @@ function isFilePath(arg: string): boolean {
 type SearchHit = SearchResults['results'][number];
 
 /**
+ * ALI-829: the date a source line shows. The decision's own date when the graph has it
+ * (local mode, from the source's timestamp), else the minute it was captured - which is
+ * what every line showed before, so a cloud result renders byte-for-byte as it did, and
+ * a local row that will never get a date (a docs section, an `align capture`) still reads
+ * "today" on the day it was imported. Kept that way on purpose (the plan's open question
+ * 6); suppressing it is a visible removal for its own decision. One derivation for the
+ * synthesis sources and the list fallback: the two paths had already drifted on the cite
+ * once (Copilot, #124).
+ */
+function decidedWhen(d: SearchHit): string {
+  return formatWhen(d.decided_at ?? d.created_at);
+}
+
+/**
  * One source line, same fields the MCP surface serves (align-stack#1442 added
  * `cite` so consumers COPY citations instead of composing them - this renderer
  * was the one consumer still printing a raw UUID). The cite replaces the id
@@ -52,7 +66,7 @@ function sourceLine(d: SearchHit): string {
   const platform = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
   const statusLabel = d.status && d.status !== 'active' ? chalk.yellow(` [${d.status}]`) : '';
   const who = d.author?.name ? chalk.cyan(` ← ${d.author.name}`) : '';
-  const when = formatWhen(d.created_at);
+  const when = decidedWhen(d);
   const whenLabel = when ? chalk.dim(` · ${when}`) : '';
   return chalk.dim(`    - ${d.title}${ref}`) + platform + statusLabel + who + whenLabel;
 }
@@ -330,7 +344,7 @@ export function registerAskCommand(program: Command): void {
           const statusLabel = d.status && d.status !== 'active'
             ? chalk.yellow(` [${d.status}]`)
             : '';
-          const when = formatWhen(d.created_at);
+          const when = decidedWhen(d);
           // Cite first (human-quotable, align-stack#1442), derived from
           // source_url when the wire omits it - the SAME derivation as
           // sourceLine, or the two paths drift (Copilot, #124). The id ALWAYS

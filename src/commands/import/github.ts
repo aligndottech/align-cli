@@ -11,6 +11,7 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
+import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
 
 interface GitHubImportOpts {
   token?: string;
@@ -26,7 +27,7 @@ export function registerImportGitHubCommand(importCmd: Command): void {
     .description('Import your GitHub PRs and issues')
     .option('--token <token>', 'GitHub personal access token (ghp_...)')
     .option('--personal', 'Connect your own GitHub via browser OAuth (Align personal app) instead of a token')
-    .option('--limit <n>', 'Max items to import', '100')
+    .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.github))
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: GitHubImportOpts, cmd: Command) => {

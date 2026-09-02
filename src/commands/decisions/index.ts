@@ -7,6 +7,7 @@ import { createGatewayClient } from '../../lib/gateway-client.js';
 import { renderTable } from '../../lib/table.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { resolveScopeOpts } from '../../lib/repo-identity.js';
+import { formatWhen } from '../../lib/format-date.js';
 
 export function registerDecisionsCommand(program: Command): void {
   const decisions = program
@@ -57,11 +58,17 @@ export function registerDecisionsCommand(program: Command): void {
         renderTable(
           [
             { header: 'ID', width: 38 },
-            { header: 'TITLE', width: 50 },
+            // 40, not 50: with DECIDED the row is 118 columns, which still fits a 120-column
+            // terminal; at 50 it was 128 and every row wrapped.
+            { header: 'TITLE', width: 40 },
             { header: 'PLATFORM', width: 14 },
             { header: 'STATUS', width: 12 },
+            // ALI-829: when it was DECIDED, from the source. Empty when the source did not
+            // say - formatWhen returns '' for a missing or unparseable value, so a row with
+            // no date never reads "Invalid Date" and never borrows the ingest minute.
+            { header: 'DECIDED', width: 14 },
           ],
-          decisions.map(d => [d.id, d.title, d.platform, d.status ?? '']),
+          decisions.map(d => [d.id, d.title, d.platform, d.status ?? '', formatWhen(d.decided_at)]),
         );
       } catch (err) {
         spinner.fail(chalk.red((err as Error).message));

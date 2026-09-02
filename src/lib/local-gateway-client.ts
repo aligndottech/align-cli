@@ -1,4 +1,4 @@
-import { createLocalDb } from './local-db.js';
+import { createLocalDb, normaliseDecidedAt } from './local-db.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
@@ -179,7 +179,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   async function ingestOne(
     input: string,
     platform: string,
-    opts: { titleOverride?: string; sourceUrlOverride?: string | null } = {},
+    opts: { titleOverride?: string; sourceUrlOverride?: string | null; createdAt?: string } = {},
   ): Promise<{ id: string; title: string; summary: string; sourceUrl: string | null; platform: string; related: Array<{ decisionId: string; score: number }>; created: boolean }> {
     let title = input.slice(0, 80);
     let summary = input;
@@ -218,7 +218,13 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // re-import reports every decision as imported while the graph does not move, which
     // reads as having imported twice (ALI-770).
     const created = db.findIdBySource(sourceUrl, title) === null;
-    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo });
+    // ALI-829: a Slack thread arriving under a real title replaces the tombstone-titled row
+    // an older fetcher may have written for the same source_url (see local-db.ts).
+    if (platform === 'slack') db.deleteSlackTombstoneTwin(sourceUrl);
+    // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
+    // never the item: the summary is the thing the user came for.
+    const decidedAt = normaliseDecidedAt(opts.createdAt);
+    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt });
     db.replaceRefs(id, refs);
     // ALI-796's payoff: if some earlier decision already cited THIS one (a git commit
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
@@ -264,12 +270,13 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       return { id: r.id, title: r.title, summary: r.summary, sourceUrl: r.sourceUrl, platform: r.platform, related: r.related.map(c => c.decisionId) };
     },
 
-    async ingestBatch(items: Array<{ source_url?: string; platform?: string; raw_text: string; title?: string }>) {
+    async ingestBatch(items: Array<{ source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string }>) {
       const snapshots = [];
       for (const item of items) {
         const r = await ingestOne(item.raw_text, item.platform ?? 'cli', {
           titleOverride: item.title,
           sourceUrlOverride: item.source_url ?? null,
+          createdAt: item.created_at,
         });
         snapshots.push({
           id: r.id,
@@ -319,6 +326,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         platform: row.platform,
         source_url: row.sourceUrl,
         created_at: row.createdAt,
+        ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
         external_references: db.getRefs(row.id),
         spaces: [] as unknown[],
       };
@@ -341,6 +349,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           summary: row.summary,
           platform: row.platform,
           status: 'active',
+          created_at: row.createdAt,
+          // ALI-829: absent when the source did not say, so a consumer sees the shape it
+          // saw before (the field's meaning is on the type in gateway-client.ts).
+          ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
           ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
           ...(cite ? { cite } : {}),
         };
@@ -378,6 +390,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             status: 'active',
             similarity: s.score,
             created_at: row.createdAt,
+            ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
             platform: row.platform,
             ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
             ...(repository ? { repository } : {}),
