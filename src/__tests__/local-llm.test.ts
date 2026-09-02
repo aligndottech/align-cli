@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callChat, SYNTHESIS_SYSTEM_PROMPT } from '../lib/local-llm.js';
+import { callChat, SYNTHESIS_SYSTEM_PROMPT, synthesiseDetailed } from '../lib/local-llm.js';
 
 const mockFetch = vi.fn();
 
@@ -96,5 +96,53 @@ describe('SYNTHESIS_SYSTEM_PROMPT carries the abstention contract (ollama-vet ev
     // Positive control for the negative assertion: the constant is real prose,
     // not an empty string a broken import would also satisfy.
     expect(SYNTHESIS_SYSTEM_PROMPT.length).toBeGreaterThan(100);
+  });
+
+  // Found live 2026-09-02: `align ask` synthesised an answer containing an em-dash
+  // (mirroring the punctuation of the source Confluence content it was summarising) -
+  // the same tell code-style.md bans in everything WE write, now showing up in
+  // something the MODEL writes on our behalf. The prompt never said anything about
+  // punctuation, so the model was free to copy the source's style.
+  it('tells the model never to use an em-dash', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/never use an? em-?dash/i);
+  });
+});
+
+// The prompt instruction above is the ask-nicely layer, and smaller local models
+// (the ones David and Tom are actually testing with, via Ollama or a local
+// llama.cpp endpoint) are not reliable about following style constraints. code-
+// style.md treats "no em-dash" as a hard rule for everything WE write, not a
+// preference to re-litigate - the model-generated surface a user actually reads
+// deserves the same guarantee, not just a request the model can ignore.
+describe('synthesiseDetailed strips em-dashes the model used anyway', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
+    for (const k of ALL_KEYS) vi.stubEnv(k, '');
+    vi.stubEnv('ANTHROPIC_API_KEY', 'a');
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('replaces an em-dash the provider returned with the house style', async () => {
+    mockFetch.mockResolvedValue(anthropicResponse('Postgres was chosen—concurrent writers mattered.'));
+
+    const result = await synthesiseDetailed('why postgres', []);
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.text).toBe('Postgres was chosen - concurrent writers mattered.');
+  });
+
+  // Positive control for the negative-shaped assertion above: text with no em-dash
+  // must survive completely unchanged, or this could be a check that rewrites every
+  // answer rather than one that only touches the character in question.
+  it('leaves text with no em-dash untouched', async () => {
+    mockFetch.mockResolvedValue(anthropicResponse('Postgres was chosen for concurrent writers.'));
+
+    const result = await synthesiseDetailed('why postgres', []);
+
+    expect(result.ok && result.text).toBe('Postgres was chosen for concurrent writers.');
   });
 });
