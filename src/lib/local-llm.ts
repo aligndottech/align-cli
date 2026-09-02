@@ -30,7 +30,8 @@ export const SYNTHESIS_SYSTEM_PROMPT =
   'If the context does not answer the question, say exactly that - never guess and never invent decisions or details. ' +
   'Attribute details only to the decision they came from, and only state relationships between decisions that the context itself states. ' +
   'If two decisions contradict each other, say they conflict - do not pick a winner the context does not name. ' +
-  'Be direct. Synthesise the context into a clear explanation - do not list decisions.';
+  'Be direct. Synthesise the context into a clear explanation - do not list decisions. ' +
+  'Never use an em-dash, even if the source material does - use a comma, a period, or a hyphen instead.';
 
 function buildUserPrompt(
   question: string,
@@ -754,13 +755,27 @@ export async function callChat(
   return result.ok ? result.text : null;
 }
 
+/**
+ * The prompt instruction is the ask-nicely layer; this is the guarantee. Smaller local
+ * models (Ollama, a local llama.cpp endpoint) are not reliable about following style
+ * constraints, and code-style.md treats "no em-dash" as a hard rule for everything WE
+ * write, not a preference - the model-generated text a user actually reads gets the
+ * same guarantee. Handles both "word—word" (no space, what the model actually produced
+ * live 2026-09-02) and "word — word" (spaced) the same way, collapsing either into the
+ * house style rather than just swapping the character and leaving the spacing wrong.
+ */
+function stripEmDash(text: string): string {
+  return text.replace(/\s*—\s*/g, ' - ');
+}
+
 /** Synthesise a natural-language answer from retrieved decisions, using any configured provider. */
 export async function synthesiseDetailed(
   question: string,
   decisions: Array<{ id: string; title: string; summary: string }>,
 ): Promise<ChatResult> {
   const user = buildUserPrompt(question, decisions);
-  return callChatDetailed(SYNTHESIS_SYSTEM_PROMPT, user);
+  const result = await callChatDetailed(SYNTHESIS_SYSTEM_PROMPT, user);
+  return result.ok ? { ...result, text: stripEmDash(result.text) } : result;
 }
 
 /** Text-only wrapper on synthesiseDetailed, for callers that cannot use the reason. */
