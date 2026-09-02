@@ -228,28 +228,33 @@ export function registerAskCommand(program: Command): void {
           // "The context does not answer this question" at someone whose graph holds
           // the answer.
           if (answer && isAbstention(answer) && results.scope && canWiden && !widenedFrom) {
-            const wholeGraph = await client.searchDecisions(searchQuery, limit, { all: true });
-            if (wholeGraph.results.length) {
-              const second = await synthesiseDetailed(
-                query,
-                wholeGraph.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
-              );
-              // Adoption rule, measured against a real model (2026-09-02 probes): on
-              // implicit-only context the model can emit the sentinel AND keep talking -
-              // the forbidden deny-then-deliver, with the actual answer in the tail. A
-              // denial with an informative tail beats a bare sentinel, so:
-              //   - a BARE-sentinel scoped answer adopts whatever the widened pass
-              //     produced (it cannot be less informative, and even an identical
-              //     abstention gains the honest whole-graph framing);
-              //   - a scoped answer that already carries a tail only upgrades to a
-              //     CLEAN widened answer - swapping one hedged answer for another loses
-              //     the accurate scope header for nothing.
-              const scopedWasBare = answer.trim() === ABSTENTION_SENTINEL;
-              if (second.ok && (scopedWasBare || !isAbstention(second.text))) {
-                widenedFrom = results.scope;
-                results = wholeGraph;
-                answer = second.text;
+            spinner.start();
+            try {
+              const wholeGraph = await client.searchDecisions(searchQuery, limit, { all: true });
+              if (wholeGraph.results.length) {
+                const second = await synthesiseDetailed(
+                  query,
+                  wholeGraph.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
+                );
+                // Adoption rule, measured against a real model (2026-09-02 probes): on
+                // implicit-only context the model can emit the sentinel AND keep talking -
+                // the forbidden deny-then-deliver, with the actual answer in the tail. A
+                // denial with an informative tail beats a bare sentinel, so:
+                //   - a BARE-sentinel scoped answer adopts whatever the widened pass
+                //     produced (it cannot be less informative, and even an identical
+                //     abstention gains the honest whole-graph framing);
+                //   - a scoped answer that already carries a tail only upgrades to a
+                //     CLEAN widened answer - swapping one hedged answer for another loses
+                //     the accurate scope header for nothing.
+                const scopedWasBare = answer.trim() === ABSTENTION_SENTINEL;
+                if (second.ok && (scopedWasBare || !isAbstention(second.text))) {
+                  widenedFrom = results.scope;
+                  results = wholeGraph;
+                  answer = second.text;
+                }
               }
+            } finally {
+              spinner.stop();
             }
           }
         }
