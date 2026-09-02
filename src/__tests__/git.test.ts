@@ -5,7 +5,7 @@ vi.mock('execa', () => ({
 }));
 
 import { execa } from 'execa';
-import { buildCommitUrl, formatCommitAsText, getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, hasStatedRationale, isDecisionCommit, isGitRepo } from '../lib/git.js';
+import { buildBlobUrl, buildCommitUrl, formatCommitAsText, getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, hasStatedRationale, isDecisionCommit, isGitRepo } from '../lib/git.js';
 import type { GitCommit } from '../lib/git.js';
 
 describe('git helpers', () => {
@@ -81,6 +81,33 @@ describe('buildCommitUrl', () => {
   it('falls back to git:// scheme for unknown remotes', () => {
     const url = buildCommitUrl('https://bitbucket.org/org/repo.git', 'abc123');
     expect(url).toBe('git://commit/abc123');
+  });
+});
+
+describe('buildBlobUrl', () => {
+  it('builds a GitHub blob URL from an SSH remote', () => {
+    const url = buildBlobUrl('git@github.com:org/repo.git', 'main', 'docs/adr/0001-x.md');
+    expect(url).toBe('https://github.com/org/repo/blob/main/docs/adr/0001-x.md');
+  });
+
+  it('builds a GitHub blob URL from an HTTPS remote', () => {
+    const url = buildBlobUrl('https://github.com/org/repo.git', 'main', 'CLAUDE.md');
+    expect(url).toBe('https://github.com/org/repo/blob/main/CLAUDE.md');
+  });
+
+  it('builds a GitLab blob URL, using the -/blob/ path GitLab requires', () => {
+    const url = buildBlobUrl('https://gitlab.com/org/repo.git', 'main', 'docs/adr/0001-x.md');
+    expect(url).toBe('https://gitlab.com/org/repo/-/blob/main/docs/adr/0001-x.md');
+  });
+
+  it('falls back to a stable git:// identifier when remote is null', () => {
+    const url = buildBlobUrl(null, 'main', 'docs/adr/0001-x.md');
+    expect(url).toBe('git://blob/main/docs/adr/0001-x.md');
+  });
+
+  it('falls back to a stable git:// identifier for an unknown remote host', () => {
+    const url = buildBlobUrl('https://bitbucket.org/org/repo.git', 'main', 'docs/adr/0001-x.md');
+    expect(url).toBe('git://blob/main/docs/adr/0001-x.md');
   });
 });
 

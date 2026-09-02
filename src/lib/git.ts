@@ -226,24 +226,48 @@ export function hasStatedRationale(subject: string, body: string): boolean {
   return remaining.length > 0;
 }
 
-export async function getRemoteUrl(): Promise<string | null> {
+export async function getRemoteUrl(opts?: { cwd?: string }): Promise<string | null> {
   try {
-    const { stdout } = await execa('git', ['remote', 'get-url', 'origin']);
+    const { stdout } = await execa('git', ['remote', 'get-url', 'origin'], opts?.cwd ? { cwd: opts.cwd } : {});
     return stdout.trim() || null;
   } catch {
     return null;
   }
 }
 
-export function buildCommitUrl(remoteUrl: string | null, sha: string): string {
-  if (!remoteUrl) return `git://commit/${sha}`;
+/** GitHub/GitLab web base parsed from a remote, or null for anything else (bitbucket,
+ *  self-hosted, no remote). Shared by buildCommitUrl and buildBlobUrl so the two web
+ *  link builders can't drift on what counts as "a known host" (code-style.md, two
+ *  writers of one fact). */
+function repoWebBase(remoteUrl: string | null): { kind: 'github' | 'gitlab'; base: string } | null {
+  if (!remoteUrl) return null;
   const sshGh = remoteUrl.match(/git@github\.com[:/](.+?)(?:\.git)?$/);
-  if (sshGh) return `https://github.com/${sshGh[1]}/commit/${sha}`;
+  if (sshGh) return { kind: 'github', base: `https://github.com/${sshGh[1]}` };
   const httpsGh = remoteUrl.match(/github\.com[:/](.+?)(?:\.git)?$/);
-  if (httpsGh) return `https://github.com/${httpsGh[1]}/commit/${sha}`;
+  if (httpsGh) return { kind: 'github', base: `https://github.com/${httpsGh[1]}` };
   const gl = remoteUrl.match(/gitlab\.com[:/](.+?)(?:\.git)?$/);
-  if (gl) return `https://gitlab.com/${gl[1]}/-/commit/${sha}`;
-  return `git://commit/${sha}`;
+  if (gl) return { kind: 'gitlab', base: `https://gitlab.com/${gl[1]}` };
+  return null;
+}
+
+export function buildCommitUrl(remoteUrl: string | null, sha: string): string {
+  const web = repoWebBase(remoteUrl);
+  if (!web) return `git://commit/${sha}`;
+  return web.kind === 'gitlab' ? `${web.base}/-/commit/${sha}` : `${web.base}/commit/${sha}`;
+}
+
+/**
+ * Web link to a file at a specific branch (an ADR, a CLAUDE.md section) - the blob-URL
+ * sibling of buildCommitUrl, same fallback convention: with no known remote this returns
+ * a stable, non-network `git://` identifier rather than a clickable link. It is used as a
+ * dedup key (source_url) as much as a link, so "not clickable" must never mean "not stable".
+ */
+export function buildBlobUrl(remoteUrl: string | null, branch: string, relPath: string): string {
+  const web = repoWebBase(remoteUrl);
+  if (!web) return `git://blob/${branch}/${relPath}`;
+  return web.kind === 'gitlab'
+    ? `${web.base}/-/blob/${branch}/${relPath}`
+    : `${web.base}/blob/${branch}/${relPath}`;
 }
 
 export function formatCommitAsText(commit: GitCommit, commitUrl?: string): string {
@@ -285,8 +309,8 @@ export async function getBaseDiff(baseRef: string): Promise<string> {
   return result.stdout;
 }
 
-export async function getCurrentBranch(): Promise<string> {
-  const result = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+export async function getCurrentBranch(opts?: { cwd?: string }): Promise<string> {
+  const result = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], opts?.cwd ? { cwd: opts.cwd } : {});
   return result.stdout.trim();
 }
 

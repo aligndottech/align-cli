@@ -31,6 +31,7 @@ align status                 Value readout: what your graph has done for you
 
 ```
 align import git             Import from Git commit history (no auth)
+align import docs            Import ADRs and your CLAUDE.md/AGENTS.md content (no auth)
 align import github          Import from GitHub
 align import gitlab          Import from GitLab
 align import jira            Import from Jira
