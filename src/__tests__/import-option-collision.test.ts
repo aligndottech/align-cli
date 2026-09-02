@@ -30,7 +30,7 @@ vi.mock('@clack/prompts', () => ({
 }));
 vi.mock('../lib/git.js', () => ({
   isGitRepo: vi.fn().mockResolvedValue(true),
-  getCommitHistory: vi.fn().mockResolvedValue([{ sha: 'abc123', subject: 'feat: a commit' }]),
+  getCommitHistoryDetailed: vi.fn().mockResolvedValue({ commits: [{ sha: 'abc123', subject: 'feat: a commit' }], scanned: 1, rejectedByRationale: 0 }),
   getRemoteUrl: vi.fn().mockResolvedValue(null),
   buildCommitUrl: vi.fn(() => 'git://commit/abc123'),
   formatCommitAsText: vi.fn(() => 'commit text'),
@@ -104,9 +104,9 @@ describe('import subcommand options reach the subcommand (parent/child collision
   // Control: a child-only option was never affected by the collision. If this
   // fails, the defect is not the collision.
   it('still passes a child-only option through', async () => {
-    const { getCommitHistory } = await import('../lib/git.js');
+    const { getCommitHistoryDetailed } = await import('../lib/git.js');
     await run(['import', 'git', '--limit', '7']);
-    expect(vi.mocked(getCommitHistory)).toHaveBeenCalledWith(expect.objectContaining({ limit: 7 }));
+    expect(vi.mocked(getCommitHistoryDetailed)).toHaveBeenCalledWith(expect.objectContaining({ limit: 7 }));
   });
 
   // Control: without the flag, approve must stay falsy. Otherwise a fix that

@@ -51,9 +51,14 @@ describe('getCommitHistory against real git output', () => {
     const commits = await getCommitHistory({ cwd: repo });
 
     const subjects = commits.map(c => c.subject);
-    // "short subject" is excluded by the decision filter; the other three survive.
-    expect(subjects).toHaveLength(3);
+    // "short subject" is excluded by the decision filter (subject shape); the bodyless
+    // "feat: add rate limiting..." is excluded by ALI-804's rationale gate (a real subject
+    // with nothing behind it is still "what changed", not "why") - only the JWT commit
+    // and the promoted merge state an actual reason. Proven here against REAL git output,
+    // not a mock, so a parser regression in either gate would show up here too.
+    expect(subjects).toHaveLength(2);
     expect(subjects).not.toContain('short subject');
+    expect(subjects).not.toContain('feat: add rate limiting to the public API endpoints');
 
     const jwt = commits.find(c => c.subject.startsWith('feat(auth)'));
     expect(jwt?.body).toContain('Refs ALI-123 and closes #45.');
@@ -65,9 +70,5 @@ describe('getCommitHistory against real git output', () => {
     expect(merge?.body).toContain('Merge pull request #78');
     // Real git emits NO file list for a merge under --name-only without -m.
     expect(merge?.filesChanged).toEqual([]);
-
-    const feat = commits.find(c => c.subject === 'feat: add rate limiting to the public API endpoints');
-    expect(feat?.body).toBe('');
-    expect(feat?.filesChanged).toEqual(['c.txt']);
   });
 });

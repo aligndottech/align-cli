@@ -5,7 +5,7 @@ vi.mock('execa', () => ({
 }));
 
 import { execa } from 'execa';
-import { buildCommitUrl, formatCommitAsText, getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isDecisionCommit, isGitRepo } from '../lib/git.js';
+import { buildCommitUrl, formatCommitAsText, getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, hasStatedRationale, isDecisionCommit, isGitRepo } from '../lib/git.js';
 import type { GitCommit } from '../lib/git.js';
 
 describe('git helpers', () => {
@@ -108,6 +108,87 @@ describe('isDecisionCommit', () => {
   });
 });
 
+// ALI-804: a subject can pass isDecisionCommit's shape check ("fix:", "feat:", long
+// enough) and still be pure "what changed" if the body states no reason at all - which
+// is exactly David Gray's complaint ("They capture what changed, not why"). This is the
+// second, independent gate: does the BODY actually carry a stated rationale, once git
+// trailers (Co-authored-by, Signed-off-by, a "Generated with" attribution line) and a
+// squash-merge bullet that only echoes the subject are stripped out.
+describe('hasStatedRationale', () => {
+  it('rejects an empty body - a subject alone has no stated why', () => {
+    expect(hasStatedRationale('feat: add rate limiting to the public endpoints', '')).toBe(false);
+  });
+
+  it('rejects a whitespace-only body', () => {
+    expect(hasStatedRationale('feat: add rate limiting to the public endpoints', '\n   \n')).toBe(false);
+  });
+
+  it('accepts a body that states a real reason', () => {
+    expect(hasStatedRationale(
+      'fix: correct null check in auth middleware',
+      'The previous check missed the empty-string case, which let an unauthenticated request through.',
+    )).toBe(true);
+  });
+
+  it('accepts a different real reason (triangulating past a hard-coded string)', () => {
+    expect(hasStatedRationale(
+      'feat: switch database from Postgres to CockroachDB',
+      'Chosen for horizontal write scaling once decision volume passed one write per second.',
+    )).toBe(true);
+  });
+
+  it('rejects a body that is only a Co-authored-by trailer', () => {
+    expect(hasStatedRationale('fix: correct null check', 'Co-authored-by: Ada <ada@align.tech>')).toBe(false);
+  });
+
+  it('rejects a body that is only a Signed-off-by trailer', () => {
+    expect(hasStatedRationale('fix: correct null check', 'Signed-off-by: Ada <ada@align.tech>')).toBe(false);
+  });
+
+  it('rejects a body that is only a "Generated with" attribution line', () => {
+    expect(hasStatedRationale(
+      'fix: correct null check',
+      '🤖 Generated with [Claude Code](https://claude.com/claude-code)',
+    )).toBe(false);
+  });
+
+  it('rejects the same attribution line without the emoji prefix', () => {
+    expect(hasStatedRationale('fix: correct null check', 'Generated with Claude Code')).toBe(false);
+  });
+
+  // Copilot review (PR #223): the unanchored /generated with/i also matched mid-sentence,
+  // so a genuine reason like "Regenerated with a fresh script..." was wrongly stripped as
+  // if it were an attribution line - the opposite of what the check is for.
+  it('accepts a real reason that happens to contain "generated with" mid-sentence', () => {
+    expect(hasStatedRationale(
+      'fix: correct null check',
+      'Regenerated with a fresh script to fix the encoding bug.',
+    )).toBe(true);
+  });
+
+  it('accepts real content sitting alongside a trailer - the trailer does not poison it', () => {
+    expect(hasStatedRationale(
+      'fix: correct null check',
+      'Fixes the race condition between the two writers.\n\nCo-authored-by: Ada <ada@align.tech>',
+    )).toBe(true);
+  });
+
+  it('rejects a squash bullet that only echoes the subject', () => {
+    expect(hasStatedRationale('fix: correct null check in auth middleware', '* fix: correct null check in auth middleware')).toBe(false);
+  });
+
+  it('rejects an echo bullet even with different case, prefix and punctuation', () => {
+    expect(hasStatedRationale('fix: correct null check', '- Fix: Correct null check.')).toBe(false);
+  });
+
+  it('accepts a squash bullet whose content differs from the subject', () => {
+    expect(hasStatedRationale(
+      'fix: correct null check',
+      '* fix: correct null check\n* also documents why the check was missing in the first place',
+    )).toBe(true);
+  });
+});
+
 describe('formatCommitAsText', () => {
   const commit: GitCommit = {
     sha: 'abc123',
@@ -171,7 +252,12 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
     expect(commits[0].filesChanged).toEqual(['src/auth.ts', 'src/middleware.ts']);
   });
 
-  it('keeps body empty when the commit has none (END inline on the header line)', async () => {
+  // ALI-804: an empty body is correctly parsed as empty (proven by the assertion below -
+  // if the "inline END" terminator ever leaked into the body text, hasStatedRationale
+  // would see non-trailer, non-echo content and this would wrongly come back non-empty),
+  // and a subject alone - however decision-shaped - is now excluded for stating no reason.
+  // This is the exact "captures what changed, not why" shape the ticket is about.
+  it('excludes a commit with an empty body - a subject alone states no reason (ALI-804)', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
       `COMMIT${SEP}b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3${SEP}Switch database from Postgres to CockroachDB${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${SEP}END`,
@@ -179,9 +265,7 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
       'db/schema.sql',
     ]));
     const commits = await getCommitHistory({});
-    expect(commits).toHaveLength(1);
-    expect(commits[0].body).toBe('');
-    expect(commits[0].filesChanged).toEqual(['db/schema.sql']);
+    expect(commits).toHaveLength(0);
   });
 
   it('no longer passes --no-merges (merge bodies carry the PR description)', async () => {

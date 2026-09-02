@@ -9,7 +9,28 @@ export interface GitCommit {
   filesChanged: string[];
 }
 
-export async function getCommitHistory(opts: {
+export interface CommitHistoryResult {
+  commits: GitCommit[];
+  /** Every commit `git log` returned, before either promotion filter ran - i.e. what
+   *  `commits.length` is a fraction OF. Needed to report "fewer, better rows" honestly
+   *  (ALI-804): `commits.length` alone reads as "this is everything", not as a kept count. */
+  scanned: number;
+  /** Commits whose subject passed isDecisionCommit's shape check but whose body stated
+   *  no reason (ALI-804's rationale gate) - the "what changed, not why" case. Kept
+   *  separate from `scanned - commits.length`, which also includes the PRE-EXISTING
+   *  subject-shape rejections (chore/wip/merge/too-short) - folding those into "no
+   *  stated reason" overstates what THIS gate did (Copilot review, PR #223). */
+  rejectedByRationale: number;
+}
+
+/**
+ * Same as {@link getCommitHistory}, plus the raw scanned count. A separate export
+ * because {@link getCommitHistory}'s `Promise<GitCommit[]>` signature is the
+ * `GitCommitSource` contract connector-core's `GitFetcher` is typed against
+ * (`node_modules/@aligndottech/connector-core`) - changing its return shape would
+ * break that interface for no gain, since the SDK fetcher never needs the scanned count.
+ */
+export async function getCommitHistoryDetailed(opts: {
   limit?: number;
   from?: string;
   to?: string;
@@ -17,7 +38,7 @@ export async function getCommitHistory(opts: {
   /** Run git in this directory instead of the process cwd. Lets tests point at a
    *  fixture repo without process.chdir, which leaks across concurrent workers. */
   cwd?: string;
-}): Promise<GitCommit[]> {
+}): Promise<CommitHistoryResult> {
   const SEP = '\x1f';
   const MARKER = `COMMIT${SEP}`;
   const BODY_END = `${SEP}END`;
@@ -58,12 +79,14 @@ export async function getCommitHistory(opts: {
     // Other git failures (e.g. a bad --branch) still surface.
     const e = err as { exitCode?: number; stderr?: string };
     if (e.exitCode === 128 && /does not have any commits|bad default revision/i.test(e.stderr ?? '')) {
-      return [];
+      return { commits: [], scanned: 0, rejectedByRationale: 0 };
     }
     throw err;
   }
 
   const commits: GitCommit[] = [];
+  let scanned = 0;
+  let rejectedByRationale = 0;
   let sha = '', subject = '', author = '', date = '';
   let bodyLines: string[] = [];
   let files: string[] = [];
@@ -71,10 +94,21 @@ export async function getCommitHistory(opts: {
 
   const flush = () => {
     if (mode === 'idle' || !sha) return;
+    scanned++;
     const shaped = resolveCommitShape(subject, bodyLines.join('\n').trimEnd());
-    if (isDecisionCommit(shaped.subject)) {
-      commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, filesChanged: files.slice(0, 10) });
+    if (!isDecisionCommit(shaped.subject)) return;
+    // A promoted merge (ALI-792) already cleared an extra bar: its subject came from the
+    // body's own first line via isDecisionCommit, and its body always retains the original
+    // "Merge pull request #N from x/y" line for the PR ref - so it never needs to ALSO
+    // clear the rationale bar below. A plain commit gets no such head start: its subject
+    // is unvetted prose, so the body has to state why, or it is pure "what changed"
+    // (ALI-804 - the whole complaint this filter exists to answer).
+    const wasPromotedMerge = shaped.subject !== subject;
+    if (!wasPromotedMerge && !hasStatedRationale(shaped.subject, shaped.body)) {
+      rejectedByRationale++;
+      return;
     }
+    commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, filesChanged: files.slice(0, 10) });
   };
 
   // A header line must carry a full 40-hex sha in the second field. Without the check,
@@ -125,7 +159,11 @@ export async function getCommitHistory(opts: {
   }
   flush();
 
-  return commits;
+  return { commits, scanned, rejectedByRationale };
+}
+
+export async function getCommitHistory(opts: Parameters<typeof getCommitHistoryDetailed>[0]): Promise<GitCommit[]> {
+  return (await getCommitHistoryDetailed(opts)).commits;
 }
 
 /**
@@ -150,6 +188,42 @@ function resolveCommitShape(subject: string, body: string): { subject: string; b
 export function isDecisionCommit(subject: string): boolean {
   if (subject.length < 20) return false;
   return !/^(chore|wip|merge|revert|bump|update deps|release|typo)/i.test(subject.trim());
+}
+
+// A line that IS a git trailer (key: value at the start of the line), not merely a
+// sentence that happens to mention one of these words mid-line - "Refs ALI-123 and
+// closes #45." inside a real paragraph must NOT be stripped, only a line that is
+// nothing but the trailer.
+const TRAILER_LINE_RE = /^(co-authored-by|signed-off-by|reviewed-by|acked-by|helped-by|cc|refs?|closes?|fixes?|resolves?)\s*:\s*\S/i;
+// Attribution lines an agent appends (e.g. "🤖 Generated with [Claude Code](...)")
+// carry no rationale either - it's who/what wrote the commit, not why. Anchored to the
+// START of the line (past an optional bot emoji): unanchored, this also matched mid-
+// sentence, so a real reason like "Regenerated with a fresh script..." was wrongly
+// stripped as if it were an attribution line (Copilot review, PR #223).
+const GENERATED_WITH_RE = /^(?:🤖\s*)?generated (with|by)\b/i;
+
+function normalizeForEcho(s: string): string {
+  return s.toLowerCase().replace(/^[*\-•]\s*/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Does this commit's body actually state a reason, once the noise is stripped? Measured
+ * while filtering ALI-804's git-only import: a body-shaped string is not automatically a
+ * WHY - a git trailer inflates "has a body" with no rationale in it, and a squash-merge
+ * bullet that just repeats the subject ("* fix: same as the subject") reads as prose
+ * while adding none. This is the same "prose in body, non-mechanical subject" proxy the
+ * ALI-804 measurement itself used to produce its headline numbers, made executable.
+ */
+export function hasStatedRationale(subject: string, body: string): boolean {
+  if (!body.trim()) return false;
+  const subjectNorm = normalizeForEcho(subject);
+  const remaining = body
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .filter(l => !TRAILER_LINE_RE.test(l) && !GENERATED_WITH_RE.test(l))
+    .filter(l => normalizeForEcho(l) !== subjectNorm);
+  return remaining.length > 0;
 }
 
 export async function getRemoteUrl(): Promise<string | null> {
