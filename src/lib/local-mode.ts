@@ -6,6 +6,18 @@ import { createConfigStore } from './config.js';
 import { createLocalDb } from './local-db.js';
 
 /**
+ * The graph is one logical database spread over three files: the DB itself plus the WAL
+ * sidecars SQLite maintains under `PRAGMA journal_mode = WAL` (local-db.ts). Committed
+ * transactions live in `-wal` until a checkpoint, so anything that relocates or deletes
+ * the graph must treat all three as one unit - migrateLocalDb below for the copy side,
+ * `align local reset` for the delete side, which consumes this same constant.
+ *
+ * One writer of that fact rather than the literal spelled out at both sites: relocate and
+ * delete disagreeing about what "the graph" is means one of them leaves half of it behind.
+ */
+export const LOCAL_DB_SUFFIXES = ['', '-wal', '-shm'] as const;
+
+/**
  * Reproduces the OLD hand-rolled linux directory exactly - the one that never read
  * XDG_CONFIG_HOME - because that is genuinely where an existing user's local.db sits
  * today, on disk, regardless of what env-paths would now compute for them. Exported
@@ -26,15 +38,18 @@ export function legacyLocalDbDir(): string {
  * hand-rolled path while the new code looks elsewhere. Without this, an existing local
  * graph silently vanishes. Same shape as config.ts's migrateConfigDirectory: copy only
  * when the new location has nothing yet, never overwrite, never delete the old files.
- * WAL and SHM sidecars travel with the main file - local-db.test.ts's own cleanup code
- * already treats '', '-wal', '-shm' as one unit.
+ *
+ * The sidecars travel with the main file, via LOCAL_DB_SUFFIXES above - and either all
+ * three move or none do. The early return covers both halves of that: a `-wal` holds
+ * committed frames belonging to the database it was written for, so copying one onto a
+ * DIFFERENT database at the new location would hand SQLite another file's transactions.
  */
 export function migrateLocalDb(oldDir: string, newDir: string): void {
   const oldFile = path.join(oldDir, 'local.db');
   const newFile = path.join(newDir, 'local.db');
   if (fs.existsSync(newFile) || !fs.existsSync(oldFile)) return;
   fs.mkdirSync(newDir, { recursive: true });
-  for (const suffix of ['', '-wal', '-shm']) {
+  for (const suffix of LOCAL_DB_SUFFIXES) {
     const from = `${oldFile}${suffix}`;
     if (fs.existsSync(from)) fs.copyFileSync(from, `${newFile}${suffix}`);
   }
