@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
 import { createConfigStore } from '../lib/config.js';
 
 // The real Conf writes to the user's home directory. This double keeps the data in memory
@@ -134,5 +135,36 @@ describe('local connector credentials', () => {
     createConfigStore();
 
     expect(constructorOptions[0]?.['configFileMode']).toBe(0o600);
+  });
+
+  // Bug found live 2026-09-02: `conf`'s own default is `projectSuffix: 'nodejs'`
+  // (node_modules/conf/dist/source/index.js), so without disabling it every real
+  // install writes to `~/.config/align-cli-nodejs`, not the `~/.config/align-cli`
+  // every comment and doc in this repo already claimed - including local-mode.ts's
+  // own hand-written directory for the local graph DB, which lives in a DIFFERENT
+  // directory as a result. `rm -rf ~/.config/align-cli` (the documented reset
+  // instruction) silently did nothing to the saved tokens/telemetry-consent/auth
+  // config, which is why a wiped local DB still reported "Signed in prod".
+  it('disables the projectSuffix conf would otherwise add', () => {
+    createConfigStore();
+
+    expect(constructorOptions[0]?.['projectSuffix']).toBe('');
+  });
+
+  // Copilot review on #231: migrateConfigDirectory used to run automatically inside
+  // createConfigStore(), so every test in this file - `conf` is mocked here, `fs` is
+  // not - was hitting the REAL filesystem as a side effect of merely constructing a
+  // store, on whatever machine happened to run the suite. Proves the fix directly:
+  // construction alone must never touch disk, real fs and all.
+  it('touches no filesystem migration path merely by being constructed', () => {
+    const existsSpy = vi.spyOn(fs, 'existsSync');
+    const copySpy = vi.spyOn(fs, 'copyFileSync');
+
+    createConfigStore();
+
+    expect(existsSpy).not.toHaveBeenCalled();
+    expect(copySpy).not.toHaveBeenCalled();
+    existsSpy.mockRestore();
+    copySpy.mockRestore();
   });
 });

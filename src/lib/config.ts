@@ -1,5 +1,7 @@
 import Conf from 'conf';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -52,6 +54,30 @@ export const ALIGN_HOSTED_GATEWAY_URL = DEFAULTS.prod.gatewayUrl;
 /** ALI-618: local-only users have no account, so consent is stored on the machine, not the server. */
 export type TelemetryConsent = 'granted' | 'declined';
 
+/**
+ * One-time, idempotent: if the old suffixed config exists and the new one does not yet,
+ * copy it across. `conf`'s default `projectSuffix: 'nodejs'` has been in effect since the
+ * CLI's very first `align login`, so this is not a new-feature migration - it is real
+ * historical state (cloud auth tokens, tenant ids, and any saved connector tokens) that
+ * would otherwise be silently orphaned the moment config.ts starts reading the
+ * suffix-free directory. The old file is left in place, never deleted, and an existing
+ * file at the new location is never overwritten - this only ever fills a gap.
+ *
+ * Copilot review on #231: this used to run automatically inside createConfigStore(), so
+ * every test that mocks `conf` but not `fs`/`env-paths` was touching the REAL filesystem
+ * on whatever machine ran the suite - on a developer's own laptop, silently copying their
+ * real ~/.config/align-cli-nodejs/config.json. A migration is a real-process-startup
+ * concern, not a store-construction one: the constructor stays pure, and this is called
+ * exactly once, from src/index.ts, before any command runs.
+ */
+export function migrateConfigDirectory(oldDir: string, newDir: string): void {
+  const oldFile = path.join(oldDir, 'config.json');
+  const newFile = path.join(newDir, 'config.json');
+  if (fs.existsSync(newFile) || !fs.existsSync(oldFile)) return;
+  fs.mkdirSync(newDir, { recursive: true });
+  fs.copyFileSync(oldFile, newFile);
+}
+
 export function createConfigStore() {
   const store = new Conf<{
     environments: Record<string, Partial<EnvironmentConfig>>;
@@ -62,6 +88,14 @@ export function createConfigStore() {
     funnelStagesRecorded?: string[];
   }>({
     projectName: 'align-cli',
+    // conf's own default is 'nodejs' (node_modules/conf/dist/source/index.js), which
+    // writes to ~/.config/align-cli-nodejs - a DIFFERENT directory from the one
+    // local-mode.ts hand-computes for the local graph DB (~/.config/align-cli). Found
+    // live: `rm -rf ~/.config/align-cli` silently left every saved token, telemetry
+    // consent and auth config untouched, one directory over. Disabling the suffix
+    // makes this match env-paths('align-cli', { suffix: '' }) - the same call
+    // local-mode.ts now makes directly, so there is one authority, not two guesses.
+    projectSuffix: '',
     defaults: { environments: {}, defaultEnv: 'prod', connectorTokens: {} },
     // This file holds the read-only tokens local mode asks for, so it is a credential file
     // rather than ordinary config. 0600 is also what the setup copy promises the user.

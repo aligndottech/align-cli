@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import envPaths from 'env-paths';
 import pkg from '../package.json' with { type: 'json' };
 const { version } = pkg;
+import { migrateConfigDirectory } from './lib/config.js';
+import { legacyLocalDbDir, migrateLocalDb } from './lib/local-mode.js';
 import { registerLoginCommands } from './commands/login.js';
 import { registerCaptureCommand } from './commands/capture.js';
 import { registerImportCommand } from './commands/import.js';
@@ -41,6 +44,19 @@ function handleFatal(err: unknown): never {
 }
 process.on('uncaughtException', handleFatal);
 process.on('unhandledRejection', handleFatal);
+
+// One-time directory migrations (ALI-819, Copilot review on #231), run exactly once at
+// real process startup - never inside createConfigStore()/getLocalDbPath() themselves,
+// which stay pure so tests that mock `conf` don't also need to mock the filesystem.
+// A migration is a nice-to-have, never a requirement: an unreadable/unwritable
+// ~/.config on some machine must not stop align from running the command the user
+// actually asked for, so failures here are swallowed rather than reaching handleFatal.
+try {
+  migrateConfigDirectory(envPaths('align-cli', { suffix: 'nodejs' }).config, envPaths('align-cli', { suffix: '' }).config);
+  migrateLocalDb(legacyLocalDbDir(), envPaths('align-cli', { suffix: '' }).config);
+} catch (e) {
+  if (process.env['ALIGN_DEBUG']) console.error('align: startup migration failed (non-fatal):', e);
+}
 
 const program = new Command();
 
