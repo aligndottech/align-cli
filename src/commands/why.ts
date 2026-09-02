@@ -7,7 +7,7 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import type { SearchResults } from '../lib/gateway-client.js';
 import { localCitationFor } from '../lib/commit-cite.js';
-import { isAbstention, type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
+import { ABSTENTION_SENTINEL, isAbstention, type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { formatWhen } from '../lib/format-date.js';
 import { resolveScopeOpts } from '../lib/repo-identity.js';
@@ -234,13 +234,22 @@ export function registerAskCommand(program: Command): void {
                 query,
                 wholeGraph.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
               );
-              if (second.ok && !isAbstention(second.text)) {
+              // Adoption rule, measured against a real model (2026-09-02 probes): on
+              // implicit-only context the model can emit the sentinel AND keep talking -
+              // the forbidden deny-then-deliver, with the actual answer in the tail. A
+              // denial with an informative tail beats a bare sentinel, so:
+              //   - a BARE-sentinel scoped answer adopts whatever the widened pass
+              //     produced (it cannot be less informative, and even an identical
+              //     abstention gains the honest whole-graph framing);
+              //   - a scoped answer that already carries a tail only upgrades to a
+              //     CLEAN widened answer - swapping one hedged answer for another loses
+              //     the accurate scope header for nothing.
+              const scopedWasBare = answer.trim() === ABSTENTION_SENTINEL;
+              if (second.ok && (scopedWasBare || !isAbstention(second.text))) {
                 widenedFrom = results.scope;
                 results = wholeGraph;
                 answer = second.text;
               }
-              // The whole graph abstained (or failed) too: keep the first abstention,
-              // printed once, from the scope the user is standing in.
             }
           }
         }

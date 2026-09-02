@@ -61,7 +61,9 @@ async function ask(...extra: string[]) {
   const program = new Command();
   registerAskCommand(program);
   await program.parseAsync(['node', 'align', 'ask', 'why did the other repo do X', ...extra]);
-  return output.join('\n');
+  // Whitespace-normalised: the renderer word-wraps answers at 76 columns, so a phrase
+  // asserted with toContain can be split mid-word-boundary by a newline and read as absent.
+  return output.join('\n').replace(/\s+/g, ' ');
 }
 
 /**
@@ -170,6 +172,52 @@ describe('align ask auto-widens when scoped context makes the model abstain', ()
 
     const mentions = out.split(ABSTENTION_SENTINEL).length - 1;
     expect(mentions).toBe(1);
+    // Both passes abstained identically, so print the one whose framing is accurate:
+    // the whole graph was searched, and saying so beats naming a repo it went past.
+    expect(out).toMatch(/whole graph/i);
+  });
+
+  /**
+   * Measured against a real model (probe 2, 2026-09-02): on implicit-only context the
+   * model can STILL emit the sentinel and keep talking - the deny-then-deliver output
+   * the prompt forbids, with the actual answer in the tail. A denial with an
+   * informative tail beats a bare sentinel, so a bare-sentinel scoped answer adopts
+   * WHATEVER the widened pass produced - even another denial-shaped answer - while a
+   * scoped answer that already carries a tail only upgrades to a CLEAN widened answer.
+   */
+  it('a bare-sentinel scoped answer adopts a denial-with-tail widened answer', async () => {
+    searchDecisions.mockResolvedValueOnce(scoped([SCOPED_HIT])).mockResolvedValueOnce(global([GLOBAL_HIT]));
+    synthesiseDetailed
+      .mockResolvedValueOnce({ ok: true, text: ABSTENTION_SENTINEL })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: `${ABSTENTION_SENTINEL} While align-cli#231 shows the suffix was removed to converge the directories.`,
+      });
+
+    const out = await ask();
+
+    expect(out).toContain('the suffix was removed to converge the directories');
+    expect(out).toMatch(/whole graph/i);
+  });
+
+  it('a denial-with-tail scoped answer only upgrades to a CLEAN widened answer', async () => {
+    searchDecisions.mockResolvedValueOnce(scoped([SCOPED_HIT])).mockResolvedValueOnce(global([GLOBAL_HIT]));
+    synthesiseDetailed
+      .mockResolvedValueOnce({
+        ok: true,
+        text: `${ABSTENTION_SENTINEL} Though the scoped decisions hint at a directory bug.`,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: `${ABSTENTION_SENTINEL} The widened context hints at the same directory bug.`,
+      });
+
+    const out = await ask();
+
+    // Neither pass produced a clean answer; keep the scoped one, whose header is honest.
+    expect(out).toContain('the scoped decisions hint at a directory bug');
+    expect(out).not.toContain('widened context hints');
+    expect(out).toMatch(/Answering from github\.com\/acme\/api/);
   });
 
   it('does not widen or re-synthesise when the scoped answer is a real answer', async () => {
