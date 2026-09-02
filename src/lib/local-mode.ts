@@ -41,8 +41,9 @@ export function migrateLocalDb(oldDir: string, newDir: string): void {
 }
 
 /**
- * Was a hand-rolled darwin/win32/linux branch, independent of the ONE conf.ts already
- * uses under the hood. Two writers of the same platform-directory fact had already
+ * Was a hand-rolled darwin/win32/linux branch, independent of the ONE env-paths lookup
+ * config.ts already uses under the hood (via the `conf` package). Two writers of the
+ * same platform-directory fact had already
  * drifted (config.ts's conf instance wrote to a `-nodejs`-suffixed directory this file
  * never knew about), and would drift further on Windows even with that fixed - env-paths
  * nests config under a `Config` subdirectory this hand-written branch never added, and
