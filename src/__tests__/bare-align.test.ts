@@ -137,14 +137,19 @@ describe('bare `align`', () => {
    */
   it('leaves the banner to setup when delegating - one lockup, not two', async () => {
     getEnvironment.mockImplementation(() => ({ mode: 'cloud' }));
+    const inTty = process.stdin.isTTY, outTty = process.stdout.isTTY;
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
 
-    await bare();
+    try {
+      await bare();
 
-    expect(runSetup).toHaveBeenCalledTimes(1);
-    expect(printBanner).not.toHaveBeenCalled();
-  });
+      expect(runSetup).toHaveBeenCalledTimes(1);
+      expect(printBanner).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', { value: inTty, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: outTty, configurable: true });
+    }
 
   it('prints the banner exactly once for an already-set-up user', async () => {
     getEnvironment.mockImplementation((n: string) =>
