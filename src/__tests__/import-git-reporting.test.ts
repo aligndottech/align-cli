@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * mock in import-option-collision.test.ts discards a fresh object per call).
  */
 const stopMock = vi.fn();
+// ALI-827: the capture report prints through console.log, after the import.
+const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
   outro: vi.fn(),
@@ -54,6 +56,7 @@ const commit = { sha: 'a', subject: 'feat: a real decision with a stated reason'
 describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)', () => {
   beforeEach(() => {
     stopMock.mockClear();
+    logSpy.mockClear();
     vi.mocked(getCommitHistoryDetailed).mockReset();
   });
 
@@ -82,5 +85,47 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     await run(['import', 'git']);
     const message = stopMock.mock.calls.at(-1)?.[0] as string;
     expect(message).toBe('Found 1 commits worth importing');
+  });
+
+  // ALI-827 R6a
+  it('the capture report names both drop reasons separately, never as one number', async () => {
+    vi.mocked(getCommitHistoryDetailed).mockResolvedValue({
+      commits: [commit, commit, commit],
+      scanned: 10,
+      rejectedByRationale: 2,
+    });
+    await run(['import', 'git']);
+    const printed = logSpy.mock.calls.flat().join('\n');
+    expect(printed).toContain('Git: 3 commits');
+    expect(printed).toContain('2 commits stated no reason beyond the subject');
+    expect(printed).toContain('5 commits with a mechanical');            // 10 - 3 - 2
+    expect(printed).not.toContain('7 commits');                         // the conflated number
+    // 10 scanned against the default --limit of 500: the repo ran out, not the cap.
+    expect(printed).not.toContain('of up to');
+  });
+
+  it('the capture report names the cap when the scan reached it', async () => {
+    vi.mocked(getCommitHistoryDetailed).mockResolvedValue({
+      commits: [commit, commit, commit],
+      scanned: 10,
+      rejectedByRationale: 2,
+    });
+    await run(['import', 'git', '--limit', '10']);
+    const printed = logSpy.mock.calls.flat().join('\n');
+    expect(printed).toContain('Git: 3 commits of up to 10 requested');
+  });
+
+  // ALI-827 R6b
+  it('the capture report carries no skip lines when nothing was dropped', async () => {
+    vi.mocked(getCommitHistoryDetailed).mockResolvedValue({
+      commits: Array.from({ length: 8 }, () => commit),
+      scanned: 8,
+      rejectedByRationale: 0,
+    });
+    await run(['import', 'git']);
+    const printed = logSpy.mock.calls.flat().join('\n');
+    expect(printed).toContain('Git: 8 commits');
+    expect(printed).not.toContain('stated no reason');
+    expect(printed).not.toContain('mechanical subject');
   });
 });

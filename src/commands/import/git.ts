@@ -7,6 +7,9 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { buildCommitUrl, formatCommitAsText, getCommitHistoryDetailed, getRemoteUrl, isGitRepo } from '../../lib/git.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
+import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
+import { gitCaptureReport } from '../../lib/fetchers/git.js';
 import { commandIntro } from '../../lib/brand.js';
 
 interface GitImportOpts {
@@ -44,8 +47,9 @@ export function registerImportGitCommand(importCmd: Command): void {
 
       const spinner = p.spinner();
       spinner.start('Reading git history...');
+      const requested = parseInt(opts.limit, 10);
       const { commits, scanned, rejectedByRationale } = await getCommitHistoryDetailed({
-        limit: parseInt(opts.limit, 10),
+        limit: requested,
         from: opts.from,
         to: opts.to,
         branch: opts.branch,
@@ -84,5 +88,11 @@ export function registerImportGitCommand(importCmd: Command): void {
         appUrl: resolveAppUrl(env),
         funnel: { env, source: 'git' },
       });
+
+      // ALI-827: the same counts the spinner line above reports, as the report block every
+      // import ends with. Derived by gitCaptureReport so this command and `align setup`
+      // cannot disagree on what "mechanical" means or when the cap is worth naming.
+      const report = gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: requested });
+      console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.git, { items, report })])}\n`);
     });
 }

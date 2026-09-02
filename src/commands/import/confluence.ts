@@ -7,6 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchConfluenceItems } from '../../lib/fetchers/confluence.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
+import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { PERSONAL_OAUTH_KEYS, personalCredsForImport } from '../../lib/personal-oauth.js';
 import { AuthExpiredError } from '../../lib/errors.js';
 import { commandIntro } from '../../lib/brand.js';
@@ -77,7 +79,7 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
       const spinner = p.spinner();
       spinner.start('Fetching your Confluence pages...');
       try {
-        const items = await fetchConfluenceItems({
+        const fetched = await fetchConfluenceItems({
           token,
           cloudId,
           siteBase,
@@ -85,8 +87,10 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
           domain: opts.domain,
           limit: parseInt(opts.limit, 10),
         });
+        const { items } = fetched;
         spinner.stop(`Found ${items.length} pages`);
         await runPersonalImport(items, client, { label: 'Confluence', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'confluence' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.confluence, fetched)])}\n`);
       } catch (err) {
         spinner.stop('');
         if (err instanceof AuthExpiredError) {

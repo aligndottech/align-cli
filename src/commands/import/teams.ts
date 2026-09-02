@@ -7,6 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchTeamsItems } from '../../lib/fetchers/teams.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
+import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
 
@@ -58,12 +60,14 @@ export function registerImportTeamsCommand(importCmd: Command): void {
       const spinner = p.spinner();
       spinner.start('Fetching channel messages from Microsoft Teams...');
       try {
-        const items = await fetchTeamsItems({
+        const fetched = await fetchTeamsItems({
           token,
           limit: parseInt(opts.limit, 10),
         });
+        const { items } = fetched;
         spinner.stop(`Found ${items.length} messages`);
         await runPersonalImport(items, client, { label: 'Teams', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'teams' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.teams, fetched)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

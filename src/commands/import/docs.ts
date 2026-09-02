@@ -7,6 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchDocsItems } from '../../lib/fetchers/docs.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
+import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { commandIntro } from '../../lib/brand.js';
 
 interface DocsImportOpts {
@@ -34,7 +36,8 @@ export function registerImportDocsCommand(importCmd: Command): void {
 
       const spinner = p.spinner();
       spinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
-      const items = await fetchDocsItems({ limit: parseInt(opts.limit, 10) });
+      const fetched = await fetchDocsItems({ limit: parseInt(opts.limit, 10) });
+      const { items } = fetched;
       spinner.stop(`Found ${items.length} item(s) worth importing`);
 
       await runPersonalImport(items, client, {
@@ -43,5 +46,6 @@ export function registerImportDocsCommand(importCmd: Command): void {
         appUrl: resolveAppUrl(env),
         funnel: { env, source: 'docs' },
       });
+      console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.docs, fetched)])}\n`);
     });
 }

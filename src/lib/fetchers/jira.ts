@@ -1,6 +1,6 @@
 import { FetcherAuthError, JiraFetcher } from '@aligndottech/connector-core';
 import { AuthExpiredError } from '../errors.js';
-import type { PersonalImportItem } from '../personal-import.js';
+import { type CaptureFetchResult, withCaptureReport } from './capture.js';
 
 /** Read-only personal Jira import. Delegates to the canonical fetcher in
  *  @aligndottech/connector-core; maps its auth error to the CLI's reconnect flow. */
@@ -11,9 +11,9 @@ export async function fetchJiraItems(opts: {
   email?: string;
   domain?: string;
   limit?: number;
-}): Promise<PersonalImportItem[]> {
+}): Promise<CaptureFetchResult> {
   try {
-    return await new JiraFetcher().fetch(opts);
+    return await withCaptureReport(opts, () => new JiraFetcher().fetch(opts));
   } catch (e) {
     if (e instanceof FetcherAuthError) throw new AuthExpiredError(e.connector);
     throw e;

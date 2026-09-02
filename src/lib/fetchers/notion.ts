@@ -1,7 +1,7 @@
 import { NotionFetcher } from '@aligndottech/connector-core';
-import type { PersonalImportItem } from '../personal-import.js';
+import { type CaptureFetchResult, withCaptureReport } from './capture.js';
 
 /** Read-only personal Notion import (canonical fetcher in connector-core). */
-export async function fetchNotionItems(opts: { token: string; limit?: number }): Promise<PersonalImportItem[]> {
-  return new NotionFetcher().fetch(opts);
+export async function fetchNotionItems(opts: { token: string; limit?: number }): Promise<CaptureFetchResult> {
+  return withCaptureReport(opts, () => new NotionFetcher().fetch(opts));
 }

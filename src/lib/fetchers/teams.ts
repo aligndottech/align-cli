@@ -1,7 +1,7 @@
 import { TeamsFetcher } from '@aligndottech/connector-core';
-import type { PersonalImportItem } from '../personal-import.js';
+import { type CaptureFetchResult, withCaptureReport } from './capture.js';
 
 /** Read-only personal Teams import (canonical fetcher in connector-core). */
-export async function fetchTeamsItems(opts: { token: string; limit?: number }): Promise<PersonalImportItem[]> {
-  return new TeamsFetcher().fetch(opts);
+export async function fetchTeamsItems(opts: { token: string; limit?: number }): Promise<CaptureFetchResult> {
+  return withCaptureReport(opts, () => new TeamsFetcher().fetch(opts));
 }

@@ -45,7 +45,12 @@ vi.mock('@aligndottech/connector-core', () => {
   };
 });
 vi.mock('../../lib/git.js', () => ({
-  getCommitHistory: vi.fn(async () => [{ sha: 'abc', subject: 'Adopt hexagonal arch', author: 'Ada' }]),
+  // 5 scanned: 1 kept, 1 dropped by the rationale gate, 3 by the subject-shape filter.
+  getCommitHistoryDetailed: vi.fn(async () => ({
+    commits: [{ sha: 'abc', subject: 'Adopt hexagonal arch', author: 'Ada' }],
+    scanned: 5,
+    rejectedByRationale: 1,
+  })),
   getRemoteUrl: vi.fn(async () => 'git@github.com:org/repo.git'),
 }));
 
@@ -59,13 +64,14 @@ import { fetchZoomItems } from '../../lib/fetchers/zoom.js';
 import { fetchLinearItems } from '../../lib/fetchers/linear.js';
 import { fetchNotionItems } from '../../lib/fetchers/notion.js';
 import { fetchGitItems } from '../../lib/fetchers/git.js';
-import { getCommitHistory } from '../../lib/git.js';
+import { getCommitHistoryDetailed } from '../../lib/git.js';
 import { AuthExpiredError } from '../../lib/errors.js';
+import { MECHANICAL_SUBJECT_PREFIXES } from '../../lib/commit-shape.js';
 
 describe('CLI fetcher wrappers delegate to connector-core', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('every token-based wrapper returns the core fetcher result', async () => {
+  it('every token-based wrapper returns the core fetcher result as items, plus a fallback report', async () => {
     const results = await Promise.all([
       fetchGitHubItems({ token: 't' }),
       fetchGitLabItems({ token: 't' }),
@@ -77,15 +83,52 @@ describe('CLI fetcher wrappers delegate to connector-core', () => {
       fetchLinearItems({ token: 't' }),
       fetchNotionItems({ token: 't' }),
     ]);
-    expect(results.map((r) => r[0].platform)).toEqual([
+    expect(results.map((r) => r.items[0].platform)).toEqual([
       'github', 'gitlab', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'linear', 'notion',
     ]);
+    // ALI-827: on 0.5.0 no core fetcher reports, so every wrapper says only what it can
+    // count - one item came back, nothing was asked for by number, nothing to explain.
+    for (const r of results) expect(r.report).toEqual({ scanned: 1, skips: [] });
   });
 
-  it('git wrapper injects the CLI git I/O', async () => {
-    const items = await fetchGitItems({ limit: 10 });
-    expect(getCommitHistory).toHaveBeenCalledWith({ limit: 10 });
+  it('a wrapper given a limit echoes it as the request', async () => {
+    const { report } = await fetchSlackItems({ token: 't', limit: 25 });
+    expect(report).toEqual({ scanned: 1, requested: 25, skips: [] });
+  });
+
+  it('git wrapper reads history ONCE and injects it into the core fetcher', async () => {
+    const { items } = await fetchGitItems({ limit: 10 });
+    expect(getCommitHistoryDetailed).toHaveBeenCalledTimes(1);
+    expect(getCommitHistoryDetailed).toHaveBeenCalledWith({ limit: 10 });
     expect(items[0]).toMatchObject({ platform: 'git', author: { name: 'Ada' } });
+  });
+
+  it('git wrapper reports its own two drop reasons, from the same read the items came from', async () => {
+    const { report } = await fetchGitItems({ limit: 10 });
+    expect(report).toEqual({
+      scanned: 5,
+      skips: [
+        { count: 1, detail: 'commits stated no reason beyond the subject' },
+        // 5 scanned - 1 kept - 1 rationale = 3, and never folded into the line above. The
+        // parenthetical is the SAME list isDecisionCommit rejects on, by construction.
+        { count: 3, detail: `commits with a mechanical or too-short subject (${MECHANICAL_SUBJECT_PREFIXES.join(', ')})` },
+      ],
+    });
+    // Positive control on the derivation: the list has more than the four the first
+    // draft spelled by hand, and every member is in the line.
+    expect(MECHANICAL_SUBJECT_PREFIXES.length).toBeGreaterThan(4);
+    for (const prefix of MECHANICAL_SUBJECT_PREFIXES) expect(report.skips[1].detail).toContain(prefix);
+  });
+
+  it('git wrapper names the cap only when the scan actually reached it', async () => {
+    // 5 scanned against a limit of 10: the repo ran out, not the cap, so "of up to 10"
+    // would be printed on every run of a small repo and mean nothing.
+    const { report: uncapped } = await fetchGitItems({ limit: 10 });
+    expect('requested' in uncapped).toBe(false);
+    // 5 scanned against a limit of 5: the cap bound the read, and that is worth a line.
+    const { report: capped } = await fetchGitItems({ limit: 5 });
+    expect(capped.requested).toBe(5);
+    expect(capped.scanned).toBe(5);
   });
 
   it('jira/confluence map a FetcherAuthError to AuthExpiredError (reconnect flow)', async () => {

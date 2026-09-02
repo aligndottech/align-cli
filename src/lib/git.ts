@@ -1,4 +1,5 @@
 import { execa } from 'execa';
+import { MECHANICAL_SUBJECT_PREFIXES, MIN_DECISION_SUBJECT_CHARS } from './commit-shape.js';
 
 export interface GitCommit {
   sha: string;
@@ -185,9 +186,16 @@ function resolveCommitShape(subject: string, body: string): { subject: string; b
   return { subject: first, body: [subject, rest].filter(Boolean).join('\n') };
 }
 
+// Built from the shared list rather than spelled here, so the capture report's
+// "mechanical subject (...)" line and this predicate cannot disagree (ALI-827).
+const MECHANICAL_SUBJECT_RE = new RegExp(`^(${MECHANICAL_SUBJECT_PREFIXES.join('|')})`, 'i');
+
 export function isDecisionCommit(subject: string): boolean {
-  if (subject.length < 20) return false;
-  return !/^(chore|wip|merge|revert|bump|update deps|release|typo)/i.test(subject.trim());
+  // Trim once and judge the same string twice: measured on the padded subject, the
+  // length floor could be cleared by whitespace alone (Copilot on #240).
+  const trimmed = subject.trim();
+  if (trimmed.length < MIN_DECISION_SUBJECT_CHARS) return false;
+  return !MECHANICAL_SUBJECT_RE.test(trimmed);
 }
 
 // A line that IS a git trailer (key: value at the start of the line), not merely a

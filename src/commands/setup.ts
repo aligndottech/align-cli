@@ -14,6 +14,9 @@ import { isGitRepo } from '../lib/git.js';
 import { fetchDocsItems } from '../lib/fetchers/docs.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
+import { createCaptureCollector, toCaptureSource } from '../lib/capture-report.js';
+import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
+import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
@@ -57,7 +60,9 @@ interface SetupSource {
   tokenHint?: string;
   tokenUrl?: string | ((tokens: Record<string, string>) => string);  // If set, auto-opens this URL in the browser before prompting for the token
   extraFields?: Array<{ key: string; label: string; hint?: string; secret?: boolean }>;
-  fetch: (tokens: Record<string, string>) => Promise<PersonalImportItem[]>;
+  /** What one fetched item IS, for the capture report (ALI-827) - from CAPTURE_SOURCES. */
+  unit: string;
+  fetch: (tokens: Record<string, string>) => Promise<CaptureFetchResult>;
 }
 
 function buildSources(gitAvailable: boolean): SetupSource[] {
@@ -66,7 +71,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
   if (gitAvailable) {
     sources.push({
       id: 'git',
-      label: 'Git',
+      ...CAPTURE_SOURCES.git,
       description: 'Commit history from this repo - no token needed',
       fetch: async () => {
         const { fetchGitItems } = await import('../lib/fetchers/git.js');
@@ -78,7 +83,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
   sources.push(
     {
       id: 'github',
-      label: 'GitHub',
+      ...CAPTURE_SOURCES.github,
       description: 'Your PRs and issues',
       tier: 'personal',
       oauthKey: 'github-personal',
@@ -102,7 +107,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'jira',
-      label: 'Jira',
+      ...CAPTURE_SOURCES.jira,
       description: 'Your issues',
       tier: 'site',
       // Personal/CLI tier is read-only (no write:jira-work). The team/org
@@ -123,7 +128,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'confluence',
-      label: 'Confluence',
+      ...CAPTURE_SOURCES.confluence,
       description: 'Your pages and documentation',
       tier: 'site',
       // Read-only personal/CLI tier. See ALI-94.
@@ -143,7 +148,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'slack',
-      label: 'Slack',
+      ...CAPTURE_SOURCES.slack,
       description: 'Decision threads from your channels - may need workspace admin [experimental]',
       tier: 'workspace',
       // Read-only personal/CLI tier (no chat:write). The team/org bot keeps
@@ -160,7 +165,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'teams',
-      label: 'Microsoft Teams',
+      ...CAPTURE_SOURCES.teams,
       description: 'Channel messages and decisions - may need org/workspace admin consent',
       tier: 'workspace',
       oauthKey: 'teams',
@@ -171,7 +176,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'zoom',
-      label: 'Zoom',
+      ...CAPTURE_SOURCES.zoom,
       description: 'Cloud recording transcripts from your meetings',
       tier: 'personal',
       oauthKey: 'zoom',
@@ -182,7 +187,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'gitlab',
-      label: 'GitLab',
+      ...CAPTURE_SOURCES.gitlab,
       description: 'Your merge requests',
       tier: 'personal',
       // gitlab.com → read-only browser OAuth (scope read_api, ALI-102). A
@@ -210,7 +215,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'linear',
-      label: 'Linear',
+      ...CAPTURE_SOURCES.linear,
       description: 'Your issues and project discussions',
       tier: 'personal',
       // Read-only personal/CLI tier via browser OAuth (scope `read`), replacing the
@@ -231,7 +236,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'notion',
-      label: 'Notion',
+      ...CAPTURE_SOURCES.notion,
       description: 'Your pages and databases',
       tier: 'personal',
       // Read-only personal/CLI tier via browser OAuth (public integration),
@@ -406,6 +411,9 @@ interface LocalValuePhaseResult {
   localClient: ReturnType<typeof createGatewayClient>;
   dbPath: string;
   opts: { approve?: boolean };
+  /** ALI-827: every source the value phase fetched, for the one report the connector
+   *  phase prints at the end. */
+  capture: ReturnType<typeof createCaptureCollector>;
 }
 
 async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<LocalValuePhaseResult> {
@@ -421,6 +429,7 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   const config = createConfigStore();
   const localEnv = config.getEnvironment('local');
   const localClient = createGatewayClient(localEnv);
+  const capture = createCaptureCollector();
 
   // ALI-794: value before questions. Git needs no credential and no consent, so it runs
   // before anything is asked - the found-decisions summary below is what "here is what I
@@ -434,7 +443,9 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
     gitSpinner.start('Scanning git history...');
     try {
       const gitSource = buildSources(true).find(s => s.id === 'git')!;
-      const items = await gitSource.fetch({});
+      const fetched = await gitSource.fetch({});
+      capture.add(toCaptureSource(gitSource, fetched));
+      const { items } = fetched;
       if (items.length) {
         gitSpinner.stop(`Found ${items.length} commits worth importing`);
         // quiet: the found-summary box right below replaces the full table + tip block
@@ -492,7 +503,9 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   const localDocsSpinner = p.spinner();
   localDocsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
   try {
-    const docsItems = await fetchDocsItems({ limit: 500 });
+    const docs = await fetchDocsItems({ limit: 500 });
+    capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
+    const docsItems = docs.items;
     if (docsItems.length) {
       localDocsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
       await runPersonalImport(docsItems, localClient, {
@@ -533,7 +546,7 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   // branch, which reads this same stored decision.
   await maybeRequestTelemetryConsent(config, Boolean(interactive));
 
-  return { interactive, config, localEnv, localClient, dbPath, opts };
+  return { interactive, config, localEnv, localClient, dbPath, opts, capture };
 }
 
 /**
@@ -545,7 +558,7 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
  * move changes only how code is reached, never what it does).
  */
 async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void> {
-  const { interactive, config, localEnv, localClient, dbPath, opts } = ctx;
+  const { interactive, config, localEnv, localClient, dbPath, opts, capture } = ctx;
 
   // Connectors: local mode connects by a read-only token the user mints themselves,
   // for every connector - their personal graph, their credential. OAuth belongs to
@@ -669,7 +682,9 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     const spinner = p.spinner();
     spinner.start(`Fetching from ${source.label}...`);
     try {
-      const items = await source.fetch(tokens);
+      const fetched = await source.fetch(tokens);
+      capture.add(toCaptureSource(source, fetched));
+      const { items } = fetched;
       // Saved only once the fetch it unlocked has succeeded. A token that never worked is not
       // worth remembering, and storing one would turn the next run's honest "paste a token"
       // into a silent empty import. Re-saving an already-saved token is a harmless no-op, so
@@ -688,6 +703,17 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     } catch (e) {
       spinner.stop(`Skipped ${source.label} - ${(e as Error).message}`);
     }
+  }
+
+  // ALI-827: what each source fetched and what it could not reach - once, after every
+  // import has printed its own line, so the numbers sit together. A source whose fetch
+  // THREW is not in it: its spinner line above already named the error, and a row of
+  // zeros beside it would read as "fetched nothing" rather than "could not fetch". Empty
+  // only when nothing was fetched at all (no git repo, no docs, nothing connected).
+  const captureText = capture.render();
+  if (captureText) {
+    console.log('');
+    console.log(captureText);
   }
 
   // Which graph does a BARE command read after this? resolveEnv with the
@@ -838,6 +864,9 @@ async function runFreshSetup(ctx: {
   opts: { approve?: boolean; reset?: boolean };
 }): Promise<void> {
   const phase = await runLocalValuePhase({ approve: ctx.opts.approve });
+  // The value phase's capture report is printed by runLocalConnectorPhase, so choosing
+  // cloud below drops it - deliberately: runCloudSetup re-imports git and docs into the
+  // cloud tenant and prints its own report, which is the one that describes that graph.
 
   // Framed by what the graph is missing, not "how are you using Align" in the abstract -
   // there is already a local graph on screen, so the question is whether to extend it.
@@ -1020,6 +1049,7 @@ async function runCloudSetup(ctx: {
   let totalDecisions = 0;
   const sourcesImported: string[] = [];
   const gitAvailable = await isGitRepo();
+  const capture = createCaptureCollector();
 
   if (gitAvailable) {
     console.log('');
@@ -1027,7 +1057,9 @@ async function runCloudSetup(ctx: {
     gitSpinner.start('Scanning git history...');
     try {
       const gitSource = buildSources(true).find(s => s.id === 'git')!;
-      const items = await gitSource.fetch({});
+      const fetched = await gitSource.fetch({});
+      capture.add(toCaptureSource(gitSource, fetched));
+      const { items } = fetched;
       // Stop the scan spinner before runPersonalImport - it starts its own
       // progress spinner, and two animated spinners on one line flicker.
       if (items.length) {
@@ -1054,7 +1086,9 @@ async function runCloudSetup(ctx: {
   const docsSpinner = p.spinner();
   docsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
   try {
-    const docsItems = await fetchDocsItems({ limit: 500 });
+    const docs = await fetchDocsItems({ limit: 500 });
+    capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
+    const docsItems = docs.items;
     if (docsItems.length) {
       docsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
       const ingested = await runPersonalImport(docsItems, client, {
@@ -1077,7 +1111,7 @@ async function runCloudSetup(ctx: {
   // Imports are already internally batch-parallel (see runPersonalImport). Auth
   // (step 4) stays sequential because interactive browser/paste must be one at a time. ----
   type FetchResult =
-    | { source: SetupSource; items: PersonalImportItem[] }
+    | { source: SetupSource; fetched: CaptureFetchResult }
     | { source: SetupSource; authExpired: true }
     | { source: SetupSource; error: Error };
 
@@ -1092,7 +1126,7 @@ async function runCloudSetup(ctx: {
   const fetched = await Promise.all(
     readyConnectors.map(async ({ source, tokens }): Promise<FetchResult> => {
       try {
-        return { source, items: await source.fetch(tokens) };
+        return { source, fetched: await source.fetch(tokens) };
       } catch (err) {
         if (source.oauthKey && isAuthExpiry(err)) {
           return { source, authExpired: true };
@@ -1108,8 +1142,10 @@ async function runCloudSetup(ctx: {
   const ready: Array<{ source: SetupSource; items: PersonalImportItem[] }> = [];
   for (const result of fetched) {
     const source = result.source;
-    if ('items' in result) {
-      if (result.items.length) ready.push({ source, items: result.items });
+    if ('fetched' in result) {
+      capture.add(toCaptureSource(source, result.fetched));
+      const { items } = result.fetched;
+      if (items.length) ready.push({ source, items });
       else p.log.warn(`No items found in ${source.label}.`);
     } else if ('authExpired' in result) {
       // Jira + Confluence share one Atlassian OAuth app, so a single consent
@@ -1134,7 +1170,9 @@ async function runCloudSetup(ctx: {
       const retrySpinner = p.spinner();
       retrySpinner.start(`Retrying ${source.label}...`);
       try {
-        const items = await source.fetch(fresh);
+        const fetched = await source.fetch(fresh);
+        capture.add(toCaptureSource(source, fetched));
+        const { items } = fetched;
         retrySpinner.stop(`Found ${items.length} items`);
         if (items.length) ready.push({ source, items });
         else p.log.warn(`No items found in ${source.label}.`);
@@ -1180,6 +1218,13 @@ async function runCloudSetup(ctx: {
     console.log('');
     console.log(chalk.dim('Relationships across all your imported tools are detected automatically in the background.'));
     console.log(chalk.dim('Query your graph: align ask "..."  or  align decisions list'));
+    console.log('');
+  }
+
+  // ALI-827: the capture report, once, after every source has imported.
+  const captureText = capture.render();
+  if (captureText) {
+    console.log(captureText);
     console.log('');
   }
 

@@ -60,7 +60,7 @@ describe('fetchDocsItems - ADR directories', () => {
     );
     mockGit('https://github.com/org/repo.git');
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ title: '1. Use Postgres', platform: 'docs' });
@@ -76,7 +76,7 @@ describe('fetchDocsItems - ADR directories', () => {
     writeFileSync(join(repo, 'doc', 'adr', '0002-b.md'), '# Decision B\n\nBecause other reasons, also long enough.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['Decision A', 'Decision B']);
   });
@@ -89,7 +89,7 @@ describe('fetchDocsItems - ADR directories', () => {
     writeFileSync(join(repo, 'adr', '1.md'), '# Root adr dir ADR\n\nLong enough body text here too.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['Decisions dir ADR', 'Root adr dir ADR']);
   });
@@ -98,7 +98,7 @@ describe('fetchDocsItems - ADR directories', () => {
     repo = mkdtempSync(join(tmpdir(), 'align-793-'));
     mockGit(null);
 
-    await expect(fetchDocsItems({ limit: 100, cwd: repo })).resolves.toEqual([]);
+    await expect(fetchDocsItems({ limit: 100, cwd: repo })).resolves.toMatchObject({ items: [] });
   });
 
   it('falls back to a humanized filename when the ADR has no H1 heading', async () => {
@@ -107,7 +107,7 @@ describe('fetchDocsItems - ADR directories', () => {
     writeFileSync(join(repo, 'docs', 'adr', '0007-use-cockroachdb.md'), 'Status: Proposed\n\nNo heading in this one.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items[0].title).toBe('Use Cockroachdb');
   });
@@ -121,7 +121,7 @@ describe('fetchDocsItems - ADR directories', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items[0].raw_text).toContain('Superseded by 0007-use-cockroachdb.md');
   });
@@ -132,7 +132,7 @@ describe('fetchDocsItems - ADR directories', () => {
     writeFileSync(join(repo, 'docs', 'adr', '0001-a.md'), '# Decision A\n\nBecause reasons that are long enough.');
     mockGit(null, 'main');
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items[0].source_url).toBe('git://blob/main/docs/adr/0001-a.md');
   });
@@ -159,7 +159,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     const dbItem = items.find((i) => i.title === 'Database');
     expect(dbItem).toBeDefined();
@@ -188,7 +188,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
     const combined = items.map((i) => i.raw_text).join('\n');
 
     expect(combined).not.toContain('Some nudge text the CLI wrote');
@@ -210,7 +210,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items).toEqual([]);
   });
@@ -233,7 +233,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['Database', 'Deployment']);
   });
@@ -246,9 +246,16 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items, report } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title)).toEqual(['Database']);
+    // ALI-827 (Copilot on #240): the drop is a real, measured skip, so the capture report
+    // names it. The headingless "# My Project" preamble is dropped too and NOT counted -
+    // nobody wrote that as a section. scanned = the two headed sections.
+    expect(report).toEqual({
+      scanned: 2,
+      skips: [{ count: 1, detail: 'sections under 20 characters (a bare heading or a one-line pointer)' }],
+    });
   });
 
   it('reads both CLAUDE.md and AGENTS.md when both exist', async () => {
@@ -257,7 +264,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     writeFileSync(join(repo, 'AGENTS.md'), '# Proj\n\n## Testing\n\nWe require a failing test before any fix lands.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['Database', 'Testing']);
   });
@@ -266,7 +273,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     repo = mkdtempSync(join(tmpdir(), 'align-793-'));
     mockGit(null);
 
-    await expect(fetchDocsItems({ limit: 100, cwd: repo })).resolves.toEqual([]);
+    await expect(fetchDocsItems({ limit: 100, cwd: repo })).resolves.toMatchObject({ items: [] });
   });
 });
 
@@ -287,7 +294,7 @@ describe('fetchDocsItems - limit and combination', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 1, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 1, cwd: repo });
 
     expect(items).toHaveLength(1);
   });
@@ -308,10 +315,74 @@ describe('fetchDocsItems - limit and combination', () => {
     const dirent = (name: string) => ({ name, isFile: () => true }) as unknown as Dirent;
     readdirSpy.mockImplementationOnce(async () => [dirent('0002-second.md'), dirent('0001-first.md')]);
 
-    const items = await fetchDocsItems({ limit: 1, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 1, cwd: repo });
 
     expect(items).toHaveLength(1);
     expect(items[0].title).toBe('First ADR');
+  });
+
+  // ALI-827: the capture report's cap rule. `requested` is echoed only when the limit
+  // bound the read; on a repo with three sections and a limit of 500 "of up to 500" would
+  // print on every run and mean nothing.
+  it('reports the cap when the limit bound the read, counting everything it saw as scanned', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-827-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(
+      join(repo, 'CLAUDE.md'),
+      '# Proj\n\n## Database\n\nWe use Postgres for the decision store.\n\n## Testing\n\nWe require a failing test before any fix.',
+    );
+    mockGit(null);
+
+    const { items, report } = await fetchDocsItems({ limit: 2, cwd: repo });
+
+    expect(items).toHaveLength(2);
+    expect(report).toEqual({ scanned: 3, requested: 2, skips: [] });
+  });
+
+  it('names the cap at the exact boundary too: the ADRs alone filled it and CLAUDE.md was never opened', async () => {
+    // scanned == limit is the case a `>` would miss. It is a real cap: the agent-rules
+    // file was never read BECAUSE the limit was already full, so how many more sections
+    // exist is unknown, and the cap is the one true thing to say about that.
+    repo = mkdtempSync(join(tmpdir(), 'align-827-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
+    mockGit(null);
+
+    const { items, report } = await fetchDocsItems({ limit: 1, cwd: repo });
+
+    expect(items).toHaveLength(1);
+    expect(report).toEqual({ scanned: 1, requested: 1, skips: [] });
+  });
+
+  it('leaves the cap out at exact equality on the full read: everything was read and nothing was cut', async () => {
+    // One ADR and one section against a limit of 2. Unlike the ADRs-fill-it case above,
+    // CLAUDE.md WAS opened, so there is nothing unread and "of up to 2" would be false.
+    repo = mkdtempSync(join(tmpdir(), 'align-827-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
+    mockGit(null);
+
+    const { items, report } = await fetchDocsItems({ limit: 2, cwd: repo });
+
+    expect(items).toHaveLength(2);
+    expect(report).toEqual({ scanned: 2, skips: [] });
+  });
+
+  it('leaves the cap out when the repo ran out before the limit did', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-827-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
+    mockGit(null);
+
+    const { items, report } = await fetchDocsItems({ limit: 100, cwd: repo });
+
+    expect(items).toHaveLength(2);
+    expect(report).toEqual({ scanned: 2, skips: [] });
+    expect('requested' in report).toBe(false);
   });
 
   it('skips reading CLAUDE.md/AGENTS.md entirely once the ADRs alone already fill the limit', async () => {
@@ -324,7 +395,7 @@ describe('fetchDocsItems - limit and combination', () => {
     writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 1, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 1, cwd: repo });
 
     expect(items).toHaveLength(1);
     expect(items[0].title).toBe('ADR One');
@@ -339,7 +410,7 @@ describe('fetchDocsItems - limit and combination', () => {
     writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['ADR One', 'Database']);
   });
@@ -373,7 +444,7 @@ describe('fetchDocsItems - duplicate headings', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items).toHaveLength(2);
     const urls = items.map((i) => i.source_url);
