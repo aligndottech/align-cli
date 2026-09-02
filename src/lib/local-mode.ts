@@ -5,60 +5,38 @@ import envPaths from 'env-paths';
 import { createConfigStore } from './config.js';
 import { createLocalDb } from './local-db.js';
 
-const LOCAL_DB_FILE = 'local.db';
-
 /**
- * The graph is one logical database spread over three files: the DB itself plus the WAL
- * sidecars SQLite maintains under `PRAGMA journal_mode = WAL` (local-db.ts). Committed
- * transactions live in `-wal` until a checkpoint, so anything that relocates or deletes
- * the database has to treat all three as one unit - `align local reset` for the delete
- * side, migrateLocalDbDirectory below for the copy side. One writer of that fact, because
- * a migration that copied only `local.db` would drop the most recent decisions and report
- * success.
- */
-export const LOCAL_DB_SUFFIXES = ['', '-wal', '-shm'] as const;
-
-/**
- * Where getLocalDbPath() put the graph before it deferred to env-paths: a hand-rolled
- * darwin/win32/linux branch. Kept verbatim, and only as a migration SOURCE - it is the
- * one record of where an existing user's decisions actually are, so reproducing it
- * exactly is the point, and this is the single place the old guesswork is still correct.
+ * Reproduces the OLD hand-rolled linux directory exactly - the one that never read
+ * XDG_CONFIG_HOME - because that is genuinely where an existing user's local.db sits
+ * today, on disk, regardless of what env-paths would now compute for them. Exported
+ * only so src/index.ts can pass it as migrateLocalDb's "old" argument at real startup;
+ * it must never be updated to match getLocalDbPath()'s current logic - the whole point
+ * is that it stays frozen as a historical record of what used to be computed.
  */
 export function legacyLocalDbDir(): string {
-  if (process.platform === 'darwin') {
-    return path.join(os.homedir(), 'Library', 'Preferences', 'align-cli');
-  }
-  if (process.platform === 'win32') {
-    return path.join(process.env['APPDATA'] ?? os.homedir(), 'align-cli');
-  }
+  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Preferences', 'align-cli');
+  if (process.platform === 'win32') return path.join(process.env['APPDATA'] ?? os.homedir(), 'align-cli');
   return path.join(os.homedir(), '.config', 'align-cli');
 }
 
 /**
- * The sibling of config.ts's migrateConfigDirectory, for the other half of local state,
- * and it exists for the same reason: moving where we read from without carrying the
- * existing data across is a silent regression, not a relocation.
- *
- * Switching to env-paths did not only drop the `-nodejs` suffix - it changed the directory
- * outright on two platforms. On Windows env-paths nests config under a `Config`
- * subdirectory the hand-rolled branch never added; on Linux it honours XDG_CONFIG_HOME,
- * which that branch ignored. macOS and default Linux already agreed, which is why testing
- * on those two cannot surface it: the fixture never crosses the boundary.
- *
- * Same contract as the config migration - one-time, idempotent, fires only when the new
- * location has no graph yet, never overwrites, never deletes the legacy copy. The sidecars
- * travel with the DB or not at all: grafting a `-wal` onto a database it did not come from
- * hands SQLite committed frames belonging to another file.
+ * Copilot review on #231: switching getLocalDbPath() to env-paths (which honours
+ * XDG_CONFIG_HOME) means anyone whose XDG_CONFIG_HOME differs from the default - or
+ * simply anyone upgrading past this fix - has their real local.db sitting at the OLD
+ * hand-rolled path while the new code looks elsewhere. Without this, an existing local
+ * graph silently vanishes. Same shape as config.ts's migrateConfigDirectory: copy only
+ * when the new location has nothing yet, never overwrite, never delete the old files.
+ * WAL and SHM sidecars travel with the main file - local-db.test.ts's own cleanup code
+ * already treats '', '-wal', '-shm' as one unit.
  */
-export function migrateLocalDbDirectory(legacyDir: string, newDir: string): void {
-  const legacyDb = path.join(legacyDir, LOCAL_DB_FILE);
-  const newDb = path.join(newDir, LOCAL_DB_FILE);
-  if (fs.existsSync(newDb) || !fs.existsSync(legacyDb)) return;
-
+export function migrateLocalDb(oldDir: string, newDir: string): void {
+  const oldFile = path.join(oldDir, 'local.db');
+  const newFile = path.join(newDir, 'local.db');
+  if (fs.existsSync(newFile) || !fs.existsSync(oldFile)) return;
   fs.mkdirSync(newDir, { recursive: true });
-  for (const suffix of LOCAL_DB_SUFFIXES) {
-    const from = `${legacyDb}${suffix}`;
-    if (fs.existsSync(from)) fs.copyFileSync(from, `${newDb}${suffix}`);
+  for (const suffix of ['', '-wal', '-shm']) {
+    const from = `${oldFile}${suffix}`;
+    if (fs.existsSync(from)) fs.copyFileSync(from, `${newFile}${suffix}`);
   }
 }
 
@@ -71,18 +49,10 @@ export function migrateLocalDbDirectory(legacyDir: string, newDir: string): void
  * the Linux branch never honoured XDG_CONFIG_HOME the way env-paths does. Deferring to
  * env-paths directly, with the same `suffix: ''` config.ts passes, makes this the same
  * directory createConfigStore() resolves to, by construction rather than by convention.
- *
- * The migration call sits here rather than at each call site because this is the only
- * function that produces the canonical path, and its callers reach it through
- * `env.localDbPath ?? getLocalDbPath()`. So a returning user with a stored path never gets
- * here and keeps reading the graph they already have, while `align setup --local`, which
- * does come through here and writes the resolved path back to config, finds the migrated
- * graph instead of creating an empty database beside it.
  */
 export function getLocalDbPath(): string {
   const configDir = envPaths('align-cli', { suffix: '' }).config;
-  migrateLocalDbDirectory(legacyLocalDbDir(), configDir);
-  return path.join(configDir, LOCAL_DB_FILE);
+  return path.join(configDir, 'local.db');
 }
 
 /**

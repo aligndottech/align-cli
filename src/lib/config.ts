@@ -2,7 +2,6 @@ import Conf from 'conf';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import envPaths from 'env-paths';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -63,6 +62,13 @@ export type TelemetryConsent = 'granted' | 'declined';
  * would otherwise be silently orphaned the moment config.ts starts reading the
  * suffix-free directory. The old file is left in place, never deleted, and an existing
  * file at the new location is never overwritten - this only ever fills a gap.
+ *
+ * Copilot review on #231: this used to run automatically inside createConfigStore(), so
+ * every test that mocks `conf` but not `fs`/`env-paths` was touching the REAL filesystem
+ * on whatever machine ran the suite - on a developer's own laptop, silently copying their
+ * real ~/.config/align-cli-nodejs/config.json. A migration is a real-process-startup
+ * concern, not a store-construction one: the constructor stays pure, and this is called
+ * exactly once, from src/index.ts, before any command runs.
  */
 export function migrateConfigDirectory(oldDir: string, newDir: string): void {
   const oldFile = path.join(oldDir, 'config.json');
@@ -73,11 +79,6 @@ export function migrateConfigDirectory(oldDir: string, newDir: string): void {
 }
 
 export function createConfigStore() {
-  migrateConfigDirectory(
-    envPaths('align-cli', { suffix: 'nodejs' }).config,
-    envPaths('align-cli', { suffix: '' }).config,
-  );
-
   const store = new Conf<{
     environments: Record<string, Partial<EnvironmentConfig>>;
     defaultEnv: EnvName;

@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
 import { createLocalDb } from '../lib/local-db.js';
-import { getLocalDbPath, initLocalMode, LOCAL_DB_SUFFIXES } from '../lib/local-mode.js';
+import { getLocalDbPath, initLocalMode } from '../lib/local-mode.js';
 import { localValueRollup, renderValueReadout } from '../lib/value-rollup.js';
 
 export function registerLocalCommand(program: Command): void {
@@ -89,11 +89,9 @@ export function registerLocalCommand(program: Command): void {
         const db = createLocalDb(env.localDbPath);
         db.dropAll();
         db.close();
-        // Remove the DB file and its WAL sidecars (-wal/-shm) for a true wipe. The suffix
-        // list is shared with migrateLocalDbDirectory rather than repeated here: delete and
-        // relocate must agree on what "the graph" is, or one of them leaves half of it behind.
+        // Remove the DB file and its WAL sidecars (-wal/-shm) for a true wipe
         const { existsSync, rmSync } = await import('node:fs');
-        for (const suffix of LOCAL_DB_SUFFIXES) {
+        for (const suffix of ['', '-wal', '-shm']) {
           const f = `${env.localDbPath}${suffix}`;
           if (existsSync(f)) rmSync(f);
         }
