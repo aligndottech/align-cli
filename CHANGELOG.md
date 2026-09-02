@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.33.0](https://github.com/aligndottech/align-cli/compare/cli-v0.32.2...cli-v0.33.0) (2026-09-02)
+
+
+### Features
+
+* **capture:** report what each import fetched and skipped (ALI-827) ([#240](https://github.com/aligndottech/align-cli/issues/240)) ([8660d47](https://github.com/aligndottech/align-cli/commit/8660d47726fd1b0c699a85af4a69a086ea12f406))
+* **local:** source decision dates, the SDK's own skip reasons, honest import defaults (ALI-829) ([#242](https://github.com/aligndottech/align-cli/issues/242)) ([487a461](https://github.com/aligndottech/align-cli/commit/487a461bca1000edb14c6c77969476a0af84a5c1))
+
+
+### Bug Fixes
+
+* **ask:** auto-widen a scoped search that misses, and kill deny-then-deliver abstentions ([#236](https://github.com/aligndottech/align-cli/issues/236)) ([149be27](https://github.com/aligndottech/align-cli/commit/149be271bdfae7702df96ce097a60d660b72b577))
+* **capture:** escape the mechanical prefixes, and say what scanned means when unmeasured ([#241](https://github.com/aligndottech/align-cli/issues/241)) ([fdc2fd5](https://github.com/aligndottech/align-cli/commit/fdc2fd5928bfd23d60dc2d98716e10f717fedd7a))
+* **setup:** one banner per flow, and stop overpromising "team sharing" ([#237](https://github.com/aligndottech/align-cli/issues/237)) ([b483032](https://github.com/aligndottech/align-cli/commit/b48303265e749721faaf15ffaa5378024215f49f))
+* **test:** give decided-at.test.ts a Windows-sized timeout ([#245](https://github.com/aligndottech/align-cli/issues/245)) ([bfd98be](https://github.com/aligndottech/align-cli/commit/bfd98beda09f81679ebf7ba80d981b971eac65a0))
+
 ## [0.32.2](https://github.com/aligndottech/align-cli/compare/cli-v0.32.1...cli-v0.32.2) (2026-09-02)
 
 
