@@ -841,8 +841,13 @@ async function runFreshSetup(ctx: {
 
   // Framed by what the graph is missing, not "how are you using Align" in the abstract -
   // there is already a local graph on screen, so the question is whether to extend it.
+  //
+  // "A path to team sharing", never "for team sharing": choosing cloud creates a
+  // PERSONAL tenant (the option's hint says so) and a team is a separate join/upgrade
+  // later. The question and the option below must keep agreeing on that - the question
+  // overclaimed for a while and a live tester read it as sharing starting here.
   const choice = await p.select({
-    message: 'Stay local, or sync to the cloud for team sharing and cross-tool conflict detection?',
+    message: 'Stay local, or sync to the cloud for backup, richer detection, and a path to team sharing?',
     options: [
       { value: 'local', label: 'Stay local - keep what you just built, private and offline', hint: 'no account' },
       { value: 'cloud', label: 'Sync to the cloud - backup, team upgrade path, richer detection', hint: 'personal tenant' },

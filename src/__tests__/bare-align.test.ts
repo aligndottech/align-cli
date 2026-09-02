@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const runSetup = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('../commands/setup.js', () => ({ runSetup, registerSetupCommand: vi.fn() }));
 
+const printBanner = vi.hoisted(() => vi.fn().mockReturnValue(true));
+vi.mock('../lib/brand.js', () => ({ printBanner }));
+
 const getEnvironment = vi.hoisted(() => vi.fn());
 const getDefaultEnv = vi.hoisted(() => vi.fn().mockReturnValue('prod'));
 vi.mock('../lib/config.js', () => ({
@@ -36,6 +39,7 @@ async function bare(): Promise<string> {
 describe('bare `align`', () => {
   beforeEach(() => {
     runSetup.mockClear();
+    printBanner.mockClear();
     listDecisions.mockReset().mockResolvedValue([]);
     getEnvironment.mockReset();
     getDefaultEnv.mockReturnValue('prod');
@@ -123,5 +127,39 @@ describe('bare `align`', () => {
 
     listDecisions.mockResolvedValue([{ id: 'a' }]);
     expect(await bare()).toMatch(/align ask/);
+  });
+
+  /**
+   * Found live 2026-09-02 (v0.31.1, still present on v0.32.1): a fresh `align` printed
+   * the full ASCII lockup TWICE - once here, then again from runSetup's own opening.
+   * The banner belongs to whichever flow OWNS the screen: setup prints its own, so the
+   * delegating path must not print one first.
+   */
+  it('leaves the banner to setup when delegating - one lockup, not two', async () => {
+    getEnvironment.mockImplementation(() => ({ mode: 'cloud' }));
+    const inTty = process.stdin.isTTY, outTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+
+    try {
+      await bare();
+
+      expect(runSetup).toHaveBeenCalledTimes(1);
+      expect(printBanner).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', { value: inTty, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: outTty, configurable: true });
+    }
+  });
+
+  it('prints the banner exactly once for an already-set-up user', async () => {
+    getEnvironment.mockImplementation((n: string) =>
+      n === 'local' ? { mode: 'local-embedded', localDbPath: '/tmp/local.db' } : { mode: 'cloud' });
+    listDecisions.mockResolvedValue([{ id: 'a' }]);
+
+    await bare();
+
+    expect(runSetup).not.toHaveBeenCalled();
+    expect(printBanner).toHaveBeenCalledTimes(1);
   });
 });

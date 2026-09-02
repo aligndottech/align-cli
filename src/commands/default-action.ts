@@ -23,9 +23,6 @@ import { printBanner } from '../lib/brand.js';
  * `align --help` still prints the full command list; Commander handles that before this runs.
  */
 export async function runDefaultAction(): Promise<void> {
-  // Typing the bare tool name is the other first-contact moment, so it gets the
-  // same lockup. printBanner is a no-op off a TTY, so piped output stays clean.
-  printBanner({ version: pkg.version });
   const config = createConfigStore();
   const local = config.getEnvironment('local');
   const defaultEnv = config.getDefaultEnv();
@@ -51,9 +48,16 @@ export async function runDefaultAction(): Promise<void> {
       console.log('');
       return;
     }
+    // No banner here: runSetup prints its own opening lockup, and printing one first
+    // stacked two full banners on a fresh user's very first command (found live
+    // 2026-09-02). The banner belongs to whichever flow owns the screen.
     await runSetup();
     return;
   }
+
+  // Typing the bare tool name is the other first-contact moment, so it gets the
+  // same lockup. printBanner is a no-op off a TTY, so piped output stays clean.
+  printBanner({ version: pkg.version });
 
   // Which graph a bare command will actually read.
   //
