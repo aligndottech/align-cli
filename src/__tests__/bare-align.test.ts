@@ -150,6 +150,7 @@ describe('bare `align`', () => {
       Object.defineProperty(process.stdin, 'isTTY', { value: inTty, configurable: true });
       Object.defineProperty(process.stdout, 'isTTY', { value: outTty, configurable: true });
     }
+  });
 
   it('prints the banner exactly once for an already-set-up user', async () => {
     getEnvironment.mockImplementation((n: string) =>
