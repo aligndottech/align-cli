@@ -184,7 +184,16 @@ jobs:
           # came from a real body line) and is kept; the bare "short subject" commit stays
           # dropped as designed. Net: JWT (real body) + merge (promoted) = 2 kept of 4 raw
           # commits, verified against the real filter function before this was written.
-          expect "$RUNNER_TEMP/setup.log" "Git: 2 decisions, 1 connection" "the JWT commit plus the promoted merge imported (bare merge-branch commit and noise both correctly dropped)"
+          #
+          # The count only, never ", 1 connection". That clause used to be here and it was
+          # a coin flip: the two kept commits are about different things (JWT sessions,
+          # rate limiting), and their cosine sits ON the 0.45 linking floor - measured
+          # 0.4416, 0.4708, 0.4708, 0.4708 across four fresh fixture repos on Linux with
+          # the real model, because each commit's sha and timestamp are part of the
+          # embedded text and move it a little every run. cli-v0.33.0 went red on Ubuntu
+          # and green on macOS on the same binary for exactly that reason. A link between
+          # two unrelated decisions is not a property to assert; the kept count is.
+          expect "$RUNNER_TEMP/setup.log" "Git: 2 decisions" "the JWT commit plus the promoted merge imported (bare merge-branch commit and noise both correctly dropped)"
           expect "$RUNNER_TEMP/setup.log" "align MCP connected" "agent wiring ran"
           expect "$RUNNER_TEMP/ask.log" "switch to JWT" "ask answered with the decision"
           expect "$RUNNER_TEMP/ask.log" "ALI-123" "the commit BODY reached the answer (ALI-792)"
