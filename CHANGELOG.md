@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.32.0](https://github.com/aligndottech/align-cli/compare/cli-v0.31.2...cli-v0.32.0) (2026-09-02)
+
+
+### Features
+
+* **import:** read ADRs and CLAUDE.md/AGENTS.md as decision candidates (ALI-793) ([#222](https://github.com/aligndottech/align-cli/issues/222)) ([725c291](https://github.com/aligndottech/align-cli/commit/725c2916a1fe07f9fc09b77c7972ef463a4fd3e0))
+* **local:** gap-driven connect prompt from unresolved refs (ALI-796) ([#227](https://github.com/aligndottech/align-cli/issues/227)) ([241eeda](https://github.com/aligndottech/align-cli/commit/241eeda8a4eeb082ead2304d85ccf1e50868fd57))
+* **setup:** value before the mode question - fresh align builds the local graph and shows what it found before asking anything (ALI-794) ([#224](https://github.com/aligndottech/align-cli/issues/224)) ([90b32b1](https://github.com/aligndottech/align-cli/commit/90b32b115e081fbaf037f8dc81cb1eeb9793a254))
+
+
+### Bug Fixes
+
+* **import:** require a stated reason before a git commit becomes a decision (ALI-804) ([#223](https://github.com/aligndottech/align-cli/issues/223)) ([7878c6e](https://github.com/aligndottech/align-cli/commit/7878c6e6bd39c0c95ea5d0e29bd2fae74a0dcff8))
+* **local:** give the local graph a repo dimension (ALI-798) ([#225](https://github.com/aligndottech/align-cli/issues/225)) ([6373ff7](https://github.com/aligndottech/align-cli/commit/6373ff7a0594e521bdb23eb609d7898c3b963cbf))
+* **release:** retry the npm dist-tag verify read instead of failing on replication lag ([#221](https://github.com/aligndottech/align-cli/issues/221)) ([20b5ea4](https://github.com/aligndottech/align-cli/commit/20b5ea4bcbe44a1b2451b9540afc46bd2e1c1745))
+
 ## [0.31.2](https://github.com/aligndottech/align-cli/compare/cli-v0.31.1...cli-v0.31.2) (2026-09-01)
 
 
