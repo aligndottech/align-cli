@@ -963,6 +963,23 @@ describe('align setup', () => {
         );
       });
 
+      it('the upgrade question does not promise what choosing cloud does not do', async () => {
+        // Caught live 2026-09-02: the question said "sync to the cloud for team
+        // sharing", but choosing cloud creates a PERSONAL tenant (the option's own
+        // hint says so) - a team is a separate join/upgrade later. "A path to team
+        // sharing" keeps the upgrade visible and is what actually happens; "for team
+        // sharing" claims a capability the choice does not grant.
+        await mockFreshConfig();
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        const call = mockSelect.mock.calls.find(
+          (c: unknown[]) => /stay local/i.test((c[0] as { message?: string })?.message ?? ''),
+        );
+        expect(call).toBeDefined();
+        const message = (call![0] as { message: string }).message;
+        expect(message).not.toMatch(/for team sharing/i);
+        expect(message).toMatch(/path to team sharing/i);
+      });
+
       it('choosing cloud in the upgrade question hands off to the SAME cloud setup returning users get', async () => {
         await mockFreshConfig();
         mockSelect.mockResolvedValueOnce('cloud');
