@@ -86,14 +86,21 @@ export const SCHEMA_VERSION = 4;
  * indistinguishable from a measurement to everything downstream. NaN is checked explicitly
  * because every comparison against NaN is false in both directions, so an unchecked bad
  * date would not error, it would silently vacate whatever filter reads it later
- * (verification.md). The same computation as connector-core's `toIsoOrUndefined`, kept
- * separate on purpose: that one returns undefined for a wire type, this one returns null
- * for a column, and persistence importing a wire helper is the wrong direction.
+ * (verification.md). A sibling of connector-core's `toIsoOrUndefined`, kept separate on
+ * purpose: that one returns undefined for a wire type, this one returns null for a column,
+ * and persistence importing a wire helper is the wrong direction. This one is also the
+ * stricter of the two (it insists on an ISO date prefix), because it is the last gate
+ * before the value is stored.
  */
 export function normaliseDecidedAt(value: string | null | undefined): string | null {
   if (value === undefined || value === null || value === '') return null;
+  // Date.parse is lenient in exactly the wrong direction: '12' is December 2001 and
+  // '2026' is New Year's Day, both plausible and both wrong. Every producer emits an
+  // ISO-8601 instant (git's %aI, the SDK's toIsoOrUndefined), so require that shape.
+  if (!/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
   const ms = Date.parse(value);
-  if (Number.isNaN(ms)) return null;
+  // Year 0000 parses to a negative instant that Postgres rejects and no source emits.
+  if (Number.isNaN(ms) || ms <= 0) return null;
   return new Date(ms).toISOString();
 }
 
@@ -175,12 +182,28 @@ export function identifyingSourceUrl(raw: string | null): string | null {
  *    tombstone twin on the next import (35 of 39 on the 2026-09-02 graph). The next import
  *    recreates the real ones with real titles; the ones that were only bot output on a
  *    deleted root do not come back, which is the point. Foreign keys are off in this
- *    database (see step 2), so the dependent rows are deleted explicitly.
+ *    database (see step 2), so the dependent rows are deleted explicitly - including any
+ *    link a human adjudicated on such a row. That is a real loss, accepted: the row's
+ *    identity is changing under it, and the re-import classifies the retitled thread
+ *    afresh. Scoped to platform = 'slack': a git commit or a captured note that happens to
+ *    carry the same words is not a tombstone and is left alone.
  *
  * The version guard is load-bearing rather than tidiness. The same UPDATE run on every open
  * is indistinguishable from this one today, and starts silently eating genuine conflicts the
  * moment anything writes one.
  */
+/**
+ * Remove a decision and everything hanging off it. Foreign keys are off in this database
+ * (see migrate, step 2), so the dependents are named explicitly rather than cascaded. One
+ * writer for the v4 tombstone sweep and the ingest-time twin removal (ALI-829).
+ */
+function deleteDecisionWithDependents(db: DatabaseSync, id: string): void {
+  db.prepare('DELETE FROM decision_links WHERE source_id = ? OR target_id = ?').run(id, id);
+  db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(id);
+  db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(id);
+  db.prepare('DELETE FROM decisions WHERE id = ?').run(id);
+}
+
 function migrate(db: DatabaseSync): void {
   const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
   if (version < 1) {
@@ -320,28 +343,22 @@ function migrate(db: DatabaseSync): void {
     }
   }
   if (version < 4) {
-    // Same shape as the `repo` step: a fresh database's CREATE TABLE already declares the
-    // column, and a legacy one predates it, so the ALTER is conditional.
-    const hasDecidedAt = (db.prepare('PRAGMA table_info(decisions)').all() as Array<{ name: string }>)
-      .some((c) => c.name === 'decided_at');
-    if (!hasDecidedAt) {
-      db.exec('ALTER TABLE decisions ADD COLUMN decided_at TEXT');
-    }
     db.exec('BEGIN IMMEDIATE');
     try {
+      // Same shape as the `repo` step: a fresh database's CREATE TABLE already declares the
+      // column, and a legacy one predates it, so the ALTER is conditional. Checked INSIDE
+      // the write lock, unlike step 3: two processes opening a v3 file at once (the
+      // advisory hook is the normal concurrent case) could otherwise both read "no column"
+      // and the second would die on "duplicate column name". SQLite DDL is transactional.
+      const hasDecidedAt = (db.prepare('PRAGMA table_info(decisions)').all() as Array<{ name: string }>)
+        .some((c) => c.name === 'decided_at');
+      if (!hasDecidedAt) {
+        db.exec('ALTER TABLE decisions ADD COLUMN decided_at TEXT');
+      }
       const tombstones = db.prepare(
         `SELECT id FROM decisions WHERE platform = 'slack' AND title = ?`,
       ).all(SLACK_TOMBSTONE_TITLE) as Array<{ id: string }>;
-      const dropLinks = db.prepare('DELETE FROM decision_links WHERE source_id = ? OR target_id = ?');
-      const dropRefs = db.prepare('DELETE FROM decision_refs WHERE decision_id = ?');
-      const dropEmbedding = db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?');
-      const dropDecision = db.prepare('DELETE FROM decisions WHERE id = ?');
-      for (const { id } of tombstones) {
-        dropLinks.run(id, id);
-        dropRefs.run(id);
-        dropEmbedding.run(id);
-        dropDecision.run(id);
-      }
+      for (const { id } of tombstones) deleteDecisionWithDependents(db, id);
       // Stamped inside the transaction, for the reason step 2 gives.
       db.exec('PRAGMA user_version = 4');
       db.exec('COMMIT');
@@ -425,7 +442,9 @@ export function createLocalDb(dbPath: string) {
         identifyingSourceUrl(row.sourceUrl),
         row.platform,
         row.repo ?? null,
-        row.decidedAt ?? null,
+        // `||`, not `??`: COALESCE('', old) is '', so an empty string would blank a stored
+        // date. Callers normalise, but this is the one place the column is written.
+        row.decidedAt || null,
       ) as { id: string };
       return inserted.id;
     },
@@ -487,6 +506,26 @@ export function createLocalDb(dbPath: string) {
       return (db.prepare(
         `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo, decided_at as decidedAt FROM decisions WHERE id = ?`
       ).get(id) as unknown as DecisionRow | null) ?? null;
+    },
+
+    /**
+     * ALI-829: drop the tombstone-titled twin of a Slack thread that is being written under
+     * a real title. The v4 migration sweeps the tombstones that exist at upgrade time, but a
+     * connector-core older than 0.6.0 can still MAKE one afterwards (it titles a thread from
+     * its deleted root), and the migration never runs again. So the reconciliation also
+     * happens where the retitle happens: the 0.6.0 re-import of the same thread - same
+     * source_url, human title - removes the twin it would otherwise sit beside. Idempotent
+     * and aimed: only Slack, only this source_url, only the tombstone title. A thread the
+     * newer fetcher DROPS (bot output only) is never re-imported and so is never reconciled
+     * here; that residue is noise, not a duplicate, and the sweep is what catches it.
+     */
+    deleteSlackTombstoneTwin(sourceUrl: string | null): void {
+      const identity = identifyingSourceUrl(sourceUrl);
+      if (identity === null) return;
+      const twins = db.prepare(
+        `SELECT id FROM decisions WHERE platform = 'slack' AND source_url = ? AND title = ?`,
+      ).all(identity, SLACK_TOMBSTONE_TITLE) as Array<{ id: string }>;
+      for (const { id } of twins) deleteDecisionWithDependents(db, id);
     },
 
     /** Distinct repo identities known to this graph, for resolving a `--repo <name>` argument

@@ -47,7 +47,10 @@ describe('IMPORT_LIMITS', () => {
     for (const id of commandIds.filter((c) => c !== 'docs')) {
       expect(buildSources, `setup reads IMPORT_LIMITS.${id}`).toContain(`IMPORT_LIMITS.${id}`);
     }
-    expect(src).toContain('fetchDocsItems({ limit: IMPORT_LIMITS.docs })');
+    // Both docs sites (the local value phase and cloud setup), and no literal anywhere in
+    // the file - `toContain` alone is satisfied while the other site regresses.
+    expect(src.match(/fetchDocsItems\(\{ limit: IMPORT_LIMITS\.docs \}\)/g)).toHaveLength(2);
+    expect(src.match(/limit: \d+/g) ?? []).toEqual([]);
     expect(src).toContain('daysBack: SLACK_DAYS_BACK');
   });
 

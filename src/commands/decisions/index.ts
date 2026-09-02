@@ -58,7 +58,9 @@ export function registerDecisionsCommand(program: Command): void {
         renderTable(
           [
             { header: 'ID', width: 38 },
-            { header: 'TITLE', width: 50 },
+            // 40, not 50: with DECIDED the row is 118 columns, which still fits a 120-column
+            // terminal; at 50 it was 128 and every row wrapped.
+            { header: 'TITLE', width: 40 },
             { header: 'PLATFORM', width: 14 },
             { header: 'STATUS', width: 12 },
             // ALI-829: when it was DECIDED, from the source. Empty when the source did not

@@ -37,9 +37,12 @@ type SearchHit = SearchResults['results'][number];
 /**
  * ALI-829: the date a source line shows. The decision's own date when the graph has it
  * (local mode, from the source's timestamp), else the minute it was captured - which is
- * what every line showed before, so a cloud result renders byte-for-byte as it did. One
- * derivation for the synthesis sources and the list fallback: the two paths had already
- * drifted on the cite once (Copilot, #124).
+ * what every line showed before, so a cloud result renders byte-for-byte as it did, and
+ * a local row that will never get a date (a docs section, an `align capture`) still reads
+ * "today" on the day it was imported. Kept that way on purpose (the plan's open question
+ * 6); suppressing it is a visible removal for its own decision. One derivation for the
+ * synthesis sources and the list fallback: the two paths had already drifted on the cite
+ * once (Copilot, #124).
  */
 function decidedWhen(d: SearchHit): string {
   return formatWhen(d.decided_at ?? d.created_at);

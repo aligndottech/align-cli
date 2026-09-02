@@ -218,6 +218,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // re-import reports every decision as imported while the graph does not move, which
     // reads as having imported twice (ALI-770).
     const created = db.findIdBySource(sourceUrl, title) === null;
+    // ALI-829: a Slack thread arriving under a real title replaces the tombstone-titled row
+    // an older fetcher may have written for the same source_url (see local-db.ts).
+    if (platform === 'slack') db.deleteSlackTombstoneTwin(sourceUrl);
     // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.
     const decidedAt = normaliseDecidedAt(opts.createdAt);
@@ -347,8 +350,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           platform: row.platform,
           status: 'active',
           created_at: row.createdAt,
-          // ALI-829: beside created_at, never instead of it. Absent when the source did not
-          // say, so a consumer sees exactly the shape it saw before.
+          // ALI-829: absent when the source did not say, so a consumer sees the shape it
+          // saw before (the field's meaning is on the type in gateway-client.ts).
           ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
           ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
           ...(cite ? { cite } : {}),

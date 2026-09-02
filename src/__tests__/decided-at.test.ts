@@ -55,6 +55,16 @@ describe('normaliseDecidedAt', () => {
     expect(normaliseDecidedAt('')).toBeNull();
     expect(normaliseDecidedAt(undefined)).toBeNull();
   });
+
+  it('refuses what Date.parse would happily misread as a date', () => {
+    // '12' is December 2001 and '2026' is New Year's Day to Date.parse: plausible, wrong,
+    // and indistinguishable from a measurement downstream. Year 0000 is a negative instant
+    // Postgres rejects. A bare ISO date is fine: it names a day.
+    expect(normaliseDecidedAt('12')).toBeNull();
+    expect(normaliseDecidedAt('2026')).toBeNull();
+    expect(normaliseDecidedAt('0000-01-01T00:00:00Z')).toBeNull();
+    expect(normaliseDecidedAt('2026-03-01')).toBe('2026-03-01T00:00:00.000Z');
+  });
 });
 
 describe('the decided_at column', () => {
@@ -89,6 +99,13 @@ describe('the decided_at column', () => {
     expect(again).toBe(id);
     expect(db.getDecisionById(id)?.decidedAt).toBe('2026-03-01T09:00:00.000Z');
     expect(db.getDecisionById(id)?.summary).toBe('s2'); // the refresh still happened
+  });
+
+  it('treats an empty string like no date at the column, so it can never blank a stored one', () => {
+    const db = open();
+    const id = db.insertDecision({ title: 'T', summary: 's', sourceUrl: 'https://x/1', platform: 'jira', decidedAt: '2026-03-01T09:00:00.000Z' });
+    db.insertDecision({ title: 'T', summary: 's', sourceUrl: 'https://x/1', platform: 'jira', decidedAt: '' });
+    expect(db.getDecisionById(id)?.decidedAt).toBe('2026-03-01T09:00:00.000Z');
   });
 
   // R25b
@@ -131,14 +148,19 @@ describe('the v3 -> v4 migration', () => {
     ins.run('tomb', 'This message was deleted.', '[#general] Thread:\nThis message was deleted.\nConversation Analysis: 1 decision', 'https://slack.com/archives/C1/p1', 'slack');
     ins.run('human', 'we are going with Postgres', '[#eng] Thread:\nwe are going with Postgres', 'https://slack.com/archives/C1/p2', 'slack');
     ins.run('git1', 'Adopt Postgres for the decision store', 'Adopt Postgres\n\nBecause pgvector.', 'https://github.com/acme/api/commit/abc', 'git');
+    // Same words, different platform: a commit subject that happens to read like the
+    // tombstone is not one, and the sweep's platform predicate is what protects it.
+    ins.run('gitdel', 'This message was deleted.', 'A commit that says so.', 'https://github.com/acme/api/commit/def', 'git');
     const emb = raw.prepare('INSERT INTO decision_embeddings (decision_id, embedding) VALUES (?, ?)');
-    for (const id of ['tomb', 'human', 'git1']) emb.run(id, Buffer.from(new Float32Array(4).fill(0.5).buffer));
+    for (const id of ['tomb', 'human', 'git1', 'gitdel']) emb.run(id, Buffer.from(new Float32Array(4).fill(0.5).buffer));
     const ref = raw.prepare('INSERT INTO decision_refs (decision_id, ref, platform) VALUES (?, ?, ?)');
     ref.run('tomb', 'ALI-1', 'jira');
     ref.run('human', 'ALI-2', 'jira');
     const link = raw.prepare('INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?, ?, ?, ?, ?)');
     link.run('l1', 'tomb', 'git1', 'relates', 0.7);
     link.run('l2', 'human', 'git1', 'relates', 0.8);
+    // The tombstone as a link TARGET, so the sweep's `OR target_id` half is pinned too.
+    link.run('l3', 'git1', 'tomb', 'relates', 0.6);
     raw.exec('PRAGMA user_version = 3');
     raw.close();
   }
@@ -149,7 +171,7 @@ describe('the v3 -> v4 migration', () => {
     const human = db.getDecisionById('human');
     const git = db.getDecisionById('git1');
     expect(human).toMatchObject({ title: 'we are going with Postgres', summary: '[#eng] Thread:\nwe are going with Postgres', decidedAt: null });
-    expect(git).toMatchObject({ title: 'Adopt Postgres for the decision store', decidedAt: null });
+    expect(git).toMatchObject({ title: 'Adopt Postgres for the decision store', summary: 'Adopt Postgres\n\nBecause pgvector.', decidedAt: null });
     const inspect = new DatabaseSync(dbPath);
     expect((inspect.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(4);
     inspect.close();
@@ -163,10 +185,12 @@ describe('the v3 -> v4 migration', () => {
     expect(db.getEmbedding('tomb')).toBeNull();
     expect(db.getRefs('tomb')).toEqual([]);
     expect(db.listLinks({ decisionId: 'tomb' })).toEqual([]);
-    // The negative control: the human Slack row and the git row keep everything.
-    expect(db.listDecisions().map((r) => r.id).sort()).toEqual(['git1', 'human']);
+    // The negative control: the human Slack row, the git row and the git row that merely
+    // shares the tombstone's words keep everything; only the edges touching `tomb` go.
+    expect(db.listDecisions().map((r) => r.id).sort()).toEqual(['git1', 'gitdel', 'human']);
     expect(db.getEmbedding('human')).not.toBeNull();
     expect(db.getEmbedding('git1')).not.toBeNull();
+    expect(db.getEmbedding('gitdel')).not.toBeNull();
     expect(db.getRefs('human')).toEqual([{ ref: 'ALI-2', platform: 'jira' }]);
     expect(db.listLinks({ decisionId: 'git1' }).map((l) => l.id)).toEqual(['l2']);
   });
@@ -184,6 +208,40 @@ describe('the v3 -> v4 migration', () => {
     raw.close();
     const db = open();
     expect(db.getDecisionById('late')).not.toBeNull();
+  });
+});
+
+/**
+ * The gap the migration cannot close: a tombstone written AFTER the v4 stamp (a 0.5.0
+ * fetcher, still titling from the deleted root) meets its retitled twin at the next
+ * 0.6.0 import of the same thread. The write path reconciles it there.
+ */
+describe('a Slack thread arriving under a real title replaces its tombstone twin', () => {
+  let client: ReturnType<typeof createLocalGatewayClient>;
+  beforeEach(() => {
+    client = createLocalGatewayClient(dbPath);
+    opened.push(client);
+  });
+
+  it('removes the tombstone row for the SAME source_url, with its embedding', async () => {
+    const seed = open();
+    const tombId = seed.insertDecision({ title: 'This message was deleted.', summary: 'bot only', sourceUrl: 'https://slack.com/archives/C1/p1', platform: 'slack' });
+    seed.setEmbedding(tombId, new Float32Array(4).fill(0.5));
+    await client.ingestBatch([{ source_url: 'https://slack.com/archives/C1/p1', platform: 'slack', raw_text: 'we are going with Postgres', title: 'we are going with Postgres' }]);
+    const db = open();
+    const rows = db.listDecisions().filter((r) => r.sourceUrl === 'https://slack.com/archives/C1/p1');
+    expect(rows.map((r) => r.title)).toEqual(['we are going with Postgres']);
+    expect(db.getEmbedding(tombId)).toBeNull();
+  });
+
+  it('leaves a tombstone for a DIFFERENT thread alone, and never touches a non-Slack row', async () => {
+    const seed = open();
+    const otherTomb = seed.insertDecision({ title: 'This message was deleted.', summary: 'bot only', sourceUrl: 'https://slack.com/archives/C1/p2', platform: 'slack' });
+    const gitRow = seed.insertDecision({ title: 'This message was deleted.', summary: 'a commit', sourceUrl: 'https://slack.com/archives/C1/p1', platform: 'git' });
+    await client.ingestBatch([{ source_url: 'https://slack.com/archives/C1/p1', platform: 'slack', raw_text: 'real', title: 'real' }]);
+    const db = open();
+    expect(db.getDecisionById(otherTomb)).not.toBeNull();
+    expect(db.getDecisionById(gitRow)).not.toBeNull();
   });
 });
 
