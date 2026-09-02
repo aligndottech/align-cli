@@ -68,7 +68,8 @@ const mockGetConnectorFields = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
 const mockForgetConnector = vi.hoisted(() => vi.fn());
 
-vi.mock('../lib/config.js', () => ({
+vi.mock('../lib/config.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: 'tok' }),
     getDefaultEnv: vi.fn().mockReturnValue('prod'),
@@ -107,6 +108,21 @@ vi.mock('../lib/git.js', () => ({
 
 vi.mock('../lib/local-mode.js', () => ({
   initLocalMode: mockInitLocalMode,
+}));
+
+// ALI-794: the found-summary reads the local db directly (createLocalDb), separately
+// from the mocked ingest client above. Mocked here too, or every test that imports git
+// via --local opens a REAL sqlite file at the fixed dbPath the mocks share - across many
+// tests in this file, that is lock contention and stray state on disk, not a unit test.
+const mockLocalDbClose = vi.hoisted(() => vi.fn());
+const mockCreateLocalDb = vi.hoisted(() => vi.fn(() => ({
+  getStats: () => ({ decisions: 0 }),
+  listDecisions: () => [],
+  listLinks: () => [],
+  close: mockLocalDbClose,
+})));
+vi.mock('../lib/local-db.js', () => ({
+  createLocalDb: mockCreateLocalDb,
 }));
 
 const mockLoginInteractive = vi.hoisted(() => vi.fn().mockResolvedValue(true));
@@ -148,6 +164,7 @@ vi.mock('@clack/prompts', () => ({
   password: vi.fn().mockResolvedValue('test-token'),
   isCancel: vi.fn().mockReturnValue(false),
   cancel: vi.fn(),
+  note: vi.fn(),
 }));
 
 vi.mock('ora', () => ({
@@ -758,16 +775,40 @@ describe('align setup', () => {
       expect(said).toMatch(/using your atlassian .* from/i);
     });
 
-    it('--local ASKS which sources to connect before it scans git', async () => {
-      // Same ask-then-run shape as the cloud path. --local is the flow an outside tester
-      // was on when the picker corrupted itself under a screenful of git output, so the
-      // ordering matters more here, not less.
+    it('--local scans git and shows the found-summary BEFORE asking which sources to connect (ALI-794)', async () => {
+      // Inverted deliberately: value before the ask. This is the flow an outside tester
+      // was on when the picker corrupted itself under a screenful of git output (2026-08-30)
+      // - see the next test for the mitigation that ordering now needs.
+      const { note } = await import('@clack/prompts');
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
-      const askedAt = mockMultiselect.mock.invocationCallOrder[0];
       const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
-      expect(askedAt).toBeDefined();
+      const summaryAt = vi.mocked(note).mock.invocationCallOrder[0];
+      const askedAt = mockMultiselect.mock.invocationCallOrder[0];
       expect(importedAt).toBeDefined();
-      expect(askedAt).toBeLessThan(importedAt!);
+      expect(summaryAt).toBeDefined();
+      expect(askedAt).toBeDefined();
+      expect(importedAt).toBeLessThan(summaryAt!);
+      expect(summaryAt).toBeLessThan(askedAt!);
+    });
+
+    it('--local clears the screen before the connector picker, now that the summary sits above it', async () => {
+      // The mitigation ALI-794 budgets for the reorder above: p.note() renders through
+      // clack rather than raw stdout, and the picker gets a clean canvas.
+      const origIsTTY = process.stdout.isTTY;
+      const writes: string[] = [];
+      const origWrite = process.stdout.write.bind(process.stdout);
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      process.stdout.write = ((chunk: string) => { writes.push(String(chunk)); return origWrite(chunk); }) as typeof process.stdout.write;
+      try {
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      } finally {
+        process.stdout.write = origWrite;
+        Object.defineProperty(process.stdout, 'isTTY', { value: origIsTTY, configurable: true });
+      }
+      // readline's clear sequence always includes an ESC; asserting that over raw stdout
+      // is enough to prove clearScreenForPicker actually ran in the real flow, not just
+      // in its own unit test.
+      expect(writes.some((w) => w.includes('\x1B'))).toBe(true);
     });
 
     it('--local names ALIGN_ENV as the cause when the shell exports it, and does not suggest a remedy it overrides', async () => {
@@ -857,6 +898,87 @@ describe('align setup', () => {
       expect(mockInitLocalMode).not.toHaveBeenCalled();
       expect(mockWhoami).toHaveBeenCalled();
       expect(mockSelect).not.toHaveBeenCalled();
+    });
+
+    describe('fresh install (ALI-794): value before the mode question', () => {
+      async function mockFreshConfig(): Promise<void> {
+        // Neither mode configured yet - isFreshInstall's true case. Only the FIRST
+        // createConfigStore() call (the one runSetup's Step 0 check reads) needs this
+        // shape; later calls elsewhere in the flow fall back to the suite's default
+        // mock, which nothing downstream of the fork treats as meaningful.
+        const { createConfigStore } = await import('../lib/config.js');
+        vi.mocked(createConfigStore).mockReturnValueOnce({
+          getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: null, mode: 'demo' }),
+          getDefaultEnv: vi.fn().mockReturnValue('prod'),
+          setAuthToken: vi.fn(),
+          setTenantId: vi.fn(),
+          getConnectorToken: mockGetConnectorToken,
+          setConnectorToken: mockSetConnectorToken,
+          getConnectorFields: mockGetConnectorFields,
+          saveConnectorFields: mockSaveConnectorFields,
+          forgetConnector: mockForgetConnector,
+          getConnectorCloudId: vi.fn().mockReturnValue(null),
+          setConnectorCloudId: vi.fn(),
+          getConnectorSiteBase: vi.fn().mockReturnValue(null),
+          setConnectorSiteBase: vi.fn(),
+          getTelemetryConsent: vi.fn().mockReturnValue(undefined),
+          setTelemetryConsent: vi.fn(),
+        } as unknown as ReturnType<typeof createConfigStore>);
+      }
+
+      it('builds the local graph and shows the found summary BEFORE asking cloud-or-local, with no flags at all', async () => {
+        await mockFreshConfig();
+        const { note } = await import('@clack/prompts');
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        expect(mockInitLocalMode).toHaveBeenCalled();
+        const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
+        const summaryAt = vi.mocked(note).mock.invocationCallOrder[0];
+        const askedAt = mockSelect.mock.invocationCallOrder[0];
+        expect(importedAt).toBeDefined();
+        expect(summaryAt).toBeDefined();
+        expect(askedAt).toBeDefined();
+        expect(importedAt).toBeLessThan(summaryAt!);
+        expect(summaryAt).toBeLessThan(askedAt!);
+      });
+
+      it('asks the upgrade question defaulted to staying local, framed by what the graph is missing', async () => {
+        // A call-args assertion, deliberately: mockSelect's resolved value is queued
+        // independently of what production code passes in, so it cannot tell the fresh
+        // flow's question apart from the returning-user question below by OUTCOME alone
+        // - only by what was actually asked.
+        await mockFreshConfig();
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        expect(mockSelect).toHaveBeenCalledWith(
+          expect.objectContaining({
+            initialValue: 'local',
+            message: expect.stringMatching(/stay local|sync to the cloud/i),
+          }),
+        );
+      });
+
+      it('choosing cloud in the upgrade question hands off to the SAME cloud setup returning users get', async () => {
+        await mockFreshConfig();
+        mockSelect.mockResolvedValueOnce('cloud');
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        // The local value phase still ran (it always does, on a fresh install)...
+        expect(mockInitLocalMode).toHaveBeenCalled();
+        // ...and THEN cloud setup proper ran, unchanged - same auth check as any other
+        // route into runCloudSetup.
+        expect(mockWhoami).toHaveBeenCalled();
+      });
+
+      it('a returning user (cloud token already set) is asked the OLD mode question, not the upgrade one', async () => {
+        // Base mock default: authToken 'tok', so isFreshInstall is false. Asserted on the
+        // question actually asked - "not routed through the fresh flow" by outcome alone
+        // is what the pre-existing "defaults to cloud" test already covers and would stay
+        // green even if this fork mis-fired, since both paths can resolve to cloud.
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        expect(mockInitLocalMode).not.toHaveBeenCalled();
+        expect(mockWhoami).toHaveBeenCalled();
+        expect(mockSelect).toHaveBeenCalledWith(
+          expect.objectContaining({ message: 'How are you using Align?' }),
+        );
+      });
     });
   });
 

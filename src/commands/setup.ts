@@ -4,14 +4,16 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { tryOpenUrl } from '../lib/open-url.js';
 import { execa } from 'execa';
-import { CLI_TOKEN_SOURCES, cliTokenDecision, detectVerifiedCliToken, pickerMaxItems } from '../lib/setup-ux.js';
-import { createConfigStore, type EnvName } from '../lib/config.js';
+import { clearScreenForPicker, CLI_TOKEN_SOURCES, cliTokenDecision, detectVerifiedCliToken, pickerMaxItems } from '../lib/setup-ux.js';
+import { createConfigStore, type EnvName, isFreshInstall } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
 import { connectDetectedAgents } from './connect-agents.js';
 import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { isGitRepo } from '../lib/git.js';
 import { fetchDocsItems } from '../lib/fetchers/docs.js';
+import { createLocalDb } from '../lib/local-db.js';
+import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
@@ -396,7 +398,16 @@ function writeAgentAlignment(envName: EnvName): void {
 // seeds the graph from git history - all on the user's machine. This is the
 // privacy/offline escape hatch; the default solo experience is a personal
 // cloud tenant (see the cloud path below).
-async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
+interface LocalValuePhaseResult {
+  interactive: boolean;
+  config: ReturnType<typeof createConfigStore>;
+  localEnv: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
+  localClient: ReturnType<typeof createGatewayClient>;
+  dbPath: string;
+  opts: { approve?: boolean };
+}
+
+async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<LocalValuePhaseResult> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
@@ -406,23 +417,134 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   const { dbPath } = await initLocalMode();
   p.log.success('Local graph ready - no account needed, your data stays on this machine.');
 
+  const config = createConfigStore();
+  const localEnv = config.getEnvironment('local');
+  const localClient = createGatewayClient(localEnv);
+
+  // ALI-794: value before questions. Git needs no credential and no consent, so it runs
+  // before anything is asked - the found-decisions summary below is what "here is what I
+  // found" means, and it has to exist before the agent-wiring/consent/connector steps that
+  // used to come first for no reason other than that is the order they were written in.
+  let firstFoundTitle: string | undefined;
+  if (await isGitRepo()) {
+    console.log('');
+    p.log.info(chalk.dim('First import downloads a local embedding model (~23MB, from huggingface.co), one time.'));
+    const gitSpinner = p.spinner();
+    gitSpinner.start('Scanning git history...');
+    try {
+      const gitSource = buildSources(true).find(s => s.id === 'git')!;
+      const items = await gitSource.fetch({});
+      if (items.length) {
+        gitSpinner.stop(`Found ${items.length} commits worth importing`);
+        // quiet: the found-summary box right below replaces the full table + tip block
+        // runPersonalImport prints by default (component 2's whole point) - the one compact
+        // line quiet mode DOES print is a fine progress marker while the summary is built.
+        await runPersonalImport(items, localClient, {
+          label: 'Git',
+          approve: true,
+          appUrl: resolveAppUrl(localEnv),
+          local: true,
+          quiet: true,
+          funnel: { env: localEnv, source: 'git' },
+        });
+        // The payoff (ALI-215/ALI-794): name real decisions instead of a bare count, so a
+        // first-run user can check the summary against their own repo. Read straight back
+        // from the db rather than trusting the import's own tally - see buildFoundSummary's
+        // comment on why total/linked come from a COUNT, not from `items.length`.
+        const summaryDb = createLocalDb(dbPath);
+        try {
+          const summary = buildFoundSummary(summaryDb);
+          firstFoundTitle = summary.recent[0]?.title;
+          p.note(renderFoundSummary(summary), 'Found in your history');
+        } finally {
+          summaryDb.close();
+        }
+      } else {
+        gitSpinner.stop('No decisions found in git history');
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      // Surface a model/embedding failure distinctly rather than hiding it as a
+      // generic "skipped" - otherwise local setup looks successful but the graph is
+      // silently empty.
+      if (/embedding model|not installed on this platform/i.test(msg)) {
+        gitSpinner.stop('Local embedding model unavailable');
+        p.log.warn(msg);
+      } else {
+        gitSpinner.stop('Git import skipped');
+      }
+    }
+  }
+
   // Deterministic auto-alignment files target the local graph (advisory check runs --env local).
+  // Deferred until AFTER the value moment above (ALI-794 component 3): writing project files
+  // and asking about telemetry before the user has seen anything real is the footprint-before-
+  // value ordering this ticket exists to invert.
+  // ALI-793: ADRs + the user's own CLAUDE.md/AGENTS.md content, same zero-auth tier as
+  // git above and independent of it - a repo can carry decision-shaped docs with no git
+  // history worth mining, or vice versa. fetchDocsItems degrades gracefully with no git
+  // remote (falls back to a stable git:// identifier), so this runs unconditionally, and
+  // it belongs in the value phase for the same reason git does (ALI-794): it is
+  // zero-credential value, so it has to show before the connector/consent questions,
+  // not after them.
+  console.log('');
+  const localDocsSpinner = p.spinner();
+  localDocsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
+  try {
+    const docsItems = await fetchDocsItems({ limit: 500 });
+    if (docsItems.length) {
+      localDocsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
+      await runPersonalImport(docsItems, localClient, {
+        label: 'repo docs',
+        approve: true,
+        appUrl: resolveAppUrl(localEnv),
+        local: true,
+        funnel: { env: localEnv, source: 'docs' },
+      });
+    } else {
+      localDocsSpinner.stop('No ADRs or CLAUDE.md/AGENTS.md content found');
+    }
+  } catch (e) {
+    localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
+  }
+
   writeAgentAlignment('local');
 
   // The agents installed on this machine, not just the ones this project configures. Local
   // setup skipped this and cloud did not, which is backwards: local mode is the one whose
   // entire pitch is an agent on your own machine reading a graph that never leaves it.
   console.log('');
-  await connectDetectedAgents('local');
+  const localAgents = await connectDetectedAgents('local');
 
-  const config = createConfigStore();
-  const localEnv = config.getEnvironment('local');
-  const localClient = createGatewayClient(localEnv);
+  // The "try it" nudge (ALI-794): only when something was actually wired, and phrased against
+  // a REAL decision from the summary above when one exists - "why did we X" beats a generic
+  // question because it is checkable against the repo the user is sitting in.
+  if (localAgents.connected > 0) {
+    console.log('');
+    p.log.info(chalk.dim('Your agent is connected. Try asking:'));
+    p.log.info(chalk.bold(
+      firstFoundTitle ? `  "why did we ${firstFoundTitle}?"` : '  "What decisions exist in this codebase?"',
+    ));
+  }
 
   // ALI-618: one-time, never asked again once answered. Local mode has no account, so consent
   // is the only thing that can ever turn this on - see usage-telemetry.ts's local-embedded
   // branch, which reads this same stored decision.
   await maybeRequestTelemetryConsent(config, Boolean(interactive));
+
+  return { interactive, config, localEnv, localClient, dbPath, opts };
+}
+
+/**
+ * The connector-picker tail, shared by every path that reaches local mode: `--local`
+ * directly, the login-declined fallback in runCloudSetup, and (ALI-794) the fresh-install
+ * flow after the upgrade question comes back "stay local". Split out of runLocalSetup as a
+ * pure extraction - this body is byte-identical to what it replaced, just parameterised on
+ * the value phase's result instead of closing over local variables (refactoring.md: a pure
+ * move changes only how code is reached, never what it does).
+ */
+async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void> {
+  const { interactive, config, localEnv, localClient, dbPath, opts } = ctx;
 
   // Connectors: local mode connects by a read-only token the user mints themselves,
   // for every connector - their personal graph, their credential. OAuth belongs to
@@ -474,6 +596,10 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
     p.log.info(chalk.dim(`Using your saved read-only tokens for: ${names}.`));
   }
   // `interactive` computed once, at the top of this function - see the comment there.
+  // ALI-794: the found-summary above sits between this picker and the last clean screen,
+  // which is the exact condition that used to corrupt clack's in-place redraw for an
+  // outside tester (2026-08-30). Clear first so the picker gets its own canvas.
+  if (interactive) clearScreenForPicker();
   const selected = interactive
     ? await p.multiselect({
         message: 'Connect more sources with a read-only token? (skip to finish)',
@@ -534,66 +660,10 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
     }
   }
 
-  if (await isGitRepo()) {
-    console.log('');
-    p.log.info(chalk.dim('First import downloads a local embedding model (~23MB, from huggingface.co), one time.'));
-    const gitSpinner = p.spinner();
-    gitSpinner.start('Scanning git history...');
-    try {
-      const gitSource = buildSources(true).find(s => s.id === 'git')!;
-      const items = await gitSource.fetch({});
-      if (items.length) {
-        gitSpinner.stop(`Found ${items.length} commits worth importing`);
-        await runPersonalImport(items, localClient, {
-          label: 'Git',
-          approve: true,
-          appUrl: resolveAppUrl(localEnv),
-          local: true,
-          funnel: { env: localEnv, source: 'git' },
-        });
-      } else {
-        gitSpinner.stop('No decisions found in git history');
-      }
-    } catch (e) {
-      const msg = (e as Error).message;
-      // Surface a model/embedding failure distinctly rather than hiding it as a
-      // generic "skipped" - otherwise local setup looks successful but the graph is
-      // silently empty.
-      if (/embedding model|not installed on this platform/i.test(msg)) {
-        gitSpinner.stop('Local embedding model unavailable');
-        p.log.warn(msg);
-      } else {
-        gitSpinner.stop('Git import skipped');
-      }
-    }
-  }
-
-  // ALI-793: ADRs + the user's own CLAUDE.md/AGENTS.md content, same zero-auth tier as
-  // git above and independent of it - a repo can carry decision-shaped docs with no git
-  // history worth mining, or vice versa. fetchDocsItems degrades gracefully with no git
-  // remote (falls back to a stable git:// identifier), so this runs unconditionally.
-  console.log('');
-  const localDocsSpinner = p.spinner();
-  localDocsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
-  try {
-    const docsItems = await fetchDocsItems({ limit: 500 });
-    if (docsItems.length) {
-      localDocsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
-      await runPersonalImport(docsItems, localClient, {
-        label: 'repo docs',
-        approve: true,
-        appUrl: resolveAppUrl(localEnv),
-        local: true,
-        funnel: { env: localEnv, source: 'docs' },
-      });
-    } else {
-      localDocsSpinner.stop('No ADRs or CLAUDE.md/AGENTS.md content found');
-    }
-  } catch (e) {
-    localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
-  }
-
-  // Now the automatic phase: fetch and import what the credentials above unlocked.
+  // Git and repo docs already ran above, in runLocalValuePhase, before the mode/connector
+  // questions (ALI-794) - both are zero-credential value and belong in the "here is what I
+  // found" moment, not stranded behind the questions this phase exists to ask. This phase
+  // is only the automatic import for the paste-token connectors just collected.
   for (const { source, tokens } of localReady) {
     const spinner = p.spinner();
     spinner.start(`Fetching from ${source.label}...`);
@@ -658,6 +728,14 @@ async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
   );
 }
 
+// Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
+// the two phases above unchanged - this is exactly what ran before the ALI-794 split, just
+// as two calls instead of one function body.
+async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
+  const ctx = await runLocalValuePhase(opts);
+  await runLocalConnectorPhase(ctx);
+}
+
 export function registerSetupCommand(program: Command): void {
   program
     .command('setup')
@@ -695,6 +773,17 @@ export async function runSetup(
     // relationship classifier, backup, and a clean upgrade path to a team
     // (reuses the personal->org join flow). --local is the opt-in offline
     // escape hatch; --approve runs the cloud path non-interactively.
+    //
+    // ALI-794: on a genuinely fresh machine (neither mode configured yet), interactively,
+    // with neither flag forcing a mode, invert this - build the local graph and show what
+    // is in it BEFORE asking anything. A returning user (either mode already set up) is
+    // not asked to sit through that again; they keep the question below, same as today.
+    const interactive = process.stdin.isTTY && process.stdout.isTTY;
+    if (!opts.local && !opts.approve && interactive && isFreshInstall(config)) {
+      await runFreshSetup({ config, env, client, envName, opts });
+      return;
+    }
+
     let mode: 'cloud' | 'local';
     if (opts.local) {
       mode = 'local';
@@ -719,6 +808,45 @@ export async function runSetup(
     }
 
     await runCloudSetup({ opts, config, env, client, envName });
+}
+
+/**
+ * ALI-794: the value-first fresh-install flow. Builds and shows the local graph with
+ * nothing asked for, THEN offers the upgrade - inverting the mode-question-first order
+ * above for the one case that pays for it: nobody has configured anything yet.
+ *
+ * Choosing cloud hands off to the existing `runCloudSetup`, completely unchanged - its own
+ * git scan and agent-file write run again there. Both are idempotent, and re-running them is
+ * the accepted cost of the local graph above being a real, usable preview rather than
+ * provisional state (component 1's "nothing about the cloud path changes once chosen").
+ */
+async function runFreshSetup(ctx: {
+  config: ReturnType<typeof createConfigStore>;
+  env: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
+  client: ReturnType<typeof createGatewayClient>;
+  envName: EnvName;
+  opts: { approve?: boolean; reset?: boolean };
+}): Promise<void> {
+  const phase = await runLocalValuePhase({ approve: ctx.opts.approve });
+
+  // Framed by what the graph is missing, not "how are you using Align" in the abstract -
+  // there is already a local graph on screen, so the question is whether to extend it.
+  const choice = await p.select({
+    message: 'Stay local, or sync to the cloud for team sharing and cross-tool conflict detection?',
+    options: [
+      { value: 'local', label: 'Stay local - keep what you just built, private and offline', hint: 'no account' },
+      { value: 'cloud', label: 'Sync to the cloud - backup, team upgrade path, richer detection', hint: 'personal tenant' },
+    ],
+    initialValue: 'local',
+  });
+  if (p.isCancel(choice)) { p.cancel('Cancelled.'); process.exit(0); }
+
+  if (choice === 'local') {
+    await runLocalConnectorPhase(phase);
+    return;
+  }
+
+  await runCloudSetup(ctx);
 }
 
 

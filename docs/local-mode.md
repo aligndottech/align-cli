@@ -65,10 +65,11 @@ applies to the environment you're running in and why.
 - **The token page URL is always printed** before Align tries to open your browser,
   so if nothing opens you can click or copy the link from the terminal. A detected
   browser failure says so instead of pretending it worked.
-- **If you already use the GitHub CLI**, setup offers to reuse its token - and only after
-  confirming with GitHub that the token cannot write. A `gh auth login` token usually
-  carries the `repo` scope (read *and* write), and Align's local mode refuses those: you
-  will be asked to paste a fine-grained read-only token instead.
+- **GitHub CLI reuse is the exception, not the norm.** Setup checks for an already-signed-in
+  `gh`, but only takes its token when GitHub itself confirms it cannot write - and a plain
+  `gh auth login` mints a token with the `repo` scope (read *and* write), which fails that
+  check. In practice this means most setups are asked to paste a fine-grained read-only
+  token anyway; the reuse is a convenience for the minority who already minted one.
 - **Re-importing is safe.** A decision is identified by its source URL and title, so running the
   same import twice updates what changed rather than duplicating the graph.
 - Related decisions surface on-device by semantic similarity. Typed relationships (supersedes,

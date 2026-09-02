@@ -12,6 +12,26 @@ export interface EnvironmentConfig {
   localDbPath?: string;
 }
 
+/**
+ * The fork point for ALI-794's value-first onboarding order: nothing configured
+ * yet on this machine, in either mode. A returning user (they already have a
+ * local graph, or they are logged in to cloud) keeps the existing
+ * mode-question-first `align setup` flow - this only widens the door for a
+ * genuinely first run.
+ */
+export function isFreshInstall(config: {
+  getEnvironment(env: EnvName): EnvironmentConfig;
+}): boolean {
+  const hasLocal = config.getEnvironment('local').mode === 'local-embedded';
+  // Every env, not just the default one (Copilot, PR #224): a user who logged into a
+  // non-default env (e.g. `align login --env preview`) while defaultEnv is still 'prod'
+  // is a returning user, and checking only getDefaultEnv() would misclassify them as
+  // fresh and route them into the value-first flow a second time.
+  const ALL_ENVS: EnvName[] = ['local', 'preview', 'prod'];
+  const hasCloud = ALL_ENVS.some((e) => Boolean(config.getEnvironment(e).authToken));
+  return !hasLocal && !hasCloud;
+}
+
 const DEFAULTS: Record<EnvName, EnvironmentConfig> = {
   local:   { gatewayUrl: 'http://localhost:8080',          authToken: null, tenantId: null, mode: 'demo' },
   preview: { gatewayUrl: 'https://api.preview.align.tech', authToken: null, tenantId: null, mode: 'auth' },
