@@ -7,6 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchJiraItems } from '../../lib/fetchers/jira.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { renderCaptureReport } from '../../lib/capture-report.js';
+import { toCaptureSource } from '../../lib/fetchers/capture.js';
 import { PERSONAL_OAUTH_KEYS, personalCredsForImport } from '../../lib/personal-oauth.js';
 import { AuthExpiredError } from '../../lib/errors.js';
 import { commandIntro } from '../../lib/brand.js';
@@ -76,7 +78,7 @@ export function registerImportJiraCommand(importCmd: Command): void {
       const spinner = p.spinner();
       spinner.start('Fetching your Jira issues...');
       try {
-        const items = await fetchJiraItems({
+        const fetched = await fetchJiraItems({
           token,
           cloudId,
           siteBase,
@@ -84,8 +86,10 @@ export function registerImportJiraCommand(importCmd: Command): void {
           domain: opts.domain,
           limit: parseInt(opts.limit, 10),
         });
+        const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'Jira', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'jira' } });
+        console.log(`${renderCaptureReport([toCaptureSource('Jira', 'issues', fetched)])}\n`);
       } catch (err) {
         spinner.stop('');
         if (err instanceof AuthExpiredError) {

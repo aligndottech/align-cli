@@ -36,7 +36,7 @@ vi.mock('../lib/git.js', () => ({
   formatCommitAsText: vi.fn(() => 'commit text'),
 }));
 vi.mock('../lib/fetchers/github.js', () => ({
-  fetchGitHubItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'github', raw_text: 't' }]),
+  fetchGitHubItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'github', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/personal-import.js', () => ({ runPersonalImport: vi.fn() }));
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({})) }));

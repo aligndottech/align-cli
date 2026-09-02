@@ -22,31 +22,31 @@ vi.mock('@clack/prompts', () => ({
 }));
 vi.mock('open', () => ({ default: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../lib/fetchers/github.js', () => ({
-  fetchGitHubItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'github', raw_text: 't' }]),
+  fetchGitHubItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'github', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/fetchers/jira.js', () => ({
-  fetchJiraItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'jira', raw_text: 't' }]),
+  fetchJiraItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'jira', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/fetchers/confluence.js', () => ({
-  fetchConfluenceItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'confluence', raw_text: 't' }]),
+  fetchConfluenceItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'confluence', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/fetchers/gitlab.js', () => ({
-  fetchGitLabItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'gitlab', raw_text: 't' }]),
+  fetchGitLabItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'gitlab', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/fetchers/linear.js', () => ({
-  fetchLinearItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'linear', raw_text: 't' }]),
+  fetchLinearItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'linear', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/fetchers/notion.js', () => ({
-  fetchNotionItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'notion', raw_text: 't' }]),
+  fetchNotionItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'notion', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/fetchers/slack.js', () => ({
-  fetchSlackItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'slack', raw_text: 't' }]),
+  fetchSlackItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'slack', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/fetchers/teams.js', () => ({
-  fetchTeamsItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'teams', raw_text: 't' }]),
+  fetchTeamsItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'teams', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/fetchers/zoom.js', () => ({
-  fetchZoomItems: vi.fn().mockResolvedValue([{ source_url: 'u', platform: 'zoom', raw_text: 't' }]),
+  fetchZoomItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'zoom', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
 }));
 vi.mock('../lib/personal-import.js', () => ({ runPersonalImport: vi.fn() }));
 vi.mock('../lib/env-resolver.js', () => ({ resolveAppUrl: vi.fn(() => 'https://app.align.tech') }));

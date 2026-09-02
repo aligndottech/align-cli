@@ -98,9 +98,11 @@ vi.mock('../lib/env-resolver.js', () => ({ resolveAppUrl: vi.fn().mockReturnValu
 
 vi.mock('../lib/git.js', () => ({
   isGitRepo: vi.fn().mockResolvedValue(true),
-  getCommitHistory: vi.fn().mockResolvedValue([
-    { sha: 'abc123', subject: 'feat: add thing', body: '', author: 'test', date: '2024-01-01' },
-  ]),
+  getCommitHistoryDetailed: vi.fn().mockResolvedValue({
+    commits: [{ sha: 'abc123', subject: 'feat: add thing', body: '', author: 'test', date: '2024-01-01' }],
+    scanned: 1,
+    rejectedByRationale: 0,
+  }),
   getRemoteUrl: vi.fn().mockResolvedValue(null),
   buildCommitUrl: vi.fn().mockReturnValue('git://commit/abc123'),
   formatCommitAsText: vi.fn().mockReturnValue('feat: add thing'),
@@ -151,13 +153,13 @@ vi.mock('../lib/agent-rules.js', () => ({
 
 // Mock all fetchers so setup tests don't make real network calls
 // Mock fetchers that have no more-specific mock below to prevent real network calls in tests
-vi.mock('../lib/fetchers/jira.js', () => ({ fetchJiraItems: vi.fn().mockResolvedValue([]) }));
-vi.mock('../lib/fetchers/confluence.js', () => ({ fetchConfluenceItems: vi.fn().mockResolvedValue([]) }));
-vi.mock('../lib/fetchers/slack.js', () => ({ fetchSlackItems: vi.fn().mockResolvedValue([]) }));
-vi.mock('../lib/fetchers/teams.js', () => ({ fetchTeamsItems: vi.fn().mockResolvedValue([]) }));
-vi.mock('../lib/fetchers/zoom.js', () => ({ fetchZoomItems: vi.fn().mockResolvedValue([]) }));
-vi.mock('../lib/fetchers/gitlab.js', () => ({ fetchGitLabItems: vi.fn().mockResolvedValue([]) }));
-vi.mock('../lib/fetchers/notion.js', () => ({ fetchNotionItems: vi.fn().mockResolvedValue([]) }));
+vi.mock('../lib/fetchers/jira.js', () => ({ fetchJiraItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
+vi.mock('../lib/fetchers/confluence.js', () => ({ fetchConfluenceItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
+vi.mock('../lib/fetchers/slack.js', () => ({ fetchSlackItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
+vi.mock('../lib/fetchers/teams.js', () => ({ fetchTeamsItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
+vi.mock('../lib/fetchers/zoom.js', () => ({ fetchZoomItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
+vi.mock('../lib/fetchers/gitlab.js', () => ({ fetchGitLabItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
+vi.mock('../lib/fetchers/notion.js', () => ({ fetchNotionItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
 
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
@@ -184,15 +186,17 @@ vi.mock('ora', () => ({
 }));
 
 vi.mock('../lib/fetchers/github.js', () => ({
-  fetchGitHubItems: vi.fn().mockResolvedValue([
-    { source_url: 'https://github.com/org/repo/pull/1', title: 'PR: add feature', raw_text: 'add feature', type: 'pull_request' },
-  ]),
+  fetchGitHubItems: vi.fn().mockResolvedValue({
+    items: [{ source_url: 'https://github.com/org/repo/pull/1', title: 'PR: add feature', raw_text: 'add feature', type: 'pull_request' }],
+    report: { scanned: 1, skips: [] },
+  }),
 }));
 
 vi.mock('../lib/fetchers/linear.js', () => ({
-  fetchLinearItems: vi.fn().mockResolvedValue([
-    { source_url: 'https://linear.app/team/issue/ISS-1', title: 'Issue: fix bug', raw_text: 'fix bug', type: 'issue' },
-  ]),
+  fetchLinearItems: vi.fn().mockResolvedValue({
+    items: [{ source_url: 'https://linear.app/team/issue/ISS-1', title: 'Issue: fix bug', raw_text: 'fix bug', type: 'issue' }],
+    report: { scanned: 1, skips: [] },
+  }),
 }));
 
 vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -401,15 +405,15 @@ describe('align setup', () => {
   });
 
   it('git import skips silently when no commits found', async () => {
-    const { getCommitHistory } = await import('../lib/git.js');
-    (getCommitHistory as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+    const { getCommitHistoryDetailed } = await import('../lib/git.js');
+    (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ commits: [], scanned: 0, rejectedByRationale: 0 });
     await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
     expect(mockIngestBatch).not.toHaveBeenCalled();
   });
 
   it('continues setup when git fetch throws', async () => {
-    const { getCommitHistory } = await import('../lib/git.js');
-    (getCommitHistory as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('no git'));
+    const { getCommitHistoryDetailed } = await import('../lib/git.js');
+    (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('no git'));
     await expect(
       makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
     ).resolves.not.toThrow();
@@ -1228,11 +1232,11 @@ describe('align setup', () => {
         order.push('gh-start');
         await new Promise((r) => setTimeout(r, 15));
         order.push('gh-end');
-        return [];
+        return { items: [], report: { scanned: 0, skips: [] } };
       });
       (fetchSlackItems as ReturnType<typeof vi.fn>).mockImplementation(async () => {
         order.push('slack-start');
-        return [];
+        return { items: [], report: { scanned: 0, skips: [] } };
       });
 
       try {
@@ -1241,8 +1245,8 @@ describe('align setup', () => {
         expect(order).toContain('gh-end');
         expect(order.indexOf('slack-start')).toBeLessThan(order.indexOf('gh-end'));
       } finally {
-        (fetchGitHubItems as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-        (fetchSlackItems as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+        (fetchGitHubItems as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } });
+        (fetchSlackItems as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } });
       }
     });
 
@@ -1252,12 +1256,14 @@ describe('align setup', () => {
       // Set fetcher returns explicitly - other tests mutate these module mocks.
       const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
       const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
-      (fetchGitHubItems as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { source_url: 'https://github.com/org/repo/pull/1', title: 'PR', raw_text: 'x', type: 'pull_request' },
-      ]);
-      (fetchLinearItems as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { source_url: 'https://linear.app/team/issue/ISS-1', title: 'Issue', raw_text: 'x', type: 'issue' },
-      ]);
+      (fetchGitHubItems as ReturnType<typeof vi.fn>).mockResolvedValue({
+        items: [{ source_url: 'https://github.com/org/repo/pull/1', title: 'PR', raw_text: 'x', type: 'pull_request' }],
+        report: { scanned: 1, skips: [] },
+      });
+      (fetchLinearItems as ReturnType<typeof vi.fn>).mockResolvedValue({
+        items: [{ source_url: 'https://linear.app/team/issue/ISS-1', title: 'Issue', raw_text: 'x', type: 'issue' }],
+        report: { scanned: 1, skips: [] },
+      });
       const { log } = await import('@clack/prompts');
       await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
       // The parallel import phase announces itself...
@@ -1491,7 +1497,7 @@ describe('align setup', () => {
       vi.mocked(fetchLinearItems)
         .mockRejectedValueOnce(new Error('Linear API failed (401). Check your personal API token.'))
         .mockResolvedValueOnce([{ source_url: 'https://linear.app/x/ISS-1', title: 'I', raw_text: 'i', type: 'issue' }]);
-      vi.mocked(fetchNotionItems).mockResolvedValue([]); // no items
+      vi.mocked(fetchNotionItems).mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }); // no items
       mockConfirm.mockResolvedValue(true);
       mockWaitForCallback.mockResolvedValue({
         data: { connector: 'linear-personal', credentials: { access_token: 'lin_fresh' } },

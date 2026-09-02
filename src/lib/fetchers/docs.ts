@@ -4,6 +4,7 @@ import { buildBlobUrl, getCurrentBranch, getRemoteUrl } from '../git.js';
 import { ALIGN_NUDGE_END, ALIGN_NUDGE_START } from '../agent-rules.js';
 import { ALIGN_IMPORT_LINE } from '../decisions-context.js';
 import type { PersonalImportItem } from '../personal-import.js';
+import { type CaptureFetchResult, withCaptureReport } from './capture.js';
 
 /**
  * ALI-793: read what the repo already wrote down, credential-free. Two sources:
@@ -170,7 +171,7 @@ async function readAgentRulesItems(
   return items;
 }
 
-export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Promise<PersonalImportItem[]> {
+async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<PersonalImportItem[]> {
   const repoRoot = opts.cwd ?? process.cwd();
   const gitOpts = opts.cwd ? { cwd: opts.cwd } : undefined;
   const [remoteUrl, branch, adrFiles] = await Promise.all([
@@ -190,4 +191,11 @@ export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Pro
 
   const agentRulesItems = await readAgentRulesItems(repoRoot, remoteUrl, branch);
   return [...adrItems, ...agentRulesItems].slice(0, opts.limit);
+}
+
+/** ALI-827: the same read, plus the fallback capture report (count and request). A local
+ *  read has no page size to fall off and no access to lack, so count-and-request is
+ *  everything there is to say; the only shortfall it can show is the limit itself. */
+export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Promise<CaptureFetchResult> {
+  return withCaptureReport(opts, () => readDocsItems(opts));
 }

@@ -7,6 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchGitLabItems } from '../../lib/fetchers/gitlab.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { renderCaptureReport } from '../../lib/capture-report.js';
+import { toCaptureSource } from '../../lib/fetchers/capture.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
 
@@ -61,9 +63,11 @@ export function registerImportGitLabCommand(importCmd: Command): void {
       const spinner = p.spinner();
       spinner.start('Fetching your GitLab merge requests...');
       try {
-        const items = await fetchGitLabItems({ token, domain: opts.domain, limit: parseInt(opts.limit, 10) });
+        const fetched = await fetchGitLabItems({ token, domain: opts.domain, limit: parseInt(opts.limit, 10) });
+        const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'GitLab', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'gitlab' } });
+        console.log(`${renderCaptureReport([toCaptureSource('GitLab', 'merge requests', fetched)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

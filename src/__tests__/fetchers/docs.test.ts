@@ -60,7 +60,7 @@ describe('fetchDocsItems - ADR directories', () => {
     );
     mockGit('https://github.com/org/repo.git');
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ title: '1. Use Postgres', platform: 'docs' });
@@ -76,7 +76,7 @@ describe('fetchDocsItems - ADR directories', () => {
     writeFileSync(join(repo, 'doc', 'adr', '0002-b.md'), '# Decision B\n\nBecause other reasons, also long enough.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['Decision A', 'Decision B']);
   });
@@ -89,7 +89,7 @@ describe('fetchDocsItems - ADR directories', () => {
     writeFileSync(join(repo, 'adr', '1.md'), '# Root adr dir ADR\n\nLong enough body text here too.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['Decisions dir ADR', 'Root adr dir ADR']);
   });
@@ -98,7 +98,7 @@ describe('fetchDocsItems - ADR directories', () => {
     repo = mkdtempSync(join(tmpdir(), 'align-793-'));
     mockGit(null);
 
-    await expect(fetchDocsItems({ limit: 100, cwd: repo })).resolves.toEqual([]);
+    await expect(fetchDocsItems({ limit: 100, cwd: repo })).resolves.toMatchObject({ items: [] });
   });
 
   it('falls back to a humanized filename when the ADR has no H1 heading', async () => {
@@ -107,7 +107,7 @@ describe('fetchDocsItems - ADR directories', () => {
     writeFileSync(join(repo, 'docs', 'adr', '0007-use-cockroachdb.md'), 'Status: Proposed\n\nNo heading in this one.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items[0].title).toBe('Use Cockroachdb');
   });
@@ -121,7 +121,7 @@ describe('fetchDocsItems - ADR directories', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items[0].raw_text).toContain('Superseded by 0007-use-cockroachdb.md');
   });
@@ -132,7 +132,7 @@ describe('fetchDocsItems - ADR directories', () => {
     writeFileSync(join(repo, 'docs', 'adr', '0001-a.md'), '# Decision A\n\nBecause reasons that are long enough.');
     mockGit(null, 'main');
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items[0].source_url).toBe('git://blob/main/docs/adr/0001-a.md');
   });
@@ -159,7 +159,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     const dbItem = items.find((i) => i.title === 'Database');
     expect(dbItem).toBeDefined();
@@ -188,7 +188,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
     const combined = items.map((i) => i.raw_text).join('\n');
 
     expect(combined).not.toContain('Some nudge text the CLI wrote');
@@ -210,7 +210,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items).toEqual([]);
   });
@@ -233,7 +233,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['Database', 'Deployment']);
   });
@@ -246,7 +246,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title)).toEqual(['Database']);
   });
@@ -257,7 +257,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     writeFileSync(join(repo, 'AGENTS.md'), '# Proj\n\n## Testing\n\nWe require a failing test before any fix lands.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['Database', 'Testing']);
   });
@@ -266,7 +266,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     repo = mkdtempSync(join(tmpdir(), 'align-793-'));
     mockGit(null);
 
-    await expect(fetchDocsItems({ limit: 100, cwd: repo })).resolves.toEqual([]);
+    await expect(fetchDocsItems({ limit: 100, cwd: repo })).resolves.toMatchObject({ items: [] });
   });
 });
 
@@ -287,7 +287,7 @@ describe('fetchDocsItems - limit and combination', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 1, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 1, cwd: repo });
 
     expect(items).toHaveLength(1);
   });
@@ -308,7 +308,7 @@ describe('fetchDocsItems - limit and combination', () => {
     const dirent = (name: string) => ({ name, isFile: () => true }) as unknown as Dirent;
     readdirSpy.mockImplementationOnce(async () => [dirent('0002-second.md'), dirent('0001-first.md')]);
 
-    const items = await fetchDocsItems({ limit: 1, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 1, cwd: repo });
 
     expect(items).toHaveLength(1);
     expect(items[0].title).toBe('First ADR');
@@ -324,7 +324,7 @@ describe('fetchDocsItems - limit and combination', () => {
     writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 1, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 1, cwd: repo });
 
     expect(items).toHaveLength(1);
     expect(items[0].title).toBe('ADR One');
@@ -339,7 +339,7 @@ describe('fetchDocsItems - limit and combination', () => {
     writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title).sort()).toEqual(['ADR One', 'Database']);
   });
@@ -373,7 +373,7 @@ describe('fetchDocsItems - duplicate headings', () => {
     );
     mockGit(null);
 
-    const items = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items).toHaveLength(2);
     const urls = items.map((i) => i.source_url);

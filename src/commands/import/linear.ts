@@ -7,6 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchLinearItems } from '../../lib/fetchers/linear.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { renderCaptureReport } from '../../lib/capture-report.js';
+import { toCaptureSource } from '../../lib/fetchers/capture.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
 
@@ -52,9 +54,11 @@ export function registerImportLinearCommand(importCmd: Command): void {
       const spinner = p.spinner();
       spinner.start('Fetching your Linear issues...');
       try {
-        const items = await fetchLinearItems({ token, limit: parseInt(opts.limit, 10) });
+        const fetched = await fetchLinearItems({ token, limit: parseInt(opts.limit, 10) });
+        const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'Linear', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'linear' } });
+        console.log(`${renderCaptureReport([toCaptureSource('Linear', 'issues', fetched)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

@@ -8,6 +8,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchSlackItems } from '../../lib/fetchers/slack.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { renderCaptureReport } from '../../lib/capture-report.js';
+import { toCaptureSource } from '../../lib/fetchers/capture.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
 
@@ -62,13 +64,15 @@ export function registerImportSlackCommand(importCmd: Command): void {
       const spinner = p.spinner();
       spinner.start('Fetching decision threads from Slack...');
       try {
-        const items = await fetchSlackItems({
+        const fetched = await fetchSlackItems({
           token,
           limit: parseInt(opts.limit, 10),
           daysBack: parseInt(opts.daysBack, 10),
         });
+        const { items } = fetched;
         spinner.stop(`Found ${items.length} threads`);
         await runPersonalImport(items, client, { label: 'Slack', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'slack' } });
+        console.log(`${renderCaptureReport([toCaptureSource('Slack', 'threads', fetched)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

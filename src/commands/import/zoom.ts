@@ -7,6 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchZoomItems } from '../../lib/fetchers/zoom.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
+import { renderCaptureReport } from '../../lib/capture-report.js';
+import { toCaptureSource } from '../../lib/fetchers/capture.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
 
@@ -52,12 +54,14 @@ export function registerImportZoomCommand(importCmd: Command): void {
       const spinner = p.spinner();
       spinner.start('Fetching cloud recording transcripts from Zoom...');
       try {
-        const items = await fetchZoomItems({
+        const fetched = await fetchZoomItems({
           token,
           limit: parseInt(opts.limit, 10),
         });
+        const { items } = fetched;
         spinner.stop(`Found ${items.length} recordings with transcripts`);
         await runPersonalImport(items, client, { label: 'Zoom', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'zoom' } });
+        console.log(`${renderCaptureReport([toCaptureSource('Zoom', 'recordings', fetched)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);
