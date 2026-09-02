@@ -7,7 +7,7 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import type { SearchResults } from '../lib/gateway-client.js';
 import { localCitationFor } from '../lib/commit-cite.js';
-import { type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
+import { ABSTENTION_SENTINEL, isAbstention, type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { formatWhen } from '../lib/format-date.js';
 import { resolveScopeOpts } from '../lib/repo-identity.js';
@@ -113,7 +113,27 @@ export function registerAskCommand(program: Command): void {
       const spinner = ora('').start();
 
       try {
-        const results = await client.searchDecisions(searchQuery, parseInt(opts.limit, 10), scope);
+        const limit = parseInt(opts.limit, 10);
+        let results = await client.searchDecisions(searchQuery, limit, scope);
+
+        // Auto-widen, stage 1: the scoped search found nothing at all. Found live
+        // 2026-09-02, the same evening ALI-798's scoping shipped: a cross-repo question
+        // asked from the wrong directory had its answer one --all away, and the tool
+        // told the user to go and type it. Scoped-first stays (unscoped search blended
+        // repos - the bug ALI-798 fixed); widening on a definite miss is the tool doing
+        // what its own hint said, before giving up. Never behind an explicit --repo or
+        // --all: those are the user constraining the search on purpose.
+        const canWiden = !opts.all && !opts.repo;
+        let widenedFrom: string | null = null;
+        let widenAttempted = false;
+        if (!results.results.length && results.scope && canWiden) {
+          widenAttempted = true;
+          const wholeGraph = await client.searchDecisions(searchQuery, limit, { all: true });
+          if (wholeGraph.results.length) {
+            widenedFrom = results.scope;
+            results = wholeGraph;
+          }
+        }
         spinner.stop();
 
         if (!results.results.length) {
@@ -153,9 +173,15 @@ export function registerAskCommand(program: Command): void {
               // way ask, search and import do, so the bare command is the right one to print
               // for every user. It carried `--env ${envName}` while that was not true.
               const listCmd = 'align decisions list';
-              if (results.scope) {
+              if (results.scope && widenAttempted) {
+                // The auto-widen already searched everything, so suggesting --all here
+                // would promise a re-run that cannot find more than this run just did.
+                console.log(chalk.dim(`  Nothing matched "${query}" in ${results.scope} or the rest of your graph.`));
+                console.log(chalk.dim('  Try different words, or list what is in there:'));
+              } else if (results.scope) {
                 // Named because it is the reason nothing matched here, and distinguishes
                 // "not in THIS repo" from "not anywhere" (ALI-771's lesson, extended to scope).
+                // Reachable only under an explicit --repo, which the widen respects.
                 console.log(chalk.dim(`  Nothing matched "${query}" in ${results.scope}.`));
                 console.log(chalk.dim('  Try --all to search your whole graph, or list what is in this repo:'));
               } else {
@@ -175,9 +201,69 @@ export function registerAskCommand(program: Command): void {
           return;
         }
 
+        // Conversational synthesis for natural-language questions (not file paths).
+        // Uses the user's own AI provider (configured key / env var / local Ollama)
+        // via synthesiseDetailed, which reports WHY when there is no answer - carried
+        // here so the list fallback below can say it, rather than re-read a module
+        // getter that a concurrent call could have cleared.
+        //
+        // Runs BEFORE the scope header prints: the auto-widen below can change what was
+        // actually answered from, and a header naming a scope the answer then abandoned
+        // would be wrong the moment it mattered.
+        let synthFailure: LlmFailure | undefined;
+        let answer: string | null = null;
+        if (!filePath) {
+          const synth = await synthesiseDetailed(
+            query,
+            results.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
+          );
+          answer = synth.ok ? synth.text : null;
+          if (!synth.ok) synthFailure = synth.failure;
+
+          // Auto-widen, stage 2: the scoped search DID return candidates, and the model
+          // read them and abstained (the mandated sentinel makes that detectable). Weak
+          // same-repo lookalikes with the real answer in another repo is exactly the
+          // live case: retrieval succeeded, the scope was the problem. One extra local
+          // search plus one extra model call, only on the path that was about to print
+          // "The context does not answer this question" at someone whose graph holds
+          // the answer.
+          if (answer && isAbstention(answer) && results.scope && canWiden && !widenedFrom) {
+            spinner.start();
+            try {
+              const wholeGraph = await client.searchDecisions(searchQuery, limit, { all: true });
+              if (wholeGraph.results.length) {
+                const second = await synthesiseDetailed(
+                  query,
+                  wholeGraph.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
+                );
+                // Adoption rule, measured against a real model (2026-09-02 probes): on
+                // implicit-only context the model can emit the sentinel AND keep talking -
+                // the forbidden deny-then-deliver, with the actual answer in the tail. A
+                // denial with an informative tail beats a bare sentinel, so:
+                //   - a BARE-sentinel scoped answer adopts whatever the widened pass
+                //     produced (it cannot be less informative, and even an identical
+                //     abstention gains the honest whole-graph framing);
+                //   - a scoped answer that already carries a tail only upgrades to a
+                //     CLEAN widened answer - swapping one hedged answer for another loses
+                //     the accurate scope header for nothing.
+                const scopedWasBare = answer.trim() === ABSTENTION_SENTINEL;
+                if (second.ok && (scopedWasBare || !isAbstention(second.text))) {
+                  widenedFrom = results.scope;
+                  results = wholeGraph;
+                  answer = second.text;
+                }
+              }
+            } finally {
+              spinner.stop();
+            }
+          }
+        }
+
         // ALI-798: named up front so a reader knows what was searched before reading an
         // answer that might be missing something they know exists in another repo.
-        if (results.scope) {
+        if (widenedFrom) {
+          console.log(chalk.dim(`  Nothing in ${widenedFrom} answered - widened to your whole graph`));
+        } else if (results.scope) {
           console.log(chalk.dim(`  Answering from ${results.scope} (--all searches every repo)`));
         }
 
@@ -189,19 +275,7 @@ export function registerAskCommand(program: Command): void {
         // own awaited send keeps the process alive long enough for this one to land.
         void recordFunnelStage(config.getEnvironment(envName), 'first_useful_decision', 'ask');
 
-        // Conversational synthesis for natural-language questions (not file paths).
-        // Uses the user's own AI provider (configured key / env var / local Ollama)
-        // via synthesiseDetailed, which reports WHY when there is no answer - carried
-        // here so the list fallback below can say it, rather than re-read a module
-        // getter that a concurrent call could have cleared.
-        let synthFailure: LlmFailure | undefined;
         if (!filePath) {
-          const synth = await synthesiseDetailed(
-            query,
-            results.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
-          );
-          const answer = synth.ok ? synth.text : null;
-          if (!synth.ok) synthFailure = synth.failure;
           if (answer) {
             console.log('');
             for (const line of wrapText(answer, '  ', 76)) console.log(line);

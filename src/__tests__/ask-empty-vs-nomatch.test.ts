@@ -137,13 +137,20 @@ describe('align ask: a repo with nothing in it is not an empty graph (ALI-798)',
     listDecisions.mockReset();
   });
 
-  it('names the repo and suggests --all, rather than "build your graph first"', async () => {
+  // Contract updated for auto-widen (same evening as ALI-798, from the other direction):
+  // with no explicit --repo/--all, an empty scoped search now re-runs over the whole
+  // graph by itself, so by the time this message prints, everything HAS been searched.
+  // The old assertion here pinned a "--all" suggestion - which would now promise a
+  // re-run that cannot find more than this run just did. The --all hint survives only
+  // behind an explicit --repo (see ask-auto-widen.test.ts for that split).
+  it('names the repo, says the whole graph was searched, and never says "build your graph first"', async () => {
     searchDecisions.mockResolvedValue({ results: [], count: 0, strategy: 'semantic', scope: 'github.com/acme/api' });
     listDecisions.mockResolvedValue([{ id: 'a', title: 'From a different repo' }]);
     const out = await ask();
     expect(out).not.toMatch(/Build your graph first/);
     expect(out).toMatch(/github\.com\/acme\/api/);
-    expect(out).toMatch(/--all/);
+    expect(out).toMatch(/rest of your graph/);
+    expect(out).not.toMatch(/--all/);
   });
 
   it('checks emptiness with { all: true } - unscoped - not whatever repo the search used', async () => {

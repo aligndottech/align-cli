@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callChat, SYNTHESIS_SYSTEM_PROMPT, synthesiseDetailed } from '../lib/local-llm.js';
+import {
+  ABSTENTION_SENTINEL,
+  callChat,
+  isAbstention,
+  SYNTHESIS_SYSTEM_PROMPT,
+  synthesiseDetailed,
+} from '../lib/local-llm.js';
 
 const mockFetch = vi.fn();
 
@@ -82,9 +88,62 @@ describe('SYNTHESIS_SYSTEM_PROMPT carries the abstention contract (ollama-vet ev
   // the way a render contract is (ALI-586): a prompt edit that drops the
   // abstention line must go red, because the eval that catches it costs three
   // model runs and this test costs milliseconds.
-  it('tells the model to say when the context has no answer, and never to invent', () => {
-    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/does not (answer|contain|cover)/i);
+  it('tells the model to abstain with the EXACT sentinel sentence, and never to invent', () => {
+    // The abstention is a mandated verbatim sentence, not a style suggestion: the ask
+    // command detects it (isAbstention) to auto-widen a scoped search to the whole graph,
+    // so the instruction, the sentinel constant and the detector must agree. Anchored to
+    // the sentinel itself, not the bare words "does not answer" - the partial-answer
+    // instruction below also contains those words, so an unanchored match would stay
+    // green if someone deleted the abstention sentence itself.
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain(`reply with exactly "${ABSTENTION_SENTINEL}"`);
     expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/never (guess|invent)/i);
+  });
+
+  // Found live 2026-09-02, second pass: asked "why did align-cli stop using the nodejs
+  // suffix?", with PR #231 correctly retrieved as top source, the model answered "The
+  // context does not answer this question. While the decision explains that align-cli
+  // stopped using the nodejs suffix... it does not state why - only that the suffix
+  // caused a bug where config and graph state lived in different directories." The
+  // denied "why" IS the clause it then delivers. The abstention rule is binary and the
+  // model handled the partial-answer middle case by doing both halves at once - a
+  // self-contradicting answer that reads worse than either a plain answer or a plain
+  // abstention. There is deliberately NO deterministic strip for this (unlike the
+  // em-dash): telling a self-contradiction from an honest "partially answers, here is
+  // the part that is missing" is semantic, and a wrong trigger rewrites a good answer.
+  it('tells the model a partial or implicit answer is still an answer', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/partial or implicit answer is still an answer/i);
+  });
+
+  it('names the deny-then-deliver shape as forbidden', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(
+      /never say the context does not answer the question and then answer it anyway/i,
+    );
+  });
+});
+
+/**
+ * The detector the ask command's auto-widen keys on: a scoped search whose synthesis
+ * abstains is re-run over the whole graph (the cross-repo case found live 2026-09-02,
+ * where the answer existed in align-cli's decisions while the question was asked from
+ * align-stack). startsWith, not equality, on purpose: a model that abstains and then
+ * keeps talking is the deny-then-deliver output, and widening is the correct recovery
+ * for that too.
+ */
+describe('isAbstention', () => {
+  it('detects the exact sentinel', () => {
+    expect(isAbstention(ABSTENTION_SENTINEL)).toBe(true);
+  });
+
+  it('detects the sentinel with surrounding whitespace or trailing elaboration', () => {
+    expect(isAbstention(`  ${ABSTENTION_SENTINEL}  `)).toBe(true);
+    expect(isAbstention(`${ABSTENTION_SENTINEL} While the decision explains...`)).toBe(true);
+  });
+
+  it('does NOT flag a real answer that merely mentions unanswered ground', () => {
+    expect(isAbstention('The suffix was removed because config and graph state diverged. The context does not answer when.')).toBe(false);
+    // Positive control for the negative pair above: an empty string is not an abstention
+    // either - absence of an answer is a failure, not an abstention.
+    expect(isAbstention('')).toBe(false);
   });
 
   it('tells the model to surface contradictions rather than pick a winner', () => {

@@ -23,11 +23,34 @@ export interface CallChatOptions {
  * - The relationship and conflict sentences target the other two measured
  *   failures: invented links between unrelated decisions, and an invented
  *   winner between contradicting ones.
+ * - The partial-answer pair covers the middle case the abstention sentence
+ *   alone mishandles (found live 2026-09-02): context that supports an answer
+ *   implicitly got "The context does not answer this... only that <the
+ *   answer>" - a denial and the answer in one breath. The abstention stays
+ *   binary for the truly-empty case; these two make the model pick a side.
+ * - The abstention is a mandated VERBATIM sentence, not a style suggestion:
+ *   `align ask` detects it (isAbstention) to auto-widen a scoped search to the
+ *   whole graph, so the instruction, ABSTENTION_SENTINEL and the detector must
+ *   agree - the contract test pins all three together.
  */
+export const ABSTENTION_SENTINEL = 'The context does not answer this question.';
+
+/**
+ * Did the model abstain? startsWith, not equality, on purpose: a model that emits the
+ * sentinel and keeps talking is the deny-then-deliver output the prompt forbids, and
+ * treating it as an abstention (so the caller widens the search) is the correct
+ * recovery for that too.
+ */
+export function isAbstention(text: string): boolean {
+  return text.trimStart().startsWith(ABSTENTION_SENTINEL);
+}
+
 export const SYNTHESIS_SYSTEM_PROMPT =
   'You are a technical assistant helping a developer understand their team\'s past decisions. ' +
   'Answer the question in 2-4 concise sentences based only on the provided context. ' +
-  'If the context does not answer the question, say exactly that - never guess and never invent decisions or details. ' +
+  `If the context does not answer the question, reply with exactly "${ABSTENTION_SENTINEL}" and nothing more - never guess and never invent decisions or details. ` +
+  'A partial or implicit answer is still an answer: give it plainly and note what the context leaves unstated. ' +
+  'Never say the context does not answer the question and then answer it anyway - decide which it is first. ' +
   'Attribute details only to the decision they came from, and only state relationships between decisions that the context itself states. ' +
   'If two decisions contradict each other, say they conflict - do not pick a winner the context does not name. ' +
   'Be direct. Synthesise the context into a clear explanation - do not list decisions. ' +
