@@ -37,3 +37,28 @@ describe('isFreshInstall', () => {
     expect(isFreshInstall(store({ localMode: 'local-embedded', cloudToken: 'tok' }))).toBe(false);
   });
 });
+
+describe('isFreshInstall across non-default envs (Copilot, PR #224)', () => {
+  // isFreshInstall must not read ONLY the default env's token - a user who logged into a
+  // non-default env (e.g. preview, while defaultEnv is still prod) is a returning user and
+  // must not be routed into the fresh-install flow.
+  function multiEnvStore(tokens: Partial<Record<EnvName, string | null>>) {
+    return {
+      getEnvironment: (env: EnvName): EnvironmentConfig => ({
+        gatewayUrl: '',
+        authToken: tokens[env] ?? null,
+        tenantId: null,
+        mode: 'auth',
+      }),
+      getDefaultEnv: (): EnvName => 'prod',
+    };
+  }
+
+  it('is false when a cloud token exists on a NON-default env (preview) while defaultEnv stays prod', () => {
+    expect(isFreshInstall(multiEnvStore({ prod: null, preview: 'tok' }))).toBe(false);
+  });
+
+  it('is still true when no env carries a token at all', () => {
+    expect(isFreshInstall(multiEnvStore({}))).toBe(true);
+  });
+});

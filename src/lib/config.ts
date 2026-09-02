@@ -21,10 +21,14 @@ export interface EnvironmentConfig {
  */
 export function isFreshInstall(config: {
   getEnvironment(env: EnvName): EnvironmentConfig;
-  getDefaultEnv(): EnvName;
 }): boolean {
   const hasLocal = config.getEnvironment('local').mode === 'local-embedded';
-  const hasCloud = Boolean(config.getEnvironment(config.getDefaultEnv()).authToken);
+  // Every env, not just the default one (Copilot, PR #224): a user who logged into a
+  // non-default env (e.g. `align login --env preview`) while defaultEnv is still 'prod'
+  // is a returning user, and checking only getDefaultEnv() would misclassify them as
+  // fresh and route them into the value-first flow a second time.
+  const ALL_ENVS: EnvName[] = ['local', 'preview', 'prod'];
+  const hasCloud = ALL_ENVS.some((e) => Boolean(config.getEnvironment(e).authToken));
   return !hasLocal && !hasCloud;
 }
 

@@ -85,12 +85,6 @@ export const CLI_TOKEN_SOURCES: Record<
 };
 
 /**
- * Detect AND verify in one step, so the decision layer (and therefore --approve) can
- * never see an unverified token. `refused` carries the reason for the user: a silent
- * null here would read as "gh not installed" when the truth is "gh is installed and
- * its token can write".
- */
-/**
  * Clear the terminal before the connector picker (ALI-794 component 5).
  *
  * Moving the found-decisions summary before the picker reintroduces the exact
@@ -107,6 +101,12 @@ export function clearScreenForPicker(stream: typeof process.stdout = process.std
   readline.clearScreenDown(stream);
 }
 
+/**
+ * Detect AND verify in one step, so the decision layer (and therefore --approve) can
+ * never see an unverified token. `refused` carries the reason for the user: a silent
+ * null here would read as "gh not installed" when the truth is "gh is installed and
+ * its token can write".
+ */
 export async function detectVerifiedCliToken(
   source: (typeof CLI_TOKEN_SOURCES)[string],
 ): Promise<{ token: string } | { refused: string } | null> {
