@@ -134,9 +134,15 @@ export function registerAskCommand(program: Command): void {
             results = wholeGraph;
           }
         }
-        spinner.stop();
 
+        // The spinner's lifetime is the lifetime of the WORK, not of the first search.
+        // It used to stop here, so the first synthesis - seconds on a local model - ran
+        // against a blank line and read as a hang; stage 2 then restarted it, which was
+        // the same gap patched on one path (Copilot on #236). One lifetime: it stops
+        // right before the first line of output, in whichever branch prints one, and
+        // the catch below fails it if anything in between throws.
         if (!results.results.length) {
+          spinner.stop();
           console.log('');
           if (filePath) {
             console.log(chalk.dim(`  No decisions found for ${query}.`));
@@ -228,36 +234,32 @@ export function registerAskCommand(program: Command): void {
           // "The context does not answer this question" at someone whose graph holds
           // the answer.
           if (answer && isAbstention(answer) && results.scope && canWiden && !widenedFrom) {
-            spinner.start();
-            try {
-              const wholeGraph = await client.searchDecisions(searchQuery, limit, { all: true });
-              if (wholeGraph.results.length) {
-                const second = await synthesiseDetailed(
-                  query,
-                  wholeGraph.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
-                );
-                // Adoption rule, measured against a real model (2026-09-02 probes): on
-                // implicit-only context the model can emit the sentinel AND keep talking -
-                // the forbidden deny-then-deliver, with the actual answer in the tail. A
-                // denial with an informative tail beats a bare sentinel, so:
-                //   - a BARE-sentinel scoped answer adopts whatever the widened pass
-                //     produced (it cannot be less informative, and even an identical
-                //     abstention gains the honest whole-graph framing);
-                //   - a scoped answer that already carries a tail only upgrades to a
-                //     CLEAN widened answer - swapping one hedged answer for another loses
-                //     the accurate scope header for nothing.
-                const scopedWasBare = answer.trim() === ABSTENTION_SENTINEL;
-                if (second.ok && (scopedWasBare || !isAbstention(second.text))) {
-                  widenedFrom = results.scope;
-                  results = wholeGraph;
-                  answer = second.text;
-                }
+            const wholeGraph = await client.searchDecisions(searchQuery, limit, { all: true });
+            if (wholeGraph.results.length) {
+              const second = await synthesiseDetailed(
+                query,
+                wholeGraph.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
+              );
+              // Adoption rule, measured against a real model (2026-09-02 probes): on
+              // implicit-only context the model can emit the sentinel AND keep talking -
+              // the forbidden deny-then-deliver, with the actual answer in the tail. A
+              // denial with an informative tail beats a bare sentinel, so:
+              //   - a BARE-sentinel scoped answer adopts whatever the widened pass
+              //     produced (it cannot be less informative, and even an identical
+              //     abstention gains the honest whole-graph framing);
+              //   - a scoped answer that already carries a tail only upgrades to a
+              //     CLEAN widened answer - swapping one hedged answer for another loses
+              //     the accurate scope header for nothing.
+              const scopedWasBare = answer.trim() === ABSTENTION_SENTINEL;
+              if (second.ok && (scopedWasBare || !isAbstention(second.text))) {
+                widenedFrom = results.scope;
+                results = wholeGraph;
+                answer = second.text;
               }
-            } finally {
-              spinner.stop();
             }
           }
         }
+        spinner.stop();
 
         // ALI-798: named up front so a reader knows what was searched before reading an
         // answer that might be missing something they know exists in another repo.

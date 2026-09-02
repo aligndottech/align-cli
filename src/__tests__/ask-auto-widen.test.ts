@@ -34,6 +34,23 @@ vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({ searchDecisions, listDecisions })),
 }));
 
+// Event order across the spinner, the gateway and the model, for the spinner-lifetime
+// tests below. `output` alone cannot see WHEN the spinner stopped relative to the awaits.
+const events = vi.hoisted(() => [] as string[]);
+const spinner = vi.hoisted(() => ({
+  start: vi.fn(),
+  stop: vi.fn(),
+  fail: vi.fn(),
+}));
+vi.mock('ora', () => ({
+  default: vi.fn(() => {
+    spinner.start.mockImplementation(() => { events.push('spin'); return spinner; });
+    spinner.stop.mockImplementation(() => { events.push('stop'); return spinner; });
+    spinner.fail.mockImplementation(() => { events.push('fail'); return spinner; });
+    return spinner;
+  }),
+}));
+
 const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { output.push(a.join(' ')); });
 
@@ -239,5 +256,79 @@ describe('align ask auto-widens when scoped context makes the model abstain', ()
 
     expect(searchDecisions).toHaveBeenCalledTimes(1);
     expect(synthesiseDetailed).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Copilot on #236: the spinner stopped right after the first search, so every await
+ * after it - the first synthesis, and the whole stage-2 widen (a second search plus a
+ * second model call, seconds on a local model) - ran against a blank line. A CLI that
+ * shows nothing for several seconds reads as hung, and a hung tool is the one thing a
+ * sceptical developer does not give a second run. The spinner's lifetime is the
+ * lifetime of the WORK: it stops right before the first line of output, whichever
+ * branch prints it.
+ */
+describe('the spinner covers every await, and stops only for output', () => {
+  const searchEvent = (value: unknown) => async () => { events.push('search'); return value; };
+  const synthEvent = (value: unknown) => async () => { events.push('synth'); return value; };
+
+  beforeEach(() => {
+    resolveEnv.mockReturnValue('local');
+    searchDecisions.mockReset();
+    listDecisions.mockReset();
+    synthesiseDetailed.mockReset();
+    recordFunnelStage.mockReset();
+    spinner.start.mockClear();
+    spinner.stop.mockClear();
+    spinner.fail.mockClear();
+    events.length = 0;
+  });
+
+  it('stays up through the first synthesis and the whole stage-2 widen', async () => {
+    searchDecisions
+      .mockImplementationOnce(searchEvent(scoped([SCOPED_HIT])))
+      .mockImplementationOnce(searchEvent(global([GLOBAL_HIT])));
+    synthesiseDetailed
+      .mockImplementationOnce(synthEvent({ ok: true, text: ABSTENTION_SENTINEL }))
+      .mockImplementationOnce(synthEvent({ ok: true, text: 'The widened answer.' }));
+
+    await ask();
+
+    // Positive control on the harness itself: the work happened, in this order.
+    expect(events.filter((e) => e !== 'spin' && e !== 'stop')).toEqual(['search', 'synth', 'search', 'synth']);
+    // The claim: nothing stopped the spinner until every one of those had finished.
+    expect(events.indexOf('stop')).toBeGreaterThan(events.lastIndexOf('synth'));
+    expect(spinner.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays up through the first synthesis when there is nothing to widen', async () => {
+    searchDecisions.mockImplementationOnce(searchEvent(scoped([SCOPED_HIT])));
+    synthesiseDetailed.mockImplementationOnce(synthEvent({ ok: true, text: 'A direct scoped answer.' }));
+
+    await ask();
+
+    expect(events.indexOf('stop')).toBeGreaterThan(events.lastIndexOf('synth'));
+    expect(spinner.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('still stops before the first printed line on the no-results path', async () => {
+    searchDecisions.mockImplementation(searchEvent(scoped([])));
+    listDecisions.mockResolvedValue([{ id: 'a', title: 'exists' }]);
+    const spy = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
+      events.push('log');
+      output.push(a.join(' '));
+    });
+
+    try {
+      await ask();
+    } finally {
+      spy.mockRestore();
+      vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { output.push(a.join(' ')); });
+    }
+
+    // Negative control for the two above: keeping the spinner up longer must not mean
+    // printing over it. The first log line comes after the stop, never before.
+    expect(events.indexOf('stop')).toBeGreaterThan(-1);
+    expect(events.indexOf('stop')).toBeLessThan(events.indexOf('log'));
   });
 });
