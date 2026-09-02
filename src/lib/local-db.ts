@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { repoFromSourceUrl } from './repo-identity.js';
 
 export interface DecisionRow {
   id: string;
@@ -10,6 +11,10 @@ export interface DecisionRow {
   sourceUrl: string | null;
   platform: string;
   createdAt: string;
+  /** ALI-798: which repo this decision came from (host/owner/repo, or a repo root
+   *  path for a remoteless git repo) - null for anything that is not code, or code
+   *  whose repo could not be identified. */
+  repo: string | null;
 }
 
 export interface LinkRow {
@@ -32,7 +37,8 @@ CREATE TABLE IF NOT EXISTS decisions (
   summary TEXT NOT NULL,
   source_url TEXT,
   platform TEXT NOT NULL DEFAULT 'cli',
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  repo TEXT
 );
 
 CREATE TABLE IF NOT EXISTS decision_embeddings (
@@ -66,7 +72,7 @@ CREATE TABLE IF NOT EXISTS decision_refs (
  * `migrate` from the source and compares it here, because forgetting the bump leaves the new
  * branch running destructively on every open with nothing to stop it.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * A `source_url` is only an identity if it points at ONE thing. Some fetchers substitute a
@@ -119,6 +125,13 @@ export function identifyingSourceUrl(raw: string | null): string | null {
  *    first run does exactly that - `setup --local` seeds from git, then its own outro tells you
  *    to run `align import git` - so a graph goes from 2 decisions to 4 by following the tips.
  *    Collapse the existing duplicates, then make them unrepresentable with a unique index.
+ *
+ * 3. ALI-798: add the `repo` column (missing on any graph that predates it) and backfill it
+ *    for every existing row from `source_url`, via the same `repoFromSourceUrl` the importer
+ *    now stamps new rows with - one reader of the URL shape, used for both. A row whose
+ *    source is not code (Jira, Slack, a bare capture) stays NULL, which is "unattributed",
+ *    not "wrong": `--repo` scoping always includes unattributed rows alongside the named
+ *    repo (see local-gateway-client.ts), so nothing existing becomes invisible.
  *
  * The version guard is load-bearing rather than tidiness. The same UPDATE run on every open
  * is indistinguishable from this one today, and starts silently eating genuine conflicts the
@@ -212,7 +225,11 @@ function migrate(db: DatabaseSync): void {
       // Stamped INSIDE the transaction. Outside it, a process killed between COMMIT and the
       // pragma replays the version-1 relabel on the next open, which turns an adjudicated
       // conflicts_with edge into relates - the exact silent loss the docstring above warns of.
-      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      //
+      // Stamps this step's OWN number (2), not SCHEMA_VERSION: a later step (3, below) runs
+      // after this one commits, and if a crash lands between the two, `user_version` must
+      // still read 2 so the version-3 step is not skipped on the next open.
+      db.exec('PRAGMA user_version = 2');
       db.exec('COMMIT');
     } catch (err) {
       // Guarded: SQLITE_FULL, IOERR, BUSY, NOMEM and INTERRUPT auto-roll-back, and an
@@ -220,6 +237,42 @@ function migrate(db: DatabaseSync): void {
       // cause - so a user whose disk filled mid-migration would be told the wrong thing.
       if (db.isTransaction) db.exec('ROLLBACK');
       throw err;
+    }
+  }
+  if (version < 3) {
+    // The column may already exist: a brand-new database's CREATE TABLE (SCHEMA, above)
+    // declares `repo` directly, so on a fresh install this ALTER would fail with "duplicate
+    // column name" if run unconditionally. A legacy database predates the column entirely.
+    const hasRepoColumn = (db.prepare('PRAGMA table_info(decisions)').all() as Array<{ name: string }>)
+      .some((c) => c.name === 'repo');
+    if (!hasRepoColumn) {
+      db.exec('ALTER TABLE decisions ADD COLUMN repo TEXT');
+    }
+    // Backfill every row with no repo yet. JS-side because SQLite has no regex function to
+    // apply `repoFromSourceUrl`'s pattern in SQL - and it must be the SAME function the
+    // importer stamps new rows with, or a backfilled row and a freshly-imported one for the
+    // same URL could disagree about which repo they belong to.
+    const rows = db.prepare('SELECT id, source_url FROM decisions WHERE repo IS NULL')
+      .all() as Array<{ id: string; source_url: string | null }>;
+    if (rows.length) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const update = db.prepare('UPDATE decisions SET repo = ? WHERE id = ?');
+        for (const row of rows) {
+          const repo = repoFromSourceUrl(row.source_url);
+          // Only WRITE when a repo was found: leaving a non-code row NULL is the correct
+          // outcome (unattributed, not "wrong"), and writing NULL over NULL is a no-op
+          // this loop can just skip.
+          if (repo) update.run(repo, row.id);
+        }
+        db.exec('PRAGMA user_version = 3');
+        db.exec('COMMIT');
+      } catch (err) {
+        if (db.isTransaction) db.exec('ROLLBACK');
+        throw err;
+      }
+    } else {
+      db.exec('PRAGMA user_version = 3');
     }
   }
   if (version < SCHEMA_VERSION) {
@@ -254,10 +307,24 @@ export function createLocalDb(dbPath: string) {
      * distinct - so `align capture` with no URL keeps inserting, by construction rather than by
      * a special case here.
      */
-    insertDecision(row: { title: string; summary: string; sourceUrl: string | null; platform: string }): string {
+    /**
+     * `repo` (ALI-798): the identity of the checkout this decision came from, or null for
+     * anything that is not code (Jira, Slack, a bare capture). Optional so every existing
+     * caller keeps compiling unchanged - omitting it inserts NULL, same as it always did.
+     *
+     * On a re-import upsert, COALESCE keeps whichever value is non-null: a new repo can fill
+     * in an attribution the row did not have, but an already-attributed row is never
+     * overwritten back to unattributed by a re-import that (for whatever reason) resolved no
+     * repo this time. Re-attributing a row that ALREADY has a (different) repo is not a case
+     * this upsert needs to handle - `source_url` identifies the row, and a URL does not
+     * change which repo it points at between imports.
+     */
+    insertDecision(row: { title: string; summary: string; sourceUrl: string | null; platform: string; repo?: string | null }): string {
       const inserted = db.prepare(
-        `INSERT INTO decisions (id, title, summary, source_url, platform) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(source_url, title) DO UPDATE SET summary = excluded.summary, platform = excluded.platform
+        `INSERT INTO decisions (id, title, summary, source_url, platform, repo) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(source_url, title) DO UPDATE SET
+           summary = excluded.summary, platform = excluded.platform,
+           repo = COALESCE(excluded.repo, decisions.repo)
          RETURNING id`
       ).get(
         randomUUID(),
@@ -265,6 +332,7 @@ export function createLocalDb(dbPath: string) {
         row.summary,
         identifyingSourceUrl(row.sourceUrl),
         row.platform,
+        row.repo ?? null,
       ) as { id: string };
       return inserted.id;
     },
@@ -302,16 +370,37 @@ export function createLocalDb(dbPath: string) {
       return row?.id ?? null;
     },
 
-    listDecisions(): DecisionRow[] {
-      return db.prepare(
-        `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt FROM decisions ORDER BY created_at DESC`
-      ).all() as unknown as DecisionRow[];
+    /**
+     * `filter.repo` scopes to one repo's rows. `includeUnattributed` (ALI-798's own rule:
+     * "repo = ? OR repo IS NULL") also returns rows with no repo at all - a Jira ticket, a
+     * Slack thread, anything not code - because a strict `repo = ?` would make 36% of a
+     * measured real graph (every non-code decision) invisible from inside any one repo,
+     * which is a worse regression than the bug this filter exists to fix. Left false by
+     * callers that want an exact match (repo resolution, tests) rather than the retrieval
+     * default.
+     */
+    listDecisions(filter: { repo?: string; includeUnattributed?: boolean } = {}): DecisionRow[] {
+      let sql = `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo FROM decisions`;
+      const params: string[] = [];
+      if (filter.repo !== undefined) {
+        sql += filter.includeUnattributed ? ` WHERE (repo = ? OR repo IS NULL)` : ` WHERE repo = ?`;
+        params.push(filter.repo);
+      }
+      sql += ` ORDER BY created_at DESC`;
+      return db.prepare(sql).all(...params) as unknown as DecisionRow[];
     },
 
     getDecisionById(id: string): DecisionRow | null {
       return (db.prepare(
-        `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt FROM decisions WHERE id = ?`
+        `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo FROM decisions WHERE id = ?`
       ).get(id) as unknown as DecisionRow | null) ?? null;
+    },
+
+    /** Distinct repo identities known to this graph, for resolving a `--repo <name>` argument
+     *  against what actually exists rather than guessing at a spelling. */
+    listRepos(): string[] {
+      return (db.prepare(`SELECT DISTINCT repo FROM decisions WHERE repo IS NOT NULL ORDER BY repo`)
+        .all() as Array<{ repo: string }>).map((r) => r.repo);
     },
 
     setEmbedding(decisionId: string, embedding: Float32Array): void {
@@ -328,10 +417,23 @@ export function createLocalDb(dbPath: string) {
       return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
     },
 
-    getAllEmbeddings(): Array<{ decisionId: string; embedding: Float32Array }> {
-      const rows = db.prepare(
-        `SELECT decision_id, embedding FROM decision_embeddings`
-      ).all() as Array<{ decision_id: string; embedding: Uint8Array }>;
+    /**
+     * Unscoped by default: relationship linking (ingestOne, in local-gateway-client.ts) wants
+     * candidates across EVERY repo - cross-repo memory is the product this ticket protects,
+     * not just the thing it stops blending on retrieval. A `filter.repo` is for the retrieval
+     * paths (search, ask) that DO want to stay in-scope, filtered here rather than after
+     * ranking - filtering post-rank would silently return fewer than `topK` results whenever
+     * some of the best global matches fall outside the scope.
+     */
+    getAllEmbeddings(filter: { repo?: string; includeUnattributed?: boolean } = {}): Array<{ decisionId: string; embedding: Float32Array }> {
+      let sql = `SELECT e.decision_id, e.embedding FROM decision_embeddings e`;
+      const params: string[] = [];
+      if (filter.repo !== undefined) {
+        sql += ` JOIN decisions d ON d.id = e.decision_id`;
+        sql += filter.includeUnattributed ? ` WHERE (d.repo = ? OR d.repo IS NULL)` : ` WHERE d.repo = ?`;
+        params.push(filter.repo);
+      }
+      const rows = db.prepare(sql).all(...params) as Array<{ decision_id: string; embedding: Uint8Array }>;
       return rows.map(r => ({
         decisionId: r.decision_id,
         embedding: new Float32Array(r.embedding.buffer, r.embedding.byteOffset, r.embedding.byteLength / 4),

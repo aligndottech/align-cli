@@ -79,6 +79,13 @@ export interface SearchResults {
   }>;
   count: number;
   strategy: 'semantic' | 'keyword';
+  /**
+   * ALI-798: which repo local mode scoped this search to, or null if it searched
+   * everything (outside a git repo, or `--all`). Absent in cloud mode, which has no
+   * repo dimension - a caller distinguishes "unscoped" (null) from "not applicable"
+   * (undefined) when deciding whether to print "answering from X".
+   */
+  scope?: string | null;
 }
 
 /**
@@ -364,7 +371,13 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       });
     },
 
-    async searchDecisions(q: string, limit = 10): Promise<SearchResults> {
+    // `scope` is accepted so callers (ask, search) can pass the same three arguments
+    // regardless of which client resolveEnv handed back - see the file-top comment on
+    // "local mode returns the SAME shapes as the cloud client". The cloud gateway has no
+    // repo dimension (ALI-798 is local-only), so this is silently ignored HERE - the
+    // command layer is what warns when a user asks for repo scoping in cloud mode,
+    // because only it knows whether the user actually typed the flag.
+    async searchDecisions(q: string, limit = 10, _scope?: { repo?: string; all?: boolean }): Promise<SearchResults> {
       return request<SearchResults>('/decisions/smart-search', {
         method: 'POST',
         body: JSON.stringify({ q, limit }),

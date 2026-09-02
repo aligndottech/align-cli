@@ -1,4 +1,5 @@
 import { createLocalDb } from './local-db.js';
+import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
@@ -88,16 +89,78 @@ export const RELATED_FLOOR = RELATES_THRESHOLD;
 // considered to have drifted from the decision.
 export const DRIFT_THRESHOLD = 0.5;
 
-export function createLocalGatewayClient(dbPath: string) {
+export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: string } = {}) {
   const db = createLocalDb(dbPath);
+
+  // Memoized: every retrieval call in one command invocation (a single `align ask`, one
+  // MCP tool call) runs in the same repo, so resolving it once per process is correct and
+  // saves N redundant `git remote`/`git rev-parse` subprocess calls. `undefined` is "not
+  // resolved yet" - distinct from the real result `null` ("not in a git repo"), which a
+  // plain `??`-based cache could not tell apart from "never checked".
+  let cachedCurrentRepo: string | null | undefined;
+  async function getCurrentRepo(): Promise<string | null> {
+    if (cachedCurrentRepo === undefined) {
+      cachedCurrentRepo = await currentRepoIdentity(clientOpts);
+    }
+    return cachedCurrentRepo;
+  }
+
+  /**
+   * Resolves a `--repo <name>` argument against what actually exists, so a user can type
+   * the short repo name ("align-cli") or "owner/repo" instead of memorising the full
+   * `host/owner/repo` identity. Falls through to the literal argument on no match - an
+   * honest empty result (via includeUnattributed's OR, or a genuine "nothing found") beats
+   * silently guessing at a typo, and this is a convenience over a security boundary.
+   */
+  function resolveRepoArg(arg: string): string {
+    const known = db.listRepos();
+    if (known.includes(arg)) return arg;
+    const lower = arg.toLowerCase();
+    const matches = known.filter((r) => r === lower || r.endsWith(`/${lower}`) || r.split('/').pop() === lower);
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) {
+      throw new Error(`"${arg}" matches more than one repo in your graph: ${matches.join(', ')}. Use the full name to disambiguate.`);
+    }
+    return arg;
+  }
+
+  /**
+   * ALI-798's actual scoping rule, in one place so every retrieval caller (CLI command,
+   * MCP tool) gets it uniformly rather than re-implementing it: `all` drops the filter
+   * entirely; an explicit `repo` scopes to it (resolved against what is actually in the
+   * graph); naming neither defaults to the CURRENT repo when one exists, and to unscoped
+   * outside a git repo (nothing to scope to).
+   *
+   * `effectiveRepo` is what a caller shows the user ("answering from X") - null means
+   * "showed everything", which is itself worth saying, not just silence.
+   */
+  async function resolveScope(
+    scope?: { repo?: string; all?: boolean },
+  ): Promise<{ dbFilter: { repo?: string; includeUnattributed?: boolean }; effectiveRepo: string | null }> {
+    if (scope?.all) return { dbFilter: {}, effectiveRepo: null };
+    if (scope?.repo !== undefined) {
+      const repo = resolveRepoArg(scope.repo);
+      return { dbFilter: { repo, includeUnattributed: true }, effectiveRepo: repo };
+    }
+    const current = await getCurrentRepo();
+    if (current === null) return { dbFilter: {}, effectiveRepo: null };
+    return { dbFilter: { repo: current, includeUnattributed: true }, effectiveRepo: current };
+  }
 
   async function findSimilar(
     embedding: Float32Array,
     topK: number,
     threshold = 0.0,
     excludeId?: string,
+    // Undefined (the default) is UNSCOPED - relationship linking (ingestOne) wants
+    // candidates across every repo, so it must never pass one. Retrieval callers
+    // (searchDecisions, checkAlignment) pass the resolved dbFilter from resolveScope.
+    // Scoping HERE rather than after ranking is what keeps `topK` honest: filtering
+    // post-rank could silently return fewer than topK whenever some of the best global
+    // matches fall outside the scope.
+    scopeFilter?: { repo?: string; includeUnattributed?: boolean },
   ): Promise<Array<{ decisionId: string; score: number }>> {
-    const all = db.getAllEmbeddings();
+    const all = db.getAllEmbeddings(scopeFilter);
     return all
       .filter(e => e.decisionId !== excludeId)
       .map(e => ({ decisionId: e.decisionId, score: cosineSimilarity(embedding, e.embedding) }))
@@ -142,12 +205,20 @@ export function createLocalGatewayClient(dbPath: string) {
     // raw_text that quotes its own address is not a self-reference.
     const refs = capturedAsUrl ? [] : extractRefs(input).filter(r => r.ref !== sourceUrl);
 
+    // ALI-798: which repo this decision belongs to. A hosted code URL (any platform, not
+    // just 'git' - a GitHub PR captured by hand is still code) names its own repo directly.
+    // Only a git-sourced item with NO hosted remote (a self-hosted GHES, a repo never
+    // pushed) falls back to the CURRENT repo - that fallback is deliberately narrow: a
+    // Jira ticket or Slack thread imported from inside a repo is not that repo's, and
+    // widening the fallback to every platform would misattribute them.
+    const repo = repoFromSourceUrl(sourceUrl) ?? (platform === 'git' ? await getCurrentRepo() : null);
+
     // BEFORE the upsert: insertDecision returns the surviving id whether it inserted or
     // refreshed, so this is the only moment the difference is visible. Without it a
     // re-import reports every decision as imported while the graph does not move, which
     // reads as having imported twice (ALI-770).
     const created = db.findIdBySource(sourceUrl, title) === null;
-    const id = db.insertDecision({ title, summary, sourceUrl, platform });
+    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo });
     db.replaceRefs(id, refs);
     // Embed title + summary so URL captures (whose summary is just "Captured
     // from <host>") still carry the path-derived title's semantic content.
@@ -251,9 +322,13 @@ export function createLocalGatewayClient(dbPath: string) {
     // ALI-602: `align context sync --env local` lists the graph without a query.
     // The db reads newest-first; the renderer re-sorts deterministically, so the
     // order here only decides WHICH rows survive the limit (newest do).
-    async listDecisions(params: { limit?: number } = {}) {
+    //
+    // ALI-798: `repo`/`all` mirror searchDecisions' scope resolution - naming neither
+    // defaults to the current repo (+ unattributed rows) when one exists.
+    async listDecisions(params: { limit?: number; repo?: string; all?: boolean } = {}) {
       const limit = params.limit ?? 200;
-      return db.listDecisions().slice(0, limit).map((row) => {
+      const { dbFilter } = await resolveScope({ repo: params.repo, all: params.all });
+      return db.listDecisions(dbFilter).slice(0, limit).map((row) => {
         const cite = localCitationFor(row.sourceUrl);
         return {
           id: row.id,
@@ -267,9 +342,10 @@ export function createLocalGatewayClient(dbPath: string) {
       });
     },
 
-    async searchDecisions(query: string, limit = 10): Promise<SearchResults> {
+    async searchDecisions(query: string, limit = 10, scope?: { repo?: string; all?: boolean }): Promise<SearchResults> {
+      const { dbFilter, effectiveRepo } = await resolveScope(scope);
       const embedding = await getEmbedding(query);
-      let similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD);
+      let similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD, undefined, dbFilter);
       // A natural-language question embeds less densely than its subject does, so on a
       // small graph it can miss a decision that its own content words hit. Retry once,
       // only on an empty result, mirroring the gateway's own keyword-to-semantic
@@ -278,7 +354,7 @@ export function createLocalGatewayClient(dbPath: string) {
       if (!similar.length) {
         const reduced = contentWordQuery(query);
         if (reduced) {
-          similar = await findSimilar(await getEmbedding(reduced), limit, SEARCH_THRESHOLD);
+          similar = await findSimilar(await getEmbedding(reduced), limit, SEARCH_THRESHOLD, undefined, dbFilter);
         }
       }
       const results = similar
@@ -307,7 +383,7 @@ export function createLocalGatewayClient(dbPath: string) {
           };
         })
         .filter((d): d is NonNullable<typeof d> => d !== null);
-      return { results, count: results.length, strategy: 'semantic' };
+      return { results, count: results.length, strategy: 'semantic', scope: effectiveRepo };
     },
 
     async checkAlignment(

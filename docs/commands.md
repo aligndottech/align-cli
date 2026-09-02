@@ -18,14 +18,19 @@ align whoami                 Show current authenticated user and tenant
 ```
 align ask <query>            Ask a natural language question (or pass a file path)
 align search <query>         Keyword/semantic search - returns a ranked list
-align decisions list         List decisions in your graph (cloud)
-align decisions show <id>    Show full detail for a decision (cloud)
+align decisions list         List decisions in your graph
+align decisions show <id>    Show full detail for a decision
 align links list             Show cross-tool decision relationships (cloud)
 align drift                  Show decisions that may be out of date (cloud)
 align export                 Export decisions as a structured brief (cloud)
 align spaces list            List spaces (project scopes) (cloud)
 align status                 Value readout: what your graph has done for you
 ```
+
+`ask`, `search` and `decisions list` take `--repo <name>` and `--all` in local mode - see
+[local-mode.md](local-mode.md#how-the-local-graph-behaves). Without either, they default to
+the repo you are standing in (plus anything not attributed to a repo), never to every repo
+you have ever imported.
 
 ## Importing
 

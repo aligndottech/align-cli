@@ -226,9 +226,24 @@ export function hasStatedRationale(subject: string, body: string): boolean {
   return remaining.length > 0;
 }
 
-export async function getRemoteUrl(opts?: { cwd?: string }): Promise<string | null> {
+export async function getRemoteUrl(opts: { cwd?: string } = {}): Promise<string | null> {
   try {
-    const { stdout } = await execa('git', ['remote', 'get-url', 'origin'], opts?.cwd ? { cwd: opts.cwd } : {});
+    const { stdout } = await execa('git', ['remote', 'get-url', 'origin'], opts.cwd ? { cwd: opts.cwd } : {});
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The absolute repo root, for the ALI-798 fallback identity when a repo has no
+ * remote (or one `repoFromRemoteUrl` does not recognise): a self-hosted GHES, or a
+ * repo that has never been pushed. `--show-toplevel` always returns an absolute
+ * path, so this can never collide with the `host/owner/repo` identity shape.
+ */
+export async function getRepoRoot(opts: { cwd?: string } = {}): Promise<string | null> {
+  try {
+    const { stdout } = await execa('git', ['rev-parse', '--show-toplevel'], opts.cwd ? { cwd: opts.cwd } : {});
     return stdout.trim() || null;
   } catch {
     return null;
@@ -314,9 +329,9 @@ export async function getCurrentBranch(opts?: { cwd?: string }): Promise<string>
   return result.stdout.trim();
 }
 
-export async function isGitRepo(): Promise<boolean> {
+export async function isGitRepo(opts: { cwd?: string } = {}): Promise<boolean> {
   try {
-    await execa('git', ['rev-parse', '--git-dir']);
+    await execa('git', ['rev-parse', '--git-dir'], opts.cwd ? { cwd: opts.cwd } : {});
     return true;
   } catch {
     return false;

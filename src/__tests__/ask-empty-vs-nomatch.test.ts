@@ -122,6 +122,75 @@ vi.mock('../lib/local-llm.js', () => ({
   noProviderHintLines: () => [],
 }));
 
+/**
+ * ALI-798: the local graph now has a repo dimension, and it introduces a SECOND way for
+ * "an empty graph" and "a query that matched nothing" to be confused - scoped to a repo
+ * with nothing in it, while the graph as a whole is full. The `{ all: true }` on the
+ * "is the graph empty" check exists specifically so this diagnostic answers "does the
+ * GRAPH have anything" rather than "does THIS REPO" - the same defect this ticket exists
+ * to fix, reachable through the empty-state message if that check were scoped too.
+ */
+describe('align ask: a repo with nothing in it is not an empty graph (ALI-798)', () => {
+  beforeEach(() => {
+    resolveEnv.mockReturnValue('local');
+    searchDecisions.mockReset();
+    listDecisions.mockReset();
+  });
+
+  it('names the repo and suggests --all, rather than "build your graph first"', async () => {
+    searchDecisions.mockResolvedValue({ results: [], count: 0, strategy: 'semantic', scope: 'github.com/acme/api' });
+    listDecisions.mockResolvedValue([{ id: 'a', title: 'From a different repo' }]);
+    const out = await ask();
+    expect(out).not.toMatch(/Build your graph first/);
+    expect(out).toMatch(/github\.com\/acme\/api/);
+    expect(out).toMatch(/--all/);
+  });
+
+  it('checks emptiness with { all: true } - unscoped - not whatever repo the search used', async () => {
+    searchDecisions.mockResolvedValue({ results: [], count: 0, strategy: 'semantic', scope: 'github.com/acme/api' });
+    listDecisions.mockResolvedValue([]);
+    await ask();
+    expect(listDecisions).toHaveBeenCalledWith(expect.objectContaining({ all: true }));
+  });
+
+  it('prints "Answering from X" ahead of a non-empty scoped answer', async () => {
+    searchDecisions.mockResolvedValue({
+      results: [{ id: '1', title: 'Use JWT for sessions', summary: 's', platform: 'git', similarity: 0.8, source_url: null }],
+      count: 1,
+      strategy: 'semantic',
+      scope: 'github.com/acme/api',
+    });
+    const out = await ask('why jwt');
+    expect(out).toMatch(/Answering from github\.com\/acme\/api/);
+  });
+
+  it('says nothing about scope when the search was unscoped (no repo, or --all)', async () => {
+    searchDecisions.mockResolvedValue({
+      results: [{ id: '1', title: 'Use JWT for sessions', summary: 's', platform: 'git', similarity: 0.8, source_url: null }],
+      count: 1,
+      strategy: 'semantic',
+      scope: null,
+    });
+    const out = await ask('why jwt');
+    expect(out).not.toMatch(/Answering from/);
+  });
+
+  it('passes --repo and --all through to searchDecisions as the scope', async () => {
+    searchDecisions.mockResolvedValue({ results: [], count: 0, strategy: 'semantic', scope: null });
+    listDecisions.mockResolvedValue([]);
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'why jwt', '--repo', 'api']);
+    expect(searchDecisions).toHaveBeenCalledWith('why jwt', 8, { repo: 'api', all: undefined });
+
+    searchDecisions.mockClear();
+    const program2 = new Command();
+    registerAskCommand(program2);
+    await program2.parseAsync(['node', 'align', 'ask', 'why jwt', '--all']);
+    expect(searchDecisions).toHaveBeenCalledWith('why jwt', 8, { repo: undefined, all: true });
+  });
+});
+
 describe('first_useful_decision funnel stage (ALI-795)', () => {
   beforeEach(() => {
     recordFunnelStage.mockReset();

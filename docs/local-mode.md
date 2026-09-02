@@ -75,14 +75,22 @@ applies to the environment you're running in and why.
   conflicts with, depends on) are typed at query time using **your own AI provider key**.
   Without one, related decisions still surface, just not typed. The heavier cross-tool
   relationship detection runs in the hosted gateway.
+- **The graph is one file, not one file per repo - and it now knows which repo each decision
+  came from.** Every hosted commit/pull/issue URL stamps its own repo automatically at import
+  time; a Jira ticket, a Slack thread, or a bare `capture` stays unattributed rather than
+  misattributed. `ask`, `search` and `decisions list` default to the repo you are standing in
+  **plus** every unattributed decision - never a strict repo-only view, since that would hide
+  every non-code decision from inside any one repo. Add `--all` to search everywhere, or
+  `--repo <name>` (a short name, `owner/repo`, or the full identity) to target another repo by
+  name. Two clones of the same remote group under one identity automatically.
 - `align local status` inspects the graph, `align local reset` wipes it.
 
 ## What works locally today
 
-**Works:** `setup`, `import <tool>`, `capture`, `ask`, `search`, `check`, `status`,
-`context sync`, `mcp`, and the `local` commands.
+**Works:** `setup`, `import <tool>`, `capture`, `ask`, `search`, `decisions list`,
+`decisions show`, `check`, `status`, `context sync`, `mcp`, and the `local` commands.
 
-**Not yet routed to the local graph** (they address the cloud gateway): `decisions`, `export`,
+**Not yet routed to the local graph** (they address the cloud gateway): `export`,
 `drift`, `links`, `spaces`, `check --resolve`, and the connector-scan commands under
 `align import`.
 

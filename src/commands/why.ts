@@ -10,6 +10,7 @@ import { localCitationFor } from '../lib/commit-cite.js';
 import { type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { formatWhen } from '../lib/format-date.js';
+import { resolveScopeOpts } from '../lib/repo-identity.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -77,10 +78,15 @@ export function registerAskCommand(program: Command): void {
     .description('Ask a question about your decision graph, or pass a file path to find related decisions')
     .option('--env <env>', 'Environment')
     .option('--limit <n>', 'Max answers', '8')
-    .action(async (query: string, opts: { env?: EnvName; limit: string }) => {
+    .option('--repo <name>', 'Scope to one repo - short name, owner/repo, or full identity (local mode only)')
+    .option('--all', 'Search every repo, not just the current one (local mode only)')
+    .action(async (query: string, opts: { env?: EnvName; limit: string; repo?: string; all?: boolean }) => {
       const config = createConfigStore();
       const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const client = createGatewayClient(config.getEnvironment(envName));
+      // ALI-798: undefined means "no opinion" - searchDecisions applies its own default
+      // (current repo, or everywhere outside one) exactly as if neither flag were typed.
+      const scope = resolveScopeOpts({ repo: opts.repo, all: opts.all }, envName, (m) => console.log(chalk.yellow(`  ${m}`)));
 
       // Pass the query through unchanged: the gateway's smart-search strategy
       // selector routes natural-language questions to semantic search. Stripping
@@ -91,7 +97,7 @@ export function registerAskCommand(program: Command): void {
       const spinner = ora('').start();
 
       try {
-        const results = await client.searchDecisions(searchQuery, parseInt(opts.limit, 10));
+        const results = await client.searchDecisions(searchQuery, parseInt(opts.limit, 10), scope);
         spinner.stop();
 
         if (!results.results.length) {
@@ -109,9 +115,16 @@ export function registerAskCommand(program: Command): void {
             // Sending someone to re-import a full graph is the worse of the two errors: it
             // reads as the import never having worked. So ask the graph before saying it is
             // empty. One extra call, only on the path that was already returning nothing.
+            //
+            // ALI-798: `{ all: true }` here is NOT the user's scope choice - it is always
+            // unscoped, because the question this check answers is "does the GRAPH have
+            // anything in it", not "does this repo". Without it, being inside a repo with
+            // zero decisions (while another repo holds hundreds) would answer "no decisions
+            // found, build your graph first" - false, and the exact failure this ticket
+            // exists to prevent, just moved from retrieval into this diagnostic.
             let graphHasDecisions: boolean | undefined;
             try {
-              const some = await client.listDecisions({ limit: 1 });
+              const some = await client.listDecisions({ limit: 1, all: true });
               graphHasDecisions = Array.isArray(some) && some.length > 0;
             } catch {
               // A cloud token that has expired throws here. Leave the answer unknown and
@@ -124,8 +137,15 @@ export function registerAskCommand(program: Command): void {
               // way ask, search and import do, so the bare command is the right one to print
               // for every user. It carried `--env ${envName}` while that was not true.
               const listCmd = 'align decisions list';
-              console.log(chalk.dim(`  Nothing matched "${query}", but your graph is not empty.`));
-              console.log(chalk.dim('  Try different words, or list what is in there:'));
+              if (results.scope) {
+                // Named because it is the reason nothing matched here, and distinguishes
+                // "not in THIS repo" from "not anywhere" (ALI-771's lesson, extended to scope).
+                console.log(chalk.dim(`  Nothing matched "${query}" in ${results.scope}.`));
+                console.log(chalk.dim('  Try --all to search your whole graph, or list what is in this repo:'));
+              } else {
+                console.log(chalk.dim(`  Nothing matched "${query}", but your graph is not empty.`));
+                console.log(chalk.dim('  Try different words, or list what is in there:'));
+              }
               console.log(chalk.dim(`    ${listCmd}`));
               console.log('');
               return;
@@ -137,6 +157,12 @@ export function registerAskCommand(program: Command): void {
           console.log(chalk.dim('    align import linear   # or jira, slack, notion, confluence'));
           console.log('');
           return;
+        }
+
+        // ALI-798: named up front so a reader knows what was searched before reading an
+        // answer that might be missing something they know exists in another repo.
+        if (results.scope) {
+          console.log(chalk.dim(`  Answering from ${results.scope} (--all searches every repo)`));
         }
 
         // ALI-795: a non-empty answer is the funnel's activation moment - emitted here,
