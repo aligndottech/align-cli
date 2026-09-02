@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { MECHANICAL_SUBJECT_PREFIXES, MIN_DECISION_SUBJECT_CHARS } from './commit-shape.js';
+import { MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS } from './commit-shape.js';
 
 export interface GitCommit {
   sha: string;
@@ -188,7 +188,7 @@ function resolveCommitShape(subject: string, body: string): { subject: string; b
 
 // Built from the shared list rather than spelled here, so the capture report's
 // "mechanical subject (...)" line and this predicate cannot disagree (ALI-827).
-const MECHANICAL_SUBJECT_RE = new RegExp(`^(${MECHANICAL_SUBJECT_PREFIXES.join('|')})`, 'i');
+const MECHANICAL_SUBJECT_RE = mechanicalSubjectRegex(MECHANICAL_SUBJECT_PREFIXES);
 
 export function isDecisionCommit(subject: string): boolean {
   // Trim once and judge the same string twice: measured on the padded subject, the

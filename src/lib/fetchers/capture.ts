@@ -22,7 +22,9 @@ export interface CaptureSkip {
 }
 
 export interface CaptureFetchReport {
-  /** Source objects examined before any filter. `items.length` is a fraction OF this. */
+  /** Source objects examined before any filter, when the producer measured it (git and
+   *  docs do). The fallback below cannot, and sets it to the returned count - so treat
+   *  it as best-effort, never as a reliable pre-filter figure (Copilot on #240). */
   scanned: number;
   /** The cap the caller asked for, when it is worth saying: a fetcher that knows its
    *  cap did not bound the read leaves it out (git, docs), because "of up to 500" on a
