@@ -60,8 +60,10 @@ export interface CapturedDecision {
   source_url?: string | null;
   /** The minute the row was imported (local) or captured (cloud). */
   created_at?: string;
-  /** ALI-829: when the decision was MADE, from the source's own timestamp. Local mode
-   *  only today; absent, never null, when the source did not say. */
+  /** ALI-829: when the decision was MADE, from the source's own timestamp. Absent, never
+   *  null, when the source did not say. The local client returns it whenever the row has
+   *  one; the cloud gateway stores it from ingest (this client renames the item's
+   *  created_at to decided_at on the wire) and returns it where its routes select it. */
   decided_at?: string;
   ai?: {
     risks?: string[];
@@ -75,7 +77,8 @@ export interface SearchResults {
     id: string; title: string; summary: string; status: string;
     similarity?: number; author?: DecisionAuthor | null; created_at?: string;
     // ALI-829: the source's own date, beside created_at and never instead of it - two
-    // fields, two meanings. Local mode only today.
+    // fields, two meanings. Local search always carries it when the row has one; cloud
+    // search has selected it since ALI-622 (align-stack snapshotSearch.ts).
     decided_at?: string;
     // Attribution an agent needs to CITE a decision rather than just repeat its
     // title: which repository it came from, how a human writes it (align-cli#76),
