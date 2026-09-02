@@ -66,6 +66,7 @@ import { fetchNotionItems } from '../../lib/fetchers/notion.js';
 import { fetchGitItems } from '../../lib/fetchers/git.js';
 import { getCommitHistoryDetailed } from '../../lib/git.js';
 import { AuthExpiredError } from '../../lib/errors.js';
+import { MECHANICAL_SUBJECT_PREFIXES } from '../../lib/commit-shape.js';
 
 describe('CLI fetcher wrappers delegate to connector-core', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -106,13 +107,28 @@ describe('CLI fetcher wrappers delegate to connector-core', () => {
     const { report } = await fetchGitItems({ limit: 10 });
     expect(report).toEqual({
       scanned: 5,
-      requested: 10,
       skips: [
         { count: 1, detail: 'commits stated no reason beyond the subject' },
-        // 5 scanned - 1 kept - 1 rationale = 3, and never folded into the line above.
-        { count: 3, detail: 'commits with a mechanical subject (chore, wip, merge, bump, or too short)' },
+        // 5 scanned - 1 kept - 1 rationale = 3, and never folded into the line above. The
+        // parenthetical is the SAME list isDecisionCommit rejects on, by construction.
+        { count: 3, detail: `commits with a mechanical or too-short subject (${MECHANICAL_SUBJECT_PREFIXES.join(', ')})` },
       ],
     });
+    // Positive control on the derivation: the list has more than the four the first
+    // draft spelled by hand, and every member is in the line.
+    expect(MECHANICAL_SUBJECT_PREFIXES.length).toBeGreaterThan(4);
+    for (const prefix of MECHANICAL_SUBJECT_PREFIXES) expect(report.skips[1].detail).toContain(prefix);
+  });
+
+  it('git wrapper names the cap only when the scan actually reached it', async () => {
+    // 5 scanned against a limit of 10: the repo ran out, not the cap, so "of up to 10"
+    // would be printed on every run of a small repo and mean nothing.
+    const { report: uncapped } = await fetchGitItems({ limit: 10 });
+    expect('requested' in uncapped).toBe(false);
+    // 5 scanned against a limit of 5: the cap bound the read, and that is worth a line.
+    const { report: capped } = await fetchGitItems({ limit: 5 });
+    expect(capped.requested).toBe(5);
+    expect(capped.scanned).toBe(5);
   });
 
   it('jira/confluence map a FetcherAuthError to AuthExpiredError (reconnect flow)', async () => {

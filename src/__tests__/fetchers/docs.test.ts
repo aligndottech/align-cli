@@ -314,6 +314,55 @@ describe('fetchDocsItems - limit and combination', () => {
     expect(items[0].title).toBe('First ADR');
   });
 
+  // ALI-827: the capture report's cap rule. `requested` is echoed only when the limit
+  // bound the read; on a repo with three sections and a limit of 500 "of up to 500" would
+  // print on every run and mean nothing.
+  it('reports the cap when the limit bound the read, counting everything it saw as scanned', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-827-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(
+      join(repo, 'CLAUDE.md'),
+      '# Proj\n\n## Database\n\nWe use Postgres for the decision store.\n\n## Testing\n\nWe require a failing test before any fix.',
+    );
+    mockGit(null);
+
+    const { items, report } = await fetchDocsItems({ limit: 2, cwd: repo });
+
+    expect(items).toHaveLength(2);
+    expect(report).toEqual({ scanned: 3, requested: 2, skips: [] });
+  });
+
+  it('names the cap at the exact boundary too: the ADRs alone filled it and CLAUDE.md was never opened', async () => {
+    // scanned == limit is the case a `>` would miss. It is a real cap: the agent-rules
+    // file was never read BECAUSE the limit was already full, so how many more sections
+    // exist is unknown, and the cap is the one true thing to say about that.
+    repo = mkdtempSync(join(tmpdir(), 'align-827-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
+    mockGit(null);
+
+    const { items, report } = await fetchDocsItems({ limit: 1, cwd: repo });
+
+    expect(items).toHaveLength(1);
+    expect(report).toEqual({ scanned: 1, requested: 1, skips: [] });
+  });
+
+  it('leaves the cap out when the repo ran out before the limit did', async () => {
+    repo = mkdtempSync(join(tmpdir(), 'align-827-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
+    mockGit(null);
+
+    const { items, report } = await fetchDocsItems({ limit: 100, cwd: repo });
+
+    expect(items).toHaveLength(2);
+    expect(report).toEqual({ scanned: 2, skips: [] });
+    expect('requested' in report).toBe(false);
+  });
+
   it('skips reading CLAUDE.md/AGENTS.md entirely once the ADRs alone already fill the limit', async () => {
     // ALI-793 review (Copilot): reading and parsing the agent-rules files is wasted work once
     // there is no room left for their items - assert it on the actual filesystem call, not

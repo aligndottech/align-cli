@@ -7,8 +7,9 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { buildCommitUrl, formatCommitAsText, getCommitHistoryDetailed, getRemoteUrl, isGitRepo } from '../../lib/git.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
-import { renderCaptureReport } from '../../lib/capture-report.js';
-import { gitCaptureSkips } from '../../lib/fetchers/git.js';
+import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
+import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
+import { gitCaptureReport } from '../../lib/fetchers/git.js';
 import { commandIntro } from '../../lib/brand.js';
 
 interface GitImportOpts {
@@ -88,15 +89,10 @@ export function registerImportGitCommand(importCmd: Command): void {
         funnel: { env, source: 'git' },
       });
 
-      // ALI-827: the same two counts the spinner line above reports, as the report block
-      // every import ends with. Derived by gitCaptureSkips so this command and
-      // `align setup` cannot disagree on what "mechanical" means.
-      console.log(`${renderCaptureReport([{
-        label: 'Git',
-        unit: 'commits',
-        fetched: commits.length,
-        requested,
-        skips: gitCaptureSkips({ scanned, kept: commits.length, rejectedByRationale }),
-      }])}\n`);
+      // ALI-827: the same counts the spinner line above reports, as the report block every
+      // import ends with. Derived by gitCaptureReport so this command and `align setup`
+      // cannot disagree on what "mechanical" means or when the cap is worth naming.
+      const report = gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: requested });
+      console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.git, { items, report })])}\n`);
     });
 }

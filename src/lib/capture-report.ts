@@ -14,12 +14,7 @@
  * would be a second writer of it (code-style.md). A skip line arrives from whoever
  * measured it and is printed verbatim.
  */
-export interface CaptureSkip {
-  /** How many source objects this covers. */
-  count: number;
-  /** One line printed verbatim after the count, written for a user rather than a log. */
-  detail: string;
-}
+import type { CaptureFetchResult, CaptureSkip } from './fetchers/capture.js';
 
 export interface CaptureSource {
   label: string;
@@ -37,8 +32,8 @@ export function renderCaptureReport(sources: CaptureSource[]): string {
   if (sources.length === 0) return '';
 
   // setup.ts fetches connectors concurrently, so the order sources ARRIVE is a race. Sort
-  // by count, then by label - compared by code unit rather than localeCompare, so the
-  // tie-break is the same on every machine (latent-vs-deterministic.md).
+  // by count, then by label - compared by code unit, not localeCompare, so the tie-break
+  // is the same on every machine (latent-vs-deterministic.md).
   const ordered = [...sources].sort(
     (a, b) => b.fetched - a.fetched || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0),
   );
@@ -56,9 +51,24 @@ export function renderCaptureReport(sources: CaptureSource[]): string {
   return lines.join('\n');
 }
 
+/** The report line's inputs, from one wrapper result. `fetched` is what came BACK, not
+ *  what was scanned: the user is counting decisions in their graph, not API rows. */
+export function toCaptureSource(
+  source: { label: string; unit: string },
+  result: CaptureFetchResult,
+): CaptureSource {
+  return {
+    label: source.label,
+    unit: source.unit,
+    fetched: result.items.length,
+    ...(result.report.requested !== undefined ? { requested: result.report.requested } : {}),
+    skips: result.report.skips,
+  };
+}
+
 /**
  * Accumulates sources across the concurrent imports one `align setup` runs, so the report
- * prints once at the end rather than interleaved between spinners. Explicitly passed,
+ * prints once at the end instead of interleaved between spinners. Explicitly passed,
  * never a module-level singleton: a hidden global is untestable and would leak between
  * two commands in one process.
  */

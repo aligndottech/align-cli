@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toCaptureSource, withCaptureReport } from '../../lib/fetchers/capture.js';
+import { withCaptureReport } from '../../lib/fetchers/capture.js';
 
 /**
  * ALI-827 R31b: a fetcher that reports nothing about itself (every connector-core 0.5.0
@@ -28,19 +28,3 @@ describe('withCaptureReport (the fallback when the fetcher cannot report)', () =
   });
 });
 
-describe('toCaptureSource', () => {
-  it('counts the ITEMS as fetched and carries the request and skips through', () => {
-    const skips = [{ count: 2, detail: 'threads the token could not read' }];
-    const source = toCaptureSource('Slack', 'threads', {
-      items: [item(1), item(2), item(3)],
-      report: { scanned: 5, requested: 50, skips },
-    });
-    expect(source).toEqual({ label: 'Slack', unit: 'threads', fetched: 3, requested: 50, skips });
-  });
-
-  it('leaves requested out when the report has none', () => {
-    const source = toCaptureSource('Slack', 'threads', { items: [], report: { scanned: 0, skips: [] } });
-    expect(source).toEqual({ label: 'Slack', unit: 'threads', fetched: 0, skips: [] });
-    expect('requested' in source).toBe(false);
-  });
-});

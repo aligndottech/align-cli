@@ -9,13 +9,24 @@
  * second writer of it (code-style.md). When the SDK grows `fetchWithReport`, its report
  * replaces the fallback here and nowhere else.
  */
-import type { CaptureSkip, CaptureSource } from '../capture-report.js';
 import type { PersonalImportItem } from '../personal-import.js';
+
+/** What a read could NOT reach, in the fetcher's own terms: a count and a measured
+ *  reason, printed verbatim, so `detail` is written for a person. Owned here, by the
+ *  producer; the renderer consumes it. */
+export interface CaptureSkip {
+  /** How many source objects this covers. */
+  count: number;
+  /** One line printed after the count. */
+  detail: string;
+}
 
 export interface CaptureFetchReport {
   /** Source objects examined before any filter. `items.length` is a fraction OF this. */
   scanned: number;
-  /** What the caller asked for, when it asked for anything. */
+  /** The cap the caller asked for, when it is worth saying: a fetcher that knows its
+   *  cap did not bound the read leaves it out (git, docs), because "of up to 500" on a
+   *  40-commit repo is printed every run and stops being read. */
   requested?: number;
   skips: CaptureSkip[];
 }
@@ -34,21 +45,11 @@ export async function withCaptureReport(
     items,
     report: {
       scanned: items.length,
-      // Absent rather than a default: an unrequested cap is not a cap of zero.
+      // Echoed whenever one was given: with no SDK report this wrapper cannot tell a cap
+      // that bound the read from a source that simply had less, so it says the honest,
+      // derived thing and leaves the reason to the fetcher (PR 3 of the plan).
       ...(opts.limit !== undefined ? { requested: opts.limit } : {}),
       skips: [],
     },
-  };
-}
-
-/** The report line's inputs, from one wrapper result. `fetched` is what came BACK, not
- *  what was scanned: the user is counting decisions in their graph, not API rows. */
-export function toCaptureSource(label: string, unit: string, result: CaptureFetchResult): CaptureSource {
-  return {
-    label,
-    unit,
-    fetched: result.items.length,
-    ...(result.report.requested !== undefined ? { requested: result.report.requested } : {}),
-    skips: result.report.skips,
   };
 }

@@ -6,6 +6,7 @@ vi.mock('execa', () => ({
 
 import { execa } from 'execa';
 import { buildBlobUrl, buildCommitUrl, formatCommitAsText, getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, hasStatedRationale, isDecisionCommit, isGitRepo } from '../lib/git.js';
+import { MECHANICAL_SUBJECT_PREFIXES, MIN_DECISION_SUBJECT_CHARS } from '../lib/commit-shape.js';
 import type { GitCommit } from '../lib/git.js';
 
 describe('git helpers', () => {
@@ -108,6 +109,21 @@ describe('buildBlobUrl', () => {
   it('falls back to a stable git:// identifier for an unknown remote host', () => {
     const url = buildBlobUrl('https://bitbucket.org/org/repo.git', 'main', 'docs/adr/0001-x.md');
     expect(url).toBe('git://blob/main/docs/adr/0001-x.md');
+  });
+});
+
+describe('isDecisionCommit rejects every listed mechanical prefix (ALI-827: one writer)', () => {
+  // A list of N rules is N claims, so it is N tests (tdd.md). The subject is padded past
+  // the length floor so only the prefix can be what rejects it.
+  it.each([...MECHANICAL_SUBJECT_PREFIXES])('rejects "%s: ..." however long the subject is', (prefix) => {
+    expect(isDecisionCommit(`${prefix}: a subject long enough to clear the length floor`)).toBe(false);
+  });
+  it('accepts the same shape under a prefix that is not listed (the positive control)', () => {
+    expect(isDecisionCommit('feat: a subject long enough to clear the length floor')).toBe(true);
+  });
+  it('the floor is the shared constant, not a literal', () => {
+    expect(isDecisionCommit('x'.repeat(MIN_DECISION_SUBJECT_CHARS - 1))).toBe(false);
+    expect(isDecisionCommit('x'.repeat(MIN_DECISION_SUBJECT_CHARS))).toBe(true);
   });
 });
 

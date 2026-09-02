@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCaptureCollector, renderCaptureReport } from '../lib/capture-report.js';
+import { createCaptureCollector, renderCaptureReport, toCaptureSource } from '../lib/capture-report.js';
 
 /**
  * ALI-827: the capture report - what each import fetched, and what it could not reach.
@@ -112,7 +112,28 @@ describe('createCaptureCollector', () => {
   it('renders nothing before anything is added, and includes a source added late', () => {
     const collector = createCaptureCollector();
     expect(collector.render()).toBe('');
-    collector.add({ label: 'Git', unit: 'commits', fetched: 1, skips: [] });
-    expect(collector.render()).toContain('Git: 1 commits');
+    // Two, not one: the renderer has no singular form yet, and pinning "1 commits" would
+    // make the eventual plural fix fail a test that was never about grammar.
+    collector.add({ label: 'Git', unit: 'commits', fetched: 2, skips: [] });
+    expect(collector.render()).toContain('Git: 2 commits');
+  });
+});
+
+describe('toCaptureSource', () => {
+  const item = (n: number) => ({ source_url: `u${n}`, platform: 'x', raw_text: `t${n}` });
+
+  it('counts the ITEMS as fetched and carries the request and skips through', () => {
+    const skips = [{ count: 2, detail: 'threads the token could not read' }];
+    const source = toCaptureSource({ label: 'Slack', unit: 'threads' }, {
+      items: [item(1), item(2), item(3)],
+      report: { scanned: 5, requested: 50, skips },
+    });
+    expect(source).toEqual({ label: 'Slack', unit: 'threads', fetched: 3, requested: 50, skips });
+  });
+
+  it('leaves requested out when the report has none', () => {
+    const source = toCaptureSource({ label: 'Slack', unit: 'threads' }, { items: [], report: { scanned: 0, skips: [] } });
+    expect(source).toEqual({ label: 'Slack', unit: 'threads', fetched: 0, skips: [] });
+    expect('requested' in source).toBe(false);
   });
 });

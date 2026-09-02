@@ -4,7 +4,7 @@ import { buildBlobUrl, getCurrentBranch, getRemoteUrl } from '../git.js';
 import { ALIGN_NUDGE_END, ALIGN_NUDGE_START } from '../agent-rules.js';
 import { ALIGN_IMPORT_LINE } from '../decisions-context.js';
 import type { PersonalImportItem } from '../personal-import.js';
-import { type CaptureFetchResult, withCaptureReport } from './capture.js';
+import type { CaptureFetchResult } from './capture.js';
 
 /**
  * ALI-793: read what the repo already wrote down, credential-free. Two sources:
@@ -171,7 +171,7 @@ async function readAgentRulesItems(
   return items;
 }
 
-async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<PersonalImportItem[]> {
+async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{ items: PersonalImportItem[]; scanned: number }> {
   const repoRoot = opts.cwd ?? process.cwd();
   const gitOpts = opts.cwd ? { cwd: opts.cwd } : undefined;
   const [remoteUrl, branch, adrFiles] = await Promise.all([
@@ -187,15 +187,28 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<Per
   // ADRs alone already fill the limit: reading and stripping CLAUDE.md/AGENTS.md would be
   // work whose result gets sliced away, so skip it rather than doing it and throwing it out.
   const remaining = opts.limit - adrItems.length;
-  if (remaining <= 0) return adrItems;
+  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length };
 
   const agentRulesItems = await readAgentRulesItems(repoRoot, remoteUrl, branch);
-  return [...adrItems, ...agentRulesItems].slice(0, opts.limit);
+  return {
+    items: [...adrItems, ...agentRulesItems].slice(0, opts.limit),
+    scanned: adrFiles.length + agentRulesItems.length,
+  };
 }
 
-/** ALI-827: the same read, plus the fallback capture report (count and request). A local
- *  read has no page size to fall off and no access to lack, so count-and-request is
- *  everything there is to say; the only shortfall it can show is the limit itself. */
+/**
+ * ALI-827: the same read, plus its capture report. A local read has no page size to fall
+ * off and no access to lack, so there is nothing to skip; `scanned` is every ADR file
+ * and agent-rules section seen, and the cap is echoed only when it bounded the read -
+ * "8 ADRs and sections of up to 500 requested" on every run says nothing (the same rule
+ * as gitCaptureReport). When it did bind, fetched equals the cap and the renderer prints
+ * no clause: the user got what they asked for, and how many more exist is unknown when
+ * the ADRs alone fill the limit, so no count is invented for it.
+ */
 export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Promise<CaptureFetchResult> {
-  return withCaptureReport(opts, () => readDocsItems(opts));
+  const { items, scanned } = await readDocsItems(opts);
+  return {
+    items,
+    report: { scanned, ...(scanned >= opts.limit ? { requested: opts.limit } : {}), skips: [] },
+  };
 }

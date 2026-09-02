@@ -7,8 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchGitHubItems } from '../../lib/fetchers/github.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
-import { renderCaptureReport } from '../../lib/capture-report.js';
-import { toCaptureSource } from '../../lib/fetchers/capture.js';
+import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
+import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
 
@@ -58,7 +58,7 @@ export function registerImportGitHubCommand(importCmd: Command): void {
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'GitHub', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'github' } });
-        console.log(`${renderCaptureReport([toCaptureSource('GitHub', 'PRs and issues', fetched)])}\n`);
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.github, fetched)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

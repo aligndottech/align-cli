@@ -160,6 +160,11 @@ vi.mock('../lib/fetchers/teams.js', () => ({ fetchTeamsItems: vi.fn().mockResolv
 vi.mock('../lib/fetchers/zoom.js', () => ({ fetchZoomItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
 vi.mock('../lib/fetchers/gitlab.js', () => ({ fetchGitLabItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
 vi.mock('../lib/fetchers/notion.js', () => ({ fetchNotionItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
+// ALI-827: the docs wrapper reads the real cwd through lib/git.js, which this suite mocks
+// without getCurrentBranch - so unmocked it THROWS and setup reports "Docs import skipped"
+// on every test. Mocked empty, it takes the ordinary zero-items path and its zero line in
+// the capture report becomes something the report tests can pin.
+vi.mock('../lib/fetchers/docs.js', () => ({ fetchDocsItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
 
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
@@ -199,7 +204,7 @@ vi.mock('../lib/fetchers/linear.js', () => ({
   }),
 }));
 
-vi.spyOn(console, 'log').mockImplementation(() => undefined);
+const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
 // setTimeout is stubbed per-test to skip delays (e.g. 4-second deferred analysis wait)
 
@@ -1496,7 +1501,10 @@ describe('align setup', () => {
       const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
       vi.mocked(fetchLinearItems)
         .mockRejectedValueOnce(new Error('Linear API failed (401). Check your personal API token.'))
-        .mockResolvedValueOnce([{ source_url: 'https://linear.app/x/ISS-1', title: 'I', raw_text: 'i', type: 'issue' }]);
+        .mockResolvedValueOnce({
+          items: [{ source_url: 'https://linear.app/x/ISS-1', title: 'I', raw_text: 'i', type: 'issue' }],
+          report: { scanned: 1, skips: [] },
+        });
       vi.mocked(fetchNotionItems).mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }); // no items
       mockConfirm.mockResolvedValue(true);
       mockWaitForCallback.mockResolvedValue({
@@ -1512,7 +1520,53 @@ describe('align setup', () => {
         expect.objectContaining({ message: expect.stringContaining('Linear token expired') }),
       );
       expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(2); // reconnected + reimported
+      // "Reimported" has to mean the retry's items reached ingest. Until ALI-827's review
+      // this fixture returned a bare array, the retry threw inside its own catch, printed
+      // "Still failed", and the two assertions above held anyway - a reconnect path
+      // certified by a test that never saw it succeed.
+      const ingestedUrls = mockIngestBatch.mock.calls.flatMap(
+        (c) => (c[0] as Array<{ source_url: string }>).map((i) => i.source_url),
+      );
+      expect(ingestedUrls).toContain('https://linear.app/x/ISS-1');
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('No items found in Notion'));
+    });
+  });
+
+  describe('capture report (ALI-827)', () => {
+    const reportsPrinted = () =>
+      logSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('Capture report'));
+
+    it('cloud setup prints ONE report after every source has imported, naming git, docs and each connector', async () => {
+      mockMultiselect.mockResolvedValueOnce(['github', 'linear']);
+      mockWaitForCallback.mockResolvedValue({ data: { connector: 'x', credentials: { access_token: 'tok' } }, port: 7654 });
+      const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+      const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+      (fetchGitHubItems as ReturnType<typeof vi.fn>).mockResolvedValue({
+        items: [{ source_url: 'https://github.com/org/repo/pull/1', title: 'PR', raw_text: 'x', type: 'pull_request' }],
+        report: { scanned: 1, skips: [] },
+      });
+      (fetchLinearItems as ReturnType<typeof vi.fn>).mockResolvedValue({
+        items: [{ source_url: 'https://linear.app/team/issue/ISS-1', title: 'Issue', raw_text: 'x', type: 'issue' }],
+        report: { scanned: 1, requested: 250, skips: [] },
+      });
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      const reports = reportsPrinted();
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toContain('Git: 1 commits');
+      expect(reports[0]).toContain('GitHub: 1 PRs and issues');
+      expect(reports[0]).toContain('Linear: 1 issues of up to 250 requested');
+      // A source that fetched nothing still gets its line (R4a): that zero IS the answer.
+      expect(reports[0]).toContain('Repo docs: 0 ADRs and sections');
+    });
+
+    it('--local prints ONE report at the end of the connector phase', async () => {
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const reports = reportsPrinted();
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toContain('Git: 1 commits');
+      expect(reports[0]).toContain('Repo docs: 0 ADRs and sections');
+      // One commit scanned against setup's cap of 500: the repo ran out, not the cap.
+      expect(reports[0]).not.toContain('of up to 500');
     });
   });
 });

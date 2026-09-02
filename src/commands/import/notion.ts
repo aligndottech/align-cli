@@ -7,8 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchNotionItems } from '../../lib/fetchers/notion.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
-import { renderCaptureReport } from '../../lib/capture-report.js';
-import { toCaptureSource } from '../../lib/fetchers/capture.js';
+import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
+import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
 
@@ -64,7 +64,7 @@ Create an integration at: https://app.notion.com/developers/tokens`)
         const { items } = fetched;
         spinner.stop(`Found ${items.length} pages`);
         await runPersonalImport(items, client, { label: 'Notion', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'notion' } });
-        console.log(`${renderCaptureReport([toCaptureSource('Notion', 'pages', fetched)])}\n`);
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.notion, fetched)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

@@ -98,8 +98,21 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     const printed = logSpy.mock.calls.flat().join('\n');
     expect(printed).toContain('Git: 3 commits');
     expect(printed).toContain('2 commits stated no reason beyond the subject');
-    expect(printed).toContain('5 commits with a mechanical subject');   // 10 - 3 - 2
+    expect(printed).toContain('5 commits with a mechanical');            // 10 - 3 - 2
     expect(printed).not.toContain('7 commits');                         // the conflated number
+    // 10 scanned against the default --limit of 500: the repo ran out, not the cap.
+    expect(printed).not.toContain('of up to');
+  });
+
+  it('the capture report names the cap when the scan reached it', async () => {
+    vi.mocked(getCommitHistoryDetailed).mockResolvedValue({
+      commits: [commit, commit, commit],
+      scanned: 10,
+      rejectedByRationale: 2,
+    });
+    await run(['import', 'git', '--limit', '10']);
+    const printed = logSpy.mock.calls.flat().join('\n');
+    expect(printed).toContain('Git: 3 commits of up to 10 requested');
   });
 
   // ALI-827 R6b

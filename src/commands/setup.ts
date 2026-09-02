@@ -14,8 +14,9 @@ import { isGitRepo } from '../lib/git.js';
 import { fetchDocsItems } from '../lib/fetchers/docs.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
-import { createCaptureCollector } from '../lib/capture-report.js';
-import { type CaptureFetchResult, toCaptureSource } from '../lib/fetchers/capture.js';
+import { createCaptureCollector, toCaptureSource } from '../lib/capture-report.js';
+import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
+import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
@@ -59,7 +60,7 @@ interface SetupSource {
   tokenHint?: string;
   tokenUrl?: string | ((tokens: Record<string, string>) => string);  // If set, auto-opens this URL in the browser before prompting for the token
   extraFields?: Array<{ key: string; label: string; hint?: string; secret?: boolean }>;
-  /** What one fetched item IS, for the capture report (ALI-827): 'commits', 'threads'. */
+  /** What one fetched item IS, for the capture report (ALI-827) - from CAPTURE_SOURCES. */
   unit: string;
   fetch: (tokens: Record<string, string>) => Promise<CaptureFetchResult>;
 }
@@ -70,8 +71,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
   if (gitAvailable) {
     sources.push({
       id: 'git',
-      label: 'Git',
-      unit: 'commits',
+      ...CAPTURE_SOURCES.git,
       description: 'Commit history from this repo - no token needed',
       fetch: async () => {
         const { fetchGitItems } = await import('../lib/fetchers/git.js');
@@ -83,8 +83,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
   sources.push(
     {
       id: 'github',
-      label: 'GitHub',
-      unit: 'PRs and issues',
+      ...CAPTURE_SOURCES.github,
       description: 'Your PRs and issues',
       tier: 'personal',
       oauthKey: 'github-personal',
@@ -108,8 +107,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'jira',
-      label: 'Jira',
-      unit: 'issues',
+      ...CAPTURE_SOURCES.jira,
       description: 'Your issues',
       tier: 'site',
       // Personal/CLI tier is read-only (no write:jira-work). The team/org
@@ -130,8 +128,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'confluence',
-      label: 'Confluence',
-      unit: 'pages',
+      ...CAPTURE_SOURCES.confluence,
       description: 'Your pages and documentation',
       tier: 'site',
       // Read-only personal/CLI tier. See ALI-94.
@@ -151,8 +148,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'slack',
-      label: 'Slack',
-      unit: 'threads',
+      ...CAPTURE_SOURCES.slack,
       description: 'Decision threads from your channels - may need workspace admin [experimental]',
       tier: 'workspace',
       // Read-only personal/CLI tier (no chat:write). The team/org bot keeps
@@ -169,8 +165,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'teams',
-      label: 'Microsoft Teams',
-      unit: 'messages',
+      ...CAPTURE_SOURCES.teams,
       description: 'Channel messages and decisions - may need org/workspace admin consent',
       tier: 'workspace',
       oauthKey: 'teams',
@@ -181,8 +176,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'zoom',
-      label: 'Zoom',
-      unit: 'recordings',
+      ...CAPTURE_SOURCES.zoom,
       description: 'Cloud recording transcripts from your meetings',
       tier: 'personal',
       oauthKey: 'zoom',
@@ -193,8 +187,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'gitlab',
-      label: 'GitLab',
-      unit: 'merge requests',
+      ...CAPTURE_SOURCES.gitlab,
       description: 'Your merge requests',
       tier: 'personal',
       // gitlab.com → read-only browser OAuth (scope read_api, ALI-102). A
@@ -222,8 +215,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'linear',
-      label: 'Linear',
-      unit: 'issues',
+      ...CAPTURE_SOURCES.linear,
       description: 'Your issues and project discussions',
       tier: 'personal',
       // Read-only personal/CLI tier via browser OAuth (scope `read`), replacing the
@@ -244,8 +236,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
     },
     {
       id: 'notion',
-      label: 'Notion',
-      unit: 'pages',
+      ...CAPTURE_SOURCES.notion,
       description: 'Your pages and databases',
       tier: 'personal',
       // Read-only personal/CLI tier via browser OAuth (public integration),
@@ -453,7 +444,7 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
     try {
       const gitSource = buildSources(true).find(s => s.id === 'git')!;
       const fetched = await gitSource.fetch({});
-      capture.add(toCaptureSource(gitSource.label, gitSource.unit, fetched));
+      capture.add(toCaptureSource(gitSource, fetched));
       const { items } = fetched;
       if (items.length) {
         gitSpinner.stop(`Found ${items.length} commits worth importing`);
@@ -513,7 +504,7 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   localDocsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
   try {
     const docs = await fetchDocsItems({ limit: 500 });
-    capture.add(toCaptureSource('Repo docs', 'ADRs and sections', docs));
+    capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
     const docsItems = docs.items;
     if (docsItems.length) {
       localDocsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
@@ -692,7 +683,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     spinner.start(`Fetching from ${source.label}...`);
     try {
       const fetched = await source.fetch(tokens);
-      capture.add(toCaptureSource(source.label, source.unit, fetched));
+      capture.add(toCaptureSource(source, fetched));
       const { items } = fetched;
       // Saved only once the fetch it unlocked has succeeded. A token that never worked is not
       // worth remembering, and storing one would turn the next run's honest "paste a token"
@@ -715,8 +706,10 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   }
 
   // ALI-827: what each source fetched and what it could not reach - once, after every
-  // import has printed its own line, so the numbers sit together. Empty only when no
-  // source ran at all (no git repo, no docs, nothing connected).
+  // import has printed its own line, so the numbers sit together. A source whose fetch
+  // THREW is not in it: its spinner line above already named the error, and a row of
+  // zeros beside it would read as "fetched nothing" rather than "could not fetch". Empty
+  // only when nothing was fetched at all (no git repo, no docs, nothing connected).
   const captureText = capture.render();
   if (captureText) {
     console.log('');
@@ -871,6 +864,9 @@ async function runFreshSetup(ctx: {
   opts: { approve?: boolean; reset?: boolean };
 }): Promise<void> {
   const phase = await runLocalValuePhase({ approve: ctx.opts.approve });
+  // The value phase's capture report is printed by runLocalConnectorPhase, so choosing
+  // cloud below drops it - deliberately: runCloudSetup re-imports git and docs into the
+  // cloud tenant and prints its own report, which is the one that describes that graph.
 
   // Framed by what the graph is missing, not "how are you using Align" in the abstract -
   // there is already a local graph on screen, so the question is whether to extend it.
@@ -1062,7 +1058,7 @@ async function runCloudSetup(ctx: {
     try {
       const gitSource = buildSources(true).find(s => s.id === 'git')!;
       const fetched = await gitSource.fetch({});
-      capture.add(toCaptureSource(gitSource.label, gitSource.unit, fetched));
+      capture.add(toCaptureSource(gitSource, fetched));
       const { items } = fetched;
       // Stop the scan spinner before runPersonalImport - it starts its own
       // progress spinner, and two animated spinners on one line flicker.
@@ -1091,7 +1087,7 @@ async function runCloudSetup(ctx: {
   docsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
   try {
     const docs = await fetchDocsItems({ limit: 500 });
-    capture.add(toCaptureSource('Repo docs', 'ADRs and sections', docs));
+    capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
     const docsItems = docs.items;
     if (docsItems.length) {
       docsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
@@ -1147,7 +1143,7 @@ async function runCloudSetup(ctx: {
   for (const result of fetched) {
     const source = result.source;
     if ('fetched' in result) {
-      capture.add(toCaptureSource(source.label, source.unit, result.fetched));
+      capture.add(toCaptureSource(source, result.fetched));
       const { items } = result.fetched;
       if (items.length) ready.push({ source, items });
       else p.log.warn(`No items found in ${source.label}.`);
@@ -1175,7 +1171,7 @@ async function runCloudSetup(ctx: {
       retrySpinner.start(`Retrying ${source.label}...`);
       try {
         const fetched = await source.fetch(fresh);
-        capture.add(toCaptureSource(source.label, source.unit, fetched));
+        capture.add(toCaptureSource(source, fetched));
         const { items } = fetched;
         retrySpinner.stop(`Found ${items.length} items`);
         if (items.length) ready.push({ source, items });

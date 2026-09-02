@@ -7,8 +7,8 @@ import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
 import { fetchDocsItems } from '../../lib/fetchers/docs.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
-import { renderCaptureReport } from '../../lib/capture-report.js';
-import { toCaptureSource } from '../../lib/fetchers/capture.js';
+import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
+import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { commandIntro } from '../../lib/brand.js';
 
 interface DocsImportOpts {
@@ -46,6 +46,6 @@ export function registerImportDocsCommand(importCmd: Command): void {
         appUrl: resolveAppUrl(env),
         funnel: { env, source: 'docs' },
       });
-      console.log(`${renderCaptureReport([toCaptureSource('Repo docs', 'ADRs and sections', fetched)])}\n`);
+      console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.docs, fetched)])}\n`);
     });
 }
