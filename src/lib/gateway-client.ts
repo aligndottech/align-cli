@@ -76,6 +76,10 @@ export interface SearchResults {
     platform?: string; source_url?: string; repository?: string; cite?: string;
     // Present only in cloud mode, where a hosted UI can actually serve it.
     decision_url?: string;
+    // ALI-796: local-only (decision_refs lives in the local SQLite graph, not the
+    // hosted gateway yet) - what this decision's text points at, so `align ask` can
+    // name a gap on the decision it just returned.
+    external_references?: Array<{ ref: string; platform: string }>;
   }>;
   count: number;
   strategy: 'semantic' | 'keyword';

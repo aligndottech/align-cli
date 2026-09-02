@@ -29,6 +29,8 @@ describe('fetchValueRollup (ALI-215)', () => {
       supersessions: 4,
       reuseRate: 92 / 127,
       healthGrade: 'B',
+      // ALI-796: cloud has no decision_refs table yet, so no gaps to report.
+      gaps: [],
     });
   });
 
@@ -50,6 +52,7 @@ describe('fetchValueRollup (ALI-215)', () => {
       supersessions: 1,
       reuseRate: 0.1,
       healthGrade: 'D',
+      gaps: [],
     });
   });
 

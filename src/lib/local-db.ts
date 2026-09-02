@@ -294,6 +294,16 @@ export function createLocalDb(dbPath: string) {
   db.exec(SCHEMA);
   migrate(db);
 
+  // Shared by insertLink and resolveRefs (ALI-796), so there is one writer of the
+  // decision_links insert rather than two copies of the same ON CONFLICT clause.
+  function insertLinkRow(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
+    db.prepare(
+      `INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(source_id, target_id, relation)
+         DO UPDATE SET confidence = MAX(confidence, excluded.confidence)`
+    ).run(randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
+  }
+
   return {
     /**
      * Insert, or refresh the decision that already carries this `source_url`, returning the id
@@ -451,11 +461,7 @@ export function createLocalDb(dbPath: string) {
      * refreshed rather than ignored so a better score replaces a worse one.
      */
     insertLink(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
-      db.prepare(
-        `INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(source_id, target_id, relation)
-           DO UPDATE SET confidence = MAX(confidence, excluded.confidence)`
-      ).run(randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
+      insertLinkRow(link);
     },
 
     /**
@@ -488,6 +494,51 @@ export function createLocalDb(dbPath: string) {
       return db.prepare(
         `SELECT ref, platform FROM decision_refs WHERE decision_id = ? ORDER BY rowid`
       ).all(decisionId) as unknown as Array<{ ref: string; platform: string }>;
+    },
+
+    /**
+     * Every ref across every decision, for the gap resolver (ALI-796): it needs to
+     * count DISTINCT decisions per platform graph-wide, which a per-decision
+     * `getRefs` cannot do without one round trip per decision.
+     */
+    getAllRefs(): Array<{ decisionId: string; ref: string; platform: string }> {
+      return db.prepare(
+        `SELECT decision_id as decisionId, ref, platform FROM decision_refs ORDER BY rowid`
+      ).all() as unknown as Array<{ decisionId: string; ref: string; platform: string }>;
+    },
+
+    /**
+     * ALI-796's payoff: a newly-ingested decision may be the exact thing an EARLIER
+     * decision's text already cited (a git commit citing "ALI-123", now that the Jira
+     * issue for it has been imported). `candidates` is that new decision's own
+     * identity (decision-refs.ts's `refIdentityFor`) - every shape another decision
+     * could have recorded it as. For each one that some existing ref already names,
+     * link the citer to this decision.
+     *
+     * Deliberately one-directional: it resolves refs that were ALREADY WAITING when
+     * this decision arrives. It does not also re-scan this decision's own text for refs
+     * pointing at decisions already in the graph - the realistic setup flow imports git
+     * (which writes the citing refs) before a connector is added later to fill them in,
+     * so the citer is always the one already present. A source imported before the
+     * repo it is later linked from is the case this does not cover.
+     *
+     * `relation: 'relates'` at confidence 1.0 - not a guess like the cosine-similarity
+     * `relates` edges elsewhere (ALI-503): this one is a deterministic exact-key match,
+     * and 1.0 says so. `insertLinkRow`'s unique index on (source, target, relation)
+     * makes re-resolving the same pair on a later import a no-op rather than a
+     * duplicate edge.
+     */
+    resolveRefs(newDecisionId: string, candidates: Array<{ ref: string; platform: string }>): void {
+      if (!candidates.length) return;
+      const findCiters = db.prepare(
+        `SELECT decision_id as decisionId FROM decision_refs WHERE platform = ? AND ref = ? AND decision_id != ?`
+      );
+      for (const c of candidates) {
+        const citers = findCiters.all(c.platform, c.ref, newDecisionId) as Array<{ decisionId: string }>;
+        for (const citer of citers) {
+          insertLinkRow({ sourceId: citer.decisionId, targetId: newDecisionId, relation: 'relates', confidence: 1.0 });
+        }
+      }
     },
 
     listLinks(filter?: { relation?: string; decisionId?: string }): LinkRow[] {

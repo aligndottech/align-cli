@@ -84,3 +84,105 @@ describe('local-db', () => {
     expect(stats.embeddings).toBe(0);
   });
 });
+
+// ALI-796: getAllRefs is the graph-wide read the gap resolver needs - one row per
+// (decision, ref), across every decision, so unresolvedGaps can count DISTINCT
+// decisions per platform without a per-decision round trip.
+describe('getAllRefs', () => {
+  it('returns every ref across every decision, with the decision it belongs to', () => {
+    const db = createLocalDb(':memory:');
+    const a = db.insertDecision({ title: 'A', summary: '', sourceUrl: null, platform: 'git' });
+    const b = db.insertDecision({ title: 'B', summary: '', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(a, [{ ref: 'ALI-123', platform: 'tracker' }]);
+    db.replaceRefs(b, [{ ref: '#45', platform: 'code' }]);
+    const all = db.getAllRefs();
+    db.close();
+
+    expect(all).toContainEqual({ decisionId: a, ref: 'ALI-123', platform: 'tracker' });
+    expect(all).toContainEqual({ decisionId: b, ref: '#45', platform: 'code' });
+    expect(all).toHaveLength(2);
+  });
+
+  it('returns empty for a graph with no refs', () => {
+    const db = createLocalDb(':memory:');
+    db.insertDecision({ title: 'A', summary: '', sourceUrl: null, platform: 'git' });
+    expect(db.getAllRefs()).toEqual([]);
+    db.close();
+  });
+});
+
+// ALI-796: the payoff half of the gap-driven pull - once the missing source is
+// imported, resolve the pre-existing ref into a real graph link.
+describe('resolveRefs', () => {
+  it('links a citing decision to the newly-ingested decision it names', () => {
+    const db = createLocalDb(':memory:');
+    const citer = db.insertDecision({ title: 'Switch to JWT', summary: 'Refs ALI-123', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'ALI-123', platform: 'tracker' }]);
+
+    const jiraDecision = db.insertDecision({
+      title: 'ALI-123', summary: '', sourceUrl: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira',
+    });
+    db.resolveRefs(jiraDecision, [
+      { ref: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira' },
+      { ref: 'ALI-123', platform: 'tracker' },
+    ]);
+
+    const links = db.listLinks({ decisionId: jiraDecision });
+    db.close();
+
+    expect(links).toContainEqual(
+      expect.objectContaining({ sourceId: citer, targetId: jiraDecision, relation: 'relates' }),
+    );
+  });
+
+  it('does nothing when no existing ref names the candidate identity', () => {
+    const db = createLocalDb(':memory:');
+    const citer = db.insertDecision({ title: 'Switch to JWT', summary: 'Refs ALI-999', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'ALI-999', platform: 'tracker' }]);
+
+    const jiraDecision = db.insertDecision({
+      title: 'ALI-123', summary: '', sourceUrl: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira',
+    });
+    db.resolveRefs(jiraDecision, [
+      { ref: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira' },
+      { ref: 'ALI-123', platform: 'tracker' },
+    ]);
+
+    expect(db.listLinks({ decisionId: jiraDecision })).toEqual([]);
+    db.close();
+  });
+
+  it('does not link a decision to itself when its own ref shape happens to match', () => {
+    const db = createLocalDb(':memory:');
+    const jiraDecision = db.insertDecision({
+      title: 'ALI-123', summary: 'Refs ALI-123', sourceUrl: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira',
+    });
+    db.replaceRefs(jiraDecision, [{ ref: 'ALI-123', platform: 'tracker' }]);
+    db.resolveRefs(jiraDecision, [
+      { ref: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira' },
+      { ref: 'ALI-123', platform: 'tracker' },
+    ]);
+
+    expect(db.listLinks({ decisionId: jiraDecision })).toEqual([]);
+    db.close();
+  });
+
+  it('is idempotent: resolving twice does not create a duplicate link', () => {
+    const db = createLocalDb(':memory:');
+    const citer = db.insertDecision({ title: 'Switch to JWT', summary: 'Refs ALI-123', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'ALI-123', platform: 'tracker' }]);
+    const jiraDecision = db.insertDecision({
+      title: 'ALI-123', summary: '', sourceUrl: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira',
+    });
+    const candidates = [
+      { ref: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira' },
+      { ref: 'ALI-123', platform: 'tracker' },
+    ];
+    db.resolveRefs(jiraDecision, candidates);
+    db.resolveRefs(jiraDecision, candidates);
+
+    const links = db.listLinks({ decisionId: jiraDecision }).filter((l) => l.relation === 'relates');
+    db.close();
+    expect(links).toHaveLength(1);
+  });
+});

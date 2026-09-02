@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractRefs } from '../lib/decision-refs.js';
+import { extractRefs, refIdentityFor } from '../lib/decision-refs.js';
 
 // ALI-792: the refs a decision's text carries are the foundation of the gap-driven
 // connect prompt ("12 decisions cite Jira keys I can't read"). Every shape here is one
@@ -57,6 +57,33 @@ describe('extractRefs', () => {
     const refs = extractRefs('supersedes https://github.com/align/cli/pull/78');
     expect(refs).toContainEqual({
       ref: 'https://github.com/align/cli/pull/78',
+      platform: 'github',
+    });
+  });
+
+  // Copilot review finding (PR #227): the github detector matches ANY host with a
+  // /pull/N or /issues/N path (deliberately, for GHES support - see classifyUrl's own
+  // comment), which collides with gitlab.com's issue URL shape. gitlab.com is a fixed,
+  // known SaaS host (unlike GHES, which uses an arbitrary hostname a URL alone cannot
+  // distinguish from GitHub), so it is the one host this CAN exclude safely - a
+  // mislabeled 'github' ref would tell the gap-driven pull to ask for the wrong
+  // connector (ALI-796). Not extracting it at all is the honest fallback: the file's
+  // own docstring says "an arbitrary web URL is not a gap", and the bare "#78" shape
+  // in the same commit message still resolves via the 'code' bucket regardless.
+  it('does NOT classify a gitlab.com issue URL as github', () => {
+    const refs = extractRefs('closes https://gitlab.com/align/cli/issues/78');
+    expect(refs.find((r) => r.platform === 'github')).toBeUndefined();
+  });
+
+  it('does NOT classify a gitlab.com issue URL (new /-/ path) as github either', () => {
+    const refs = extractRefs('closes https://gitlab.com/align/cli/-/issues/78');
+    expect(refs.find((r) => r.platform === 'github')).toBeUndefined();
+  });
+
+  it('still classifies a GitHub Enterprise Server host as github (the reason the detector is host-agnostic)', () => {
+    const refs = extractRefs('supersedes https://ghes.acme.internal/align/cli/pull/78');
+    expect(refs).toContainEqual({
+      ref: 'https://ghes.acme.internal/align/cli/pull/78',
       platform: 'github',
     });
   });
@@ -119,5 +146,66 @@ describe('extractRefs', () => {
   // not a reference to something the graph cannot see.
   it('ignores commit URLs (a decision does not reference itself)', () => {
     expect(extractRefs('URL: https://github.com/align/cli/commit/abc123')).toEqual([]);
+  });
+});
+
+// ALI-796: the inverse of extractRefs - what this decision's OWN identity would be
+// recorded AS if some other decision cited it. This is the matching side of the
+// gap-driven pull's payoff: "resolve refs into real links where the fetched item
+// matches" needs a way to ask "does this newly-imported decision resolve any
+// pre-existing citation".
+describe('refIdentityFor', () => {
+  it('identifies a jira decision by its URL and its bare ticket key', () => {
+    const candidates = refIdentityFor('jira', 'https://acme.atlassian.net/browse/PAY-31');
+    expect(candidates).toContainEqual({ ref: 'https://acme.atlassian.net/browse/PAY-31', platform: 'jira' });
+    expect(candidates).toContainEqual({ ref: 'PAY-31', platform: 'tracker' });
+  });
+
+  it('identifies a linear decision by its URL and its bare ticket key', () => {
+    const candidates = refIdentityFor('linear', 'https://linear.app/align/issue/ALI-788/launch');
+    expect(candidates).toContainEqual({
+      ref: 'https://linear.app/align/issue/ALI-788/launch',
+      platform: 'linear',
+    });
+    expect(candidates).toContainEqual({ ref: 'ALI-788', platform: 'tracker' });
+  });
+
+  it('identifies a github decision by its URL and its bare #N', () => {
+    const candidates = refIdentityFor('github', 'https://github.com/align/cli/pull/78');
+    expect(candidates).toContainEqual({ ref: 'https://github.com/align/cli/pull/78', platform: 'github' });
+    expect(candidates).toContainEqual({ ref: '#78', platform: 'code' });
+  });
+
+  it('identifies a slack decision by its URL alone (no ticket key)', () => {
+    const candidates = refIdentityFor('slack', 'https://align.slack.com/archives/C123/p456');
+    expect(candidates).toEqual([{ ref: 'https://align.slack.com/archives/C123/p456', platform: 'slack' }]);
+  });
+
+  it('returns nothing for a decision with no source url', () => {
+    expect(refIdentityFor('cli', null)).toEqual([]);
+  });
+
+  it('returns nothing for a plain commit url (not citable by any other decision)', () => {
+    expect(refIdentityFor('git', 'https://github.com/align/cli/commit/abc1234def')).toEqual([]);
+  });
+
+  // ALI-796 review finding: the shared citationFor cannot parse a real GitLab MR/issue
+  // URL (no "/pull/" or "/issues/" with no separator), so a GitLab-sourced decision could
+  // never resolve a pre-existing bare "#N" gap. localCitationFor closes that gap.
+  it('identifies a gitlab decision by its URL and its bare #N', () => {
+    const candidates = refIdentityFor('gitlab', 'https://gitlab.com/align/cli/-/merge_requests/78');
+    expect(candidates).toContainEqual({ ref: '#78', platform: 'code' });
+  });
+
+  // Copilot review finding (PR #227): classifyUrl no longer mislabels a gitlab.com
+  // issue URL as 'github' (see the extractRefs test above), so the URL-shaped
+  // candidate is correctly absent here too - the citing side never stores it under
+  // 'github' either, so producing a 'github' candidate would just be a second wrong
+  // label rather than a match. The bare "#N" candidate (from the ticket key) still
+  // covers the payoff for this shape.
+  it('does not identify a gitlab issue by a mislabeled github URL candidate', () => {
+    const candidates = refIdentityFor('gitlab', 'https://gitlab.com/align/cli/issues/78');
+    expect(candidates.find((c) => c.platform === 'github')).toBeUndefined();
+    expect(candidates).toContainEqual({ ref: '#78', platform: 'code' });
   });
 });

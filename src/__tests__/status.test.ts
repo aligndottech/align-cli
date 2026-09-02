@@ -12,21 +12,25 @@ const client = {
   getHealth: vi.fn().mockResolvedValue({ compositeScore: { grade: 'B' } }),
 };
 
-const { getEnvironmentMock, localDb, createLocalDbMock } = vi.hoisted(() => {
+const { getEnvironmentMock, localDb, createLocalDbMock, getConnectorFieldsMock } = vi.hoisted(() => {
   const localDb = {
     getStats: vi.fn(() => ({ decisions: 3 })),
     listLinks: vi.fn(() => []),
+    getAllRefs: vi.fn(() => []),
     close: vi.fn(),
   };
   return {
     getEnvironmentMock: vi.fn(),
     localDb,
     createLocalDbMock: vi.fn(() => localDb),
+    // ALI-796: null means "not connected", matching config.getConnectorFields' real
+    // contract - see the align local forget command, which reads it the same way.
+    getConnectorFieldsMock: vi.fn(() => null),
   };
 });
 
 vi.mock('../lib/config.js', () => ({
-  createConfigStore: vi.fn(() => ({ getEnvironment: getEnvironmentMock })),
+  createConfigStore: vi.fn(() => ({ getEnvironment: getEnvironmentMock, getConnectorFields: getConnectorFieldsMock })),
 }));
 vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn((e: string) => e ?? 'prod') }));
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => client) }));
@@ -95,5 +99,33 @@ describe('align status (local-embedded mode, ALI-505)', () => {
     await program.parseAsync(['node', 'align', 'status']);
 
     expect(createLocalDbMock).toHaveBeenCalledWith('/tmp/fallback.db');
+  });
+});
+
+describe('align status names its own gaps (ALI-796)', () => {
+  beforeEach(() => {
+    vi.mocked(resolveEnv).mockReturnValue('local' as never);
+    getEnvironmentMock.mockReturnValue({ mode: 'local-embedded', localDbPath: '/tmp/graph.db' });
+  });
+
+  it('names an unresolved-ref gap and the command that fills it in', async () => {
+    localDb.getAllRefs = vi.fn(() => [{ decisionId: 'a', ref: 'ALI-1', platform: 'tracker' }]);
+    const program = new Command();
+    registerStatusCommand(program);
+    await program.parseAsync(['node', 'align', 'status']);
+
+    const out = plain();
+    expect(out).toMatch(/1 decision cites ticket-tracker I can't read/i);
+    expect(out).toContain('align import jira or align import linear');
+  });
+
+  it('says nothing once the connector is connected', async () => {
+    localDb.getAllRefs = vi.fn(() => [{ decisionId: 'a', ref: 'ALI-1', platform: 'tracker' }]);
+    getConnectorFieldsMock.mockImplementation((_env: string, id: string) => (id === 'jira' ? { token: 'x' } : null));
+    const program = new Command();
+    registerStatusCommand(program);
+    await program.parseAsync(['node', 'align', 'status']);
+
+    expect(plain()).not.toMatch(/I can't read/);
   });
 });

@@ -25,6 +25,7 @@ import pkg from '../../package.json' with { type: 'json' };
 const { version } = pkg;
 import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
+import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -716,6 +717,15 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     );
   }
 
+  // ALI-796: the graph names its own gaps - a ref whose platform has no connected
+  // source. Read directly off decision_refs (the same query status.ts/local.ts use),
+  // never gate-y: at most one line, and only when there is a real gap to name.
+  const refsDb = createLocalDb(dbPath);
+  const isConnected = (id: string) => config.getConnectorFields('local', id) !== null;
+  const gaps = unresolvedGaps(refsDb.getAllRefs(), isConnected);
+  refsDb.close();
+  const gapLine = setupSummaryLine(gaps);
+
   p.outro(
     `${chalk.green('You are set up in local mode.')}\n` +
     `  Graph: ${chalk.dim(dbPath)}\n` +
@@ -724,7 +734,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     // suggest. That question is ABOUT the graph rather than IN it, so on-device search
     // matches nothing and a tester was told his freshly imported graph was empty (ALI-771).
     // It is a fine thing to ask an AGENT over MCP, and a bad first thing to type here.
-    `  Ask it something real: ${chalk.bold('align ask "why <a thing you decided>"')}`,
+    `  Ask it something real: ${chalk.bold('align ask "why <a thing you decided>"')}${gapLine ? `\n\n  ${chalk.dim(gapLine)}` : ''}`,
   );
 }
 

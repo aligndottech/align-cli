@@ -143,7 +143,7 @@ describe('ALI-503 the counter: similarity and conflicts are different numbers', 
 
 const rollup = (over: Partial<ValueRollup> = {}): ValueRollup => ({
   decisions: 2, conflictsCaught: 0, similarDecisions: 0, duplicates: 0,
-  supersessions: 0, reuseRate: null, healthGrade: null, ...over,
+  supersessions: 0, reuseRate: null, healthGrade: null, gaps: [], ...over,
 });
 
 describe('ALI-503 the readout', () => {
