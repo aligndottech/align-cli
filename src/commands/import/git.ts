@@ -11,6 +11,7 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { gitCaptureReport } from '../../lib/fetchers/git.js';
 import { commandIntro } from '../../lib/brand.js';
+import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
 
 interface GitImportOpts {
   limit: string;
@@ -25,7 +26,7 @@ export function registerImportGitCommand(importCmd: Command): void {
   importCmd
     .command('git')
     .description('Import local git commit history (no auth required)')
-    .option('--limit <n>', 'Max commits to import', '500')
+    .option('--limit <n>', 'Max commits to import', String(IMPORT_LIMITS.git))
     .option('--from <date>', 'Start date (ISO e.g. 2025-01-01)')
     .option('--to <date>', 'End date (ISO)')
     .option('--branch <name>', 'Branch to scan (default: current)')
@@ -79,6 +80,9 @@ export function registerImportGitCommand(importCmd: Command): void {
           platform: 'git',
           raw_text: formatCommitAsText(c, url),
           title: c.subject,
+          // ALI-829: the commit's own date (`%aI`, strict ISO-8601) becomes decided_at at
+          // ingest. Absent rather than a fabricated now when git gave none.
+          ...(c.date ? { created_at: c.date } : {}),
         };
       });
 

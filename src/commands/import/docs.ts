@@ -10,6 +10,7 @@ import { runPersonalImport } from '../../lib/personal-import.js';
 import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { commandIntro } from '../../lib/brand.js';
+import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
 
 interface DocsImportOpts {
   limit: string;
@@ -21,7 +22,7 @@ export function registerImportDocsCommand(importCmd: Command): void {
   importCmd
     .command('docs')
     .description('Import ADRs and your CLAUDE.md/AGENTS.md content (no auth required)')
-    .option('--limit <n>', 'Max items to import', '500')
+    .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.docs))
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: DocsImportOpts, cmd: Command) => {

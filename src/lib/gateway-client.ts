@@ -58,6 +58,11 @@ export interface CapturedDecision {
    * so nothing downstream could cite a decision (ALI-602 needs to).
    */
   source_url?: string | null;
+  /** The minute the row was imported (local) or captured (cloud). */
+  created_at?: string;
+  /** ALI-829: when the decision was MADE, from the source's own timestamp. Local mode
+   *  only today; absent, never null, when the source did not say. */
+  decided_at?: string;
   ai?: {
     risks?: string[];
     actions?: Array<{ text: string }>;
@@ -69,6 +74,9 @@ export interface SearchResults {
   results: Array<{
     id: string; title: string; summary: string; status: string;
     similarity?: number; author?: DecisionAuthor | null; created_at?: string;
+    // ALI-829: the source's own date, beside created_at and never instead of it - two
+    // fields, two meanings. Local mode only today.
+    decided_at?: string;
     // Attribution an agent needs to CITE a decision rather than just repeat its
     // title: which repository it came from, how a human writes it (align-cli#76),
     // and the URL it was decided at. Optional because a decision from Slack or a

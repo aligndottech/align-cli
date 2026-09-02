@@ -11,6 +11,10 @@ export interface DecisionRow {
   sourceUrl: string | null;
   platform: string;
   createdAt: string;
+  /** ALI-829: when the decision was MADE, from the source's own timestamp (ISO-8601 Z), as
+   *  distinct from `createdAt`, the minute this CLI imported it. Null when the source did not
+   *  say - never the ingest minute wearing the wrong name. */
+  decidedAt: string | null;
   /** ALI-798: which repo this decision came from (host/owner/repo, or a repo root
    *  path for a remoteless git repo) - null for anything that is not code, or code
    *  whose repo could not be identified. */
@@ -38,7 +42,8 @@ CREATE TABLE IF NOT EXISTS decisions (
   source_url TEXT,
   platform TEXT NOT NULL DEFAULT 'cli',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  repo TEXT
+  repo TEXT,
+  decided_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS decision_embeddings (
@@ -72,7 +77,30 @@ CREATE TABLE IF NOT EXISTS decision_refs (
  * `migrate` from the source and compares it here, because forgetting the bump leaves the new
  * branch running destructively on every open with nothing to stop it.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
+
+/**
+ * ALI-829: a source timestamp as this database stores it - ISO-8601 Z - or null.
+ *
+ * Null rather than a fallback: a null date says "unknown", and a plausible wrong date is
+ * indistinguishable from a measurement to everything downstream. NaN is checked explicitly
+ * because every comparison against NaN is false in both directions, so an unchecked bad
+ * date would not error, it would silently vacate whatever filter reads it later
+ * (verification.md). The same computation as connector-core's `toIsoOrUndefined`, kept
+ * separate on purpose: that one returns undefined for a wire type, this one returns null
+ * for a column, and persistence importing a wire helper is the wrong direction.
+ */
+export function normaliseDecidedAt(value: string | null | undefined): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
+/** The title connector-core 0.5.0 gave every Slack thread whose root was deleted. The 0.6.0
+ *  fetcher titles such a thread from its first human message, or drops it; either way this
+ *  row is a duplicate-to-be under the (source_url, title) key, or noise. */
+const SLACK_TOMBSTONE_TITLE = 'This message was deleted.';
 
 /**
  * A `source_url` is only an identity if it points at ONE thing. Some fetchers substitute a
@@ -132,6 +160,22 @@ export function identifyingSourceUrl(raw: string | null): string | null {
  *    source is not code (Jira, Slack, a bare capture) stays NULL, which is "unattributed",
  *    not "wrong": `--repo` scoping always includes unattributed rows alongside the named
  *    repo (see local-gateway-client.ts), so nothing existing becomes invisible.
+ *
+ * 4. ALI-829: add `decided_at` - when the decision was MADE, from the source's own
+ *    timestamp, as distinct from `created_at`, the minute this CLI imported it. Every one
+ *    of the 684 rows in the 2026-09-02 measurement carried the ingest minute and nothing
+ *    else, so "what changed since March" was unanswerable offline. No backfill, unlike
+ *    `repo`: a repo is derivable from a stored source_url, and a decision date is not
+ *    derivable from anything already in the row. A re-import fills it in; inventing one
+ *    from created_at would write the exact wrong fact this column exists to correct.
+ *
+ *    Same bump, second step: drop the Slack rows titled by a deleted root. The 0.6.0
+ *    fetcher titles a thread from its first human message, and the dedup key is
+ *    (source_url, title), so each of those rows would otherwise be re-inserted BESIDE its
+ *    tombstone twin on the next import (35 of 39 on the 2026-09-02 graph). The next import
+ *    recreates the real ones with real titles; the ones that were only bot output on a
+ *    deleted root do not come back, which is the point. Foreign keys are off in this
+ *    database (see step 2), so the dependent rows are deleted explicitly.
  *
  * The version guard is load-bearing rather than tidiness. The same UPDATE run on every open
  * is indistinguishable from this one today, and starts silently eating genuine conflicts the
@@ -275,6 +319,37 @@ function migrate(db: DatabaseSync): void {
       db.exec('PRAGMA user_version = 3');
     }
   }
+  if (version < 4) {
+    // Same shape as the `repo` step: a fresh database's CREATE TABLE already declares the
+    // column, and a legacy one predates it, so the ALTER is conditional.
+    const hasDecidedAt = (db.prepare('PRAGMA table_info(decisions)').all() as Array<{ name: string }>)
+      .some((c) => c.name === 'decided_at');
+    if (!hasDecidedAt) {
+      db.exec('ALTER TABLE decisions ADD COLUMN decided_at TEXT');
+    }
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const tombstones = db.prepare(
+        `SELECT id FROM decisions WHERE platform = 'slack' AND title = ?`,
+      ).all(SLACK_TOMBSTONE_TITLE) as Array<{ id: string }>;
+      const dropLinks = db.prepare('DELETE FROM decision_links WHERE source_id = ? OR target_id = ?');
+      const dropRefs = db.prepare('DELETE FROM decision_refs WHERE decision_id = ?');
+      const dropEmbedding = db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?');
+      const dropDecision = db.prepare('DELETE FROM decisions WHERE id = ?');
+      for (const { id } of tombstones) {
+        dropLinks.run(id, id);
+        dropRefs.run(id);
+        dropEmbedding.run(id);
+        dropDecision.run(id);
+      }
+      // Stamped inside the transaction, for the reason step 2 gives.
+      db.exec('PRAGMA user_version = 4');
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
   if (version < SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
@@ -329,12 +404,19 @@ export function createLocalDb(dbPath: string) {
      * this upsert needs to handle - `source_url` identifies the row, and a URL does not
      * change which repo it points at between imports.
      */
-    insertDecision(row: { title: string; summary: string; sourceUrl: string | null; platform: string; repo?: string | null }): string {
+    insertDecision(row: {
+      title: string; summary: string; sourceUrl: string | null; platform: string; repo?: string | null;
+      /** ALI-829: already normalised (normaliseDecidedAt) by the caller, or absent. COALESCE on
+       *  the upsert for the same reason `repo` has it: a re-import that resolved no date must
+       *  never blank a date the row already carries. */
+      decidedAt?: string | null;
+    }): string {
       const inserted = db.prepare(
-        `INSERT INTO decisions (id, title, summary, source_url, platform, repo) VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_url, title) DO UPDATE SET
            summary = excluded.summary, platform = excluded.platform,
-           repo = COALESCE(excluded.repo, decisions.repo)
+           repo = COALESCE(excluded.repo, decisions.repo),
+           decided_at = COALESCE(excluded.decided_at, decisions.decided_at)
          RETURNING id`
       ).get(
         randomUUID(),
@@ -343,6 +425,7 @@ export function createLocalDb(dbPath: string) {
         identifyingSourceUrl(row.sourceUrl),
         row.platform,
         row.repo ?? null,
+        row.decidedAt ?? null,
       ) as { id: string };
       return inserted.id;
     },
@@ -390,7 +473,7 @@ export function createLocalDb(dbPath: string) {
      * default.
      */
     listDecisions(filter: { repo?: string; includeUnattributed?: boolean } = {}): DecisionRow[] {
-      let sql = `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo FROM decisions`;
+      let sql = `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo, decided_at as decidedAt FROM decisions`;
       const params: string[] = [];
       if (filter.repo !== undefined) {
         sql += filter.includeUnattributed ? ` WHERE (repo = ? OR repo IS NULL)` : ` WHERE repo = ?`;
@@ -402,7 +485,7 @@ export function createLocalDb(dbPath: string) {
 
     getDecisionById(id: string): DecisionRow | null {
       return (db.prepare(
-        `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo FROM decisions WHERE id = ?`
+        `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo, decided_at as decidedAt FROM decisions WHERE id = ?`
       ).get(id) as unknown as DecisionRow | null) ?? null;
     },
 

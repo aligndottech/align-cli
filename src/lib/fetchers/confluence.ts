@@ -13,7 +13,7 @@ export async function fetchConfluenceItems(opts: {
   limit?: number;
 }): Promise<CaptureFetchResult> {
   try {
-    return await withCaptureReport(opts, () => new ConfluenceFetcher().fetch(opts));
+    return await withCaptureReport(opts, new ConfluenceFetcher());
   } catch (e) {
     if (e instanceof FetcherAuthError) throw new AuthExpiredError(e.connector);
     throw e;
