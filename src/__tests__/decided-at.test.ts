@@ -20,6 +20,13 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 }));
 
 import { createLocalDb, normaliseDecidedAt, SCHEMA_VERSION } from '../lib/local-db.js';
+
+// Every test here opens a real SQLite file, and the migration tests open two (a hand-built
+// v3 file, then the migration chain over it). On the Windows runner one open runs about a
+// second - local-gateway-client.test.ts measured 23s for 27 such tests there - so the two
+// migration cases timed out at vitest's 5s default on main's 18d1a89 run while passing on
+// the same code one run earlier. A timing floor, not a behaviour: 30s per test, this file only.
+vi.setConfig({ testTimeout: 30_000 });
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { cosineSimilarity } from '../lib/local-embeddings.js';
 
