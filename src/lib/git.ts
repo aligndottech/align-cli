@@ -191,8 +191,11 @@ function resolveCommitShape(subject: string, body: string): { subject: string; b
 const MECHANICAL_SUBJECT_RE = new RegExp(`^(${MECHANICAL_SUBJECT_PREFIXES.join('|')})`, 'i');
 
 export function isDecisionCommit(subject: string): boolean {
-  if (subject.length < MIN_DECISION_SUBJECT_CHARS) return false;
-  return !MECHANICAL_SUBJECT_RE.test(subject.trim());
+  // Trim once and judge the same string twice: measured on the padded subject, the
+  // length floor could be cleared by whitespace alone (Copilot on #240).
+  const trimmed = subject.trim();
+  if (trimmed.length < MIN_DECISION_SUBJECT_CHARS) return false;
+  return !MECHANICAL_SUBJECT_RE.test(trimmed);
 }
 
 // A line that IS a git trailer (key: value at the start of the line), not merely a

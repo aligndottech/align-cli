@@ -135,8 +135,12 @@ async function readAgentRulesItems(
   repoRoot: string,
   remoteUrl: string | null,
   branch: string,
-): Promise<PersonalImportItem[]> {
+): Promise<{ items: PersonalImportItem[]; droppedShort: number }> {
   const items: PersonalImportItem[] = [];
+  // ALI-827: headed sections the length floor dropped, so the capture report can name
+  // them. The headingless preamble (an H1 line, an intro sentence) is not counted when it
+  // is dropped: nobody wrote it as a section, so nobody will look for it in the graph.
+  let droppedShort = 0;
   for (const file of AGENT_RULES_FILES) {
     let raw: string;
     try {
@@ -151,7 +155,10 @@ async function readAgentRulesItems(
     // silently dropped rather than imported.
     const seenSlugs = new Map<string, number>();
     for (const section of splitIntoSections(stripped)) {
-      if (section.body.length < MIN_CHUNK_CHARS) continue;
+      if (section.body.length < MIN_CHUNK_CHARS) {
+        if (section.heading) droppedShort++;
+        continue;
+      }
       const title = section.heading ?? firstHeading(section.body) ?? humanizeFilename(file);
       let anchor = '';
       if (section.heading) {
@@ -168,10 +175,17 @@ async function readAgentRulesItems(
       });
     }
   }
-  return items;
+  return { items, droppedShort };
 }
 
-async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{ items: PersonalImportItem[]; scanned: number }> {
+async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
+  items: PersonalImportItem[];
+  /** Every ADR file and every headed section seen, kept or dropped. */
+  scanned: number;
+  /** Whether the limit left something unread or unreturned. */
+  capped: boolean;
+  droppedShort: number;
+}> {
   const repoRoot = opts.cwd ?? process.cwd();
   const gitOpts = opts.cwd ? { cwd: opts.cwd } : undefined;
   const [remoteUrl, branch, adrFiles] = await Promise.all([
@@ -187,28 +201,42 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{ i
   // ADRs alone already fill the limit: reading and stripping CLAUDE.md/AGENTS.md would be
   // work whose result gets sliced away, so skip it rather than doing it and throwing it out.
   const remaining = opts.limit - adrItems.length;
-  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length };
+  // Capped even at exact equality: the agent-rules files were never opened BECAUSE the
+  // limit was already full, so something may have been left out and nobody counted it.
+  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0 };
 
-  const agentRulesItems = await readAgentRulesItems(repoRoot, remoteUrl, branch);
+  const { items: agentRulesItems, droppedShort } = await readAgentRulesItems(repoRoot, remoteUrl, branch);
+  const candidates = adrFiles.length + agentRulesItems.length;
   return {
     items: [...adrItems, ...agentRulesItems].slice(0, opts.limit),
-    scanned: adrFiles.length + agentRulesItems.length,
+    scanned: candidates + droppedShort,
+    // Strictly more than the limit: everything was read, so the cap bound the read only
+    // if the slice actually cut something.
+    capped: candidates > opts.limit,
+    droppedShort,
   };
 }
 
 /**
  * ALI-827: the same read, plus its capture report. A local read has no page size to fall
- * off and no access to lack, so there is nothing to skip; `scanned` is every ADR file
- * and agent-rules section seen, and the cap is echoed only when it bounded the read -
- * "8 ADRs and sections of up to 500 requested" on every run says nothing (the same rule
- * as gitCaptureReport). When it did bind, fetched equals the cap and the renderer prints
- * no clause: the user got what they asked for, and how many more exist is unknown when
- * the ADRs alone fill the limit, so no count is invented for it.
+ * off and no access to lack, so the one thing it drops is a headed section under the
+ * length floor, and that is the one skip it reports. `scanned` is every ADR file and
+ * headed section seen; the cap is echoed only when it bounded the read - "8 ADRs and
+ * sections of up to 500 requested" on every run says nothing (the same rule as
+ * gitCaptureReport). When it did bind, fetched equals the cap and the renderer prints no
+ * clause: the user got what they asked for, and how many more exist is unknown when the
+ * ADRs alone fill the limit, so no count is invented for it.
  */
 export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Promise<CaptureFetchResult> {
-  const { items, scanned } = await readDocsItems(opts);
+  const { items, scanned, capped, droppedShort } = await readDocsItems(opts);
   return {
     items,
-    report: { scanned, ...(scanned >= opts.limit ? { requested: opts.limit } : {}), skips: [] },
+    report: {
+      scanned,
+      ...(capped ? { requested: opts.limit } : {}),
+      skips: droppedShort > 0
+        ? [{ count: droppedShort, detail: `sections under ${MIN_CHUNK_CHARS} characters (a bare heading or a one-line pointer)` }]
+        : [],
+    },
   };
 }

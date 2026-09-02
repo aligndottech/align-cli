@@ -125,6 +125,10 @@ describe('isDecisionCommit rejects every listed mechanical prefix (ALI-827: one 
     expect(isDecisionCommit('x'.repeat(MIN_DECISION_SUBJECT_CHARS - 1))).toBe(false);
     expect(isDecisionCommit('x'.repeat(MIN_DECISION_SUBJECT_CHARS))).toBe(true);
   });
+  it('measures the floor on the trimmed subject, so padding cannot clear it (Copilot, #240)', () => {
+    expect(isDecisionCommit(`${'x'.repeat(MIN_DECISION_SUBJECT_CHARS - 1)}      `)).toBe(false);
+    expect(isDecisionCommit(`  ${'x'.repeat(MIN_DECISION_SUBJECT_CHARS)}  `)).toBe(true);
+  });
 });
 
 describe('isDecisionCommit', () => {

@@ -1,8 +1,8 @@
 /**
  * ALI-827: how each connector is named in the capture report, and what one of its items
  * IS. One writer for two readers - `align setup` (buildSources) and every
- * `align import <x>` - so "PRs and issues" cannot become "PRs and issues" in one and
- * "items" in the other (code-style.md, two writers of one fact). A count with no noun is
+ * `align import <x>` - so one command cannot say "PRs and issues" while another says
+ * "items" for the same connector (code-style.md, two writers of one fact). A count with no noun is
  * a number nobody can check, which is why the noun is a required half of every entry.
  *
  * Keyed by connector id, the same id `src/commands/import/<id>.ts` carries; a parity

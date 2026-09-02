@@ -246,9 +246,16 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     );
     mockGit(null);
 
-    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    const { items, report } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title)).toEqual(['Database']);
+    // ALI-827 (Copilot on #240): the drop is a real, measured skip, so the capture report
+    // names it. The headingless "# My Project" preamble is dropped too and NOT counted -
+    // nobody wrote that as a section. scanned = the two headed sections.
+    expect(report).toEqual({
+      scanned: 2,
+      skips: [{ count: 1, detail: 'sections under 20 characters (a bare heading or a one-line pointer)' }],
+    });
   });
 
   it('reads both CLAUDE.md and AGENTS.md when both exist', async () => {
@@ -347,6 +354,21 @@ describe('fetchDocsItems - limit and combination', () => {
 
     expect(items).toHaveLength(1);
     expect(report).toEqual({ scanned: 1, requested: 1, skips: [] });
+  });
+
+  it('leaves the cap out at exact equality on the full read: everything was read and nothing was cut', async () => {
+    // One ADR and one section against a limit of 2. Unlike the ADRs-fill-it case above,
+    // CLAUDE.md WAS opened, so there is nothing unread and "of up to 2" would be false.
+    repo = mkdtempSync(join(tmpdir(), 'align-827-'));
+    mkdirSync(join(repo, 'docs', 'adr'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'adr', '1.md'), '# ADR One\n\nBecause reasons that are long enough here.');
+    writeFileSync(join(repo, 'CLAUDE.md'), '# Proj\n\n## Database\n\nWe use Postgres for the decision store.');
+    mockGit(null);
+
+    const { items, report } = await fetchDocsItems({ limit: 2, cwd: repo });
+
+    expect(items).toHaveLength(2);
+    expect(report).toEqual({ scanned: 2, skips: [] });
   });
 
   it('leaves the cap out when the repo ran out before the limit did', async () => {
