@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.32.1](https://github.com/aligndottech/align-cli/compare/cli-v0.32.0...cli-v0.32.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* **e2e:** update the git-import assertion for ALI-794's summary line and ALI-804's rationale gate ([#228](https://github.com/aligndottech/align-cli/issues/228)) ([d08d52c](https://github.com/aligndottech/align-cli/commit/d08d52ccb900a0bfbbf6e5cb119b8812efdcc98e))
+* **release:** add the missing `done` to the promote workflow's retry loop ([#230](https://github.com/aligndottech/align-cli/issues/230)) ([a29c8f7](https://github.com/aligndottech/align-cli/commit/a29c8f7b95a41dde8fcb40d68600bad16e7ea866))
+
 ## [0.32.0](https://github.com/aligndottech/align-cli/compare/cli-v0.31.2...cli-v0.32.0) (2026-09-02)
 
 
