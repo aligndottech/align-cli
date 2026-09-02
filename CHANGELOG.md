@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.32.2](https://github.com/aligndottech/align-cli/compare/cli-v0.32.1...cli-v0.32.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* **local:** converge the config directory conf actually uses with the one every doc claims ([#231](https://github.com/aligndottech/align-cli/issues/231)) ([bfdb1ee](https://github.com/aligndottech/align-cli/commit/bfdb1eeff55a439d2f58a0c5b9cf5341b81379fa))
+* **local:** never let a synthesised answer contain an em-dash ([#232](https://github.com/aligndottech/align-cli/issues/232)) ([4320f8d](https://github.com/aligndottech/align-cli/commit/4320f8d49067c9997a0fd005f950d2d7e3a1fadb))
+
 ## [0.32.1](https://github.com/aligndottech/align-cli/compare/cli-v0.32.0...cli-v0.32.1) (2026-09-02)
 
 
