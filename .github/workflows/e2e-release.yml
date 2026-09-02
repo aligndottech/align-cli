@@ -174,7 +174,17 @@ jobs:
               echo "MISSING: $3 (pattern: $2)"; fail=1
             fi
           }
-          expect "$RUNNER_TEMP/setup.log" "Imported 3 decisions" "all three decision commits imported (merge promoted, noise dropped)"
+          # ALI-794's value phase runs git import in quiet mode ("Git: N decisions..."),
+          # replacing the old "Imported N decisions from Git" line this used to match.
+          #
+          # 2, not 3: ALI-804's hasStatedRationale gate correctly drops the underlying
+          # "feat: add rate limiting..." commit on the merged branch - it has no BODY of
+          # its own (single -m, no rationale), only its promoted merge does. The merge
+          # commit is exempt from the rationale check (a promoted merge's subject already
+          # came from a real body line) and is kept; the bare "short subject" commit stays
+          # dropped as designed. Net: JWT (real body) + merge (promoted) = 2 kept of 4 raw
+          # commits, verified against the real filter function before this was written.
+          expect "$RUNNER_TEMP/setup.log" "Git: 2 decision" "the JWT commit plus the promoted merge imported (bare merge-branch commit and noise both correctly dropped)"
           expect "$RUNNER_TEMP/setup.log" "align MCP connected" "agent wiring ran"
           expect "$RUNNER_TEMP/ask.log" "switch to JWT" "ask answered with the decision"
           expect "$RUNNER_TEMP/ask.log" "ALI-123" "the commit BODY reached the answer (ALI-792)"
