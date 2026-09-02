@@ -65,6 +65,13 @@ describe('normaliseDecidedAt', () => {
     expect(normaliseDecidedAt('0000-01-01T00:00:00Z')).toBeNull();
     expect(normaliseDecidedAt('2026-03-01')).toBe('2026-03-01T00:00:00.000Z');
   });
+
+  it('treats the epoch itself as unknown, and the instant after it as a date (Copilot on #242)', () => {
+    // Epoch zero is what an unset numeric timestamp renders as, so it is rejected on
+    // purpose, matching connector-core's toIsoOrUndefined. One second later is a date.
+    expect(normaliseDecidedAt('1970-01-01T00:00:00Z')).toBeNull();
+    expect(normaliseDecidedAt('1970-01-01T00:00:01Z')).toBe('1970-01-01T00:00:01.000Z');
+  });
 });
 
 describe('the decided_at column', () => {

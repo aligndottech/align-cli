@@ -99,8 +99,12 @@ export function normaliseDecidedAt(value: string | null | undefined): string | n
   // ISO-8601 instant (git's %aI, the SDK's toIsoOrUndefined), so require that shape.
   if (!/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
   const ms = Date.parse(value);
-  // Year 0000 parses to a negative instant that Postgres rejects and no source emits.
-  if (Number.isNaN(ms) || ms < 0) return null;
+  // `<= 0`, deliberately including the epoch itself: 1970-01-01T00:00:00Z is what an unset
+  // numeric timestamp renders as (a zeroed field, a Slack `ts` of '0'), so it is the one
+  // date most likely to be a fabrication with a plausible face - connector-core's
+  // toIsoOrUndefined rejects it for the same reason. Year 0000 is the negative case
+  // Postgres rejects outright. No real decision was made at either instant.
+  if (Number.isNaN(ms) || ms <= 0) return null;
   return new Date(ms).toISOString();
 }
 
