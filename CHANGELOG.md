@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.1](https://github.com/aligndottech/align-cli/compare/cli-v0.33.0...cli-v0.33.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **ask:** keep the spinner up for the whole answer, and restore isTTY in a leaky test ([#239](https://github.com/aligndottech/align-cli/issues/239)) ([7ac6f27](https://github.com/aligndottech/align-cli/commit/7ac6f275153018e77cce8a8e43bc61349abd70e0))
+* **e2e:** assert the kept commit count, not a coin-flip link between two unrelated commits ([#246](https://github.com/aligndottech/align-cli/issues/246)) ([b462d1f](https://github.com/aligndottech/align-cli/commit/b462d1fac1e5a8446996d5ea65589155884152ca))
+
 ## [0.33.0](https://github.com/aligndottech/align-cli/compare/cli-v0.32.2...cli-v0.33.0) (2026-09-02)
 
 
