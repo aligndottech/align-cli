@@ -35,8 +35,10 @@ const AUTH_EXPIRY_PATTERNS: RegExp[] = [
  * skipping the connector. Recognizing the various provider phrasings keeps the
  * reconnect prompt working for every connector without a connector-core release.
  *
- * Only consulted in the OAuth setup path (gated on source.oauthKey), so it never
- * changes the manual `align import <x> --token` error text.
+ * Consulted in the OAuth setup path (gated on source.oauthKey) and, since the
+ * additive local re-run, for a SAVED local token that was reused and rejected, so
+ * the dead token is forgotten. Never consulted for a freshly pasted token, so the
+ * manual `align import <x> --token` error text is unchanged.
  */
 export function isAuthExpiry(err: unknown): boolean {
   if (err instanceof AuthExpiredError || err instanceof FetcherAuthError) return true;

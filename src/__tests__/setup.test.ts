@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { AuthExpiredError } from '../lib/errors.js';
+import type * as RepoIdentity from '../lib/repo-identity.js';
 
 // ---- Hoisted mock state (must be hoisted so vi.mock factories can reference them) ----
 
@@ -112,6 +113,14 @@ vi.mock('../lib/local-mode.js', () => ({
   initLocalMode: mockInitLocalMode,
 }));
 
+// The repo the CLI is standing in, as the value phase resolves it. Pinned rather than
+// derived through the mocked lib/git.js above, which has no getRepoRoot.
+const mockCurrentRepoIdentity = vi.hoisted(() => vi.fn().mockResolvedValue('github.com/o/r'));
+vi.mock('../lib/repo-identity.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof RepoIdentity>()),
+  currentRepoIdentity: mockCurrentRepoIdentity,
+}));
+
 // ALI-794: the found-summary reads the local db directly (createLocalDb), separately
 // from the mocked ingest client above. Mocked here too, or every test that imports git
 // via --local opens a REAL sqlite file at the fixed dbPath the mocks share - across many
@@ -129,6 +138,11 @@ const mockLocalDb = vi.hoisted(() => ({
   listDecisions: () => [],
   listLinks: () => [],
   getAllRefs: vi.fn(() => [] as Array<{ decisionId: string; ref: string; platform: string }>),
+  // Additive re-run: what the value phase reads BEFORE scanning git and docs. Empty by
+  // default so every pre-existing test keeps scanning, exactly as a first run does.
+  listRepos: vi.fn(() => [] as string[]),
+  gitDecisionCount: vi.fn(() => 0),
+  hasDocsForRepo: vi.fn(() => false),
   close: mockLocalDbClose,
 }));
 const mockCreateLocalDb = vi.hoisted(() => vi.fn(() => mockLocalDb));
@@ -233,6 +247,12 @@ describe('align setup', () => {
     mockMultiselect.mockResolvedValue([]);
     mockConfirm.mockResolvedValue(false);
     mockExeca.mockResolvedValue({ stdout: '/usr/local/bin/align' });
+    // clearAllMocks clears calls, not implementations: a mockReturnValue set by one test
+    // would otherwise leak a "repo already known" state into every test after it.
+    mockLocalDb.listRepos.mockReturnValue([]);
+    mockLocalDb.gitDecisionCount.mockReturnValue(0);
+    mockLocalDb.hasDocsForRepo.mockReturnValue(false);
+    mockCurrentRepoIdentity.mockResolvedValue('github.com/o/r');
   });
 
   afterEach(() => {
@@ -646,11 +666,14 @@ describe('align setup', () => {
     // every run: setup collected credentials, used them for one fetch and dropped them. The
     // storage API already existed and setup never called it.
     describe('saved read-only tokens', () => {
-      it('imports from a saved connector without asking for anything', async () => {
+      it('re-imports a connected connector with its saved token when it is selected and the reuse is confirmed', async () => {
+        // Selecting a connected connector is the re-import gesture; confirming keeps the
+        // saved token, so nothing is pasted.
         mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
           key === 'github' ? { token: 'ghp_saved_last_time' } : null,
         );
-        mockMultiselect.mockResolvedValueOnce([]);
+        mockMultiselect.mockResolvedValueOnce(['github']);
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
         const { password } = await import('@clack/prompts');
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
 
@@ -660,6 +683,208 @@ describe('align setup', () => {
           expect.objectContaining({ token: 'ghp_saved_last_time' }),
         );
         expect(password).not.toHaveBeenCalled();
+      });
+
+      it('re-imports a connected Atlassian connector with its saved email, domain and token', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'jira' ? { token: 'atl_saved', email: 'ada@x.io', domain: 'acme.atlassian.net' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['jira']);
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
+        const { password, text } = await import('@clack/prompts');
+        const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(fetchJiraItems).toHaveBeenCalledWith(
+          expect.objectContaining({ token: 'atl_saved', email: 'ada@x.io', domain: 'acme.atlassian.net' }),
+        );
+        expect(password).not.toHaveBeenCalled();
+        expect(text).not.toHaveBeenCalled();
+      });
+
+      it('replaces the saved token when the reuse is declined, saving the new one only after its fetch succeeds', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['github']);
+        mockConfirm.mockImplementation(async () => false);
+        const { password } = await import('@clack/prompts');
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(password).toHaveBeenCalled();
+        expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
+        expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'github', expect.objectContaining({ token: 'test-token' }));
+      });
+
+      it('keeps the old token when the replacement fetch fails', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['github']);
+        mockConfirm.mockImplementation(async () => false);
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+        (fetchGitHubItems as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('401 Bad credentials'));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(mockSaveConnectorFields).not.toHaveBeenCalled();
+        expect(mockForgetConnector).not.toHaveBeenCalled(); // a failed PASTE says nothing about the saved token
+      });
+
+      it('--approve re-imports a selected connected connector without asking', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['github']);
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+
+        // Other confirms in the flow are not this test's subject; the reuse question must not be asked.
+        const asked = mockConfirm.mock.calls.map((c: unknown[]) => String((c[0] as { message?: string })?.message));
+        expect(asked.filter((m) => /re-import/i.test(m))).toEqual([]);
+        expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'ghp_saved_last_time' }));
+      });
+
+      it('a freshly pasted Atlassian token wins over the saved one on the sibling, and is not asked about', async () => {
+        // One id.atlassian.com token is one fact. Replace it via Jira and the Confluence run in
+        // the same pass uses the NEW token; asking "re-import Confluence with its saved token"
+        // would offer the dead one. A fresh-context review caught the first cut doing that.
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'jira' || key === 'confluence' ? { token: 'old', email: 'ada@x.io', domain: 'acme.atlassian.net' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']);
+        mockConfirm.mockImplementation(async (o: { message?: string }) => !/Jira/.test(String(o?.message)));
+        const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
+        const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(fetchJiraItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
+        expect(fetchConfluenceItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
+        const asked = mockConfirm.mock.calls.map((c: unknown[]) => String((c[0] as { message?: string })?.message));
+        expect(asked.some((m) => /re-import jira/i.test(m))).toBe(true);
+        expect(asked.some((m) => /re-import confluence/i.test(m))).toBe(false);
+      });
+
+      it('without a terminal, a re-run still names what is connected and that it was left alone', async () => {
+        // A scripted re-run has no picker, so it does no connector work; silence there would
+        // read as a broken tool. The disclosure is a log line, not a prompt, so it needs no TTY.
+        Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        const { log } = await import('@clack/prompts');
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+
+        expect(fetchGitHubItems).not.toHaveBeenCalled();
+        const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+        expect(said).toMatch(/connected/i);
+        expect(said).toMatch(/GitHub/);
+        expect(said).toMatch(/align import github --env local/);
+      });
+
+      it('defaults the re-import question to No for Teams, whose Graph token lasts about an hour', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'teams' ? { token: 'graph_saved_yesterday' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['teams']);
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        const teamsAsk = mockConfirm.mock.calls.map((c: unknown[]) => c[0] as { message?: string; initialValue?: boolean })
+          .find((o) => /Teams/.test(String(o?.message)));
+        expect(teamsAsk).toBeDefined();
+        expect(teamsAsk!.initialValue).toBe(false);
+        expect(String(teamsAsk!.message)).toMatch(/hour/i);
+      });
+
+      it('defaults the re-import question to Yes for a long-lived token such as a GitHub PAT', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['github']);
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        const ask = mockConfirm.mock.calls.map((c: unknown[]) => c[0] as { message?: string; initialValue?: boolean })
+          .find((o) => /GitHub/.test(String(o?.message)));
+        expect(ask).toBeDefined();
+        expect(ask!.initialValue).toBe(true);
+      });
+
+      it('forgets a reused token the provider rejects as expired, and says so', async () => {
+        // A dead token left saved keeps the connector "connected" forever and hides the gap
+        // line the graph would otherwise print. Auth expiry is the one failure that proves
+        // the token itself is the problem; a network error is not.
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['github']);
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+        (fetchGitHubItems as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('GitHub auth failed (401). Check your token has repo scope.'));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(mockForgetConnector).toHaveBeenCalledWith('local', 'github');
+        const stops = spinnerInstances.flatMap((s) => s.stop.mock.calls.map((c) => String(c[0])));
+        expect(stops.some((m) => /forgotten/i.test(m))).toBe(true);
+      });
+
+      it('keeps a reused token when the failure is not about the token', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['github']);
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+        (fetchGitHubItems as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fetch failed: ECONNRESET'));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(mockForgetConnector).not.toHaveBeenCalled();
+      });
+
+      it('marks connected connectors in the picker and leaves the others with their description', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce([]);
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        const picker = mockMultiselect.mock.calls.find(
+          (c: any[]) => c[0]?.message?.toLowerCase().includes('read-only token'),
+        )!;
+        const options = picker[0].options as Array<{ value: string; hint: string }>;
+        expect(options.find((o) => o.value === 'github')?.hint).toMatch(/connected/i);
+        expect(options.find((o) => o.value === 'linear')?.hint).not.toMatch(/connected/i);
+        expect(options.find((o) => o.value === 'linear')?.hint).toMatch(/\S/);
+      });
+
+      it('marks nothing as connected on a first run, and every option still carries a hint', async () => {
+        // The positive control for the assertion above: hints exist, and none says connected.
+        mockGetConnectorFields.mockReturnValue(null);
+        mockMultiselect.mockResolvedValueOnce([]);
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        const picker = mockMultiselect.mock.calls.find(
+          (c: any[]) => c[0]?.message?.toLowerCase().includes('read-only token'),
+        )!;
+        const options = picker[0].options as Array<{ value: string; hint: string }>;
+        expect(options.length).toBeGreaterThan(3);
+        for (const o of options) {
+          expect(o.hint).toMatch(/\S/);
+          expect(o.hint).not.toMatch(/connected/i);
+        }
       });
 
       it('says which connectors it is using saved tokens for', async () => {
@@ -676,7 +901,7 @@ describe('align setup', () => {
         const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
           .map((c: unknown[]) => String(c[0]))
           .join('\n');
-        expect(said).toMatch(/saved read-only token/i);
+        expect(said).toMatch(/connected/i);
         expect(said).toMatch(/GitHub/);
       });
 
@@ -706,9 +931,10 @@ describe('align setup', () => {
         expect(mockSaveConnectorFields).not.toHaveBeenCalled();
       });
 
-      // Cancelling the picker (Esc) and submitting it empty ("skip to finish") are different
-      // intents, and the saved-token path is the first thing in this flow that can tell them
-      // apart. The pair is asserted together because one without the other passes trivially.
+      // Cancelling the picker (Esc) and submitting it empty ("skip to finish") arrive as
+      // different values. Since the additive rule (2026-09-03) neither touches a connected
+      // connector, so the pair now pins the same outcome from two inputs; kept so a future
+      // change that treats one of them as "re-import everything" goes red.
       it('imports nothing when the picker is CANCELLED, even with tokens saved', async () => {
         const cancelled = Symbol('cancel');
         mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
@@ -724,18 +950,38 @@ describe('align setup', () => {
         expect(fetchGitHubItems).not.toHaveBeenCalled();
       });
 
-      it('still imports saved connectors when the picker is SKIPPED (submitted empty)', async () => {
+      it('leaves connected connectors alone when the picker is SKIPPED (submitted empty)', async () => {
+        // The additive rule (Tom, 2026-09-03): a re-run adds what you pick and touches
+        // nothing else. Until this, every saved connector was re-fetched on every run.
         mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
           key === 'github' ? { token: 'ghp_saved_last_time' } : null,
         );
         mockMultiselect.mockResolvedValueOnce([]);
+        const { password } = await import('@clack/prompts');
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
 
         await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
 
-        expect(fetchGitHubItems).toHaveBeenCalledWith(
-          expect.objectContaining({ token: 'ghp_saved_last_time' }),
+        expect(fetchGitHubItems).not.toHaveBeenCalled();
+        expect(password).not.toHaveBeenCalled();
+      });
+
+      it('adds only the newly picked connector beside two connected ones', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' || key === 'slack' ? { token: `saved_${key}` } : null,
         );
+        mockMultiselect.mockResolvedValueOnce(['linear']);
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+        const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
+        const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(fetchLinearItems).toHaveBeenCalled();
+        expect(fetchGitHubItems).not.toHaveBeenCalled();
+        expect(fetchSlackItems).not.toHaveBeenCalled();
+        expect(mockSaveConnectorFields).toHaveBeenCalledTimes(1);
+        expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'linear', expect.anything());
       });
 
       it('tells the user where the tokens are kept and how to remove them', async () => {
@@ -883,16 +1129,98 @@ describe('align setup', () => {
       expect(mockWhoami).not.toHaveBeenCalled();
     });
 
-    it('--local does NOT offer Teams or Zoom (no personal token)', async () => {
+    it('--local offers Teams with a pasted Graph token, and still not Zoom (no personal token)', async () => {
+      // Teams used to be excluded from local setup, so "re-run setup and add Teams" was
+      // impossible by construction; the only path was align import teams --token, which
+      // saved nothing. A Graph access token from Graph Explorer is a token a person can
+      // mint themselves, which is the local-mode rule.
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
       const connectorCall = mockMultiselect.mock.calls.find(
         (c: any[]) => c[0]?.message?.toLowerCase().includes('read-only token'),
       );
       expect(connectorCall).toBeDefined();
       const values = (connectorCall![0].options as Array<{ value: string }>).map((o) => o.value);
-      expect(values).not.toContain('teams');
+      expect(values).toContain('teams');
       expect(values).not.toContain('zoom');
       expect(values).toEqual(expect.arrayContaining(['github', 'jira', 'linear', 'gitlab', 'notion']));
+    });
+
+    it('--local connects Teams by pasting a Graph token, pointing the browser at Graph Explorer', async () => {
+      mockMultiselect.mockResolvedValueOnce(['teams']);
+      const { password } = await import('@clack/prompts');
+      const { fetchTeamsItems } = await import('../lib/fetchers/teams.js');
+      const open = (await import('open')).default;
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+      expect(open).toHaveBeenCalledWith(expect.stringContaining('graph-explorer'));
+      expect(password).toHaveBeenCalled();
+      expect(fetchTeamsItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
+      expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'teams', expect.objectContaining({ token: 'test-token' }));
+    });
+
+    // Additive re-run, the value phase: git and docs are the first-run value moment and
+    // are skipped once this repo is already in the graph, with the refresh command named.
+    describe('re-run skips what this repo already gave the graph', () => {
+      it('does not re-scan git when this repo is already in the graph, and names the refresh command', async () => {
+        mockLocalDb.gitDecisionCount.mockReturnValue(219);
+        const { getCommitHistoryDetailed } = await import('../lib/git.js');
+        const { log } = await import('@clack/prompts');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(getCommitHistoryDetailed).not.toHaveBeenCalled();
+        const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+        expect(said).toMatch(/219 decisions/);
+        expect(said).toMatch(/github\.com\/o\/r/);
+        expect(said).toMatch(/align import git --env local/);
+      });
+
+      it('still scans git when the graph holds no GIT rows for this repo, whatever else it holds', async () => {
+        // A GitHub PR captured by hand stamps the same repo; that is not a scanned history.
+        mockLocalDb.listRepos.mockReturnValue(['github.com/o/r']);
+        mockLocalDb.gitDecisionCount.mockReturnValue(0);
+        const { getCommitHistoryDetailed } = await import('../lib/git.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(getCommitHistoryDetailed).toHaveBeenCalled();
+        expect(mockLocalDb.gitDecisionCount).toHaveBeenCalledWith('github.com/o/r');
+      });
+
+      it('does not re-read repo docs when this repo\'s docs are already in the graph', async () => {
+        mockLocalDb.hasDocsForRepo.mockReturnValue(true);
+        const { fetchDocsItems } = await import('../lib/fetchers/docs.js');
+        const { log } = await import('@clack/prompts');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(fetchDocsItems).not.toHaveBeenCalled();
+        const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+        expect(said).toMatch(/align import docs --env local/);
+      });
+
+      it('still reads repo docs when the graph has the repo\'s git history but no docs from it', async () => {
+        mockLocalDb.gitDecisionCount.mockReturnValue(219);
+        mockLocalDb.hasDocsForRepo.mockReturnValue(false);
+        const { fetchDocsItems } = await import('../lib/fetchers/docs.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(fetchDocsItems).toHaveBeenCalled();
+      });
+
+      it('outside a git repo, neither the graph lookup nor the git scan runs', async () => {
+        // currentRepoIdentity is the one git call now; null is its "not a repo" answer.
+        const { getCommitHistoryDetailed } = await import('../lib/git.js');
+        mockCurrentRepoIdentity.mockResolvedValueOnce(null);
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(getCommitHistoryDetailed).not.toHaveBeenCalled();
+        expect(mockLocalDb.gitDecisionCount).not.toHaveBeenCalled();
+        expect(mockCurrentRepoIdentity).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('defaults the interactive intent prompt to the cloud personal path (not local)', async () => {

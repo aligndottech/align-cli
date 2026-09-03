@@ -539,6 +539,33 @@ export function createLocalDb(dbPath: string) {
         .all() as Array<{ repo: string }>).map((r) => r.repo);
     },
 
+    /** How many GIT decisions carry this repo stamp. A setup re-run asks before re-scanning
+     *  git, so the graph rather than a memory of the last run decides. Git rows only: every
+     *  hosted code URL stamps its repo (a PR captured by hand is still code), and a graph
+     *  holding twelve PRs and no commits has not had its history scanned. */
+    gitDecisionCount(repo: string): number {
+      const row = db.prepare(`SELECT COUNT(*) AS n FROM decisions WHERE repo = ? AND platform = 'git'`).get(repo) as { n: number };
+      return row.n;
+    },
+
+    /** Whether any repo-docs row (an ADR, a CLAUDE.md section) came from this repo. Docs rows
+     *  carry no repo stamp, because a blob URL is not a commit/pull/issue URL, so this reads
+     *  the URL the docs importer builds: <host>/<owner>/<repo>/blob/... on GitHub and
+     *  <host>/<owner>/<repo>/-/blob/... on GitLab. The slashes on both sides keep `o/r` from
+     *  matching `xo/r` or `o/r2`; `_` and `%` are escaped because LIKE reads them as wildcards.
+     *  A repo with no hosted remote writes git://blob/... URLs that name no repo, so the answer
+     *  there is no, and its docs are re-read (a few files, idempotent). Case-insensitive, as
+     *  repo identities are. */
+    hasDocsForRepo(repo: string): boolean {
+      const literal = repo.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`);
+      const row = db.prepare(
+        `SELECT 1 AS hit FROM decisions WHERE platform = 'docs'
+           AND (lower(source_url) LIKE '%/' || ? || '/blob/%' ESCAPE '\\'
+             OR lower(source_url) LIKE '%/' || ? || '/-/blob/%' ESCAPE '\\') LIMIT 1`,
+      ).get(literal, literal) as { hit: number } | undefined;
+      return row !== undefined;
+    },
+
     setEmbedding(decisionId: string, embedding: Float32Array): void {
       db.prepare(
         `INSERT OR REPLACE INTO decision_embeddings (decision_id, embedding) VALUES (?, ?)`
