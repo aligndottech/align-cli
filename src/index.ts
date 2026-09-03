@@ -11,6 +11,8 @@ import { registerImportCommand } from './commands/import.js';
 import { registerSearchCommand } from './commands/search.js';
 import { registerCheckCommand } from './commands/check.js';
 import { registerAdjudicateCommand } from './commands/adjudicate.js';
+import { registerRatifyCommand } from './commands/ratify.js';
+import { registerPushCommand } from './commands/push.js';
 import { registerMcpCommand } from './commands/mcp.js';
 import { registerLocalCommand } from './commands/local.js';
 import { registerDecisionsCommand } from './commands/decisions/index.js';
@@ -109,6 +111,9 @@ registerContextCommand(program);
 // Customer: CI/alignment check
 registerCheckCommand(program);
 registerAdjudicateCommand(program);
+// ALI-831: agent decisions as claims - the human act, and the per-item promotion after it.
+registerRatifyCommand(program);
+registerPushCommand(program);
 
 // Customer: MCP server
 registerMcpCommand(program);

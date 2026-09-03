@@ -244,6 +244,25 @@ export async function getRemoteUrl(opts: { cwd?: string } = {}): Promise<string 
 }
 
 /**
+ * ALI-831: who is at this keyboard, for `ratified_by` on the local graph. Email first, then
+ * name, because the email is what the cloud's `ratified_by` (a user id resolved from a
+ * login) most nearly corresponds to when the row is later pushed. Null when git knows
+ * neither; the caller falls back to the OS user rather than writing an empty string, since
+ * an unattributed ratification is exactly the record this column exists to prevent.
+ */
+export async function getGitIdentity(opts: { cwd?: string } = {}): Promise<string | null> {
+  for (const key of ['user.email', 'user.name']) {
+    try {
+      const { stdout } = await execa('git', ['config', '--get', key], opts.cwd ? { cwd: opts.cwd } : {});
+      if (stdout.trim()) return stdout.trim();
+    } catch {
+      // unset, or not a git repo: try the next key
+    }
+  }
+  return null;
+}
+
+/**
  * The absolute repo root, for the ALI-798 fallback identity when a repo has no
  * remote (or one `repoFromRemoteUrl` does not recognise): a self-hosted GHES, or a
  * repo that has never been pushed. `--show-toplevel` always returns an absolute

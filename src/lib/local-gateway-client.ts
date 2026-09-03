@@ -1,4 +1,5 @@
-import { createLocalDb, normaliseDecidedAt } from './local-db.js';
+import { createLocalDb, type DecisionRow, normaliseDecidedAt } from './local-db.js';
+import { deriveDeciderKind } from './decider-kind.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
 import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
@@ -88,6 +89,20 @@ export const RELATED_FLOOR = RELATES_THRESHOLD;
 // Below this similarity between a decision and new content, the content is
 // considered to have drifted from the decision.
 export const DRIFT_THRESHOLD = 0.5;
+
+/**
+ * ALI-831: the provenance every decision payload carries, in wire spelling, so an agent
+ * reading this server can tell a claim from a rule. `ratified` is a boolean beside the
+ * stamp rather than instead of it: a consumer branches on the boolean and cites the stamp.
+ * A NULL column (a row from before the column existed) reads 'unknown', never a guess.
+ */
+function provenanceOf(row: Pick<DecisionRow, 'deciderKind' | 'ratifiedBy' | 'ratifiedAt'>) {
+  return {
+    decider_kind: row.deciderKind ?? 'unknown',
+    ratified: row.ratifiedAt !== null,
+    ...(row.ratifiedAt ? { ratified_at: row.ratifiedAt, ratified_by: row.ratifiedBy } : {}),
+  };
+}
 
 export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: string } = {}) {
   const db = createLocalDb(dbPath);
@@ -224,7 +239,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.
     const decidedAt = normaliseDecidedAt(opts.createdAt);
-    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt });
+    // ALI-831: origin, from the platform - the same rule the cloud applies on insert.
+    const deciderKind = deriveDeciderKind(platform);
+    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind });
     db.replaceRefs(id, refs);
     // ALI-796's payoff: if some earlier decision already cited THIS one (a git commit
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
@@ -267,7 +284,15 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
 
     async captureDecision(input: string, platform = 'cli') {
       const r = await ingestOne(input, platform);
-      return { id: r.id, title: r.title, summary: r.summary, sourceUrl: r.sourceUrl, platform: r.platform, related: r.related.map(c => c.decisionId) };
+      // ALI-831: provenanceOf needs the stored row, not ingestOne's return shape (which has
+      // no ratifiedAt/ratifiedBy) - a fresh capture is always unratified, but reading it back
+      // rather than asserting it keeps this one writer honest if that ever stops being true.
+      const row = db.getDecisionById(r.id);
+      return {
+        id: r.id, title: r.title, summary: r.summary, sourceUrl: r.sourceUrl, platform: r.platform,
+        related: r.related.map(c => c.decisionId),
+        ...(row ? provenanceOf(row) : {}),
+      };
     },
 
     async ingestBatch(items: Array<{ source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string }>) {
@@ -327,6 +352,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         source_url: row.sourceUrl,
         created_at: row.createdAt,
         ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
+        ...provenanceOf(row),
         external_references: db.getRefs(row.id),
         spaces: [] as unknown[],
       };
@@ -338,10 +364,12 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     //
     // ALI-798: `repo`/`all` mirror searchDecisions' scope resolution - naming neither
     // defaults to the current repo (+ unattributed rows) when one exists.
-    async listDecisions(params: { limit?: number; repo?: string; all?: boolean } = {}) {
+    async listDecisions(params: { limit?: number; repo?: string; all?: boolean; unratified?: boolean } = {}) {
       const limit = params.limit ?? 200;
       const { dbFilter } = await resolveScope({ repo: params.repo, all: params.all });
-      return db.listDecisions(dbFilter).slice(0, limit).map((row) => {
+      // ALI-831: the human queue - agent-decided rows no human has ratified.
+      const filter = params.unratified ? { ...dbFilter, unratified: true } : dbFilter;
+      return db.listDecisions(filter).slice(0, limit).map((row) => {
         const cite = localCitationFor(row.sourceUrl);
         return {
           id: row.id,
@@ -355,8 +383,29 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
           ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
           ...(cite ? { cite } : {}),
+          ...provenanceOf(row),
         };
       });
+    },
+
+    /**
+     * ALI-831: the human act, local half. The TTY guard that makes it a HUMAN act lives in
+     * the command (`align ratify`), the way the cloud's 403 lives in its use case: this
+     * method trusts its caller's `ratifiedBy`. First ratification stands (markRatified is
+     * guarded by `ratified_at IS NULL`), and only a real write records an audit row.
+     */
+    async ratifyDecision(id: string, opts: { ratifiedBy: string }) {
+      const before = db.getDecisionById(id);
+      if (!before) {
+        throw new Error(`No decision ${id} in your local graph. \`align decisions list\` shows what is there.`);
+      }
+      const stamp = db.markRatified(id, opts.ratifiedBy);
+      if (!stamp) {
+        // Already ratified (the guard refused the write): report the standing state.
+        return { alreadyRatified: true, ratifiedBy: before.ratifiedBy, ratifiedAt: before.ratifiedAt };
+      }
+      db.insertAudit({ decisionId: id, action: 'ratified', actor: opts.ratifiedBy });
+      return { alreadyRatified: false, ratifiedBy: opts.ratifiedBy, ratifiedAt: stamp.ratifiedAt };
     },
 
     async searchDecisions(query: string, limit = 10, scope?: { repo?: string; all?: boolean }): Promise<SearchResults> {
@@ -400,6 +449,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             // Absent beats fabricated - a wrong link looks clickable.
             // ALI-796: what this decision cites, so `align ask` can name a gap.
             external_references: db.getRefs(row.id),
+            ...provenanceOf(row),
           };
         })
         .filter((d): d is NonNullable<typeof d> => d !== null);
@@ -459,6 +509,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             summary: c.summary,
             similarity: c.score,
             url: c.sourceUrl ?? undefined,
+            ...provenanceOf(c),
           })),
           conflicts: [],
           message: `Found ${candidates.length} related decision(s) - retrieval only, not adjudicated.`,
@@ -489,6 +540,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           title: c.title,
           summary: c.summary,
           url: c.sourceUrl ?? undefined,
+          provenance: provenanceOf(c),
           relationship: rel?.type ?? 'relates', // ALI-219: canonical (was 'relates_to')
           confidence: rel?.confidence ?? c.score,
           typed: rel !== null,
@@ -502,7 +554,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         });
       }
 
-      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url }));
+      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, ...t.provenance }));
       const conflicts = typed
         .filter(t => t.relationship === 'conflicts_with' || t.relationship === 'contradicts')
         .map(t => ({
@@ -510,6 +562,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           title: t.title,
           summary: t.summary,
           url: t.url,
+          ...t.provenance,
           reason: t.reason ?? 'Conflicts with an existing decision in your local graph',
           severity: (t.confidence >= 0.8 ? 'critical' : 'warning') as 'critical' | 'warning',
         }));

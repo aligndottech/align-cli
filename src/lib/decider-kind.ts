@@ -28,9 +28,9 @@ export function deriveDeciderKind(platform: string): DeciderKind {
 /** The fields every renderer reads, in wire spelling so a cloud payload and a local row
  *  feed the same function. */
 export interface DeciderProvenance {
-  decider_kind: string | null | undefined;
-  ratified_by: string | null | undefined;
-  ratified_at: string | null | undefined;
+  decider_kind?: string | null;
+  ratified_by?: string | null;
+  ratified_at?: string | null;
 }
 
 /**

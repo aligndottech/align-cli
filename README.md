@@ -84,6 +84,8 @@ align import jira --token ...        # add more sources
 align capture <url>                  # capture one decision from a PR, ticket or thread
 align check                          # check your staged diff against the graph
 align context sync                   # write decisions to .align/decisions.md
+align ratify <id>                     # stand behind an agent-made decision, as a human
+align push <id>                       # send one ratified local decision to the shared graph
 ```
 
 `align ask` needs an AI provider to write prose. Without one it returns the matching decisions

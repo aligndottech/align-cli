@@ -61,6 +61,21 @@ align check                  Check current changes against the decision graph
 align adjudicate <event-id>  Answer a check that reached the judge and declined to rule (cloud)
 ```
 
+## Agent decisions as claims
+
+```
+align ratify <id>            Stand behind an agent-made decision: mark it governing, not
+                             just said. A human act - refuses a hook, a pipe, or any caller
+                             not at a terminal.
+align push <id>               Promote ONE ratified local decision to the shared graph. Per
+                             item, never bulk - run align ratify first.
+```
+
+An agent-made decision enters your local graph as a CLAIM (`decider_kind: agent`), never as
+a fact the next agent treats as settled. `align decisions list --unratified` shows the
+queue; `.align/decisions.md` and the local MCP server both label an unratified claim
+`agent-decided, unratified` so an agent reading either can tell a claim from a rule.
+
 ## Agent wiring
 
 ```

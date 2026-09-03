@@ -67,6 +67,11 @@ export function registerContextCommand(program: Command): void {
           title: d.title,
           ...(localCitationFor(d.source_url) ? { cite: localCitationFor(d.source_url) } : {}),
           ...(d.source_url ? { sourceUrl: d.source_url } : {}),
+          // ALI-831: the fields renderDecisionsFile needs to route an unratified agent claim
+          // into its own section.
+          ...(d.decider_kind ? { deciderKind: d.decider_kind } : {}),
+          ...(d.ratified_by ? { ratifiedBy: d.ratified_by } : {}),
+          ...(d.ratified_at ? { ratifiedAt: d.ratified_at } : {}),
         }));
       } catch (err) {
         spinner.fail(chalk.red(`Could not fetch decisions: ${(err as Error).message}`));

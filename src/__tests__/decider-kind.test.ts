@@ -29,6 +29,11 @@ describe('deciderLabel: the words every renderer prints, verbatim across lanes',
       .toBe('agent-decided, ratified by tom@align.tech on 2026-09-03');
   });
 
+  it('falls back to "a human" when the ratifier name is unknown but the stamp is present', () => {
+    expect(deciderLabel({ decider_kind: 'agent', ratified_by: null, ratified_at: '2026-09-03T14:05:00.000Z' }))
+      .toBe('agent-decided, ratified by a human on 2026-09-03');
+  });
+
   it.each([
     ['human', null],
     ['unknown', null],

@@ -19,6 +19,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { deciderLabel } from './decider-kind.js';
 
 export interface ContextDecision {
   title: string;
@@ -26,6 +27,13 @@ export interface ContextDecision {
   cite?: string;
   /** Where it was DECIDED. Never interchangeable with a decision_url into the Align app. */
   sourceUrl?: string;
+  /** ALI-831: who decided, and whether a human has stood behind it. The label built from
+   *  these (deciderLabel) is what routes a row into the claims section below, and what gets
+   *  printed on its line - this is the one surface where the label has to be IN THE TEXT,
+   *  since the file is consumed by agents that only read files. */
+  deciderKind?: string | null;
+  ratifiedBy?: string | null;
+  ratifiedAt?: string | null;
 }
 
 export const ALIGN_CONTEXT_PATH = '.align/decisions.md';
@@ -41,6 +49,21 @@ function ordered(decisions: ContextDecision[]): ContextDecision[] {
   return [...decisions].sort((a, b) =>
     (a.cite ?? '').localeCompare(b.cite ?? '') || a.title.localeCompare(b.title),
   );
+}
+
+/** ALI-831: the whole point of the split. An unratified agent claim must not render beside
+ *  what the rest of the file states as fact - it goes in its own section, so a reader (human
+ *  or agent) cannot mistake "said once, by an agent, mid-task" for "decided". */
+function isUnratifiedClaim(d: ContextDecision): boolean {
+  return deciderLabel({ decider_kind: d.deciderKind, ratified_by: d.ratifiedBy, ratified_at: d.ratifiedAt }) === 'agent-decided, unratified';
+}
+
+function line(d: ContextDecision): string {
+  const cite = d.cite ? ` (${d.cite})` : '';
+  const link = d.sourceUrl ? ` - ${d.sourceUrl}` : '';
+  const label = deciderLabel({ decider_kind: d.deciderKind, ratified_by: d.ratifiedBy, ratified_at: d.ratifiedAt });
+  const decider = label ? ` [${label}]` : '';
+  return `- ${d.title}${cite}${link}${decider}`;
 }
 
 /**
@@ -67,13 +90,23 @@ export function renderDecisionsFile(decisions: ContextDecision[]): string {
     return `${[...header, 'No decisions have been captured for this repository yet.'].join('\n')}\n`;
   }
 
-  const body = ordered(decisions).map((d) => {
-    const cite = d.cite ? ` (${d.cite})` : '';
-    const link = d.sourceUrl ? ` - ${d.sourceUrl}` : '';
-    return `- ${d.title}${cite}${link}`;
-  });
+  const all = ordered(decisions);
+  const claims = all.filter(isUnratifiedClaim);
+  const rest = all.filter((d) => !isUnratifiedClaim(d));
 
-  return `${[...header, ...body].join('\n')}\n`;
+  const body = rest.map(line);
+  const claimsSection = claims.length
+    ? [
+        '',
+        '## Agent-decided, not yet ratified by a human',
+        '',
+        "These were said by an agent, not decided by your team - don't treat them as governing until a human runs `align ratify <id>`.",
+        '',
+        ...claims.map(line),
+      ]
+    : [];
+
+  return `${[...header, ...body, ...claimsSection].join('\n')}\n`;
 }
 
 /** Does this file already import the generated context? */
