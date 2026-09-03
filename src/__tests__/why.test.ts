@@ -96,6 +96,19 @@ describe('align ask', () => {
     expect(output.some(l => l.includes('adr-003'))).toBe(true);
   });
 
+  it('renders the answer as terminal text: no raw markdown asterisks, no em-dashes', async () => {
+    // Tom, 2026-09-03: `Your team does **not** uniformly fail open` printed verbatim.
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'Your team does **not** fail open—it varies by connector.' });
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'do we fail open']);
+    const printed = output.join('\n');
+    expect(printed).not.toContain('**');
+    expect(printed).not.toContain('\u2014');
+    expect(printed).toContain('not');
+    expect(printed).toContain('fail open - it varies');
+  });
+
   it('falls back to the decision list + a hint when no AI provider is configured', async () => {
     mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'no_provider' } });
     const program = new Command();
