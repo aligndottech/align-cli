@@ -391,8 +391,12 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     /**
      * ALI-831: the human act, local half. The TTY guard that makes it a HUMAN act lives in
      * the command (`align ratify`), the way the cloud's 403 lives in its use case: this
-     * method trusts its caller's `ratifiedBy`. First ratification stands (markRatified is
-     * guarded by `ratified_at IS NULL`), and only a real write records an audit row.
+     * method trusts its caller's `ratifiedBy` and enforces nothing about who is calling.
+     * `commands/ratify.ts` is the only caller allowed to reach this - any future caller
+     * (a new MCP tool, a script) that calls it directly inherits none of the human-only
+     * guarantee, so route a new caller through the command, not around it.
+     * First ratification stands (markRatified is guarded by `ratified_at IS NULL`), and
+     * only a real write records an audit row.
      */
     async ratifyDecision(id: string, opts: { ratifiedBy: string }) {
       const before = db.getDecisionById(id);

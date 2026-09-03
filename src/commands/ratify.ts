@@ -11,6 +11,12 @@
  *
  * Two flags, two acts (Tom, 2026-09-03): confirm is "this was said" and is the session
  * importer's to write; ratify is "this governs" and is only ever written here.
+ *
+ * The TTY check is a strong signal, not a cryptographic guarantee: it says stdin is a real
+ * terminal device, which is what a hook, a pipe, and an ordinary agent-shell tool lack.
+ * A caller that deliberately allocates a pty to fake one is not stopped by this alone -
+ * the same honesty this repo already applies to the cloud's fail-open defaults
+ * (verification.md: "for any control, ask which way it fails when unconfigured").
  */
 import os from 'node:os';
 import type { Command } from 'commander';

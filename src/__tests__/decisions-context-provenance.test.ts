@@ -44,8 +44,13 @@ describe('the claims section', () => {
   });
 
   it('prints no section header at all when nothing is an unratified claim', () => {
+    // A regex is the wrong tool here: the header text contains neither "unratified" nor
+    // "claim" as a literal, so a pattern built from those words cannot detect a regression
+    // that always prints the (empty) section. Match the literal heading instead - verified
+    // by injection: forcing the section to always render reddens this one, where the regex
+    // version stayed green (tdd.md, "an assertion that only a broken subject can fail").
     const out = renderDecisionsFile([RATIFIED, HUMAN]);
-    expect(out.toLowerCase()).not.toMatch(/unratified.*\n-|^##.*claim/im);
+    expect(out).not.toContain('## Agent-decided, not yet ratified by a human');
   });
 
   it('separates the two: a claim in its section, everything else in the main list, both present', () => {
