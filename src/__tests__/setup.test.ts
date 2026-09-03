@@ -1210,15 +1210,16 @@ describe('align setup', () => {
         expect(fetchDocsItems).toHaveBeenCalled();
       });
 
-      it('outside a git repo, neither the repo lookup nor the git scan runs', async () => {
-        const { isGitRepo, getCommitHistoryDetailed } = await import('../lib/git.js');
-        vi.mocked(isGitRepo).mockResolvedValueOnce(false);
+      it('outside a git repo, neither the graph lookup nor the git scan runs', async () => {
+        // currentRepoIdentity is the one git call now; null is its "not a repo" answer.
+        const { getCommitHistoryDetailed } = await import('../lib/git.js');
+        mockCurrentRepoIdentity.mockResolvedValueOnce(null);
 
         await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
 
         expect(getCommitHistoryDetailed).not.toHaveBeenCalled();
-        expect(mockCurrentRepoIdentity).not.toHaveBeenCalled();
         expect(mockLocalDb.gitDecisionCount).not.toHaveBeenCalled();
+        expect(mockCurrentRepoIdentity).toHaveBeenCalledTimes(1);
       });
     });
 

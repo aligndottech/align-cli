@@ -461,12 +461,15 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   // the refresh command named; same for repo docs, read off the blob URLs the docs importer
   // writes. Git rows specifically: a hand-captured PR stamps the same repo and is not a
   // scanned history. A repo the graph has never seen still gets the first-run value moment.
-  const inGitRepo = await isGitRepo();
+  // One git subprocess, not two: currentRepoIdentity is null exactly when this is not a git
+  // repo, and never null inside one (a repo with no remote resolves to its root path), so
+  // it answers isGitRepo as a by-product (Copilot, #249).
+  const repo = await currentRepoIdentity();
+  const inGitRepo = repo !== null;
   let repoKnown = false;
   let docsKnown = false;
   if (inGitRepo) {
-    const repo = await currentRepoIdentity();
-    if (repo !== null) {
+    {
       const knownDb = createLocalDb(dbPath);
       try {
         const gitCount = knownDb.gitDecisionCount(repo);
