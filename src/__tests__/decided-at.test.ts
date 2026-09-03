@@ -83,8 +83,11 @@ describe('normaliseDecidedAt', () => {
 
 describe('the decided_at column', () => {
   // R26b
-  it('is on a fresh database, at schema version 4, with no duplicate-column error', () => {
-    expect(SCHEMA_VERSION).toBe(4);
+  it('is on a fresh database, at schema version 4 or later, with no duplicate-column error', () => {
+    // At least, not exactly: ALI-831 added step 5, and a literal here is the pin the
+    // SCHEMA_VERSION docstring warns about - it has to be edited by every later migration
+    // rather than passing or failing on its own merits.
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(4);
     const db = open();
     expect(db.listDecisions()).toEqual([]);
     const inspect = new DatabaseSync(dbPath);
@@ -92,7 +95,7 @@ describe('the decided_at column', () => {
     const version = (inspect.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
     inspect.close();
     expect(cols).toContain('decided_at');
-    expect(version).toBe(4);
+    expect(version).toBe(SCHEMA_VERSION);
   });
 
   it('is stored by insertDecision and read back by listDecisions and getDecisionById', () => {
@@ -179,7 +182,7 @@ describe('the v3 -> v4 migration', () => {
     raw.close();
   }
 
-  it('adds the column, stamps 4, and every surviving row reads decided_at NULL with its text intact', () => {
+  it('adds the column, stamps the current version, and every surviving row reads decided_at NULL with its text intact', () => {
     buildV3();
     const db = open();
     const human = db.getDecisionById('human');
@@ -187,7 +190,8 @@ describe('the v3 -> v4 migration', () => {
     expect(human).toMatchObject({ title: 'we are going with Postgres', summary: '[#eng] Thread:\nwe are going with Postgres', decidedAt: null });
     expect(git).toMatchObject({ title: 'Adopt Postgres for the decision store', summary: 'Adopt Postgres\n\nBecause pgvector.', decidedAt: null });
     const inspect = new DatabaseSync(dbPath);
-    expect((inspect.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(4);
+    // The open runs every later step too, so the stamp is the current version, not 4.
+    expect((inspect.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
     inspect.close();
   });
 

@@ -1,4 +1,5 @@
 import { execa } from 'execa';
+import os from 'node:os';
 import { MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS } from './commit-shape.js';
 
 export interface GitCommit {
@@ -241,6 +242,36 @@ export async function getRemoteUrl(opts: { cwd?: string } = {}): Promise<string 
   } catch {
     return null;
   }
+}
+
+/**
+ * ALI-831: who is at this keyboard, for `ratified_by` on the local graph. Email first, then
+ * name, because the email is what the cloud's `ratified_by` (a user id resolved from a
+ * login) most nearly corresponds to when the row is later pushed. Null when git knows
+ * neither; the caller falls back to the OS user rather than writing an empty string, since
+ * an unattributed ratification is exactly the record this column exists to prevent.
+ */
+export async function getGitIdentity(opts: { cwd?: string } = {}): Promise<string | null> {
+  for (const key of ['user.email', 'user.name']) {
+    try {
+      const { stdout } = await execa('git', ['config', '--get', key], opts.cwd ? { cwd: opts.cwd } : {});
+      if (stdout.trim()) return stdout.trim();
+    } catch {
+      // unset, or not a git repo: try the next key
+    }
+  }
+  return null;
+}
+
+/**
+ * ALI-831: who is running this command, for `ratified_by` / `decision_audit.actor`. Git's
+ * identity first, then the OS user - never an empty string, because an unattributed human
+ * act is exactly the record these columns exist to prevent. Shared by every command that
+ * attributes a human act (`align ratify`, `align push`'s audit row) so "who did this" is
+ * answered the same way everywhere rather than by each command guessing its own fallback.
+ */
+export async function resolveLocalIdentity(): Promise<string> {
+  return (await getGitIdentity()) ?? os.userInfo().username;
 }
 
 /**

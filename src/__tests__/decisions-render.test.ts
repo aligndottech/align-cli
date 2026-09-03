@@ -115,3 +115,51 @@ describe('decisions show rendering', () => {
     expect(out).toContain('View:');
   });
 });
+
+describe('decisions list --unratified (ALI-831)', () => {
+  beforeEach(() => {
+    resolveEnv.mockReturnValue('local');
+    listDecisions.mockReset();
+    getDecision.mockReset();
+  });
+
+  it('passes unratified through to the client and names the queue in the header', async () => {
+    listDecisions.mockResolvedValue([{ id: 'a1', title: 'Agent claim', platform: 'agent-session', status: 'active' }]);
+    const out = await run(['list', '--unratified']);
+    expect(listDecisions).toHaveBeenCalledWith(expect.objectContaining({ unratified: true }));
+    expect(out).toMatch(/unratified/i);
+  });
+
+  it('is absent from the params on a bare list, so the shared client sees the normal query', async () => {
+    listDecisions.mockResolvedValue([]);
+    await run(['list']);
+    expect(listDecisions).toHaveBeenCalledWith(expect.not.objectContaining({ unratified: expect.anything() }));
+  });
+});
+
+describe('decisions show prints the decider label (ALI-831)', () => {
+  beforeEach(() => {
+    getDecision.mockReset();
+  });
+
+  it('names an unratified agent claim', async () => {
+    getDecision.mockResolvedValue({ id: 'a1', title: 't', summary: 's', platform: 'agent-session', decider_kind: 'agent', ratified: false });
+    const out = await run(['show', 'a1']);
+    expect(out).toContain('agent-decided, unratified');
+  });
+
+  it('names who ratified it and on which day', async () => {
+    getDecision.mockResolvedValue({
+      id: 'a1', title: 't', summary: 's', platform: 'agent-session',
+      decider_kind: 'agent', ratified: true, ratified_by: 'tom@align.tech', ratified_at: '2026-09-03T14:00:00.000Z',
+    });
+    const out = await run(['show', 'a1']);
+    expect(out).toContain('agent-decided, ratified by tom@align.tech on 2026-09-03');
+  });
+
+  it('prints nothing extra for a human decision', async () => {
+    getDecision.mockResolvedValue({ id: 'a1', title: 't', summary: 's', platform: 'cli', decider_kind: 'human', ratified: false });
+    const out = await run(['show', 'a1']);
+    expect(out).not.toMatch(/agent-decided/);
+  });
+});

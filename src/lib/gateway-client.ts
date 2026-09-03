@@ -65,6 +65,17 @@ export interface CapturedDecision {
    *  one; the cloud gateway stores it from ingest (this client renames the item's
    *  created_at to decided_at on the wire) and returns it where its routes select it. */
   decided_at?: string;
+  /** ALI-831: who decided, and whether a human has stood behind it. Present on every local
+   *  payload; the cloud returns them where its routes select them (ALI-680's provenance
+   *  view, and `/snapshots` once ALI-832 widens it). 'unknown' is a row captured before
+   *  decider tracking. Ratification is not restricted to agent-decided rows - `align
+   *  ratify` accepts any local id - so `ratified` can be true on a human row too; it is
+   *  only *shown* for an agent claim, because deciderLabel returns null unless
+   *  decider_kind is 'agent'. */
+  decider_kind?: 'human' | 'agent' | 'unknown';
+  ratified?: boolean;
+  ratified_at?: string | null;
+  ratified_by?: string | null;
   ai?: {
     risks?: string[];
     actions?: Array<{ text: string }>;
@@ -85,6 +96,9 @@ export interface SearchResults {
     // and the URL it was decided at. Optional because a decision from Slack or a
     // meeting has no repository, and omitting beats emitting an empty string.
     platform?: string; source_url?: string; repository?: string; cite?: string;
+    // ALI-831: the same provenance CapturedDecision carries, so an agent citing a search
+    // hit can say whether it is a ratified rule or an unratified claim.
+    decider_kind?: 'human' | 'agent' | 'unknown'; ratified?: boolean; ratified_at?: string | null; ratified_by?: string | null;
     // Present only in cloud mode, where a hosted UI can actually serve it.
     decision_url?: string;
     // ALI-796: local-only (decision_refs lives in the local SQLite graph, not the
@@ -171,7 +185,11 @@ export interface AlignmentResult {
     checkEventId: string;
   };
   confidence: number;
-  relevant_decisions: Array<{ id: string; title: string; summary: string; similarity: number; url?: string }>;
+  relevant_decisions: Array<{
+    id: string; title: string; summary: string; similarity: number; url?: string;
+    // ALI-831: local mode always; cloud once ALI-832 labels check output.
+    decider_kind?: 'human' | 'agent' | 'unknown'; ratified?: boolean; ratified_at?: string | null; ratified_by?: string | null;
+  }>;
   conflicts?: Array<{
     decision_id: string;
     title: string;
@@ -423,6 +441,23 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
      * non-verdict, which is why there is no verdict vocabulary for "could not check" here:
      * an outage is not something a person can sign off.
      */
+    /**
+     * ALI-831: the human act, cloud half - the ALI-680 route, which refuses a service
+     * account (403) so an agent cannot ratify its own premise. `opts` is accepted for
+     * signature parity with the local client and ignored: the cloud attributes the act to
+     * the logged-in user, never to a name the caller supplies.
+     */
+    async ratifyDecision(
+      id: string,
+      _opts?: { ratifiedBy: string },
+    ): Promise<{ alreadyRatified: boolean; ratifiedBy: string | null; ratifiedAt: string | null }> {
+      const res = await request<{ already_ratified: boolean; ratified_by: string | null; ratified_at: string | null }>(
+        `/decisions/${encodeURIComponent(id)}/ratify`,
+        { method: 'POST' },
+      );
+      return { alreadyRatified: res.already_ratified, ratifiedBy: res.ratified_by, ratifiedAt: res.ratified_at };
+    },
+
     async adjudicateCheck(
       eventId: string,
       verdict: 'accepted' | 'conflicting',

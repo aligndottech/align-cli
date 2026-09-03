@@ -166,3 +166,16 @@ describe('align context sync', () => {
     expect(read('.align/decisions.md')).toContain('No decisions have been captured');
   });
 });
+
+describe('align context sync carries decider provenance through (ALI-831)', () => {
+  it('an unratified agent-decided row lands in the claims section, with the label', async () => {
+    mockListDecisions.mockResolvedValue([
+      ...DECISIONS,
+      { id: '3', title: 'Agent picked sqlite for the cache', summary: '', platform: 'agent-session', status: 'active', decider_kind: 'agent', ratified: false },
+    ]);
+    await run();
+    const file = read('.align/decisions.md');
+    expect(file).toContain('## Agent-decided, not yet ratified by a human');
+    expect(file).toMatch(/Agent picked sqlite for the cache.*agent-decided, unratified/s);
+  });
+});
