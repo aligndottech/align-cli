@@ -7,7 +7,8 @@ See [local-mode.md](local-mode.md).
 
 ```
 align setup                  Guided onboarding: connect tools, configure MCP + auto-alignment
-align setup --local          Same, but no account: local SQLite graph
+align setup --local          Same, but no account: local SQLite graph. Re-run it to add a tool;
+                             what is already connected and imported is left alone
 align login                  Authenticate with Align
 align logout                 Remove stored credentials
 align whoami                 Show current authenticated user and tenant

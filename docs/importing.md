@@ -127,8 +127,8 @@ In local mode, paste a Microsoft Graph access token: sign in to
 "Access token" tab and copy it. Reading channel messages needs `ChannelMessage.Read.All`,
 which your Microsoft 365 admin may have to consent to. The token expires after about an
 hour, so re-run `align setup --local` and pick Teams to paste a fresh one when you want to
-refresh. `align import teams --token <Graph token> --env local` does the same from the
-command line.
+refresh. `align import teams --token <Graph token> --env local` imports once from the
+command line without remembering the token; setup is what makes Teams show as connected.
 
 ## Zoom
 

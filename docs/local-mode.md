@@ -72,12 +72,15 @@ applies to the environment you're running in and why.
   token anyway; the reuse is a convenience for the minority who already minted one.
 - **Re-importing is safe.** A decision is identified by its source URL and title, so running the
   same import twice updates what changed rather than duplicating the graph.
-- **Re-running setup is additive.** `align setup --local` a second time skips the git and
-  docs scan when this repo is already in your graph (it names `align import git --env local`
-  and `align import docs --env local` as the refresh commands), lists the tools you already
-  connected as *connected*, and only fetches what you pick. Pick a connected tool to re-import
-  it with its saved token, or to replace an expired token. So adding Teams after GitHub and
-  Slack means: run setup, pick Teams, paste one token, done.
+- **Re-running setup is additive.** `align setup --local` a second time skips the git scan
+  when this repo's history is already in your graph and the docs read when its docs are (it
+  names `align import git --env local` and `align import docs --env local` as the refresh
+  commands; a repo with no GitHub or GitLab remote re-reads its docs, which is quick), lists
+  the tools you already connected as *connected*, and only fetches what you pick. Pick a
+  connected tool to re-import it with its saved token, or to replace an expired one; a
+  saved token the provider rejects is forgotten on the spot so the tool stops reading as
+  connected. So adding Teams after GitHub and Slack means: run setup, pick Teams, paste one
+  token, done.
 - Related decisions surface on-device by semantic similarity. Typed relationships (supersedes,
   conflicts with, depends on) are typed at query time using **your own AI provider key**.
   Without one, related decisions still surface, just not typed. The heavier cross-tool

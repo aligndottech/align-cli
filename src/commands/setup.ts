@@ -60,6 +60,9 @@ interface SetupSource {
   hostGatedOAuth?: { field: string };
   tokenLabel?: string;
   tokenHint?: string;
+  /** The pasted token expires within hours (a Graph access token), so a saved one is usually
+   *  dead by the next run: the re-import question defaults to pasting a fresh one. */
+  tokenShortLived?: true;
   tokenUrl?: string | ((tokens: Record<string, string>) => string);  // If set, auto-opens this URL in the browser before prompting for the token
   extraFields?: Array<{ key: string; label: string; hint?: string; secret?: boolean }>;
   /** What one fetched item IS, for the capture report (ALI-827) - from CAPTURE_SOURCES. */
@@ -181,6 +184,7 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
         'needs ChannelMessage.Read.All, which your Microsoft 365 admin may have to consent to. ' +
         'The token expires after about an hour; re-run setup to paste a fresh one.',
       tokenUrl: 'https://developer.microsoft.com/en-us/graph/graph-explorer',
+      tokenShortLived: true,
       fetch: async (t) => {
         const { fetchTeamsItems } = await import('../lib/fetchers/teams.js');
         return fetchTeamsItems({ token: t['token']!, limit: IMPORT_LIMITS.teams });
@@ -453,9 +457,10 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   let firstFoundTitle: string | undefined;
   // Additive re-run (Tom, 2026-09-03): a second `align setup --local` must not walk the
   // whole first-run flow again. The graph decides, not a memory of the last run: if this
-  // repo already has decisions stamped with its identity, the git scan is skipped and the
-  // refresh command named; same for repo docs, read off the blob URLs the docs importer
-  // writes. A repo the graph has never seen still gets the first-run value moment.
+  // repo already has GIT decisions stamped with its identity, the git scan is skipped and
+  // the refresh command named; same for repo docs, read off the blob URLs the docs importer
+  // writes. Git rows specifically: a hand-captured PR stamps the same repo and is not a
+  // scanned history. A repo the graph has never seen still gets the first-run value moment.
   const inGitRepo = await isGitRepo();
   let repoKnown = false;
   let docsKnown = false;
@@ -464,12 +469,12 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
     if (repo !== null) {
       const knownDb = createLocalDb(dbPath);
       try {
-        repoKnown = knownDb.listRepos().includes(repo);
+        const gitCount = knownDb.gitDecisionCount(repo);
+        repoKnown = gitCount > 0;
         if (repoKnown) {
-          const count = knownDb.repoDecisionCount(repo);
           console.log('');
           p.log.info(
-            chalk.dim(`Git: ${count} decisions from ${repo} are already in your graph. \`align import git --env local\` refreshes them.`),
+            chalk.dim(`Git: ${gitCount} decisions from ${repo} are already in your graph. \`align import git --env local\` refreshes them.`),
           );
         }
         docsKnown = knownDb.hasDocsForRepo(repo);
@@ -611,7 +616,8 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // the personal-cloud path, where the hosted broker holds the client secrets. (This
   // paragraph has now said three different things; the design statement printed to
   // the user below is the durable version.) Only sources with a tokenLabel are
-  // pasteable (Teams/Zoom have no personal token → excluded). See ALI-103.
+  // pasteable: Teams pastes a Graph access token, Zoom has no personal token and is
+  // excluded. See ALI-103.
   //
   // Asked BEFORE the git scan so every question lands on a clean screen and the rest of
   // setup then runs without stopping. The picker used to sit under a screenful of import
@@ -649,12 +655,19 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     const saved = config.getConnectorFields('local', source.id);
     if (saved?.['token']) savedTokens.set(source.id, saved);
   }
-  if (interactive && savedTokens.size > 0) {
-    const names = localConnectors.filter((s) => savedTokens.has(s.id)).map((s) => s.label).join(', ');
+  if (savedTokens.size > 0) {
+    const connected = localConnectors.filter((s) => savedTokens.has(s.id));
+    const names = connected.map((s) => s.label).join(', ');
     // Named out loud, and left alone: a re-run adds what you pick and touches nothing else.
     // Until 2026-09-03 every saved connector was re-fetched on every run, so adding one
-    // tool meant re-importing all of them.
-    p.log.info(chalk.dim(`Connected: ${names} (saved read-only tokens). Select one to re-import it, or to replace its token.`));
+    // tool meant re-importing all of them. A log line rather than a prompt, so a scripted
+    // run with no terminal still says what it left alone instead of silently doing nothing.
+    if (interactive) {
+      p.log.info(chalk.dim(`Connected: ${names} (saved read-only tokens). Select one to re-import it, or to replace its token.`));
+    } else {
+      const refresh = connected.map((s) => `align import ${s.id} --env local`).join(', ');
+      p.log.info(chalk.dim(`Connected: ${names} (saved read-only tokens), left alone: no terminal to pick from. Refresh with ${refresh}.`));
+    }
   }
   // `interactive` computed once, at the top of this function - see the comment there.
   // ALI-794: the found-summary above sits between this picker and the last clean screen,
@@ -672,14 +685,14 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
           hint: savedTokens.has(s.id) ? 'connected - select to re-import' : s.description,
         })),
         required: false,
-        // Without maxItems clack renders all 7 and its in-place redraw miscounts
+        // Without maxItems clack renders all eight and its in-place redraw miscounts
         // once the list is taller than the viewport, painting duplicate rows.
         maxItems: pickerMaxItems(process.stdout.rows, localConnectors.length),
       })
     : ([] as string[]);
 
   // Collect every credential up front, so the automatic phase below never stops to ask.
-  const localReady: Array<{ source: SetupSource; tokens: Record<string, string> }> = [];
+  const localReady: Array<{ source: SetupSource; tokens: Record<string, string>; reused: boolean }> = [];
   if (!p.isCancel(selected)) {
     const atlassianShared: Record<string, string> = {};
     for (const id of selected as string[]) {
@@ -699,13 +712,26 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
       // A connected connector that was selected: re-import with the saved token unless the
       // user wants to replace it. Seeding collectTokens with the saved fields is what skips
       // every paste; an empty seed is what asks for them. --approve never stops to ask.
+      // Not asked when the seed already carries a token: one Atlassian token is one fact,
+      // so a token just pasted for Jira is the one Confluence uses, and offering the saved
+      // (older) one instead would hand it a dead credential while the line above says
+      // otherwise. A token that lasts hours (Teams) defaults to pasting a fresh one.
       const saved = savedTokens.get(source.id);
-      if (saved) {
+      let reused = false;
+      if (saved && seed['token'] === undefined) {
         const reuse = opts.approve
           ? true
-          : await p.confirm({ message: `Re-import ${source.label} with its saved token? (No pastes a new one)`, initialValue: true });
+          : await p.confirm({
+              message: source.tokenShortLived
+                ? `Re-import ${source.label} with its saved token? It lasts about an hour, so No (paste a fresh one) is usually right`
+                : `Re-import ${source.label} with its saved token? (No pastes a new one)`,
+              initialValue: !source.tokenShortLived,
+            });
         if (p.isCancel(reuse)) continue;
-        if (reuse) seed = { ...seed, ...saved };
+        if (reuse) {
+          seed = { ...seed, ...saved };
+          reused = true;
+        }
       }
       const tokens = await collectTokens(source, seed, { approve: opts.approve });
       if (!tokens) continue;
@@ -714,7 +740,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
           if (tokens[k] !== undefined) atlassianShared[k] = tokens[k];
         }
       }
-      localReady.push({ source, tokens });
+      localReady.push({ source, tokens, reused });
     }
   }
 
@@ -722,7 +748,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // questions (ALI-794) - both are zero-credential value and belong in the "here is what I
   // found" moment, not stranded behind the questions this phase exists to ask. This phase
   // is only the automatic import for the paste-token connectors just collected.
-  for (const { source, tokens } of localReady) {
+  for (const { source, tokens, reused } of localReady) {
     const spinner = p.spinner();
     spinner.start(`Fetching from ${source.label}...`);
     try {
@@ -745,7 +771,17 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
         });
       }
     } catch (e) {
-      spinner.stop(`Skipped ${source.label} - ${(e as Error).message}`);
+      const msg = (e as Error).message;
+      if (reused && isAuthExpiry(e)) {
+        // The provider said the SAVED token is dead. Left saved it would keep the connector
+        // "connected" on every later run and hide the gap line the graph would otherwise
+        // print. A network error says nothing about the token and leaves it alone; a failed
+        // PASTE never reaches here with reused set, and was never saved in the first place.
+        config.forgetConnector('local', source.id);
+        spinner.stop(`Skipped ${source.label} - its saved token was rejected (${msg}). Token forgotten; run setup again to paste a fresh one.`);
+      } else {
+        spinner.stop(`Skipped ${source.label} - ${msg}`);
+      }
     }
   }
 
