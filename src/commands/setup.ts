@@ -677,9 +677,12 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // which is the exact condition that used to corrupt clack's in-place redraw for an
   // outside tester (2026-08-30). Clear first so the picker gets its own canvas.
   if (interactive) clearScreenForPicker();
+  // A windowed list ends in "..." and reads as cut off; the count turns it into "scroll".
+  const maxItems = pickerMaxItems(process.stdout.rows, localConnectors.length);
+  const windowed = maxItems < localConnectors.length;
   const selected = interactive
     ? await p.multiselect({
-        message: 'Connect more sources with a read-only token? (skip to finish)',
+        message: `Connect more sources with a read-only token? (skip to finish${windowed ? `; ${localConnectors.length} sources, scroll for more` : ''})`,
         options: localConnectors.map((s) => ({
           value: s.id,
           label: s.label,
@@ -690,7 +693,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
         required: false,
         // Without maxItems clack renders all eight and its in-place redraw miscounts
         // once the list is taller than the viewport, painting duplicate rows.
-        maxItems: pickerMaxItems(process.stdout.rows, localConnectors.length),
+        maxItems,
       })
     : ([] as string[]);
 

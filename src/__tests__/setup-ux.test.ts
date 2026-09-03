@@ -36,6 +36,15 @@ describe('pickerMaxItems', () => {
   it('never returns more than the number of options', () => {
     expect(pickerMaxItems(200, 7)).toBe(7);
   });
+
+  it('fits seven of eight sources on a 12-row panel now that the screen is cleared first', () => {
+    // Measured 2026-09-03: Tom's VS Code panel reported 12 rows and the picker showed 4 of
+    // 8 with "...". The reserve was sized for a picker drawn UNDER a screenful of git
+    // output; the screen has been cleared before the picker since ALI-794, so the prompt
+    // needs only its own lines: the message, clack's two rules, the key hint, one spare.
+    expect(pickerMaxItems(12, 8)).toBe(7);
+    expect(pickerMaxItems(13, 8)).toBe(8);
+  });
 });
 
 // David has `gh` authenticated already, and setup sent him to github.com to mint a PAT
