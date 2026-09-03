@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.34.0](https://github.com/aligndottech/align-cli/compare/cli-v0.33.1...cli-v0.34.0) (2026-09-03)
+
+
+### Features
+
+* **setup:** a second setup run adds what you pick and leaves the rest alone ([#249](https://github.com/aligndottech/align-cli/issues/249)) ([383bf5f](https://github.com/aligndottech/align-cli/commit/383bf5f429223d118d0ac922d05a66b8bbf73f51))
+
+
+### Bug Fixes
+
+* **mcp:** mandate citing and linking a decision, both URLs (ALI-830) ([#248](https://github.com/aligndottech/align-cli/issues/248)) ([e6123ae](https://github.com/aligndottech/align-cli/commit/e6123ae5fc9ccb0ce625ef65833b851b00ea6a69))
+
 ## [0.33.1](https://github.com/aligndottech/align-cli/compare/cli-v0.33.0...cli-v0.33.1) (2026-09-03)
 
 
