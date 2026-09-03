@@ -20,4 +20,5 @@ export const CAPTURE_SOURCES = {
   gitlab: { label: 'GitLab', unit: 'merge requests' },
   linear: { label: 'Linear', unit: 'issues' },
   notion: { label: 'Notion', unit: 'pages' },
+  sessions: { label: 'Agent sessions', unit: 'decisions' },
 } as const satisfies Record<string, { label: string; unit: string }>;

@@ -612,6 +612,25 @@ export function createLocalDb(dbPath: string) {
       return row ?? null;
     },
 
+    /**
+     * ALI-808: "this was said" - the session importer's act, written once at the moment a
+     * human accepts a session-derived candidate into the graph (confirm-each). The columns
+     * were reserved for this by ALI-831 (see DecisionRow's own doc), which landed first;
+     * this is the one write path for them. No first-wins guard: unlike ratify there is no
+     * later racing caller to protect against - the importer calls this exactly once, right
+     * after the insert it just made. A missing id updates zero rows and returns null, same
+     * as markRatified.
+     */
+    markConfirmed(id: string, confirmedBy: string): { confirmedAt: string } | null {
+      const confirmedAt = new Date().toISOString();
+      const row = db.prepare(
+        `UPDATE decisions SET confirmed_by = ?, confirmed_at = ?
+         WHERE id = ?
+         RETURNING confirmed_at AS confirmedAt`,
+      ).get(confirmedBy, confirmedAt, id) as { confirmedAt: string } | undefined;
+      return row ?? null;
+    },
+
     /** ALI-831: one row per human act on a decision (ratified, pushed), so "who stood behind
      *  this, and when" is answerable after the fact. Append-only by construction. */
     insertAudit(entry: { decisionId: string; action: string; actor: string | null; detail?: string | null }): void {
