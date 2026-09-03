@@ -18,21 +18,13 @@
  * the same honesty this repo already applies to the cloud's fail-open defaults
  * (verification.md: "for any control, ask which way it fails when unconfigured").
  */
-import os from 'node:os';
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { getGitIdentity } from '../lib/git.js';
+import { resolveLocalIdentity } from '../lib/git.js';
 import { resolveEnv } from '../lib/resolve-env.js';
-
-/** Who is ratifying. Git's identity first (it is what the person signs commits as), then
- *  the OS user - never an empty string, because an unattributed ratification is the one
- *  record this column exists to prevent. */
-export async function resolveRatifier(): Promise<string> {
-  return (await getGitIdentity()) ?? os.userInfo().username;
-}
 
 export function registerRatifyCommand(program: Command): void {
   program
@@ -53,7 +45,7 @@ export function registerRatifyCommand(program: Command): void {
       const config = createConfigStore();
       const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const client = createGatewayClient(config.getEnvironment(envName));
-      const ratifiedBy = await resolveRatifier();
+      const ratifiedBy = await resolveLocalIdentity();
       const spinner = ora('Recording your ratification...').start();
       try {
         const res = await client.ratifyDecision(id, { ratifiedBy });

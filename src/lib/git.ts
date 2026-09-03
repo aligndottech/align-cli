@@ -1,4 +1,5 @@
 import { execa } from 'execa';
+import os from 'node:os';
 import { MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS } from './commit-shape.js';
 
 export interface GitCommit {
@@ -260,6 +261,17 @@ export async function getGitIdentity(opts: { cwd?: string } = {}): Promise<strin
     }
   }
   return null;
+}
+
+/**
+ * ALI-831: who is running this command, for `ratified_by` / `decision_audit.actor`. Git's
+ * identity first, then the OS user - never an empty string, because an unattributed human
+ * act is exactly the record these columns exist to prevent. Shared by every command that
+ * attributes a human act (`align ratify`, `align push`'s audit row) so "who did this" is
+ * answered the same way everywhere rather than by each command guessing its own fallback.
+ */
+export async function resolveLocalIdentity(): Promise<string> {
+  return (await getGitIdentity()) ?? os.userInfo().username;
 }
 
 /**

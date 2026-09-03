@@ -68,7 +68,10 @@ export interface CapturedDecision {
   /** ALI-831: who decided, and whether a human has stood behind it. Present on every local
    *  payload; the cloud returns them where its routes select them (ALI-680's provenance
    *  view, and `/snapshots` once ALI-832 widens it). 'unknown' is a row captured before
-   *  decider tracking. `ratified` is false for a human row too: nothing ratifies those. */
+   *  decider tracking. Ratification is not restricted to agent-decided rows - `align
+   *  ratify` accepts any local id - so `ratified` can be true on a human row too; it is
+   *  only *shown* for an agent claim, because deciderLabel returns null unless
+   *  decider_kind is 'agent'. */
   decider_kind?: 'human' | 'agent' | 'unknown';
   ratified?: boolean;
   ratified_at?: string | null;

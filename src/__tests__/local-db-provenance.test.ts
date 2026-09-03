@@ -160,6 +160,17 @@ describe('markRatified', () => {
     db = createLocalDb(':memory:');
     expect(db.markRatified('nope', 'tom@align.tech')).toBeNull();
   });
+
+  // ALI-831 review (Copilot #253): the type comment on CapturedDecision used to claim
+  // ratified is always false for a human row. It never was true - markRatified enforces
+  // no decider_kind check - and the comment was untestable as written. Pin the real
+  // behaviour instead of a claim nothing checked.
+  it('is not restricted to agent-decided rows: a human decision can be ratified too', () => {
+    db = createLocalDb(':memory:');
+    const id = db.insertDecision({ title: 'Use trunk-based development', summary: 's', sourceUrl: null, platform: 'cli', deciderKind: 'human' });
+    expect(db.markRatified(id, 'tom@align.tech')).not.toBeNull();
+    expect(db.getDecisionById(id)?.ratifiedBy).toBe('tom@align.tech');
+  });
 });
 
 describe('listDecisions({ unratified: true }) is the human queue: agent-decided AND unratified', () => {

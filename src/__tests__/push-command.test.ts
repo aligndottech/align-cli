@@ -36,7 +36,10 @@ vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({ ingestBatch, ratifyDecision: cloudRatify })),
 }));
 const getGitIdentity = vi.hoisted(() => vi.fn().mockResolvedValue('tom@align.tech'));
-vi.mock('../lib/git.js', () => ({ getGitIdentity }));
+vi.mock('../lib/git.js', () => ({
+  getGitIdentity,
+  resolveLocalIdentity: async () => (await getGitIdentity()) ?? 'os-fallback-user',
+}));
 
 import { createLocalDb } from '../lib/local-db.js';
 import { registerPushCommand } from '../commands/push.js';
@@ -157,6 +160,13 @@ describe('align push of a ratified row', () => {
     const id = seed({ ratify: true, platform: 'cli', sourceUrl: 'https://example.com/doc' });
     await run([id]);
     expect(ingestBatch.mock.calls[0]![0][0].platform).toBe('cli');
+  });
+
+  it('attributes the audit row to the pusher (git identity), not the ratifier - two different people', async () => {
+    getGitIdentity.mockResolvedValue('dan@align.tech');
+    const id = seed({ ratify: true }); // ratified as 'tom@align.tech' inside seed()
+    await run([id]);
+    expect(audit(id).map((a) => a.actor)).toEqual(['dan@align.tech']);
   });
 
   it('synthesizes a stable source URL for a row that has none, so a re-push upserts', async () => {

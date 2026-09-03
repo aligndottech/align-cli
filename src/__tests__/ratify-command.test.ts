@@ -25,7 +25,10 @@ vi.mock('../lib/config.js', () => ({ createConfigStore: vi.fn(() => ({ getEnviro
 const ratifyDecision = vi.hoisted(() => vi.fn());
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({ ratifyDecision })) }));
 const getGitIdentity = vi.hoisted(() => vi.fn());
-vi.mock('../lib/git.js', () => ({ getGitIdentity }));
+vi.mock('../lib/git.js', () => ({
+  getGitIdentity,
+  resolveLocalIdentity: async () => (await getGitIdentity()) ?? 'os-fallback-user',
+}));
 
 import { registerRatifyCommand } from '../commands/ratify.js';
 

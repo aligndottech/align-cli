@@ -140,6 +140,27 @@ describe('the other payloads carry the same fields', () => {
 });
 
 describe('ratifyDecision', () => {
+  // ALI-831 review (Copilot #253): the pre-write `before` read this used to fall back on
+  // was a stale-read hazard under real concurrency (two `align ratify` processes racing the
+  // same on-disk file) - it could report alreadyRatified: true with null ratifiedBy/At.
+  // The fix removed the pre-read; the already-ratified branch now reads AFTER its own
+  // failed write. A single Vitest process cannot reproduce the original race (the function
+  // has no await between a read and a write, so two in-process calls never interleave) -
+  // this instead proves the CURRENT contract: two independent handles on the SAME on-disk
+  // file, the shape a genuine second CLI process takes, and the client correctly reports
+  // the OTHER handle's stamp rather than whatever it happened to have written itself.
+  it('reports the stamp another local-db handle on the same file wrote, not its own attempted write', async () => {
+    const c = client();
+    const { agentId } = await seed(c);
+    const other = createLocalDb(dbPath);
+    opened.push(other);
+    const won = other.markRatified(agentId, 'racing-process@align.tech');
+    expect(won).not.toBeNull(); // control: the other handle's write really did land
+
+    const res = await c.ratifyDecision(agentId, { ratifiedBy: 'me@align.tech' });
+    expect(res).toEqual({ alreadyRatified: true, ratifiedBy: 'racing-process@align.tech', ratifiedAt: won!.ratifiedAt });
+  });
+
   it('writes the stamp, records an audit row, and reports it was not already ratified', async () => {
     const c = client();
     const { agentId } = await seed(c);

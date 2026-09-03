@@ -399,17 +399,25 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
      * only a real write records an audit row.
      */
     async ratifyDecision(id: string, opts: { ratifiedBy: string }) {
-      const before = db.getDecisionById(id);
-      if (!before) {
+      // Attempt the write FIRST rather than reading the row to decide what to do - a
+      // pre-write read is a snapshot that can go stale between the read and the guarded
+      // UPDATE below (two `align ratify` processes racing the same on-disk file). Reading
+      // ONLY on the failure path, after the write has already been attempted, means the
+      // "already ratified" response reflects whatever committed by the time OUR write was
+      // evaluated - never an earlier moment (Copilot review, #253).
+      const stamp = db.markRatified(id, opts.ratifiedBy);
+      if (stamp) {
+        db.insertAudit({ decisionId: id, action: 'ratified', actor: opts.ratifiedBy });
+        return { alreadyRatified: false, ratifiedBy: opts.ratifiedBy, ratifiedAt: stamp.ratifiedAt };
+      }
+      // The guarded write matched no row: either the id does not exist, or it is already
+      // ratified. A fresh read tells the two apart and, in the ratified case, is the
+      // CURRENT stamp rather than a value read before this call started.
+      const row = db.getDecisionById(id);
+      if (!row) {
         throw new Error(`No decision ${id} in your local graph. \`align decisions list\` shows what is there.`);
       }
-      const stamp = db.markRatified(id, opts.ratifiedBy);
-      if (!stamp) {
-        // Already ratified (the guard refused the write): report the standing state.
-        return { alreadyRatified: true, ratifiedBy: before.ratifiedBy, ratifiedAt: before.ratifiedAt };
-      }
-      db.insertAudit({ decisionId: id, action: 'ratified', actor: opts.ratifiedBy });
-      return { alreadyRatified: false, ratifiedBy: opts.ratifiedBy, ratifiedAt: stamp.ratifiedAt };
+      return { alreadyRatified: true, ratifiedBy: row.ratifiedBy, ratifiedAt: row.ratifiedAt };
     },
 
     async searchDecisions(query: string, limit = 10, scope?: { repo?: string; all?: boolean }): Promise<SearchResults> {

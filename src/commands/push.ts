@@ -18,6 +18,7 @@ import ora from 'ora';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { createLocalDb } from '../lib/local-db.js';
+import { resolveLocalIdentity } from '../lib/git.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 
 /** A local row with no source URL (a bare `align capture` of text) still needs one on the
@@ -88,7 +89,11 @@ export function registerPushCommand(program: Command): void {
           return;
         }
         spinner.stop();
-        db.insertAudit({ decisionId: id, action: 'pushed', actor: row.ratifiedBy, detail: `${envName}:${cloudId}` });
+        // ALI-831: the pusher, not the ratifier - a different person can run `align push`
+        // than the one who ratified the row (a hand-off, a shared CI identity), and the
+        // audit row must say who actually sent it.
+        const pushedBy = await resolveLocalIdentity();
+        db.insertAudit({ decisionId: id, action: 'pushed', actor: pushedBy, detail: `${envName}:${cloudId}` });
         console.log(chalk.green(`\n  Pushed to ${envName} as ${cloudId}.`));
 
         // Carry the human act across. Best-effort: the push is the deliverable, and a
