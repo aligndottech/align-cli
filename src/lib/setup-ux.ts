@@ -11,9 +11,11 @@ import * as readline from 'node:readline';
  */
 
 // Lines the prompt needs beyond the option rows themselves: the message, clack's
-// top and bottom rules, the submit hint, and enough slack that the previous
-// command's last line is not overwritten.
-const RESERVED_ROWS = 8;
+// top and bottom rules, the key hint, and one spare. This was 8 while the picker was
+// drawn under a screenful of git output; the screen has been cleared before the
+// picker since ALI-794, so the extra slack only hid rows. Measured 2026-09-03: a
+// 12-row panel showed 4 of 8 sources and read as truncated. Now it shows 7.
+const RESERVED_ROWS = 5;
 
 // Below this a paginated list is unusable, so we overflow slightly rather than
 // render one option at a time. clack scrolls within maxItems, so a floor is safe.

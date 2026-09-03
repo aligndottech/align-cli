@@ -1129,6 +1129,35 @@ describe('align setup', () => {
       expect(mockWhoami).not.toHaveBeenCalled();
     });
 
+    it('says how many sources there are when the picker cannot show them all', async () => {
+      // A windowed list ends in "..." and reads as cut off. The count turns it into "scroll".
+      const rows = Object.getOwnPropertyDescriptor(process.stdout, 'rows');
+      Object.defineProperty(process.stdout, 'rows', { value: 12, configurable: true });
+      try {
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      } finally {
+        if (rows) Object.defineProperty(process.stdout, 'rows', rows);
+        else delete (process.stdout as { rows?: number }).rows;
+      }
+      const picker = mockMultiselect.mock.calls.find((c: any[]) => c[0]?.message?.toLowerCase().includes('read-only token'))!;
+      expect(picker[0].maxItems).toBe(7);
+      expect(picker[0].message).toMatch(/8 sources, scroll for more/);
+    });
+
+    it('says nothing about scrolling when every source fits', async () => {
+      const rows = Object.getOwnPropertyDescriptor(process.stdout, 'rows');
+      Object.defineProperty(process.stdout, 'rows', { value: 40, configurable: true });
+      try {
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      } finally {
+        if (rows) Object.defineProperty(process.stdout, 'rows', rows);
+        else delete (process.stdout as { rows?: number }).rows;
+      }
+      const picker = mockMultiselect.mock.calls.find((c: any[]) => c[0]?.message?.toLowerCase().includes('read-only token'))!;
+      expect(picker[0].maxItems).toBe(8);
+      expect(picker[0].message).not.toMatch(/scroll/);
+    });
+
     it('--local offers Teams with a pasted Graph token, and still not Zoom (no personal token)', async () => {
       // Teams used to be excluded from local setup, so "re-run setup and add Teams" was
       // impossible by construction; the only path was align import teams --token, which
