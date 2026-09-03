@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.35.0](https://github.com/aligndottech/align-cli/compare/cli-v0.34.1...cli-v0.35.0) (2026-09-03)
+
+
+### Features
+
+* agent decisions as claims, CLI half (ALI-831) ([#253](https://github.com/aligndottech/align-cli/issues/253)) ([ff5c0f7](https://github.com/aligndottech/align-cli/commit/ff5c0f7614af3e84c323e4a4dd3925e05e74027c))
+
+
+### Bug Fixes
+
+* **ask:** render the synthesised answer as terminal text, never raw markdown ([#255](https://github.com/aligndottech/align-cli/issues/255)) ([9719871](https://github.com/aligndottech/align-cli/commit/971987181d025251ef93352f7d361c7b399300f5))
+
 ## [0.34.1](https://github.com/aligndottech/align-cli/compare/cli-v0.34.0...cli-v0.34.1) (2026-09-03)
 
 
