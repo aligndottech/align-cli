@@ -120,11 +120,21 @@ then paste its secret:
 align import notion --token <your-notion-integration-token>
 ```
 
-## Microsoft Teams and Zoom
+## Microsoft Teams
 
-Use `align setup`. Neither has a personal token a human can create in-app, so they aren't
-offered in local-only setup. `align import teams --token <Graph token>` and
-`align import zoom --token <OAuth token>` exist for tokens you got elsewhere.
+In local mode, paste a Microsoft Graph access token: sign in to
+[Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer), open the
+"Access token" tab and copy it. Reading channel messages needs `ChannelMessage.Read.All`,
+which your Microsoft 365 admin may have to consent to. The token expires after about an
+hour, so re-run `align setup --local` and pick Teams to paste a fresh one when you want to
+refresh. `align import teams --token <Graph token> --env local` does the same from the
+command line.
+
+## Zoom
+
+Use `align setup` with a cloud account. Zoom has no personal token a human can create
+in-app, so it isn't offered in local-only setup. `align import zoom --token <OAuth token>`
+exists for a token you got elsewhere.
 
 ## Connector scans (cloud)
 

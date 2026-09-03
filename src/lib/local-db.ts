@@ -539,6 +539,24 @@ export function createLocalDb(dbPath: string) {
         .all() as Array<{ repo: string }>).map((r) => r.repo);
     },
 
+    /** How many decisions carry this repo stamp. A setup re-run asks before re-scanning
+     *  git, so the graph rather than a memory of the last run decides. */
+    repoDecisionCount(repo: string): number {
+      const row = db.prepare(`SELECT COUNT(*) AS n FROM decisions WHERE repo = ?`).get(repo) as { n: number };
+      return row.n;
+    },
+
+    /** Whether any repo-docs row (an ADR, a CLAUDE.md section) came from this repo. Docs rows
+     *  carry no repo stamp, because a blob URL is not a commit/pull/issue URL, so this reads
+     *  the URL the docs importer builds: <host>/<owner>/<repo>/blob/... The trailing slash
+     *  keeps `o/r` from matching `o/r2`. Case-insensitive, as repo identities are. */
+    hasDocsForRepo(repo: string): boolean {
+      const row = db.prepare(
+        `SELECT 1 AS hit FROM decisions WHERE platform = 'docs' AND lower(source_url) LIKE '%' || ? || '/blob/%' LIMIT 1`,
+      ).get(repo.toLowerCase()) as { hit: number } | undefined;
+      return row !== undefined;
+    },
+
     setEmbedding(decisionId: string, embedding: Float32Array): void {
       db.prepare(
         `INSERT OR REPLACE INTO decision_embeddings (decision_id, embedding) VALUES (?, ?)`

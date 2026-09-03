@@ -11,6 +11,7 @@ import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '
 import { connectDetectedAgents } from './connect-agents.js';
 import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { isGitRepo } from '../lib/git.js';
+import { currentRepoIdentity } from '../lib/repo-identity.js';
 import { fetchDocsItems } from '../lib/fetchers/docs.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
@@ -170,6 +171,16 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Channel messages and decisions - may need org/workspace admin consent',
       tier: 'workspace',
       oauthKey: 'teams',
+      // Local mode: a Graph access token the user copies from Graph Explorer is a token a
+      // person mints themselves, which is the local-mode rule. Until this, Teams was
+      // excluded from local setup outright, so "re-run setup and add Teams" was impossible
+      // by construction and the only path (align import teams --token) saved nothing.
+      tokenLabel: 'Microsoft Graph access token',
+      tokenHint:
+        'Sign in to Graph Explorer, open the "Access token" tab and copy it. Reading channel messages ' +
+        'needs ChannelMessage.Read.All, which your Microsoft 365 admin may have to consent to. ' +
+        'The token expires after about an hour; re-run setup to paste a fresh one.',
+      tokenUrl: 'https://developer.microsoft.com/en-us/graph/graph-explorer',
       fetch: async (t) => {
         const { fetchTeamsItems } = await import('../lib/fetchers/teams.js');
         return fetchTeamsItems({ token: t['token']!, limit: IMPORT_LIMITS.teams });
@@ -417,6 +428,9 @@ interface LocalValuePhaseResult {
   capture: ReturnType<typeof createCaptureCollector>;
 }
 
+/** Thrown inside the docs block to leave it without starting a read; never surfaces. */
+class SkipDocs extends Error {}
+
 async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<LocalValuePhaseResult> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
@@ -437,7 +451,34 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   // found" means, and it has to exist before the agent-wiring/consent/connector steps that
   // used to come first for no reason other than that is the order they were written in.
   let firstFoundTitle: string | undefined;
-  if (await isGitRepo()) {
+  // Additive re-run (Tom, 2026-09-03): a second `align setup --local` must not walk the
+  // whole first-run flow again. The graph decides, not a memory of the last run: if this
+  // repo already has decisions stamped with its identity, the git scan is skipped and the
+  // refresh command named; same for repo docs, read off the blob URLs the docs importer
+  // writes. A repo the graph has never seen still gets the first-run value moment.
+  const inGitRepo = await isGitRepo();
+  let repoKnown = false;
+  let docsKnown = false;
+  if (inGitRepo) {
+    const repo = await currentRepoIdentity();
+    if (repo !== null) {
+      const knownDb = createLocalDb(dbPath);
+      try {
+        repoKnown = knownDb.listRepos().includes(repo);
+        if (repoKnown) {
+          const count = knownDb.repoDecisionCount(repo);
+          console.log('');
+          p.log.info(
+            chalk.dim(`Git: ${count} decisions from ${repo} are already in your graph. \`align import git --env local\` refreshes them.`),
+          );
+        }
+        docsKnown = knownDb.hasDocsForRepo(repo);
+      } finally {
+        knownDb.close();
+      }
+    }
+  }
+  if (inGitRepo && !repoKnown) {
     console.log('');
     p.log.info(chalk.dim('First import downloads a local embedding model (~23MB, from huggingface.co), one time.'));
     const gitSpinner = p.spinner();
@@ -501,9 +542,13 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   // zero-credential value, so it has to show before the connector/consent questions,
   // not after them.
   console.log('');
+  if (docsKnown) {
+    p.log.info(chalk.dim('Repo docs: already in your graph. `align import docs --env local` refreshes them.'));
+  }
   const localDocsSpinner = p.spinner();
-  localDocsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
+  if (!docsKnown) localDocsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
   try {
+    if (docsKnown) throw new SkipDocs();
     const docs = await fetchDocsItems({ limit: IMPORT_LIMITS.docs });
     capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
     const docsItems = docs.items;
@@ -520,7 +565,7 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
       localDocsSpinner.stop('No ADRs or CLAUDE.md/AGENTS.md content found');
     }
   } catch (e) {
-    localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
+    if (!(e instanceof SkipDocs)) localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
   }
 
   writeAgentAlignment('local');
@@ -606,9 +651,10 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   }
   if (interactive && savedTokens.size > 0) {
     const names = localConnectors.filter((s) => savedTokens.has(s.id)).map((s) => s.label).join(', ');
-    // Named out loud rather than silently reused: a credential nobody can see being used is
-    // the one nobody can audit, which is the same reason the gh-token reuse announces itself.
-    p.log.info(chalk.dim(`Using your saved read-only tokens for: ${names}.`));
+    // Named out loud, and left alone: a re-run adds what you pick and touches nothing else.
+    // Until 2026-09-03 every saved connector was re-fetched on every run, so adding one
+    // tool meant re-importing all of them.
+    p.log.info(chalk.dim(`Connected: ${names} (saved read-only tokens). Select one to re-import it, or to replace its token.`));
   }
   // `interactive` computed once, at the top of this function - see the comment there.
   // ALI-794: the found-summary above sits between this picker and the last clean screen,
@@ -621,9 +667,9 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
         options: localConnectors.map((s) => ({
           value: s.id,
           label: s.label,
-          // A saved connector stays in the list so an expired or wrong token can be replaced
-          // without a separate command - selecting it asks again and overwrites what is saved.
-          hint: savedTokens.has(s.id) ? 'saved - select to replace' : s.description,
+          // A connected connector stays in the list so it can be re-imported, or its expired
+          // token replaced, without a separate command. Not selecting it leaves it alone.
+          hint: savedTokens.has(s.id) ? 'connected - select to re-import' : s.description,
         })),
         required: false,
         // Without maxItems clack renders all 7 and its in-place redraw miscounts
@@ -646,9 +692,20 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
       // SAY so - the same disclosure rule as the gh-token reuse, because a silently
       // absorbed credential is the thing nobody can audit afterwards.
       const isAtlassian = source.id === 'jira' || source.id === 'confluence';
-      const seed = isAtlassian ? { ...atlassianShared } : {};
+      let seed: Record<string, string> = isAtlassian ? { ...atlassianShared } : {};
       if (isAtlassian && seed['token'] !== undefined) {
         p.log.info(chalk.dim('  Using your Atlassian email, domain and API token from the previous connector.'));
+      }
+      // A connected connector that was selected: re-import with the saved token unless the
+      // user wants to replace it. Seeding collectTokens with the saved fields is what skips
+      // every paste; an empty seed is what asks for them. --approve never stops to ask.
+      const saved = savedTokens.get(source.id);
+      if (saved) {
+        const reuse = opts.approve
+          ? true
+          : await p.confirm({ message: `Re-import ${source.label} with its saved token? (No pastes a new one)`, initialValue: true });
+        if (p.isCancel(reuse)) continue;
+        if (reuse) seed = { ...seed, ...saved };
       }
       const tokens = await collectTokens(source, seed, { approve: opts.approve });
       if (!tokens) continue;
@@ -658,20 +715,6 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
         }
       }
       localReady.push({ source, tokens });
-    }
-  }
-
-  // Saved connectors the user did not pick for replacement still import - that is the whole
-  // point of having saved them. Appended after the freshly collected ones so a connector
-  // selected for replacement is never also imported with its old token.
-  // Cancelling the picker (Esc) means "do no connector work", the same as it does for the
-  // collection block above; only an empty SUBMIT means "skip to finish, use what I have". They
-  // arrive as different values and must not collapse into the same branch.
-  if (!p.isCancel(selected)) {
-    const replacing = new Set(selected as string[]);
-    for (const source of localConnectors) {
-      const saved = savedTokens.get(source.id);
-      if (saved && !replacing.has(source.id)) localReady.push({ source, tokens: saved });
     }
   }
 
