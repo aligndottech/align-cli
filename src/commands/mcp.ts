@@ -21,7 +21,8 @@ export const ALIGN_MCP_INSTRUCTIONS = `Align is this team's decision graph - the
 - An "unknown" status means the check could NOT run (no LLM key, a timeout, unreadable output). It is NOT a pass and NOT "no conflicts found" - the related decisions it returns are unchecked. STOP and ask the human rather than proceeding.
 - When the user asks "why", "how does X work", or "what was decided about Y" - or you're unsure of a convention - call align_ask (or align_search) first. The answer, its status (active/conflicted), and the person who decided it are in the graph.
 - Use align_get_conflicts and align_get_related_decisions to understand context and surface who to talk to.
-- Prefer the graph over guessing: it reflects decisions made across Slack, Jira, GitHub, Linear and more that may not be in the code or docs.`;
+- Prefer the graph over guessing: it reflects decisions made across Slack, Jira, GitHub, Linear and more that may not be in the code or docs.
+- Cite a decision by its cite value when present, and link it whenever the field exists: decision_url opens it in Align; source_url is wherever it was actually decided - a GitHub PR, a Jira/Linear ticket, a Slack or Teams thread. Never name a decision as bare text when either link is available, and never present one URL as the other.`;
 
 /**
  * Which decision graph THIS server reads, appended to the base instructions.
