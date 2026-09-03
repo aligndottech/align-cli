@@ -70,10 +70,19 @@ describe('bare `align`', () => {
   it('runs onboarding when nothing is set up', async () => {
     // no local graph, no cloud token
     getEnvironment.mockImplementation((n: string) => (n === 'local' ? { mode: 'cloud' } : { mode: 'cloud' }));
+    // Restored in `finally` like its siblings (Copilot on #237): a forced isTTY that
+    // outlives the test leaks into whatever runs next, and an order-dependent green
+    // is the kind that turns red only on the runner.
+    const inTty = process.stdin.isTTY, outTty = process.stdout.isTTY;
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-    await bare();
-    expect(runSetup).toHaveBeenCalledTimes(1);
+    try {
+      await bare();
+      expect(runSetup).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', { value: inTty, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: outTty, configurable: true });
+    }
   });
 
   it('does NOT re-run onboarding for a local user who is already set up', async () => {
