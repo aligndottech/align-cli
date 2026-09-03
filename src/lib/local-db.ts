@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { repoFromSourceUrl } from './repo-identity.js';
+import type { DeciderKind } from './decider-kind.js';
 
 export interface DecisionRow {
   id: string;
@@ -19,6 +20,25 @@ export interface DecisionRow {
    *  path for a remoteless git repo) - null for anything that is not code, or code
    *  whose repo could not be identified. */
   repo: string | null;
+  /** ALI-831: which kind of actor decided. Null for a row captured before the column
+   *  existed - read as 'unknown', never backfilled (see migrate, step 5). */
+  deciderKind: DeciderKind | null;
+  /** ALI-831: "this was said" - the two flags are separate acts (Tom, 2026-09-03). Confirm
+   *  is written by the session importer (ALI-808); ratify is the human act below. */
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+  /** ALI-831: "this governs". Set once by `align ratify`; the first ratification stands. */
+  ratifiedBy: string | null;
+  ratifiedAt: string | null;
+}
+
+export interface AuditRow {
+  id: string;
+  decisionId: string;
+  action: string;
+  actor: string | null;
+  detail: string | null;
+  createdAt: string;
 }
 
 export interface LinkRow {
@@ -43,7 +63,21 @@ CREATE TABLE IF NOT EXISTS decisions (
   platform TEXT NOT NULL DEFAULT 'cli',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   repo TEXT,
-  decided_at TEXT
+  decided_at TEXT,
+  decider_kind TEXT,
+  confirmed_by TEXT,
+  confirmed_at TEXT,
+  ratified_by TEXT,
+  ratified_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS decision_audit (
+  id TEXT PRIMARY KEY,
+  decision_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  actor TEXT,
+  detail TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS decision_embeddings (
@@ -77,7 +111,7 @@ CREATE TABLE IF NOT EXISTS decision_refs (
  * `migrate` from the source and compares it here, because forgetting the bump leaves the new
  * branch running destructively on every open with nothing to stop it.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /**
  * ALI-829: a source timestamp as this database stores it - ISO-8601 Z - or null.
@@ -151,6 +185,11 @@ export function identifyingSourceUrl(raw: string | null): string | null {
   return value;
 }
 
+/** The five ALI-831 columns, named exactly as the shared contract spells them. One list,
+ *  read by the migration; SCHEMA above spells them a second time because a fresh CREATE
+ *  TABLE cannot read a constant, and the provenance test pins both against each other. */
+const PROVENANCE_COLUMNS = ['decider_kind', 'confirmed_by', 'confirmed_at', 'ratified_by', 'ratified_at'] as const;
+
 /**
  * One-time data migrations, tracked in SQLite's built-in `user_version`.
  *
@@ -192,6 +231,14 @@ export function identifyingSourceUrl(raw: string | null): string | null {
  *    afresh. Scoped to platform = 'slack': a git commit or a captured note that happens to
  *    carry the same words is not a tombstone and is left alone.
  *
+ * 5. ALI-831: add the decider/ratified columns (`decider_kind`, `confirmed_by`,
+ *    `confirmed_at`, `ratified_by`, `ratified_at`) so an agent-made decision can enter as a
+ *    CLAIM a human later stands behind, and the `decision_audit` table the human act is
+ *    recorded in. No backfill, on purpose: a row captured before the column reads as
+ *    'unknown', and stamping 'human' on it from its platform would be the retroactive
+ *    guess align-stack's migration 113 refuses. The columns are added here rather than only
+ *    in SCHEMA because CREATE TABLE IF NOT EXISTS never alters an existing table.
+ *
  * The version guard is load-bearing rather than tidiness. The same UPDATE run on every open
  * is indistinguishable from this one today, and starts silently eating genuine conflicts the
  * moment anything writes one.
@@ -205,6 +252,7 @@ function deleteDecisionWithDependents(db: DatabaseSync, id: string): void {
   db.prepare('DELETE FROM decision_links WHERE source_id = ? OR target_id = ?').run(id, id);
   db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(id);
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(id);
+  db.prepare('DELETE FROM decision_audit WHERE decision_id = ?').run(id);
   db.prepare('DELETE FROM decisions WHERE id = ?').run(id);
 }
 
@@ -371,10 +419,35 @@ function migrate(db: DatabaseSync): void {
       throw err;
     }
   }
+  if (version < 5) {
+    // Inside the write lock, for the reason step 4 gives: two concurrent opens of a v4
+    // file must not both read "no column" and race the ALTER.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const existing = new Set(
+        (db.prepare('PRAGMA table_info(decisions)').all() as Array<{ name: string }>).map((c) => c.name),
+      );
+      for (const column of PROVENANCE_COLUMNS) {
+        if (!existing.has(column)) db.exec(`ALTER TABLE decisions ADD COLUMN ${column} TEXT`);
+      }
+      db.exec('PRAGMA user_version = 5');
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
   if (version < SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
 }
+
+/** Every column a DecisionRow carries, aliased to its camelCase name. One writer, read by
+ *  both row readers, so a new column cannot be added to one SELECT and missed by the other. */
+const DECISION_COLUMNS =
+  'id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo, decided_at as decidedAt, ' +
+  'decider_kind as deciderKind, confirmed_by as confirmedBy, confirmed_at as confirmedAt, ' +
+  'ratified_by as ratifiedBy, ratified_at as ratifiedAt';
 
 export function createLocalDb(dbPath: string) {
   // SQLite creates the DB file but not its parent directory, so on a clean machine
@@ -431,9 +504,13 @@ export function createLocalDb(dbPath: string) {
        *  the upsert for the same reason `repo` has it: a re-import that resolved no date must
        *  never blank a date the row already carries. */
       decidedAt?: string | null;
+      /** ALI-831: who decided. Set on INSERT and never rewritten by the upsert - origin is
+       *  immutable, so a human re-capture cannot launder an agent claim into 'human' (the
+       *  cloud's snapshots.ts rule). Omitted stores NULL, which reads as 'unknown'. */
+      deciderKind?: DeciderKind | null;
     }): string {
       const inserted = db.prepare(
-        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_url, title) DO UPDATE SET
            summary = excluded.summary, platform = excluded.platform,
            repo = COALESCE(excluded.repo, decisions.repo),
@@ -449,6 +526,7 @@ export function createLocalDb(dbPath: string) {
         // `||`, not `??`: COALESCE('', old) is '', so an empty string would blank a stored
         // date. Callers normalise, but this is the one place the column is written.
         row.decidedAt || null,
+        row.deciderKind ?? null,
       ) as { id: string };
       return inserted.id;
     },
@@ -495,21 +573,58 @@ export function createLocalDb(dbPath: string) {
      * callers that want an exact match (repo resolution, tests) rather than the retrieval
      * default.
      */
-    listDecisions(filter: { repo?: string; includeUnattributed?: boolean } = {}): DecisionRow[] {
-      let sql = `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo, decided_at as decidedAt FROM decisions`;
+    listDecisions(filter: { repo?: string; includeUnattributed?: boolean; unratified?: boolean } = {}): DecisionRow[] {
+      let sql = `SELECT ${DECISION_COLUMNS} FROM decisions`;
+      const where: string[] = [];
       const params: string[] = [];
       if (filter.repo !== undefined) {
-        sql += filter.includeUnattributed ? ` WHERE (repo = ? OR repo IS NULL)` : ` WHERE repo = ?`;
+        where.push(filter.includeUnattributed ? `(repo = ? OR repo IS NULL)` : `repo = ?`);
         params.push(filter.repo);
       }
+      // ALI-831: the human queue. Both predicates, because "unratified" alone would list every
+      // human decision ever captured (nothing ratifies those) and the queue would be useless.
+      if (filter.unratified) where.push(`decider_kind = 'agent' AND ratified_at IS NULL`);
+      if (where.length) sql += ` WHERE ${where.join(' AND ')}`;
       sql += ` ORDER BY created_at DESC`;
       return db.prepare(sql).all(...params) as unknown as DecisionRow[];
     },
 
     getDecisionById(id: string): DecisionRow | null {
       return (db.prepare(
-        `SELECT id, title, summary, source_url as sourceUrl, platform, created_at as createdAt, repo, decided_at as decidedAt FROM decisions WHERE id = ?`
+        `SELECT ${DECISION_COLUMNS} FROM decisions WHERE id = ?`
       ).get(id) as unknown as DecisionRow | null) ?? null;
+    },
+
+    /**
+     * ALI-831: the human act. Writes both columns in one statement guarded by
+     * `ratified_at IS NULL`, so the first ratification stands and a concurrent second caller
+     * sees null rather than overwriting it - the same first-wins rule as the cloud's
+     * ratifyDecision use case. Null for a missing id too; the caller tells the two apart by
+     * reading the row, and neither is a write.
+     */
+    markRatified(id: string, ratifiedBy: string): { ratifiedAt: string } | null {
+      const ratifiedAt = new Date().toISOString();
+      const row = db.prepare(
+        `UPDATE decisions SET ratified_by = ?, ratified_at = ?
+         WHERE id = ? AND ratified_at IS NULL
+         RETURNING ratified_at AS ratifiedAt`,
+      ).get(ratifiedBy, ratifiedAt, id) as { ratifiedAt: string } | undefined;
+      return row ?? null;
+    },
+
+    /** ALI-831: one row per human act on a decision (ratified, pushed), so "who stood behind
+     *  this, and when" is answerable after the fact. Append-only by construction. */
+    insertAudit(entry: { decisionId: string; action: string; actor: string | null; detail?: string | null }): void {
+      db.prepare(
+        `INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (?, ?, ?, ?, ?)`,
+      ).run(randomUUID(), entry.decisionId, entry.action, entry.actor, entry.detail ?? null);
+    },
+
+    listAudit(decisionId: string): AuditRow[] {
+      return db.prepare(
+        `SELECT id, decision_id AS decisionId, action, actor, detail, created_at AS createdAt
+         FROM decision_audit WHERE decision_id = ? ORDER BY rowid`,
+      ).all(decisionId) as unknown as AuditRow[];
     },
 
     /**
