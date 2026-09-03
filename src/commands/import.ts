@@ -19,6 +19,7 @@ import { registerImportSlackCommand } from './import/slack.js';
 import { registerImportTeamsCommand } from './import/teams.js';
 import { registerImportZoomCommand } from './import/zoom.js';
 import { registerImportNotionCommand } from './import/notion.js';
+import { registerImportSessionsCommand } from './import/sessions.js';
 
 interface ProgressState {
   connector: string;
@@ -320,4 +321,5 @@ export function registerImportCommand(program: Command): void {
   registerImportTeamsCommand(importCmd);
   registerImportZoomCommand(importCmd);
   registerImportNotionCommand(importCmd);
+  registerImportSessionsCommand(importCmd);
 }

@@ -218,3 +218,65 @@ export async function runPersonalImport(
   console.log('');
   return total;
 }
+
+/** A single confirm-each candidate: whatever it is, it can render itself for review. */
+export interface ConfirmEachItem {
+  render(): string;
+}
+
+export interface ConfirmEachResult {
+  imported: number;
+  skipped: number;
+  /** Items never reached because the caller cancelled (Ctrl-C) partway through - distinct
+   *  from skipped, which means "reviewed and declined". */
+  remaining: number;
+}
+
+/**
+ * ALI-808: added BESIDE runPersonalImport, not instead of it - this is the confirm-each
+ * shape (review one, decide, review the next) rather than runPersonalImport's preview-N
+ * then confirm-once-and-batch shape. First user: the session importer, where "this was
+ * said" needs a human looking at each candidate individually, not a table skim.
+ *
+ * Refuses a non-TTY caller before prompting or calling onAccept a single time - the same
+ * fail direction as `align ratify` (ratify.ts) and for the same reason: a hook, a pipe, or
+ * an agent's own shell tool must not be able to accept an agent-made claim unattended.
+ */
+export async function runConfirmEachImport<T extends ConfirmEachItem>(
+  items: T[],
+  onAccept: (item: T) => Promise<{ id: string }>,
+  opts: { label: string },
+): Promise<ConfirmEachResult> {
+  if (items.length === 0) return { imported: 0, skipped: 0, remaining: 0 };
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      `Confirming ${opts.label} one by one is a human act, and this was not run from a terminal. ` +
+      `A hook, a pipe, or an agent shell cannot accept these on your behalf.`,
+    );
+  }
+
+  let imported = 0;
+  let skipped = 0;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    console.log(`\n${chalk.dim(`[${i + 1}/${items.length}]`)} ${item.render()}\n`);
+    const choice = await p.select({
+      message: `Add this to your decision graph?`,
+      options: [
+        { value: 'accept', label: 'Accept' },
+        { value: 'skip', label: 'Skip' },
+      ],
+    });
+    if (p.isCancel(choice)) {
+      p.cancel('Stopped. Nothing further was reviewed.');
+      return { imported, skipped, remaining: items.length - i };
+    }
+    if (choice === 'accept') {
+      await onAccept(item);
+      imported++;
+    } else {
+      skipped++;
+    }
+  }
+  return { imported, skipped, remaining: 0 };
+}

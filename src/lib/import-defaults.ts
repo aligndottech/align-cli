@@ -23,6 +23,7 @@ export const IMPORT_LIMITS = {
   gitlab: 250,
   linear: 250,
   notion: 250,
+  sessions: 250,
 } as const satisfies Record<string, number>;
 
 /** Slack's look-back window, the same number in both readers for the same reason. */

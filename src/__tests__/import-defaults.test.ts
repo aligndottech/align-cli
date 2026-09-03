@@ -43,8 +43,13 @@ describe('IMPORT_LIMITS', () => {
     expect(buildSources.length).toBeGreaterThan(1000);           // the slice found the function
     expect(buildSources.match(/limit: \d+/g) ?? []).toEqual([]);   // no literal
     // Every source id that setup fetches for reads its own entry. docs is fetched outside
-    // buildSources (the value phase), so it is pinned separately below.
-    for (const id of commandIds.filter((c) => c !== 'docs')) {
+    // buildSources (the value phase), so it is pinned separately below. sessions (ALI-808)
+    // is neither: it reads local agent-session transcripts, has no OAuth/token and no
+    // per-tenant fetch, and refuses any environment but the local graph outright - there is
+    // nothing for `align setup`'s cloud/local onboarding to wire up, so it is exempt from
+    // this loop the same way docs is, rather than forcing a fetch-shaped entry that would
+    // not fire.
+    for (const id of commandIds.filter((c) => c !== 'docs' && c !== 'sessions')) {
       expect(buildSources, `setup reads IMPORT_LIMITS.${id}`).toContain(`IMPORT_LIMITS.${id}`);
     }
     // Both docs sites (the local value phase and cloud setup), and no literal anywhere in

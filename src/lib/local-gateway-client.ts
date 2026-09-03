@@ -324,6 +324,32 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     },
 
     /**
+     * ALI-808: the confirm-each session importer's one write path. Ingests exactly like
+     * ingestBatch does above (same ingestOne, so platform 'agent-session' derives
+     * decider_kind 'agent' for free via deriveDeciderKind - see decider-kind.ts) then stamps
+     * confirmed_by/confirmed_at via local-db.ts's markConfirmed, the column ALI-831 reserved
+     * for this. Not exposed through ingestBatch/captureDecision: those exist for every other
+     * platform and stay untouched; this is a new, narrow path with its own name so a caller
+     * cannot reach it by accident with the wrong platform string.
+     */
+    async confirmSessionDecision(
+      item: { source_url: string; raw_text: string; title: string; created_at?: string },
+      confirmedBy: string,
+    ): Promise<{ id: string; title: string; confirmedBy: string; confirmedAt: string }> {
+      const r = await ingestOne(item.raw_text, 'agent-session', {
+        titleOverride: item.title,
+        sourceUrlOverride: item.source_url,
+        createdAt: item.created_at,
+      });
+      const stamp = db.markConfirmed(r.id, confirmedBy);
+      // ingestOne just inserted this exact row, so a missing id here would mean insertDecision
+      // itself is broken - not a real caller-facing case, but fail loudly rather than return
+      // a stamp that lies about who confirmed what.
+      if (!stamp) throw new Error(`markConfirmed found no row for the decision it just inserted (${r.id})`);
+      return { id: r.id, title: r.title, confirmedBy, confirmedAt: stamp.confirmedAt };
+    },
+
+    /**
      * One decision by id, for `align decisions show` (ALI-772).
      *
      * `decisions` was left off the preferLocalEmbedded redirect that ask, search and import
