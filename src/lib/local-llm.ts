@@ -54,7 +54,8 @@ export const SYNTHESIS_SYSTEM_PROMPT =
   'Attribute details only to the decision they came from, and only state relationships between decisions that the context itself states. ' +
   'If two decisions contradict each other, say they conflict - do not pick a winner the context does not name. ' +
   'Be direct. Synthesise the context into a clear explanation - do not list decisions. ' +
-  'Never use an em-dash, even if the source material does - use a comma, a period, or a hyphen instead.';
+  'Never use an em-dash, even if the source material does - use a comma, a period, or a hyphen instead. ' +
+  'Write plain prose with no markdown: no asterisks or underscores for emphasis, no headings, no bullet points; the answer is printed in a terminal.';
 
 function buildUserPrompt(
   question: string,

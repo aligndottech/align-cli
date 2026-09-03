@@ -150,6 +150,12 @@ describe('isAbstention', () => {
     expect(SYNTHESIS_SYSTEM_PROMPT.toLowerCase()).toContain('conflict');
   });
 
+  it('asks for plain prose with no markdown, since the answer lands in a terminal', () => {
+    // The ask-nicely layer; renderAnswer at the print site is the guarantee.
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/no markdown/i);
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/asterisk/i);
+  });
+
   it('no longer says "authoritative" - the measured licence to confabulate', () => {
     expect(SYNTHESIS_SYSTEM_PROMPT.toLowerCase()).not.toContain('authoritative');
     // Positive control for the negative assertion: the constant is real prose,
