@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.1](https://github.com/aligndottech/align-cli/compare/cli-v0.34.0...cli-v0.34.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **setup:** show the whole connector list now that the screen is cleared for it, and say when it scrolls ([#251](https://github.com/aligndottech/align-cli/issues/251)) ([759e007](https://github.com/aligndottech/align-cli/commit/759e007615a7185e1862c0dbda149ac9af58dc8b))
+
 ## [0.34.0](https://github.com/aligndottech/align-cli/compare/cli-v0.33.1...cli-v0.34.0) (2026-09-03)
 
 
