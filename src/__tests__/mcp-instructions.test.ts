@@ -22,8 +22,8 @@ describe('ALIGN_MCP_INSTRUCTIONS', () => {
     expect(ALIGN_MCP_INSTRUCTIONS.toLowerCase()).toMatch(/not a pass|ask the (human|user)/);
   });
 
-  // ALI-830: align_ask/align_search return decision_url and source_url on every row
-  // (gateway-client.ts), and the instructions never told the agent to use either one - so
+  // ALI-830: align_ask/align_search can return `decision_url` (cloud-only) and `source_url`
+  // when available (gateway-client.ts), and the instructions never told the agent to use them - so
   // a decision named in prose (not a dated row from get_topic_timeline, which this server
   // does not have) shipped as bare text. Mirrors align-stack's mcpServer.test.ts equivalent.
   it('tells the agent to cite and link a decision', () => {
