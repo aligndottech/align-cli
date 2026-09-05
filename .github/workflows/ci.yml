@@ -223,7 +223,20 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         node: ['22', '24']
-        # On a pull request, drop the node-22 leg on the two EXPENSIVE platforms only.
+        # On a pull request: no macOS at all, and Windows on node 24 only.
+        #
+        # macOS bills at 10x the Linux rate. Measured 2026-09-01..05, align-cli's macOS legs
+        # burned 6,410 of the organisation's 50,000 monthly weighted minutes - 43% of
+        # everything, from 641 real minutes - and the org went over in August. Windows is 2x
+        # and stays, at one version, because it is the platform whose path handling actually
+        # differs. Full matrix still runs on push-to-main and on release, so no macOS
+        # regression can reach a published version; it is caught on main instead of on the PR.
+        #
+        # The trade is explicit: a macOS-only break is now found after merge rather than
+        # before it. That is worth revisiting if it ever actually happens.
+        #
+        # Original note, still true for the Windows leg that remains:
+        # drop the node-22 leg on the EXPENSIVE platforms only.
         # Linux is 1x and stays at both versions; macOS is 10x and Windows 2x, so this is
         # where the money is. Node 24 is the one kept, and that is forced rather than
         # preferred: the cache save step below is gated on `matrix.node == '24'`, so
@@ -232,7 +245,7 @@ jobs:
         # avoid. Excluding rather than rewriting `node` keeps ubuntu/22 in the base matrix,
         # which is what lets the `include` below add a key to it instead of creating a
         # tenth job.
-        exclude: ${{ github.event_name == 'pull_request' && fromJSON('[{"os":"windows-latest","node":"22"},{"os":"macos-latest","node":"22"}]') || fromJSON('[]') }}
+        exclude: ${{ github.event_name == 'pull_request' && fromJSON('[{"os":"macos-latest","node":"22"},{"os":"macos-latest","node":"24"},{"os":"windows-latest","node":"22"}]') || fromJSON('[]') }}
         include:
           # ONE leg never restores the model cache, so the real download from
           # huggingface.co is still exercised on every run. A cache covering all nine legs
