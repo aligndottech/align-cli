@@ -84,8 +84,8 @@ jobs:
     # 2026-09-01..05 consumed 6,410 - 43% of the entire organisation's usage, more than
     # align-stack spends in a month. What has actually broken on these platforms is the
     # INSTALL path (ALI-713's huggingface rate limit, ALI-740's binary targets), and
-    # install-smoke still covers that on every PR on every OS. Runs on push-to-main and
-    # release, so a break is caught before it can ship.
+    # install-smoke still covers that on every PR on every OS. Runs on push-to-main, and
+    # releases are covered by e2e-release.yml, so a break is caught before it can ship.
     if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
