@@ -78,6 +78,15 @@ jobs:
   # the pin has no subject. Unpinned deliberately rather than left with a comment that
   # no longer describes anything.
   cross-platform:
+    # Not on pull requests. This re-runs the `test` suite on macOS and Windows, and those
+    # minutes are the org's single largest CI line: macOS bills 10x and Windows 2x against
+    # the 50,000-minute monthly allowance, so align-cli's 641 real macOS minutes over
+    # 2026-09-01..05 consumed 6,410 - 43% of the entire organisation's usage, more than
+    # align-stack spends in a month. What has actually broken on these platforms is the
+    # INSTALL path (ALI-713's huggingface rate limit, ALI-740's binary targets), and
+    # install-smoke still covers that on every PR on every OS. Runs on push-to-main and
+    # release, so a break is caught before it can ship.
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -214,6 +223,16 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         node: ['22', '24']
+        # On a pull request, drop the node-22 leg on the two EXPENSIVE platforms only.
+        # Linux is 1x and stays at both versions; macOS is 10x and Windows 2x, so this is
+        # where the money is. Node 24 is the one kept, and that is forced rather than
+        # preferred: the cache save step below is gated on `matrix.node == '24'`, so
+        # keeping 22 instead would leave macOS and Windows with no cache writer and send
+        # every run back to huggingface.co - the rate limit ALI-713 added the cache to
+        # avoid. Excluding rather than rewriting `node` keeps ubuntu/22 in the base matrix,
+        # which is what lets the `include` below add a key to it instead of creating a
+        # tenth job.
+        exclude: ${{ github.event_name == 'pull_request' && fromJSON('[{"os":"windows-latest","node":"22"},{"os":"macos-latest","node":"22"}]') || fromJSON('[]') }}
         include:
           # ONE leg never restores the model cache, so the real download from
           # huggingface.co is still exercised on every run. A cache covering all nine legs
