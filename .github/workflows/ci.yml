@@ -229,8 +229,10 @@ jobs:
         # burned 6,410 of the organisation's 50,000 monthly weighted minutes - 43% of
         # everything, from 641 real minutes - and the org went over in August. Windows is 2x
         # and stays, at one version, because it is the platform whose path handling actually
-        # differs. Full matrix still runs on push-to-main and on release, so no macOS
+        # differs. Full matrix still runs on push-to-main, so no macOS
         # regression can reach a published version; it is caught on main instead of on the PR.
+        # (Precisely: this workflow runs on push-to-main and pull_request only. Release is
+        # covered by e2e-release.yml, whose own matrix includes macOS.)
         #
         # The trade is explicit: a macOS-only break is now found after merge rather than
         # before it. That is worth revisiting if it ever actually happens.
