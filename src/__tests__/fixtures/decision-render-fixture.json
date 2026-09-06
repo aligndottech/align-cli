@@ -1,5 +1,5 @@
 {
-  "$comment": "ALI-851 shared cross-language fixture. This file MUST be kept byte-identical to align-cli's copy at src/__tests__/fixtures/decision-render-fixture.json (two separate git repos, no shared filesystem - see that file's own $comment). Do not edit one without the other; a diff between them is a silent drift in what the two renderers are pinned to. Each case's `decision` is the render_decision input; `expected` maps a budget name to the exact string both languages must produce.",
+  "$comment": "ALI-851 shared cross-language fixture. This file MUST be kept byte-identical to align-stack's copy at services/brain/tests/fixtures/decision_render_fixture.json (two separate git repos, no shared filesystem - see that file's own $comment). Do not edit one without the other; a diff between them is a silent drift in what the two renderers are pinned to. Each case's `decision` is the render_decision input; `expected` maps a budget name to the exact string both languages must produce.",
   "cases": [
     {
       "name": "full_with_altitude_dimension_and_retired_flag",

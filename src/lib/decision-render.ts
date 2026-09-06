@@ -105,11 +105,24 @@ function statusFlag(status: string | null | undefined): string | null {
 // below, same as Python's fromisoformat raising on it.
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 
+// A date-time string with NO timezone designator (no `Z`, no `+HH:MM`/`-HH:MM`) is parsed
+// as HOST-LOCAL time by `new Date(...)` (the ECMA-262 Date Time String Format rule), which
+// makes the rendered date depend on the machine running the code. Python's twin does the
+// opposite: `parse_decided_at`'s `_as_utc` labels a naive (tzinfo-less) datetime as UTC
+// without shifting it - deterministic regardless of the machine. Force the same "naive =
+// UTC" reading here by appending `Z` before parsing, or the two languages can render a
+// DIFFERENT date for the identical input depending on where each one runs.
+const HAS_TIME = /T\d{2}:\d{2}/;
+const HAS_ZONE_DESIGNATOR = /(Z|[+-]\d{2}:?\d{2})$/;
+
 /** Mirrors app/relationship_type_rules.parse_decided_at's ISO-string branch: an
- * unparseable value is MISSING, not an error, same as the Python side. */
+ * unparseable value is MISSING, not an error, same as the Python side. An offset
+ * (e.g. `-05:00`) is normalized to UTC on both sides identically, via `_as_utc`'s
+ * `.astimezone(UTC)` here and `.toISOString()`'s implicit UTC output there. */
 function decidedLabel(decidedAt: string | null | undefined): string | null {
   if (!decidedAt || !ISO_DATE_RE.test(decidedAt)) return null;
-  const parsed = new Date(decidedAt);
+  const naive = HAS_TIME.test(decidedAt) && !HAS_ZONE_DESIGNATOR.test(decidedAt);
+  const parsed = new Date(naive ? `${decidedAt}Z` : decidedAt);
   if (Number.isNaN(parsed.getTime())) return null;
   return `decided ${parsed.toISOString().slice(0, 10)}`;
 }

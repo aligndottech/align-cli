@@ -184,6 +184,25 @@ describe('renderDecision - decided_at parsing matches the Python twin (MISSING o
     });
     expect(out.split('\n')[0]).toContain('decided 2026-08-01');
   });
+
+  it('normalizes an explicit offset to UTC, same as the Python twin (both sides call .astimezone(UTC))', () => {
+    const out = renderDecision(minimal({ decided_at: '2026-08-01T23:00:00-05:00', platform: 'jira' }), {
+      budget: 'full',
+    });
+    // 23:00 -05:00 is 04:00 UTC the NEXT day - both languages shift the calendar day here.
+    expect(out.split('\n')[0]).toContain('decided 2026-08-02');
+  });
+
+  it('treats a timezone-less datetime as UTC, not host-local time (regression)', () => {
+    // Without the Z-append fix, `new Date('2026-08-01T23:00:00')` parses as host-local time
+    // per the ECMA-262 Date Time String Format rule, which can render a DIFFERENT calendar
+    // date depending on the machine's timezone - unlike Python's `_as_utc`, which labels a
+    // naive datetime as UTC without shifting it. This must render the literal date, always.
+    const out = renderDecision(minimal({ decided_at: '2026-08-01T23:00:00', platform: 'jira' }), {
+      budget: 'full',
+    });
+    expect(out.split('\n')[0]).toContain('decided 2026-08-01');
+  });
 });
 
 describe('renderDecision - budget presets', () => {
