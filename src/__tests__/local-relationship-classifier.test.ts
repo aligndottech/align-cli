@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DECISION_RELATIONSHIPS, isDecisionRelationship } from '@aligndottech/connector-core';
 import { buildUserPrompt, classifyRelationship, RELATIONSHIP_TYPES } from '../lib/local-relationship-classifier.js';
 import { CLASSIFIER_MAX_TOKENS } from '../lib/local-llm.js';
+import { estimateTokens } from '../lib/token-estimate.js';
 
 const A = { title: 'Standardise on MySQL', summary: 'We chose MySQL as the primary database.' };
 const B = { title: 'Migrate to Postgres', summary: 'Switch the service database to Postgres.' };
@@ -186,5 +187,22 @@ describe('buildUserPrompt caps each side to its share of the window', () => {
   it('leaves both sides untouched when they already fit', () => {
     const prompt = buildUserPrompt(A, B, 4096, CLASSIFIER_MAX_TOKENS);
     expect(prompt).toBe(`Decision A: ${A.title}. ${A.summary}\n\nDecision B: ${B.title}. ${B.summary}`);
+  });
+
+  // Copilot review (PR #258): the reserve accounted for the system prompt and the output
+  // budget, but not the "Decision A: <title>. " / "Decision B: <title>. " label overhead
+  // wrapped around each side. A long title alone can then push the prompt over the window
+  // even though both summaries were correctly cut to their share.
+  it('reserves budget for the "Decision A/B: title. " label overhead, so long titles cannot blow the window', () => {
+    const windowTokens = 4096;
+    const outputTokens = CLASSIFIER_MAX_TOKENS;
+    const longTitle = 'X'.repeat(1000);
+    const bigSummary = 'y'.repeat(100_000);
+    const a = { title: longTitle, summary: bigSummary };
+    const b = { title: longTitle, summary: bigSummary };
+
+    const prompt = buildUserPrompt(a, b, windowTokens, outputTokens);
+
+    expect(estimateTokens(prompt) + outputTokens).toBeLessThanOrEqual(windowTokens);
   });
 });

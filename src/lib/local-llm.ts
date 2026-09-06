@@ -73,6 +73,11 @@ export const SYNTHESIS_SYSTEM_PROMPT =
  * larger override defeats the whole point of this function (found in fresh-context review,
  * ALI-845): a 4,096-token window with ALIGN_SYNTHESIS_MAX_TOKENS=3000 would under-reserve by
  * ~2,000 tokens and the resulting request would exceed the window it was built against.
+ *
+ * The reserve also covers the "- " + title + ": " label wrapped around every summary, plus the
+ * newline joining each entry - not just the system prompt and header (Copilot review, PR #258).
+ * Titles are never cut, so with enough decisions or long enough titles that overhead alone can
+ * exceed what dividing the raw window by decisions.length would leave for summaries.
  */
 export function buildUserPrompt(
   question: string,
@@ -83,7 +88,10 @@ export function buildUserPrompt(
   const header = `Question: ${question}\n\nDecision context:\n`;
   if (!decisions.length) return header;
 
-  const reserveTokens = estimateTokens(SYNTHESIS_SYSTEM_PROMPT) + estimateTokens(header) + outputTokens;
+  const labelTokens = decisions.reduce((sum, d) => sum + estimateTokens(`- ${d.title}: `), 0);
+  const joinTokens = estimateTokens('\n') * (decisions.length - 1);
+  const reserveTokens =
+    estimateTokens(SYNTHESIS_SYSTEM_PROMPT) + estimateTokens(header) + outputTokens + labelTokens + joinTokens;
   const budgetTokens = Math.max(0, windowTokens - reserveTokens);
   const perDecisionChars = charsForTokens(Math.floor(budgetTokens / decisions.length));
 
@@ -839,7 +847,19 @@ export async function callChatDetailed(
   // Every hosted adapter's window is the generous Phase-0 default (see
   // HOSTED_WINDOW_TOKENS_DEFAULT) - only Ollama resolves a real one, and only after it knows
   // which model was chosen, so it keeps the callback form and resolves it itself below.
-  const hostedUser = typeof user === 'function' ? user(HOSTED_WINDOW_TOKENS_DEFAULT) : user;
+  //
+  // Built lazily (Copilot review, PR #258): a callback-form builder used to run here
+  // unconditionally, even when no hosted adapter is ever attempted (Ollama-only) or the
+  // first hosted attempt already answers. Memoized rather than re-evaluated at each of the
+  // two hosted call sites below, since the escape hatch falling through into the named-
+  // provider loop would otherwise build the same placeholder prompt twice.
+  let hostedUserCache: string | null = null;
+  const getHostedUser = (): string => {
+    if (hostedUserCache === null) {
+      hostedUserCache = typeof user === 'function' ? user(HOSTED_WINDOW_TOKENS_DEFAULT) : user;
+    }
+    return hostedUserCache;
+  };
 
   // The most specific unavailability seen while walking the chain. Only Ollama can
   // produce one today, and it is a local (not module) variable, so a sibling call
@@ -883,7 +903,7 @@ export async function callChatDetailed(
     const key = process.env['ALIGN_LLM_API_KEY'] ?? '';
     const model = process.env['ALIGN_LLM_MODEL'] || 'gpt-4o-mini';
     const settled = settle(
-      await tryOpenAiCompatible(system, hostedUser, chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
+      await tryOpenAiCompatible(system, getHostedUser(), chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
       'custom',
       true,
     );
@@ -895,7 +915,7 @@ export async function callChatDetailed(
     const key = keyForProvider(provider);
     if (key) {
       const settled = settle(
-        await callProvider(provider, key, system, hostedUser, maxTokens, temperature),
+        await callProvider(provider, key, system, getHostedUser(), maxTokens, temperature),
         provider,
         true,
       );

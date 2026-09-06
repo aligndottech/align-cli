@@ -3,6 +3,8 @@ import {
   ABSTENTION_SENTINEL,
   buildUserPrompt,
   callChat,
+  callChatDetailed,
+  HOSTED_WINDOW_TOKENS_DEFAULT,
   isAbstention,
   SYNTHESIS_MAX_TOKENS,
   SYNTHESIS_SYSTEM_PROMPT,
@@ -81,6 +83,44 @@ describe('callChat (provider-agnostic resolver)', () => {
     mockFetch.mockResolvedValue({ ok: false }); // ollama /api/tags not ok
     const r = await callChat('s', 'u');
     expect(r).toBeNull();
+  });
+});
+
+// Copilot review (PR #258): `hostedUser` used to be computed eagerly at the top of
+// callChatDetailed, so a callback-form prompt builder ran even when no hosted provider was
+// ever attempted - here, Ollama-only, where the real prompt is the one built against
+// Ollama's OWN resolved window (tryOllama calls `user` itself, further down).
+describe('callChatDetailed evaluates a callback prompt builder lazily, only for a provider that runs it', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
+    for (const k of ALL_KEYS) vi.stubEnv(k, '');
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('never builds the hosted-placeholder prompt when only Ollama is configured', async () => {
+    mockFetch.mockImplementation(async (url: string) => {
+      if (String(url).includes('/api/tags')) {
+        return { ok: true, json: async () => ({ models: [{ name: 'llama3.2:latest' }] }) };
+      }
+      if (String(url).includes('/api/show')) {
+        return { ok: true, json: async () => ({ model_info: { 'llama.context_length': 131_072 } }) };
+      }
+      return { ok: true, json: async () => ({ message: { content: 'an answer' } }) };
+    });
+
+    const user = vi.fn((windowTokens: number) => `prompt for ${windowTokens}`);
+    const result = await callChatDetailed('sys', user);
+
+    expect(result.ok).toBe(true);
+    // Built exactly once, against Ollama's real resolved window - never against
+    // HOSTED_WINDOW_TOKENS_DEFAULT, since no hosted adapter ever ran.
+    expect(user).toHaveBeenCalledTimes(1);
+    expect(user).toHaveBeenCalledWith(131_072);
+    expect(user).not.toHaveBeenCalledWith(HOSTED_WINDOW_TOKENS_DEFAULT);
   });
 });
 
@@ -307,5 +347,23 @@ describe('buildUserPrompt caps each summary to its share of the window', () => {
     for (const d of decisions) {
       expect(prompt).toContain(`- ${d.title}: ${d.summary}`);
     }
+  });
+
+  // Copilot review (PR #258): the per-decision budget reserved the system prompt, header
+  // and output tokens, but not the "- " + title + ": " label wrapped around every summary.
+  // Enough decisions with long titles make that unreserved overhead alone exceed the window,
+  // even though every summary was correctly cut to its share.
+  it('reserves budget for the "- title: " label overhead, so long titles cannot blow the window', () => {
+    const windowTokens = 4096;
+    const outputTokens = SYNTHESIS_MAX_TOKENS;
+    const decisions = Array.from({ length: 10 }, (_, i) => ({
+      id: `d${i}`,
+      title: 'X'.repeat(150),
+      summary: 'y'.repeat(100_000),
+    }));
+
+    const prompt = buildUserPrompt('why?', decisions, windowTokens, outputTokens);
+
+    expect(estimateTokens(prompt) + outputTokens).toBeLessThanOrEqual(windowTokens);
   });
 });

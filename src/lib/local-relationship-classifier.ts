@@ -89,9 +89,15 @@ const SYSTEM_PROMPT =
  * not the CLASSIFIER_MAX_TOKENS default - see buildUserPrompt's twin in local-llm.ts for why
  * reserving the default while the real request sends an override defeats the cap (found in
  * fresh-context review, ALI-845).
+ *
+ * The reserve also covers the "Decision A: <title>. " / "Decision B: <title>. " label wrapped
+ * around each side, not just the system prompt and output budget (Copilot review, PR #258).
+ * Titles are never cut, so a long enough title can otherwise exceed its side's share on its
+ * own, before any summary is even considered.
  */
 export function buildUserPrompt(a: DecisionLite, b: DecisionLite, windowTokens: number, outputTokens: number): string {
-  const reserveTokens = estimateTokens(SYSTEM_PROMPT) + outputTokens;
+  const labelTokens = estimateTokens(`Decision A: ${a.title}. `) + estimateTokens(`\n\nDecision B: ${b.title}. `);
+  const reserveTokens = estimateTokens(SYSTEM_PROMPT) + outputTokens + labelTokens;
   const budgetTokens = Math.max(0, windowTokens - reserveTokens);
   const perSideChars = charsForTokens(Math.floor(budgetTokens / 2));
   const cut = (d: DecisionLite) => (d.summary.length > perSideChars ? d.summary.slice(0, perSideChars) : d.summary);
