@@ -1,3 +1,5 @@
+import { charsForTokens, estimateTokens } from './token-estimate.js';
+
 export type AiProvider = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'mistral' | 'grok';
 
 export interface CallChatOptions {
@@ -57,12 +59,49 @@ export const SYNTHESIS_SYSTEM_PROMPT =
   'Never use an em-dash, even if the source material does - use a comma, a period, or a hyphen instead. ' +
   'Write plain prose with no markdown: no asterisks or underscores for emphasis, no headings, no bullet points; the answer is printed in a terminal.';
 
-function buildUserPrompt(
+/**
+ * ALI-845 defect 3: no cap of any kind existed - up to 8 raw summaries (mean 4,798 chars, max
+ * 21,865 per the upstream research doc) were joined into one prompt regardless of window.
+ *
+ * Reserves the system prompt and the output budget out of the window FIRST, then splits what
+ * is left evenly across the decisions, then cuts each summary to its share. A summary that
+ * already fits its share is left untouched (an inequality, not an unconditional slice) - test
+ * 11 in the plan depends on this.
+ *
+ * `outputTokens` is the CALLER'S ACTUAL resolved budget (post ALIGN_SYNTHESIS_MAX_TOKENS), not
+ * the SYNTHESIS_MAX_TOKENS default - reserving the default while the real request sends a
+ * larger override defeats the whole point of this function (found in fresh-context review,
+ * ALI-845): a 4,096-token window with ALIGN_SYNTHESIS_MAX_TOKENS=3000 would under-reserve by
+ * ~2,000 tokens and the resulting request would exceed the window it was built against.
+ *
+ * The reserve also covers the "- " + title + ": " label wrapped around every summary, plus the
+ * newline joining each entry - not just the system prompt and header (Copilot review, PR #258).
+ * Titles are never cut, so with enough decisions or long enough titles that overhead alone can
+ * exceed what dividing the raw window by decisions.length would leave for summaries.
+ */
+export function buildUserPrompt(
   question: string,
   decisions: Array<{ id: string; title: string; summary: string }>,
+  windowTokens: number,
+  outputTokens: number,
 ): string {
-  const ctx = decisions.map(d => `- ${d.title}: ${d.summary}`).join('\n');
-  return `Question: ${question}\n\nDecision context:\n${ctx}`;
+  const header = `Question: ${question}\n\nDecision context:\n`;
+  if (!decisions.length) return header;
+
+  const labelTokens = decisions.reduce((sum, d) => sum + estimateTokens(`- ${d.title}: `), 0);
+  const joinTokens = estimateTokens('\n') * (decisions.length - 1);
+  const reserveTokens =
+    estimateTokens(SYNTHESIS_SYSTEM_PROMPT) + estimateTokens(header) + outputTokens + labelTokens + joinTokens;
+  const budgetTokens = Math.max(0, windowTokens - reserveTokens);
+  const perDecisionChars = charsForTokens(Math.floor(budgetTokens / decisions.length));
+
+  const ctx = decisions
+    .map(d => {
+      const summary = d.summary.length > perDecisionChars ? d.summary.slice(0, perDecisionChars) : d.summary;
+      return `- ${d.title}: ${summary}`;
+    })
+    .join('\n');
+  return `${header}${ctx}`;
 }
 
 // --- Provider adapters: each takes a generic (system, user) chat and returns a
@@ -92,6 +131,16 @@ type AdapterOutcome =
  */
 const HOSTED_TIMEOUT_MS = 15_000;
 const LOCAL_TIMEOUT_MS = 300_000;
+
+/**
+ * A hosted provider's real window is not resolved until ALI-852 (the Models API lookup and
+ * the provider table). Until then, `callChatDetailed` builds the prompt against this
+ * deliberately generous default rather than a real one, so Phase 0's capping cannot regress
+ * an `align ask` that works today on a large-window hosted model (Claude, GPT-4o, Gemini all
+ * exceed it) - the "generous hosted default" from the plan's assumption 4. It is not a claim
+ * about any specific provider's real limit.
+ */
+export const HOSTED_WINDOW_TOKENS_DEFAULT = 100_000;
 
 /**
  * Is this endpoint on the user's own machine or network?
@@ -144,6 +193,29 @@ export function resolveLlmTimeoutMs(endpoint: string): number {
     console.error(
       `align: ignoring ALIGN_LLM_TIMEOUT_MS=${JSON.stringify(raw)} - it must be a positive ` +
       `number of milliseconds. Using ${fallback}ms.`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
+/**
+ * Two callers, two output budgets (ALI-845 defect 2): the classifier's whole output is a
+ * ~60-char JSON object, while `align ask` synthesis is 2-4 prose sentences per
+ * SYNTHESIS_SYSTEM_PROMPT - sharing one 256-token ceiling visibly truncates the second.
+ */
+export const CLASSIFIER_MAX_TOKENS = 256;
+export const SYNTHESIS_MAX_TOKENS = 1_024;
+
+/** Env override for a max-token budget. Same warn-not-silently-fall-back contract as resolveLlmTimeoutMs. */
+export function resolveMaxTokens(envVar: string, fallback: number): number {
+  const raw = process.env[envVar];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error(
+      `align: ignoring ${envVar}=${JSON.stringify(raw)} - it must be a positive number of ` +
+      `tokens. Using ${fallback}.`,
     );
     return fallback;
   }
@@ -540,10 +612,83 @@ export function isAvailabilityFailure(status: number, body: string): boolean {
 }
 
 
+/** A resolved Ollama context window and where it came from - logged, never silent (assumption 1). */
+export interface ResolvedWindow { tokens: number; source: string; }
+
+/**
+ * Floor used when the real window cannot be resolved (no `/api/show`, a non-2xx, or a body
+ * with no usable `<arch>.context_length`). This floor is indistinguishable from a genuinely
+ * small window from the outside, which is why every path through this function logs.
+ */
+export const OLLAMA_CONTEXT_FLOOR = 4_096;
+
+/**
+ * POST /api/show and read model_info's <arch>.context_length - discovered by suffix match,
+ * not derived from `details.family`, so an architecture we have never seen still resolves.
+ * OLLAMA_CONTEXT_LENGTH, when set and usable, only ever SHRINKS the reported value: raising
+ * it above what the model actually reports would claim a window the model does not have.
+ *
+ * Every path logs (at console.error, matching resolveLlmTimeoutMs's shape below): a wrong
+ * assumption about /api/show's response shape gives a 4xx, the floor silently applies, and
+ * nothing else in the output would say so.
+ */
+export async function resolveOllamaWindow(host: string, model: string): Promise<ResolvedWindow> {
+  const floor = (reason: string): ResolvedWindow => {
+    console.error(
+      `align: could not resolve ${model}'s context window (${reason}). Using the floor of ` +
+      `${OLLAMA_CONTEXT_FLOOR} tokens, which may truncate the prompt more than necessary if ` +
+      `the model's real window is larger.`,
+    );
+    return { tokens: OLLAMA_CONTEXT_FLOOR, source: `floor: ${reason}` };
+  };
+
+  let data: { model_info?: Record<string, unknown> };
+  try {
+    const res = await fetch(`${host}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+      // Discovery, not generation - the same 2s budget as the /api/tags probe.
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return floor(`/api/show returned HTTP ${res.status}`);
+    data = await res.json() as { model_info?: Record<string, unknown> };
+  } catch (err) {
+    return floor(`/api/show failed: ${String(err)}`);
+  }
+
+  const modelInfo = data.model_info ?? {};
+  const key = Object.keys(modelInfo).find(k => /\.context_length$/.test(k));
+  const reported = key ? modelInfo[key] : undefined;
+  if (typeof reported !== 'number' || !Number.isFinite(reported) || reported <= 0) {
+    return floor('model_info carried no usable context_length');
+  }
+
+  let tokens = reported;
+  let source = `reported by ${model}`;
+  const override = process.env['OLLAMA_CONTEXT_LENGTH'];
+  if (override !== undefined && override.trim() !== '') {
+    const parsed = Number(override);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      tokens = Math.min(reported, parsed);
+      if (tokens < reported) source = `capped by OLLAMA_CONTEXT_LENGTH=${parsed}`;
+    } else {
+      console.error(
+        `align: ignoring OLLAMA_CONTEXT_LENGTH=${JSON.stringify(override)} - it must be a ` +
+        `positive number of tokens. Using ${model}'s reported window of ${reported}.`,
+      );
+    }
+  }
+
+  console.error(`align: using a context window of ${tokens} tokens for ${model} (${source}).`);
+  return { tokens, source };
+}
+
 async function tryOllama(
   system: string,
-  user: string,
+  user: string | ((windowTokens: number) => string),
   temperature?: number,
+  maxTokens = 256,
 ): Promise<AdapterOutcome> {
   // `||`, not `??`: OLLAMA_HOST='' (a stock .env template, an unset compose variable)
   // would otherwise make every probe a relative URL that fetch cannot parse, so a
@@ -572,6 +717,12 @@ async function tryOllama(
     return { kind: 'unavailable', detail: String(err) };
   }
 
+  // Only the CHOSEN model's window matters, and it is not known until here - this is the
+  // "code that knows the window" from the design decision: `user` is resolved with the real
+  // window now, never with a guess made before the model was picked.
+  const window = await resolveOllamaWindow(host, model);
+  const userText = typeof user === 'function' ? user(window.tokens) : user;
+
   let res: Response;
   try {
     res = await fetch(`${host}/api/chat`, {
@@ -580,10 +731,14 @@ async function tryOllama(
       body: JSON.stringify({
         model,
         stream: false,
-        ...(temperature !== undefined ? { options: { temperature } } : {}),
+        options: {
+          num_ctx: window.tokens,
+          num_predict: maxTokens,
+          ...(temperature !== undefined ? { temperature } : {}),
+        },
         messages: [
           { role: 'system', content: system },
-          { role: 'user', content: user },
+          { role: 'user', content: userText },
         ],
       }),
       // Ollama is local by definition, so it uses the same limit as any other local endpoint
@@ -683,11 +838,28 @@ export function hasConfiguredProvider(): boolean {
  */
 export async function callChatDetailed(
   system: string,
-  user: string,
+  user: string | ((windowTokens: number) => string),
   opts?: CallChatOptions,
 ): Promise<ChatResult> {
   const maxTokens = opts?.maxTokens;
   const temperature = opts?.temperature;
+
+  // Every hosted adapter's window is the generous Phase-0 default (see
+  // HOSTED_WINDOW_TOKENS_DEFAULT) - only Ollama resolves a real one, and only after it knows
+  // which model was chosen, so it keeps the callback form and resolves it itself below.
+  //
+  // Built lazily (Copilot review, PR #258): a callback-form builder used to run here
+  // unconditionally, even when no hosted adapter is ever attempted (Ollama-only) or the
+  // first hosted attempt already answers. Memoized rather than re-evaluated at each of the
+  // two hosted call sites below, since the escape hatch falling through into the named-
+  // provider loop would otherwise build the same placeholder prompt twice.
+  let hostedUserCache: string | null = null;
+  const getHostedUser = (): string => {
+    if (hostedUserCache === null) {
+      hostedUserCache = typeof user === 'function' ? user(HOSTED_WINDOW_TOKENS_DEFAULT) : user;
+    }
+    return hostedUserCache;
+  };
 
   // The most specific unavailability seen while walking the chain. Only Ollama can
   // produce one today, and it is a local (not module) variable, so a sibling call
@@ -731,7 +903,7 @@ export async function callChatDetailed(
     const key = process.env['ALIGN_LLM_API_KEY'] ?? '';
     const model = process.env['ALIGN_LLM_MODEL'] || 'gpt-4o-mini';
     const settled = settle(
-      await tryOpenAiCompatible(system, user, chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
+      await tryOpenAiCompatible(system, getHostedUser(), chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
       'custom',
       true,
     );
@@ -743,7 +915,7 @@ export async function callChatDetailed(
     const key = keyForProvider(provider);
     if (key) {
       const settled = settle(
-        await callProvider(provider, key, system, user, maxTokens, temperature),
+        await callProvider(provider, key, system, getHostedUser(), maxTokens, temperature),
         provider,
         true,
       );
@@ -753,7 +925,7 @@ export async function callChatDetailed(
 
   // 3. local Ollama as last resort
   // configured=false: the probe runs whether or not anyone asked for Ollama.
-  const settled = settle(await tryOllama(system, user, temperature), 'ollama', false);
+  const settled = settle(await tryOllama(system, user, temperature, maxTokens), 'ollama', false);
   if (settled) return settled;
 
   // Nothing answered. An unrecognised local model is the more specific diagnosis and
@@ -797,8 +969,15 @@ export async function synthesiseDetailed(
   question: string,
   decisions: Array<{ id: string; title: string; summary: string }>,
 ): Promise<ChatResult> {
-  const user = buildUserPrompt(question, decisions);
-  const result = await callChatDetailed(SYNTHESIS_SYSTEM_PROMPT, user);
+  // Resolved ONCE, then threaded into both the reserve calculation and the actual request -
+  // never the SYNTHESIS_MAX_TOKENS default in one place and this in the other, or an override
+  // reserves less than it sends (see buildUserPrompt's docstring).
+  const maxTokens = resolveMaxTokens('ALIGN_SYNTHESIS_MAX_TOKENS', SYNTHESIS_MAX_TOKENS);
+  const result = await callChatDetailed(
+    SYNTHESIS_SYSTEM_PROMPT,
+    (windowTokens: number) => buildUserPrompt(question, decisions, windowTokens, maxTokens),
+    { maxTokens },
+  );
   return result.ok ? { ...result, text: stripEmDash(result.text) } : result;
 }
 
