@@ -5,7 +5,10 @@
 # real user, not a snapshot frozen at whatever version this file was last touched.
 FROM node:22.16-alpine
 
-RUN npm install -g @aligndottech/cli
+RUN npm install -g --no-audit --no-fund @aligndottech/cli
+
+USER node
+ENV HOME=/home/node
 
 ENTRYPOINT ["align"]
 CMD ["mcp"]
