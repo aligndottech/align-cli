@@ -185,6 +185,27 @@ describe('local-gateway-client', () => {
     );
   });
 
+  // ALI-845 defect 3: this file used to cap the subject at diff.slice(0, 2000) - a second
+  // writer of the same fact once the classifier's own buildUserPrompt is budget-derived
+  // (local-relationship-classifier.test.ts's "caps each side" tests prove THAT half). This
+  // is the half that makes deleting the slice safe: the gateway client must hand the
+  // classifier the WHOLE diff, uncut, so the classifier's own window logic is what decides,
+  // not a number unrelated to any window.
+  it('checkAlignment passes the diff to the classifier uncut - capping now lives in the classifier', async () => {
+    vi.mocked(cosineSimilarity).mockReturnValue(0.75);
+    await client.captureDecision('Use Postgres for persistence', 'cli');
+    vi.mocked(classifyRelationship).mockClear();
+    const bigDiff = `diff opening line\n${'x'.repeat(60_000)}`;
+
+    await client.checkAlignment(bigDiff);
+
+    const [subjectArg] = vi.mocked(classifyRelationship).mock.calls[0]!;
+    expect(subjectArg.summary).toContain('diff opening line');
+    // Was 2,000 before ALI-845 - proves the slice is gone, not just that SOMETHING changed.
+    expect(subjectArg.summary.length).toBeGreaterThan(2000);
+    expect(subjectArg.summary).toBe(bigDiff);
+  });
+
   // The split floor, driven by a score BETWEEN the two constants. A fixture above both, or
   // below both, cannot tell a split from a single threshold - it is the same shape as sending
   // the same value down two paths and calling it a precedence test.

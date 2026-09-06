@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DECISION_RELATIONSHIPS, isDecisionRelationship } from '@aligndottech/connector-core';
-import { classifyRelationship, RELATIONSHIP_TYPES } from '../lib/local-relationship-classifier.js';
+import { buildUserPrompt, classifyRelationship, RELATIONSHIP_TYPES } from '../lib/local-relationship-classifier.js';
+import { CLASSIFIER_MAX_TOKENS } from '../lib/local-llm.js';
 
 const A = { title: 'Standardise on MySQL', summary: 'We chose MySQL as the primary database.' };
 const B = { title: 'Migrate to Postgres', summary: 'Switch the service database to Postgres.' };
@@ -17,6 +18,7 @@ describe('classifyRelationship', () => {
     mockFetch.mockReset();
     vi.stubEnv('OPENAI_API_KEY', '');
     vi.stubEnv('ANTHROPIC_API_KEY', '');
+    vi.stubEnv('ALIGN_CLASSIFIER_MAX_TOKENS', '');
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -147,5 +149,42 @@ describe('classifyRelationship', () => {
       const body = JSON.parse((init as { body: string }).body);
       expect(body.temperature).toBe(0);
     });
+  });
+
+  // ALI-845 defect 2: the classifier's whole output is a ~60-char JSON object, distinct
+  // from synthesis's own >=1,024 budget (local-llm.test.ts). Own describe below because
+  // this assertion is satisfiable by the UNCHANGED adapter default (256) too - see the
+  // manufactured-RED note there for why that is not evidence on its own.
+  it('sends 256 as max_tokens - the classifier\'s own budget, not a shared default', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
+    mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'supersedes', confidence: 0.9 }));
+
+    await classifyRelationship(A, B);
+
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as { body: string }).body);
+    expect(body.max_tokens).toBe(256);
+  });
+});
+
+// ALI-845 defect 3 (classifier side): buildUserPrompt cut neither side. Both decisions get
+// an equal share of the same budget the synthesis prompt uses (local-llm.test.ts).
+describe('buildUserPrompt caps each side to its share of the window', () => {
+  it('cuts an oversized Decision B while leaving A present and non-empty', () => {
+    // Cutting the wrong side, or cutting both to nothing, both pass a length-only
+    // assertion - so this checks A is untouched AND B was actually reduced.
+    const bigB = { title: 'Migrate to Postgres', summary: 'x'.repeat(60_000) };
+    const prompt = buildUserPrompt(A, bigB, 4096, CLASSIFIER_MAX_TOKENS);
+
+    expect(prompt).toContain(A.summary);
+    expect(prompt).toContain(`Decision A: ${A.title}`);
+    expect(prompt).not.toContain(bigB.summary);
+    const bMatch = prompt.match(/Decision B: .*?\. (.*)$/s);
+    expect(bMatch?.[1]?.length ?? 0).toBeGreaterThan(0);
+    expect(bMatch?.[1]?.length ?? 0).toBeLessThan(60_000);
+  });
+
+  it('leaves both sides untouched when they already fit', () => {
+    const prompt = buildUserPrompt(A, B, 4096, CLASSIFIER_MAX_TOKENS);
+    expect(prompt).toBe(`Decision A: ${A.title}. ${A.summary}\n\nDecision B: ${B.title}. ${B.summary}`);
   });
 });

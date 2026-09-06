@@ -14,7 +14,14 @@ import {
   isDecisionRelationship,
 } from '@aligndottech/connector-core';
 
-import { callChatDetailed, hasConfiguredProvider, type LlmFailure } from './local-llm.js';
+import {
+  callChatDetailed,
+  CLASSIFIER_MAX_TOKENS,
+  hasConfiguredProvider,
+  type LlmFailure,
+  resolveMaxTokens,
+} from './local-llm.js';
+import { charsForTokens, estimateTokens } from './token-estimate.js';
 
 // ALI-219: the canonical decision-graph vocabulary is the single source of truth
 // (connector-core). The local classifier must only emit types the graph accepts,
@@ -71,8 +78,24 @@ const SYSTEM_PROMPT =
   'Use "conflicts_with" or "contradicts" ONLY when B genuinely opposes A - high textual similarity alone is NOT a conflict ' +
   '(two decisions about the same topic often agree). Use "supersedes" when B replaces A, "relates" when merely related.';
 
-function buildUserPrompt(a: DecisionLite, b: DecisionLite): string {
-  return `Decision A: ${a.title}. ${a.summary}\n\nDecision B: ${b.title}. ${b.summary}`;
+/**
+ * ALI-845 defect 3 (classifier side): neither side was capped here - the asymmetry the
+ * ticket described lived one layer up, at the call site (see local-gateway-client.ts).
+ * Both decisions get an equal share of the same budget, using the same estimator as
+ * local-llm.ts's synthesis prompt. Exported so its cutting behaviour is pinned directly,
+ * the same way the synthesis builder is.
+ *
+ * `outputTokens` is the CALLER'S ACTUAL resolved budget (post ALIGN_CLASSIFIER_MAX_TOKENS),
+ * not the CLASSIFIER_MAX_TOKENS default - see buildUserPrompt's twin in local-llm.ts for why
+ * reserving the default while the real request sends an override defeats the cap (found in
+ * fresh-context review, ALI-845).
+ */
+export function buildUserPrompt(a: DecisionLite, b: DecisionLite, windowTokens: number, outputTokens: number): string {
+  const reserveTokens = estimateTokens(SYSTEM_PROMPT) + outputTokens;
+  const budgetTokens = Math.max(0, windowTokens - reserveTokens);
+  const perSideChars = charsForTokens(Math.floor(budgetTokens / 2));
+  const cut = (d: DecisionLite) => (d.summary.length > perSideChars ? d.summary.slice(0, perSideChars) : d.summary);
+  return `Decision A: ${a.title}. ${cut(a)}\n\nDecision B: ${b.title}. ${cut(b)}`;
 }
 
 /**
@@ -89,9 +112,16 @@ export async function classifyRelationship(
   // ALI-218/219: pin the shared deterministic temperature so the same decision
   // pair types the same way every run - offline relationship detection must be
   // deterministic, and the value is the one both paths share (connector-core).
-  const result = await callChatDetailed(SYSTEM_PROMPT, buildUserPrompt(subject, candidate), {
-    temperature: DETERMINISTIC_TEMPERATURE,
-  });
+  //
+  // Resolved ONCE, then threaded into both the reserve calculation and the actual request -
+  // see buildUserPrompt's docstring for why using the default in one place and this in the
+  // other lets an override push the request over the window it was built against.
+  const maxTokens = resolveMaxTokens('ALIGN_CLASSIFIER_MAX_TOKENS', CLASSIFIER_MAX_TOKENS);
+  const result = await callChatDetailed(
+    SYSTEM_PROMPT,
+    (windowTokens: number) => buildUserPrompt(subject, candidate, windowTokens, maxTokens),
+    { temperature: DETERMINISTIC_TEMPERATURE, maxTokens },
+  );
   if (!result.ok) {
     // Each mapping below reads the failure the call RETURNED, so it describes this
     // candidate's attempt and nothing else. `hasConfiguredProvider()` is still the

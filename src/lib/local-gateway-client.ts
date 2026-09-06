@@ -560,7 +560,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // on a bare diff means judging a file header and a few `+` lines. Accepting the option in
       // the signature and then classifying against a placeholder is the dropped-`depth` defect
       // one field over.
-      const subject = { title: opts.title ?? 'Proposed change', summary: diff.slice(0, 2000) };
+      // ALI-845: the classifier's own buildUserPrompt is now budget-derived (local-relationship-
+      // classifier.ts), so capping the subject at a literal here would be a second writer of the
+      // same fact, at a number unrelated to any window. Send the diff uncut.
+      const subject = { title: opts.title ?? 'Proposed change', summary: diff };
       const typed = [];
       let chainStopped = false;
       for (const c of candidates) {
