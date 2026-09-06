@@ -1,0 +1,136 @@
+{
+  "$comment": "ALI-851 shared cross-language fixture. This file MUST be kept byte-identical to align-stack's copy at services/brain/tests/fixtures/decision_render_fixture.json (two separate git repos, no shared filesystem - see that file's own $comment). Do not edit one without the other; a diff between them is a silent drift in what the two renderers are pinned to. Each case's `decision` is the render_decision input; `expected` maps a budget name to the exact string both languages must produce.",
+  "cases": [
+    {
+      "name": "full_with_altitude_dimension_and_retired_flag",
+      "decision": {
+        "ordinal": 1,
+        "title": "Use Postgres SKIP LOCKED for the job queue instead of adding Redis",
+        "status": "superseded",
+        "platform": "jira",
+        "decided_at": "2026-08-01T10:00:00Z",
+        "author": "Jane Doe",
+        "architectural_altitude": "mission-critical",
+        "dimension": "infra: queue_backend=postgres",
+        "summary": "We will use Postgres's SKIP LOCKED for job queuing rather than adding Redis as a dependency.",
+        "decision_json": {
+          "ai": {
+            "rationale": "Reduces operational complexity by reusing the existing datastore; the team lacks Redis operations experience."
+          }
+        },
+        "cite": "align-stack#1742"
+      },
+      "expected": {
+        "compact": "1. Use Postgres SKIP LOCKED for the job queue instead of adding Redis [RETIRED | jira | decided 2026-08-01 | by Jane Doe | mission-critical | infra: queue_backend=postgres]",
+        "full": "1. Use Postgres SKIP LOCKED for the job queue instead of adding Redis [RETIRED | jira | decided 2026-08-01 | by Jane Doe | mission-critical | infra: queue_backend=postgres]\n   We will use Postgres's SKIP LOCKED for job queuing rather than adding Redis as a dependency.\n   Rationale: Reduces operational complexity by reusing the existing datastore; the team lacks Redis operations experience.\n   align-stack#1742"
+      }
+    },
+    {
+      "name": "full_without_altitude_or_dimension_active_status",
+      "decision": {
+        "ordinal": 2,
+        "title": "Route Slack notifications through the shared webhook gateway",
+        "status": "active",
+        "platform": "slack",
+        "decided_at": "2026-07-01T00:00:00Z",
+        "author": "Bob",
+        "summary": "All connectors post through one shared webhook gateway rather than calling Slack directly.",
+        "cite": null
+      },
+      "expected": {
+        "compact": "2. Route Slack notifications through the shared webhook gateway [slack | decided 2026-07-01 | by Bob]",
+        "full": "2. Route Slack notifications through the shared webhook gateway [slack | decided 2026-07-01 | by Bob]\n   All connectors post through one shared webhook gateway rather than calling Slack directly."
+      }
+    },
+    {
+      "name": "conflicted_status_flag_no_dimension",
+      "decision": {
+        "ordinal": 3,
+        "title": "Cap the Postgres connection pool at 50",
+        "status": "conflicted",
+        "platform": "github",
+        "decided_at": "2026-06-15T00:00:00Z",
+        "author": "Alice",
+        "summary": "Pool size is capped at 50 to leave headroom for migrations."
+      },
+      "expected": {
+        "full": "3. Cap the Postgres connection pool at 50 [CONFLICTED | github | decided 2026-06-15 | by Alice]\n   Pool size is capped at 50 to leave headroom for migrations."
+      }
+    },
+    {
+      "name": "long_rationale_elided",
+      "decision": {
+        "ordinal": 4,
+        "title": "Adopt structured logging with pino across all Node services",
+        "status": "active",
+        "platform": "teams",
+        "decided_at": "2026-05-01T00:00:00Z",
+        "author": "Carol",
+        "architectural_altitude": "system-wide",
+        "summary": "Short statement that fits easily inside the full budget with room to spare.",
+        "decision_json": {
+          "ai": {
+            "rationale": "This rationale is deliberately long so the elision path is exercised end to end. Structured logging with pino was chosen over console.log because it produces machine-parseable output, supports log levels consistently across services, and integrates with the existing OpenTelemetry pipeline without a second transport. The team evaluated winston as an alternative and found its default formatting harder to make consistent across services with different owners. Repeating padding to push this comfortably past six thousand characters so the truncation boundary is genuinely exercised rather than landing by coincidence near the cap. Padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding."
+          }
+        },
+        "cite": "align-stack#2081"
+      },
+      "expected": {
+        "full": "4. Adopt structured logging with pino across all Node services [teams | decided 2026-05-01 | by Carol | system-wide]\n   Short statement that fits easily inside the full budget with room to spare.\n   Rationale: This rationale is deliberately long so the elision path is exercised end to end. Structured logging with pino was chosen over console.log because it produces machine-parseable output, supports log levels consistently across services, and integrates wit...\n   align-stack#2081"
+      }
+    },
+    {
+      "name": "short_rationale_not_cut",
+      "decision": {
+        "ordinal": 5,
+        "title": "Name the health endpoint /healthz",
+        "status": "active",
+        "platform": "confluence",
+        "decided_at": "2026-04-10T00:00:00Z",
+        "author": "Dan",
+        "summary": "The health endpoint is named /healthz to match the Kubernetes probe convention.",
+        "decision_json": {
+          "ai": {
+            "rationale": "Matches the Kubernetes liveness probe convention already used by every other service."
+          }
+        }
+      },
+      "expected": {
+        "full": "5. Name the health endpoint /healthz [confluence | decided 2026-04-10 | by Dan]\n   The health endpoint is named /healthz to match the Kubernetes probe convention.\n   Rationale: Matches the Kubernetes liveness probe convention already used by every other service."
+      }
+    },
+    {
+      "name": "minimal_no_optional_fields",
+      "decision": {
+        "ordinal": 6,
+        "title": "Bare decision with no bracket fields",
+        "summary": "Just a statement, nothing else supplied."
+      },
+      "expected": {
+        "compact": "6. Bare decision with no bracket fields",
+        "full": "6. Bare decision with no bracket fields\n   Just a statement, nothing else supplied."
+      }
+    },
+    {
+      "name": "compact_only_no_summary_leaks",
+      "decision": {
+        "ordinal": 7,
+        "title": "Compact rendering carries no statement",
+        "status": "active",
+        "platform": "zoom",
+        "decided_at": "2026-03-01T00:00:00Z",
+        "author": "Eve",
+        "summary": "This statement must never appear in the compact rendering of this decision.",
+        "decision_json": {
+          "ai": {
+            "rationale": "This rationale must never appear in the compact rendering either."
+          }
+        },
+        "cite": "align-stack#99"
+      },
+      "expected": {
+        "compact": "7. Compact rendering carries no statement [zoom | decided 2026-03-01 | by Eve]"
+      }
+    }
+  ]
+}
