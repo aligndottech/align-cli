@@ -65,8 +65,13 @@ describe('renderDecision - ordinal validation', () => {
     expect(() => renderDecision(bad, { budget: 'compact' })).toThrow();
   });
 
-  it('throws when ordinal is not a positive integer', () => {
-    expect(() => renderDecision(minimal({ ordinal: 0 }), { budget: 'compact' })).toThrow();
+  it.each([0, -1, 1.5, NaN, Infinity])('throws when ordinal is %s', (ordinal) => {
+    expect(() => renderDecision(minimal({ ordinal }), { budget: 'compact' })).toThrow();
+  });
+
+  it('throws when ordinal is a string, not just a non-integer number', () => {
+    const bad = minimal({ ordinal: '1' as unknown as number });
+    expect(() => renderDecision(bad, { budget: 'compact' })).toThrow();
   });
 });
 
@@ -154,6 +159,33 @@ describe('renderDecision - bracket order is parsed, not substring-matched', () =
   });
 });
 
+describe('renderDecision - decided_at parsing matches the Python twin (MISSING on unparseable)', () => {
+  it.each(['not-a-date', '', '   ', '2026-13-45'])(
+    'omits the decided fact for %j (already-invalid shape or calendar)',
+    (decidedAt) => {
+      const out = renderDecision(minimal({ decided_at: decidedAt, platform: 'jira' }), { budget: 'full' });
+      expect(out.split('\n')[0]).not.toContain('decided');
+    },
+  );
+
+  it.each(['12345', '0'])(
+    'omits the decided fact for %j, which a bare `new Date()` parses as a real (wrong) date',
+    (decidedAt) => {
+      // Regression: new Date("12345") silently succeeds as year 12345 and new Date("0") as
+      // year 2000 - neither looks like an ISO date, and Python's fromisoformat rejects both.
+      const out = renderDecision(minimal({ decided_at: decidedAt, platform: 'jira' }), { budget: 'full' });
+      expect(out.split('\n')[0]).not.toContain('decided');
+    },
+  );
+
+  it('renders the decided fact for a real ISO date', () => {
+    const out = renderDecision(minimal({ decided_at: '2026-08-01T10:00:00Z', platform: 'jira' }), {
+      budget: 'full',
+    });
+    expect(out.split('\n')[0]).toContain('decided 2026-08-01');
+  });
+});
+
 describe('renderDecision - budget presets', () => {
   it('compact is the index line only', () => {
     const out = renderDecision(
@@ -204,6 +236,18 @@ describe('renderDecision - elision', () => {
     const rationaleLine = out.split('\n').find((ln) => ln.trim().startsWith('Rationale:'))!;
     expect(rationaleLine.trimEnd().endsWith('...')).toBe(true);
     expect(estimateTokens(rationaleLine)).toBeLessThanOrEqual(FULL_RATIONALE_TOKEN_BUDGET + 10);
+  });
+
+  it('the capped rationale body itself never estimates over its own token budget', () => {
+    // Regression for a float round-trip bug: charsForTokens(110) -> 256 chars, but
+    // estimateTokens(256) -> 111, one over. Assert the tight invariant directly on the
+    // capped text (not the whole "   Rationale: ..." line, which has an unrelated prefix
+    // padding out the +10 slack above and could hide the same bug reappearing).
+    const rationale = 'z'.repeat(2000);
+    const out = renderDecision(minimal({ decision_json: { ai: { rationale } } }), { budget: 'full' });
+    const rationaleLine = out.split('\n').find((ln) => ln.trim().startsWith('Rationale:'))!;
+    const capped = rationaleLine.replace(/^\s*Rationale:\s*/, '');
+    expect(estimateTokens(capped)).toBeLessThanOrEqual(FULL_RATIONALE_TOKEN_BUDGET);
   });
 
   it('a short statement is never cut', () => {

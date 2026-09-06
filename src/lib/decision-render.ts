@@ -75,8 +75,17 @@ export const FULL_RATIONALE_TOKEN_BUDGET = 110;
 function capToTokens(text: string, maxTokens: number): string {
   if (!text) return text;
   if (estimateTokens(text) <= maxTokens) return text;
-  const limit = Math.max(0, charsForTokens(maxTokens) - ELISION.length);
-  return text.slice(0, limit).trimEnd() + ELISION;
+  let limit = Math.max(0, charsForTokens(maxTokens) - ELISION.length);
+  let result = text.slice(0, limit).trimEnd() + ELISION;
+  // charsForTokens/estimateTokens do not perfectly round-trip under floating point (e.g.
+  // charsForTokens(110) -> 256 chars, but estimateTokens(256) -> 111, one over budget) -
+  // shrink by one character at a time until the actual estimate respects the caller's
+  // budget, rather than trusting the inverse arithmetic to land exactly.
+  while (limit > 0 && estimateTokens(result) > maxTokens) {
+    limit -= 1;
+    result = text.slice(0, limit).trimEnd() + ELISION;
+  }
+  return result;
 }
 
 function statusFlag(status: string | null | undefined): string | null {
@@ -86,10 +95,20 @@ function statusFlag(status: string | null | undefined): string | null {
   return null;
 }
 
+// Python's fromisoformat only accepts strings shaped like an ISO date/datetime and raises
+// ValueError on anything else; `new Date(...)` alone does not agree - it falls back to a
+// lenient, non-ISO, implementation-specific parser for strings that don't look like a date
+// (e.g. new Date("12345") silently succeeds as year 12345, new Date("0") as year 2000).
+// Require the ISO shape first so those inputs are MISSING here exactly as they are on the
+// Python side, rather than rendering a nonsense date - a calendar-invalid value that DOES
+// have the right shape (e.g. "2026-13-45") still correctly fails the Number.isNaN check
+// below, same as Python's fromisoformat raising on it.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
 /** Mirrors app/relationship_type_rules.parse_decided_at's ISO-string branch: an
  * unparseable value is MISSING, not an error, same as the Python side. */
 function decidedLabel(decidedAt: string | null | undefined): string | null {
-  if (!decidedAt) return null;
+  if (!decidedAt || !ISO_DATE_RE.test(decidedAt)) return null;
   const parsed = new Date(decidedAt);
   if (Number.isNaN(parsed.getTime())) return null;
   return `decided ${parsed.toISOString().slice(0, 10)}`;
@@ -101,16 +120,18 @@ function buildBracket(d: RenderableDecision): string {
   const flag = statusFlag(d.status);
   if (flag) parts.push(flag);
 
-  if (d.platform) parts.push(String(d.platform));
+  if (d.platform && d.platform.trim()) parts.push(d.platform.trim());
 
   const decided = decidedLabel(d.decided_at);
   if (decided) parts.push(decided);
 
   if (d.author && d.author.trim()) parts.push(`by ${d.author.trim()}`);
 
-  if (d.architectural_altitude) parts.push(String(d.architectural_altitude));
+  if (d.architectural_altitude && d.architectural_altitude.trim()) {
+    parts.push(d.architectural_altitude.trim());
+  }
 
-  if (d.dimension) parts.push(String(d.dimension));
+  if (d.dimension && d.dimension.trim()) parts.push(d.dimension.trim());
 
   return parts.length ? ` [${parts.join(' | ')}]` : '';
 }

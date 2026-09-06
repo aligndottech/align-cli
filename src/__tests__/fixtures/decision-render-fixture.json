@@ -76,7 +76,7 @@
         "cite": "align-stack#2081"
       },
       "expected": {
-        "full": "4. Adopt structured logging with pino across all Node services [teams | decided 2026-05-01 | by Carol | system-wide]\n   Short statement that fits easily inside the full budget with room to spare.\n   Rationale: This rationale is deliberately long so the elision path is exercised end to end. Structured logging with pino was chosen over console.log because it produces machine-parseable output, supports log levels consistently across services, and integrates with...\n   align-stack#2081"
+        "full": "4. Adopt structured logging with pino across all Node services [teams | decided 2026-05-01 | by Carol | system-wide]\n   Short statement that fits easily inside the full budget with room to spare.\n   Rationale: This rationale is deliberately long so the elision path is exercised end to end. Structured logging with pino was chosen over console.log because it produces machine-parseable output, supports log levels consistently across services, and integrates wit...\n   align-stack#2081"
       }
     },
     {
