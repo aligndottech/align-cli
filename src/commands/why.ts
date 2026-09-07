@@ -7,7 +7,7 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import type { SearchResults } from '../lib/gateway-client.js';
 import { localCitationFor } from '../lib/commit-cite.js';
-import { ABSTENTION_SENTINEL, isAbstention, type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
+import { ABSTENTION_SENTINEL, explainAbstention, isAbstention, type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
 import { renderAnswer } from '../lib/answer-render.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { formatWhen } from '../lib/format-date.js';
@@ -297,7 +297,7 @@ export function registerAskCommand(program: Command): void {
             console.log('');
             // Rendered before wrapping: the ANSI codes are invisible but count as
             // characters, so lines wrap a little early rather than a little late.
-            for (const line of wrapText(renderAnswer(answer), '  ', 76)) console.log(line);
+            for (const line of wrapText(renderAnswer(explainAbstention(answer)), '  ', 76)) console.log(line);
             console.log('');
             console.log(chalk.dim('  Sources:'));
             const shown = results.results.slice(0, 5);

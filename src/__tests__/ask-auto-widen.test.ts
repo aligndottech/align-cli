@@ -15,13 +15,17 @@ vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
 
 const synthesiseDetailed = vi.hoisted(() => vi.fn());
 vi.mock('../lib/local-llm.js', async (importOriginal) => {
-  // isAbstention/ABSTENTION_SENTINEL stay REAL: the widen trigger under test IS the
-  // agreement between the detector and the sentinel, and mocking both would let the
-  // two drift while this suite stayed green.
+  // isAbstention/ABSTENTION_SENTINEL/explainAbstention stay REAL: the widen trigger
+  // under test IS the agreement between the detector and the sentinel, and mocking
+  // any of the three would let them drift while this suite stayed green. explainAbstention
+  // also has to be real because why.ts calls it unconditionally at the print site
+  // (ALI-895) - a stubbed-out mock leaves it undefined and every test in this file
+  // that reaches a printed answer throws.
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ABSTENTION_SENTINEL: actual.ABSTENTION_SENTINEL,
     isAbstention: actual.isAbstention,
+    explainAbstention: actual.explainAbstention,
     synthesiseDetailed,
     RECOMMENDED_OLLAMA_PULL: 'llama3.2',
     noProviderHintLines: () => [],
@@ -179,6 +183,28 @@ describe('align ask auto-widens when scoped context makes the model abstain', ()
     expect(out).not.toContain(ABSTENTION_SENTINEL);
   });
 
+  // ALI-895: the actual bug, exercised through the real caller rather than only through
+  // the unit-level isAbstention test. Before the fix the scoped answer below - a real
+  // paraphrase observed live 2026-09-05, not the sentinel itself - was NOT recognised as
+  // an abstention, so the widen never fired and the search-call count stayed at 1. Assert
+  // on the widened call happening (not just on the final text) so a detector fix with no
+  // wiring behind it cannot read as success.
+  it('widens on a paraphrased abstention, not only the exact sentinel (the actual bug)', async () => {
+    const paraphrase =
+      'The context does not answer when you stopped blocking PRs on the Align gate ' +
+      'or provide a single moment identifying that decision, though it does describe the mechanism.';
+    searchDecisions.mockResolvedValueOnce(scoped([SCOPED_HIT])).mockResolvedValueOnce(global([GLOBAL_HIT]));
+    synthesiseDetailed
+      .mockResolvedValueOnce({ ok: true, text: paraphrase })
+      .mockResolvedValueOnce({ ok: true, text: 'It stopped once the ALI-825 gate rollout completed.' });
+
+    const out = await ask();
+
+    expect(searchDecisions).toHaveBeenCalledTimes(2);
+    expect(synthesiseDetailed).toHaveBeenCalledTimes(2);
+    expect(out).toContain('It stopped once the ALI-825 gate rollout completed.');
+  });
+
   it('prints the abstention once when the whole graph cannot answer either', async () => {
     searchDecisions.mockResolvedValueOnce(scoped([SCOPED_HIT])).mockResolvedValueOnce(global([GLOBAL_HIT]));
     synthesiseDetailed
@@ -187,11 +213,30 @@ describe('align ask auto-widens when scoped context makes the model abstain', ()
 
     const out = await ask();
 
-    const mentions = out.split(ABSTENTION_SENTINEL).length - 1;
+    // ALI-895: ABSTENTION_SENTINEL is a non-prose token now, translated to English
+    // (explainAbstention) before anything reaches the terminal - so the prose it
+    // stands for is what appears, once, and the raw token appears nowhere.
+    const mentions = out.split('The context does not answer this question.').length - 1;
     expect(mentions).toBe(1);
+    expect(out).not.toContain(ABSTENTION_SENTINEL);
     // Both passes abstained identically, so print the one whose framing is accurate:
     // the whole graph was searched, and saying so beats naming a repo it went past.
     expect(out).toMatch(/whole graph/i);
+  });
+
+  // ALI-895: the concrete leak this bug fix has to rule out - a raw non-prose token is
+  // meaningless to a person reading a terminal, so it must never be what they see, even
+  // on the deny-then-deliver path where the model kept talking past the marker.
+  it('never leaks the raw <<NO_ANSWER>> marker to the terminal, even with a tail', async () => {
+    searchDecisions.mockResolvedValueOnce(scoped([SCOPED_HIT])).mockResolvedValueOnce(global([GLOBAL_HIT]));
+    synthesiseDetailed
+      .mockResolvedValueOnce({ ok: true, text: ABSTENTION_SENTINEL })
+      .mockResolvedValueOnce({ ok: true, text: `${ABSTENTION_SENTINEL} Though align-cli#231 hints at the cause.` });
+
+    const out = await ask();
+
+    expect(out).not.toContain(ABSTENTION_SENTINEL);
+    expect(out).toContain('The context does not answer this question. Though align-cli#231 hints at the cause.');
   });
 
   /**
