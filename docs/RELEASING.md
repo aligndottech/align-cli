@@ -69,19 +69,33 @@ receive, and promotion moves those same bytes - one dist-tag, one flag flip, no 
    three `XDG_*` vars explicitly under one fake home, rather than resting on a runner's
    default environment being clean.
 
-4. **Promote** - Actions -> "Promote Release" -> run with the tag. It refuses to run
-   unless the E2E for that tag is green (`force` is break-glass for a broken harness,
-   never for a red one). It then:
+4. **Promote runs automatically** when `e2e-release.yml` finishes green for the release
+   `release-please` just cut - no action needed. It is scoped to that specific trigger
+   (the E2E run's own upstream event must be `release`, not a manual re-run), so re-testing
+   an older tag by hand for debugging never auto-promotes it over a newer one already live;
+   a second, independent check in the workflow also refuses to move `latest` backwards.
+   Manual promotion still works exactly as before - Actions -> "Promote Release" -> run
+   with the tag - for a break-glass re-promote or if the automatic run is ever skipped.
+   Either way it:
+   - refuses to run unless the E2E for that tag is green (`force` is break-glass for a
+     broken harness, never for a red one)
    - `npm dist-tag add @aligndottech/cli@<version> latest`
    - flips the GitHub release prerelease -> latest
    - verifies both `latest` pointers moved (effect, not exit codes)
    - publishes to the MCP registry (moved here from the release workflow, so the
      registry always describes the version a stranger actually gets).
 
+   **Automating this step means the human pass above no longer gates what ships** - it
+   used to be the second half of "necessary, not sufficient" alongside the E2E matrix.
+   Do the human pass whenever you can; it is no longer what unblocks promotion. Added
+   after cli-v0.36.0 sat un-promoted on `next` for four days because the manual step was
+   simply forgotten - a gap that long meant tags were going untested by a human anyway.
+
 ## Things that will read as broken and are not
 
 - **A freshly merged release PR shows a prerelease and `npm view` still shows the old
-  `latest`.** That is the staging working. Nothing is public until Promote runs.
+  `latest`.** That is the staging working - briefly. Promotion follows automatically once
+  E2E goes green (usually within a few minutes); nothing is public before that.
 - **The E2E's asset-wait loops for a few minutes** - the binaries job uploads after
   the release event fires; the wait is the race handled, not a hang.
 - **`npm i -g @aligndottech/cli@next` mid-stage gets the release under test.** That is

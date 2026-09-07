@@ -1,6 +1,22 @@
 # ALI-797: promotion is the ONLY step that makes a release public, and it ships the
 # identical bytes the E2E and the human pass tested - one dist-tag move and one
 # prerelease flag flip, no rebuild anywhere. Runbook: docs/RELEASING.md.
+#
+# Auto-promotion (added after cli-v0.36.0 sat un-promoted on `next` for 4 days because the
+# manual step was forgotten): the workflow_run trigger fires this same job automatically
+# when e2e-release.yml finishes. It is scoped to `github.event.workflow_run.event ==
+# 'release'` - the trigger of the UPSTREAM e2e run, not this workflow's own - so it only
+# ever fires for the E2E run release-please's own fresh prerelease kicks off, never a
+# manual `workflow_dispatch` re-run of e2e-release.yml against an older tag. Without that
+# distinction, re-testing e.g. cli-v0.34.0 by hand for debugging would auto-promote it over
+# a newer release already live - the "Refuse to promote older" step below is the second,
+# independent guard against exactly that, in case the event-source scoping is ever loosened.
+#
+# This removes the SEPARATE MANUAL "human pass" step from the release gate (docs/RELEASING.md
+# step 3 - "necessary, not sufficient" alongside the E2E matrix). That tradeoff was accepted
+# deliberately: the human pass is Tom, promotion had no other operator, and the 4-day gap this
+# fixes was long enough that some tags would go untested by a human indefinitely anyway. A
+# human can still do the pass before or after promotion; it is no longer what unblocks it.
 name: Promote Release
 
 on:
@@ -13,6 +29,9 @@ on:
         description: 'Promote even if the E2E run for this tag is not green (break-glass only - say why in the run)'
         type: boolean
         default: false
+  workflow_run:
+    workflows: ['E2E Release']
+    types: [completed]
 
 permissions:
   contents: write # flip prerelease -> latest on the release
@@ -20,19 +39,61 @@ permissions:
   actions: read # read the E2E run conclusion for the gate
 
 jobs:
+  # One place that decides WHICH tag this run is about and whether it should proceed at
+  # all - every step after this reads `needs.resolve.outputs.*`, never `inputs.*` or
+  # `github.event.workflow_run.*` directly, so there is exactly one spot where the two
+  # trigger shapes are reconciled.
+  resolve:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release') }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      force: ${{ steps.resolve.outputs.force }}
+    steps:
+      - name: Resolve the tag to promote
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_FORCE: ${{ inputs.force }}
+          # e2e-release.yml's own `run-name:` is "E2E ${tag}" - the same string
+          # promote-release.yml's manual gate below already matches against via
+          # `displayTitle | contains($TAG)`, so this is a second reader of an existing
+          # contract rather than a new one.
+          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+            force="$INPUT_FORCE"
+          else
+            tag="${RUN_TITLE#E2E }"
+            force="false"
+          fi
+          if [ -z "$tag" ] || [ "$tag" = "$RUN_TITLE" ]; then
+            echo "FATAL: could not resolve a release tag from event=$EVENT_NAME title='$RUN_TITLE'"
+            exit 1
+          fi
+          echo "Resolved tag=$tag force=$force from event=$EVENT_NAME"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "force=$force" >> "$GITHUB_OUTPUT"
+
   promote:
+    needs: resolve
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       # The gate: a promotion without a green E2E for THIS tag is refused, because an
       # unexercised promote is exactly the "ship what you didn't test" this pipeline
-      # exists to prevent. `force` exists for a broken E2E harness, not a red one.
+      # exists to prevent. `force` exists for a broken E2E harness, not a red one. Always
+      # runs for the auto-promote path too - the workflow_run trigger already implies a
+      # success, but reading it back here keeps this step meaningful on its own rather
+      # than trusting a value threaded three jobs upstream.
       - name: Require a green E2E run for this tag
-        if: ${{ !inputs.force }}
+        if: ${{ needs.resolve.outputs.force != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           conclusion="$(gh run list --workflow=e2e-release.yml --json conclusion,displayTitle \
             --jq "[.[] | select(.displayTitle | contains(\"$TAG\"))][0].conclusion // \"absent\"")"
@@ -54,7 +115,7 @@ jobs:
       - name: Resolve the version from the tag
         id: ver
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           version="${TAG#cli-v}"
           if [ -z "$version" ] || [ "$version" = "$TAG" ]; then
@@ -62,6 +123,20 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Defense in depth for the auto-promote path, independent of the event-source
+      # scoping on the `resolve` job's `if:`: refuse to move `latest` BACKWARDS. Checked
+      # here rather than assumed, the same "assert the effect" discipline the verify step
+      # below already applies to the writes themselves.
+      - name: Refuse to promote a version older than what is already latest
+        run: |
+          current="$(npm view @aligndottech/cli dist-tags.latest)"
+          target="${{ steps.ver.outputs.version }}"
+          newest="$(printf '%s\n%s\n' "$current" "$target" | sort -V | tail -1)"
+          if [ "$newest" != "$target" ] && [ "$current" != "$target" ]; then
+            echo "FATAL: current latest ($current) is newer than the target ($target) - refusing to downgrade."
+            exit 1
+          fi
 
       # The whole npm promotion: the tarball tested under `next` becomes `latest`.
       - name: Promote the npm dist-tag
@@ -74,7 +149,7 @@ jobs:
       - name: Flip the release from prerelease to latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ inputs.tag }}" --prerelease=false --latest
+        run: gh release edit "${{ needs.resolve.outputs.tag }}" --prerelease=false --latest
 
       # Verify the EFFECT of both promotions, not the commands' exit codes.
       #
@@ -101,15 +176,15 @@ jobs:
           [ "$npm_latest" = "${{ steps.ver.outputs.version }}" ] || {
             echo "FATAL: npm latest is $npm_latest after 5 attempts, expected ${{ steps.ver.outputs.version }}"; exit 1; }
           gh_latest="$(gh release view --json tagName --jq .tagName)"
-          [ "$gh_latest" = "${{ inputs.tag }}" ] || {
-            echo "FATAL: GitHub latest release is $gh_latest, expected ${{ inputs.tag }}"; exit 1; }
-          echo "latest = ${{ inputs.tag }} on npm and GitHub"
+          [ "$gh_latest" = "${{ needs.resolve.outputs.tag }}" ] || {
+            echo "FATAL: GitHub latest release is $gh_latest, expected ${{ needs.resolve.outputs.tag }}"; exit 1; }
+          echo "latest = ${{ needs.resolve.outputs.tag }} on npm and GitHub"
 
   # Moved here from release-please.yml (ALI-797): the MCP registry should describe the
   # version a stranger actually gets, which is only true after promotion. Everything
   # below is the previous job verbatim, pinned publisher included.
   mcp-registry:
-    needs: promote
+    needs: [resolve, promote]
     runs-on: ubuntu-latest
     permissions:
       id-token: write # OIDC login to the MCP registry
@@ -117,7 +192,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }} # server.json must be the promoted version's copy
+          ref: ${{ needs.resolve.outputs.tag }} # server.json must be the promoted version's copy
 
       # Pinned version + checksum, not releases/latest: this runs in the
       # promotion workflow, and an unpinned latest means a changed or compromised
