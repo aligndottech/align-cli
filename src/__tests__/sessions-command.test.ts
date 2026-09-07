@@ -14,6 +14,14 @@
  *    called with one item per candidate, and accepting calls confirmSessionDecision with
  *    the session's source_url scheme and the resolved identity
  * 5. the identity comes from git config, falling back to the OS user (same rule as ratify)
+ *
+ * ALI-809 additions (Pass B, free-text):
+ * 6. a free-text candidate the model confirms is reviewed and written with the human's own
+ *    verbatim text as raw_text (never the model's title in its place)
+ * 7. a free-text candidate the model rejects (heuristic misfired) is never presented
+ * 8. when nothing survives confirmation, the command says so distinctly from "found nothing"
+ * 9. structured and free-text candidates are merged into one sorted review queue - a
+ *    free-text candidate timestamped between two structured ones is reviewed in between them
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
@@ -41,6 +49,10 @@ const detectAgents = vi.hoisted(() => vi.fn().mockReturnValue([]));
 vi.mock('../lib/sessions/registry.js', () => ({ detectAgents }));
 const extractStructuredDecisions = vi.hoisted(() => vi.fn().mockReturnValue([]));
 vi.mock('../lib/sessions/extract-structured.js', () => ({ extractStructuredDecisions }));
+const findFreeTextCandidates = vi.hoisted(() => vi.fn().mockReturnValue([]));
+vi.mock('../lib/sessions/extract-freetext.js', () => ({ findFreeTextCandidates }));
+const confirmFreeTextCandidate = vi.hoisted(() => vi.fn());
+vi.mock('../lib/sessions/confirm-freetext.js', () => ({ confirmFreeTextCandidate }));
 
 const confirmSessionDecision = vi.hoisted(() => vi.fn().mockResolvedValue({ id: 'd1', title: 't', confirmedBy: 'x', confirmedAt: 'now' }));
 const localClose = vi.hoisted(() => vi.fn());
@@ -80,6 +92,8 @@ beforeEach(() => {
   getEnvironment.mockReturnValue({ mode: 'local-embedded', localDbPath: '/tmp/x.db' });
   detectAgents.mockReturnValue([]);
   extractStructuredDecisions.mockReturnValue([]);
+  findFreeTextCandidates.mockReturnValue([]);
+  confirmFreeTextCandidate.mockReset();
   confirmSessionDecision.mockReset().mockResolvedValue({ id: 'd1', title: 't', confirmedBy: 'x', confirmedAt: 'now' });
   runConfirmEachImport.mockReset().mockResolvedValue({ imported: 0, skipped: 0, remaining: 0 });
   getGitIdentity.mockReset().mockResolvedValue('tom@align.tech');
@@ -164,5 +178,111 @@ describe('align import sessions: identity resolution', () => {
     await run();
 
     expect(confirmSessionDecision).toHaveBeenCalledWith(expect.anything(), 'os-fallback-user');
+  });
+});
+
+describe('align import sessions: free-text candidates (Pass B)', () => {
+  const rawCandidate = {
+    agent: 'codex' as const, sessionId: 'sess-2', messageId: 'turn-0',
+    humanText: 'We\'re deciding the retry count for failed webhook deliveries.',
+    contextText: 'Decision: 3 retries.', timestamp: '2026-09-03T00:00:00.000Z',
+  };
+  function withOneFreeTextSession() {
+    const session = { agent: 'codex' as const, sessionId: 'sess-2', cwd: '/p', turns: [] };
+    detectAgents.mockReturnValue([
+      { adapter: { agent: 'codex', fixtureVerified: true, locateSessionFiles: () => [], parseSession: () => session }, files: ['/f1.jsonl'] },
+    ]);
+    findFreeTextCandidates.mockReturnValue([rawCandidate]);
+  }
+
+  it('a confirmed free-text candidate is written with the human\'s own verbatim text as raw_text', async () => {
+    withOneFreeTextSession();
+    confirmFreeTextCandidate.mockResolvedValue({
+      ok: true,
+      decision: { ...rawCandidate, title: 'Retry count set to 3', confidence: 0.85 },
+    });
+    runConfirmEachImport.mockImplementation(async (items, onAccept) => {
+      await onAccept(items[0]);
+      return { imported: 1, skipped: 0, remaining: 0 };
+    });
+
+    await run();
+
+    expect(confirmSessionDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_url: 'codex-session://sess-2/turn-0',
+        raw_text: rawCandidate.humanText,
+        title: 'Retry count set to 3',
+      }),
+      'tom@align.tech',
+    );
+  });
+
+  it('a free-text candidate the model rejects is never presented for review', async () => {
+    withOneFreeTextSession();
+    confirmFreeTextCandidate.mockResolvedValue({ ok: true, decision: null });
+
+    await run();
+
+    expect(runConfirmEachImport).not.toHaveBeenCalled();
+  });
+
+  it('says so distinctly from "found nothing" when candidates existed but none survived confirmation', async () => {
+    withOneFreeTextSession();
+    confirmFreeTextCandidate.mockResolvedValue({ ok: true, decision: null });
+
+    await run();
+
+    expect(out.join('\n')).toMatch(/confirm/i);
+  });
+
+  it('when the LLM is unavailable, the free-text pass is skipped with a message and structured candidates still proceed', async () => {
+    const session = { agent: 'claude-code' as const, sessionId: 'sess-1', cwd: '/p', turns: [] };
+    detectAgents.mockReturnValue([
+      { adapter: { agent: 'claude-code', fixtureVerified: true, locateSessionFiles: () => [], parseSession: () => session }, files: ['/f1.jsonl'] },
+    ]);
+    extractStructuredDecisions.mockReturnValue([{
+      agent: 'claude-code', sessionId: 'sess-1', messageId: 'msg-1',
+      question: 'Q?', header: null, options: [{ label: 'A' }], chosenLabel: 'A', timestamp: '2026-09-03T00:00:01.000Z',
+    }]);
+    findFreeTextCandidates.mockReturnValue([rawCandidate]);
+    confirmFreeTextCandidate.mockResolvedValue({ ok: false, reason: 'no_llm_key' });
+    runConfirmEachImport.mockImplementation(async (items, onAccept) => {
+      await onAccept(items[0]);
+      return { imported: 1, skipped: 0, remaining: 0 };
+    });
+
+    await run();
+
+    expect(out.join('\n')).toMatch(/no llm|not confirmed|llm configured/i);
+    expect(confirmSessionDecision).toHaveBeenCalledWith(expect.objectContaining({ title: 'Q?' }), 'tom@align.tech');
+  });
+
+  it('merges structured and free-text candidates into one queue, sorted by timestamp', async () => {
+    const session = { agent: 'codex' as const, sessionId: 'sess-3', cwd: '/p', turns: [] };
+    detectAgents.mockReturnValue([
+      { adapter: { agent: 'codex', fixtureVerified: true, locateSessionFiles: () => [], parseSession: () => session }, files: ['/f1.jsonl'] },
+    ]);
+    extractStructuredDecisions.mockReturnValue([
+      { agent: 'codex', sessionId: 'sess-3', messageId: 'msg-early', question: 'Q1', header: null, options: [], chosenLabel: 'A', timestamp: '2026-09-03T00:00:00.000Z' },
+      { agent: 'codex', sessionId: 'sess-3', messageId: 'msg-late', question: 'Q2', header: null, options: [], chosenLabel: 'B', timestamp: '2026-09-03T00:00:02.000Z' },
+    ]);
+    findFreeTextCandidates.mockReturnValue([{ ...rawCandidate, sessionId: 'sess-3', timestamp: '2026-09-03T00:00:01.000Z' }]);
+    confirmFreeTextCandidate.mockResolvedValue({
+      ok: true,
+      decision: { ...rawCandidate, sessionId: 'sess-3', title: 'middle one', confidence: 0.7, timestamp: '2026-09-03T00:00:01.000Z' },
+    });
+    const seenTitles: string[] = [];
+    runConfirmEachImport.mockImplementation(async (items) => {
+      for (const item of items) seenTitles.push(item.render());
+      return { imported: 0, skipped: items.length, remaining: 0 };
+    });
+
+    await run();
+
+    expect(seenTitles).toHaveLength(3);
+    expect(seenTitles[0]).toContain('Q1');
+    expect(seenTitles[1]).toContain('middle one');
+    expect(seenTitles[2]).toContain('Q2');
   });
 });
