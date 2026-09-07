@@ -22,6 +22,10 @@ export interface CaptureSource {
    *  number nobody can check. */
   unit: string;
   fetched: number;
+  /** Source objects examined before any filter (CaptureFetchReport.scanned), when the
+   *  caller has it. Optional so an older or hand-built CaptureSource still renders
+   *  exactly as before (ALI-786): the clarifier below is additive, never required. */
+  scanned?: number;
   /** What the caller asked for, when it asked for anything. */
   requested?: number;
   skips: CaptureSkip[];
@@ -45,7 +49,20 @@ export function renderCaptureReport(sources: CaptureSource[]): string {
     const shortfall = s.requested !== undefined && s.fetched < s.requested
       ? ` of up to ${s.requested} requested`
       : '';
-    lines.push(`    ${s.label}: ${s.fetched} ${s.unit}${shortfall}`);
+    // ALI-786: a zero-item source with no skip line is otherwise silent about whether
+    // anything was even looked at - "Found 0 items" reads the same for an empty account
+    // as for a token that could not see anything. Say what was measured (never a REASON
+    // the fetcher did not measure - code-style.md, "never a second writer of it"): zero
+    // scanned is a different claim from N scanned and none kept, so they get different
+    // words. Skip lines already explain a zero when the fetcher has a reason; this only
+    // fires when nothing else on the line already says why.
+    let scannedNote = '';
+    if (s.fetched === 0 && s.skips.length === 0 && s.scanned !== undefined) {
+      scannedNote = s.scanned === 0
+        ? ' - nothing was found to scan'
+        : ` (0 kept of ${s.scanned} scanned)`;
+    }
+    lines.push(`    ${s.label}: ${s.fetched} ${s.unit}${shortfall}${scannedNote}`);
     for (const skip of s.skips) lines.push(`      ${skip.count} ${skip.detail}`);
   }
   return lines.join('\n');
@@ -61,6 +78,7 @@ export function toCaptureSource(
     label: source.label,
     unit: source.unit,
     fetched: result.items.length,
+    scanned: result.report.scanned,
     ...(result.report.requested !== undefined ? { requested: result.report.requested } : {}),
     skips: result.report.skips,
   };

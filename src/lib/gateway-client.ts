@@ -1,4 +1,5 @@
 import type { EnvironmentConfig } from './config.js';
+import { LOCAL_DEFAULT_GATEWAY_URL } from './config.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
 import pkg from '../../package.json' with { type: 'json' };
 
@@ -322,8 +323,33 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     );
   }
 
+  /**
+   * ALI-786: `demo` mode is `local`'s only non-`auth` default (nothing in this CLI sets it
+   * deliberately any more - `local-embedded` is what `align setup --local` configures), so
+   * a `local` env still carrying it, with the untouched default URL and no token or tenant
+   * ever saved, means local mode was never set up here - not "a gateway that happens to be
+   * down". A stale or foreign config (e.g. XDG_CONFIG_HOME pointing at a machine that never
+   * ran local-embedded setup in this context) resolves to exactly this shape.
+   *
+   * `gatewayUrl === LOCAL_DEFAULT_GATEWAY_URL` is part of the check on purpose: a self-hosted
+   * demo-mode user who pointed ALIGN_GATEWAY_URL somewhere real is left alone, and so is one
+   * who saved a token or tenant against it (localEnv in gateway-client.test.ts is exactly that
+   * case) - "Cannot reach gateway" stays the honest message for a real, currently-unreachable
+   * self-hosted gateway. Thrown before the dial for the same reason
+   * assertAuthenticatedIdentity is: inside request()'s try block, the catch rewrites every
+   * non-GatewayError into "Cannot reach gateway", which is the opposite of legible here.
+   */
+  function assertLocalModeConfigured(): void {
+    if (env.mode !== 'demo' || authToken || tenantId || gatewayUrl !== LOCAL_DEFAULT_GATEWAY_URL) return;
+    throw new Error(
+      'Local mode is not set up here. Run `align setup --local` to create a local decision graph, ' +
+      'or pass --env preview / --env prod to use a cloud environment instead.',
+    );
+  }
+
   async function request<T>(path: string, options: Parameters<typeof fetch>[1] = {}): Promise<T> {
     assertAuthenticatedIdentity();
+    assertLocalModeConfigured();
     try {
       const res = await fetch(`${gatewayUrl}${path}`, {
         ...options,
