@@ -17,7 +17,9 @@ receive, and promotion moves those same bytes - one dist-tag, one flag flip, no 
    then the zero-credential golden path (setup, git import with bodies and a promoted
    merge, ask) asserting answer CONTENT and the funnel stages against a local
    telemetry sink. Plus an npm leg installing `@next`.
-3. **The human pass** (the machine matrix is necessary, not sufficient):
+3. **The human pass** - optional, no longer a gate (see step 4): still worth doing, since
+   it is the only part of this pipeline that runs on a real desktop against a real repo,
+   which is exactly what caught the `XDG_CONFIG_HOME` collision documented below.
 
    ```sh
    ALIGN_VERSION=<tag> curl -fsSL https://align.tech/install.sh | sh

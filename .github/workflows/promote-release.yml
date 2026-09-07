@@ -38,6 +38,17 @@ permissions:
   id-token: write # npm provenance-adjacent + MCP registry OIDC login
   actions: read # read the E2E run conclusion for the gate
 
+# Serializes every run of this workflow (auto and manual alike). Without this, two
+# overlapping runs (an auto-fire racing a manual break-glass re-promote, or two E2E
+# completions close together) could both read npm's CURRENT `latest` before either
+# writes, both pass "refuse to promote older" against that stale read, and whichever
+# finishes its write second silently wins - which could be the OLDER of the two,
+# defeating the guard that exists specifically to prevent a downgrade. Never cancel a
+# run already writing to a public registry mid-flight.
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
 jobs:
   # One place that decides WHICH tag this run is about and whether it should proceed at
   # all - every step after this reads `needs.resolve.outputs.*`, never `inputs.*` or
@@ -53,24 +64,39 @@ jobs:
       - name: Resolve the tag to promote
         id: resolve
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_FORCE: ${{ inputs.force }}
-          # e2e-release.yml's own `run-name:` is "E2E ${tag}" - the same string
-          # promote-release.yml's manual gate below already matches against via
-          # `displayTitle | contains($TAG)`, so this is a second reader of an existing
-          # contract rather than a new one.
-          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+          # The upstream e2e-release.yml run's own head commit - structural data GitHub
+          # guarantees, not a human-readable label. Deliberately NOT display_title/run-name
+          # ("E2E <tag>"): a label meant for the Actions UI is one rename away from breaking
+          # this silently, and this is the one caller-facing surface where auto-promotion no
+          # longer has a human noticing the manual step went missing to fall back on.
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             tag="$INPUT_TAG"
-            force="$INPUT_FORCE"
+            # Canonicalize to the literal strings this workflow's `!= 'true'` comparisons
+            # rely on - `inputs.force` is a real boolean from the dispatch UI, but the same
+            # value dispatched via `gh workflow run -f force=<x>` is an arbitrary string the
+            # API does not type-coerce, and a job output is always a string either way.
+            case "$INPUT_FORCE" in
+              true|True|TRUE|1|yes|Yes) force="true" ;;
+              *) force="false" ;;
+            esac
           else
-            tag="${RUN_TITLE#E2E }"
+            # e2e-release.yml checks out `ref: github.event.release.tag_name || inputs.tag`
+            # (its own line 34), so the run's head_sha IS the commit that tag points to.
+            # Filtered to cli-v*: a repo can carry other tags at the same sha in principle,
+            # and this is the one prefix release-please ever cuts for this package.
+            tag="$(gh api "repos/${{ github.repository }}/tags" --paginate \
+              --jq ".[] | select(.commit.sha == \"$HEAD_SHA\") | select(.name | startswith(\"cli-v\")) | .name" \
+              | head -1)"
             force="false"
           fi
-          if [ -z "$tag" ] || [ "$tag" = "$RUN_TITLE" ]; then
-            echo "FATAL: could not resolve a release tag from event=$EVENT_NAME title='$RUN_TITLE'"
+          if [ -z "$tag" ]; then
+            echo "FATAL: could not resolve a cli-v* release tag for event=$EVENT_NAME sha=$HEAD_SHA"
             exit 1
           fi
           echo "Resolved tag=$tag force=$force from event=$EVENT_NAME"
@@ -118,8 +144,12 @@ jobs:
           TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           version="${TAG#cli-v}"
-          if [ -z "$version" ] || [ "$version" = "$TAG" ]; then
-            echo "FATAL: tag '$TAG' does not look like cli-vX.Y.Z"
+          # Shape-checked, not just non-empty: `version` is interpolated straight into shell
+          # text two steps down (`npm dist-tag add @aligndottech/cli@$version`), so anything
+          # that is not plainly X.Y.Z must stop here rather than reach that line as a string
+          # a future edit could interpolate unquoted.
+          if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "FATAL: tag '$TAG' does not resolve to a plain X.Y.Z version (got '$version')"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -129,9 +159,20 @@ jobs:
       # here rather than assumed, the same "assert the effect" discipline the verify step
       # below already applies to the writes themselves.
       - name: Refuse to promote a version older than what is already latest
+        env:
+          # Threaded via env, not interpolated inline, matching every other tag/version-
+          # derived value in this file - the version is already shape-checked above, but
+          # inline `${{ }}` interpolation into a shell body is the pattern that would make a
+          # future looser check exploitable, not just here.
+          TARGET: ${{ steps.ver.outputs.version }}
         run: |
-          current="$(npm view @aligndottech/cli dist-tags.latest)"
-          target="${{ steps.ver.outputs.version }}"
+          current="$(npm view @aligndottech/cli dist-tags.latest)" || {
+            echo "FATAL: could not read the current npm latest (registry unreachable?) - refusing to promote blind."; exit 1; }
+          if [ -z "$current" ]; then
+            echo "FATAL: npm reported an empty latest dist-tag - refusing to promote blind."
+            exit 1
+          fi
+          target="$TARGET"
           newest="$(printf '%s\n%s\n' "$current" "$target" | sort -V | tail -1)"
           if [ "$newest" != "$target" ] && [ "$current" != "$target" ]; then
             echo "FATAL: current latest ($current) is newer than the target ($target) - refusing to downgrade."
