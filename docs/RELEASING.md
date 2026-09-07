@@ -24,6 +24,38 @@ receive, and promotion moves those same bytes - one dist-tag, one flag flip, no 
    ```
 
    on a personal machine, then use it on a real repo. Same bytes the E2E tested.
+
+   **`HOME=<fake> curl ... | sh` alone is not a clean test on a machine that already
+   exports an XDG var.** `align` resolves its config directory through the `env-paths`
+   package (`envPaths('align-cli', { suffix: '' })` - `src/lib/config.ts` and
+   `src/lib/local-mode.ts`), which checks `XDG_CONFIG_HOME` before it ever looks at
+   `HOME`, and falls back to `$HOME/.config` only when that var is unset. The cache
+   directory is read the same way, directly (`process.env['XDG_CACHE_HOME']` in
+   `src/lib/local-embeddings-wasm.ts`). So on a desktop that already has
+   `XDG_CONFIG_HOME` set - common with a systemd user session, or a line in
+   `.bashrc`/`.zshrc` - overriding `HOME` does nothing: `align` still reads and writes
+   the real, already-signed-in config at the real `XDG_CONFIG_HOME` path, and the test
+   reports a clean first run that never touched a fresh state. This happened on a real
+   machine (see ALI-797).
+
+   For a genuinely fresh test, clear the whole environment rather than layering `HOME=`
+   on top of it, so there is no `XDG_*` var left for `env-paths` to prefer over the fake
+   home:
+
+   ```sh
+   env -i HOME=/tmp/align-fresh-test PATH="$PATH" \
+     bash -c 'ALIGN_VERSION=<tag> curl -fsSL https://align.tech/install.sh | sh && align setup --local'
+   ```
+
+   `env -i` drops every inherited variable, `XDG_CONFIG_HOME`/`XDG_DATA_HOME`/
+   `XDG_CACHE_HOME` included, so `env-paths` falls back to `$HOME/.config` and
+   `align`'s own cache lookup falls back to `$HOME/.cache` - both under a directory
+   that has never existed before this run. `PATH` has to be passed back in explicitly
+   (`env -i` clears that too), or `curl`/`sh`/`align` will not resolve. This mirrors the
+   isolation the automated E2E already uses - `.github/workflows/e2e-release.yml` sets
+   `HOME` and all three `XDG_*` vars explicitly under one fake home, rather than resting
+   on a runner's default environment being clean.
+
 4. **Promote** - Actions -> "Promote Release" -> run with the tag. It refuses to run
    unless the E2E for that tag is green (`force` is break-glass for a broken harness,
    never for a red one). It then:
