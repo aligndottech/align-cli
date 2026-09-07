@@ -68,7 +68,8 @@ align import gitlab --token glpat-...   # self-managed: create a read_api (read-
 
 GitHub scopes to the repo you are in by default (detected from the git remote) - a
 personal token that can see many repos otherwise returns everything you are involved in
-across all of them, undifferentiated. Pass `--repo owner/repo` to name a different one, or
+across all of them, undifferentiated. If no github.com remote is detected, the import is
+unscoped unless you pass `--repo owner/repo`. Pass `--repo owner/repo` to name a different one, or
 `--all` for every repo the token can see.
 
 ## Jira
