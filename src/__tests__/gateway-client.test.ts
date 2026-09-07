@@ -6,6 +6,7 @@ vi.mock('../lib/local-gateway-client.js', () => ({
 
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
+import { LOCAL_DEFAULT_GATEWAY_URL } from '../lib/config.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 const pkgVersion = pkg.version;
@@ -567,5 +568,50 @@ describe('gateway client', () => {
         /unexpected \/decision-links response shape/,
       );
     });
+  });
+});
+
+describe('ALI-786 an unconfigured local env fails fast with a setup hint, not a dead-port dial', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  // The exact shape `config.getEnvironment('local')` returns before `align setup --local`
+  // (or a foreign/stale config whose `local` env predates local-embedded mode) has ever
+  // run: DEFAULTS.local, untouched. Nothing distinguishes it from "someone deliberately
+  // self-hosts on :8080 with demo mode" except that the self-hoster has configured
+  // something - see localEnv above, which carries a real tenantId for exactly that reason.
+  const neverConfiguredLocalEnv = {
+    gatewayUrl: LOCAL_DEFAULT_GATEWAY_URL,
+    authToken: null,
+    tenantId: null,
+    mode: 'demo' as const,
+  };
+
+  it('names the fix instead of dialing a dead port', async () => {
+    await expect(createGatewayClient(neverConfiguredLocalEnv).listConnectors())
+      .rejects.toThrow(/align setup --local/);
+  });
+
+  it('never attempts the request at all', async () => {
+    await createGatewayClient(neverConfiguredLocalEnv).listConnectors().catch(() => undefined);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // Positive control: a demo-mode env that HAS been configured (a real tenantId, the
+  // self-hosted case `localEnv` above represents) must still get the honest connectivity
+  // error, unchanged, when nothing answers at its URL - it must not be swept into the
+  // "never set up" message just because mode is demo.
+  it('leaves a genuinely configured demo-mode env alone: still a connectivity error', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    await expect(createGatewayClient(localEnv).listConnectors())
+      .rejects.toThrow('Cannot reach gateway at http://localhost:8080');
+  });
+
+  // A demo-mode env pointed at a non-default URL (ALIGN_GATEWAY_URL override, or a
+  // self-hosted domain) is also left alone - the untouched-default URL is part of the
+  // signal, not just the mode.
+  it('leaves a demo-mode env with a non-default gateway URL alone', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    await expect(createGatewayClient({ ...neverConfiguredLocalEnv, gatewayUrl: 'http://localhost:9999' }).listConnectors())
+      .rejects.toThrow('Cannot reach gateway at http://localhost:9999');
   });
 });

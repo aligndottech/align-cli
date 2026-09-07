@@ -51,6 +51,14 @@ const DEFAULTS: Record<EnvName, EnvironmentConfig> = {
  */
 export const ALIGN_HOSTED_GATEWAY_URL = DEFAULTS.prod.gatewayUrl;
 
+/**
+ * ALI-786: the one place the `local` env's default (unconfigured) gateway URL is spelled,
+ * so the "you never ran a local setup" guard in gateway-client.ts compares against the
+ * same literal DEFAULTS.local uses rather than a second copy of it (code-style.md, "two
+ * writers of one fact").
+ */
+export const LOCAL_DEFAULT_GATEWAY_URL = DEFAULTS.local.gatewayUrl;
+
 /** ALI-618: local-only users have no account, so consent is stored on the machine, not the server. */
 export type TelemetryConsent = 'granted' | 'declined';
 
