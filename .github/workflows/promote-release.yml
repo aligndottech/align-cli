@@ -1,6 +1,22 @@
 # ALI-797: promotion is the ONLY step that makes a release public, and it ships the
 # identical bytes the E2E and the human pass tested - one dist-tag move and one
 # prerelease flag flip, no rebuild anywhere. Runbook: docs/RELEASING.md.
+#
+# Auto-promotion (added after cli-v0.36.0 sat un-promoted on `next` for 4 days because the
+# manual step was forgotten): the workflow_run trigger fires this same job automatically
+# when e2e-release.yml finishes. It is scoped to `github.event.workflow_run.event ==
+# 'release'` - the trigger of the UPSTREAM e2e run, not this workflow's own - so it only
+# ever fires for the E2E run release-please's own fresh prerelease kicks off, never a
+# manual `workflow_dispatch` re-run of e2e-release.yml against an older tag. Without that
+# distinction, re-testing e.g. cli-v0.34.0 by hand for debugging would auto-promote it over
+# a newer release already live - the "Refuse to promote older" step below is the second,
+# independent guard against exactly that, in case the event-source scoping is ever loosened.
+#
+# This removes the SEPARATE MANUAL "human pass" step from the release gate (docs/RELEASING.md
+# step 3 - "necessary, not sufficient" alongside the E2E matrix). That tradeoff was accepted
+# deliberately: the human pass is Tom, promotion had no other operator, and the 4-day gap this
+# fixes was long enough that some tags would go untested by a human indefinitely anyway. A
+# human can still do the pass before or after promotion; it is no longer what unblocks it.
 name: Promote Release
 
 on:
@@ -13,30 +29,121 @@ on:
         description: 'Promote even if the E2E run for this tag is not green (break-glass only - say why in the run)'
         type: boolean
         default: false
+  workflow_run:
+    workflows: ['E2E Release']
+    types: [completed]
 
 permissions:
   contents: write # flip prerelease -> latest on the release
   id-token: write # npm provenance-adjacent + MCP registry OIDC login
   actions: read # read the E2E run conclusion for the gate
 
+# Serializes every run of this workflow (auto and manual alike). Without this, two
+# overlapping runs (an auto-fire racing a manual break-glass re-promote, or two E2E
+# completions close together) could both read npm's CURRENT `latest` before either
+# writes, both pass "refuse to promote older" against that stale read, and whichever
+# finishes its write second silently wins - which could be the OLDER of the two,
+# defeating the guard that exists specifically to prevent a downgrade. Never cancel a
+# run already writing to a public registry mid-flight.
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
 jobs:
+  # One place that decides WHICH tag this run is about and whether it should proceed at
+  # all - every step after this reads `needs.resolve.outputs.*`, never `inputs.*` or
+  # `github.event.workflow_run.*` directly, so there is exactly one spot where the two
+  # trigger shapes are reconciled.
+  resolve:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release') }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      force: ${{ steps.resolve.outputs.force }}
+      # The exact upstream E2E run, when this fired via workflow_run - empty on
+      # workflow_dispatch, where there is no single run to point at.
+      e2e_run_id: ${{ steps.resolve.outputs.e2e_run_id }}
+    steps:
+      - name: Resolve the tag to promote
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_FORCE: ${{ inputs.force }}
+          # The upstream e2e-release.yml run's own head commit - structural data GitHub
+          # guarantees, not a human-readable label. Deliberately NOT display_title/run-name
+          # ("E2E <tag>"): a label meant for the Actions UI is one rename away from breaking
+          # this silently, and this is the one caller-facing surface where auto-promotion no
+          # longer has a human noticing the manual step went missing to fall back on.
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+            run_id=""
+            # Canonicalize to the literal strings this workflow's `!= 'true'` comparisons
+            # rely on - `inputs.force` is a real boolean from the dispatch UI, but the same
+            # value dispatched via `gh workflow run -f force=<x>` is an arbitrary string the
+            # API does not type-coerce, and a job output is always a string either way.
+            case "$INPUT_FORCE" in
+              true|True|TRUE|1|yes|Yes) force="true" ;;
+              *) force="false" ;;
+            esac
+          else
+            # e2e-release.yml checks out `ref: github.event.release.tag_name || inputs.tag`
+            # (its own line 34), so the run's head_sha IS the commit that tag points to.
+            # Filtered to cli-v*: a repo can carry other tags at the same sha in principle,
+            # and this is the one prefix release-please ever cuts for this package.
+            tag="$(gh api "repos/${{ github.repository }}/tags" --paginate \
+              --jq ".[] | select(.commit.sha == \"$HEAD_SHA\") | select(.name | startswith(\"cli-v\")) | .name" \
+              | head -1)"
+            run_id="$RUN_ID"
+            force="false"
+          fi
+          if [ -z "$tag" ]; then
+            echo "FATAL: could not resolve a cli-v* release tag for event=$EVENT_NAME sha=$HEAD_SHA"
+            exit 1
+          fi
+          echo "Resolved tag=$tag force=$force run_id=${run_id:-<none>} from event=$EVENT_NAME"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "force=$force" >> "$GITHUB_OUTPUT"
+          echo "e2e_run_id=$run_id" >> "$GITHUB_OUTPUT"
+
   promote:
+    needs: resolve
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       # The gate: a promotion without a green E2E for THIS tag is refused, because an
       # unexercised promote is exactly the "ship what you didn't test" this pipeline
-      # exists to prevent. `force` exists for a broken E2E harness, not a red one.
+      # exists to prevent. `force` exists for a broken E2E harness, not a red one. Always
+      # runs for the auto-promote path too - the workflow_run trigger already implies a
+      # success, but reading it back here keeps this step meaningful on its own rather
+      # than trusting a value threaded three jobs upstream.
+      #
+      # On the auto-promote path, `E2E_RUN_ID` names the EXACT upstream run - read that
+      # run directly rather than searching by tag. The displayTitle-contains search below
+      # is a plausible-run guess: two E2E runs for the same tag (a manual re-run after a
+      # flake, or two similarly-named tags) would let it read the wrong one's conclusion,
+      # a Copilot review caught on this PR. Manual `workflow_dispatch` still has to search
+      # by tag - there is no single run to point at when a human just types a tag name.
       - name: Require a green E2E run for this tag
-        if: ${{ !inputs.force }}
+        if: ${{ needs.resolve.outputs.force != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          E2E_RUN_ID: ${{ needs.resolve.outputs.e2e_run_id }}
         run: |
-          conclusion="$(gh run list --workflow=e2e-release.yml --json conclusion,displayTitle \
-            --jq "[.[] | select(.displayTitle | contains(\"$TAG\"))][0].conclusion // \"absent\"")"
-          echo "e2e for $TAG: $conclusion"
+          if [ -n "$E2E_RUN_ID" ]; then
+            conclusion="$(gh run view "$E2E_RUN_ID" --json conclusion --jq '.conclusion // "absent"')"
+            echo "e2e run $E2E_RUN_ID (exact, for $TAG): $conclusion"
+          else
+            conclusion="$(gh run list --workflow=e2e-release.yml --json conclusion,displayTitle \
+              --jq "[.[] | select(.displayTitle | contains(\"$TAG\"))][0].conclusion // \"absent\"")"
+            echo "e2e for $TAG (searched by tag, no exact run id available): $conclusion"
+          fi
           if [ "$conclusion" != "success" ]; then
             echo "FATAL: the most recent E2E run for $TAG is '$conclusion', not success."
             echo "       Fix the release (or the harness) and re-run e2e-release.yml first."
@@ -54,14 +161,43 @@ jobs:
       - name: Resolve the version from the tag
         id: ver
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ needs.resolve.outputs.tag }}
         run: |
           version="${TAG#cli-v}"
-          if [ -z "$version" ] || [ "$version" = "$TAG" ]; then
-            echo "FATAL: tag '$TAG' does not look like cli-vX.Y.Z"
+          # Shape-checked, not just non-empty: `version` is interpolated straight into shell
+          # text two steps down (`npm dist-tag add @aligndottech/cli@$version`), so anything
+          # that is not plainly X.Y.Z must stop here rather than reach that line as a string
+          # a future edit could interpolate unquoted.
+          if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "FATAL: tag '$TAG' does not resolve to a plain X.Y.Z version (got '$version')"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Defense in depth for the auto-promote path, independent of the event-source
+      # scoping on the `resolve` job's `if:`: refuse to move `latest` BACKWARDS. Checked
+      # here rather than assumed, the same "assert the effect" discipline the verify step
+      # below already applies to the writes themselves.
+      - name: Refuse to promote a version older than what is already latest
+        env:
+          # Threaded via env, not interpolated inline, matching every other tag/version-
+          # derived value in this file - the version is already shape-checked above, but
+          # inline `${{ }}` interpolation into a shell body is the pattern that would make a
+          # future looser check exploitable, not just here.
+          TARGET: ${{ steps.ver.outputs.version }}
+        run: |
+          current="$(npm view @aligndottech/cli dist-tags.latest)" || {
+            echo "FATAL: could not read the current npm latest (registry unreachable?) - refusing to promote blind."; exit 1; }
+          if [ -z "$current" ]; then
+            echo "FATAL: npm reported an empty latest dist-tag - refusing to promote blind."
+            exit 1
+          fi
+          target="$TARGET"
+          newest="$(printf '%s\n%s\n' "$current" "$target" | sort -V | tail -1)"
+          if [ "$newest" != "$target" ] && [ "$current" != "$target" ]; then
+            echo "FATAL: current latest ($current) is newer than the target ($target) - refusing to downgrade."
+            exit 1
+          fi
 
       # The whole npm promotion: the tarball tested under `next` becomes `latest`.
       - name: Promote the npm dist-tag
@@ -74,7 +210,7 @@ jobs:
       - name: Flip the release from prerelease to latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ inputs.tag }}" --prerelease=false --latest
+        run: gh release edit "${{ needs.resolve.outputs.tag }}" --prerelease=false --latest
 
       # Verify the EFFECT of both promotions, not the commands' exit codes.
       #
@@ -101,23 +237,37 @@ jobs:
           [ "$npm_latest" = "${{ steps.ver.outputs.version }}" ] || {
             echo "FATAL: npm latest is $npm_latest after 5 attempts, expected ${{ steps.ver.outputs.version }}"; exit 1; }
           gh_latest="$(gh release view --json tagName --jq .tagName)"
-          [ "$gh_latest" = "${{ inputs.tag }}" ] || {
-            echo "FATAL: GitHub latest release is $gh_latest, expected ${{ inputs.tag }}"; exit 1; }
-          echo "latest = ${{ inputs.tag }} on npm and GitHub"
+          [ "$gh_latest" = "${{ needs.resolve.outputs.tag }}" ] || {
+            echo "FATAL: GitHub latest release is $gh_latest, expected ${{ needs.resolve.outputs.tag }}"; exit 1; }
+          echo "latest = ${{ needs.resolve.outputs.tag }} on npm and GitHub"
 
   # Moved here from release-please.yml (ALI-797): the MCP registry should describe the
   # version a stranger actually gets, which is only true after promotion. Everything
   # below is the previous job verbatim, pinned publisher included.
   mcp-registry:
-    needs: promote
+    needs: [resolve, promote]
     runs-on: ubuntu-latest
     permissions:
       id-token: write # OIDC login to the MCP registry
       contents: read
     steps:
+      # Checked out at the workflow's own trusted ref (no `ref:` override) rather than at
+      # the resolved tag directly - CodeQL flags `actions/checkout` with a workflow_run-
+      # derived ref as "checkout of untrusted code in a privileged context" as a blanket
+      # rule, regardless of how that value was derived. `promote`'s own "Resolve the
+      # version from the tag" step already constrains `needs.resolve.outputs.tag` to
+      # exactly `cli-v<digits>.<digits>.<digits>` before this job can even start (`needs:
+      # [resolve, promote]`), so the value is not attacker-shapeable by construction - but
+      # the checkout action's `ref:` input is exactly the sink that rule exists to flag,
+      # so the fetch-and-extract form below avoids the pattern rather than arguing with it.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }} # server.json must be the promoted version's copy
+
+      - name: Read server.json from the promoted tag
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }} # server.json must be the promoted version's copy
+        run: |
+          git fetch origin "refs/tags/$TAG" --no-tags --depth=1 -q
+          git show "FETCH_HEAD:server.json" > server.json
 
       # Pinned version + checksum, not releases/latest: this runs in the
       # promotion workflow, and an unpinned latest means a changed or compromised
