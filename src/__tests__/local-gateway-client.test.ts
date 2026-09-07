@@ -6,6 +6,11 @@ import path from 'node:path';
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.0),
+  // ALI-787: real value, not a test-only string - the tests below assert the model tag a
+  // stale-model row must NOT match, and a made-up constant here would let that assertion
+  // pass for a reason unrelated to the code (mock value == mock value) rather than because
+  // ingestOne actually threads the real EMBEDDING_MODEL_ID through.
+  EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
 }));
 
 vi.mock('../lib/local-relationship-classifier.js', () => ({
@@ -25,9 +30,10 @@ import {
   RELATES_THRESHOLD,
   RETRIEVAL_RELATES_THRESHOLD,
 } from '../lib/local-gateway-client.js';
-import { cosineSimilarity } from '../lib/local-embeddings.js';
+import { cosineSimilarity, EMBEDDING_MODEL_ID } from '../lib/local-embeddings.js';
 import { classifyRelationship } from '../lib/local-relationship-classifier.js';
 import { RECOMMENDED_OLLAMA_PULL } from '../lib/local-llm.js';
+import { createLocalDb } from '../lib/local-db.js';
 
 describe('local-gateway-client', () => {
   let dbPath: string;
@@ -412,6 +418,62 @@ describe('local-gateway-client', () => {
     const captured = await client.captureDecision('Use TypeScript', 'cli');
     const result = await client.checkDrift(captured.id, 'some content to compare', 'code');
     expect(result).toHaveProperty('score');
+  });
+
+  // ALI-787: the model tag. Two examples - one pinning what a normal capture writes, one
+  // pinning what happens when a row was written by a DIFFERENT model - because "tags new
+  // rows correctly" and "degrades honestly on an old tag" are two separate behaviours and a
+  // single passing case could be satisfied by either alone.
+  describe('ALI-787: decision_embeddings.model', () => {
+    it('captureDecision tags the new embedding with the current model', async () => {
+      const captured = await client.captureDecision('Use TypeScript', 'cli');
+      // A second, independent handle on the same file - the client exposes no db, and
+      // opening one directly is how local-db-repo-scope.test.ts's own migration tests
+      // verify state written through a different API surface than the one under test.
+      const raw = createLocalDb(dbPath);
+      expect(raw.getEmbeddingModel(captured.id)).toBe(EMBEDDING_MODEL_ID);
+      raw.close();
+    });
+
+    it('findSimilar (via ingestOne) excludes a candidate whose embedding is tagged with a different model, even at a high cosine score', async () => {
+      // A high mocked score so the only thing that can be excluding this candidate is the
+      // model filter, not the similarity threshold.
+      vi.mocked(cosineSimilarity).mockReturnValue(0.99);
+      const stale = await client.captureDecision('Use Postgres for storage', 'cli');
+      const raw = createLocalDb(dbPath);
+      // Overwrite with a stale tag, as if this row survived from a retired model.
+      raw.setEmbedding(stale.id, new Float32Array(384).fill(0.1), 'Xenova/some-retired-model');
+      raw.close();
+
+      // captureDecision's `related` is already decision ids (ingestOne's {decisionId,score}
+      // objects, narrowed by captureDecision itself) - see createLocalGatewayClient above.
+      const result = await client.captureDecision('Switch storage to Postgres', 'cli');
+      expect(result.related).not.toContain(stale.id);
+    });
+
+    it('checkDrift refuses to compare against a stale-model embedding, and says why', async () => {
+      const captured = await client.captureDecision('Use TypeScript', 'cli');
+      const raw = createLocalDb(dbPath);
+      raw.setEmbedding(captured.id, new Float32Array(384).fill(0.1), 'Xenova/some-retired-model');
+      raw.close();
+
+      const result = await client.checkDrift(captured.id, 'some content to compare', 'code');
+      expect(result.score).toBeNull();
+      expect(result.drifted).toBeNull();
+      expect(result.note).toMatch(/some-retired-model/);
+    });
+
+    it('checkDrift still compares normally when the stored model is untagged (null)', async () => {
+      const captured = await client.captureDecision('Use TypeScript', 'cli');
+      const raw = createLocalDb(dbPath);
+      // 2-arg call: no model, same as a pre-ALI-787 row the migration somehow missed.
+      raw.setEmbedding(captured.id, new Float32Array(384).fill(0.1));
+      raw.close();
+
+      const result = await client.checkDrift(captured.id, 'some content to compare', 'code');
+      expect(result).toHaveProperty('score');
+      expect(result.score).not.toBeNull();
+    });
   });
 
   it('ingestBatch persists each item and returns cloud-compatible snapshots', async () => {

@@ -22,6 +22,10 @@ vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   // Above every retrieval floor, so search and check both surface every row.
   cosineSimilarity: vi.fn().mockReturnValue(0.9),
+  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // value (not a made-up test string) since findSimilar/checkDrift compare it against
+  // the real constant too.
+  EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
 }));
 vi.mock('../lib/local-relationship-classifier.js', () => ({
   classifyRelationship: vi.fn().mockResolvedValue({ ok: false, reason: 'no_llm_key' }),

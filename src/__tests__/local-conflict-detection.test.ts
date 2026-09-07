@@ -11,6 +11,10 @@ const { mockGetEmbedding, mockCosine } = vi.hoisted(() => ({
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: mockGetEmbedding,
   cosineSimilarity: mockCosine,
+  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // value (not a made-up test string) since findSimilar/checkDrift compare it against
+  // the real constant too.
+  EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
 }));
 
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
