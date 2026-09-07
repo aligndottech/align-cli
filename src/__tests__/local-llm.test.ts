@@ -253,6 +253,18 @@ describe('explainAbstention', () => {
     );
   });
 
+  // Copilot, PR #270: isAbstention trims leading whitespace before matching, and this
+  // function did not - so a model emitting a leading newline/space before the token
+  // still tripped isAbstention (auto-widen fired correctly) while explainAbstention
+  // missed it and leaked the raw `<<NO_ANSWER>>` token into the printed answer. Same
+  // trimStart the detector already uses.
+  it('translates the sentinel even with leading whitespace, matching isAbstention', () => {
+    expect(explainAbstention(`\n  ${ABSTENTION_SENTINEL}`)).toBe('The context does not answer this question.');
+    expect(explainAbstention(`\n${ABSTENTION_SENTINEL} Though it hints at the cause.`)).toBe(
+      'The context does not answer this question. Though it hints at the cause.',
+    );
+  });
+
   // Positive control for the two translations above: a LEGACY_ABSTENTION_PREFIX
   // paraphrase is already English, so it must pass through untouched rather than
   // being mangled by a translation aimed only at the token.

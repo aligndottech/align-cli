@@ -77,6 +77,11 @@ export function isAbstention(text: string): boolean {
  * (why.ts). Any tail past the token (the deny-then-deliver shape) is kept verbatim: it
  * is already real prose, from the model, not the marker. A LEGACY_ABSTENTION_PREFIX
  * match needs no translation - it is English already - so it passes through unchanged.
+ *
+ * trimStart first, matching isAbstention (Copilot, #270): without it, a model that
+ * emits a leading newline/space before the token still trips isAbstention (which
+ * does trim) and widens correctly, but this function would miss the token and leak
+ * it verbatim into the printed answer - the exact leak this function exists to stop.
  */
 export function explainAbstention(text: string): string {
   const trimmed = text.trimStart();
