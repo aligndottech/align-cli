@@ -4,6 +4,8 @@ import {
   CLASSIFIER_MAX_TOKENS,
   hasConfiguredProvider,
   type LlmFailure,
+  noProviderHintInline,
+  RECOMMENDED_OLLAMA_PULL,
   resolveMaxTokens,
 } from '../local-llm.js';
 import type { AgentName } from './types.js';
@@ -66,6 +68,29 @@ function parseConfirmation(text: string): ParsedConfirmation | null {
     return { isDecision: obj.isDecision, title, confidence };
   } catch {
     return null;
+  }
+}
+
+/**
+ * A per-reason hint, not one collapsed "no LLM configured" line - align-stack's own
+ * local-gateway-client.ts already documents why collapsing this union is wrong (ALI-420: "an
+ * unvetted local model gets its own remedy... nonsense to someone already running one") and
+ * ALI-692 for provider_stopped naming the model that actually failed. Only `no_llm_key` means
+ * nothing is configured; the other three all require a provider that DID answer or a model
+ * that IS installed, so telling that caller to "set a key or run Ollama" is actively wrong.
+ */
+export function describeConfirmFailure(reason: ConfirmFailureReason, failure?: LlmFailure): string {
+  switch (reason) {
+    case 'no_llm_key':
+      return noProviderHintInline('these can be confirmed');
+    case 'unvetted_local_model':
+      return ` Ollama is running, but no recognised model is installed: \`ollama pull ${RECOMMENDED_OLLAMA_PULL}\`, or set ALIGN_OLLAMA_MODEL to name your own.`;
+    case 'confirm_error':
+      return failure?.kind === 'provider_stopped'
+        ? ` ${failure.model} (${failure.provider}) returned an unusable response (${failure.detail}) - try again.`
+        : ' The configured provider did not answer usably - try again.';
+    case 'confirm_unparseable':
+      return ' The model replied without usable JSON - this is usually transient; try again.';
   }
 }
 

@@ -14,6 +14,14 @@
  * 6. the confirmed decision's humanText is the candidate's verbatim text, not the model's title
  *    (ALI-538 principle: the model's title is a label for review, never a replacement for the
  *    human's own words)
+ *
+ * describeConfirmFailure (per-reason messaging, not one collapsed "no LLM configured" line -
+ * the same mistake ALI-420 already fixed once for the sibling relationship classifier):
+ * 7. no_llm_key names setting a cloud key or running Ollama
+ * 8. unvetted_local_model names `ollama pull` and ALIGN_OLLAMA_MODEL, never "no LLM configured"
+ * 9. confirm_error with a provider_stopped failure names the provider, model and detail
+ * 10. confirm_error with no failure detail gives a generic retry hint, never "no LLM configured"
+ * 11. confirm_unparseable says the model replied without usable JSON
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as LocalLlmModule from '../../lib/local-llm.js';
@@ -25,7 +33,7 @@ vi.mock('../../lib/local-llm.js', async (importOriginal) => {
   return { ...original, callChatDetailed, hasConfiguredProvider };
 });
 
-import { confirmFreeTextCandidate } from '../../lib/sessions/confirm-freetext.js';
+import { confirmFreeTextCandidate, describeConfirmFailure } from '../../lib/sessions/confirm-freetext.js';
 import type { RawFreeTextCandidate } from '../../lib/sessions/extract-freetext.js';
 
 const CANDIDATE: RawFreeTextCandidate = {
@@ -82,5 +90,36 @@ describe('confirmFreeTextCandidate', () => {
     callChatDetailed.mockResolvedValue({ ok: true, text: '{"isDecision": true, "title": "A short label", "confidence": 0.8}' });
     const outcome = await confirmFreeTextCandidate(CANDIDATE);
     expect(outcome.ok && outcome.decision?.humanText).toBe(CANDIDATE.humanText);
+  });
+});
+
+describe('describeConfirmFailure: per-reason messaging', () => {
+  it('no_llm_key names a cloud key or Ollama', () => {
+    expect(describeConfirmFailure('no_llm_key')).toMatch(/cloud key|ollama/i);
+  });
+
+  it('unvetted_local_model names `ollama pull` and ALIGN_OLLAMA_MODEL, never "no LLM configured"', () => {
+    const msg = describeConfirmFailure('unvetted_local_model');
+    expect(msg).toMatch(/ollama pull/i);
+    expect(msg).toMatch(/ALIGN_OLLAMA_MODEL/);
+    expect(msg).not.toMatch(/no llm configured/i);
+  });
+
+  it('confirm_error with a provider_stopped failure names the provider, model and detail', () => {
+    const msg = describeConfirmFailure('confirm_error', {
+      kind: 'provider_stopped', provider: 'anthropic', model: 'claude-haiku-4-5-20251001', detail: 'HTTP 429',
+    });
+    expect(msg).toContain('anthropic');
+    expect(msg).toContain('claude-haiku-4-5-20251001');
+    expect(msg).toContain('HTTP 429');
+  });
+
+  it('confirm_error with no failure detail gives a generic retry hint, not "no LLM configured"', () => {
+    const msg = describeConfirmFailure('confirm_error');
+    expect(msg).not.toMatch(/no llm configured/i);
+  });
+
+  it('confirm_unparseable says the model replied without usable JSON', () => {
+    expect(describeConfirmFailure('confirm_unparseable')).toMatch(/json/i);
   });
 });

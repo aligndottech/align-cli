@@ -30,14 +30,24 @@ import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { getGitIdentity } from '../../lib/git.js';
 import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
 import { createLocalGatewayClient } from '../../lib/local-gateway-client.js';
-import { type ConfirmEachItem, runConfirmEachImport } from '../../lib/personal-import.js';
+import { type ConfirmEachItem, runConfirmEachImport, runWithConcurrency } from '../../lib/personal-import.js';
 import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { detectAgents } from '../../lib/sessions/registry.js';
 import { extractStructuredDecisions, type SessionDecisionCandidate } from '../../lib/sessions/extract-structured.js';
 import { findFreeTextCandidates, type RawFreeTextCandidate } from '../../lib/sessions/extract-freetext.js';
-import { type ConfirmedFreeTextDecision, confirmFreeTextCandidate } from '../../lib/sessions/confirm-freetext.js';
+import {
+  type ConfirmedFreeTextDecision,
+  type ConfirmFailureReason,
+  confirmFreeTextCandidate,
+  describeConfirmFailure,
+} from '../../lib/sessions/confirm-freetext.js';
 import { buildSessionSourceUrl } from '../../lib/sessions/source-url.js';
 import { SessionFormatUnverifiedError } from '../../lib/sessions/types.js';
+import type { LlmFailure } from '../../lib/local-llm.js';
+
+/** Same as personal-import.ts's BATCH_CONCURRENCY - see the confirmation loop below for why a
+ *  larger number would not actually help against a single local Ollama instance. */
+const FREE_TEXT_CONFIRM_CONCURRENCY = 3;
 
 /** Mirrors ratify.ts's resolveRatifier exactly (git identity, then the OS user) but is not
  *  imported from there - see the PR description for why this one small duplication was
@@ -183,33 +193,59 @@ export function registerImportSessionsCommand(importCmd: Command): void {
       console.log(chalk.bold(`\nFound ${totalFound} decision-shaped moment${totalFound === 1 ? '' : 's'} to review${truncatedNote}.\n`));
       console.log(chalk.dim('Each one enters the graph as an agent claim (unratified) - review it, `align ratify` later stands behind it as a human.\n'));
 
-      let unconfirmedNoLlm = 0;
+      // Pass B: only an LLM-adjudicated result may reach the review list (align decision
+      // ALI-409's "heuristic proposes, LLM adjudicates, only adjudicated results assert").
+      // Bounded concurrency, not one-at-a-time: each call is a full LLM round-trip, and
+      // FREE_TEXT_CONFIRM_CONCURRENCY matches the ingest batch concurrency in
+      // personal-import.ts (3) rather than a larger number, since a local Ollama model is a
+      // single shared resource that concurrent requests would just queue behind anyway.
+      const freeTextPositions = toReview
+        .map((p, i) => (p.kind === 'freetext' ? i : -1))
+        .filter(i => i !== -1);
+      const confirmResults = await runWithConcurrency(
+        freeTextPositions.map(i => () => confirmFreeTextCandidate((toReview[i] as { item: RawFreeTextCandidate }).item)),
+        FREE_TEXT_CONFIRM_CONCURRENCY,
+      );
+
+      const failures = new Map<ConfirmFailureReason, { count: number; failure?: LlmFailure }>();
+      const recordFailure = (reason: ConfirmFailureReason, failure?: LlmFailure): void => {
+        const bucket = failures.get(reason) ?? { count: 0, failure };
+        bucket.count++;
+        failures.set(reason, bucket);
+      };
+
       const items: SessionReviewItem[] = [];
+      let confirmIdx = 0;
       for (const p of toReview) {
         if (p.kind === 'structured') {
           items.push(new SessionCandidateItem(p.item));
           continue;
         }
-        // Pass B: only an LLM-adjudicated result may reach the review list (align decision
-        // ALI-409's "heuristic proposes, LLM adjudicates, only adjudicated results assert").
-        const outcome = await confirmFreeTextCandidate(p.item);
-        if (!outcome.ok) { unconfirmedNoLlm++; continue; }
+        const settled = confirmResults[confirmIdx++];
+        if (settled.status === 'rejected') {
+          recordFailure('confirm_error');
+          continue;
+        }
+        const outcome = settled.value;
+        if (!outcome.ok) { recordFailure(outcome.reason, outcome.failure); continue; }
         if (outcome.decision) items.push(new FreeTextCandidateItem(outcome.decision));
         // outcome.decision === null: the model looked and said the heuristic misfired -
         // nothing was actually decided here, so it is dropped silently, same as a rejected
         // AskUserQuestion in extract-structured.ts.
       }
 
+      const reportUnconfirmed = (): void => {
+        for (const [reason, { count, failure }] of failures) {
+          console.log(chalk.dim(`(${count} free-text candidate${count === 1 ? '' : 's'} not confirmed.${describeConfirmFailure(reason, failure)})`));
+        }
+      };
+
       if (items.length === 0) {
         console.log(chalk.dim('\nNothing survived confirmation - candidates were found but none were confirmed as real decisions.\n'));
-        if (unconfirmedNoLlm > 0) {
-          console.log(chalk.dim(`(${unconfirmedNoLlm} free-text candidate${unconfirmedNoLlm === 1 ? '' : 's'} could not be confirmed - no LLM configured. Set a key or run Ollama, then try again.)\n`));
-        }
+        reportUnconfirmed();
         return;
       }
-      if (unconfirmedNoLlm > 0) {
-        console.log(chalk.dim(`(${unconfirmedNoLlm} free-text candidate${unconfirmedNoLlm === 1 ? '' : 's'} skipped - no LLM configured to confirm them. Set a key or run Ollama, then try again.)\n`));
-      }
+      reportUnconfirmed();
 
       const client = createLocalGatewayClient(env.localDbPath);
       const confirmedBy = await resolveConfirmer();

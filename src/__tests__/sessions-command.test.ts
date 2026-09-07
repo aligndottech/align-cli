@@ -26,6 +26,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import type NodeOs from 'node:os';
+import type * as PersonalImportModule from '../lib/personal-import.js';
+import type * as ConfirmFreeTextModule from '../lib/sessions/confirm-freetext.js';
 
 vi.mock('ora', () => ({
   default: vi.fn(() => ({ start: vi.fn().mockReturnThis(), stop: vi.fn(), fail: vi.fn(), succeed: vi.fn() })),
@@ -52,7 +54,11 @@ vi.mock('../lib/sessions/extract-structured.js', () => ({ extractStructuredDecis
 const findFreeTextCandidates = vi.hoisted(() => vi.fn().mockReturnValue([]));
 vi.mock('../lib/sessions/extract-freetext.js', () => ({ findFreeTextCandidates }));
 const confirmFreeTextCandidate = vi.hoisted(() => vi.fn());
-vi.mock('../lib/sessions/confirm-freetext.js', () => ({ confirmFreeTextCandidate }));
+vi.mock('../lib/sessions/confirm-freetext.js', async (importOriginal) => {
+  const original = await importOriginal<typeof ConfirmFreeTextModule>();
+  // describeConfirmFailure is real (and separately tested) - only the LLM call is replaced.
+  return { ...original, confirmFreeTextCandidate };
+});
 
 const confirmSessionDecision = vi.hoisted(() => vi.fn().mockResolvedValue({ id: 'd1', title: 't', confirmedBy: 'x', confirmedAt: 'now' }));
 const localClose = vi.hoisted(() => vi.fn());
@@ -61,7 +67,12 @@ vi.mock('../lib/local-gateway-client.js', () => ({
 }));
 
 const runConfirmEachImport = vi.hoisted(() => vi.fn().mockResolvedValue({ imported: 0, skipped: 0, remaining: 0 }));
-vi.mock('../lib/personal-import.js', () => ({ runConfirmEachImport }));
+vi.mock('../lib/personal-import.js', async (importOriginal) => {
+  const original = await importOriginal<typeof PersonalImportModule>();
+  // runWithConcurrency itself is real (and separately tested) - only the confirm-each loop
+  // (the thing this suite is actually about) is replaced.
+  return { ...original, runConfirmEachImport };
+});
 
 import { registerImportSessionsCommand } from '../commands/import/sessions.js';
 
