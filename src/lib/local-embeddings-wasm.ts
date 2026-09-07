@@ -33,7 +33,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { setEmbeddingBackend } from './local-embeddings.js';
+import { EMBEDDING_DTYPE, EMBEDDING_MODEL_ID, setEmbeddingBackend } from './local-embeddings.js';
 
 /**
  * Where the ~23MB model is cached between runs.
@@ -120,9 +120,11 @@ export async function createWasmEmbeddingPipeline(): Promise<EmbeddingPipeline> 
   backends.onnx.wasm['numThreads'] = 1;
 
   // dtype q8 is load-bearing and not a size tweak - see local-embeddings.ts. The same pin has
-  // to appear on both backends or the two distributions write incompatible vectors.
-  return (await mod.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-    dtype: 'q8',
+  // to appear on both backends or the two distributions write incompatible vectors - hence
+  // both reading EMBEDDING_MODEL_ID/EMBEDDING_DTYPE from that one file rather than each
+  // hardcoding its own copy.
+  return (await mod.pipeline('feature-extraction', EMBEDDING_MODEL_ID, {
+    dtype: EMBEDDING_DTYPE,
   })) as EmbeddingPipeline;
 }
 

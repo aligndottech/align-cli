@@ -1,5 +1,20 @@
 import { alignDistribution } from './distribution.js';
 
+/**
+ * The HF model id and dtype every distribution embeds with. Single source of truth: the
+ * default loader below AND the WASM backend (local-embeddings-wasm.ts) both read these
+ * instead of each hardcoding the same two literals a second time - the same "two writers
+ * of one fact" shape code-style.md documents for an enum and a DB constraint, here for a
+ * model id and a schema tag. local-db.ts's `decision_embeddings.model` column is stamped
+ * from this constant by the one production caller (local-gateway-client.ts), so a future
+ * model change is one line here plus a migration, not a hunt across three files.
+ *
+ * ALI-787 evaluated bge-small-en-v1.5 as a replacement and did NOT adopt it - see
+ * docs/embedding-model-evaluation.md for the measured numbers and why.
+ */
+export const EMBEDDING_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+export const EMBEDDING_DTYPE = 'q8';
+
 type EmbeddingPipeline = (text: string, options: Record<string, unknown>) => Promise<Array<{ data: Float32Array }>>;
 let _pipe: EmbeddingPipeline | null = null;
 
@@ -82,8 +97,8 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
       // The size follows from that pin: q8 fetches onnx/model_quantized.onnx (22.0MiB) plus
       // the tokenizer, where fp32 would be 86.2MiB. This comment and the copy in setup.ts
       // and README.md said "~90MB" for both, quoting the file the pin exists to avoid.
-      _pipe = (await mod.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-        dtype: 'q8',
+      _pipe = (await mod.pipeline('feature-extraction', EMBEDDING_MODEL_ID, {
+        dtype: EMBEDDING_DTYPE,
       })) as unknown as EmbeddingPipeline;
     } catch (err) {
       throw new Error(

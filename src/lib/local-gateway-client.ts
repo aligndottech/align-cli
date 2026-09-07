@@ -1,7 +1,7 @@
 import { createLocalDb, type DecisionRow, normaliseDecidedAt } from './local-db.js';
 import { deriveDeciderKind } from './decider-kind.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
-import { cosineSimilarity, getEmbedding } from './local-embeddings.js';
+import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
 import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
 import { repositoryOf } from './decision-links.js';
@@ -175,7 +175,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // matches fall outside the scope.
     scopeFilter?: { repo?: string; includeUnattributed?: boolean },
   ): Promise<Array<{ decisionId: string; score: number }>> {
-    const all = db.getAllEmbeddings(scopeFilter);
+    // ALI-787: unconditional, not opt-in. `embedding` is always current-model (getEmbedding's
+    // one production path), so a stored vector tagged with a DIFFERENT model would produce a
+    // plausible, meaningless cosine score rather than an error - excluded here rather than
+    // trusted, the same "degrade honestly" rule checkDrift below applies to a single decision.
+    const all = db.getAllEmbeddings({ ...scopeFilter, model: EMBEDDING_MODEL_ID });
     return all
       .filter(e => e.decisionId !== excludeId)
       .map(e => ({ decisionId: e.decisionId, score: cosineSimilarity(embedding, e.embedding) }))
@@ -252,7 +256,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // from <host>") still carry the path-derived title's semantic content.
     const embedText = title === summary ? summary : `${title}. ${summary}`;
     const embedding = await getEmbedding(embedText);
-    db.setEmbedding(id, embedding);
+    db.setEmbedding(id, embedding, EMBEDDING_MODEL_ID);
 
     // One ranked pass, two rules united. Absolute (>= SIMILARITY_THRESHOLD, cap 10)
     // as before, PLUS the top RELATED_TOP_K overall when they clear RELATED_FLOOR -
@@ -663,6 +667,22 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     async checkDrift(decisionId: string, content: string, _sourceType?: string) {
       const decisionEmbedding = db.getEmbedding(decisionId);
       if (!decisionEmbedding) return { decisionId, score: null, drifted: null, note: 'Decision not found or not yet embedded.' };
+      // ALI-787: a stored vector tagged with a DIFFERENT model is not comparable to a
+      // freshly-embedded one - same length, incompatible space, and cosineSimilarity's
+      // length check cannot see that. A null/untagged model (a row from before tagging
+      // existed, that the migration somehow missed) is not treated as a mismatch: it is
+      // the same "unknown, so compare anyway" default the rest of this file uses for
+      // absent provenance, and it is what the pre-ALI-787 tests for this path assume.
+      const storedModel = db.getEmbeddingModel(decisionId);
+      if (storedModel !== null && storedModel !== EMBEDDING_MODEL_ID) {
+        return {
+          decisionId, score: null, drifted: null,
+          // Names both models (Copilot review, #273): the old one names what has to be
+          // re-run, the current one lets a user confirm re-import actually landed rather
+          // than guessing whether the graph moved on since this note was printed.
+          note: `This decision was embedded with ${storedModel}, not the current model (${EMBEDDING_MODEL_ID}). Re-import it (or run \`align local reset\` and re-import everything) before comparing.`,
+        };
+      }
       const contentEmbedding = await getEmbedding(content);
       const score = cosineSimilarity(decisionEmbedding, contentEmbedding);
       return { decisionId, score, drifted: score < DRIFT_THRESHOLD };

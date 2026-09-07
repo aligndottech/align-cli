@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS decision_audit (
 
 CREATE TABLE IF NOT EXISTS decision_embeddings (
   decision_id TEXT PRIMARY KEY REFERENCES decisions(id) ON DELETE CASCADE,
-  embedding BLOB NOT NULL
+  embedding BLOB NOT NULL,
+  model TEXT
 );
 
 CREATE TABLE IF NOT EXISTS decision_links (
@@ -111,7 +112,7 @@ CREATE TABLE IF NOT EXISTS decision_refs (
  * `migrate` from the source and compares it here, because forgetting the bump leaves the new
  * branch running destructively on every open with nothing to stop it.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 /**
  * ALI-829: a source timestamp as this database stores it - ISO-8601 Z - or null.
@@ -189,6 +190,19 @@ export function identifyingSourceUrl(raw: string | null): string | null {
  *  read by the migration; SCHEMA above spells them a second time because a fresh CREATE
  *  TABLE cannot read a constant, and the provenance test pins both against each other. */
 const PROVENANCE_COLUMNS = ['decider_kind', 'confirmed_by', 'confirmed_at', 'ratified_by', 'ratified_at'] as const;
+
+/**
+ * ALI-787: the only embedding model this graph has ever written before the `model` column
+ * existed. Verified, not assumed - `git log --all -p` on local-embeddings.ts and
+ * local-embeddings-wasm.ts shows exactly one HF model id was ever hardcoded there, across
+ * every commit. So backfilling every pre-column row with this is a true historical fact,
+ * unlike `decided_at` (step 4 below), which genuinely cannot be derived from an existing row.
+ *
+ * A deliberate LITERAL, not an import of local-embeddings.ts's EMBEDDING_MODEL_ID: this
+ * constant names what was true when the column was added, and must stay that value even
+ * after a future model swap changes EMBEDDING_MODEL_ID. Migrations are a historical record.
+ */
+const LEGACY_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
 
 /**
  * One-time data migrations, tracked in SQLite's built-in `user_version`.
@@ -431,6 +445,27 @@ function migrate(db: DatabaseSync): void {
         if (!existing.has(column)) db.exec(`ALTER TABLE decisions ADD COLUMN ${column} TEXT`);
       }
       db.exec('PRAGMA user_version = 5');
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+  if (version < 6) {
+    // Inside the write lock, for the reason step 4/5 give: two concurrent opens of a v5
+    // file must not both read "no column" and race the ALTER.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const hasModel = (db.prepare('PRAGMA table_info(decision_embeddings)').all() as Array<{ name: string }>)
+        .some((c) => c.name === 'model');
+      if (!hasModel) {
+        db.exec('ALTER TABLE decision_embeddings ADD COLUMN model TEXT');
+      }
+      // Every row that predates the column was written by LEGACY_EMBEDDING_MODEL - see its
+      // doc comment for how that is verified rather than assumed. Only rows with no tag yet
+      // are touched, so re-running this on an already-migrated database is a no-op.
+      db.prepare('UPDATE decision_embeddings SET model = ? WHERE model IS NULL').run(LEGACY_EMBEDDING_MODEL);
+      db.exec('PRAGMA user_version = 6');
       db.exec('COMMIT');
     } catch (err) {
       if (db.isTransaction) db.exec('ROLLBACK');
@@ -700,10 +735,23 @@ export function createLocalDb(dbPath: string) {
       return row !== undefined;
     },
 
-    setEmbedding(decisionId: string, embedding: Float32Array): void {
+    /**
+     * ALI-787: `model` tags which HF model produced `embedding`, so a future model swap
+     * cannot compare two models' vectors as if they were interchangeable - same-length
+     * float arrays from different models pass cosineSimilarity's length check and produce a
+     * plausible, meaningless score with nothing to catch it (see local-embeddings.ts,
+     * cosineSimilarity's own doc comment, for the sibling case this closes: a length
+     * mismatch throws, but a same-length cross-model comparison would not have).
+     *
+     * Optional and defaulting to NULL (`?? null`, since node:sqlite throws on a bound
+     * `undefined` rather than treating it as NULL) so every existing 2-arg caller keeps
+     * compiling and behaving exactly as before. The one production caller
+     * (local-gateway-client.ts's ingestOne) always passes EMBEDDING_MODEL_ID.
+     */
+    setEmbedding(decisionId: string, embedding: Float32Array, model?: string): void {
       db.prepare(
-        `INSERT OR REPLACE INTO decision_embeddings (decision_id, embedding) VALUES (?, ?)`
-      ).run(decisionId, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength));
+        `INSERT OR REPLACE INTO decision_embeddings (decision_id, embedding, model) VALUES (?, ?, ?)`
+      ).run(decisionId, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength), model ?? null);
     },
 
     getEmbedding(decisionId: string): Float32Array | null {
@@ -714,6 +762,16 @@ export function createLocalDb(dbPath: string) {
       return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
     },
 
+    /** ALI-787: which model tagged this decision's stored embedding, or null when there is
+     *  no embedding row, or the row predates tagging and was never backfilled (should not
+     *  happen post-migration, but reads as "unknown" rather than a false match either way). */
+    getEmbeddingModel(decisionId: string): string | null {
+      const row = db.prepare(
+        `SELECT model FROM decision_embeddings WHERE decision_id = ?`
+      ).get(decisionId) as { model: string | null } | undefined;
+      return row?.model ?? null;
+    },
+
     /**
      * Unscoped by default: relationship linking (ingestOne, in local-gateway-client.ts) wants
      * candidates across EVERY repo - cross-repo memory is the product this ticket protects,
@@ -721,15 +779,33 @@ export function createLocalDb(dbPath: string) {
      * paths (search, ask) that DO want to stay in-scope, filtered here rather than after
      * ranking - filtering post-rank would silently return fewer than `topK` results whenever
      * some of the best global matches fall outside the scope.
+     *
+     * ALI-787: `filter.model`, when given, excludes rows tagged with a DIFFERENT (non-null)
+     * model - the "degrade honestly" half of the model tag: a decision embedded by a retired
+     * model drops out of ranking rather than being compared to a current-model vector it is
+     * not compatible with. A NULL-tagged row (no model recorded at all) is treated as
+     * compatible rather than excluded, the same "unknown, not wrong" leniency checkDrift
+     * applies to a single decision - the migration backfills every pre-existing row, so NULL
+     * should not occur in a real graph, and this is what keeps a hand-built test fixture that
+     * predates ALI-787 (a bare 2-arg setEmbedding) behaving as it always did. Omitted (the
+     * default) applies no filter at all, which is what most existing callers and tests rely
+     * on - only local-gateway-client.ts's findSimilar passes it, with the currently active
+     * EMBEDDING_MODEL_ID.
      */
-    getAllEmbeddings(filter: { repo?: string; includeUnattributed?: boolean } = {}): Array<{ decisionId: string; embedding: Float32Array }> {
+    getAllEmbeddings(filter: { repo?: string; includeUnattributed?: boolean; model?: string } = {}): Array<{ decisionId: string; embedding: Float32Array }> {
       let sql = `SELECT e.decision_id, e.embedding FROM decision_embeddings e`;
+      const where: string[] = [];
       const params: string[] = [];
       if (filter.repo !== undefined) {
         sql += ` JOIN decisions d ON d.id = e.decision_id`;
-        sql += filter.includeUnattributed ? ` WHERE (d.repo = ? OR d.repo IS NULL)` : ` WHERE d.repo = ?`;
+        where.push(filter.includeUnattributed ? `(d.repo = ? OR d.repo IS NULL)` : `d.repo = ?`);
         params.push(filter.repo);
       }
+      if (filter.model !== undefined) {
+        where.push(`(e.model = ? OR e.model IS NULL)`);
+        params.push(filter.model);
+      }
+      if (where.length) sql += ` WHERE ${where.join(' AND ')}`;
       const rows = db.prepare(sql).all(...params) as Array<{ decision_id: string; embedding: Uint8Array }>;
       return rows.map(r => ({
         decisionId: r.decision_id,
