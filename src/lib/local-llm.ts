@@ -30,21 +30,57 @@ export interface CallChatOptions {
  *   implicitly got "The context does not answer this... only that <the
  *   answer>" - a denial and the answer in one breath. The abstention stays
  *   binary for the truly-empty case; these two make the model pick a side.
- * - The abstention is a mandated VERBATIM sentence, not a style suggestion:
- *   `align ask` detects it (isAbstention) to auto-widen a scoped search to the
- *   whole graph, so the instruction, ABSTENTION_SENTINEL and the detector must
- *   agree - the contract test pins all three together.
+ * - The abstention is a mandated VERBATIM TOKEN, not a sentence to reword: ALI-895
+ *   found a fixed English sentinel gets paraphrased mid-sentence by some local
+ *   models (observed live 2026-09-05 - the model kept "The context does not
+ *   answer" and substituted the actual subject in for "this question", which
+ *   defeated the old startsWith(full sentence) check). A token has nothing for
+ *   a model to reword, so isAbstention can go back to an exact match on it -
+ *   plus a narrower legacy-English fallback (LEGACY_ABSTENTION_PREFIX) for a
+ *   model that ignores the token instruction and denies in prose anyway.
+ *   explainAbstention translates a leading token back to prose before either
+ *   shape reaches a terminal, so `<<NO_ANSWER>>` itself never does.
  */
-export const ABSTENTION_SENTINEL = 'The context does not answer this question.';
+export const ABSTENTION_SENTINEL = '<<NO_ANSWER>>';
+
+/** What a leading ABSTENTION_SENTINEL means to a human. See explainAbstention. */
+const ABSTENTION_PROSE = 'The context does not answer this question.';
+
+/**
+ * A model that ignores the token instruction and denies in English anyway still
+ * opens with this fixed clause (the pre-ALI-895 sentinel's opening words) even when
+ * it goes on to paraphrase the rest, per the observed live case above. Deliberately
+ * shorter than ABSTENTION_PROSE: matching only the clause a paraphrase keeps, not
+ * the "this question." it replaces.
+ */
+const LEGACY_ABSTENTION_PREFIX = 'The context does not answer';
 
 /**
  * Did the model abstain? startsWith, not equality, on purpose: a model that emits the
  * sentinel and keeps talking is the deny-then-deliver output the prompt forbids, and
  * treating it as an abstention (so the caller widens the search) is the correct
  * recovery for that too.
+ *
+ * Two independent openers, each checked as a PREFIX only (never mid-string, or a real
+ * answer merely mentioning "does not answer" later on would be caught too):
+ * ABSTENTION_SENTINEL is what the model is instructed to emit, LEGACY_ABSTENTION_PREFIX
+ * is what a model that ignores that instruction denies with instead (ALI-895).
  */
 export function isAbstention(text: string): boolean {
-  return text.trimStart().startsWith(ABSTENTION_SENTINEL);
+  const trimmed = text.trimStart();
+  return trimmed.startsWith(ABSTENTION_SENTINEL) || trimmed.startsWith(LEGACY_ABSTENTION_PREFIX);
+}
+
+/**
+ * The token above must never reach a human's terminal - translate a leading sentinel
+ * back into the prose it replaces, for the one place a synthesised answer is printed
+ * (why.ts). Any tail past the token (the deny-then-deliver shape) is kept verbatim: it
+ * is already real prose, from the model, not the marker. A LEGACY_ABSTENTION_PREFIX
+ * match needs no translation - it is English already - so it passes through unchanged.
+ */
+export function explainAbstention(text: string): string {
+  if (!text.startsWith(ABSTENTION_SENTINEL)) return text;
+  return `${ABSTENTION_PROSE}${text.slice(ABSTENTION_SENTINEL.length)}`;
 }
 
 export const SYNTHESIS_SYSTEM_PROMPT =
@@ -52,7 +88,7 @@ export const SYNTHESIS_SYSTEM_PROMPT =
   'Answer the question in 2-4 concise sentences based only on the provided context. ' +
   `If the context does not answer the question, reply with exactly "${ABSTENTION_SENTINEL}" and nothing more - never guess and never invent decisions or details. ` +
   'A partial or implicit answer is still an answer: give it plainly and note what the context leaves unstated. ' +
-  'Never say the context does not answer the question and then answer it anyway - decide which it is first. ' +
+  `Never write ${ABSTENTION_SENTINEL} and then answer the question anyway - decide which it is first. ` +
   'Attribute details only to the decision they came from, and only state relationships between decisions that the context itself states. ' +
   'If two decisions contradict each other, say they conflict - do not pick a winner the context does not name. ' +
   'Be direct. Synthesise the context into a clear explanation - do not list decisions. ' +

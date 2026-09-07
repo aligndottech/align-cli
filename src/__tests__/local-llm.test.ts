@@ -4,6 +4,7 @@ import {
   buildUserPrompt,
   callChat,
   callChatDetailed,
+  explainAbstention,
   HOSTED_WINDOW_TOKENS_DEFAULT,
   isAbstention,
   SYNTHESIS_MAX_TOKENS,
@@ -132,13 +133,13 @@ describe('SYNTHESIS_SYSTEM_PROMPT carries the abstention contract (ollama-vet ev
   // the way a render contract is (ALI-586): a prompt edit that drops the
   // abstention line must go red, because the eval that catches it costs three
   // model runs and this test costs milliseconds.
-  it('tells the model to abstain with the EXACT sentinel sentence, and never to invent', () => {
-    // The abstention is a mandated verbatim sentence, not a style suggestion: the ask
-    // command detects it (isAbstention) to auto-widen a scoped search to the whole graph,
-    // so the instruction, the sentinel constant and the detector must agree. Anchored to
-    // the sentinel itself, not the bare words "does not answer" - the partial-answer
-    // instruction below also contains those words, so an unanchored match would stay
-    // green if someone deleted the abstention sentence itself.
+  it('tells the model to abstain with the EXACT sentinel token, and never to invent', () => {
+    // The abstention is a mandated verbatim token (ALI-895), not a style suggestion: the
+    // ask command detects it (isAbstention) to auto-widen a scoped search to the whole
+    // graph, so the instruction, the sentinel constant and the detector must agree.
+    // Anchored to the sentinel itself, not the bare words "does not answer" - the
+    // partial-answer instruction below also contains those words, so an unanchored match
+    // would stay green if someone deleted the abstention instruction itself.
     expect(SYNTHESIS_SYSTEM_PROMPT).toContain(`reply with exactly "${ABSTENTION_SENTINEL}"`);
     expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/never (guess|invent)/i);
   });
@@ -158,9 +159,13 @@ describe('SYNTHESIS_SYSTEM_PROMPT carries the abstention contract (ollama-vet ev
     expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/partial or implicit answer is still an answer/i);
   });
 
-  it('names the deny-then-deliver shape as forbidden', () => {
-    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(
-      /never say the context does not answer the question and then answer it anyway/i,
+  it('names the deny-then-deliver shape as forbidden, by the sentinel itself (ALI-895)', () => {
+    // Was "never say the context does not answer the question and then answer it
+    // anyway" - rewritten to name ABSTENTION_SENTINEL directly once the sentinel
+    // stopped being that English sentence, so the forbidding instruction still names
+    // the exact string the model was just told to reply with.
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain(
+      `Never write ${ABSTENTION_SENTINEL} and then answer the question anyway`,
     );
   });
 });
@@ -181,6 +186,21 @@ describe('isAbstention', () => {
   it('detects the sentinel with surrounding whitespace or trailing elaboration', () => {
     expect(isAbstention(`  ${ABSTENTION_SENTINEL}  `)).toBe(true);
     expect(isAbstention(`${ABSTENTION_SENTINEL} While the decision explains...`)).toBe(true);
+  });
+
+  // ALI-895: observed live 2026-09-05, asking "when did you stop blocking PRs on the
+  // Align gate". The old sentinel was the full English sentence "The context does not
+  // answer this question.", matched by startsWith - and this paraphrase keeps the
+  // opening clause but names the actual question instead of repeating "this question",
+  // so the old exact-suffix match returned false and the ALI-825 auto-widen never
+  // fired. This is the bug fix: isAbstention must catch it too, via
+  // LEGACY_ABSTENTION_PREFIX, even though the model no longer sees an English sentinel
+  // to paraphrase in the prompt (a model can still ignore that instruction).
+  it('detects a paraphrase that names the question instead of repeating the fixed wording', () => {
+    const paraphrase =
+      'The context does not answer when you stopped blocking PRs on the Align gate ' +
+      'or provide a single moment identifying that decision.';
+    expect(isAbstention(paraphrase)).toBe(true);
   });
 
   it('does NOT flag a real answer that merely mentions unanswered ground', () => {
@@ -214,6 +234,38 @@ describe('isAbstention', () => {
   // punctuation, so the model was free to copy the source's style.
   it('tells the model never to use an em-dash', () => {
     expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/never use an? em-?dash/i);
+  });
+});
+
+/**
+ * ALI-895: the sentinel became a non-prose token so the model has nothing to
+ * paraphrase, which means it must never reach a human's terminal verbatim. This is
+ * the translation the one print site (why.ts) applies before rendering.
+ */
+describe('explainAbstention', () => {
+  it('translates a bare sentinel into the prose it replaces', () => {
+    expect(explainAbstention(ABSTENTION_SENTINEL)).toBe('The context does not answer this question.');
+  });
+
+  it('keeps a deny-then-deliver tail, translating only the opener', () => {
+    expect(explainAbstention(`${ABSTENTION_SENTINEL} While the decision explains...`)).toBe(
+      'The context does not answer this question. While the decision explains...',
+    );
+  });
+
+  // Positive control for the two translations above: a LEGACY_ABSTENTION_PREFIX
+  // paraphrase is already English, so it must pass through untouched rather than
+  // being mangled by a translation aimed only at the token.
+  it('leaves a legacy English paraphrase unchanged - it is already prose', () => {
+    const paraphrase = 'The context does not answer when you stopped blocking PRs on the Align gate.';
+    expect(explainAbstention(paraphrase)).toBe(paraphrase);
+  });
+
+  // Positive control for the whole function: real prose with no sentinel anywhere
+  // passes through byte-identical.
+  it('leaves an ordinary answer untouched', () => {
+    const answer = 'Postgres was chosen because concurrent writers mattered.';
+    expect(explainAbstention(answer)).toBe(answer);
   });
 });
 
