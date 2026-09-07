@@ -55,6 +55,7 @@ vi.mock('../lib/config.js', () => ({
 const { registerImportCommand } = await import('../commands/import.js');
 const { runPersonalImport } = await import('../lib/personal-import.js');
 const { resolveImportEnv } = await import('../lib/resolve-env.js');
+const { resolveGitHubRepoScope } = await import('../lib/fetchers/github.js');
 
 async function run(argv: string[]): Promise<void> {
   const program = new Command();
@@ -96,6 +97,16 @@ describe('import subcommand options reach the subcommand (parent/child collision
   it('honours --env local on `import github`', async () => {
     await run(['import', 'github', '--token', 'ghp_x', '--env', 'local']);
     expect(resolveImportEnv).toHaveBeenCalledWith('local');
+  });
+
+  // ALI-917: the parent `import` command ALSO declares `--all` ("Scan all connected
+  // connectors"), the same collision shape as --approve/--env above but for the new
+  // github-scope flag - a fresh-context review flagged this as untested. subcommandOpts's
+  // optsWithGlobals() already resolves it correctly; this pins that so a future change to
+  // either --all's shape can't silently break it unnoticed.
+  it('honours --all on `import github`, so resolveGitHubRepoScope sees it despite the parent also declaring --all', async () => {
+    await run(['import', 'github', '--token', 'ghp_x', '--all']);
+    expect(resolveGitHubRepoScope).toHaveBeenCalledWith(expect.objectContaining({ all: true }));
   });
 
   it('honours --approve and --env together with a child-only option', async () => {
