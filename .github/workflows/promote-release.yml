@@ -60,6 +60,9 @@ jobs:
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       force: ${{ steps.resolve.outputs.force }}
+      # The exact upstream E2E run, when this fired via workflow_run - empty on
+      # workflow_dispatch, where there is no single run to point at.
+      e2e_run_id: ${{ steps.resolve.outputs.e2e_run_id }}
     steps:
       - name: Resolve the tag to promote
         id: resolve
@@ -74,9 +77,11 @@ jobs:
           # this silently, and this is the one caller-facing surface where auto-promotion no
           # longer has a human noticing the manual step went missing to fall back on.
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             tag="$INPUT_TAG"
+            run_id=""
             # Canonicalize to the literal strings this workflow's `!= 'true'` comparisons
             # rely on - `inputs.force` is a real boolean from the dispatch UI, but the same
             # value dispatched via `gh workflow run -f force=<x>` is an arbitrary string the
@@ -93,15 +98,17 @@ jobs:
             tag="$(gh api "repos/${{ github.repository }}/tags" --paginate \
               --jq ".[] | select(.commit.sha == \"$HEAD_SHA\") | select(.name | startswith(\"cli-v\")) | .name" \
               | head -1)"
+            run_id="$RUN_ID"
             force="false"
           fi
           if [ -z "$tag" ]; then
             echo "FATAL: could not resolve a cli-v* release tag for event=$EVENT_NAME sha=$HEAD_SHA"
             exit 1
           fi
-          echo "Resolved tag=$tag force=$force from event=$EVENT_NAME"
+          echo "Resolved tag=$tag force=$force run_id=${run_id:-<none>} from event=$EVENT_NAME"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "force=$force" >> "$GITHUB_OUTPUT"
+          echo "e2e_run_id=$run_id" >> "$GITHUB_OUTPUT"
 
   promote:
     needs: resolve
@@ -115,15 +122,28 @@ jobs:
       # runs for the auto-promote path too - the workflow_run trigger already implies a
       # success, but reading it back here keeps this step meaningful on its own rather
       # than trusting a value threaded three jobs upstream.
+      #
+      # On the auto-promote path, `E2E_RUN_ID` names the EXACT upstream run - read that
+      # run directly rather than searching by tag. The displayTitle-contains search below
+      # is a plausible-run guess: two E2E runs for the same tag (a manual re-run after a
+      # flake, or two similarly-named tags) would let it read the wrong one's conclusion,
+      # a Copilot review caught on this PR. Manual `workflow_dispatch` still has to search
+      # by tag - there is no single run to point at when a human just types a tag name.
       - name: Require a green E2E run for this tag
         if: ${{ needs.resolve.outputs.force != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.resolve.outputs.tag }}
+          E2E_RUN_ID: ${{ needs.resolve.outputs.e2e_run_id }}
         run: |
-          conclusion="$(gh run list --workflow=e2e-release.yml --json conclusion,displayTitle \
-            --jq "[.[] | select(.displayTitle | contains(\"$TAG\"))][0].conclusion // \"absent\"")"
-          echo "e2e for $TAG: $conclusion"
+          if [ -n "$E2E_RUN_ID" ]; then
+            conclusion="$(gh run view "$E2E_RUN_ID" --json conclusion --jq '.conclusion // "absent"')"
+            echo "e2e run $E2E_RUN_ID (exact, for $TAG): $conclusion"
+          else
+            conclusion="$(gh run list --workflow=e2e-release.yml --json conclusion,displayTitle \
+              --jq "[.[] | select(.displayTitle | contains(\"$TAG\"))][0].conclusion // \"absent\"")"
+            echo "e2e for $TAG (searched by tag, no exact run id available): $conclusion"
+          fi
           if [ "$conclusion" != "success" ]; then
             echo "FATAL: the most recent E2E run for $TAG is '$conclusion', not success."
             echo "       Fix the release (or the harness) and re-run e2e-release.yml first."
@@ -231,9 +251,23 @@ jobs:
       id-token: write # OIDC login to the MCP registry
       contents: read
     steps:
+      # Checked out at the workflow's own trusted ref (no `ref:` override) rather than at
+      # the resolved tag directly - CodeQL flags `actions/checkout` with a workflow_run-
+      # derived ref as "checkout of untrusted code in a privileged context" as a blanket
+      # rule, regardless of how that value was derived. `promote`'s own "Resolve the
+      # version from the tag" step already constrains `needs.resolve.outputs.tag` to
+      # exactly `cli-v<digits>.<digits>.<digits>` before this job can even start (`needs:
+      # [resolve, promote]`), so the value is not attacker-shapeable by construction - but
+      # the checkout action's `ref:` input is exactly the sink that rule exists to flag,
+      # so the fetch-and-extract form below avoids the pattern rather than arguing with it.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve.outputs.tag }} # server.json must be the promoted version's copy
+
+      - name: Read server.json from the promoted tag
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }} # server.json must be the promoted version's copy
+        run: |
+          git fetch origin "refs/tags/$TAG" --no-tags --depth=1 -q
+          git show "FETCH_HEAD:server.json" > server.json
 
       # Pinned version + checksum, not releases/latest: this runs in the
       # promotion workflow, and an unpinned latest means a changed or compromised

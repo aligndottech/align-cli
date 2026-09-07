@@ -76,9 +76,10 @@ receive, and promotion moves those same bytes - one dist-tag, one flag flip, no 
    (the E2E run's own upstream event must be `release`, not a manual re-run), so re-testing
    an older tag by hand for debugging never auto-promotes it over a newer one already live;
    a second, independent check in the workflow also refuses to move `latest` backwards.
-   Manual promotion still works exactly as before - Actions -> "Promote Release" -> run
-   with the tag - for a break-glass re-promote or if the automatic run is ever skipped.
-   Either way it:
+   Manual promotion still works the same way to trigger - Actions -> "Promote Release" ->
+   run with the tag - for a break-glass re-promote or if the automatic run is ever skipped,
+   though it now runs behind the same `resolve` job and shares the new anti-downgrade
+   guard with the automatic path. Either way it:
    - refuses to run unless the E2E for that tag is green (`force` is break-glass for a
      broken harness, never for a red one)
    - `npm dist-tag add @aligndottech/cli@<version> latest`
@@ -96,8 +97,10 @@ receive, and promotion moves those same bytes - one dist-tag, one flag flip, no 
 ## Things that will read as broken and are not
 
 - **A freshly merged release PR shows a prerelease and `npm view` still shows the old
-  `latest`.** That is the staging working - briefly. Promotion follows automatically once
-  E2E goes green (usually within a few minutes); nothing is public before that.
+  `latest`.** That is the staging working. Promotion follows automatically once E2E goes
+  green - typically a few minutes, but `e2e-release.yml` runs a full ubuntu+macos matrix
+  with a 45-minute timeout, so do not read a longer wait as the automation having failed;
+  check the E2E run itself before assuming promotion was skipped.
 - **The E2E's asset-wait loops for a few minutes** - the binaries job uploads after
   the release event fires; the wait is the race handled, not a hang.
 - **`npm i -g @aligndottech/cli@next` mid-stage gets the release under test.** That is
