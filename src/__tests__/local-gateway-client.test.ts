@@ -460,7 +460,11 @@ describe('local-gateway-client', () => {
       const result = await client.checkDrift(captured.id, 'some content to compare', 'code');
       expect(result.score).toBeNull();
       expect(result.drifted).toBeNull();
+      // Names BOTH models (Copilot review, #273): the stale one so the user knows what to
+      // re-run, the current one so they can confirm a re-import actually landed rather than
+      // guessing whether the graph moved on since this note was printed.
       expect(result.note).toMatch(/some-retired-model/);
+      expect(result.note).toContain(EMBEDDING_MODEL_ID);
     });
 
     it('checkDrift still compares normally when the stored model is untagged (null)', async () => {

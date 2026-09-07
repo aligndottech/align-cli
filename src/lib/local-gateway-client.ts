@@ -677,7 +677,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       if (storedModel !== null && storedModel !== EMBEDDING_MODEL_ID) {
         return {
           decisionId, score: null, drifted: null,
-          note: `This decision was embedded with ${storedModel}, not the current model. Re-import it (or run \`align local reset\` and re-import everything) before comparing.`,
+          // Names both models (Copilot review, #273): the old one names what has to be
+          // re-run, the current one lets a user confirm re-import actually landed rather
+          // than guessing whether the graph moved on since this note was printed.
+          note: `This decision was embedded with ${storedModel}, not the current model (${EMBEDDING_MODEL_ID}). Re-import it (or run \`align local reset\` and re-import everything) before comparing.`,
         };
       }
       const contentEmbedding = await getEmbedding(content);
