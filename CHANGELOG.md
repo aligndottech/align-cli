@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.36.0](https://github.com/aligndottech/align-cli/compare/cli-v0.35.0...cli-v0.36.0) (2026-09-07)
+
+
+### Features
+
+* **lib:** canonical model-facing decision render, TypeScript twin (ALI-851) ([#260](https://github.com/aligndottech/align-cli/issues/260)) ([a0cb888](https://github.com/aligndottech/align-cli/commit/a0cb8885027f5868089d2cb13dae1a9c41314ef3))
+* **sessions:** free-text session decision extraction, LLM-confirmed (ALI-809) ([#265](https://github.com/aligndottech/align-cli/issues/265)) ([b994cd4](https://github.com/aligndottech/align-cli/commit/b994cd40241498b9c237569bbe7846fe76053d31))
+
+
+### Bug Fixes
+
+* **deps:** resolve real dependabot findings from launch-readiness triage (ALI-788) ([#264](https://github.com/aligndottech/align-cli/issues/264)) ([b353e36](https://github.com/aligndottech/align-cli/commit/b353e3672f5abdcf5227caf6f5abe0e4c8eb9e59))
+* **llm:** size prompts to the model's real context window (ALI-845) ([#258](https://github.com/aligndottech/align-cli/issues/258)) ([3931ccb](https://github.com/aligndottech/align-cli/commit/3931ccb0b8468842d0c7e9ea0fc2912d31dff9a2))
+
 ## [0.35.0](https://github.com/aligndottech/align-cli/compare/cli-v0.34.1...cli-v0.35.0) (2026-09-03)
 
 
