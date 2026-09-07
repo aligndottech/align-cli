@@ -120,9 +120,12 @@ export function buildUserPrompt(
   windowTokens: number,
   outputTokens: number,
 ): string {
-  if (!decisions.length) return `Question: ${question}\n\nDecision context:\n`;
+  // Copilot review (PR #269): SYNTHESIS_SYSTEM_PROMPT unconditionally tells the model to
+  // use "the sentence budget given with the question" - the header states one even when
+  // there are no decisions, so that promise holds on every path, not just the common one.
   const header =
     `Question: ${question}\n\nAnswer in ${synthesisSentenceBudget(decisions.length)}.\n\nDecision context:\n`;
+  if (!decisions.length) return header;
 
   const labelTokens = decisions.reduce((sum, d) => sum + estimateTokens(`- ${d.title}: `), 0);
   const joinTokens = estimateTokens('\n') * (decisions.length - 1);

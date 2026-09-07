@@ -380,8 +380,10 @@ describe('buildUserPrompt caps each summary to its share of the window', () => {
  *    (the user turn, which already knows decisions.length), not in the static system
  *    prompt - so the reserve-token calculation in buildUserPrompt stays self-consistent
  *    without SYNTHESIS_SYSTEM_PROMPT itself needing to vary per call.
- * 3. buildUserPrompt adds no sentence-budget instruction when there are no decisions to
- *    compose from at all (the early-return path before any decision exists).
+ * 3. buildUserPrompt still states a sentence budget when there are no decisions at all
+ *    (the early-return path), because SYNTHESIS_SYSTEM_PROMPT unconditionally tells the
+ *    model to use "the sentence budget given with the question" - the empty-decisions
+ *    path must not make that a promise the prompt sometimes breaks (Copilot review, PR #269).
  * 4. SYNTHESIS_SYSTEM_PROMPT tells the model composition across decisions is a correct
  *    answer, not a guess - and ties that permission to the SAME sentence that requires
  *    attributing each part to the decision it came from. This is the most important
@@ -432,9 +434,12 @@ describe('buildUserPrompt carries the sentence budget in its header, sized to de
     expect(prompt).not.toContain(synthesisSentenceBudget(1));
   });
 
-  it('adds no sentence-budget instruction when there are no decisions to compose from', () => {
+  // Copilot review (PR #269): SYNTHESIS_SYSTEM_PROMPT unconditionally tells the model to
+  // use "the sentence budget given with the question" - so the empty-decisions path must
+  // still give one, or the prompt promises something it does not always deliver.
+  it('still states a sentence budget when there are no decisions, so the system prompt keeps its promise', () => {
     const prompt = buildUserPrompt('why postgres', [], 4096, SYNTHESIS_MAX_TOKENS);
-    expect(prompt).not.toMatch(/concise sentences/);
+    expect(prompt).toContain(synthesisSentenceBudget(0));
   });
 });
 
