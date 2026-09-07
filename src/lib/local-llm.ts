@@ -79,8 +79,9 @@ export function isAbstention(text: string): boolean {
  * match needs no translation - it is English already - so it passes through unchanged.
  */
 export function explainAbstention(text: string): string {
-  if (!text.startsWith(ABSTENTION_SENTINEL)) return text;
-  return `${ABSTENTION_PROSE}${text.slice(ABSTENTION_SENTINEL.length)}`;
+  const trimmed = text.trimStart();
+  if (!trimmed.startsWith(ABSTENTION_SENTINEL)) return text;
+  return `${ABSTENTION_PROSE}${trimmed.slice(ABSTENTION_SENTINEL.length)}`;
 }
 
 export const SYNTHESIS_SYSTEM_PROMPT =
