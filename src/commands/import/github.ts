@@ -30,7 +30,7 @@ export function registerImportGitHubCommand(importCmd: Command): void {
     .option('--token <token>', 'GitHub personal access token (ghp_...)')
     .option('--personal', 'Connect your own GitHub via browser OAuth (Align personal app) instead of a token')
     .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.github))
-    .option('--repo <owner/repo>', 'Scope to one GitHub repo (default: the repo you are in, if it is a GitHub remote)')
+    .option('--repo <owner/repo>', 'Scope to one GitHub repo - the literal owner/repo (not the fuzzy short name `search`/`why` accept; default: the repo you are in, if it is a GitHub remote)')
     .option('--all', 'Every repo your token can see, not just the current one')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
@@ -57,13 +57,18 @@ export function registerImportGitHubCommand(importCmd: Command): void {
 
       p.intro(commandIntro('align import github'));
       const spinner = p.spinner();
-      const repo = await resolveGitHubRepoScope(opts);
-      spinner.start(
-        repo
-          ? `Fetching your GitHub PRs and issues in ${repo}...`
-          : 'Fetching your GitHub PRs and issues everywhere your token can see (pass --repo to narrow)...',
-      );
       try {
+        // Inside the try, not before it: currentRepoIdentity() shells out to git, and
+        // every failure mode it can hit today happens to be caught internally (git.ts's
+        // execa calls each swallow their own error) - but that is an invariant of THAT
+        // file, not this one, and this call must not be the one thing standing outside
+        // the safety net if it ever changes.
+        const repo = await resolveGitHubRepoScope(opts);
+        spinner.start(
+          repo
+            ? `Fetching your GitHub PRs and issues in ${repo}...`
+            : 'Fetching your GitHub PRs and issues everywhere your token can see (pass --repo to narrow)...',
+        );
         const fetched = await fetchGitHubItems({ token, limit: parseInt(opts.limit, 10), ...(repo ? { repo } : {}) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
