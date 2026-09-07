@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.37.1](https://github.com/aligndottech/align-cli/compare/cli-v0.37.0...cli-v0.37.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **import:** address Copilot review findings from [#272](https://github.com/aligndottech/align-cli/issues/272) (ALI-786) ([#274](https://github.com/aligndottech/align-cli/issues/274)) ([90fc35f](https://github.com/aligndottech/align-cli/commit/90fc35ffda5825b967ad6e1622c0c130584b50fd))
+* **local-import:** tombstones, honest zero-item messaging, local env resolution (ALI-786) ([#272](https://github.com/aligndottech/align-cli/issues/272)) ([2be406c](https://github.com/aligndottech/align-cli/commit/2be406c9b25e76fdd7b32ff517f34eee0e825492))
+* **local-llm:** allow ask to compose across decisions (ALI-894) ([#269](https://github.com/aligndottech/align-cli/issues/269)) ([7fe10b7](https://github.com/aligndottech/align-cli/commit/7fe10b710f653aede8884e71d3d048afdbfd43a5))
+* **local-llm:** detect paraphrased abstentions (ALI-895) ([#270](https://github.com/aligndottech/align-cli/issues/270)) ([eeaefee](https://github.com/aligndottech/align-cli/commit/eeaefeeabb9c1175bb25f4bf33ec171112c2e286))
+
 ## [0.37.0](https://github.com/aligndottech/align-cli/compare/cli-v0.36.0...cli-v0.37.0) (2026-09-07)
 
 
