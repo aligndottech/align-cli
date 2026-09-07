@@ -66,6 +66,11 @@ align import github --token ghp_...
 align import gitlab --token glpat-...   # self-managed: create a read_api (read-only) token
 ```
 
+GitHub scopes to the repo you are in by default (detected from the git remote) - a
+personal token that can see many repos otherwise returns everything you are involved in
+across all of them, undifferentiated. Pass `--repo owner/repo` to name a different one, or
+`--all` for every repo the token can see.
+
 ## Jira
 
 ```bash

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { AuthExpiredError } from '../lib/errors.js';
 import type * as RepoIdentity from '../lib/repo-identity.js';
+import type * as FetchersGithub from '../lib/fetchers/github.js';
 
 // ---- Hoisted mock state (must be hoisted so vi.mock factories can reference them) ----
 
@@ -204,7 +205,11 @@ vi.mock('ora', () => ({
   })),
 }));
 
-vi.mock('../lib/fetchers/github.js', () => ({
+vi.mock('../lib/fetchers/github.js', async (importOriginal) => ({
+  // resolveGitHubRepoScope stays REAL (ALI-917): it reads currentRepoIdentity, mocked
+  // above to 'github.com/o/r', so the GitHub source's fetch call is exercised exactly as
+  // it runs in `align setup` - only the network-touching fetchGitHubItems is stubbed.
+  ...(await importOriginal<typeof FetchersGithub>()),
   fetchGitHubItems: vi.fn().mockResolvedValue({
     items: [{ source_url: 'https://github.com/org/repo/pull/1', title: 'PR: add feature', raw_text: 'add feature', type: 'pull_request' }],
     report: { scanned: 1, skips: [] },
@@ -683,6 +688,22 @@ describe('align setup', () => {
           expect.objectContaining({ token: 'ghp_saved_last_time' }),
         );
         expect(password).not.toHaveBeenCalled();
+      });
+
+      // ALI-917: the GitHub source has no --repo/--all of its own, so it must default to
+      // the repo `align setup` is running in - the fix for a reporting user's PAT import
+      // returning "Found 250 items" spanning several unrelated repos, undifferentiated.
+      it('scopes the GitHub fetch to the repo setup is running in', async () => {
+        mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
+          key === 'github' ? { token: 'ghp_saved_last_time' } : null,
+        );
+        mockMultiselect.mockResolvedValueOnce(['github']);
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
+        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ repo: 'o/r' }));
       });
 
       it('re-imports a connected Atlassian connector with its saved email, domain and token', async () => {

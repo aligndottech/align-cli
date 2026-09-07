@@ -37,6 +37,9 @@ vi.mock('../lib/git.js', () => ({
 }));
 vi.mock('../lib/fetchers/github.js', () => ({
   fetchGitHubItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'github', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
+  // ALI-917: repo scope is not what this suite is about - resolved out from under
+  // the command so the collision assertions stay about --approve/--env only.
+  resolveGitHubRepoScope: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../lib/personal-import.js', () => ({ runPersonalImport: vi.fn() }));
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({})) }));
