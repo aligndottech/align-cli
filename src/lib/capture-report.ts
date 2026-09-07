@@ -56,10 +56,13 @@ export function renderCaptureReport(sources: CaptureSource[]): string {
     // scanned is a different claim from N scanned and none kept, so they get different
     // words. Skip lines already explain a zero when the fetcher has a reason; this only
     // fires when nothing else on the line already says why.
+    // Copilot review, PR #272: state the measured NUMBER, not just the word "nothing" -
+    // words alone can read as an inferred diagnosis (an empty account) when the only fact
+    // in hand is the count.
     let scannedNote = '';
     if (s.fetched === 0 && s.skips.length === 0 && s.scanned !== undefined) {
       scannedNote = s.scanned === 0
-        ? ' - nothing was found to scan'
+        ? ' (0 scanned)'
         : ` (0 kept of ${s.scanned} scanned)`;
     }
     lines.push(`    ${s.label}: ${s.fetched} ${s.unit}${shortfall}${scannedNote}`);
