@@ -93,10 +93,14 @@ describe('renderCaptureReport', () => {
   // ALI-786 R6a: a fetch that succeeded but found nothing must say what it looked at,
   // so it reads differently from a fetch that failed outright (which throws before this
   // ever renders - see gateway-client tests).
-  it('says nothing was found to scan when a zero-item source measured zero scanned', () => {
+  // Copilot review, PR #272: the words must carry the measured NUMBER, not just say
+  // "nothing" - "nothing was found to scan" reads like an inferred diagnosis (an empty
+  // account) when the only fact in hand is the count. "(0 scanned)" is unambiguously a
+  // measurement, and it is what a reader would have to reduce the words to anyway.
+  it('states the measured 0 when a zero-item source measured zero scanned', () => {
     const out = renderCaptureReport([{ label: 'GitLab', unit: 'merge requests', fetched: 0, scanned: 0, skips: [] }]);
     expect(out).toContain('GitLab: 0 merge requests');
-    expect(out).toContain('nothing was found to scan');
+    expect(out).toContain('(0 scanned)');
   });
 
   // R6b: the OTHER zero-item shape - something was examined, none of it qualified, and
@@ -106,7 +110,7 @@ describe('renderCaptureReport', () => {
     const out = renderCaptureReport([{ label: 'Jira', unit: 'issues', fetched: 0, scanned: 7, skips: [] }]);
     expect(out).toContain('Jira: 0 issues');
     expect(out).toContain('0 kept of 7 scanned');
-    expect(out).not.toContain('nothing was found to scan');
+    expect(out).not.toContain('(0 scanned)');
   });
 
   // R6c: positive control - a non-empty result gets no clarifier at all, so the new text
@@ -123,7 +127,7 @@ describe('renderCaptureReport', () => {
       label: 'Slack', unit: 'threads', fetched: 0, scanned: 4,
       skips: [{ count: 4, detail: 'threads with no human message (bot or system output only)' }],
     }]);
-    expect(out).not.toContain('nothing was found to scan');
+    expect(out).not.toContain('(0 scanned)');
     expect(out).not.toContain('kept of');
   });
 

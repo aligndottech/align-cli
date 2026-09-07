@@ -68,4 +68,21 @@ describe('fetchLinearItems: a 400 gets a scope hint, nothing else does', () => {
 
     await expect(fetchLinearItems({ token: 't' })).rejects.toThrow(/^fetch failed: ECONNREFUSED$/);
   });
+
+  // Copilot review, PR #272: mutate and rethrow the SAME error instance rather than
+  // wrapping in `new Error(...)`, which would discard the stack connector-core recorded
+  // at the real failing request and any error subclass identity a future fetcher throws.
+  it('rethrows the SAME error instance on a 400, not a new one', async () => {
+    const original = new Error('Linear API failed (400): Argument Validation Error');
+    setThrown(original);
+
+    let caught: unknown;
+    try {
+      await fetchLinearItems({ token: 'lin_api_x' });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBe(original);
+    expect((caught as Error).message).toContain('Read');
+  });
 });

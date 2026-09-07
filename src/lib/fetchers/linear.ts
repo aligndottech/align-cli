@@ -22,8 +22,12 @@ export async function fetchLinearItems(opts: { token: string; limit?: number }):
   try {
     return await withCaptureReport(opts, new LinearFetcher());
   } catch (err) {
+    // Mutate and rethrow the SAME instance rather than wrapping in a new Error: a new
+    // Error would capture a fresh stack at this catch site, discarding the one connector-
+    // core recorded at the actual failing request, and would drop `instanceof` identity
+    // for any future error subclass a fetcher throws here (Copilot review, PR #272).
     if (err instanceof Error && /^Linear API failed \(400\)/.test(err.message)) {
-      throw new Error(`${err.message} ${LINEAR_400_HINT}`);
+      err.message = `${err.message} ${LINEAR_400_HINT}`;
     }
     throw err;
   }
