@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.37.0](https://github.com/aligndottech/align-cli/compare/cli-v0.36.0...cli-v0.37.0) (2026-09-07)
+
+
+### Features
+
+* **import:** scope GitHub import to the current repo by default (ALI-917) ([#267](https://github.com/aligndottech/align-cli/issues/267)) ([a719e7d](https://github.com/aligndottech/align-cli/commit/a719e7dc9de1a1ae8d1493c19da88439cd715c25))
+
+
+### Bug Fixes
+
+* **release:** auto-promote to latest when e2e-release.yml goes green ([#266](https://github.com/aligndottech/align-cli/issues/266)) ([6367b24](https://github.com/aligndottech/align-cli/commit/6367b241a996577fa24e683c84182f3a944df8a4))
+
 ## [0.36.0](https://github.com/aligndottech/align-cli/compare/cli-v0.35.0...cli-v0.36.0) (2026-09-07)
 
 
