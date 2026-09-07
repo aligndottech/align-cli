@@ -30,6 +30,16 @@ export interface CallChatOptions {
  *   implicitly got "The context does not answer this... only that <the
  *   answer>" - a denial and the answer in one breath. The abstention stays
  *   binary for the truly-empty case; these two make the model pick a side.
+ * - The composition pair (ALI-894, found live 2026-09-05) covers a different middle
+ *   case: retrieval can return several decisions that together answer the question
+ *   while none of them answers it alone. Without a composition instruction, "no single
+ *   decision says this" reads to the model as "the context does not answer it" and it
+ *   abstains despite holding a fully assemblable answer. So the abstention trigger is
+ *   scoped to the WHOLE context (every decision combined), not to any one decision read
+ *   in isolation, and composing is named explicitly as a correct answer rather than a
+ *   guess - tied to the SAME sentence that requires attributing each part to the
+ *   decision it came from, so composition cannot be read as license to invent a claim
+ *   none of the retrieved decisions actually makes.
  * - The abstention is a mandated VERBATIM sentence, not a style suggestion:
  *   `align ask` detects it (isAbstention) to auto-widen a scoped search to the
  *   whole graph, so the instruction, ABSTENTION_SENTINEL and the detector must
@@ -49,8 +59,10 @@ export function isAbstention(text: string): boolean {
 
 export const SYNTHESIS_SYSTEM_PROMPT =
   'You are a technical assistant helping a developer understand their team\'s past decisions. ' +
-  'Answer the question in 2-4 concise sentences based only on the provided context. ' +
-  `If the context does not answer the question, reply with exactly "${ABSTENTION_SENTINEL}" and nothing more - never guess and never invent decisions or details. ` +
+  'Answer the question based only on the provided context, using the sentence budget given with the question. ' +
+  'A correct answer may need to be assembled from more than one decision: when no single decision states it but ' +
+  'the decisions together do, compose the answer from all of them, attributing each part to the decision it came from. ' +
+  `If nothing in the context answers the question, even taking every decision together, reply with exactly "${ABSTENTION_SENTINEL}" and nothing more - never guess and never invent decisions or details. ` +
   'A partial or implicit answer is still an answer: give it plainly and note what the context leaves unstated. ' +
   'Never say the context does not answer the question and then answer it anyway - decide which it is first. ' +
   'Attribute details only to the decision they came from, and only state relationships between decisions that the context itself states. ' +
@@ -58,6 +70,24 @@ export const SYNTHESIS_SYSTEM_PROMPT =
   'Be direct. Synthesise the context into a clear explanation - do not list decisions. ' +
   'Never use an em-dash, even if the source material does - use a comma, a period, or a hyphen instead. ' +
   'Write plain prose with no markdown: no asterisks or underscores for emphasis, no headings, no bullet points; the answer is printed in a terminal.';
+
+/**
+ * How many sentences the model should aim for, sized to how many decisions were retrieved
+ * (ALI-894). A flat cap fits a single-decision answer; forcing a composed answer over several
+ * decisions into the same cap made abstaining the cheapest compliant output - measured live
+ * 2026-09-05 (align-stack): five genuinely relevant decisions retrieved, synthesis abstained
+ * anyway because assembling them didn't fit a 2-4 sentence answer.
+ *
+ * Sent in buildUserPrompt's header (the user turn), not baked into the static
+ * SYNTHESIS_SYSTEM_PROMPT - so the instruction is exact for THIS call's decision count without
+ * making the system prompt itself decision-count-dependent, which would also break its use as
+ * a fixed reserve in buildUserPrompt's own token budget below.
+ */
+export function synthesisSentenceBudget(decisionCount: number): string {
+  if (decisionCount <= 1) return '2-4 concise sentences';
+  if (decisionCount === 2) return '3-6 concise sentences';
+  return '4-8 concise sentences';
+}
 
 /**
  * ALI-845 defect 3: no cap of any kind existed - up to 8 raw summaries (mean 4,798 chars, max
@@ -78,6 +108,11 @@ export const SYNTHESIS_SYSTEM_PROMPT =
  * newline joining each entry - not just the system prompt and header (Copilot review, PR #258).
  * Titles are never cut, so with enough decisions or long enough titles that overhead alone can
  * exceed what dividing the raw window by decisions.length would leave for summaries.
+ *
+ * The header carries the sentence budget (ALI-894), scaled by decisions.length via
+ * synthesisSentenceBudget. That keeps the reserve calculation below self-consistent for free:
+ * whatever the header actually says is what estimateTokens(header) actually measures, since
+ * both read the same string.
  */
 export function buildUserPrompt(
   question: string,
@@ -85,7 +120,11 @@ export function buildUserPrompt(
   windowTokens: number,
   outputTokens: number,
 ): string {
-  const header = `Question: ${question}\n\nDecision context:\n`;
+  // Copilot review (PR #269): SYNTHESIS_SYSTEM_PROMPT unconditionally tells the model to
+  // use "the sentence budget given with the question" - the header states one even when
+  // there are no decisions, so that promise holds on every path, not just the common one.
+  const header =
+    `Question: ${question}\n\nAnswer in ${synthesisSentenceBudget(decisions.length)}.\n\nDecision context:\n`;
   if (!decisions.length) return header;
 
   const labelTokens = decisions.reduce((sum, d) => sum + estimateTokens(`- ${d.title}: `), 0);

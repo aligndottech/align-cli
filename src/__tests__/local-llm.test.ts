@@ -9,6 +9,7 @@ import {
   SYNTHESIS_MAX_TOKENS,
   SYNTHESIS_SYSTEM_PROMPT,
   synthesiseDetailed,
+  synthesisSentenceBudget,
 } from '../lib/local-llm.js';
 import { estimateTokens } from '../lib/token-estimate.js';
 
@@ -365,5 +366,175 @@ describe('buildUserPrompt caps each summary to its share of the window', () => {
     const prompt = buildUserPrompt('why?', decisions, windowTokens, outputTokens);
 
     expect(estimateTokens(prompt) + outputTokens).toBeLessThanOrEqual(windowTokens);
+  });
+});
+
+/**
+ * ALI-894 test list (written first, driven one behavior at a time):
+ *
+ * 1. A single retrieved decision keeps the sentence budget at the original tight
+ *    range - the regression net. Composition must not make a simple answer verbose.
+ * 2. Two or more retrieved decisions widen the sentence budget past the flat cap that
+ *    only fits a single-decision answer, so a composed answer is not squeezed into a
+ *    size built for one decision. The budget is carried in buildUserPrompt's header
+ *    (the user turn, which already knows decisions.length), not in the static system
+ *    prompt - so the reserve-token calculation in buildUserPrompt stays self-consistent
+ *    without SYNTHESIS_SYSTEM_PROMPT itself needing to vary per call.
+ * 3. buildUserPrompt still states a sentence budget when there are no decisions at all
+ *    (the early-return path), because SYNTHESIS_SYSTEM_PROMPT unconditionally tells the
+ *    model to use "the sentence budget given with the question" - the empty-decisions
+ *    path must not make that a promise the prompt sometimes breaks (Copilot review, PR #269).
+ * 4. SYNTHESIS_SYSTEM_PROMPT tells the model composition across decisions is a correct
+ *    answer, not a guess - and ties that permission to the SAME sentence that requires
+ *    attributing each part to the decision it came from. This is the most important
+ *    invariant here: composition without attribution is exactly the confabulation risk
+ *    the abstention contract was added to prevent.
+ * 5. SYNTHESIS_SYSTEM_PROMPT's abstention trigger now covers "no decision, even combined"
+ *    - not "no ONE decision" - so composing across decisions is never read by the model
+ *    as the license to invent a claim none of the retrieved decisions actually makes.
+ *    The existing isAbstention / abstain-with-the-sentinel tests above are the regression
+ *    net for the genuine "does not answer at all" case and stay green unchanged.
+ */
+describe('synthesisSentenceBudget scales with the number of retrieved decisions (ALI-894)', () => {
+  it('keeps zero or one decision at the original tight budget - regression net', () => {
+    expect(synthesisSentenceBudget(0)).toBe('2-4 concise sentences');
+    expect(synthesisSentenceBudget(1)).toBe('2-4 concise sentences');
+  });
+
+  it('widens once composing across two decisions', () => {
+    expect(synthesisSentenceBudget(2)).toBe('3-6 concise sentences');
+  });
+
+  it('widens further for three or more decisions - the live ALI-894 repro retrieved five', () => {
+    expect(synthesisSentenceBudget(3)).toBe('4-8 concise sentences');
+    expect(synthesisSentenceBudget(5)).toBe('4-8 concise sentences');
+  });
+});
+
+describe('buildUserPrompt carries the sentence budget in its header, sized to decisions.length (ALI-894)', () => {
+  it('embeds the tight single-decision budget for one decision', () => {
+    const prompt = buildUserPrompt(
+      'why postgres',
+      [{ id: 'd1', title: 'Use Postgres', summary: 'Chosen for concurrent writers.' }],
+      4096,
+      SYNTHESIS_MAX_TOKENS,
+    );
+    expect(prompt).toContain(synthesisSentenceBudget(1));
+  });
+
+  it('embeds a wider budget for five decisions - the live ALI-894 repro shape', () => {
+    const decisions = Array.from({ length: 5 }, (_, i) => ({ id: `d${i}`, title: `Decision ${i}`, summary: 'S' }));
+    const prompt = buildUserPrompt(
+      'when did we stop blocking PRs on the gate, and why',
+      decisions,
+      4096,
+      SYNTHESIS_MAX_TOKENS,
+    );
+    expect(prompt).toContain(synthesisSentenceBudget(5));
+    expect(prompt).not.toContain(synthesisSentenceBudget(1));
+  });
+
+  // Copilot review (PR #269): SYNTHESIS_SYSTEM_PROMPT unconditionally tells the model to
+  // use "the sentence budget given with the question" - so the empty-decisions path must
+  // still give one, or the prompt promises something it does not always deliver.
+  it('still states a sentence budget when there are no decisions, so the system prompt keeps its promise', () => {
+    const prompt = buildUserPrompt('why postgres', [], 4096, SYNTHESIS_MAX_TOKENS);
+    expect(prompt).toContain(synthesisSentenceBudget(0));
+  });
+});
+
+describe('SYNTHESIS_SYSTEM_PROMPT permits composition across decisions without loosening abstention (ALI-894)', () => {
+  // Reproduced live 2026-09-05 against align-stack: retrieval returned five genuinely
+  // relevant decisions that together answered the question, and synthesis abstained
+  // anyway - "no decision explicitly states... or gives a unified reason" - because the
+  // prompt never said an answer could be assembled from more than one decision, and a
+  // flat 2-4 sentence cap only fit a single-decision answer.
+  it('tells the model composing across several decisions is a correct answer, not a guess', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/more than one decision/i);
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/no single decision/i);
+  });
+
+  // The most important invariant here (ALI-894's own test list): composition and
+  // attribution are tied together in the SAME instruction, so a model cannot read the
+  // composition permission without also reading the attribution requirement it comes with.
+  it('ties composition to attribution in the same instruction', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(
+      /no single decision states it but the decisions together do, compose the answer from all of them, attributing each part to the decision it came from/i,
+    );
+  });
+
+  // The abstention trigger must scope to the WHOLE context now that composition is
+  // permitted, or "no single decision covers this" (composition working correctly) and
+  // "no decision covers this" (genuine abstention) collapse into the same reading - the
+  // exact defect this ticket fixes. "reply with exactly" stays anchored to the sentinel
+  // itself, matching the existing verbatim-sentinel test above.
+  it('scopes the abstention trigger to every decision combined, not any one decision read alone', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/even taking every decision together/i);
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain(`reply with exactly "${ABSTENTION_SENTINEL}"`);
+  });
+});
+
+// Integration: the widened budget must actually reach the model, not just exist as a
+// pure function. `tryAnthropic` sends the user turn as messages[0].content and the
+// static system prompt as the separate `system` field, so the sentence budget is only
+// really wired up if it shows up in the CONTENT sent, scaled to what was retrieved.
+describe('synthesiseDetailed sends a decision-count-scaled sentence budget to the model (ALI-894)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
+    for (const k of ALL_KEYS) vi.stubEnv(k, '');
+    vi.stubEnv('ANTHROPIC_API_KEY', 'a');
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('sends the tight single-decision budget when exactly one decision is retrieved - regression net', async () => {
+    mockFetch.mockResolvedValue(anthropicResponse('an answer'));
+
+    await synthesiseDetailed('why postgres', [
+      { id: 'd1', title: 'Use Postgres', summary: 'Chosen for concurrent writers.' },
+    ]);
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    expect(body.messages[0].content).toContain(synthesisSentenceBudget(1));
+  });
+
+  // Shape 1: a when+why pair, neither decision alone naming both halves.
+  it('widens the budget composing a when+why pair across two decisions', async () => {
+    mockFetch.mockResolvedValue(anthropicResponse('an answer'));
+    const decisions = [
+      { id: 'd1', title: 'Remove blocking align-gate check', summary: 'Removed the gate on 3 Sep.' },
+      {
+        id: 'd2',
+        title: 'Root cause: gate severity bug',
+        summary: 'The gate was failing docs-only PRs on a severity bug, now fixed.',
+      },
+    ];
+
+    await synthesiseDetailed('when did we stop blocking PRs on the gate, and why', decisions);
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    expect(body.messages[0].content).toContain(synthesisSentenceBudget(2));
+    expect(body.messages[0].content).not.toContain(synthesisSentenceBudget(1));
+  });
+
+  // Shape 2: a what+superseded-by pair, and the live repro's full retrieval size (five
+  // decisions) at once.
+  it('widens the budget further composing a what+superseded-by pair among five retrieved decisions', async () => {
+    mockFetch.mockResolvedValue(anthropicResponse('an answer'));
+    const decisions = [
+      { id: 'd1', title: 'Use polling for job status', summary: 'Chose polling for simplicity.' },
+      { id: 'd2', title: 'Migrate job status to webhooks', summary: 'Polling was too slow; superseded by webhooks.' },
+      { id: 'd3', title: 'Gate severity bug', summary: 'Fixed a false positive that blocked docs-only PRs.' },
+      { id: 'd4', title: 'Gate blocks with no remedy', summary: 'A complaint about the gate with no stated fix.' },
+      { id: 'd5', title: 'Interactive command gating', summary: 'A related decision about gating interactive commands.' },
+    ];
+
+    await synthesiseDetailed('what did we use for job status, and what replaced it', decisions);
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    expect(body.messages[0].content).toContain(synthesisSentenceBudget(5));
   });
 });
