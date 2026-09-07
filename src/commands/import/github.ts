@@ -5,7 +5,7 @@ import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { createGatewayClient } from '../../lib/gateway-client.js';
 import { resolveImportEnv } from '../../lib/resolve-env.js';
 import { resolveAppUrl } from '../../lib/env-resolver.js';
-import { fetchGitHubItems } from '../../lib/fetchers/github.js';
+import { fetchGitHubItems, resolveGitHubRepoScope } from '../../lib/fetchers/github.js';
 import { runPersonalImport } from '../../lib/personal-import.js';
 import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
@@ -19,6 +19,8 @@ interface GitHubImportOpts {
   limit: string;
   approve?: boolean;
   env?: EnvName;
+  repo?: string;
+  all?: boolean;
 }
 
 export function registerImportGitHubCommand(importCmd: Command): void {
@@ -28,6 +30,8 @@ export function registerImportGitHubCommand(importCmd: Command): void {
     .option('--token <token>', 'GitHub personal access token (ghp_...)')
     .option('--personal', 'Connect your own GitHub via browser OAuth (Align personal app) instead of a token')
     .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.github))
+    .option('--repo <owner/repo>', 'Scope to one GitHub repo - the literal owner/repo (not the fuzzy short name `search`/`why` accept; default: the repo you are in, if it is a GitHub remote)')
+    .option('--all', 'Every repo your token can see, not just the current one')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: GitHubImportOpts, cmd: Command) => {
@@ -53,9 +57,19 @@ export function registerImportGitHubCommand(importCmd: Command): void {
 
       p.intro(commandIntro('align import github'));
       const spinner = p.spinner();
-      spinner.start('Fetching your GitHub PRs and issues...');
       try {
-        const fetched = await fetchGitHubItems({ token, limit: parseInt(opts.limit, 10) });
+        // Inside the try, not before it: currentRepoIdentity() shells out to git, and
+        // every failure mode it can hit today happens to be caught internally (git.ts's
+        // execa calls each swallow their own error) - but that is an invariant of THAT
+        // file, not this one, and this call must not be the one thing standing outside
+        // the safety net if it ever changes.
+        const repo = await resolveGitHubRepoScope(opts);
+        spinner.start(
+          repo
+            ? `Fetching your GitHub PRs and issues in ${repo}...`
+            : 'Fetching your GitHub PRs and issues everywhere your token can see (pass --repo to narrow)...',
+        );
+        const fetched = await fetchGitHubItems({ token, limit: parseInt(opts.limit, 10), ...(repo ? { repo } : {}) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'GitHub', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'github' } });

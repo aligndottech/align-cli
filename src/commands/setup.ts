@@ -106,8 +106,13 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
         '&expires_in=90' +
         '&contents=read&issues=read&pull_requests=read',
       fetch: async (t) => {
-        const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
-        return fetchGitHubItems({ token: t['token']!, limit: IMPORT_LIMITS.github });
+        const { fetchGitHubItems, resolveGitHubRepoScope } = await import('../lib/fetchers/github.js');
+        // ALI-917: this interactive source has no --repo/--all of its own, so it takes
+        // resolveGitHubRepoScope's auto-detect-only path (an empty opts object) - the
+        // same default `align import github` uses. Without it, a token spanning several
+        // unrelated repos returns everything across all of them, undifferentiated.
+        const repo = await resolveGitHubRepoScope({});
+        return fetchGitHubItems({ token: t['token']!, limit: IMPORT_LIMITS.github, ...(repo ? { repo } : {}) });
       },
     },
     {

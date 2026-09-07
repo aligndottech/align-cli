@@ -23,6 +23,8 @@ vi.mock('@clack/prompts', () => ({
 vi.mock('open', () => ({ default: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../lib/fetchers/github.js', () => ({
   fetchGitHubItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'github', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
+  // ALI-917: repo scope is not what this suite is about.
+  resolveGitHubRepoScope: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../lib/fetchers/jira.js', () => ({
   fetchJiraItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'jira', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
