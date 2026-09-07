@@ -89,6 +89,50 @@ describe('renderCaptureReport', () => {
     // Never a bare header over nothing.
     expect(renderCaptureReport([])).toBe('');
   });
+
+  // ALI-786 R6a: a fetch that succeeded but found nothing must say what it looked at,
+  // so it reads differently from a fetch that failed outright (which throws before this
+  // ever renders - see gateway-client tests).
+  it('says nothing was found to scan when a zero-item source measured zero scanned', () => {
+    const out = renderCaptureReport([{ label: 'GitLab', unit: 'merge requests', fetched: 0, scanned: 0, skips: [] }]);
+    expect(out).toContain('GitLab: 0 merge requests');
+    expect(out).toContain('nothing was found to scan');
+  });
+
+  // R6b: the OTHER zero-item shape - something was examined, none of it qualified, and
+  // no skip line already explains why. Different wording from R6a: "0 scanned" and
+  // "kept 0 of N scanned" are different claims and must not collapse into one string.
+  it('says 0 were kept when a zero-item source scanned something and no skip explains it', () => {
+    const out = renderCaptureReport([{ label: 'Jira', unit: 'issues', fetched: 0, scanned: 7, skips: [] }]);
+    expect(out).toContain('Jira: 0 issues');
+    expect(out).toContain('0 kept of 7 scanned');
+    expect(out).not.toContain('nothing was found to scan');
+  });
+
+  // R6c: positive control - a non-empty result gets no clarifier at all, so the new text
+  // cannot be firing unconditionally on every source.
+  it('adds no scanned clarifier when items came back', () => {
+    const out = renderCaptureReport([{ label: 'Jira', unit: 'issues', fetched: 3, scanned: 10, skips: [] }]);
+    expect(out).not.toContain('scanned');
+  });
+
+  // R6d: skip lines already say why nothing was kept - the clarifier would be redundant
+  // noise printed above them.
+  it('adds no scanned clarifier when skip lines already explain the zero', () => {
+    const out = renderCaptureReport([{
+      label: 'Slack', unit: 'threads', fetched: 0, scanned: 4,
+      skips: [{ count: 4, detail: 'threads with no human message (bot or system output only)' }],
+    }]);
+    expect(out).not.toContain('nothing was found to scan');
+    expect(out).not.toContain('kept of');
+  });
+
+  // R6e: a source with no `scanned` measurement at all (older/simpler callers) renders
+  // exactly as before - the new field is additive, never a required upgrade.
+  it('renders unchanged when scanned is not present at all', () => {
+    const out = renderCaptureReport([{ label: 'Slack', unit: 'threads', fetched: 0, requested: 250, skips: [] }]);
+    expect(out).toBe('  Capture report\n    Slack: 0 threads of up to 250 requested');
+  });
 });
 
 describe('createCaptureCollector', () => {
@@ -128,12 +172,12 @@ describe('toCaptureSource', () => {
       items: [item(1), item(2), item(3)],
       report: { scanned: 5, requested: 50, skips },
     });
-    expect(source).toEqual({ label: 'Slack', unit: 'threads', fetched: 3, requested: 50, skips });
+    expect(source).toEqual({ label: 'Slack', unit: 'threads', fetched: 3, scanned: 5, requested: 50, skips });
   });
 
   it('leaves requested out when the report has none', () => {
     const source = toCaptureSource({ label: 'Slack', unit: 'threads' }, { items: [], report: { scanned: 0, skips: [] } });
-    expect(source).toEqual({ label: 'Slack', unit: 'threads', fetched: 0, skips: [] });
+    expect(source).toEqual({ label: 'Slack', unit: 'threads', fetched: 0, scanned: 0, skips: [] });
     expect('requested' in source).toBe(false);
   });
 });
