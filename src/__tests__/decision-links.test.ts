@@ -9,7 +9,13 @@
  * and the CODE_REF docblock's whole point is refusing to invent one.
  */
 import { describe, expect, it } from 'vitest';
-import { citationFor, repositoryOf } from '../lib/decision-links.js';
+import {
+  citationFor,
+  isSyntheticSource,
+  navigableSourceUrl,
+  repositoryOf,
+  SYNTHETIC_SOURCE_PREFIXES,
+} from '../lib/decision-links.js';
 
 describe('citationFor', () => {
   it('cites a GitHub PR as repo#number (existing contract, pinned)', () => {
@@ -51,5 +57,76 @@ describe('repositoryOf refuses to invent repositories (the CODE_REF promise)', (
 
   it('a Jira issue does NOT', () => {
     expect(repositoryOf('https://acme.atlassian.net/browse/PROJ-123')).toBeUndefined();
+  });
+});
+
+/**
+ * ALI-923: align-cli reads decisions from the HOSTED gateway too (align context sync,
+ * align why), and a hosted decision can carry a synthetic align://claimed/... or
+ * align://unsourced/... identity (ALI-538) instead of a real source - not a place anyone
+ * can open. Ported from align-stack's per-connector syntheticSource.ts (ALI-567). Two
+ * examples per rule (tdd.md): a synthetic case AND a real case for each function, not just
+ * the happy path.
+ */
+describe('isSyntheticSource (ALI-923)', () => {
+  it('recognises the claimed namespace', () => {
+    expect(isSyntheticSource('align://claimed/9f2c')).toBe(true);
+  });
+
+  it('recognises the unsourced namespace', () => {
+    expect(isSyntheticSource('align://unsourced/9f2c')).toBe(true);
+  });
+
+  it('a real https source is not synthetic', () => {
+    expect(isSyntheticSource('https://github.com/align/repo/pull/42')).toBe(false);
+  });
+
+  it('a real source-like string with no matching prefix is not synthetic', () => {
+    expect(isSyntheticSource('https://acme.slack.com/archives/C1/p123')).toBe(false);
+  });
+
+  it('uses startsWith, not includes: a real page may carry the text in its path', () => {
+    expect(isSyntheticSource('https://example.test/docs/align://claimed/x')).toBe(false);
+  });
+
+  it('is false for undefined and null, never throws', () => {
+    expect(isSyntheticSource(undefined)).toBe(false);
+    expect(isSyntheticSource(null)).toBe(false);
+  });
+});
+
+describe('navigableSourceUrl (ALI-923)', () => {
+  it('returns undefined for a synthetic claimed url - not a place anyone can open', () => {
+    expect(navigableSourceUrl('align://claimed/9f2c')).toBeUndefined();
+  });
+
+  it('returns undefined for a synthetic unsourced url', () => {
+    expect(navigableSourceUrl('align://unsourced/9f2c')).toBeUndefined();
+  });
+
+  it('returns a real url unchanged, so a genuine source still navigates normally', () => {
+    expect(navigableSourceUrl('https://github.com/align/repo/pull/42')).toBe(
+      'https://github.com/align/repo/pull/42',
+    );
+  });
+
+  it('returns a real Jira url unchanged', () => {
+    expect(navigableSourceUrl('https://acme.atlassian.net/browse/PROJ-123')).toBe(
+      'https://acme.atlassian.net/browse/PROJ-123',
+    );
+  });
+
+  it('returns undefined for undefined, null and empty string - never a placeholder', () => {
+    expect(navigableSourceUrl(undefined)).toBeUndefined();
+    expect(navigableSourceUrl(null)).toBeUndefined();
+    expect(navigableSourceUrl('')).toBeUndefined();
+  });
+});
+
+describe('SYNTHETIC_SOURCE_PREFIXES (ALI-923)', () => {
+  it('matches the two namespaces align-stack currently mints (ALI-538)', () => {
+    // A zero-match parse or a shrunk list would pass every test above vacuously - pin the
+    // exact set rather than only exercising it indirectly.
+    expect([...SYNTHETIC_SOURCE_PREFIXES].sort()).toEqual(['align://claimed/', 'align://unsourced/']);
   });
 });

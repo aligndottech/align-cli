@@ -7,6 +7,7 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import type { SearchResults } from '../lib/gateway-client.js';
 import { localCitationFor } from '../lib/commit-cite.js';
+import { navigableSourceUrl } from '../lib/decision-links.js';
 import { ABSTENTION_SENTINEL, explainAbstention, isAbstention, type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
 import { renderAnswer } from '../lib/answer-render.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
@@ -74,7 +75,10 @@ function sourceLine(d: SearchHit): string {
 
 /** The indented link under a source line - where it was DECIDED, clickable. */
 function sourceLink(d: SearchHit): string | null {
-  return d.source_url ? chalk.dim(`      ${d.source_url}`) : null;
+  // ALI-923: a cloud result can carry a synthetic align://claimed/... identity (ALI-538)
+  // rather than a real place - navigableSourceUrl drops it so nothing renders a dead link.
+  const url = navigableSourceUrl(d.source_url);
+  return url ? chalk.dim(`      ${url}`) : null;
 }
 
 /**
@@ -361,7 +365,10 @@ export function registerAskCommand(program: Command): void {
           const citeLabel = cite ? chalk.dim(` (${cite})`) : '';
           const platformLabel = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
           console.log(chalk.dim(`  id: ${d.id}`) + citeLabel + platformLabel + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
-          if (d.source_url) console.log(chalk.dim(`  ${d.source_url}`));
+          // ALI-923: navigableSourceUrl drops a synthetic align://claimed/... identity
+          // (ALI-538) - it is not a place anyone can open, so nothing should print it as one.
+          const sourceUrl = navigableSourceUrl(d.source_url);
+          if (sourceUrl) console.log(chalk.dim(`  ${sourceUrl}`));
           const gap = gapLine(d, isConnected);
           if (gap) console.log(gap);
           // Who to talk to (ALI-118).

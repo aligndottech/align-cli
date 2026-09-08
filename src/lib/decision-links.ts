@@ -13,6 +13,27 @@
  * no decision intelligence - which is exactly what the OSS SDK is for. Duplicating
  * fifteen lines of regex across two repos is the smaller cost today than blocking on a
  * three-repo publish chain, but it is a duplicate and it should not stay one.
+ *
+ * ALI-923: `isSyntheticSource`/`navigableSourceUrl` below are the one part of the copy
+ * that this file used to omit entirely. Every local CLI row has `sourceUrl: null` today,
+ * so the gap was harmless - but `align context sync` and `align why` both read decisions
+ * from the HOSTED gateway (createGatewayClient, not the local db), and a hosted decision
+ * can carry a synthetic `align://claimed/...` / `align://unsourced/...` identity (ALI-538:
+ * minted by `claimedIdentityFor` in align-stack's
+ * services/gateway/src/discover/suggestionHelpers.ts, for a scan that could not verify
+ * where a decision was made). Without this guard, that identity was printed straight into
+ * `.align/decisions.md` and `align why`'s output as if it were a clickable link - it is a
+ * syntactically valid URI, so nothing throws, it just points nowhere. Ported from
+ * align-stack's per-connector `syntheticSource.ts` (mcp-jira/mcp-github/mcp-teams,
+ * ALI-567); wired into the CLI's own render sites in `commands/context.ts` and
+ * `commands/why.ts`, which call `navigableSourceUrl` before printing a source as a link.
+ *
+ * NOT yet wired into `commands/mcp.ts`'s tool-call dispatch: that path forwards the
+ * gateway's raw JSON response straight into the connected agent's context
+ * (`serializeMcpResult`), which is architecturally the same problem align-stack's
+ * `withSourceProvenance`/`sourceFields` solve at the connector layer - but doing that here
+ * means rewriting every tool's result shape, not adding two functions to this file, so it
+ * is a separate, larger change.
  */
 
 /**
@@ -68,4 +89,35 @@ export function citationFor(sourceUrl: string | null | undefined): string | unde
   if (m) return `${m[2]}#${m[3]}`;
   const ticket = LINEAR_ISSUE.exec(sourceUrl) ?? JIRA_ISSUE.exec(sourceUrl);
   return ticket ? ticket[1] : undefined;
+}
+
+/**
+ * Identities Align mints when a scan could not verify where a decision was made
+ * (ALI-538): `align://claimed/<hash>` when the model claimed a source,
+ * `align://unsourced/<hash>` when it claimed nothing. Minted in align-stack's
+ * services/gateway/src/discover/suggestionHelpers.ts - this is a second writer of that
+ * list, same position as align-stack's own per-connector copies (mcp-align, mcp-teams,
+ * mcp-github, mcp-jira, the UI). No package here is a dependency of the gateway, so the
+ * list is spelled again; keep it in sync if the gateway ever mints a third namespace.
+ */
+export const SYNTHETIC_SOURCE_PREFIXES: readonly string[] = [
+  'align://claimed/',
+  'align://unsourced/',
+];
+
+/** True when this source_url is an identity Align minted, not a place anyone can open. */
+export function isSyntheticSource(sourceUrl: string | undefined | null): boolean {
+  if (typeof sourceUrl !== 'string') return false;
+  // startsWith, never includes: a real page may carry the text in its path.
+  return SYNTHETIC_SOURCE_PREFIXES.some((prefix) => sourceUrl.startsWith(prefix));
+}
+
+/**
+ * The source url, only when it is somewhere a person can go. `undefined` otherwise, so
+ * every caller renders nothing rather than a dead `align://` link - never fall back to
+ * inventing a substitute link here; that is the caller's call (e.g. a decision-page URL).
+ */
+export function navigableSourceUrl(sourceUrl: string | undefined | null): string | undefined {
+  if (typeof sourceUrl !== 'string' || sourceUrl.length === 0) return undefined;
+  return isSyntheticSource(sourceUrl) ? undefined : sourceUrl;
 }

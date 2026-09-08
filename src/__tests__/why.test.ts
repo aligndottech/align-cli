@@ -571,3 +571,55 @@ describe('align ask names a gap on a decision it returns (ALI-796)', () => {
     expect(all).not.toMatch(/I can't read/);
   });
 });
+
+describe('align ask drops a synthetic hosted source (ALI-923)', () => {
+  // A hosted decision can carry align://claimed/... or align://unsourced/... (ALI-538) when
+  // a scan could not verify where it was decided - not a place anyone can open. The list
+  // fallback (no provider configured) is where sourceLink prints the raw source_url as a
+  // clickable line, which is exactly the render site the synthetic identity would corrupt.
+  beforeEach(() => { output.length = 0; });
+  afterEach(() => vi.clearAllMocks());
+
+  async function runAskWithSource(sourceUrl: string): Promise<string> {
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      searchDecisions: vi.fn().mockResolvedValue({
+        results: [{
+          id: 'd1', title: 'A decision from a scan', summary: 's', status: 'active',
+          similarity: 0.9, platform: 'github', source_url: sourceUrl,
+        }],
+        count: 1, strategy: 'semantic' as const,
+      }),
+    });
+    const { createConfigStore } = await import('../lib/config.js');
+    (createConfigStore as ReturnType<typeof vi.fn>).mockReturnValue({
+      getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: 'tok' }),
+      getDefaultEnv: vi.fn().mockReturnValue('prod'),
+      getConnectorFields: vi.fn().mockReturnValue(null),
+    });
+    mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'no_provider' } });
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'what happened here']);
+    return output.join('\n');
+  }
+
+  it('does not print an align://claimed/... identity as a link', async () => {
+    const all = await runAskWithSource('align://claimed/9f2c');
+    expect(all).toContain('A decision from a scan');
+    expect(all).not.toContain('align://claimed/');
+  });
+
+  it('does not print an align://unsourced/... identity as a link', async () => {
+    const all = await runAskWithSource('align://unsourced/9f2c');
+    expect(all).not.toContain('align://unsourced/');
+  });
+
+  it('still prints a real hosted source as a clickable line', async () => {
+    // The control for the two cases above: a genuine source_url must still navigate
+    // normally, or the guard could be silently swallowing every source, not just synthetic
+    // ones.
+    const all = await runAskWithSource('https://github.com/acme/api/pull/9');
+    expect(all).toContain('https://github.com/acme/api/pull/9');
+  });
+});

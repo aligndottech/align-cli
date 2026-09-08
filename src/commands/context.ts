@@ -24,6 +24,7 @@ import { createConfigStore } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { localCitationFor } from '../lib/commit-cite.js';
+import { navigableSourceUrl } from '../lib/decision-links.js';
 import {
   ALIGN_CONTEXT_PATH,
   ALIGN_IMPORT_LINE,
@@ -66,7 +67,10 @@ export function registerContextCommand(program: Command): void {
         decisions = rows.map((d) => ({
           title: d.title,
           ...(localCitationFor(d.source_url) ? { cite: localCitationFor(d.source_url) } : {}),
-          ...(d.source_url ? { sourceUrl: d.source_url } : {}),
+          // ALI-923: a hosted decision can carry a synthetic align://claimed/... identity
+          // (ALI-538) - not a place anyone can open. navigableSourceUrl drops it here so
+          // decisions-context.ts's renderer never has to know the difference.
+          ...(navigableSourceUrl(d.source_url) ? { sourceUrl: navigableSourceUrl(d.source_url) } : {}),
           // ALI-831: the fields renderDecisionsFile needs to route an unratified agent claim
           // into its own section.
           ...(d.decider_kind ? { deciderKind: d.decider_kind } : {}),
