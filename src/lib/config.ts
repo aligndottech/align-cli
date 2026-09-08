@@ -94,6 +94,9 @@ export function createConfigStore() {
     installId?: string;
     telemetryConsent?: TelemetryConsent;
     funnelStagesRecorded?: string[];
+    // ALI-852: the 24h context-window cache. Keyed `<provider>:<model>` by the caller
+    // (context-budget.ts); this store stays a dumb typed bag, same as every other field here.
+    resolvedWindows?: Record<string, { maxInputTokens: number; maxOutputTokens: number; resolvedAt: number }>;
   }>({
     projectName: 'align-cli',
     // conf's own default is 'nodejs' (node_modules/conf/dist/source/index.js), which
@@ -257,6 +260,15 @@ export function createConfigStore() {
     markFunnelStageRecorded(stage: string): void {
       const existing = store.get('funnelStagesRecorded') ?? [];
       if (!existing.includes(stage)) store.set('funnelStagesRecorded', [...existing, stage]);
+    },
+    // ALI-852: satisfies context-budget.ts's WindowCacheStore interface structurally - that
+    // module does not import this file's types, so nothing here needs to name them either.
+    getResolvedWindow(key: string) {
+      return (store.get('resolvedWindows') ?? {})[key];
+    },
+    setResolvedWindow(key: string, value: { maxInputTokens: number; maxOutputTokens: number; resolvedAt: number }) {
+      const existing = store.get('resolvedWindows') ?? {};
+      store.set('resolvedWindows', { ...existing, [key]: value });
     },
   };
 }

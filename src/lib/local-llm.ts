@@ -1,4 +1,15 @@
 import { charsForTokens, estimateTokens } from './token-estimate.js';
+import {
+  type BudgetProvider,
+  OLLAMA_CONTEXT_FLOOR,
+  resolveWindow,
+  splitBudget,
+} from './context-budget.js';
+// Re-exported so this file's public surface is unchanged (refactoring.md - "the re-export
+// facade preserves the public surface"): OLLAMA_CONTEXT_FLOOR moved to context-budget.ts
+// (ALI-852, design decision 2) because it is the one constant every provider's fallback
+// needs, and importing it back here would be the only cycle in the other direction.
+export { OLLAMA_CONTEXT_FLOOR };
 
 export type AiProvider = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'mistral' | 'grok';
 
@@ -217,14 +228,16 @@ const HOSTED_TIMEOUT_MS = 15_000;
 const LOCAL_TIMEOUT_MS = 300_000;
 
 /**
- * A hosted provider's real window is not resolved until ALI-852 (the Models API lookup and
- * the provider table). Until then, `callChatDetailed` builds the prompt against this
- * deliberately generous default rather than a real one, so Phase 0's capping cannot regress
- * an `align ask` that works today on a large-window hosted model (Claude, GPT-4o, Gemini all
- * exceed it) - the "generous hosted default" from the plan's assumption 4. It is not a claim
- * about any specific provider's real limit.
+ * ALI-852 design decision 9: 15s is right for a small prompt to a hosted API and
+ * increasingly wrong as the resolved window (and therefore the prompt) grows - a 400K-token
+ * prompt takes real time just to reach the provider before it can answer. Scaling starts
+ * above this baseline, so a typical short classifier prompt keeps the unscaled 15s floor
+ * exactly as before. NOT independently measured against any provider's real prefill
+ * throughput - a conservative estimate, and `ALIGN_LLM_TIMEOUT_MS` remains the escape hatch
+ * for anyone it under-shoots.
  */
-export const HOSTED_WINDOW_TOKENS_DEFAULT = 100_000;
+const TIMEOUT_SCALE_BASELINE_TOKENS = 2_000;
+const TIMEOUT_SCALE_MS_PER_1K_TOKENS = 10;
 
 /**
  * Is this endpoint on the user's own machine or network?
@@ -262,25 +275,35 @@ export function isLocalEndpoint(url: string): boolean {
 
 /**
  * The timeout for one endpoint. ALIGN_LLM_TIMEOUT_MS overrides both defaults, for a slow
- * remote endpoint or a local model larger than even five minutes covers.
+ * remote endpoint or a local model larger than even five minutes covers - an explicit
+ * override is absolute and is never scaled.
  *
  * An unusable override WARNS rather than silently falling back. Number('9O000') is NaN, and a
  * NaN here would leave someone certain they had raised the limit while nothing had changed -
  * which is the whole class of bug this file keeps producing.
+ *
+ * `estimatedPromptTokens` (ALI-852) scales the HOSTED floor up for a large resolved-window
+ * prompt (design decision 9) - local endpoints already dwarf any scaling this would add, so
+ * it is ignored there.
  */
-export function resolveLlmTimeoutMs(endpoint: string): number {
+export function resolveLlmTimeoutMs(endpoint: string, estimatedPromptTokens?: number): number {
   const raw = process.env['ALIGN_LLM_TIMEOUT_MS'];
-  const fallback = isLocalEndpoint(endpoint) ? LOCAL_TIMEOUT_MS : HOSTED_TIMEOUT_MS;
-  if (raw === undefined || raw.trim() === '') return fallback;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  const isLocal = isLocalEndpoint(endpoint);
+  const floor = isLocal ? LOCAL_TIMEOUT_MS : HOSTED_TIMEOUT_MS;
+  if (raw !== undefined && raw.trim() !== '') {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
     console.error(
       `align: ignoring ALIGN_LLM_TIMEOUT_MS=${JSON.stringify(raw)} - it must be a positive ` +
-      `number of milliseconds. Using ${fallback}ms.`,
+      `number of milliseconds. Using ${floor}ms.`,
     );
-    return fallback;
   }
-  return parsed;
+  if (isLocal || !estimatedPromptTokens || estimatedPromptTokens <= TIMEOUT_SCALE_BASELINE_TOKENS) {
+    return floor;
+  }
+  const extraTokens = estimatedPromptTokens - TIMEOUT_SCALE_BASELINE_TOKENS;
+  const scaledMs = Math.ceil((extraTokens / 1000) * TIMEOUT_SCALE_MS_PER_1K_TOKENS);
+  return floor + scaledMs;
 }
 
 /**
@@ -385,10 +408,12 @@ async function tryOpenAiCompatible(
   maxTokens = 256,
   timeoutMs?: number,
   temperature?: number,
+  estimatedPromptTokens?: number,
 ): Promise<AdapterOutcome> {
   // Decided by WHERE the endpoint is. 15s is right for a hosted API and hopeless for a model
-  // on the user's own CPU - see resolveLlmTimeoutMs (ALI-775).
-  const limitMs = timeoutMs ?? resolveLlmTimeoutMs(endpoint);
+  // on the user's own CPU - see resolveLlmTimeoutMs (ALI-775). estimatedPromptTokens (ALI-852)
+  // scales that floor up for a large resolved-window prompt.
+  const limitMs = timeoutMs ?? resolveLlmTimeoutMs(endpoint, estimatedPromptTokens);
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -420,11 +445,12 @@ async function tryAnthropic(
   system: string,
   user: string,
   key: string,
+  model: string,
   maxTokens = 256,
   temperature?: number,
+  estimatedPromptTokens?: number,
 ): Promise<AdapterOutcome> {
-  const model = process.env['ALIGN_ANTHROPIC_MODEL'] || 'claude-haiku-4-5-20251001';
-  const anthropicTimeoutMs = resolveLlmTimeoutMs('https://api.anthropic.com');
+  const anthropicTimeoutMs = resolveLlmTimeoutMs('https://api.anthropic.com', estimatedPromptTokens);
   let res: Response;
   try {
     res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -461,11 +487,12 @@ async function tryGemini(
   system: string,
   user: string,
   key: string,
+  geminiModel: string,
   maxTokens = 256,
   temperature?: number,
+  estimatedPromptTokens?: number,
 ): Promise<AdapterOutcome> {
-  const geminiModel = process.env['ALIGN_GEMINI_MODEL'] || 'gemini-1.5-flash';
-  const geminiTimeoutMs = resolveLlmTimeoutMs('https://generativelanguage.googleapis.com');
+  const geminiTimeoutMs = resolveLlmTimeoutMs('https://generativelanguage.googleapis.com', estimatedPromptTokens);
   let res: Response;
   try {
     res = await fetch(
@@ -700,13 +727,6 @@ export function isAvailabilityFailure(status: number, body: string): boolean {
 export interface ResolvedWindow { tokens: number; source: string; }
 
 /**
- * Floor used when the real window cannot be resolved (no `/api/show`, a non-2xx, or a body
- * with no usable `<arch>.context_length`). This floor is indistinguishable from a genuinely
- * small window from the outside, which is why every path through this function logs.
- */
-export const OLLAMA_CONTEXT_FLOOR = 4_096;
-
-/**
  * POST /api/show and read model_info's <arch>.context_length - discovered by suffix match,
  * not derived from `details.family`, so an architecture we have never seen still resolves.
  * OLLAMA_CONTEXT_LENGTH, when set and usable, only ever SHRINKS the reported value: raising
@@ -715,6 +735,11 @@ export const OLLAMA_CONTEXT_FLOOR = 4_096;
  * Every path logs (at console.error, matching resolveLlmTimeoutMs's shape below): a wrong
  * assumption about /api/show's response shape gives a 4xx, the floor silently applies, and
  * nothing else in the output would say so.
+ *
+ * The floor itself is `OLLAMA_CONTEXT_FLOOR` (context-budget.ts), used when the real window
+ * cannot be resolved (no /api/show, a non-2xx, or a body with no usable
+ * `<arch>.context_length`). It is indistinguishable from a genuinely small window from the
+ * outside, which is why every path through this function logs.
  */
 export async function resolveOllamaWindow(host: string, model: string): Promise<ResolvedWindow> {
   const floor = (reason: string): ResolvedWindow => {
@@ -863,27 +888,51 @@ function keyForProvider(provider: AiProvider): string | undefined {
   }
 }
 
+/**
+ * The model each named rung actually calls - the ONE place this is decided (ALI-852). Used
+ * both to make the call (callProvider, below) and to resolve that rung's real context window
+ * BEFORE the call (callChatDetailed's per-rung loop) - two readers of one fact, so they
+ * cannot silently disagree about which model a window was resolved for.
+ */
+export function modelForProvider(provider: AiProvider): string {
+  switch (provider) {
+    case 'anthropic': return process.env['ALIGN_ANTHROPIC_MODEL'] || 'claude-haiku-4-5-20251001';
+    case 'openai':    return process.env['ALIGN_OPENAI_MODEL'] || 'gpt-4o-mini';
+    case 'gemini':    return process.env['ALIGN_GEMINI_MODEL'] || 'gemini-1.5-flash';
+    case 'groq':      return process.env['ALIGN_GROQ_MODEL'] || 'llama-3.1-8b-instant';
+    case 'mistral':   return process.env['ALIGN_MISTRAL_MODEL'] || 'mistral-small-latest';
+    case 'grok':      return process.env['ALIGN_GROK_MODEL'] || 'grok-2-latest';
+  }
+}
+
+// Compile-time assertion (ALI-852 design decision 1): every AiProvider is a valid
+// BudgetProvider, so the two type unions - declared in different files - cannot drift apart
+// without TypeScript catching it right here. No runtime cost; the function is never called.
+const _assertAiProviderIsBudgetProvider: (p: AiProvider) => BudgetProvider = (p) => p;
+
 async function callProvider(
   provider: AiProvider,
   key: string,
   system: string,
   user: string,
+  model: string,
   maxTokens?: number,
   temperature?: number,
+  estimatedPromptTokens?: number,
 ): Promise<AdapterOutcome> {
   switch (provider) {
     case 'anthropic':
-      return tryAnthropic(system, user, key, maxTokens, temperature);
+      return tryAnthropic(system, user, key, model, maxTokens, temperature, estimatedPromptTokens);
     case 'openai':
-      return tryOpenAiCompatible(system, user, 'https://api.openai.com/v1/chat/completions', process.env['ALIGN_OPENAI_MODEL'] || 'gpt-4o-mini', key, maxTokens, undefined, temperature);
+      return tryOpenAiCompatible(system, user, 'https://api.openai.com/v1/chat/completions', model, key, maxTokens, undefined, temperature, estimatedPromptTokens);
     case 'gemini':
-      return tryGemini(system, user, key, maxTokens, temperature);
+      return tryGemini(system, user, key, model, maxTokens, temperature, estimatedPromptTokens);
     case 'groq':
-      return tryOpenAiCompatible(system, user, 'https://api.groq.com/openai/v1/chat/completions', process.env['ALIGN_GROQ_MODEL'] || 'llama-3.1-8b-instant', key, maxTokens, undefined, temperature);
+      return tryOpenAiCompatible(system, user, 'https://api.groq.com/openai/v1/chat/completions', model, key, maxTokens, undefined, temperature, estimatedPromptTokens);
     case 'mistral':
-      return tryOpenAiCompatible(system, user, 'https://api.mistral.ai/v1/chat/completions', process.env['ALIGN_MISTRAL_MODEL'] || 'mistral-small-latest', key, maxTokens, undefined, temperature);
+      return tryOpenAiCompatible(system, user, 'https://api.mistral.ai/v1/chat/completions', model, key, maxTokens, undefined, temperature, estimatedPromptTokens);
     case 'grok':
-      return tryOpenAiCompatible(system, user, 'https://api.x.ai/v1/chat/completions', process.env['ALIGN_GROK_MODEL'] || 'grok-2-latest', key, maxTokens, undefined, temperature);
+      return tryOpenAiCompatible(system, user, 'https://api.x.ai/v1/chat/completions', model, key, maxTokens, undefined, temperature, estimatedPromptTokens);
   }
 }
 
@@ -927,22 +976,23 @@ export async function callChatDetailed(
 ): Promise<ChatResult> {
   const maxTokens = opts?.maxTokens;
   const temperature = opts?.temperature;
+  const reservedOutput = maxTokens ?? 256;
 
-  // Every hosted adapter's window is the generous Phase-0 default (see
-  // HOSTED_WINDOW_TOKENS_DEFAULT) - only Ollama resolves a real one, and only after it knows
-  // which model was chosen, so it keeps the callback form and resolves it itself below.
+  // ALI-852: each hosted rung now resolves its OWN real window instead of every rung
+  // sharing one placeholder, so the prompt built for a 1M-token Anthropic model and the
+  // prompt built for a 128K-token Groq model are genuinely different sizes - the cache is
+  // therefore keyed by WINDOW, not one shared string (design decision 7).
   //
-  // Built lazily (Copilot review, PR #258): a callback-form builder used to run here
-  // unconditionally, even when no hosted adapter is ever attempted (Ollama-only) or the
-  // first hosted attempt already answers. Memoized rather than re-evaluated at each of the
-  // two hosted call sites below, since the escape hatch falling through into the named-
-  // provider loop would otherwise build the same placeholder prompt twice.
-  let hostedUserCache: string | null = null;
-  const getHostedUser = (): string => {
-    if (hostedUserCache === null) {
-      hostedUserCache = typeof user === 'function' ? user(HOSTED_WINDOW_TOKENS_DEFAULT) : user;
-    }
-    return hostedUserCache;
+  // Built lazily (Copilot review, PR #258's original reason still holds): a callback-form
+  // builder must not run for a window nothing ever asks for - e.g. an Ollama-only machine
+  // where no hosted rung is even attempted.
+  const hostedUserCache = new Map<number, string>();
+  const getHostedUser = (windowTokens: number): string => {
+    const cached = hostedUserCache.get(windowTokens);
+    if (cached !== undefined) return cached;
+    const built = typeof user === 'function' ? user(windowTokens) : user;
+    hostedUserCache.set(windowTokens, built);
+    return built;
   };
 
   // The most specific unavailability seen while walking the chain. Only Ollama can
@@ -952,6 +1002,9 @@ export async function callChatDetailed(
 
   // Every CONFIGURED provider that turned out to be unavailable, in the order tried. Local
   // for the same reason as `unrecognised`: a sibling call must not see this one's attempts.
+  // ALI-852: a rung skipped for a too-small window is also recorded here, with its own
+  // detail string - it is not a `provider_stopped` (nothing was asked) so it belongs beside
+  // an availability failure, not instead of one.
   const tried: Array<{ provider: string; detail: string }> = [];
 
   // An answer or a stop settles the chain; availability advances it (undefined).
@@ -974,6 +1027,39 @@ export async function callChatDetailed(
     return undefined;
   };
 
+  /**
+   * ALI-852 design decision 8: resolve a rung's real window and check the prompt actually
+   * fits it BEFORE spending a network call. A rung that cannot hold this prompt is neither
+   * unavailable (nothing was asked) nor failed (nothing answered) - it is recorded in `tried`
+   * with its own reason, and the chain advances exactly as it would past an availability
+   * failure.
+   */
+  const resolveFit = async (
+    provider: BudgetProvider,
+    model: string,
+    apiKey: string | undefined,
+  ): Promise<{ fits: true; promptText: string; estimatedPromptTokens: number } | { fits: false }> => {
+    const window = await resolveWindow(provider, model, { apiKey });
+    const promptText = getHostedUser(window.maxInputTokens);
+    const estimatedPromptTokens = estimateTokens(promptText, model);
+    let budgetTokens: number;
+    try {
+      budgetTokens = splitBudget(window, reservedOutput).promptTokens;
+    } catch {
+      // The window cannot even hold the output reservation, so it certainly cannot hold a
+      // prompt on top of it.
+      budgetTokens = 0;
+    }
+    if (estimatedPromptTokens > budgetTokens) {
+      tried.push({
+        provider,
+        detail: `window too small for this prompt (${estimatedPromptTokens} > ${budgetTokens} tokens)`,
+      });
+      return { fits: false };
+    }
+    return { fits: true, promptText, estimatedPromptTokens };
+  };
+
   // A "provider: ... from `align setup`" branch used to sit first here. Nothing ever
   // supplied it - setup never collected or stored a provider key - so it was tested,
   // documented (README and this file's own comment both claimed it), and unreachable.
@@ -986,24 +1072,31 @@ export async function callChatDetailed(
   if (baseUrl) {
     const key = process.env['ALIGN_LLM_API_KEY'] ?? '';
     const model = process.env['ALIGN_LLM_MODEL'] || 'gpt-4o-mini';
-    const settled = settle(
-      await tryOpenAiCompatible(system, getHostedUser(), chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
-      'custom',
-      true,
-    );
-    if (settled) return settled;
+    const fit = await resolveFit('custom', model, undefined);
+    if (fit.fits) {
+      const settled = settle(
+        await tryOpenAiCompatible(system, fit.promptText, chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature, fit.estimatedPromptTokens),
+        'custom',
+        true,
+      );
+      if (settled) return settled;
+    }
   }
 
   // 2. named providers via env keys, in priority order
   for (const provider of ALL_PROVIDERS) {
     const key = keyForProvider(provider);
     if (key) {
-      const settled = settle(
-        await callProvider(provider, key, system, getHostedUser(), maxTokens, temperature),
-        provider,
-        true,
-      );
-      if (settled) return settled;
+      const model = modelForProvider(provider);
+      const fit = await resolveFit(provider, model, key);
+      if (fit.fits) {
+        const settled = settle(
+          await callProvider(provider, key, system, fit.promptText, model, maxTokens, temperature, fit.estimatedPromptTokens),
+          provider,
+          true,
+        );
+        if (settled) return settled;
+      }
     }
   }
 

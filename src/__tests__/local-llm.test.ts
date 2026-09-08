@@ -5,14 +5,13 @@ import {
   callChat,
   callChatDetailed,
   explainAbstention,
-  HOSTED_WINDOW_TOKENS_DEFAULT,
   isAbstention,
   SYNTHESIS_MAX_TOKENS,
   SYNTHESIS_SYSTEM_PROMPT,
   synthesiseDetailed,
   synthesisSentenceBudget,
 } from '../lib/local-llm.js';
-import { estimateTokens } from '../lib/token-estimate.js';
+import { charsForTokens, estimateTokens } from '../lib/token-estimate.js';
 
 const mockFetch = vi.fn();
 
@@ -23,6 +22,18 @@ function openAiResponse(text: string) {
 // Anthropic response shape
 function anthropicResponse(text: string) {
   return { ok: true, json: async () => ({ content: [{ text }] }) };
+}
+
+/**
+ * The real chat call. ALI-852: an Anthropic key now makes callChatDetailed try a live
+ * Models API lookup (`/v1/models/...`) BEFORE the actual `/v1/messages` call, so
+ * `mockFetch.mock.calls[0]` is that lookup, not the chat request every existing assertion
+ * here means to inspect - find it by URL instead of by position.
+ */
+function messagesCall() {
+  const call = mockFetch.mock.calls.find(([url]: [string]) => String(url).endsWith('/v1/messages'));
+  if (!call) throw new Error('no /v1/messages call was made');
+  return call;
 }
 
 const ALL_KEYS = [
@@ -78,7 +89,7 @@ describe('callChat (provider-agnostic resolver)', () => {
     const r = await callChat('s', 'u');
 
     expect(r).toBe('anthropic answer');
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.anthropic.com/v1/messages');
+    expect(messagesCall()[0]).toBe('https://api.anthropic.com/v1/messages');
   });
 
   it('returns null when no provider is configured and Ollama is unreachable', async () => {
@@ -118,11 +129,10 @@ describe('callChatDetailed evaluates a callback prompt builder lazily, only for 
     const result = await callChatDetailed('sys', user);
 
     expect(result.ok).toBe(true);
-    // Built exactly once, against Ollama's real resolved window - never against
-    // HOSTED_WINDOW_TOKENS_DEFAULT, since no hosted adapter ever ran.
+    // Built exactly once, against Ollama's real resolved window - no hosted adapter ever
+    // ran, so nothing built a prompt against a placeholder window first.
     expect(user).toHaveBeenCalledTimes(1);
     expect(user).toHaveBeenCalledWith(131_072);
-    expect(user).not.toHaveBeenCalledWith(HOSTED_WINDOW_TOKENS_DEFAULT);
   });
 });
 
@@ -341,7 +351,7 @@ describe('synthesis has its own output budget, separate from the classifier', ()
 
     await synthesiseDetailed('why postgres', []);
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    const body = JSON.parse(messagesCall()[1].body as string);
     expect(body.max_tokens).toBeGreaterThanOrEqual(1024);
   });
 
@@ -351,13 +361,13 @@ describe('synthesis has its own output budget, separate from the classifier', ()
 
     vi.stubEnv('ALIGN_SYNTHESIS_MAX_TOKENS', '4096');
     await synthesiseDetailed('why postgres', []);
-    expect(JSON.parse(mockFetch.mock.calls[0][1].body as string).max_tokens).toBe(4096);
+    expect(JSON.parse(messagesCall()[1].body as string).max_tokens).toBe(4096);
 
     mockFetch.mockClear();
     errorSpy.mockClear();
     vi.stubEnv('ALIGN_SYNTHESIS_MAX_TOKENS', 'nonsense');
     await synthesiseDetailed('why postgres', []);
-    expect(JSON.parse(mockFetch.mock.calls[0][1].body as string).max_tokens).toBe(SYNTHESIS_MAX_TOKENS);
+    expect(JSON.parse(messagesCall()[1].body as string).max_tokens).toBe(SYNTHESIS_MAX_TOKENS);
     expect(errorSpy.mock.calls.some(c => String(c[0]).includes('ALIGN_SYNTHESIS_MAX_TOKENS'))).toBe(true);
 
     errorSpy.mockRestore();
@@ -561,7 +571,7 @@ describe('synthesiseDetailed sends a decision-count-scaled sentence budget to th
       { id: 'd1', title: 'Use Postgres', summary: 'Chosen for concurrent writers.' },
     ]);
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    const body = JSON.parse(messagesCall()[1].body as string);
     expect(body.messages[0].content).toContain(synthesisSentenceBudget(1));
   });
 
@@ -579,7 +589,7 @@ describe('synthesiseDetailed sends a decision-count-scaled sentence budget to th
 
     await synthesiseDetailed('when did we stop blocking PRs on the gate, and why', decisions);
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    const body = JSON.parse(messagesCall()[1].body as string);
     expect(body.messages[0].content).toContain(synthesisSentenceBudget(2));
     expect(body.messages[0].content).not.toContain(synthesisSentenceBudget(1));
   });
@@ -598,7 +608,132 @@ describe('synthesiseDetailed sends a decision-count-scaled sentence budget to th
 
     await synthesiseDetailed('what did we use for job status, and what replaced it', decisions);
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    const body = JSON.parse(messagesCall()[1].body as string);
     expect(body.messages[0].content).toContain(synthesisSentenceBudget(5));
+  });
+});
+
+// ALI-852 rule 5: each rung's prompt is built against that rung's own window, and the
+// per-window memoization PR #258 asked for still holds (now keyed by window, not one shared
+// placeholder - design decision 7).
+describe('callChatDetailed builds each rung\'s prompt against that rung\'s own window (ALI-852 rule 5)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
+    for (const k of ALL_KEYS) vi.stubEnv(k, '');
+    // Env overrides make both rungs' windows deterministic with no live Models API call.
+    vi.stubEnv('ALIGN_ANTHROPIC_CONTEXT_TOKENS', '1000000');
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('A: Anthropic (1M) fails on availability, Groq (128K) answers - the builder ran with two distinct windows, in order', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'a');
+    vi.stubEnv('GROQ_API_KEY', 'g');
+    vi.stubEnv('ALIGN_GROQ_CONTEXT_TOKENS', '128000');
+    mockFetch.mockImplementation(async (url: string) => {
+      if (String(url) === 'https://api.anthropic.com/v1/messages') return { ok: false, status: 401 };
+      if (String(url).includes('groq')) return openAiResponse('groq answer');
+      return { ok: false }; // ollama probe, unreachable
+    });
+
+    const user = vi.fn((windowTokens: number) => `prompt for ${windowTokens}`);
+    const result = await callChatDetailed('sys', user);
+
+    expect(result).toEqual({ ok: true, text: 'groq answer' });
+    expect(user.mock.calls.map((c) => c[0])).toEqual([1_000_000, 128_000]);
+  });
+
+  it('B: a custom escape hatch and Anthropic resolve the SAME window - the builder ran once, not twice', async () => {
+    vi.stubEnv('ALIGN_LLM_BASE_URL', 'https://api.x.ai/v1');
+    vi.stubEnv('ALIGN_LLM_API_KEY', 'xai-key');
+    vi.stubEnv('ALIGN_LLM_CONTEXT_TOKENS', '1000000'); // same as ALIGN_ANTHROPIC_CONTEXT_TOKENS above
+    vi.stubEnv('ANTHROPIC_API_KEY', 'a');
+    mockFetch.mockImplementation(async (url: string) => {
+      if (String(url).includes('x.ai')) return { ok: false, status: 401 }; // custom rung unavailable
+      if (String(url) === 'https://api.anthropic.com/v1/messages') return anthropicResponse('anthropic answer');
+      return { ok: false };
+    });
+
+    const user = vi.fn((windowTokens: number) => `prompt for ${windowTokens}`);
+    const result = await callChatDetailed('sys', user);
+
+    expect(result).toEqual({ ok: true, text: 'anthropic answer' });
+    expect(user).toHaveBeenCalledTimes(1);
+    expect(user).toHaveBeenCalledWith(1_000_000);
+  });
+});
+
+// ALI-852 rule 7: a rung whose window cannot hold the prompt is skipped (recorded in `tried`,
+// never called), and the chain advances - it is not treated as an availability failure.
+describe('callChatDetailed skips a rung whose window cannot hold the prompt (ALI-852 rule 7)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
+    for (const k of ALL_KEYS) vi.stubEnv(k, '');
+    vi.stubEnv('ANTHROPIC_API_KEY', 'a');
+    vi.stubEnv('GROQ_API_KEY', 'g');
+    vi.stubEnv('ALIGN_ANTHROPIC_CONTEXT_TOKENS', '1000000');
+    vi.stubEnv('ALIGN_GROQ_CONTEXT_TOKENS', '128000'); // budget ~121,344 prompt tokens (95% - 256 reserved)
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  function mockOllamaUnreachable() {
+    return async (url: string) => {
+      if (String(url) === 'https://api.anthropic.com/v1/messages') return { ok: false, status: 401 };
+      if (String(url).includes('groq')) return openAiResponse('groq answer'); // must never be reached in A
+      return { ok: false }; // ollama /api/tags, unreachable
+    };
+  }
+
+  it('A: a 300K-token prompt exceeds Groq\'s window - Groq is never called, `tried` names it, and the chain reaches Ollama', async () => {
+    mockFetch.mockImplementation(mockOllamaUnreachable());
+    const prompt = 'x'.repeat(charsForTokens(300_000)); // well over Groq's ~121K budget, under Anthropic's ~950K
+
+    const result = await callChatDetailed('sys', prompt);
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.failure.kind).toBe('providers_unavailable');
+    const groqCalledMessages = mockFetch.mock.calls.some(([url]: [string]) => String(url).includes('groq'));
+    expect(groqCalledMessages).toBe(false);
+    const tried = !result.ok && result.failure.kind === 'providers_unavailable' ? result.failure.tried : [];
+    expect(tried).toContainEqual(expect.objectContaining({ provider: 'groq', detail: expect.stringContaining('window too small') }));
+  });
+
+  it('B: a 50K-token prompt fits Groq\'s window - Groq IS called', async () => {
+    mockFetch.mockImplementation(mockOllamaUnreachable());
+    const prompt = 'x'.repeat(charsForTokens(50_000)); // comfortably under Groq's ~121K budget
+
+    const result = await callChatDetailed('sys', prompt);
+
+    expect(result).toEqual({ ok: true, text: 'groq answer' });
+  });
+
+  // mutation-testing.md: neither example above is near the boundary, so a `>` -> `>=`
+  // mutant in the skip's comparison would pass both. Build the fixture from the constant
+  // itself (Groq's exact promptTokens budget: floor(128000*0.95) - 256 = 121_344), not from
+  // a number that merely looks close to it.
+  it('C: a prompt at EXACTLY Groq\'s budget boundary still fits - the comparison is strictly greater-than', async () => {
+    mockFetch.mockImplementation(mockOllamaUnreachable());
+    const GROQ_PROMPT_BUDGET = Math.floor(128_000 * 0.95) - 256; // 121_344
+    let len = charsForTokens(GROQ_PROMPT_BUDGET);
+    let prompt = 'x'.repeat(len);
+    // charsForTokens/estimateTokens do not perfectly round-trip (decision-render.ts's own
+    // capToTokens hits the same rounding) - nudge up one char at a time until the estimate
+    // lands exactly on the boundary, rather than trusting the inverse arithmetic.
+    while (estimateTokens(prompt) < GROQ_PROMPT_BUDGET) {
+      len += 1;
+      prompt = 'x'.repeat(len);
+    }
+    expect(estimateTokens(prompt)).toBe(GROQ_PROMPT_BUDGET); // confirms the fixture is ON the boundary
+
+    const result = await callChatDetailed('sys', prompt);
+
+    expect(result).toEqual({ ok: true, text: 'groq answer' });
   });
 });

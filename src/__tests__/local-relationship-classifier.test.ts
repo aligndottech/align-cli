@@ -13,6 +13,28 @@ function anthropicResponse(json: unknown) {
   return { ok: true, json: async () => ({ content: [{ text: JSON.stringify(json) }] }) };
 }
 
+/**
+ * ALI-852: an Anthropic key now makes callChatDetailed try a live Models API lookup
+ * (`/v1/models/...`) BEFORE the actual chat call, so a queued `mockResolvedValueOnce`
+ * (which answers whichever fetch call comes FIRST) would answer the window lookup instead
+ * of the chat call it was written for. Route by URL instead: the window lookup gets a
+ * graceful "not ok" (falls through to the table, exactly as if no key had been given for
+ * that lookup), and the real `/v1/messages` call gets the response the test actually cares
+ * about - so every existing assertion on the CHAT response keeps meaning what it says.
+ */
+function mockAnthropicChat(response: { ok: boolean; json: () => Promise<unknown>; status?: number }) {
+  mockFetch.mockImplementation(async (url: string) =>
+    String(url).includes('/v1/models/') ? { ok: false } : response);
+}
+
+/** The real chat call, found by URL rather than by position - `calls[0]` is now the ALI-852
+ *  window lookup, not the chat request every existing assertion here means to inspect. */
+function messagesCall() {
+  const call = mockFetch.mock.calls.find(([url]: [string]) => String(url).endsWith('/v1/messages'));
+  if (!call) throw new Error('no /v1/messages call was made');
+  return call;
+}
+
 describe('classifyRelationship', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch);
@@ -63,7 +85,7 @@ describe('classifyRelationship', () => {
 
   it('types the relationship via Anthropic when ANTHROPIC_API_KEY is set', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
-    mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'supersedes', confidence: 0.88, reason: 'B replaces A' }));
+    mockAnthropicChat(anthropicResponse({ type: 'supersedes', confidence: 0.88, reason: 'B replaces A' }));
     const result = await classifyRelationship(A, B);
     expect(mockFetch).toHaveBeenCalledWith('https://api.anthropic.com/v1/messages', expect.anything());
     expect(result).toEqual({ ok: true, relationship: { type: 'supersedes', confidence: 0.88, reason: 'B replaces A' } });
@@ -71,14 +93,14 @@ describe('classifyRelationship', () => {
 
   it('reports classifier_unparseable for malformed LLM output', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
-    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ content: [{ text: 'not json at all' }] }) });
+    mockAnthropicChat({ ok: true, json: async () => ({ content: [{ text: 'not json at all' }] }) });
     const result = await classifyRelationship(A, B);
     expect(result).toEqual({ ok: false, reason: 'classifier_unparseable' });
   });
 
   it('rejects a relationship type outside the taxonomy', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
-    mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'is_friends_with', confidence: 0.9 }));
+    mockAnthropicChat(anthropicResponse({ type: 'is_friends_with', confidence: 0.9 }));
     const result = await classifyRelationship(A, B);
     expect(result).toEqual({ ok: false, reason: 'classifier_unparseable' });
   });
@@ -133,7 +155,7 @@ describe('classifyRelationship', () => {
 
   it('rejects a non-canonical type from the LLM (e.g. the old depends_on)', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
-    mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'depends_on', confidence: 0.9 }));
+    mockAnthropicChat(anthropicResponse({ type: 'depends_on', confidence: 0.9 }));
     const result = await classifyRelationship(A, B);
     expect(result).toEqual({ ok: false, reason: 'classifier_unparseable' });
   });
@@ -144,9 +166,9 @@ describe('classifyRelationship', () => {
     // to the provider must pin temperature 0 (it previously omitted it, defaulting
     // to the provider's ~1.0).
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
-    mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'supersedes', confidence: 0.9 }));
+    mockAnthropicChat(anthropicResponse({ type: 'supersedes', confidence: 0.9 }));
     return classifyRelationship(A, B).then(() => {
-      const [, init] = mockFetch.mock.calls[0]!;
+      const [, init] = messagesCall();
       const body = JSON.parse((init as { body: string }).body);
       expect(body.temperature).toBe(0);
     });
@@ -158,11 +180,11 @@ describe('classifyRelationship', () => {
   // manufactured-RED note there for why that is not evidence on its own.
   it('sends 256 as max_tokens - the classifier\'s own budget, not a shared default', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test');
-    mockFetch.mockResolvedValueOnce(anthropicResponse({ type: 'supersedes', confidence: 0.9 }));
+    mockAnthropicChat(anthropicResponse({ type: 'supersedes', confidence: 0.9 }));
 
     await classifyRelationship(A, B);
 
-    const body = JSON.parse((mockFetch.mock.calls[0]![1] as { body: string }).body);
+    const body = JSON.parse((messagesCall()[1] as { body: string }).body);
     expect(body.max_tokens).toBe(256);
   });
 });

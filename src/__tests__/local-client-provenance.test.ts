@@ -136,7 +136,11 @@ describe('the other payloads carry the same fields', () => {
   it('checkAlignment relevant_decisions, at retrieval depth', async () => {
     const c = client();
     const { agentId, humanId } = await seed(c);
-    const res = await c.checkAlignment('use sqlite for the cache', undefined, { depth: 'related' });
+    // ALI-852: checkAlignment now scopes to the current repo like searchDecisions already
+    // did (see the sibling test above) - humanId's seeded hosted commit URL stamps it to
+    // github.com/acme/api, a different repo from wherever this suite happens to run, so
+    // `all: true` is needed here for the same reason it already was there.
+    const res = await c.checkAlignment('use sqlite for the cache', undefined, { depth: 'related', all: true });
     const byId = Object.fromEntries(res.relevant_decisions.map((r) => [r.id, r]));
     expect(byId[agentId]).toMatchObject({ decider_kind: 'agent', ratified: false });
     expect(byId[humanId]).toMatchObject({ decider_kind: 'human', ratified: false });

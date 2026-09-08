@@ -211,3 +211,58 @@ describe('retrieval scoping', () => {
     fs.rmSync(dirA, { recursive: true, force: true });
   });
 });
+
+// ALI-852 rule 6: checkAlignment's Stage 1 (findSimilar) previously called with NO
+// scopeFilter (local-gateway-client.ts's own doc comment on findSimilar names it as one of
+// the two retrieval callers required to pass one - it never did). A decision in repo B
+// therefore surfaced, and got adjudicated, from inside repo A.
+describe('checkAlignment repo scoping (ALI-852)', () => {
+  async function seedRepoAWithLowerScoreThanB() {
+    const dirA = fs.mkdtempSync(path.join(os.tmpdir(), 'ali852-checkA-'));
+    await execa('git', ['init'], { cwd: dirA });
+    await execa('git', ['remote', 'add', 'origin', 'git@github.com:acme/api.git'], { cwd: dirA });
+
+    // cosineSimilarity is mocked (file-wide, above) to read the stored embedding's first
+    // float directly, so repo B is seeded with a HIGHER score than repo A: an unscoped
+    // implementation returns B (it wins on rank), which is exactly what proves the fix -
+    // a fixture where A also won on score could pass whether or not scoping ran at all
+    // (tdd.md, "the wrong answer is POSSIBLE but not certain").
+    const raw = createLocalDb(dbPath);
+    const inA = raw.insertDecision({
+      title: 'Use Postgres', summary: 'Use Postgres for the API service',
+      sourceUrl: 'https://github.com/acme/api/pull/1', platform: 'github', repo: 'github.com/acme/api',
+    });
+    raw.setEmbedding(inA, (() => { const e = new Float32Array(384).fill(0); e[0] = 0.5; return e; })());
+    const inB = raw.insertDecision({
+      title: 'Use SvelteKit', summary: 'Use SvelteKit for the web frontend',
+      sourceUrl: 'https://github.com/acme/web/pull/1', platform: 'github', repo: 'github.com/acme/web',
+    });
+    raw.setEmbedding(inB, (() => { const e = new Float32Array(384).fill(0); e[0] = 0.9; return e; })());
+    raw.close();
+    return dirA;
+  }
+
+  it('A: does not adjudicate a higher-scoring candidate from another repo', async () => {
+    const dirA = await seedRepoAWithLowerScoreThanB();
+    client = createLocalGatewayClient(dbPath, { cwd: dirA });
+
+    const result = await client.checkAlignment('diff body', undefined, { depth: 'related' });
+    const titles = result.relevant_decisions.map((d) => d.title);
+    expect(titles).toContain('Use Postgres');
+    expect(titles).not.toContain('Use SvelteKit');
+
+    fs.rmSync(dirA, { recursive: true, force: true });
+  });
+
+  it('B: with `all: true`, the other repo\'s decision IS returned - scope is a scope, not a filter that is always on', async () => {
+    const dirA = await seedRepoAWithLowerScoreThanB();
+    client = createLocalGatewayClient(dbPath, { cwd: dirA });
+
+    const result = await client.checkAlignment('diff body', undefined, { depth: 'related', all: true });
+    const titles = result.relevant_decisions.map((d) => d.title);
+    expect(titles).toContain('Use SvelteKit');
+    expect(titles).toContain('Use Postgres');
+
+    fs.rmSync(dirA, { recursive: true, force: true });
+  });
+});

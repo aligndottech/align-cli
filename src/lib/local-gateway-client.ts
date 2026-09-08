@@ -506,7 +506,12 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // The member is accepted so one CheckDepth union serves both
       // clients (ALI-708 review: the previous two-member spelling drifted behind the
       // createGatewayClient cast, invisible to tsc).
-      opts: { depth?: CheckDepth; title?: string } = {},
+      //
+      // `repo`/`all` (ALI-852): the same scope shape searchDecisions/listDecisions already
+      // take. Before this, Stage 1 called findSimilar with NO scopeFilter - unscoped, per
+      // findSimilar's own doc comment - so a user with two repos in one local graph got
+      // candidates (and paid Stage 2 provider calls) from repos they never asked about.
+      opts: { depth?: CheckDepth; title?: string; repo?: string; all?: boolean } = {},
     ): Promise<AlignmentResult> {
       // Stage 1: embeddings find candidate related decisions (free, local).
       //
@@ -515,8 +520,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // adjudication pays a provider call per candidate and can move an exit code, so it keeps
       // the stricter bar. One constant could not serve both.
       const threshold = opts.depth === 'related' ? RETRIEVAL_RELATES_THRESHOLD : RELATES_THRESHOLD;
+      const { dbFilter } = await resolveScope({ repo: opts.repo, all: opts.all });
       const embedding = await getEmbedding(diff);
-      const similar = await findSimilar(embedding, 5, threshold);
+      const similar = await findSimilar(embedding, 5, threshold, undefined, dbFilter);
       const candidates = similar
         .map(s => {
           const row = db.getDecisionById(s.decisionId);

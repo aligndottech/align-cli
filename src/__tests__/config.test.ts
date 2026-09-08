@@ -138,4 +138,27 @@ describe('config store', () => {
       expect(c.getTelemetryConsent()).toBe('declined');
     });
   });
+
+  // ALI-852: getResolvedWindow/setResolvedWindow are the disk half of context-budget.ts's
+  // 24h cache - it depends on this store satisfying WindowCacheStore structurally, so these
+  // pin the shape directly rather than only through a hand-rolled test double.
+  describe('resolved window cache (ALI-852)', () => {
+    it('has no cached window for a key that was never set', () => {
+      expect(createConfigStore().getResolvedWindow('anthropic:claude-haiku-4-5')).toBeUndefined();
+    });
+
+    it('persists and reads back a resolved window by its provider:model key', () => {
+      const c = createConfigStore();
+      c.setResolvedWindow('anthropic:claude-haiku-4-5', { maxInputTokens: 200_000, maxOutputTokens: 64_000, resolvedAt: 1_000 });
+      expect(c.getResolvedWindow('anthropic:claude-haiku-4-5')).toEqual({ maxInputTokens: 200_000, maxOutputTokens: 64_000, resolvedAt: 1_000 });
+    });
+
+    it('keeps two different keys distinct - one write does not clobber another', () => {
+      const c = createConfigStore();
+      c.setResolvedWindow('anthropic:claude-haiku-4-5', { maxInputTokens: 200_000, maxOutputTokens: 64_000, resolvedAt: 1_000 });
+      c.setResolvedWindow('anthropic:claude-sonnet-5', { maxInputTokens: 1_000_000, maxOutputTokens: 128_000, resolvedAt: 2_000 });
+      expect(c.getResolvedWindow('anthropic:claude-haiku-4-5')?.maxInputTokens).toBe(200_000);
+      expect(c.getResolvedWindow('anthropic:claude-sonnet-5')?.maxInputTokens).toBe(1_000_000);
+    });
+  });
 });
