@@ -56,7 +56,8 @@ describe('align ask: an empty graph and a query that matched nothing are differe
     listDecisions.mockResolvedValue([]);
     const out = await ask();
     expect(out).toMatch(/Build your graph first/);
-    expect(out).toMatch(/align import git/);
+    expect(out).toMatch(/align connect/);
+    expect(out).not.toMatch(/align import/);
   });
 
   it('does NOT tell a user whose graph has decisions to build one', async () => {

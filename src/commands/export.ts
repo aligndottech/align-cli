@@ -41,7 +41,9 @@ export function registerExportCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--format <fmt>', 'Output format: brief or json', 'brief')
     .option('--limit <n>', 'Max decisions to include', '50')
-    .action(async (topic: string | undefined, opts: { env?: EnvName; format: string; limit: string }) => {
+    .option('--json', 'Same as --format json')
+    .action(async (topic: string | undefined, opts: { env?: EnvName; format: string; limit: string; json?: boolean }) => {
+      if (opts.json) opts.format = 'json';
       const config = createConfigStore();
       const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env)));
       const limit = Math.max(1, parseInt(opts.limit, 10) || 50);

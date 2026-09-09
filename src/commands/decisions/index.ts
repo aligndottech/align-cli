@@ -26,8 +26,9 @@ export function registerDecisionsCommand(program: Command): void {
     .option('--all', 'List every repo, not just the current one (local mode only)')
     .option('--limit <n>', 'Max results', '20')
     .option('--unratified', 'The human queue: agent-decided rows no human has ratified')
+    .option('--json', 'Print the rows as JSON')
     .action(async (opts: {
-      env: EnvName; platform?: string; status?: string; space?: string; repo?: string; all?: boolean; limit: string; unratified?: boolean;
+      env: EnvName; platform?: string; status?: string; space?: string; repo?: string; all?: boolean; limit: string; unratified?: boolean; json?: boolean;
     }) => {
       const config = createConfigStore();
       // Held, not re-derived: the header below printed `opts.env`, which is the FLAG. With no
@@ -51,6 +52,11 @@ export function registerDecisionsCommand(program: Command): void {
 
         const decisions = await client.listDecisions(params);
         spinner.stop();
+
+        if (opts.json) {
+          process.stdout.write(`${JSON.stringify(decisions)}\n`);
+          return;
+        }
 
         if (!decisions.length) {
           console.log(chalk.dim('\nNo decisions found.\n'));

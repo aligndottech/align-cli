@@ -113,7 +113,8 @@ export function registerAskCommand(program: Command): void {
     .option('--limit <n>', 'Max answers', '8')
     .option('--repo <name>', 'Scope to one repo - short name, owner/repo, or full identity (local mode only)')
     .option('--all', 'Search every repo, not just the current one (local mode only)')
-    .action(async (query: string, opts: { env?: EnvName; limit: string; repo?: string; all?: boolean }) => {
+    .option('--json', 'Print the matching decisions as JSON (no prose answer, no AI call)')
+    .action(async (query: string, opts: { env?: EnvName; limit: string; repo?: string; all?: boolean; json?: boolean }) => {
       const config = createConfigStore();
       const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const client = createGatewayClient(config.getEnvironment(envName));
@@ -160,6 +161,15 @@ export function registerAskCommand(program: Command): void {
             widenedFrom = results.scope;
             results = wholeGraph;
           }
+        }
+
+        // ALI-951: the machine shape stops here - retrieval, scope, and whether it widened.
+        // No synthesis: an agent reading JSON has its own model, and a script has no use for
+        // prose. Empty is an empty array, never the human "build your graph" hint below.
+        if (opts.json) {
+          spinner.stop();
+          process.stdout.write(`${JSON.stringify({ query, scope: results.scope ?? null, widened_from: widenedFrom, results: results.results })}\n`);
+          return;
         }
 
         // The spinner's lifetime is the lifetime of the WORK, not of the first search.
@@ -235,9 +245,9 @@ export function registerAskCommand(program: Command): void {
             }
 
             console.log(chalk.dim('  No decisions found. Build your graph first:'));
-            console.log(chalk.dim('    align import git'));
+            console.log(chalk.dim('    align connect'));
           }
-          console.log(chalk.dim('    align import linear   # or jira, slack, notion, confluence'));
+          console.log(chalk.dim('    align connect linear   # or jira, slack, notion, confluence'));
           console.log('');
           if (otherCommitters) console.log(chalk.dim(`  ${inviteNudgeLine('empty-with-committers')}\n`));
           return;
@@ -441,7 +451,7 @@ export function registerAskCommand(program: Command): void {
         const count = results.count;
         if (count > 0 && count < 5) {
           console.log(chalk.dim('  Add more sources for richer cross-tool context:'));
-          console.log(chalk.dim('    align import linear   # or jira, slack, notion, confluence'));
+          console.log(chalk.dim('    align connect linear   # or jira, slack, notion, confluence'));
           console.log('');
         }
         // ALI-938: the invite nudge, keyed on WHO decided rather than on graph size - the

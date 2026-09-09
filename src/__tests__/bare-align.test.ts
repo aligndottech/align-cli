@@ -140,7 +140,7 @@ describe('bare `align`', () => {
     // The one verb the card may ever name (ALI-951 renames it `align connect`).
     listDecisions.mockResolvedValue([]);
     const empty = await bare();
-    expect(empty).toMatch(/align import git/);
+    expect(empty).toMatch(/align connect/);
     expect(empty.match(/\balign\s+[a-z-]+/g)).toHaveLength(1);
     expect(empty).not.toMatch(/and ask:/);
 

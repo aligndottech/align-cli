@@ -27,6 +27,7 @@
     "build": "tsc -p tsconfig.json",
     "prepublishOnly": "npm run build",
     "dev": "tsx src/index.ts",
+    "docs:commands": "tsx scripts/gen-commands-doc.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.bun.json",
     "lint": "eslint .",
     "test": "vitest run",

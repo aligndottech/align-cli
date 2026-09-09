@@ -55,7 +55,7 @@ describe('align local status names its own gaps (ALI-796)', () => {
 
     await run(['local', 'status']);
 
-    expect(plain()).toContain("1 decision cites Jira I can't read - align import jira");
+    expect(plain()).toContain("1 decision cites Jira I can't read - align connect jira");
   });
 
   it('says nothing once the connector is connected', async () => {
