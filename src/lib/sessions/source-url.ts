@@ -20,3 +20,19 @@ export function parseSessionSourceUrl(url: string): { agent: AgentName; sessionI
   }
   return null;
 }
+
+/**
+ * ALI-810: memory files are not sessions, so they get their own scheme rather than being
+ * squeezed into `<agent>-session://<sessionId>/<messageId>` with invented ids.
+ *
+ * Built from the project directory name and the topic file's stem, both of which are stable
+ * for a given memory across rewrites - Claude edits a topic file in place rather than making
+ * a new one. That stability is the point: the gateway upserts on `(tenant_id, source_url)`,
+ * so re-running the import after Claude has revised a memory updates the decision instead of
+ * adding a second copy of it.
+ */
+export function buildMemorySourceUrl(memoryDir: string, filePath: string): string {
+  const project = memoryDir.split(/[\\/]/).filter(Boolean).at(-2) ?? 'unknown-project';
+  const topic = (filePath.split(/[\\/]/).pop() ?? 'unknown').replace(/\.md$/, '');
+  return `claude-code-memory://${project}/${topic}`;
+}
