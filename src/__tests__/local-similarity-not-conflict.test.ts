@@ -171,7 +171,10 @@ describe('ALI-503 the readout', () => {
 // ------------------------------------------------------------- D. the upsell gate
 
 describe('ALI-503 the upsell must not be bought by similarity', () => {
-  const SHARE = 'Share this graph with your team';
+  // ALI-938: the upsell text changed from a pricing URL to the invite command, but the
+  // GATE this describe block pins (hasValue - never bought by similarity alone) is
+  // unchanged. 'Add a teammate' is value-rollup.ts's 'value' reason line.
+  const SHARE = 'Add a teammate';
 
   it('local: shown once the graph has enough decisions to be worth sharing', () => {
     expect(renderValueReadout(rollup({ decisions: 5 }), { mode: 'local' })).toContain(SHARE);

@@ -184,6 +184,27 @@ describe('recordFunnelStage', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  // ALI-938: the bottom-up-thesis signal. Same emitter, same consent model as every other
+  // stage - no new mechanism to test, just that the stage name rides through both paths.
+  it('cloud: sends cli.funnel.teammate_requested for the invite command', async () => {
+    await recordFunnelStage(cloudEnv, 'teammate_requested', 'invite');
+
+    const { body } = sentTo();
+    expect(body).toMatchObject({
+      eventName: 'cli.funnel.teammate_requested',
+      properties: { command: 'invite' },
+    });
+  });
+
+  it('local + consent granted: one anonymous ping carrying teammate_requested', async () => {
+    getTelemetryConsent.mockReturnValue('granted');
+
+    await recordFunnelStage(localEnv, 'teammate_requested', 'invite');
+
+    const { body } = sentTo();
+    expect(body).toMatchObject({ stage: 'teammate_requested', command: 'invite' });
+  });
+
   // Gateway parity (align-stack#1990): a query-taking command sends its top-level word
   // only - a user's one-word query must never ride the command field.
   it('collapses a query-taking command to its top-level word', async () => {
