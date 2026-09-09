@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.38.0](https://github.com/aligndottech/align-cli/compare/cli-v0.37.1...cli-v0.38.0) (2026-09-09)
+
+
+### Features
+
+* **agents:** the agent side leads with the check - align_check_alignment first, one instruction text with the hosted server, pre-edit hooks for Codex, Cursor and Copilot CLI (ALI-952) ([#282](https://github.com/aligndottech/align-cli/issues/282)) ([f630b31](https://github.com/aligndottech/align-cli/commit/f630b3188845114449d7d0b12f0ad28a70fa39d6))
+* align invite &lt;email&gt; and the teammate-request funnel signal (ALI-938) ([#278](https://github.com/aligndottech/align-cli/issues/278)) ([279672f](https://github.com/aligndottech/align-cli/commit/279672f644facfe13fa9c3a9036d5ef466f07897))
+* **cli:** read Claude Code auto-memory as a third session-import pass (ALI-810) ([#285](https://github.com/aligndottech/align-cli/issues/285)) ([71571cb](https://github.com/aligndottech/align-cli/commit/71571cb266dc4fe0ac670d90a9c5553c44712556))
+* **cli:** session-import funnel stages and the summary line (ALI-835) ([#286](https://github.com/aligndottech/align-cli/issues/286)) ([ebb3a1f](https://github.com/aligndottech/align-cli/commit/ebb3a1ffe9ad59e303197f286a72a17cf52cbd05))
+* **setup:** the next step is in the agent - the outro names the agent and the question, the second-run card names no CLI verb (ALI-950) ([#280](https://github.com/aligndottech/align-cli/issues/280)) ([1057c65](https://github.com/aligndottech/align-cli/commit/1057c65c46db6b5f86a6aab4519a93cfbb4e7b7c))
+* **telemetry:** local-mode split - install and setup_completed beacons by default, usage stays consent-gated (ALI-954) ([#281](https://github.com/aligndottech/align-cli/issues/281)) ([19c6380](https://github.com/aligndottech/align-cli/commit/19c6380842d3db687dbc101cc654dce32dd753f0))
+
+
+### Bug Fixes
+
+* **cli:** re-land ALI-951 (help tiers, align connect) - [#283](https://github.com/aligndottech/align-cli/issues/283) merged into a dead branch, never reached main ([#284](https://github.com/aligndottech/align-cli/issues/284)) ([9cd72b4](https://github.com/aligndottech/align-cli/commit/9cd72b40f06d20e993565df1d3931070a4ded41f))
+* **lib:** sync isSyntheticSource/navigableSourceUrl into decision-links.ts (ALI-923) ([#275](https://github.com/aligndottech/align-cli/issues/275)) ([71cb4d9](https://github.com/aligndottech/align-cli/commit/71cb4d9ee90fd004d7e5774c89b09184ba72a7dc))
+* **telemetry:** the funnel sees the wizard - setup_started/completed, bare align, MCP first_useful_decision (ALI-949) ([#279](https://github.com/aligndottech/align-cli/issues/279)) ([ecd4fd2](https://github.com/aligndottech/align-cli/commit/ecd4fd2a16b8cbedba4afb7952cc7d016be16470))
+
 ## [0.37.1](https://github.com/aligndottech/align-cli/compare/cli-v0.37.0...cli-v0.37.1) (2026-09-07)
 
 
