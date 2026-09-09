@@ -203,7 +203,11 @@ describe('connectDetectedAgents names what it wired (ALI-950)', () => {
   beforeEach(() => {
     logged.length = 0;
     detectEditors.mockReset();
-    writeMcpConfig.mockReset();
+    // Merge-conflict resolution note (ALI-950 x ALI-952): this reset had no default
+    // implementation, so every call fell through to vi.fn()'s undefined return,
+    // `touched.push(...undefined)` threw, and the catch swallowed it - both tests below
+    // were passing by accident, on the exception path, not the one they name.
+    writeMcpConfig.mockReset().mockImplementation((t: { configPath: string }) => [t.configPath]);
   });
 
   it('returns the wired agents by name, in detection order', async () => {

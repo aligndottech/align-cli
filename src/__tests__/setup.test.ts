@@ -1698,6 +1698,16 @@ describe('align setup', () => {
       return (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]).replace(ANSI, '')).join('\n');
     }
 
+    beforeEach(async () => {
+      // Merge-conflict resolution note (ALI-950 x ALI-952): writeMcpConfig now returns every
+      // file it wrote (the module mock at the top of this file has no default), so the two
+      // tests below that route through connectDetectedAgents -> writeMcpConfig need a real
+      // array back, or the spread throws, the catch swallows it, and "wired" stays empty -
+      // which reads as "no agent detected" instead of the agent this block is testing.
+      const { writeMcpConfig } = await import('../lib/mcp-setup.js');
+      vi.mocked(writeMcpConfig).mockReturnValue([CURSOR.configPath]);
+    });
+
     afterEach(async () => {
       // clearAllMocks keeps implementations, so a detectEditors set here would leak.
       const { detectEditors } = await import('../lib/mcp-setup.js');
