@@ -6,14 +6,37 @@ import { alignServerEntry } from './mcp-setup.js';
 // instructions (model discretion); these project-local, committed files make the
 // alignment context fire regardless of which agent/model the user runs:
 //  - .claude/settings.json  Pre/PostToolUse hook -> `align check --advisory` (Claude Code)
+//  - .claude/settings.json  SessionStart hook -> `align context inject` (Claude Code, ALI-933)
 //  - CLAUDE.md               managed nudge block (Claude Code)
 //  - AGENTS.md               managed nudge block (the cross-agent standard read by
 //                            Cursor, Windsurf, Codex, Gemini, Zed, and others)
 //  - .cursor/rules/align.md  project rule (Cursor ignores Claude Code hooks)
+//
+// ALI-933: the write-path hooks above only ever reach the model if the AGENT edits a
+// file. Nothing delivered the graph's content unprompted - a claim like "the agent
+// already has the answer" was only true of the ask-based MCP path, never of a fresh
+// session. writeClaudeCodeSessionHook is the read-path counterpart: it fires at
+// SessionStart, before the model has done anything, and injects whatever `align context
+// sync` last wrote. See docs/agent-hooks.md for which other hosts do (and, mostly,
+// don't) expose an equivalent mechanism, and why.
 
 // Claude Code hook command timeout, in SECONDS (Claude Code's unit). The advisory
 // check also self-bounds (see ADVISORY_TIMEOUT_MS in check.ts); this is the backstop.
 const HOOK_TIMEOUT_SECONDS = 10;
+
+// The command a SessionStart hook shells out to (ALI-933). No --env flag: unlike the
+// advisory check, this reads a local file (.align/decisions.md) and never touches the
+// gateway, so there is no environment to encode.
+const SESSION_INJECT_COMMAND = 'align context inject';
+
+// Every `source` value Claude Code's SessionStart hook documents (startup, resume,
+// clear, compact, fork - code.claude.com/docs/en/hooks, verified 2026-09-09). Listed
+// explicitly, alternation-matched, rather than omitting `matcher` to mean "all": that
+// omission is unverified for this event, where the existing Write|Edit matcher on
+// PreToolUse/PostToolUse IS the documented idiom for "more than one value". A compacted
+// or resumed session may have dropped the graph content from its summary, so there is
+// no source worth excluding by default.
+const SESSION_START_MATCHER = 'startup|resume|clear|compact|fork';
 
 export const ALIGN_NUDGE_START = '<!-- align:start (managed by `align setup` - do not edit) -->';
 export const ALIGN_NUDGE_END = '<!-- align:end -->';
@@ -26,6 +49,11 @@ function advisoryCommand(env?: string): string {
 function isAlignHookGroup(group: unknown): boolean {
   const hooks = (group as { hooks?: Array<{ command?: unknown }> })?.hooks;
   return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes('align check --advisory'));
+}
+
+function isAlignSessionHookGroup(group: unknown): boolean {
+  const hooks = (group as { hooks?: Array<{ command?: unknown }> })?.hooks;
+  return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes(SESSION_INJECT_COMMAND));
 }
 
 // Merge a PostToolUse (Write|Edit) hook into the project .claude/settings.json. The
@@ -58,6 +86,42 @@ export function writeClaudeCodeHook(cwd: string, env?: string): void {
     });
     hooks[event] = preserved;
   }
+  settings['hooks'] = hooks;
+
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+}
+
+// Merge a SessionStart hook into the project .claude/settings.json (ALI-933) - the
+// read-path counterpart to writeClaudeCodeHook above. Separate function, separate merge:
+// it touches a different top-level hook key (SessionStart, not Pre/PostToolUse) for a
+// different purpose (inject the graph unprompted, not check a proposed edit), and
+// conflating the two would make either one harder to read without saving a real merge.
+//
+// Fires on every documented source (SESSION_START_MATCHER) and always non-blocking:
+// `align context inject` only ever prints an additionalContext line or nothing, never a
+// deny - there is nothing here to approve or reject, only content to offer or withhold.
+export function writeClaudeCodeSessionHook(cwd: string): void {
+  const dir = path.join(cwd, '.claude');
+  const file = path.join(dir, 'settings.json');
+
+  let settings: Record<string, unknown> = {};
+  try {
+    settings = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'ENOENT') {
+      throw new Error(`${file} contains invalid JSON - fix it manually before running align setup`);
+    }
+  }
+
+  const hooks = (settings['hooks'] ?? {}) as Record<string, unknown>;
+  const existing = (Array.isArray(hooks['SessionStart']) ? hooks['SessionStart'] : []) as unknown[];
+  const preserved = existing.filter((g) => !isAlignSessionHookGroup(g));
+  preserved.push({
+    matcher: SESSION_START_MATCHER,
+    hooks: [{ type: 'command', command: SESSION_INJECT_COMMAND, timeout: HOOK_TIMEOUT_SECONDS }],
+  });
+  hooks['SessionStart'] = preserved;
   settings['hooks'] = hooks;
 
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -412,6 +476,7 @@ export function writeOpenCodePlugin(cwd: string, env?: string): void {
 // repo-relative paths written, for the caller to report.
 export function setupAgentAlignment(opts: { cwd: string; env?: string }): string[] {
   writeClaudeCodeHook(opts.cwd, opts.env);
+  writeClaudeCodeSessionHook(opts.cwd);
   writeManagedNudge(opts.cwd);
   writeAgentsNudge(opts.cwd);
   writeCursorRule(opts.cwd);

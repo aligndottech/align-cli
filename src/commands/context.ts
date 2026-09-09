@@ -107,4 +107,42 @@ export function registerContextCommand(program: Command): void {
       }
       console.log(chalk.dim('Re-run `align context sync` after new decisions land.'));
     });
+
+  context
+    .command('inject')
+    .description(
+      'Print the decisions file as SessionStart hook output (written by `align setup`, not meant to be run by hand)',
+    )
+    .action(() => {
+      // ALI-933: the read-path counterpart to `align check --advisory`. A SessionStart
+      // hook shells out to this on every new/resumed/compacted session; whatever it
+      // prints lands in the model's context WITHOUT the model choosing to open a file or
+      // call a tool. Deliberately reads the file `align context sync` already wrote
+      // rather than fetching the graph itself - a hook must stay fast and offline-safe,
+      // and the fetch+render pipeline already has an owner (registerContextCommand's
+      // `sync` action, above). See docs/agent-hooks.md for the read-path enumeration
+      // this command backs.
+      //
+      // Fail-open on every branch, matching every other host shim in agent-rules.ts: no
+      // decisions synced yet, an unreadable file, or a file with nothing but whitespace
+      // in it all print nothing rather than error or inject an empty additionalContext.
+      let raw: string;
+      try {
+        raw = fs.readFileSync(path.join(process.cwd(), ALIGN_CONTEXT_PATH), 'utf8');
+      } catch {
+        return;
+      }
+      if (!raw.trim()) return;
+      // trimEnd only: a full trim() would also strip leading whitespace, which is
+      // part of the file's real content (e.g. an indented code block) and would
+      // contradict the "raw file content" claim in the test and docs above.
+      const content = raw.trimEnd();
+
+      // Same shape Claude Code's own hooks already emit elsewhere in this codebase
+      // (check.ts's buildAdvisoryOutput default case) - hookSpecificOutput.additionalContext,
+      // confirmed for SessionStart specifically against code.claude.com/docs/en/hooks.
+      process.stdout.write(
+        `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: content } })}\n`,
+      );
+    });
 }
