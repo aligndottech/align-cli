@@ -56,6 +56,17 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
     process.exit(2);
   }
 
+  // Copilot review, #283: without --source, an interactive run still opens the multiselect
+  // picker - and --token/--json are documented as working WITH --source, but nothing enforced
+  // that. A single --token seeds every source the multiselect picks (connectLocalSources
+  // applies one seedTokens value to every preselected id), and --json's "one JSON document"
+  // contract assumes exactly one source. Both need --source to mean what they say.
+  if ((opts.token || opts.json) && !opts.source) {
+    const flag = opts.token ? '--token' : '--json';
+    console.error(chalk.red(`align connect: ${flag} requires --source <id> - without it, ${opts.token ? '--token would seed every source you pick' : '--json would print one summary per picked source'}.`));
+    process.exit(2);
+  }
+
   const config = createConfigStore();
   const { dbPath } = await initLocalMode();
   const localEnv = config.getEnvironment('local');

@@ -175,6 +175,30 @@ describe('align connect (ALI-951)', () => {
       expect(mockPassword).not.toHaveBeenCalled();
       expect(mockFetchGitHub).toHaveBeenCalledWith(expect.objectContaining({ token: 'saved-token' }));
     });
+
+    // Copilot review, #283: --token with no --source seeds every source the interactive
+    // multiselect picks (setup.ts's connectLocalSources applies one seedTokens value to
+    // every preselected id); --json with no --source would print one summary per picked
+    // source against a contract documented as one document. Both need --source to mean
+    // anything, so both are refused before the picker runs, at a real terminal too - the
+    // no-terminal cases above only prove the narrower "no --source at all" rule.
+    it('at a terminal, --token with no --source: exits non-zero naming --source, before any prompt', async () => {
+      setTty(true, true);
+      const code = await run(['connect', '--token', 'ghp_x']);
+      expect(code).not.toBe(0);
+      expect(code).toBeDefined();
+      expect(stderr.join('\n')).toContain('--source');
+      expect(mockMultiselect).not.toHaveBeenCalled();
+    });
+
+    it('at a terminal, --json with no --source: exits non-zero naming --source, before any prompt', async () => {
+      setTty(true, true);
+      const code = await run(['connect', '--json']);
+      expect(code).not.toBe(0);
+      expect(code).toBeDefined();
+      expect(stderr.join('\n')).toContain('--source');
+      expect(mockMultiselect).not.toHaveBeenCalled();
+    });
   });
 
   describe('--json', () => {
