@@ -25,7 +25,8 @@ export function registerLinksCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--relation <type>', 'Filter by relation type (conflicts_with, supersedes, supports, etc.)')
     .option('--decision <id>', 'Filter by decision ID')
-    .action(async (opts: { env?: EnvName; relation?: string; decision?: string }) => {
+    .option('--json', 'Print the links and their total as JSON')
+    .action(async (opts: { env?: EnvName; relation?: string; decision?: string; json?: boolean }) => {
       const client = createGatewayClient(createConfigStore().getEnvironment(resolveEnv(opts.env)));
       const spinner = ora('Fetching links...').start();
       try {
@@ -34,6 +35,10 @@ export function registerLinksCommand(program: Command): void {
           decision_id: opts.decision,
         });
         spinner.stop();
+        if (opts.json) {
+          process.stdout.write(`${JSON.stringify({ links: items, total_count })}\n`);
+          return;
+        }
         if (!items.length) { console.log(chalk.dim('\nNo links found.\n')); return; }
         console.log(chalk.bold('\nDecision Links\n'));
         renderTable(

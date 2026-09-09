@@ -80,18 +80,18 @@ other three. Full per-host matrix: [docs/agent-hooks.md](docs/agent-hooks.md).
 ## Everyday commands
 
 ```bash
+align                                # set up, or see your graph and what to do next
 align ask "how does our auth work"   # natural language answer with sources
-align search "authentication"        # ranked list, no AI needed
 align ask src/auth/session.ts        # a file path finds decisions about that file
-align import git                     # pull commit history, no token
-align import docs                    # pull ADRs + your CLAUDE.md/AGENTS.md, no token
-align import jira --token ...        # add more sources
-align capture <url>                  # capture one decision from a PR, ticket or thread
+align connect                        # pick a source to import: git, docs, jira, github, ...
+align connect jira --token ...       # one source, straight in
 align check                          # check your staged diff against the graph
-align context sync                   # write decisions to .align/decisions.md
-align ratify <id>                     # stand behind an agent-made decision, as a human
-align push <id>                       # send one ratified local decision to the shared graph
+align mcp --setup                    # wire your agent to the graph
 ```
+
+That is the whole of `align --help`. Every other command (`search`, `decisions`, `export`,
+`ratify`, `push`, `context`, `local`, ...) still works and is listed in
+[docs/commands.md](docs/commands.md).
 
 `align ask` needs an AI provider to write prose. Without one it returns the matching decisions
 as a ranked list, which needs no key. Bring your own: Anthropic, OpenAI, Gemini, Groq, Mistral,

@@ -56,39 +56,39 @@ describe('setupSummaryLine', () => {
       { platform: 'slack', decisions: 3, connectors: ['slack'] },
     ]);
     expect(line).toBe(
-      "12 decisions reference Jira keys I can't read - align import jira when you want them filled in.",
+      "12 decisions reference Jira keys I can't read - align connect jira when you want them filled in.",
     );
   });
 
   it('singularizes a lone decision', () => {
     const line = setupSummaryLine([{ platform: 'slack', decisions: 1, connectors: ['slack'] }]);
     expect(line).toBe(
-      "1 decision references Slack keys I can't read - align import slack when you want it filled in.",
+      "1 decision references Slack keys I can't read - align connect slack when you want it filled in.",
     );
   });
 
   it('joins ambiguous connectors with "or"', () => {
     const line = setupSummaryLine([{ platform: 'tracker', decisions: 4, connectors: ['jira', 'linear'] }]);
-    expect(line).toContain('align import jira or align import linear');
+    expect(line).toContain('align connect jira or align connect linear');
   });
 });
 
 describe('statusGapLine', () => {
   it('renders one platform gap with its command', () => {
     expect(statusGapLine({ platform: 'confluence', decisions: 2, connectors: ['confluence'] }))
-      .toBe("  2 decisions cite Confluence I can't read - align import confluence");
+      .toBe("  2 decisions cite Confluence I can't read - align connect confluence");
   });
 
   it('agrees the verb with a lone decision', () => {
     expect(statusGapLine({ platform: 'tracker', decisions: 1, connectors: ['jira', 'linear'] }))
-      .toBe("  1 decision cites ticket-tracker I can't read - align import jira or align import linear");
+      .toBe("  1 decision cites ticket-tracker I can't read - align connect jira or align connect linear");
   });
 });
 
 describe('askTrailingLine', () => {
   it('names the first unresolved ref on a decision', () => {
     const line = askTrailingLine([{ platform: 'jira' }], () => false);
-    expect(line).toBe("cites a Jira ref I can't read - align import jira");
+    expect(line).toBe("cites a Jira ref I can't read - align connect jira");
   });
 
   it('returns null when every ref is already resolved', () => {
@@ -103,11 +103,11 @@ describe('askTrailingLine', () => {
   // with a vowel sound - "cites a issue-tracker ref" is ungrammatical.
   it('uses "an" before a vowel-starting label', () => {
     const line = askTrailingLine([{ platform: 'code' }], () => false);
-    expect(line).toBe("cites an issue-tracker ref I can't read - align import github or align import gitlab");
+    expect(line).toBe("cites an issue-tracker ref I can't read - align connect github or align connect gitlab");
   });
 
   it('keeps "a" before a consonant-starting label', () => {
     const line = askTrailingLine([{ platform: 'tracker' }], () => false);
-    expect(line).toBe("cites a ticket-tracker ref I can't read - align import jira or align import linear");
+    expect(line).toBe("cites a ticket-tracker ref I can't read - align connect jira or align connect linear");
   });
 });
