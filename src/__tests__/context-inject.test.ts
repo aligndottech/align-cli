@@ -82,7 +82,18 @@ describe('align context inject', () => {
     fs.writeFileSync(path.join(repo, '.align', 'decisions.md'), content);
     const { stdout } = await runInject();
     const parsed = JSON.parse(stdout.trim());
-    expect(parsed.hookSpecificOutput.additionalContext).toBe(content.trim());
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(content.trimEnd());
+  });
+
+  it('preserves leading whitespace inside the file - only trailing newlines are stripped', async () => {
+    // An indented code block on the first line is real markdown; a naive full-string
+    // .trim() would strip it and contradict the "raw file content" claim above.
+    const content = '    indented first line\n\n- Use Postgres 16\n\n\n';
+    fs.mkdirSync(path.join(repo, '.align'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.align', 'decisions.md'), content);
+    const { stdout } = await runInject();
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.hookSpecificOutput.additionalContext).toBe('    indented first line\n\n- Use Postgres 16');
   });
 
   it('prints nothing for a whitespace-only decisions file', async () => {
