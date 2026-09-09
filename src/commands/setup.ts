@@ -897,10 +897,10 @@ export async function runSetup(
 
     // ---- Step 0: Cloud (default) vs local (--local) ----
     // Solo defaults to CLOUD: telemetry, the real cloud relationship classifier, backup.
-    // A work email lands the tenant already registered for that domain (or creates one,
-    // admin if first); a personal email gets a tenant of one, with a web-only invite path
-    // into a company tenant later (reuses the personal->org join flow). --local is the
-    // opt-in offline escape hatch; --approve runs the cloud path non-interactively.
+    // A work email lands you in the tenant already registered for that domain (or creates
+    // one, admin if first); a personal email gets a tenant of one, with a web-only invite
+    // path into a company tenant later (reuses the personal->org join flow). --local is
+    // the opt-in offline escape hatch; --approve runs the cloud path non-interactively.
     //
     // ALI-794: on a genuinely fresh machine (neither mode configured yet), interactively,
     // with neither flag forcing a mode, invert this - build the local graph and show what
@@ -965,10 +965,10 @@ async function runFreshSetup(ctx: {
   //
   // "A path to team sharing", never "for team sharing": choosing cloud on a personal
   // email creates a tenant of one (the option's hint says so), and joining a team is a
-  // separate web invite later. A work email already lands the shared tenant, which is
-  // why the hint distinguishes them rather than promising a generic upgrade. The
-  // question and the option below must keep agreeing on that - the question overclaimed
-  // for a while and a live tester read it as sharing starting here.
+  // separate web invite later. A work email already lands you in the shared tenant,
+  // which is why the hint distinguishes them rather than promising a generic upgrade.
+  // The question and the option below must keep agreeing on that - the question
+  // overclaimed for a while and a live tester read it as sharing starting here.
   const choice = await p.select({
     message: 'Stay local, or sync to the cloud for backup, richer detection, and a path to team sharing?',
     options: [

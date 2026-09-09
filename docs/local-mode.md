@@ -4,8 +4,9 @@
 
 - **Cloud** (default). Your graph is hosted at Align: synced across machines, backed up, and
   cross-tool relationship detection runs server-side. Connectors connect via **read-only
-  browser OAuth**, and `align ask` retrieval runs server-side. Which tenant you land in depends
-  on the email you sign in with, not on anything you choose:
+  browser OAuth**, and `align ask` retrieval runs server-side. Which tenant you land in is
+  decided entirely by the email you sign in with - there's no separate personal-vs-team
+  picker:
   - **Work email** - you join the tenant already registered for that domain, or a new one is
     created and you're its admin if you're first. The next colleague who signs in with the same
     domain lands in that same tenant automatically. No invite needed.
