@@ -31,6 +31,7 @@ const { version } = pkg;
 import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
 import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
+import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -435,12 +436,14 @@ interface LocalValuePhaseResult {
   /** ALI-827: every source the value phase fetched, for the one report the connector
    *  phase prints at the end. */
   capture: ReturnType<typeof createCaptureCollector>;
+  /** ALI-949: the wizard's setup_started / setup_completed emitter, one per run. */
+  funnel: SetupFunnel;
 }
 
 /** Thrown inside the docs block to leave it without starting a read; never surfaces. */
 class SkipDocs extends Error {}
 
-async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<LocalValuePhaseResult> {
+async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
@@ -604,8 +607,12 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
   // is the only thing that can ever turn this on - see usage-telemetry.ts's local-embedded
   // branch, which reads this same stored decision.
   await maybeRequestTelemetryConsent(config, Boolean(interactive));
+  // ALI-949: the first checkpoint at which a local-mode setup_started CAN send - consent is
+  // only now on disk (or was already, on a re-run). The wizard-start offer in runSetup could
+  // not send for a fresh install, so the funnel object is offered the local env again here.
+  void opts.funnel.started(localEnv);
 
-  return { interactive, config, localEnv, localClient, dbPath, opts, capture };
+  return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel };
 }
 
 /**
@@ -617,7 +624,7 @@ async function runLocalValuePhase(opts: { approve?: boolean } = {}): Promise<Loc
  * move changes only how code is reached, never what it does).
  */
 async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void> {
-  const { interactive, config, localEnv, localClient, dbPath, opts, capture } = ctx;
+  const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel } = ctx;
 
   // Connectors: local mode connects by a read-only token the user mints themselves,
   // for every connector - their personal graph, their credential. OAuth belongs to
@@ -853,12 +860,16 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     // It is a fine thing to ask an AGENT over MCP, and a bad first thing to type here.
     `  Ask it something real: ${chalk.bold('align ask "why <a thing you decided>"')}${gapLine ? `\n\n  ${chalk.dim(gapLine)}` : ''}`,
   );
+  // ALI-949: after the outro, never before it - telemetry must not delay what the user is
+  // waiting for. Awaited (unlike the other emitters) because this is the wizard's last act
+  // and the one row the funnel was blind to; there is nothing left for a 2s worst case to hold up.
+  await funnel.completed(localEnv);
 }
 
 // Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
 // the two phases above unchanged - this is exactly what ran before the ALI-794 split, just
 // as two calls instead of one function body.
-async function runLocalSetup(opts: { approve?: boolean } = {}): Promise<void> {
+async function runLocalSetup(opts: { approve?: boolean; funnel: SetupFunnel }): Promise<void> {
   const ctx = await runLocalValuePhase(opts);
   await runLocalConnectorPhase(ctx);
 }
@@ -895,6 +906,13 @@ export async function runSetup(
     printBanner({ version });
     p.intro(commandIntro('align setup'));
 
+    // ALI-949: the wizard has begun. On a fresh install this offer cannot send (no token
+    // yet, no local consent yet) and the funnel object holds it until a later checkpoint
+    // can - after consent in the local value phase, after login in the cloud path. A
+    // returning cloud user sends here. Fire-and-forget: a slow gateway never delays setup.
+    const funnel = createSetupFunnel();
+    void funnel.started(env);
+
     // ---- Step 0: Cloud (default) vs local (--local) ----
     // Solo defaults to CLOUD: telemetry, the real cloud relationship classifier, backup.
     // A work email lands you in the tenant already registered for that domain (or creates
@@ -908,7 +926,7 @@ export async function runSetup(
     // not asked to sit through that again; they keep the question below, same as today.
     const interactive = process.stdin.isTTY && process.stdout.isTTY;
     if (!opts.local && !opts.approve && interactive && isFreshInstall(config)) {
-      await runFreshSetup({ config, env, client, envName, opts });
+      await runFreshSetup({ config, env, client, envName, opts, funnel });
       return;
     }
 
@@ -931,11 +949,11 @@ export async function runSetup(
     }
 
     if (mode === 'local') {
-      await runLocalSetup({ approve: opts.approve });
+      await runLocalSetup({ approve: opts.approve, funnel });
       return;
     }
 
-    await runCloudSetup({ opts, config, env, client, envName });
+    await runCloudSetup({ opts, config, env, client, envName, funnel });
 }
 
 /**
@@ -954,8 +972,9 @@ async function runFreshSetup(ctx: {
   client: ReturnType<typeof createGatewayClient>;
   envName: EnvName;
   opts: { approve?: boolean; reset?: boolean };
+  funnel: SetupFunnel;
 }): Promise<void> {
-  const phase = await runLocalValuePhase({ approve: ctx.opts.approve });
+  const phase = await runLocalValuePhase({ approve: ctx.opts.approve, funnel: ctx.funnel });
   // The value phase's capture report is printed by runLocalConnectorPhase, so choosing
   // cloud below drops it - deliberately: runCloudSetup re-imports git and docs into the
   // cloud tenant and prints its own report, which is the one that describes that graph.
@@ -997,8 +1016,9 @@ async function runCloudSetup(ctx: {
   env: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
   client: ReturnType<typeof createGatewayClient>;
   envName: EnvName;
+  funnel: SetupFunnel;
 }): Promise<void> {
-  const { opts, config, env, envName } = ctx;
+  const { opts, config, env, envName, funnel } = ctx;
   let client = ctx.client;
 
   // ---- Step 1: Auth check (inline login when interactive + unauthenticated) ----
@@ -1025,11 +1045,14 @@ async function runCloudSetup(ctx: {
       }
       // Re-create the client so it carries the freshly stored token.
       client = createGatewayClient(config.getEnvironment(envName));
+      // ALI-949: the first checkpoint at which a fresh cloud install's setup_started CAN
+      // send - the token exists now. `env` above is the pre-login snapshot, so re-read.
+      void funnel.started(config.getEnvironment(envName));
     } else {
       // Declined cloud login: offer the local escape hatch instead of failing.
       const wantLocal = await p.confirm({ message: 'Set up local-only mode instead? (no account, stays on this machine)' });
       if (!p.isCancel(wantLocal) && wantLocal) {
-        await runLocalSetup({ approve: opts.approve });
+        await runLocalSetup({ approve: opts.approve, funnel });
         return;
       }
       p.log.warn(`Run ${chalk.bold('align login')} when ready, then ${chalk.bold('align setup')}.`);
@@ -1356,4 +1379,7 @@ async function runCloudSetup(ctx: {
     chalk.dim('\n  https://app.align.tech/pricing'),
   ].join('');
   p.outro(outroText);
+  // ALI-949: after the outro, and against the env as it is NOW (the inline login above may
+  // have stored the token after `env` was read). See runLocalConnectorPhase for why awaited.
+  await funnel.completed(config.getEnvironment(envName));
 }

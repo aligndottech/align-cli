@@ -55,8 +55,10 @@ applies to the environment you're running in and why.
 - **Local-only mode is opt-in, and off until you say yes.** `setup --local` asks once, on first
   run: send an anonymous count of which commands you run - no code, no decisions, no file names,
   ever. Decline (or don't answer - a non-interactive run is never asked) and nothing is sent,
-  ever, until you run `align telemetry on`. The payload is exactly three fields: a random id
-  generated once for this machine, the command name, and the CLI version - nothing else.
+  ever, until you run `align telemetry on`. The payload is a random id generated once for this
+  machine, the command name, and the CLI version - plus, on a handful of milestone pings (setup
+  started and completed, an import finishing, an agent wired up, the first useful answer), which
+  milestone it was. Nothing else.
 - **`ALIGN_TELEMETRY=0` always wins**, in both modes, over everything else including a prior
   `align telemetry on`.
 - `align telemetry on` / `align telemetry off` change the local-only decision at any time.

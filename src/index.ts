@@ -74,16 +74,16 @@ program
 // the command's own work, so a slow or blackholed gateway cannot delay the output the user came
 // for.
 program.hook('postAction', async (_thisCommand, actionCommand) => {
-  const { envFlagOf, recordInvocationUsage } = await import('./lib/usage-telemetry.js');
+  const { envFlagOf, invocationCommandPath, recordInvocationUsage } = await import('./lib/usage-telemetry.js');
   // Full path ("local ask"), not the leaf name ("ask"), so recordCommandUsage can exclude the
-  // offline `local` group - a cloud-logged-in user running it still has a token in hand.
-  const parts: string[] = [];
-  for (let c: Command | null = actionCommand; c?.parent; c = c.parent) parts.unshift(c.name());
+  // offline `local` group - a cloud-logged-in user running it still has a token in hand. The
+  // root action (bare `align`, ALI-773) has no parent and reports as 'align' (ALI-949) - the
+  // walk used to yield '' for it, so the primary first-run path was never counted.
   // The command's OWN --env, not the default env: `align setup --local` leaves the default
   // pointing at cloud on purpose, so reading the default reported local sessions as cloud ones.
   // envFlagOf reads through to the parent, because `--env` is declared on both the `import`
   // group and its subcommands and Commander awards it to the parent (align-cli#79).
-  await recordInvocationUsage(envFlagOf(actionCommand), parts.join(' '));
+  await recordInvocationUsage(envFlagOf(actionCommand), invocationCommandPath(actionCommand));
 });
 
 // Environment targeting

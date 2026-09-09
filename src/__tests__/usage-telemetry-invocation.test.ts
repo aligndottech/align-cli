@@ -96,6 +96,15 @@ describe('recordInvocationUsage', () => {
 
   // The boundary: the setup suppression is scoped to `setup`. Other commands still report, or
   // configuring local mode once would silence cloud telemetry for good.
+  // ALI-949: the root action (bare `align`) reports under its own name in cloud mode too.
+  it('reports bare `align` as a cli.command event with command = align', async () => {
+    await recordInvocationUsage(undefined, 'align');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const init = mockFetch.mock.calls[0]?.[1] as { body: string };
+    expect(JSON.parse(init.body)).toMatchObject({ eventName: 'cli.command', properties: { command: 'align' } });
+  });
+
   it('still reports a cloud command on a machine that also has local-embedded configured', async () => {
     await recordInvocationUsage(undefined, 'decisions list');
 

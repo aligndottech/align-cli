@@ -154,6 +154,13 @@ vi.mock('../lib/login-flow.js', () => ({
   loginInteractive: mockLoginInteractive,
 }));
 
+// ALI-949: the funnel emitter, so the wizard's setup_started / setup_completed checkpoints
+// are observable. Resolves false by default ("could not send"), which is what a fresh
+// install looks like at wizard start; the tests that need a send flip it. personal-import's
+// import_completed calls land on this spy too - the assertions below filter by stage.
+const mockRecordFunnelStage = vi.hoisted(() => vi.fn().mockResolvedValue(false));
+vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage: mockRecordFunnelStage }));
+
 vi.mock('../lib/mcp-setup.js', () => ({
   detectEditors: vi.fn().mockReturnValue([]),
   writeMcpConfig: vi.fn(),
@@ -1390,6 +1397,106 @@ describe('align setup', () => {
           expect.objectContaining({ message: 'How are you using Align?' }),
         );
       });
+    });
+  });
+
+  /**
+   * ALI-949: setup_started and setup_completed had no emitter, so the PostHog funnel read
+   * setup_completed = 0 for a launch week in which two installs finished the wizard. Both
+   * stages are emitted from runSetup's shared body, so bare `align` (ALI-773, which calls
+   * runSetup - see bare-align.test.ts) and `align setup` count identically.
+   *
+   * In local mode consent is asked MID-wizard (ALI-794: value before questions), so the
+   * wizard OFFERS setup_started at each checkpoint and the funnel object sends once, at the
+   * first offer the emitter reports as sent (setup-funnel.test.ts pins that rule). These
+   * tests pin that the checkpoints exist and sit on the right side of consent and login.
+   */
+  describe('funnel stages (ALI-949)', () => {
+    const realStdinIsTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const realStdoutIsTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    beforeEach(() => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      mockRecordFunnelStage.mockReset().mockResolvedValue(false);
+    });
+    afterEach(() => {
+      if (realStdinIsTTY) Object.defineProperty(process.stdin, 'isTTY', realStdinIsTTY);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      if (realStdoutIsTTY) Object.defineProperty(process.stdout, 'isTTY', realStdoutIsTTY);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    });
+
+    const stageCalls = (stage: string) =>
+      mockRecordFunnelStage.mock.calls
+        .map((c, i) => ({ args: c, order: mockRecordFunnelStage.mock.invocationCallOrder[i]! }))
+        .filter((c) => c.args[1] === stage);
+
+    it('cloud (--approve, already logged in): setup_started once at the start, setup_completed once after the outro', async () => {
+      mockRecordFunnelStage.mockResolvedValue(true);
+      const { outro } = await import('@clack/prompts');
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      const started = stageCalls('setup_started');
+      const completed = stageCalls('setup_completed');
+      expect(started).toHaveLength(1);
+      expect(completed).toHaveLength(1);
+      expect(started[0]!.args[2]).toBe('setup');
+      expect(completed[0]!.args[2]).toBe('setup');
+      expect(started[0]!.order).toBeLessThan(completed[0]!.order);
+      // Telemetry never delays what the user is waiting for: the outro is printed first.
+      expect(vi.mocked(outro).mock.invocationCallOrder[0]!).toBeLessThan(completed[0]!.order);
+    });
+
+    it('--local: setup_started is offered again AFTER the consent question, and setup_completed once', async () => {
+      // Consent granted at the prompt; the emitter stays "unsent" (mock default false) so the
+      // wizard-start offer cannot satisfy this - only the post-consent offer can.
+      mockConfirm.mockImplementation(async (o: { message?: string }) => /Help improve Align/.test(String(o?.message)));
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+      const consentAsk = mockConfirm.mock.calls
+        .map((c, i) => ({ msg: String((c[0] as { message?: string })?.message), order: mockConfirm.mock.invocationCallOrder[i]! }))
+        .find((c) => /Help improve Align/.test(c.msg));
+      expect(consentAsk).toBeDefined();
+      const started = stageCalls('setup_started');
+      // Positive control: the wizard-start offer exists and precedes the question...
+      expect(started.some((c) => c.order < consentAsk!.order)).toBe(true);
+      // ...and the buffered offer follows it, carrying the local env consent applies to.
+      const afterConsent = started.filter((c) => c.order > consentAsk!.order);
+      expect(afterConsent).toHaveLength(1);
+      expect(stageCalls('setup_completed')).toHaveLength(1);
+    });
+
+    it('cloud with inline login: setup_started is offered again after login succeeds', async () => {
+      mockWhoami.mockRejectedValueOnce(new Error('401'));
+      mockConfirm.mockResolvedValueOnce(true); // "Log in to Align now?"
+
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+      const loginAt = mockLoginInteractive.mock.invocationCallOrder[0]!;
+      const started = stageCalls('setup_started');
+      expect(started.some((c) => c.order < loginAt)).toBe(true);
+      expect(started.filter((c) => c.order > loginAt)).toHaveLength(1);
+      expect(stageCalls('setup_completed')).toHaveLength(1);
+    });
+
+    it('a fresh install that stays local completes through the same funnel', async () => {
+      const { createConfigStore } = await import('../lib/config.js');
+      vi.mocked(createConfigStore).mockReturnValueOnce({
+        getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: null, mode: 'demo' }),
+        getDefaultEnv: vi.fn().mockReturnValue('prod'),
+        getConnectorFields: mockGetConnectorFields,
+        getTelemetryConsent: vi.fn().mockReturnValue(undefined),
+        setTelemetryConsent: vi.fn(),
+      } as unknown as ReturnType<typeof createConfigStore>);
+      mockSelect.mockResolvedValueOnce('local');
+
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+      expect(mockInitLocalMode).toHaveBeenCalled();
+      expect(stageCalls('setup_started').length).toBeGreaterThan(0);
+      expect(stageCalls('setup_completed')).toHaveLength(1);
     });
   });
 
