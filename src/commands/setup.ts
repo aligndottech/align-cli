@@ -32,6 +32,8 @@ import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
 import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
+import { agentAskLine, agentConnectedLine, orderAgents, projectAgentsFromWritten } from '../lib/next-step.js';
+import { firstDecision } from '../lib/first-decision.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -402,7 +404,12 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
   return envName === 'prod' ? `align import ${sourceId}` : `align import ${sourceId} --env ${envName}`;
 }
 
-function writeAgentAlignment(envName: EnvName): void {
+/**
+ * Returns the repo-relative files written (empty when the write failed), so the outro can
+ * tell whether the project .mcp.json - the one that wires Claude Code - actually landed
+ * (ALI-950). Naming an agent as connected off a write that threw would be false.
+ */
+function writeAgentAlignment(envName: EnvName): string[] {
   try {
     const written = setupAgentAlignment({ cwd: process.cwd(), env: envName });
     p.log.success(`Auto-alignment configured: ${written.join(', ')}`);
@@ -412,8 +419,10 @@ function writeAgentAlignment(envName: EnvName): void {
         'once to approve project hooks - accept it to enable automatic alignment.',
       ),
     );
+    return written;
   } catch (err) {
     p.log.warn(`Could not write auto-alignment files: ${(err as Error).message}`);
+    return [];
   }
 }
 
@@ -438,6 +447,10 @@ interface LocalValuePhaseResult {
   capture: ReturnType<typeof createCaptureCollector>;
   /** ALI-949: the wizard's setup_started / setup_completed emitter, one per run. */
   funnel: SetupFunnel;
+  /** ALI-950: the agents wired this run, project config first, for the outro to name. */
+  agents: string[];
+  /** ALI-950: the first decision the wizard found (git, else docs), for the outro's question. */
+  firstFoundTitle: string | undefined;
 }
 
 /** Thrown inside the docs block to leave it without starting a read; never surfaces. */
@@ -582,6 +595,17 @@ async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel
         local: true,
         funnel: { env: localEnv, source: 'docs' },
       });
+      // ALI-950: a repo can carry decision-shaped docs and no git history worth mining, and
+      // the outro's question must name a decision the wizard FOUND, whichever source found
+      // it. Read back the same way the git summary does, only when git left nothing to name.
+      if (!firstFoundTitle) {
+        const docsDb = createLocalDb(dbPath);
+        try {
+          firstFoundTitle = buildFoundSummary(docsDb).recent[0]?.title;
+        } finally {
+          docsDb.close();
+        }
+      }
     } else {
       localDocsSpinner.stop('No ADRs or CLAUDE.md/AGENTS.md content found');
     }
@@ -589,7 +613,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel
     if (!(e instanceof SkipDocs)) localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
   }
 
-  writeAgentAlignment('local');
+  const projectAgents = projectAgentsFromWritten(writeAgentAlignment('local'));
 
   // The agents installed on this machine, not just the ones this project configures. Local
   // setup skipped this and cloud did not, which is backwards: local mode is the one whose
@@ -597,15 +621,15 @@ async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel
   console.log('');
   const localAgents = await connectDetectedAgents('local');
 
-  // The "try it" nudge (ALI-794): only when something was actually wired, and phrased against
-  // a REAL decision from the summary above when one exists - "why did we X" beats a generic
-  // question because it is checkable against the repo the user is sitting in.
-  if (localAgents.connected > 0) {
+  // ALI-950: whenever ANY agent was wired - the project .mcp.json counts. This used to print
+  // only when a GLOBAL config was written, so a Claude-Code-only user, wired through the
+  // project file a few lines up, never saw it. The question itself moves to the outro's
+  // last line, where it is the one thing left to do.
+  const agents = orderAgents({ project: projectAgents, global: localAgents.wired });
+  const connectedLine = agentConnectedLine(agents);
+  if (connectedLine) {
     console.log('');
-    p.log.info(chalk.dim('Your agent is connected. Try asking:'));
-    p.log.info(chalk.bold(
-      firstFoundTitle ? `  "why did we ${firstFoundTitle}?"` : '  "What decisions exist in this codebase?"',
-    ));
+    p.log.info(chalk.dim(connectedLine));
   }
 
   // ALI-618: one-time, never asked again once answered. Local mode has no account, so consent
@@ -617,7 +641,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel
   // not send for a fresh install, so the funnel object is offered the local env again here.
   void opts.funnel.started(localEnv);
 
-  return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel };
+  return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel, agents, firstFoundTitle };
 }
 
 /**
@@ -629,7 +653,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel
  * move changes only how code is reached, never what it does).
  */
 async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void> {
-  const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel } = ctx;
+  const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel, agents, firstFoundTitle } = ctx;
 
   // Connectors: local mode connects by a read-only token the user mints themselves,
   // for every connector - their personal graph, their credential. OAuth belongs to
@@ -855,15 +879,16 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   refsDb.close();
   const gapLine = setupSummaryLine(gaps);
 
+  // ALI-950: the last line is the next step, and it happens in the agent - named, with a
+  // question about a decision the wizard just found, and no CLI verb. This used to end on
+  // `align ask "why <a thing you decided>"`, a prompt verb on the one screen whose job is to
+  // send the user into their agent. The gap line, when there is one, sits above it.
   p.outro(
     `${chalk.green('You are set up in local mode.')}\n` +
     `  Graph: ${chalk.dim(dbPath)}\n` +
-    `  Run ${chalk.bold('align')} any time to see your graph and what to do next.\n` +
-    // Deliberately NOT "What decisions exist in this codebase?", which this line used to
-    // suggest. That question is ABOUT the graph rather than IN it, so on-device search
-    // matches nothing and a tester was told his freshly imported graph was empty (ALI-771).
-    // It is a fine thing to ask an AGENT over MCP, and a bad first thing to type here.
-    `  Ask it something real: ${chalk.bold('align ask "why <a thing you decided>"')}${gapLine ? `\n\n  ${chalk.dim(gapLine)}` : ''}`,
+    `  Run ${chalk.bold('align')} any time to see your graph and what to do next.` +
+    `${gapLine ? `\n\n  ${chalk.dim(gapLine)}` : ''}\n\n` +
+    `  ${chalk.bold(agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName: 'local' }))}`,
   );
   // ALI-949: after the outro, never before it - telemetry must not delay what the user is
   // waiting for. Awaited (unlike the other emitters) because this is the wizard's last act
@@ -1168,10 +1193,12 @@ async function runCloudSetup(ctx: {
   // `align mcp --remove` as the undo. This block used to write to a user-level config without
   // a word when exactly one editor was detected and prompt only at two or more, and that
   // multiselect was unguarded, so `align setup --approve` with two agents installed hung.
-  const agents = await connectDetectedAgents(envName);
+  const globalAgents = await connectDetectedAgents(envName);
 
   // ---- Step 5b: Deterministic auto-alignment files (hook + nudges) ----
-  writeAgentAlignment(envName);
+  const projectAgents = projectAgentsFromWritten(writeAgentAlignment(envName));
+  // ALI-950: project config first - it is the one the user is most likely sitting in.
+  const agents = orderAgents({ project: projectAgents, global: globalAgents.wired });
 
   // ---- Step 6: Git auto-import (zero-auth baseline graph seed) ----
   let totalDecisions = 0;
@@ -1364,30 +1391,32 @@ async function runCloudSetup(ctx: {
     ? `\n  Sources: ${sourcesImported.join(', ')}`
     : '';
 
-  // ---- Step 8: First-query prompt ----
-  // Only when something was actually WIRED, not merely detected: telling someone their agent
-  // is connected when they declined the prompt would be false.
-  //
-  // The question stays as it is, deliberately. ALI-771 removed it from the LOCAL outro
-  // because typing it into `align ask` matches nothing - it is about the graph rather than in
-  // it. Asked of an AGENT over MCP it is a good opening question, because the agent answers
-  // it by calling a list tool rather than a similarity search. Different surface, different
-  // advice.
-  if (agents.connected > 0) {
+  // ---- Step 8: the agent is connected, and the next step is in it (ALI-950) ----
+  // Only when something was actually WIRED, not merely detected - and the project .mcp.json
+  // counts, which it did not before: this printed only for a global config, so a
+  // Claude-Code-only user never saw it.
+  const connectedLine = agentConnectedLine(agents);
+  if (connectedLine) {
     console.log('');
-    p.log.info(chalk.dim('Your agent is connected. Try asking:'));
-    p.log.info(chalk.bold('  "What decisions exist in this codebase?"'));
+    p.log.info(chalk.dim(connectedLine));
   }
 
+  // The question names a decision the wizard just put in the graph, read straight back
+  // rather than trusting the import's tally (same rule as the local found-summary). Only
+  // worth a request when something was imported.
+  const firstFoundTitle = totalDecisions > 0 ? (await firstDecision(client)).firstTitle : undefined;
+
+  // The last line is the next step, in the agent, with no CLI verb. It used to be
+  // `Run: align ask "any question about your codebase"`.
   const outroText = [
     chalk.bold('Setup complete.\n'),
     decisionsLine,
     sourceLine,
-    `\n\n  Run: ${chalk.bold('align ask "any question about your codebase"')}`,
     chalk.dim('\n\n  Want your whole team on a shared decision graph?'),
     chalk.dim('\n  Upgrade by accepting a team invite - your decisions come with you'),
     chalk.dim('\n  (you reconnect your connectors once in the team workspace).'),
     chalk.dim('\n  https://app.align.tech/pricing'),
+    `\n\n  ${chalk.bold(agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName }))}`,
   ].join('');
   p.outro(outroText);
   // ALI-949: after the outro, and against the env as it is NOW (the inline login above may

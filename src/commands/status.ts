@@ -2,10 +2,8 @@ import type { Command } from 'commander';
 import ora from 'ora';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createConfigStore, type EnvName } from '../lib/config.js';
-import { createGatewayClient } from '../lib/gateway-client.js';
-import { createLocalDb } from '../lib/local-db.js';
-import { getLocalDbPath } from '../lib/local-mode.js';
-import { fetchValueRollup, localValueRollup, renderValueReadout, type ValueRollupClient } from '../lib/value-rollup.js';
+import { readValueRollup } from '../lib/read-value-rollup.js';
+import { renderValueReadout } from '../lib/value-rollup.js';
 
 export function registerStatusCommand(program: Command): void {
   program
@@ -20,27 +18,16 @@ export function registerStatusCommand(program: Command): void {
       const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const env = config.getEnvironment(envName);
 
-      if (env.mode === 'local-embedded') {
-        // Same readout `align local status` gives: the honest offline subset. Reuse rate and
-        // health need the cloud graph, and renderValueReadout's local mode says so.
-        const db = createLocalDb(env.localDbPath ?? getLocalDbPath());
-        // ALI-796: a connector counts as connected once local mode holds a saved token for
-        // it - the same check `align local forget` uses to tell "removed" from "nothing saved".
-        const isConnected = (id: string) => config.getConnectorFields(envName, id) !== null;
-        const rollup = localValueRollup(db, isConnected);
-        db.close();
-        console.log(`\n${renderValueReadout(rollup, { mode: 'local' })}\n`);
-        return;
-      }
-
-      const client = createGatewayClient(env);
-      const spinner = ora('Reading your decision graph...').start();
+      // The local read is a SQLite file and needs no spinner; the cloud read is five requests.
+      // Which graph is read, and how, lives in readValueRollup - shared with bare `align`'s
+      // second-run card (ALI-950) so the two never print different numbers for one graph.
+      const spinner = env.mode === 'local-embedded' ? null : ora('Reading your decision graph...').start();
       try {
-        const rollup = await fetchValueRollup(client as unknown as ValueRollupClient);
-        spinner.stop();
-        console.log(`\n${  renderValueReadout(rollup, { mode: 'cloud' })  }\n`);
+        const { mode, rollup } = await readValueRollup(config, envName);
+        spinner?.stop();
+        console.log(`\n${renderValueReadout(rollup, { mode })}\n`);
       } catch (err) {
-        spinner.stop();
+        spinner?.stop();
         throw err;
       }
     });

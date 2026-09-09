@@ -17,6 +17,14 @@ vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({ listDecisions })),
 }));
 
+// ALI-950: the card names the agents wired NOW (global configs carrying an align entry, and
+// this repo's .mcp.json), and reuses the ALI-215 readout `align status` prints.
+const detectWiredEditors = vi.hoisted(() => vi.fn().mockReturnValue([]));
+const projectMcpAgents = vi.hoisted(() => vi.fn().mockReturnValue([]));
+vi.mock('../lib/mcp-setup.js', () => ({ detectWiredEditors, projectMcpAgents }));
+const readValueRollup = vi.hoisted(() => vi.fn().mockRejectedValue(new Error('no readout')));
+vi.mock('../lib/read-value-rollup.js', () => ({ readValueRollup }));
+
 const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { output.push(a.join(' ')); });
 
@@ -43,6 +51,9 @@ describe('bare `align`', () => {
     listDecisions.mockReset().mockResolvedValue([]);
     getEnvironment.mockReset();
     getDefaultEnv.mockReturnValue('prod');
+    detectWiredEditors.mockReset().mockReturnValue([]);
+    projectMcpAgents.mockReset().mockReturnValue([]);
+    readValueRollup.mockReset().mockRejectedValue(new Error('no readout'));
   });
 
   /**
@@ -103,39 +114,124 @@ describe('bare `align`', () => {
   });
 
   /**
-   * Every command it prints has to be runnable AS PRINTED, and with nothing to decode.
-   *
-   * `align decisions list` used to resolve to the cloud default and 401 for a local-only
-   * user, which is why an earlier draft printed `--env local` on every line. ALI-772 (this
-   * same change) made `decisions` prefer the local graph like ask, search and import, so the
-   * bare command is now correct for everyone and the flag would only teach one nobody needs.
+   * ALI-950: no CLI verb on the card. It used to suggest `align ask "why postgres"`,
+   * `align decisions list`, `align import git` and `align --help` - every next step a verb
+   * to type, when the product's whole value is a question asked in the agent. The regex is
+   * proven against that old text in next-step.test.ts, so a clean pass here is not vacuous.
+   * And still no --env flag anywhere (ALI-772): every path resolves to the local graph on
+   * its own, so printing the flag would teach one nobody needs.
    */
-  it('suggests commands qualified with the env they resolve to', async () => {
+  it('names no CLI verb on the card, and no --env flag', async () => {
     getEnvironment.mockImplementation((n: string) =>
       n === 'local' ? { mode: 'local-embedded', localDbPath: '/tmp/local.db' } : { mode: 'cloud' });
-    listDecisions.mockResolvedValue([{ id: 'a' }]);
+    listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
+    projectMcpAgents.mockReturnValue(['Claude Code']);
     const out = await bare();
-    // Unconditional. An earlier version guarded this behind `if (out includes 'decisions
-    // list')`, which is an assertion that cannot fail: drop the suggestion entirely and it
-    // still passes.
-    expect(out).toContain('align decisions list');
-    expect(out).toContain('align ask "why postgres"');
-    // And NO --env flag anywhere. Since ALI-772 every command here resolves to the local
-    // graph on its own, so printing the flag would teach one nobody needs. This assertion is
-    // the reason that stays true: it was printing `--env local` on every line until the
-    // redirect made it unnecessary.
+    expect(out).not.toMatch(/\balign\s+[a-z-]+/);
     expect(out).not.toContain('--env');
+    expect(out).not.toContain('--help');
   });
 
-  it('points an empty graph at importing, and a full one at asking', async () => {
+  it('points an empty graph at importing, and a full one at asking - in the agent', async () => {
     getEnvironment.mockImplementation((n: string) =>
       n === 'local' ? { mode: 'local-embedded', localDbPath: '/tmp/local.db' } : { mode: 'cloud' });
+    projectMcpAgents.mockReturnValue(['Claude Code']);
 
+    // The one verb the card may ever name (ALI-951 renames it `align connect`).
     listDecisions.mockResolvedValue([]);
-    expect(await bare()).toMatch(/align import git/);
+    const empty = await bare();
+    expect(empty).toMatch(/align import git/);
+    expect(empty.match(/\balign\s+[a-z-]+/g)).toHaveLength(1);
+    expect(empty).not.toMatch(/and ask:/);
 
-    listDecisions.mockResolvedValue([{ id: 'a' }]);
-    expect(await bare()).toMatch(/align ask/);
+    listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
+    const full = await bare();
+    expect(full).toContain('Open Claude Code and ask: why did we switch to postgres?');
+    expect(full.match(/and ask:/g)).toHaveLength(1);
+  });
+
+  /**
+   * ALI-950: the card shows the graph, the agents wired by name, the ALI-215 "what your graph
+   * did for you" readout, and exactly one next action, which happens in the agent.
+   */
+  describe('the second-run card (ALI-950)', () => {
+    const localEnv = (n: string) =>
+      n === 'local' ? { mode: 'local-embedded', localDbPath: '/home/d/.config/align-cli/local.db' } : { mode: 'cloud' };
+    const cloudEnv = (n: string) => (n === 'local' ? { mode: 'cloud' } : { mode: 'cloud', authToken: 'tok' });
+
+    it('names the agents wired by name, the one in this repo\'s project config first', async () => {
+      getEnvironment.mockImplementation(localEnv);
+      listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
+      projectMcpAgents.mockReturnValue(['Claude Code']);
+      detectWiredEditors.mockReturnValue([{ name: 'Cursor' }, { name: 'Claude Code' }]);
+      const out = await bare();
+      expect(out).toContain('Agents       Claude Code, Cursor');
+      expect(out).toContain('Open Claude Code and ask: why did we switch to postgres?');
+      expect(projectMcpAgents).toHaveBeenCalledWith(process.cwd());
+    });
+
+    it('with no project config, the first globally wired agent leads', async () => {
+      getEnvironment.mockImplementation(localEnv);
+      listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
+      detectWiredEditors.mockReturnValue([{ name: 'Cursor' }, { name: 'Zed' }]);
+      expect(await bare()).toContain('Open Cursor and ask: why did we switch to postgres?');
+    });
+
+    it('cloud: shows this week\'s conflicts and reuse rate from the ALI-215 readout, read for a 7-day window', async () => {
+      getEnvironment.mockImplementation(cloudEnv);
+      listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
+      projectMcpAgents.mockReturnValue(['Claude Code']);
+      readValueRollup.mockResolvedValue({
+        mode: 'cloud',
+        rollup: { decisions: 142, conflictsCaught: 6, similarDecisions: 0, duplicates: 0, supersessions: 0, reuseRate: 0.72, healthGrade: null, gaps: [] },
+      });
+      const out = await bare();
+      expect(out).toContain('Signed in    prod');
+      expect(out).toContain('This week    6 conflicts caught, reuse rate 72%');
+      expect(readValueRollup).toHaveBeenCalledWith(expect.anything(), 'prod', { days: 7 });
+    });
+
+    it('local: says what it knows so far, with no conflict counter at zero (ALI-503)', async () => {
+      getEnvironment.mockImplementation(localEnv);
+      listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
+      projectMcpAgents.mockReturnValue(['Claude Code']);
+      readValueRollup.mockResolvedValue({
+        mode: 'local',
+        rollup: { decisions: 12, conflictsCaught: 0, similarDecisions: 0, duplicates: 0, supersessions: 0, reuseRate: null, healthGrade: null, gaps: [] },
+      });
+      const out = await bare();
+      expect(out).toContain('Local graph  /home/d/.config/align-cli/local.db');
+      expect(out).toContain('So far       12 decisions in your graph');
+      expect(out).not.toMatch(/conflicts caught/);
+      expect(readValueRollup).toHaveBeenCalledWith(expect.anything(), 'local', { days: 7 });
+    });
+
+    it('a readout that cannot be read leaves the line out and still prints the card', async () => {
+      getEnvironment.mockImplementation(localEnv);
+      listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
+      projectMcpAgents.mockReturnValue(['Claude Code']);
+      readValueRollup.mockRejectedValue(new Error('gateway down'));
+      const out = await bare();
+      expect(out).not.toMatch(/So far|This week/);
+      expect(out).toContain('Open Claude Code and ask:');
+    });
+
+    it('no agent detected: says so and names align mcp once', async () => {
+      getEnvironment.mockImplementation(localEnv);
+      listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
+      const out = await bare();
+      expect(out).toContain('Agents       none detected');
+      expect(out).toContain('No agent detected. Run align mcp --setup --env local, then ask it: why did we switch to postgres?');
+      expect(out.match(/align mcp/g)).toHaveLength(1);
+    });
+
+    it('cloud no-agent line leaves the env off, so the command runs as printed', async () => {
+      getEnvironment.mockImplementation(cloudEnv);
+      listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
+      const out = await bare();
+      expect(out).toContain('Run align mcp --setup, then ask it:');
+      expect(out).not.toContain('--env');
+    });
   });
 
   /**

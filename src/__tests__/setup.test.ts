@@ -16,6 +16,9 @@ const mockIngestBatch = vi.hoisted(() => vi.fn().mockResolvedValue({ snapshots: 
 // real verifier makes a REAL network call to GitHub from inside the suite.
 const mockVerifyReadOnly = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true }));
 const mockListDecisionLinks = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+// ALI-950: the cloud outro reads the first decision back from the graph it just filled, so
+// the question it hands the agent is checkable against the repo. Empty by default.
+const mockListDecisions = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockStartCliOAuth = vi.hoisted(() => vi.fn().mockResolvedValue({ authUrl: 'https://github.com/login/oauth/authorize?state=abc' }));
 // mockStartCliOAuth accepts (key, port, nonce) - the mock ignores nonce but tests still pass
 
@@ -57,6 +60,7 @@ vi.mock('../lib/gateway-client.js', () => ({
     whoami: mockWhoami,
     ingestBatch: mockIngestBatch,
     listDecisionLinks: mockListDecisionLinks,
+    listDecisions: mockListDecisions,
     startCliOAuth: mockStartCliOAuth,
   })),
 }));
@@ -136,7 +140,8 @@ vi.mock('../lib/repo-identity.js', async (importOriginal) => ({
 const mockLocalDbClose = vi.hoisted(() => vi.fn());
 const mockLocalDb = vi.hoisted(() => ({
   getStats: () => ({ decisions: 0 }),
-  listDecisions: () => [],
+  // ALI-950: the found-summary's recent page, which is where the outro's question comes from.
+  listDecisions: vi.fn(() => [] as Array<{ id: string; title: string; sourceUrl?: string | null }>),
   listLinks: () => [],
   getAllRefs: vi.fn(() => [] as Array<{ decisionId: string; ref: string; platform: string }>),
   // Additive re-run: what the value phase reads BEFORE scanning git and docs. Empty by
@@ -264,6 +269,8 @@ describe('align setup', () => {
     mockLocalDb.listRepos.mockReturnValue([]);
     mockLocalDb.gitDecisionCount.mockReturnValue(0);
     mockLocalDb.hasDocsForRepo.mockReturnValue(false);
+    mockLocalDb.listDecisions.mockReturnValue([]);
+    mockListDecisions.mockResolvedValue([]);
     mockCurrentRepoIdentity.mockResolvedValue('github.com/o/r');
   });
 
@@ -1633,6 +1640,102 @@ describe('align setup', () => {
       const { outro } = await import('@clack/prompts');
       const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(text).not.toMatch(/I can't read/);
+    });
+  });
+
+  /**
+   * ALI-950: after the wizard, the next step is in the agent. Every one of Claude Code,
+   * Codex, Cursor, Gemini CLI and Copilot CLI makes first value a chat turn in the agent,
+   * never a setup verb - so the outro's last line names the agent and the question, and
+   * names no CLI verb. The "your agent is connected" line used to print only when a GLOBAL
+   * config was written, so a Claude-Code-only user wired through the project .mcp.json
+   * never saw it.
+   */
+  describe('the next step is in the agent (ALI-950)', () => {
+    // eslint-disable-next-line no-control-regex
+    const ANSI = /\x1b\[[0-9;]*m/g;
+    const CURSOR = { name: 'Cursor', configPath: '/h/.cursor/mcp.json', format: 'mcpServers' as const };
+    const WITH_PROJECT_MCP = ['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md', '.mcp.json'];
+
+    async function outroLastLine(): Promise<string> {
+      const { outro } = await import('@clack/prompts');
+      const text = ((outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string).replace(ANSI, '');
+      return text.trim().split('\n').pop()!.trim();
+    }
+    async function infoLines(): Promise<string> {
+      const { log } = await import('@clack/prompts');
+      return (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0]).replace(ANSI, '')).join('\n');
+    }
+
+    afterEach(async () => {
+      // clearAllMocks keeps implementations, so a detectEditors set here would leak.
+      const { detectEditors } = await import('../lib/mcp-setup.js');
+      vi.mocked(detectEditors).mockReturnValue([]);
+    });
+
+    it('--local, wired only through the project .mcp.json: says the agent is connected and names it', async () => {
+      mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      expect(await infoLines()).toContain('Your agent is connected: Claude Code.');
+    });
+
+    it('--local, nothing wired at all: does not claim a connection', async () => {
+      mockSetupAgentAlignment.mockReturnValueOnce(['CLAUDE.md']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      expect(await infoLines()).not.toContain('Your agent is connected');
+    });
+
+    it('--local outro ends on the agent and the first decision git import found, with no CLI verb', async () => {
+      mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+      mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const last = await outroLastLine();
+      expect(last).toBe('Open Claude Code in this repo and ask: why did we switch to postgres?');
+      expect(last).not.toMatch(/\balign\s+[a-z-]+/);
+    });
+
+    it('--local outro names the first decision the DOCS found when git history held none', async () => {
+      const { getCommitHistoryDetailed } = await import('../lib/git.js');
+      (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ commits: [], scanned: 0, rejectedByRationale: 0 });
+      const { fetchDocsItems } = await import('../lib/fetchers/docs.js');
+      vi.mocked(fetchDocsItems).mockResolvedValueOnce({
+        items: [{ source_url: 'git://o/r/docs/adr/0001.md', title: 'adopt trunk-based development', raw_text: 'ADR', type: 'doc' }],
+        report: { scanned: 1, skips: [] },
+      } as never);
+      mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+      mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'adopt trunk-based development' }]);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      expect(await outroLastLine()).toBe('Open Claude Code in this repo and ask: why did we adopt trunk-based development?');
+    });
+
+    it('--local outro with no agent detected says so and names align mcp once', async () => {
+      mockSetupAgentAlignment.mockReturnValueOnce(['CLAUDE.md']);
+      mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      const last = await outroLastLine();
+      expect(last).toBe('No agent detected. Run align mcp --setup --env local, then ask it: why did we switch to postgres?');
+      expect(last.match(/align mcp/g)).toHaveLength(1);
+    });
+
+    it('cloud outro ends on the wired agent and the first decision in the graph, with no CLI verb', async () => {
+      const { detectEditors } = await import('../lib/mcp-setup.js');
+      vi.mocked(detectEditors).mockReturnValue([CURSOR]);
+      mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      const last = await outroLastLine();
+      expect(last).toBe('Open Cursor in this repo and ask: why did we switch to postgres?');
+      expect(last).not.toMatch(/\balign\s+[a-z-]+/);
+      expect(await infoLines()).toContain('Your agent is connected: Cursor.');
+    });
+
+    it('cloud, several agents wired: the one detected in this repo\'s project config leads', async () => {
+      const { detectEditors } = await import('../lib/mcp-setup.js');
+      vi.mocked(detectEditors).mockReturnValue([CURSOR]);
+      mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+      mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      expect(await outroLastLine()).toBe('Open Claude Code in this repo and ask: why did we switch to postgres?');
+      expect(await infoLines()).toContain('Your agent is connected: Claude Code, Cursor.');
     });
   });
 
