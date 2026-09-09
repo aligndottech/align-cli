@@ -16,8 +16,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 
+// Each ora(...) call gets its own spinner instance, pushed here so a test can assert on
+// SPECIFICALLY the second one created (the invite-in-progress spinner) - a shared/singleton
+// mock would hide the "second spinner never stopped" bug this test list's #10 pins.
+const spinnerInstances = vi.hoisted(() => [] as Array<{ stop: ReturnType<typeof vi.fn> }>);
 vi.mock('ora', () => ({
-  default: vi.fn(() => ({ start: vi.fn().mockReturnThis(), stop: vi.fn(), fail: vi.fn(), succeed: vi.fn() })),
+  default: vi.fn(() => {
+    const instance = { start: vi.fn().mockReturnThis(), stop: vi.fn(), fail: vi.fn(), succeed: vi.fn() };
+    spinnerInstances.push(instance);
+    return instance;
+  }),
 }));
 
 const resolveEnv = vi.hoisted(() => vi.fn().mockReturnValue('prod'));
@@ -63,6 +71,7 @@ const WORK_MEMBER = { user: { id: 'u2', email: 'dan@align.tech', role: 'member' 
 const PERSONAL = { user: { id: 'u3', email: 'me@gmail.com', role: 'org_admin' }, tenant: { id: 't2', name: 'me' } };
 
 beforeEach(() => {
+  spinnerInstances.length = 0;
   whoami.mockReset();
   createInvite.mockReset();
   recordFunnelStage.mockClear();
@@ -141,6 +150,20 @@ describe('align invite - work-domain org_admin', () => {
     await run(['dan@align.tech']);
     expect(exitCode).toBe(1);
     expect(out.join('\n')).toContain('rate limited');
+  });
+
+  it('stops the invite-in-progress spinner, not just the whoami one, when createInvite rejects (Copilot review)', async () => {
+    // Two spinners exist on this path: one for "Checking your account...", replaced by a
+    // SECOND one for "Inviting <email>..." once whoami succeeds. An error thrown by
+    // createInvite is caught in a handler that used to reference only the first spinner by
+    // name, so the second kept spinning forever on any createInvite failure (403/429/network).
+    whoami.mockResolvedValue(WORK_ADMIN);
+    createInvite.mockRejectedValue(new Error('network error'));
+    await run(['dan@align.tech']);
+
+    expect(spinnerInstances).toHaveLength(2);
+    expect(spinnerInstances[0].stop).toHaveBeenCalled(); // the whoami spinner
+    expect(spinnerInstances[1].stop).toHaveBeenCalled(); // the invite spinner - the regression
   });
 });
 

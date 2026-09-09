@@ -68,10 +68,13 @@ export function registerInviteCommand(program: Command): void {
       void recordFunnelStage(env, 'teammate_requested', 'invite');
 
       const client = createGatewayClient(env);
-      const spinner = ora('Checking your account...').start();
+      // Tracks whichever spinner is currently running, so the catch block below can always
+      // stop the right one - a second spinner (inviteSpinner) starts partway through the try
+      // block, and an error thrown after that point must not leave it spinning forever.
+      let activeSpinner = ora('Checking your account...').start();
       try {
         const me = await client.whoami();
-        spinner.stop();
+        activeSpinner.stop();
 
         if (isPersonalEmailDomain(me.user.email)) {
           console.log(chalk.yellow(
@@ -88,13 +91,13 @@ export function registerInviteCommand(program: Command): void {
           return;
         }
 
-        const inviteSpinner = ora(`Inviting ${email}...`).start();
+        activeSpinner = ora(`Inviting ${email}...`).start();
         const result = await client.createInvite(email);
-        inviteSpinner.stop();
+        activeSpinner.stop();
         console.log(chalk.green(`\n  Invite sent. Share this link with ${email}:`));
         console.log(chalk.dim(`  ${result.inviteUrl}\n`));
       } catch (err) {
-        spinner.stop();
+        activeSpinner.stop();
         console.log(chalk.red(`\n  ${(err as Error).message}\n`));
         process.exit(1);
       }
