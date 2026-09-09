@@ -154,6 +154,13 @@ vi.mock('../lib/login-flow.js', () => ({
   loginInteractive: mockLoginInteractive,
 }));
 
+// ALI-949: the funnel emitter, so the wizard's setup_started / setup_completed checkpoints
+// are observable. Resolves false by default ("could not send"), which is what a fresh
+// install looks like at wizard start; the tests that need a send flip it. personal-import's
+// import_completed calls land on this spy too - the assertions below filter by stage.
+const mockRecordFunnelStage = vi.hoisted(() => vi.fn().mockResolvedValue(false));
+vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage: mockRecordFunnelStage }));
+
 vi.mock('../lib/mcp-setup.js', () => ({
   detectEditors: vi.fn().mockReturnValue([]),
   writeMcpConfig: vi.fn(),
@@ -1390,6 +1397,215 @@ describe('align setup', () => {
           expect.objectContaining({ message: 'How are you using Align?' }),
         );
       });
+    });
+  });
+
+  /**
+   * ALI-949: setup_started and setup_completed had no emitter, so the PostHog funnel read
+   * setup_completed = 0 for a launch week in which two installs finished the wizard. Both
+   * stages are emitted from runSetup's shared body, so bare `align` (ALI-773, which calls
+   * runSetup - see bare-align.test.ts) and `align setup` count identically.
+   *
+   * In local mode consent is asked MID-wizard (ALI-794: value before questions), so each
+   * mode branch OFFERS setup_started at its top and again once a send is possible (after
+   * consent, after login); the funnel object sends once per identity, at the first offer
+   * the emitter reports as sent (setup-funnel.test.ts pins that rule). These tests pin that
+   * the checkpoints exist, sit on the right side of consent and login, and carry the env of
+   * the mode actually being set up - a `--local` run on a machine holding a cloud token must
+   * never report a cloud setup_started (fresh-context review on #279).
+   *
+   * The suite's default config fake returns one mode-less env for every name, which cannot
+   * tell a local offer from a cloud one, so this block installs a mode-aware store: `local`
+   * becomes local-embedded once initLocalMode has run (as the real store does), and the
+   * cloud token can be flipped mid-run to prove the post-login offer re-reads the env.
+   */
+  describe('funnel stages (ALI-949)', () => {
+    const realStdinIsTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const realStdoutIsTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const state = { cloudToken: 'tok' as string | null, localInitialised: false, consent: undefined as 'granted' | 'declined' | undefined };
+    const modeAwareStore = () => ({
+      getEnvironment: vi.fn((name: string) =>
+        name === 'local'
+          ? { gatewayUrl: 'http://localhost:8080', authToken: null, tenantId: null, mode: state.localInitialised ? 'local-embedded' : 'demo' }
+          : { gatewayUrl: 'http://localhost', authToken: state.cloudToken, tenantId: 't1', mode: 'auth' }),
+      getDefaultEnv: vi.fn().mockReturnValue('prod'),
+      setAuthToken: vi.fn(),
+      setTenantId: vi.fn(),
+      getConnectorToken: mockGetConnectorToken,
+      setConnectorToken: mockSetConnectorToken,
+      getConnectorFields: mockGetConnectorFields,
+      saveConnectorFields: mockSaveConnectorFields,
+      forgetConnector: mockForgetConnector,
+      getConnectorCloudId: vi.fn().mockReturnValue(null),
+      setConnectorCloudId: vi.fn(),
+      getConnectorSiteBase: vi.fn().mockReturnValue(null),
+      setConnectorSiteBase: vi.fn(),
+      getTelemetryConsent: vi.fn(() => state.consent),
+      setTelemetryConsent: vi.fn((v: 'granted' | 'declined') => { state.consent = v; }),
+    });
+
+    beforeEach(async () => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      mockRecordFunnelStage.mockReset().mockResolvedValue(false);
+      state.cloudToken = 'tok';
+      state.localInitialised = false;
+      state.consent = undefined;
+      mockInitLocalMode.mockImplementation(async () => { state.localInitialised = true; return { dbPath: '/tmp/local.db' }; });
+      const { createConfigStore } = await import('../lib/config.js');
+      vi.mocked(createConfigStore).mockImplementation(() => modeAwareStore() as unknown as ReturnType<typeof createConfigStore>);
+    });
+    afterEach(async () => {
+      if (realStdinIsTTY) Object.defineProperty(process.stdin, 'isTTY', realStdinIsTTY);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      if (realStdoutIsTTY) Object.defineProperty(process.stdout, 'isTTY', realStdoutIsTTY);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+      // mockReset restores the vi.mock factory implementations the rest of the file relies on.
+      const { createConfigStore } = await import('../lib/config.js');
+      vi.mocked(createConfigStore).mockReset();
+      mockInitLocalMode.mockReset().mockResolvedValue({ dbPath: '/tmp/local.db' });
+    });
+
+    type Env = { mode?: string; authToken?: string | null };
+    const stageCalls = (stage: string) =>
+      mockRecordFunnelStage.mock.calls
+        .map((c, i) => ({ env: c[0] as Env, command: c[2] as string, order: mockRecordFunnelStage.mock.invocationCallOrder[i]! }))
+        .filter((_, i) => mockRecordFunnelStage.mock.calls[i]![1] === stage);
+    const consentAskOrder = () => {
+      const ask = mockConfirm.mock.calls
+        .map((c, i) => ({ msg: String((c[0] as { message?: string })?.message), order: mockConfirm.mock.invocationCallOrder[i]! }))
+        .find((c) => /Help improve Align/.test(c.msg));
+      expect(ask).toBeDefined();
+      return ask!.order;
+    };
+    const consentYes = () =>
+      mockConfirm.mockImplementation(async (o: { message?: string }) => /Help improve Align/.test(String(o?.message)));
+
+    it('cloud (--approve, already logged in): setup_started once at the start, setup_completed once after the outro', async () => {
+      mockRecordFunnelStage.mockResolvedValue(true);
+      const { outro } = await import('@clack/prompts');
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      const started = stageCalls('setup_started');
+      const completed = stageCalls('setup_completed');
+      expect(started).toHaveLength(1);
+      expect(completed).toHaveLength(1);
+      expect(started[0]!.env.mode).toBe('auth');
+      expect(started[0]!.command).toBe('setup');
+      expect(completed[0]!.env.mode).toBe('auth');
+      expect(completed[0]!.command).toBe('setup');
+      expect(started[0]!.order).toBeLessThan(completed[0]!.order);
+      // Telemetry never delays what the user is waiting for: the outro is printed first.
+      expect(vi.mocked(outro).mock.invocationCallOrder[0]!).toBeLessThan(completed[0]!.order);
+    });
+
+    it('--local: every setup_started offer carries the LOCAL env, even with a cloud token stored; one offer follows consent', async () => {
+      // state.cloudToken is 'tok': the machine is logged in. The emitter stays "unsent"
+      // (mock default false) so the branch-top offer cannot satisfy this - only the
+      // post-consent offer can.
+      consentYes();
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+      const askedAt = consentAskOrder();
+      const started = stageCalls('setup_started');
+      expect(started.length).toBeGreaterThan(0);
+      expect(started.every((c) => c.env.mode === 'local-embedded')).toBe(true);
+      // Positive control: the branch-top offer exists and precedes the question...
+      expect(started.some((c) => c.order < askedAt)).toBe(true);
+      // ...and exactly one buffered offer follows it.
+      expect(started.filter((c) => c.order > askedAt)).toHaveLength(1);
+      const completed = stageCalls('setup_completed');
+      expect(completed).toHaveLength(1);
+      expect(completed[0]!.env.mode).toBe('local-embedded');
+    });
+
+    // Copilot on #279 (second pass): a STALE stored token passes the emitter's token check,
+    // so an offer made before auth is verified sends a request the gateway 401s, reports it
+    // as sent (a send is a send - the once-mark trade), and suppresses the post-login offer
+    // that would have landed. So cloud setup offers only once the token is proven: after a
+    // successful whoami, or after inline login stores a fresh one.
+    it('cloud with inline login: setup_started is never offered with the stale token; once after login, against the env as it is NOW', async () => {
+      state.cloudToken = 'stale';
+      mockWhoami.mockRejectedValueOnce(new Error('401'));
+      mockConfirm.mockResolvedValueOnce(true); // "Log in to Align now?"
+      mockLoginInteractive.mockImplementationOnce(async () => { state.cloudToken = 'fresh'; return true; });
+
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+      const loginAt = mockLoginInteractive.mock.invocationCallOrder[0]!;
+      const started = stageCalls('setup_started');
+      expect(started.filter((c) => c.env.authToken === 'stale')).toHaveLength(0);
+      expect(started.filter((c) => c.order < loginAt)).toHaveLength(0);
+      const afterLogin = started.filter((c) => c.order > loginAt);
+      expect(afterLogin).toHaveLength(1);
+      expect(afterLogin[0]!.env.authToken).toBe('fresh');
+      const completed = stageCalls('setup_completed');
+      expect(completed).toHaveLength(1);
+      expect(completed[0]!.env.authToken).toBe('fresh');
+    });
+
+    it('cloud, already logged in: setup_started is offered only after whoami confirms the token', async () => {
+      // Asserted from INSIDE the in-flight whoami, after yielding a macrotask: an offer made
+      // "before auth" lands in a microtask, so comparing call orders alone would pass on
+      // timing rather than on the property.
+      let offersDuringWhoami = -1;
+      mockWhoami.mockImplementationOnce(async () => {
+        await new Promise((r) => setImmediate(r));
+        offersDuringWhoami = stageCalls('setup_started').length;
+        return { user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } };
+      });
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      expect(offersDuringWhoami).toBe(0);
+      expect(stageCalls('setup_started')).toHaveLength(1);
+    });
+
+    it('a fresh install that stays local: setup_started offered after consent, setup_completed against the local env', async () => {
+      state.cloudToken = null;
+      consentYes();
+      mockSelect.mockResolvedValueOnce('local');
+
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+      expect(mockInitLocalMode).toHaveBeenCalled();
+      const askedAt = consentAskOrder();
+      const started = stageCalls('setup_started');
+      expect(started.filter((c) => c.order > askedAt && c.env.mode === 'local-embedded')).toHaveLength(1);
+      const completed = stageCalls('setup_completed');
+      expect(completed).toHaveLength(1);
+      expect(completed[0]!.env.mode).toBe('local-embedded');
+    });
+
+    // The split-identity case (fresh-context review on #279): consent granted locally, then
+    // "sync to the cloud". The anonymous installId and the cloud tenant are two identities
+    // nothing joins, so BOTH get a setup_started, and setup_completed lands on the cloud one.
+    it('a fresh install that upgrades to cloud: setup_started on both identities, setup_completed on the cloud one', async () => {
+      state.cloudToken = null;
+      mockRecordFunnelStage.mockImplementation(async (env: Env) =>
+        env.mode === 'local-embedded' ? state.consent === 'granted' : Boolean(env.authToken));
+      consentYes();
+      mockSelect.mockResolvedValueOnce('cloud');
+      mockWhoami.mockRejectedValueOnce(new Error('401'));
+      mockConfirm.mockImplementation(async (o: { message?: string }) =>
+        /Help improve Align|Log in to Align now/.test(String(o?.message)));
+      mockLoginInteractive.mockImplementationOnce(async () => { state.cloudToken = 'fresh'; return true; });
+
+      await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+      // Which offers the emitter reported as SENT: one anonymous (after consent), one cloud
+      // (after login). Read off the mock's results rather than assumed from the calls.
+      const offers = mockRecordFunnelStage.mock.results
+        .map((r, i) => ({ sent: r.value as Promise<boolean>, call: mockRecordFunnelStage.mock.calls[i]! }))
+        .filter((x) => x.call[1] === 'setup_started');
+      const sentOn = await Promise.all(offers.map(async (x) => ((await x.sent) ? (x.call[0] as Env).mode : null)));
+      expect(sentOn.filter(Boolean)).toEqual(['local-embedded', 'auth']);
+      const completed = stageCalls('setup_completed');
+      expect(completed).toHaveLength(1);
+      expect(completed[0]!.env.mode).toBe('auth');
+      expect(completed[0]!.env.authToken).toBe('fresh');
     });
   });
 

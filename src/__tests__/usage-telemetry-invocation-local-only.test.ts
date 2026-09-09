@@ -78,4 +78,24 @@ describe('recordInvocationUsage - genuinely local-only user, bare command', () =
 
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  // ALI-949: bare `align` is the primary first-run path since ALI-773, and the hook handed
+  // it over as '' - so a set-up local user typing the tool's name was never counted.
+  it('bare `align` on a set-up local install sends one anonymous ping naming the command', async () => {
+    await recordInvocationUsage(undefined, 'align');
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const init = mockFetch.mock.calls[0]?.[1] as { body: string };
+    expect(JSON.parse(init.body)).toMatchObject({ command: 'align' });
+  });
+
+  // A non-TTY first run: nothing is set up, no consent exists, and bare `align` only prints
+  // what to run instead. Its postAction ping must stay a no-op.
+  it('bare `align` with no consent (a fresh, non-interactive install) sends nothing', async () => {
+    getTelemetryConsent.mockReturnValue(undefined);
+
+    await recordInvocationUsage(undefined, 'align');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });

@@ -211,23 +211,30 @@ export type FunnelStage =
  * there is exactly one enforcement point. Marked before the send, deliberately: a ping
  * lost to a timeout costs one funnel row in the undercount direction, while marking
  * after would re-send forever on a machine that cannot reach the gateway.
+ *
+ * Resolves `true` when a send was made (not necessarily delivered - see the once-mark
+ * reasoning above, the same trade), `false` when this call could not send: opted out, no
+ * consent, no token, the store threw, or - for first_useful_decision only, the one
+ * once-per-install stage - already recorded on this install. ALI-949: the setup wizard
+ * offers setup_started at several checkpoints because local-mode consent arrives
+ * mid-wizard, and this is how it knows which offer landed (lib/setup-funnel.ts).
  */
 export async function recordFunnelStage(
   env: EnvironmentConfig,
   stage: FunnelStage,
   command: string,
-): Promise<void> {
+): Promise<boolean> {
   // The whole body is guarded: telemetry must never fail or delay a command (the same
   // invariant postWithTimeout enforces for the network half, extended to the config
   // half). The concrete case: an emitter call site inside a command's try block plus a
   // config store missing a method turned a working `align ask` into exit(1) - 25 tests
   // in a file this change never touched said so (tdd.md's hand-built-fake rule).
   try {
-    if (telemetryOptedOut()) return;
+    if (telemetryOptedOut()) return false;
 
     const { createConfigStore } = await import('./config.js');
     const config = createConfigStore();
-    if (stage === 'first_useful_decision' && config.wasFunnelStageRecorded(stage)) return;
+    if (stage === 'first_useful_decision' && config.wasFunnelStageRecorded(stage)) return false;
 
     // Whether this call CAN send, checked before the once-mark (Copilot on #215):
     // marking an unsendable call permanently burned the stage for exactly the opt-in
@@ -239,7 +246,7 @@ export async function recordFunnelStage(
     const canSend = isLocal
       ? config.getTelemetryConsent() === 'granted'
       : Boolean(env.authToken && env.tenantId);
-    if (!canSend) return;
+    if (!canSend) return false;
     if (stage === 'first_useful_decision') config.markFunnelStageRecorded(stage);
 
     const commandPath = commandPathOf(command);
@@ -256,7 +263,7 @@ export async function recordFunnelStage(
           stage,
         }),
       });
-      return;
+      return true;
     }
 
     await postWithTimeout(`${env.gatewayUrl}/telemetry/ingest`, {
@@ -273,9 +280,27 @@ export async function recordFunnelStage(
         properties: { command: commandPath },
       }),
     });
+    return true;
   } catch {
     // Swallowed for the reason above. The funnel loses one row; the command survives.
+    return false;
   }
+}
+
+/**
+ * The command path the postAction hook reports: the full path ("local ask", "import git")
+ * so recordCommandUsage can exclude the offline `local` group, and never the leaf alone.
+ *
+ * ALI-949: the ROOT command has no parent. Bare `align` (`program.action(runDefaultAction)`,
+ * ALI-773) is the primary first-run path, and walking `.parent` from the root yielded '' -
+ * so every bare invocation was reported as no command at all and the funnel's "activated"
+ * stage could not see it. The root reports under the program's own name.
+ */
+export function invocationCommandPath(actionCommand: { name(): string; parent: unknown }): string {
+  type Node = { name(): string; parent: Node | null };
+  const parts: string[] = [];
+  for (let c: Node | null = actionCommand as Node; c?.parent; c = c.parent) parts.unshift(c.name());
+  return parts.length > 0 ? parts.join(' ') : actionCommand.name();
 }
 
 /**

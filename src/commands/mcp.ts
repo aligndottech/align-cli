@@ -11,6 +11,7 @@ import { createConfigStore, type EnvironmentConfig, type EnvName } from '../lib/
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
 import { commandIntro } from '../lib/brand.js';
+import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
 
 // Server-level instructions (ALI-120): surfaced to the agent so it reaches for
@@ -156,6 +157,49 @@ export async function dispatchTool(
   }
 }
 
+/**
+ * ALI-949: did this tool call hand the agent a real answer from the graph? The three tools
+ * an agent reaches for to GET something (ask, search, check) count; a non-empty conflicts
+ * list or an impact graph does not - those are follow-ups, not the first useful decision.
+ * A check whose status is `no-context` or `unknown` found nothing or could not run
+ * (ALI-414: not a pass), so it is not useful either.
+ */
+export function isFirstUsefulToolResult(name: string, result: unknown): boolean {
+  if (name === 'align_ask' || name === 'align_search') {
+    const results = (result as { results?: unknown[] } | undefined)?.results;
+    return Array.isArray(results) && results.length > 0;
+  }
+  if (name === 'align_check_alignment') {
+    const status = (result as { status?: string } | undefined)?.status;
+    return status === 'aligned' || status === 'conflicting' || status === 'retrieved';
+  }
+  return false;
+}
+
+/**
+ * The MCP CallTool handler `align mcp` installs, extracted so the funnel emission is
+ * testable without standing up a Server (mcp-first-useful.test.ts). dispatchTool stays the
+ * pure router; this is the one place a tool call has a side effect beyond its result.
+ *
+ * first_useful_decision fired only from a non-empty `align ask` before ALI-949, so an agent
+ * asking through this server never counted - and the phases after that ticket exist to
+ * make the agent the usual asker. The once-per-install guard is recordFunnelStage's, shared
+ * with `align ask`; fired without await so the tool response never waits on telemetry.
+ */
+export function createCallToolHandler(
+  client: ReturnType<typeof createGatewayClient>,
+  env: EnvironmentConfig,
+): (request: { params: { name: string; arguments?: Record<string, unknown> } }) => Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+  return async (request) => {
+    const { name, arguments: args } = request.params;
+    const result = await dispatchTool(name, args, client, env);
+    if (isFirstUsefulToolResult(name, result)) {
+      void recordFunnelStage(env, 'first_useful_decision', 'mcp');
+    }
+    return { content: [{ type: 'text', text: serializeMcpResult(result) }] };
+  };
+}
+
 export const TOOL_SCHEMAS = [
   {
     name: 'align_search',
@@ -292,11 +336,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
 
       server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolSchemasFor(env) }));
 
-      server.setRequestHandler(CallToolRequestSchema, async (request) => {
-        const { name, arguments: args } = request.params;
-        const result = await dispatchTool(name, args, client, env);
-        return { content: [{ type: 'text', text: serializeMcpResult(result) }] };
-      });
+      server.setRequestHandler(CallToolRequestSchema, createCallToolHandler(client, env));
 
       // MCP protocol requires clean stdout; log startup to stderr
       process.stderr.write(`align mcp server started (env: ${resolvedEnv}, gateway: ${env.gatewayUrl})\n`);

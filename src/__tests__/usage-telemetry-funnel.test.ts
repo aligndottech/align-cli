@@ -109,6 +109,46 @@ describe('recordFunnelStage', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  // ALI-949: the setup wizard offers setup_started at several checkpoints (consent is asked
+  // mid-wizard in local mode) and needs to know which offer actually SENT, so it can stop.
+  // The emitter is the only thing that knows sendability, so it reports it.
+  describe('reports whether it sent', () => {
+    it('true after a local send', async () => {
+      getTelemetryConsent.mockReturnValue('granted');
+      await expect(recordFunnelStage(localEnv, 'setup_started', 'setup')).resolves.toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('true after a cloud send', async () => {
+      await expect(recordFunnelStage(cloudEnv, 'setup_started', 'setup')).resolves.toBe(true);
+    });
+
+    it('false when local consent is missing', async () => {
+      getTelemetryConsent.mockReturnValue(undefined);
+      await expect(recordFunnelStage(localEnv, 'setup_started', 'setup')).resolves.toBe(false);
+    });
+
+    it('false when the cloud token is missing', async () => {
+      await expect(recordFunnelStage({ ...cloudEnv, authToken: null }, 'setup_started', 'setup')).resolves.toBe(false);
+    });
+
+    // "Could not send", same as no consent: a later checkpoint in the same run is offered
+    // again and refuses the same way. The opt-out is enforced per call, not by the buffer.
+    it('false under ALIGN_TELEMETRY=0 - could not send, and every later offer refuses identically', async () => {
+      vi.stubEnv('ALIGN_TELEMETRY', '0');
+      getTelemetryConsent.mockReturnValue('granted');
+      await expect(recordFunnelStage(localEnv, 'setup_started', 'setup')).resolves.toBe(false);
+    });
+
+    // "Sent" means the request was made, not that it landed: a lost ping undercounts by
+    // one row and must not be re-offered forever (the same reasoning as the once-mark).
+    it('true even when the gateway rejects the request', async () => {
+      getTelemetryConsent.mockReturnValue('granted');
+      mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+      await expect(recordFunnelStage(localEnv, 'setup_started', 'setup')).resolves.toBe(true);
+    });
+  });
+
   it('ALIGN_TELEMETRY opt-out wins in both modes', async () => {
     vi.stubEnv('ALIGN_TELEMETRY', '0');
     getTelemetryConsent.mockReturnValue('granted');
@@ -178,9 +218,11 @@ describe('recordFunnelStage', () => {
       throw new Error('store corrupted');
     });
 
+    // ALI-949: resolves to "did not send" rather than undefined - a store that threw is a
+    // call that could not send, and the setup funnel keys on exactly that answer.
     await expect(
       recordFunnelStage(localEnv, 'first_useful_decision', 'ask'),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
