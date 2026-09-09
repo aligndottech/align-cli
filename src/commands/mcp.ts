@@ -13,18 +13,23 @@ import { detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup
 import { commandIntro } from '../lib/brand.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
+import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
 
-// Server-level instructions (ALI-120): surfaced to the agent so it reaches for
-// Align proactively - without the user prompting - the moment this MCP server is
-// connected. Kept well under the ~2KB Claude Code truncates server instructions to.
-export const ALIGN_MCP_INSTRUCTIONS = `Align is this team's decision graph - the source of truth for what was decided, why, and who decided it. Use these tools proactively, without being asked:
-
-- BEFORE writing or changing non-trivial code, call align_check_alignment with the proposed change. A "conflict" result means a past decision opposes the change - STOP and confirm with the user before proceeding.
-- An "unknown" status means the check could NOT run (no LLM key, a timeout, unreadable output). It is NOT a pass and NOT "no conflicts found" - the related decisions it returns are unchecked. STOP and ask the human rather than proceeding.
-- When the user asks "why", "how does X work", or "what was decided about Y" - or you're unsure of a convention - call align_ask (or align_search) first. The answer, its status (active/conflicted), and the person who decided it are in the graph.
-- Use align_get_conflicts and align_get_related_decisions to understand context and surface who to talk to.
-- Prefer the graph over guessing: it reflects decisions made across Slack, Jira, GitHub, Linear and more that may not be in the code or docs.
-- Cite a decision by its cite value when present, and link it whenever the field exists: decision_url opens it in Align; source_url is wherever it was actually decided - a GitHub PR, a Jira/Linear ticket, a Slack or Teams thread. Never name a decision as bare text when either link is available, and never present one URL as the other.`;
+// Server-level instructions (ALI-120): surfaced to the agent so it reaches for Align
+// proactively - without the user prompting - the moment this MCP server is connected.
+//
+// ONE text with the hosted server (ALI-952): the shared body lives in
+// mcp-instructions.shared.ts, byte-identical to align-stack's copy and pinned by
+// mcp-instructions-parity.test.ts. This server only supplies its names for the shared
+// tokens. It has no per-server lines: every tool it exposes is one the hosted server also
+// has, and the hosted-only tools (check_proposed_action, rate_conflict, coach,
+// get_topic_timeline) are appended on that side. The graph-identity suffix below is added
+// per environment by instructionsFor, and the whole rendered text stays under the ~2KB
+// Claude Code truncates server instructions to (mcp-graph-identity.test.ts).
+export const ALIGN_MCP_INSTRUCTIONS = renderMcpInstructions(
+  { check_alignment: 'align_check_alignment', search: 'align_ask' },
+  [],
+);
 
 /**
  * Which decision graph THIS server reads, appended to the base instructions.
@@ -117,12 +122,17 @@ export async function dispatchTool(
   }
 
   switch (name) {
+    // ONE arm for both names (ALI-952). align_search is the alias of align_ask: they were two
+    // entries for the same gateway call with two dispatch arms that had already drifted
+    // (align_search passed no limit, align_ask defaulted to 8). The question is passed
+    // through unchanged so the gateway's smart-search strategy selector can route it to
+    // semantic search (ALI-105); align_search's `query` is the same text under the old name.
     case 'align_search':
-      return client.searchDecisions(args?.['query'] as string, args?.['limit'] as number | undefined);
     case 'align_ask':
-      // Pass the question through unchanged so the gateway's smart-search strategy
-      // selector can route it to semantic search. See ALI-105.
-      return client.searchDecisions(args?.['question'] as string, (args?.['limit'] as number | undefined) ?? 8);
+      return client.searchDecisions(
+        (args?.['question'] ?? args?.['query']) as string,
+        (args?.['limit'] as number | undefined) ?? 8,
+      );
     case 'align_capture': {
       const input = args?.['input'] as string;
       let platform = 'cli';
@@ -200,22 +210,25 @@ export function createCallToolHandler(
   };
 }
 
+// Order is the ranking an agent reads off tools/list, so the pre-flight check leads (ALI-139,
+// prescription over retrieval; ALI-952 moved it here from fourth). The hosted server
+// (align-stack mcpServer.ts) registers check_alignment first for the same reason.
 export const TOOL_SCHEMAS = [
   {
-    name: 'align_search',
-    description: 'Search the Align decision graph for relevant decisions, architectural choices, and past resolutions',
+    name: 'align_check_alignment',
+    description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding. An "unknown" status means the check could not run and is NOT a pass: the decisions it returns are unchecked, so stop and ask the human rather than treating it as clear.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Search query' },
-        limit: { type: 'number', description: 'Max results (default: 10)', default: 10 },
+        diff: { type: 'string', description: 'Git diff or description of proposed change' },
+        context: { type: 'string', description: 'Additional context (branch name, PR title)' },
       },
-      required: ['query'],
+      required: ['diff'],
     },
   },
   {
     name: 'align_ask',
-    description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "how", "what was decided about", or any question about past decisions. Prefer this over align_search for natural language questions.',
+    description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "how", "what was decided about", or any question about past decisions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -223,6 +236,18 @@ export const TOOL_SCHEMAS = [
         limit: { type: 'number', description: 'Max answers (default: 8)', default: 8 },
       },
       required: ['question'],
+    },
+  },
+  {
+    name: 'align_search',
+    description: 'Alias of align_ask: the same search of the decision graph, taking the text as `query`. Kept for callers that already use this name; prefer align_ask.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+        limit: { type: 'number', description: 'Max results (default: 8)', default: 8 },
+      },
+      required: ['query'],
     },
   },
   {
@@ -234,18 +259,6 @@ export const TOOL_SCHEMAS = [
         input: { type: 'string', description: 'URL or text content of the decision to capture' },
       },
       required: ['input'],
-    },
-  },
-  {
-    name: 'align_check_alignment',
-    description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding. An "unknown" status means the check could not run and is NOT a pass: the decisions it returns are unchecked, so stop and ask the human rather than treating it as clear.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        diff: { type: 'string', description: 'Git diff or description of proposed change' },
-        context: { type: 'string', description: 'Additional context (branch name, PR title)' },
-      },
-      required: ['diff'],
     },
   },
   {
@@ -374,7 +387,7 @@ async function runMcpRemove(): Promise<void> {
     try {
       if (removeMcpConfig(target)) {
         removed++;
-        p.log.success(`${target.name}: align removed from ${target.configPath}`);
+        p.log.success(`${target.name}: align removed from ${[target.configPath, target.hooks?.path].filter(Boolean).join(' and ')}`);
       } else {
         // Said explicitly rather than silently skipped: "nothing happened" and "it was never
         // there" look identical otherwise, and only one of them is reassuring.
@@ -423,8 +436,8 @@ async function runMcpSetup(env?: EnvName): Promise<void> {
     const spinner = p.spinner();
     spinner.start(`Configuring ${name}...`);
     try {
-      writeMcpConfig(target, env === 'prod' || !env ? undefined : env);
-      spinner.stop(`${name}: align added to MCP servers`);
+      const files = writeMcpConfig(target, env === 'prod' || !env ? undefined : env);
+      spinner.stop(`${name}: align added to MCP servers${target.hooks ? ', pre-edit check hooked' : ''} (${files.join(', ')})`);
     } catch (err) {
       spinner.stop(`${name}: failed - ${(err as Error).message}`);
     }

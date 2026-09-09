@@ -59,10 +59,11 @@ export async function connectDetectedAgents(
   const wired: string[] = [];
   for (const target of editors) {
     try {
-      writeMcpConfig(target, envArg);
-      touched.push(target.configPath);
+      // The MCP entry, plus the user-level pre-edit hook on the hosts that have one
+      // (ALI-952: Codex, Cursor, Copilot CLI) - the writer reports every file it wrote.
+      touched.push(...writeMcpConfig(target, envArg));
       wired.push(target.name);
-      p.log.success(`${target.name}: align MCP connected`);
+      p.log.success(`${target.name}: align MCP connected${target.hooks ? ', pre-edit check hooked' : ''}`);
     } catch (err) {
       // One unwritable config must not abort onboarding, or a stale Zed install stops a user
       // finishing setup.
@@ -75,7 +76,7 @@ export async function connectDetectedAgents(
   if (touched.length > 0) {
     p.log.info(
       chalk.dim(
-        `Added an "align" entry to ${touched.length === 1 ? 'this file' : 'these files'}:\n${
+        `Added an "align" entry to ${touched.length === 1 ? 'this file' : 'these files'} (an MCP server, and a pre-edit check hook where the agent has one):\n${
           touched.map((f) => `  ${f}`).join('\n')
         }\nNothing else in ${touched.length === 1 ? 'it' : 'them'} was changed. Undo any time: ${chalk.bold('align mcp --remove')}`,
       ),

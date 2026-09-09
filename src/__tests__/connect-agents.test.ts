@@ -36,7 +36,9 @@ describe('connectDetectedAgents', () => {
   beforeEach(() => {
     logged.length = 0;
     detectEditors.mockReset();
-    writeMcpConfig.mockReset();
+    // ALI-952: the writer reports the files it touched - the MCP config, plus the
+    // user-level hook file on the hosts that have one.
+    writeMcpConfig.mockReset().mockImplementation((t: { configPath: string }) => [t.configPath]);
     confirm.mockReset();
   });
 
@@ -74,6 +76,20 @@ describe('connectDetectedAgents', () => {
     expect(out).toContain('align mcp --remove');
     // and the promise that makes an unasked write acceptable
     expect(out).toMatch(/Nothing else in them was changed/);
+  });
+
+  // ALI-952: a host with a user-level hook file gets the advisory hook next to its MCP
+  // entry, and the disclosure has to name that file too - it is the one a user would not
+  // expect us to have touched.
+  it('names the hook file when the host has one', async () => {
+    const hooksPath = '/home/d/.cursor/hooks.json';
+    detectEditors.mockReturnValue([{ ...CURSOR, hooks: { host: 'cursor', path: hooksPath } }]);
+    writeMcpConfig.mockImplementation((t: { configPath: string }) => [t.configPath, hooksPath]);
+    await connectDetectedAgents('local');
+    const out = logged.join('\n');
+    expect(out).toContain(CURSOR.configPath);
+    expect(out).toContain(hooksPath);
+    expect(out).toContain('these files');
   });
 
   it('agrees in number when it touched exactly one file', async () => {
@@ -162,7 +178,7 @@ describe('mcp_wired funnel stage (ALI-795)', () => {
   beforeEach(() => {
     recordFunnelStage.mockReset();
     detectEditors.mockReset();
-    writeMcpConfig.mockReset();
+    writeMcpConfig.mockReset().mockImplementation((t: { configPath: string }) => [t.configPath]);
   });
 
   it('emits once when at least one agent was wired', async () => {
@@ -187,7 +203,11 @@ describe('connectDetectedAgents names what it wired (ALI-950)', () => {
   beforeEach(() => {
     logged.length = 0;
     detectEditors.mockReset();
-    writeMcpConfig.mockReset();
+    // Merge-conflict resolution note (ALI-950 x ALI-952): this reset had no default
+    // implementation, so every call fell through to vi.fn()'s undefined return,
+    // `touched.push(...undefined)` threw, and the catch swallowed it - both tests below
+    // were passing by accident, on the exception path, not the one they name.
+    writeMcpConfig.mockReset().mockImplementation((t: { configPath: string }) => [t.configPath]);
   });
 
   it('returns the wired agents by name, in detection order', async () => {

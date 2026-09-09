@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { removeUserHooks, type UserHookTarget, writeUserHooks } from './user-hooks.js';
 
 // Align is agent-agnostic: any MCP-capable client is a first-class setup target.
 // Clients fall into a few config shapes, so each target carries a `format` the
@@ -10,12 +11,19 @@ import os from 'node:os';
 //  - 'zed' JSON          {"context_servers":{"align":{"source":"custom","command","args"}}}  Zed
 //  - 'codex' TOML        [mcp_servers.align] table                          OpenAI Codex CLI
 //  - 'pi' JSON           {"mcpServers":{"align":{...,"directTools":true}}}   pi (pi.dev)
-export type McpFormat = 'mcpServers' | 'vscode' | 'zed' | 'codex' | 'pi';
+//  - 'copilot' JSON      {"mcpServers":{"align":{"type":"local","command","args","tools":["*"]}}}  GitHub Copilot CLI
+export type McpFormat = 'mcpServers' | 'vscode' | 'zed' | 'codex' | 'pi' | 'copilot';
 
 export interface EditorTarget {
   name: string;
   configPath: string;
   format: McpFormat;
+  /**
+   * The host's USER-level hook file, for the hosts that have one (ALI-952: Codex, Cursor,
+   * Copilot CLI). writeMcpConfig writes the advisory pre-edit hook there next to the MCP
+   * entry, and removeMcpConfig takes it out again. Absent on hosts with no hook API.
+   */
+  hooks?: UserHookTarget;
 }
 
 function alignArgs(env?: string): string[] {
@@ -39,6 +47,10 @@ export function alignServerEntry(format: McpFormat, env?: string): Record<string
       // ALIGN_MCP_INSTRUCTIONS' "call align_check_alignment BEFORE writing code", so
       // ask for the tools to be registered directly.
       return { command: 'align', args, directTools: true };
+    case 'copilot':
+      // Copilot CLI requires `type` and a `tools` allowlist; without `tools` the server is
+      // configured and none of its tools are callable (GitHub's MCP configuration docs).
+      return { type: 'local', command: 'align', args, tools: ['*'] };
     default:
       return { command: 'align', args };
   }
@@ -87,9 +99,14 @@ export function detectEditors(): EditorTarget[] {
     found.push({ name: 'Claude Code', configPath: path.join(home, '.claude.json'), format: 'mcpServers' });
   }
 
-  // Cursor (~/.cursor/mcp.json)
+  // Cursor (~/.cursor/mcp.json). Hooks: ~/.cursor/hooks.json, Cursor 1.7+ (ALI-952).
   if (existsSync(path.join(home, '.cursor'))) {
-    found.push({ name: 'Cursor', configPath: path.join(home, '.cursor', 'mcp.json'), format: 'mcpServers' });
+    found.push({
+      name: 'Cursor',
+      configPath: path.join(home, '.cursor', 'mcp.json'),
+      format: 'mcpServers',
+      hooks: { host: 'cursor', path: path.join(home, '.cursor', 'hooks.json') },
+    });
   }
 
   // Windsurf (~/.codeium/windsurf/mcp_config.json)
@@ -112,9 +129,25 @@ export function detectEditors(): EditorTarget[] {
     found.push({ name: 'Zed', configPath: path.join(home, '.config', 'zed', 'settings.json'), format: 'zed' });
   }
 
-  // OpenAI Codex CLI (~/.codex/config.toml)
+  // OpenAI Codex CLI (~/.codex/config.toml). Hooks: ~/.codex/hooks.json (ALI-952).
   if (existsSync(path.join(home, '.codex'))) {
-    found.push({ name: 'Codex', configPath: path.join(home, '.codex', 'config.toml'), format: 'codex' });
+    found.push({
+      name: 'Codex',
+      configPath: path.join(home, '.codex', 'config.toml'),
+      format: 'codex',
+      hooks: { host: 'codex', path: path.join(home, '.codex', 'hooks.json') },
+    });
+  }
+
+  // GitHub Copilot CLI (~/.copilot/mcp-config.json). Hooks: one file of ours under
+  // ~/.copilot/hooks/, which Copilot loads alongside any others there (ALI-952).
+  if (existsSync(path.join(home, '.copilot'))) {
+    found.push({
+      name: 'Copilot CLI',
+      configPath: path.join(home, '.copilot', 'mcp-config.json'),
+      format: 'copilot',
+      hooks: { host: 'copilot', path: path.join(home, '.copilot', 'hooks', 'align.json') },
+    });
   }
 
   // pi (pi.dev) - MCP comes from the `pi-mcp-adapter` package, which reads the Pi agent
@@ -231,6 +264,13 @@ function writeJsonConfig(target: EditorTarget, env?: string): void {
  * user was part-way through editing.
  */
 export function removeMcpConfig(target: EditorTarget): boolean {
+  // The hook file first, and unconditionally: it is a separate file, so an MCP config that
+  // was already hand-cleaned must not leave the hook behind (ALI-952).
+  const hookRemoved = target.hooks ? removeUserHooks(target.hooks) : false;
+  return removeMcpEntry(target) || hookRemoved;
+}
+
+function removeMcpEntry(target: EditorTarget): boolean {
   if (!existsSync(target.configPath)) return false;
 
   if (target.format === 'codex') {
@@ -261,12 +301,20 @@ export function removeMcpConfig(target: EditorTarget): boolean {
   return true;
 }
 
-export function writeMcpConfig(target: EditorTarget, env?: string): void {
+/**
+ * Wire one agent: its MCP entry, plus the user-level advisory hook on the hosts that have
+ * one (ALI-952). Returns every file it wrote, in order, for the caller to disclose - the
+ * hook file is the one a user would not expect to have been touched.
+ */
+export function writeMcpConfig(target: EditorTarget, env?: string): string[] {
   if (target.format === 'codex') {
     writeCodexConfig(target.configPath, env);
-    return;
+  } else {
+    writeJsonConfig(target, env);
   }
-  writeJsonConfig(target, env);
+  if (!target.hooks) return [target.configPath];
+  writeUserHooks(target.hooks, env);
+  return [target.configPath, target.hooks.path];
 }
 
 /**
