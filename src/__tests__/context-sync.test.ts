@@ -167,6 +167,26 @@ describe('align context sync', () => {
   });
 });
 
+describe('align context sync drops a synthetic hosted source (ALI-923)', () => {
+  it('does not print an align://claimed/... identity as a link', async () => {
+    mockListDecisions.mockResolvedValue([
+      { id: '4', title: 'Scan could not verify where this was decided', summary: '', platform: 'github', status: 'active', source_url: 'align://claimed/9f2c' },
+    ]);
+    await run();
+    const file = read('.align/decisions.md');
+    expect(file).toContain('Scan could not verify where this was decided');
+    expect(file).not.toContain('align://claimed/');
+  });
+
+  it('still prints a real hosted source as a link', async () => {
+    // The control for the case above: a genuine source_url must keep navigating normally,
+    // or the guard could be silently dropping every source rather than only synthetic ones.
+    await run();
+    const file = read('.align/decisions.md');
+    expect(file).toContain('https://github.com/acme/api/pull/1441');
+  });
+});
+
 describe('align context sync carries decider provenance through (ALI-831)', () => {
   it('an unratified agent-decided row lands in the claims section, with the label', async () => {
     mockListDecisions.mockResolvedValue([

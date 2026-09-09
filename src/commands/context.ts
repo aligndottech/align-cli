@@ -24,6 +24,7 @@ import { createConfigStore } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { localCitationFor } from '../lib/commit-cite.js';
+import { navigableSourceUrl } from '../lib/decision-links.js';
 import {
   ALIGN_CONTEXT_PATH,
   ALIGN_IMPORT_LINE,
@@ -63,16 +64,23 @@ export function registerContextCommand(program: Command): void {
         // Active only: the file states what currently governs. Superseded and
         // archived decisions are history, and history is the graph's job.
         const rows = await client.listDecisions({ limit, status: 'active' });
-        decisions = rows.map((d) => ({
-          title: d.title,
-          ...(localCitationFor(d.source_url) ? { cite: localCitationFor(d.source_url) } : {}),
-          ...(d.source_url ? { sourceUrl: d.source_url } : {}),
-          // ALI-831: the fields renderDecisionsFile needs to route an unratified agent claim
-          // into its own section.
-          ...(d.decider_kind ? { deciderKind: d.decider_kind } : {}),
-          ...(d.ratified_by ? { ratifiedBy: d.ratified_by } : {}),
-          ...(d.ratified_at ? { ratifiedAt: d.ratified_at } : {}),
-        }));
+        decisions = rows.map((d) => {
+          const cite = localCitationFor(d.source_url);
+          // ALI-923: a hosted decision can carry a synthetic align://claimed/... identity
+          // (ALI-538) - not a place anyone can open. navigableSourceUrl drops it here so
+          // decisions-context.ts's renderer never has to know the difference.
+          const sourceUrl = navigableSourceUrl(d.source_url);
+          return {
+            title: d.title,
+            ...(cite ? { cite } : {}),
+            ...(sourceUrl ? { sourceUrl } : {}),
+            // ALI-831: the fields renderDecisionsFile needs to route an unratified agent claim
+            // into its own section.
+            ...(d.decider_kind ? { deciderKind: d.decider_kind } : {}),
+            ...(d.ratified_by ? { ratifiedBy: d.ratified_by } : {}),
+            ...(d.ratified_at ? { ratifiedAt: d.ratified_at } : {}),
+          };
+        });
       } catch (err) {
         spinner.fail(chalk.red(`Could not fetch decisions: ${(err as Error).message}`));
         process.exit(1);
