@@ -84,10 +84,71 @@ describe('recordFunnelStage', () => {
     expect(body).toHaveProperty('cliVersion');
   });
 
-  it('local without consent: sends nothing', async () => {
+  it('local without consent: a consent-tier stage sends nothing', async () => {
     getTelemetryConsent.mockReturnValue(undefined);
-    await recordFunnelStage(localEnv, 'setup_completed', 'setup');
+    await recordFunnelStage(localEnv, 'setup_started', 'setup');
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // ALI-954: the beacon tier. setup_completed is one of the two counts sent by default in
+  // local mode (with `cli.funnel.install`), so the funnel has a denominator: a user who
+  // declines usage telemetry still counts as having finished the wizard. Nothing else moves
+  // to this tier - setup_started stays behind consent, the second example pins that.
+  describe('beacon tier (ALI-954): setup_completed sends in local mode without consent', () => {
+    it('consent never asked: setup_completed still sends, as an anonymous ping', async () => {
+      getTelemetryConsent.mockReturnValue(undefined);
+
+      await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(true);
+
+      const { url, body } = sentTo();
+      expect(url).toBe(`${HOSTED_URL}/telemetry/anonymous`);
+      expect(body).toMatchObject({ installId: INSTALL_ID, command: 'setup', stage: 'setup_completed' });
+    });
+
+    it('consent declined at the prompt: setup_completed still sends', async () => {
+      getTelemetryConsent.mockReturnValue('declined');
+
+      await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('consent declined: setup_started does NOT send - only the two beacons are default-on', async () => {
+      getTelemetryConsent.mockReturnValue('declined');
+
+      await expect(recordFunnelStage(localEnv, 'setup_started', 'setup')).resolves.toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('`align telemetry off` (stored "off"): setup_completed does not send either', async () => {
+      getTelemetryConsent.mockReturnValue('off');
+
+      await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('DO_NOT_TRACK=1 stops the beacon in both modes', async () => {
+      vi.stubEnv('DO_NOT_TRACK', '1');
+
+      await recordFunnelStage(localEnv, 'setup_completed', 'setup');
+      await recordFunnelStage(cloudEnv, 'setup_completed', 'setup');
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    // The snapshot the docs page is checked against: every field, by equality.
+    it('beacon payload is exactly installId, command, cliVersion and stage - no os, no consent state', async () => {
+      getTelemetryConsent.mockReturnValue('declined');
+
+      await recordFunnelStage(localEnv, 'setup_completed', 'setup');
+
+      expect(Object.keys(sentTo().body).sort()).toEqual(['cliVersion', 'command', 'installId', 'stage']);
+    });
+
+    // Cloud mode is unchanged by the tier: a token is still what lets a cloud event send.
+    it('cloud without a token: setup_completed still sends nothing', async () => {
+      await expect(recordFunnelStage({ ...cloudEnv, authToken: null }, 'setup_completed', 'setup')).resolves.toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
   });
 
   it('cloud with a token: one ingest event named cli.funnel.<stage>', async () => {

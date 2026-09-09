@@ -4,18 +4,22 @@ import { createConfigStore } from '../lib/config.js';
 import { getTelemetryStatus } from '../lib/usage-telemetry.js';
 
 /**
- * ALI-618: `align telemetry on|off|status`. `on`/`off` set the LOCAL consent decision - the
- * cloud opt-out default is controlled by ALIGN_TELEMETRY, not by this command, and `status`
- * says which model applies (see usage-telemetry.ts's getTelemetryStatus).
+ * ALI-618: `align telemetry on|off|status`. `on`/`off` set the LOCAL decision - the cloud
+ * opt-out default is controlled by ALIGN_TELEMETRY, not by this command - and `status` says
+ * which model applies (see usage-telemetry.ts's getTelemetryStatus).
+ *
+ * ALI-954: `off` stores 'off', which stops BOTH tiers - the usage pings and the two anonymous
+ * counts that send by default (install, setup completed). That is a stronger decision than
+ * answering No at the consent prompt, which only declines usage, and the message says so.
  */
 export function registerTelemetryCommand(program: Command): void {
   const telemetry = program
     .command('telemetry')
-    .description('Manage anonymous usage telemetry consent for local-only mode');
+    .description('Manage anonymous telemetry in local-only mode (two counts by default, usage only with consent)');
 
   telemetry
     .command('on')
-    .description('Opt in to anonymous usage pings in local-only mode')
+    .description('Send anonymous usage pings in local-only mode (command names, never content)')
     .action(() => {
       createConfigStore().setTelemetryConsent('granted');
       console.log(chalk.green('Telemetry on.'));
@@ -24,10 +28,11 @@ export function registerTelemetryCommand(program: Command): void {
 
   telemetry
     .command('off')
-    .description('Opt out of anonymous usage pings in local-only mode')
+    .description('Stop all telemetry in local-only mode, the two default anonymous counts included')
     .action(() => {
-      createConfigStore().setTelemetryConsent('declined');
+      createConfigStore().setTelemetryConsent('off');
       console.log(chalk.green('Telemetry off.'));
+      console.log(chalk.dim('Nothing is sent from this machine - not usage, and not the two anonymous counts (install, setup completed).'));
     });
 
   telemetry

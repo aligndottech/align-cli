@@ -1,4 +1,5 @@
 import { ALIGN_HOSTED_GATEWAY_URL, type EnvironmentConfig, type TelemetryConsent } from './config.js';
+import { telemetryDisabledByEnv } from './telemetry-env.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -7,29 +8,25 @@ import pkg from '../../package.json' with { type: 'json' };
  *
  * Cloud mode is opt-out: a cloud user is already on an authenticated connection to our
  * gateway, so an event about a call already being made is not a new phone-home. Local-embedded
- * mode (ALI-618) is opt-in instead: `--local` users have no account and no tenant, so there is
- * nothing to authenticate an event against, and nothing is sent until the user explicitly
- * consents (see `config.ts`'s `getTelemetryConsent`, set by the one-time prompt in
- * `commands/setup.ts`). Both modes send only a command name, never arguments or content.
+ * mode has two tiers (ALI-954, superseding the ALI-618 "nothing by default" for local mode):
+ * - Two anonymous BEACONS send by default: `cli.funnel.install` (once, on the first ever run,
+ *   see recordInstallBeacon) and `cli.funnel.setup_completed`. They exist so the funnel has a
+ *   denominator - opt-in usage alone cannot tell a 10% consent rate from 90%.
+ * - Everything else (`cli.command`, the other funnel stages) sends only with the stored
+ *   consent (`config.ts`'s `getTelemetryConsent`, set by the one-time prompt at the end of
+ *   setup, default No). `--local` users have no account and no tenant, so there is nothing
+ *   to authenticate an event against - the consent is the gate.
+ * Both modes send only a command name, never arguments or content. docs/telemetry.md lists
+ * every event and field, and telemetry-docs-parity.test.ts keeps that page true.
  *
- * `ALIGN_TELEMETRY=0` (or `false` / `no` / `off`) is the single global off switch and wins in
- * both modes, over a granted local consent included (ALI-618 D3b - one consent model, not two).
+ * `ALIGN_TELEMETRY=0` and `DO_NOT_TRACK=1` (telemetry-env.ts) turn everything off, both tiers,
+ * in both modes, over a granted local consent included (ALI-618 D3b - one consent model, not
+ * two). `align telemetry off` stores 'off', which does the same thing without an env var.
  */
 export const TELEMETRY_TIMEOUT_MS = 2_000;
 
-/**
- * Set and not recognisably ON means OFF. Enumerating the falsy words instead - `0|false|no|off` -
- * guesses at what a user will type, and every guess that misses is a live send by someone who
- * believes they opted out: `disabled` and `n` both sent. Trimmed, because a trailing space or
- * newline comes free from a `.env` file or a here-doc. Unset is ON, which is the documented
- * cloud default and the only value this cannot see.
- */
-const OPT_IN_VALUES = new Set(['1', 'true', 'yes', 'on']);
-
 function telemetryOptedOut(): boolean {
-  const raw = process.env['ALIGN_TELEMETRY'];
-  if (raw === undefined || raw.trim() === '') return false;
-  return !OPT_IN_VALUES.has(raw.trim().toLowerCase());
+  return telemetryDisabledByEnv() !== undefined;
 }
 
 /**
@@ -69,24 +66,36 @@ export interface TelemetryStatus {
  * ALI-618 D3b: what `align telemetry status` prints. Takes the consent decision as a plain
  * argument rather than reading `config.ts` itself, so the two consent MODELS stay visibly
  * distinct in one function a reader can hold in their head - cloud's opt-out default and
- * local's stored opt-in decision - with `ALIGN_TELEMETRY=0` as the one thing that overrides
- * both, checked first.
+ * local's stored decision (ALI-954: three values, and the two default-on beacons named where
+ * usage is off but they are not) - with the env switches as the thing that overrides both,
+ * checked first.
  */
 export function getTelemetryStatus(
   env: EnvironmentConfig,
   localConsent: TelemetryConsent | undefined,
 ): TelemetryStatus {
-  if (telemetryOptedOut()) {
-    return { enabled: false, reason: 'off: ALIGN_TELEMETRY is set to an opt-out value' };
+  const envSwitch = telemetryDisabledByEnv();
+  if (envSwitch === 'DO_NOT_TRACK') {
+    return { enabled: false, reason: 'off: DO_NOT_TRACK is set - nothing is sent' };
+  }
+  if (envSwitch === 'ALIGN_TELEMETRY') {
+    return { enabled: false, reason: 'off: ALIGN_TELEMETRY is set to an opt-out value - nothing is sent' };
   }
   if (env.mode === 'local-embedded') {
+    // ALI-954: "off" here is about usage. The two beacons still send unless the user ran
+    // `align telemetry off` (stored 'off') - and the line has to say so, or "off" would be
+    // read as "nothing is sent" over a beacon that still is.
+    const beacons = ' - the two anonymous counts (install, setup completed) still send; `align telemetry off` stops those too';
     if (localConsent === 'granted') {
       return { enabled: true, reason: 'on: local mode, you opted in when asked' };
     }
     if (localConsent === 'declined') {
-      return { enabled: false, reason: 'off: local mode, you declined when asked' };
+      return { enabled: false, reason: `off: local mode, you declined when asked${beacons}` };
     }
-    return { enabled: false, reason: 'off: local mode, you have not been asked yet' };
+    if (localConsent === 'off') {
+      return { enabled: false, reason: 'off: local mode, you ran `align telemetry off` - nothing is sent' };
+    }
+    return { enabled: false, reason: `off: local mode, you have not been asked yet${beacons}` };
   }
   return { enabled: true, reason: 'on: cloud mode, opt-out default' };
 }
@@ -97,9 +106,10 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
   // (the hook may resolve an env other than the one the command used), so the token check below
   // is not enough on its own.
   if (command === 'local' || command.startsWith('local ')) return;
-  // The mode is the consent boundary (PR #77: cloud is opt-out; ALI-618: local is opt-in via a
-  // stored consent decision, never a phone-home by default). It has to gate on its own because
-  // a token can be in scope without cloud consent: ALIGN_TOKEN exported into the shell, or a
+  // The mode is the consent boundary (PR #77: cloud is opt-out; ALI-618: local usage sends
+  // only with the stored consent decision - the ALI-954 beacons are the two named exceptions,
+  // and this per-command ping is not one of them). It has to gate on its own because a token
+  // can be in scope without cloud consent: ALIGN_TOKEN exported into the shell, or a
   // logged-in default env resolved by the caller.
   if (env.mode === 'local-embedded') {
     await recordAnonymousCommandUsage(command);
@@ -142,15 +152,7 @@ async function recordAnonymousCommandUsage(command: string): Promise<void> {
   const config = createConfigStore();
   if (config.getTelemetryConsent() !== 'granted') return;
 
-  const installId = config.getInstallId();
-  const commandPath = commandPathOf(command);
-  const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
-
-  await postWithTimeout(`${target}/telemetry/anonymous`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ installId, command: commandPath, cliVersion: pkg.version }),
-  });
+  await postAnonymous({ installId: config.getInstallId(), command: commandPathOf(command), cliVersion: pkg.version });
 }
 
 /**
@@ -179,33 +181,38 @@ function commandPathOf(command: string): string {
  * actually sent (a member blocked by the org_admin gate is still demand). `align invite`
  * refuses local-embedded mode outright (it needs a real cloud tenant to invite anyone
  * into), so in practice this ALWAYS reaches recordFunnelStage with a cloud env and takes
- * the /telemetry/ingest path, which accepts any eventName as a string - no gateway change
- * needed for this stage to work today.
+ * the /telemetry/ingest path, which accepts any eventName as a string. The gateway's
+ * FUNNEL_STAGES enum lists it too since ALI-954, so the local path no longer 400s either.
  *
- * The gap that DOES exist, for completeness: the gateway's FUNNEL_STAGES enum
- * (telemetryAnonymousRoutes.ts, guarding /telemetry/anonymous's `stage` field) has not
- * been extended to include 'teammate_requested'. Unreachable through this command as
- * built, but this CLI-side type now permits calling recordFunnelStage(localEnv,
- * 'teammate_requested', ...) from anywhere else that resolves to local-embedded, and that
- * call would 400 at the gateway and be silently dropped by postWithTimeout (which never
- * inspects the response). Same gap, and same fix, as KNOWN_COMMANDS not yet listing
- * 'invite' (this endpoint's OTHER closed enum, guarding the plain per-invocation
- * cli.command ping) - also unreachable today, for the same reason. Both are align-stack
- * gateway changes, out of scope for this CLI-only PR; see the ALI-938 PR description.
+ * ALI-954: `install` is the once-per-install beacon and has its own emitter
+ * (recordInstallBeacon) - it is not offered to recordFunnelStage, whose `command` argument
+ * is a provenance the install beacon must not carry.
  */
-export type FunnelStage =
-  | 'setup_started'
-  | 'setup_completed'
-  | 'import_completed'
-  | 'mcp_wired'
-  | 'first_useful_decision'
-  | 'teammate_requested';
+export const FUNNEL_STAGES = [
+  'setup_started',
+  'setup_completed',
+  'import_completed',
+  'mcp_wired',
+  'first_useful_decision',
+  'teammate_requested',
+] as const;
+export type FunnelStage = (typeof FUNNEL_STAGES)[number];
+
+/**
+ * ALI-954: the two stages that send BY DEFAULT in local mode, with no consent - the
+ * denominator of the funnel. `install` goes through recordInstallBeacon; `setup_completed`
+ * goes through recordFunnelStage like every other stage and is the one stage there that
+ * does not read the consent decision. Adding a stage here is a documented promise changing:
+ * docs/telemetry.md lists this set, and telemetry-docs-parity.test.ts checks it.
+ */
+export const BEACON_STAGES = ['install', 'setup_completed'] as const;
 
 /**
  * The single funnel-stage emitter. Same consent model as recordCommandUsage, no new
- * consent surface: cloud is opt-out behind a token, local is opt-in behind the stored
- * decision, ALIGN_TELEMETRY=0 beats both. `command` is the stage's provenance
- * ("first_useful_decision via ask"), never arguments or content.
+ * consent surface: cloud is opt-out behind a token, local is behind the stored decision
+ * except for the beacon tier (BEACON_STAGES), and the env switches beat everything.
+ * `command` is the stage's provenance ("first_useful_decision via ask"), never arguments
+ * or content.
  *
  * first_useful_decision is once-per-install, guarded HERE rather than at call sites so
  * there is exactly one enforcement point. Marked before the send, deliberately: a ping
@@ -244,7 +251,7 @@ export async function recordFunnelStage(
     // re-sending forever.
     const isLocal = env.mode === 'local-embedded';
     const canSend = isLocal
-      ? config.getTelemetryConsent() === 'granted'
+      ? localTierAllows(config.getTelemetryConsent(), stage)
       : Boolean(env.authToken && env.tenantId);
     if (!canSend) return false;
     if (stage === 'first_useful_decision') config.markFunnelStageRecorded(stage);
@@ -252,17 +259,7 @@ export async function recordFunnelStage(
     const commandPath = commandPathOf(command);
 
     if (isLocal) {
-      const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
-      await postWithTimeout(`${target}/telemetry/anonymous`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          installId: config.getInstallId(),
-          command: commandPath,
-          cliVersion: pkg.version,
-          stage,
-        }),
-      });
+      await postAnonymous({ installId: config.getInstallId(), command: commandPath, cliVersion: pkg.version, stage });
       return true;
     }
 
@@ -283,6 +280,80 @@ export async function recordFunnelStage(
     return true;
   } catch {
     // Swallowed for the reason above. The funnel loses one row; the command survives.
+    return false;
+  }
+}
+
+/**
+ * ALI-954: whether a local-mode stage may send, given the stored decision. A beacon stage
+ * sends unless the user ran `align telemetry off` (stored 'off'); every other stage needs
+ * a granted consent. A prompt-declined consent ('declined') is a decision about USAGE and
+ * leaves the beacons on - that split is the ticket's decision, and docs/telemetry.md says
+ * it in the user's words.
+ */
+function localTierAllows(consent: TelemetryConsent | undefined, stage: FunnelStage | 'install'): boolean {
+  if ((BEACON_STAGES as readonly string[]).includes(stage)) return consent !== 'off';
+  return consent === 'granted';
+}
+
+/**
+ * The anonymous payload, the one place its shape is spelled. Targets ALIGN_HOSTED_GATEWAY_URL,
+ * never a `gatewayUrl` off the env - see recordAnonymousCommandUsage for why.
+ */
+async function postAnonymous(payload: Record<string, string>): Promise<void> {
+  const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
+  await postWithTimeout(`${target}/telemetry/anonymous`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * ALI-954: the install beacon - the funnel's denominator. Sent from the preAction hook in
+ * index.ts, so it goes out BEFORE any prompt on the very first run of this install id, and
+ * never again. The payload is the CLI version, the OS (`process.platform`, a closed enum the
+ * gateway also constrains), the install id, and the literal command `align` - the endpoint
+ * requires a command and this one must not carry which command was run first, so it sends
+ * the program's own name, which carries no information. Nothing about the repo, the graph,
+ * or the user.
+ *
+ * "First ever run" is a moment, not a state, so the install is marked recorded on that run
+ * whether or not the beacon went out: `DO_NOT_TRACK=1` or `ALIGN_TELEMETRY=0` set before the
+ * first run means it is NEVER sent, by construction, even if the variable is later unset.
+ * That is the opposite trade from first_useful_decision's once-mark (which waits for
+ * sendability so a later opt-in still emits), and it is deliberate: a beacon on the fifth
+ * run would not be the install it claims to be, and "never" is the promise the docs make.
+ *
+ * Two cases do not consume the first run: `align telemetry ...` as the user's first command
+ * (the off switch must not be raced by the thing it switches off), and a run that already
+ * holds a cloud token (cloud mode is unchanged by this ticket - its funnel is the authed
+ * one). Resolves true when a send was made, false otherwise; never throws, like every other
+ * emitter here.
+ */
+export async function recordInstallBeacon(commandPath: string): Promise<boolean> {
+  try {
+    if (commandPath === 'telemetry' || commandPath.startsWith('telemetry ')) return false;
+    const { createConfigStore } = await import('./config.js');
+    const { resolveEnv } = await import('./resolve-env.js');
+    const config = createConfigStore();
+    if (config.wasFunnelStageRecorded('install')) return false;
+    const env = config.getEnvironment(resolveEnv(undefined, { preferLocalEmbedded: true }));
+    if (env.authToken) return false;
+    config.markFunnelStageRecorded('install');
+    if (telemetryOptedOut()) return false;
+    if (!localTierAllows(config.getTelemetryConsent(), 'install')) return false;
+
+    await postAnonymous({
+      installId: config.getInstallId(),
+      command: 'align',
+      cliVersion: pkg.version,
+      stage: 'install',
+      os: process.platform,
+    });
+    return true;
+  } catch {
+    // Telemetry must never fail or delay a command; the funnel loses one row.
     return false;
   }
 }

@@ -144,6 +144,26 @@ describe('recordCommandUsage - local-embedded anonymous ping', () => {
     expect(getTelemetryConsent).not.toHaveBeenCalled();
   });
 
+  // ALI-954: the cross-tool convention (consoledonottrack.com) is honoured on the usage tier
+  // too, over a granted consent - same precedence as ALIGN_TELEMETRY=0.
+  it('DO_NOT_TRACK=1 beats a granted local consent', async () => {
+    vi.stubEnv('DO_NOT_TRACK', '1');
+    getTelemetryConsent.mockReturnValue('granted');
+
+    await recordCommandUsage(localEnv, 'search');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // `align telemetry off` stores 'off' (ALI-954), which the usage tier reads as not granted.
+  it('sends nothing after `align telemetry off`', async () => {
+    getTelemetryConsent.mockReturnValue('off');
+
+    await recordCommandUsage(localEnv, 'search');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   // test 7
   it('carries no tenant and no Authorization header', async () => {
     getTelemetryConsent.mockReturnValue('granted');

@@ -59,8 +59,13 @@ export const ALIGN_HOSTED_GATEWAY_URL = DEFAULTS.prod.gatewayUrl;
  */
 export const LOCAL_DEFAULT_GATEWAY_URL = DEFAULTS.local.gatewayUrl;
 
-/** ALI-618: local-only users have no account, so consent is stored on the machine, not the server. */
-export type TelemetryConsent = 'granted' | 'declined';
+/**
+ * ALI-618: local-only users have no account, so consent is stored on the machine, not the
+ * server. 'granted' / 'declined' are the prompt's two answers and decide USAGE telemetry;
+ * 'off' (ALI-954, written by `align telemetry off`) also stops the two default-on beacons -
+ * the stored equivalent of `DO_NOT_TRACK=1`. See usage-telemetry.ts's localTierAllows.
+ */
+export type TelemetryConsent = 'granted' | 'declined' | 'off';
 
 /**
  * One-time, idempotent: if the old suffixed config exists and the new one does not yet,

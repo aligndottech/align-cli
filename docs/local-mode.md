@@ -16,8 +16,9 @@
     a personal graph into a team's.
 - **Local-only** (`align setup --local`). **No account, and no Align servers.** The graph,
   embeddings and search all live in a SQLite database on your machine, and the CLI never sends
-  your decisions, your code, or any file content to us. The one thing it can send - opt-in,
-  never by default - is an anonymous count of which commands you run; see Telemetry below.
+  your decisions, your code, or any file content to us. It sends two anonymous counts by
+  default (install, setup completed); usage only with your consent; `align telemetry off` or
+  `DO_NOT_TRACK=1` stops all of it. See Telemetry below, and [every field](telemetry.md).
 
 Pick cloud on a work email to land straight in your company's graph, local for maximum
 privacy. You can start local and move to cloud later.
@@ -47,20 +48,27 @@ Worth knowing before you point it at work content.
 ## Telemetry
 
 Two different models, by design, and `align telemetry status` always tells you which one
-applies to the environment you're running in and why.
+applies to the environment you're running in and why. [Every event and every field](telemetry.md)
+is listed on its own page, and a test keeps that page true.
 
 - **Cloud mode is opt-out.** You're already on an authenticated connection to Align's gateway,
   so a usage event about a call you're already making isn't a new phone-home. Set
   `ALIGN_TELEMETRY=0` to turn it off.
-- **Local-only mode is opt-in, and off until you say yes.** `setup --local` asks once, on first
-  run: send an anonymous count of which commands you run - no code, no decisions, no file names,
-  ever. Decline (or don't answer - a non-interactive run is never asked) and nothing is sent,
-  ever, until you run `align telemetry on`. The payload is a random id generated once for this
-  machine, the command name, and the CLI version - plus, on a handful of milestone pings (setup
-  started and completed, an import finishing, an agent wired up, the first useful answer), which
-  milestone it was. Nothing else.
-- **`ALIGN_TELEMETRY=0` always wins**, in both modes, over everything else including a prior
-  `align telemetry on`.
+- **Local-only mode sends two anonymous counts by default, and usage only with your consent.**
+  The two counts: one the first time you run `align` (install: a random id generated once for
+  this machine, the CLI version, and the OS name), one when the setup wizard finishes (setup
+  completed). That's the whole default. They exist so we can tell how many people install and
+  how many of them say yes to the next part.
+  The next part is asked once, at the end of setup, default No: send an anonymous count of
+  which commands you run - no code, no decisions, no file names, ever. Decline (or don't
+  answer - a non-interactive run is never asked) and no usage is sent until you run
+  `align telemetry on`. With consent, the payload is the same random id, the command name, and
+  the CLI version - plus, on a handful of milestone pings (setup started, an import finishing,
+  an agent wired up, the first useful answer), which milestone it was. Nothing else.
+- **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it**, the two counts included.
+  `ALIGN_TELEMETRY=0` does the same. All three win, in both modes, over everything else
+  including a prior `align telemetry on`. Set the env var before your first run and the
+  install count is never sent; the wizard then skips the consent question and says why.
 - `align telemetry on` / `align telemetry off` change the local-only decision at any time.
   `align telemetry status` prints the effective state and why.
 
