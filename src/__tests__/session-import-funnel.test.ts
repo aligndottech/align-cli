@@ -146,6 +146,37 @@ describe('recordFunnelStage refuses to send from a hook', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('drops a measurement passed with a stage the gateway refuses one on', async () => {
+    // Copilot on #286. The boundary is two-sided and only this half is new: a measurement on
+    // `mcp_wired` must not reach the wire, because the gateway's schema is `.strict()` with a
+    // superRefine refusing `count` and `agent` there - it would 400 the whole ping, and the
+    // emitter's catch swallows a 400, so the stage would go silently missing. Dropping the two
+    // fields keeps the stage. The other half - a measurement on a session stage DOES travel -
+    // is the first case in this block, so neither direction is asserted alone.
+    const sent = await recordFunnelStage(LOCAL_ENV, 'mcp_wired', 'setup', { count: 99, agent: 'codex' });
+    expect(sent).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as { body: string }).body));
+    // Positive control for the two absences: the ping really was built and really carries the
+    // stage, so `count` being absent means dropped rather than never-sent.
+    expect(body.stage).toBe('mcp_wired');
+    expect('count' in body).toBe(false);
+    expect('agent' in body).toBe(false);
+  });
+
+  it('drops it on the cloud path too, not only the local one', async () => {
+    // Two payload sites are built separately in the emitter, so one enforcement point is a
+    // claim about both. Asserted per path rather than in a lump: gating only the local spread
+    // would leave this red while every other case here stayed green.
+    const CLOUD_ENV = { mode: 'cloud', gatewayUrl: 'https://example.invalid', authToken: 't', tenantId: 'tn' } as never;
+    const sent = await recordFunnelStage(CLOUD_ENV, 'mcp_wired', 'setup', { count: 99, agent: 'codex' });
+    expect(sent).toBe(true);
+    const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as { body: string }).body));
+    expect(body.properties.command).toBe('setup');
+    expect('count' in body.properties).toBe(false);
+    expect('agent' in body.properties).toBe(false);
+  });
+
   it('omits count and agent entirely when there is no measurement', async () => {
     // The gateway schema is `.strict()` and refuses both fields on non-session stages, so an
     // explicit `undefined` key would 400. Absent means absent.

@@ -189,6 +189,22 @@ function commandPathOf(command: string): string {
  * (recordInstallBeacon) - it is not offered to recordFunnelStage, whose `command` argument
  * is a provenance the install beacon must not carry.
  */
+/**
+ * ALI-835: the stages the gateway ACCEPTS a measurement on. Permission, not obligation - three
+ * of the four come from one `align import sessions` run and carry a count and an agent name,
+ * while `decisions_ratified` comes from `align ratify` and deliberately carries neither, since
+ * a ratification is a person standing behind a claim rather than anything an agent counted.
+ *
+ * Session import is the first funnel event whose value IS a number; every earlier stage only
+ * had to happen.
+ *
+ * Declared above FUNNEL_STAGES and spread into it rather than listed in both, so the four
+ * strings have one writer here as they now do on the gateway side (align-stack #2237).
+ */
+export const SESSION_IMPORT_STAGES = [
+  'sessions_scanned', 'candidates_found', 'candidates_confirmed', 'decisions_ratified',
+] as const;
+
 export const FUNNEL_STAGES = [
   'setup_started',
   'setup_completed',
@@ -196,23 +212,9 @@ export const FUNNEL_STAGES = [
   'mcp_wired',
   'first_useful_decision',
   'teammate_requested',
-  // ALI-835: the four session-import stages, emitted together by one `align import sessions`
-  // run. They are the only stages that carry a measurement (a count and an agent name). The
-  // gateway's own FUNNEL_STAGES must list these too or every ping 400s; that half shipped
-  // first, deliberately (align-stack #2237, the ALI-790 lesson).
-  'sessions_scanned',
-  'candidates_found',
-  'candidates_confirmed',
-  'decisions_ratified',
-] as const;
-
-/**
- * ALI-835: the stages that carry a measurement, and the only ones the gateway accepts one on.
- * Session import is the first funnel event whose value IS a number - every earlier stage only
- * had to happen.
- */
-export const SESSION_IMPORT_STAGES = [
-  'sessions_scanned', 'candidates_found', 'candidates_confirmed', 'decisions_ratified',
+  // The gateway's own FUNNEL_STAGES must list these too or every ping 400s; that half
+  // shipped first, deliberately (align-stack #2237, the ALI-790 lesson).
+  ...SESSION_IMPORT_STAGES,
 ] as const;
 
 /**
@@ -293,16 +295,27 @@ export async function recordFunnelStage(
 
     const commandPath = commandPathOf(command);
 
+    // ALI-835 (Copilot on #286): the measurement is admitted only on the stages the gateway
+    // permits it on. Gated HERE rather than at the two payload sites below, for the same
+    // reason first_useful_decision's once-check is: one enforcement point. The gateway's
+    // schema is `.strict()` with a superRefine refusing `count` and `agent` on every other
+    // stage, so a future call site passing a measurement alongside, say, `mcp_wired` would
+    // 400 the whole ping - and the catch below swallows that, so the stage would go silently
+    // missing rather than fail loudly. Dropping the two fields keeps the stage itself.
+    const measured: Record<string, string | number> =
+      measurement && (SESSION_IMPORT_STAGES as readonly string[]).includes(stage)
+        ? { count: measurement.count, agent: measurement.agent }
+        : {};
+
     if (isLocal) {
       await postAnonymous({
         installId: config.getInstallId(),
         command: commandPath,
         cliVersion: pkg.version,
         stage,
-        // ALI-835: only the session-import stages carry these, and the gateway's schema refuses
-        // them on any other stage - so this spreads rather than setting undefined, because that
-        // schema is `.strict()` and an explicit undefined key is still a key.
-        ...(measurement ? { count: measurement.count, agent: measurement.agent } : {}),
+        // Spread rather than set: the gateway's schema is `.strict()`, and an explicit
+        // undefined key is still a key.
+        ...measured,
       });
       return true;
     }
@@ -318,7 +331,7 @@ export async function recordFunnelStage(
         eventName: `cli.funnel.${stage}`,
         category: 'engagement',
         platform: 'cli',
-        properties: { command: commandPath, ...(measurement ? { count: measurement.count, agent: measurement.agent } : {}) },
+        properties: { command: commandPath, ...measured },
       }),
     });
     return true;

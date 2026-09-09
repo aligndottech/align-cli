@@ -87,7 +87,7 @@ Milestone pings, one of `setup_started`, `import_completed`, `mcp_wired`,
 from an agent over MCP), `teammate_requested`, and the four session-import stages:
 `sessions_scanned`, `candidates_found`, `candidates_confirmed` and `decisions_ratified`.
 
-The session-import stages are the only ones that carry a measurement, and they carry exactly
+The session-import stages are the only ones that may carry a measurement, and it is exactly
 two extra fields: a `count` and the `agent` name (one of the six coding agents the CLI can read
 sessions for). Nothing about a session's content, a repo, a path or a file name is ever sent -
 the counts are counts, and the agent is the name of a tool on your machine. `decisions_ratified`
