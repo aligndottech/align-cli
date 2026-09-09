@@ -25,6 +25,7 @@ import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveLocalIdentity } from '../lib/git.js';
 import { resolveEnv } from '../lib/resolve-env.js';
+import { recordFunnelStage } from '../lib/usage-telemetry.js';
 
 export function registerRatifyCommand(program: Command): void {
   program
@@ -56,6 +57,26 @@ export function registerRatifyCommand(program: Command): void {
           console.log(chalk.yellow(`\n  Already ratified by ${res.ratifiedBy ?? 'a human'}${when}. The first ratification stands.\n`));
           return;
         }
+        // ALI-835: decisions_ratified is emitted HERE rather than from `align import sessions`,
+        // because this is where the number moves. At import it could only ever be 0 - the
+        // import writes claims and ratifying is a separate human act - and a stage that is
+        // always zero measures nothing while looking like a measurement.
+        //
+        // Only a first ratification counts: the already-ratified branch above returns before
+        // this line, so a repeat `align ratify` on the same id is not a second act. The count
+        // is 1 because one ratification is one human decision; the funnel sums them.
+        //
+        // This command already refuses a hook, a pipe and an agent shell (it requires a TTY on
+        // stdin), so a ping from here is a human by construction - the hook guard in
+        // recordFunnelStage is the belt to that braces.
+        //
+        // Sent with NO measurement, deliberately. The gateway makes count and agent optional,
+        // and a ratification has no agent: it is a person standing behind a claim, whatever
+        // wrote it. Filling the field with a plausible agent name to satisfy the shape would
+        // put a fabricated dimension in the scoreboard, which is worse than an absent one -
+        // a null says "unknown" and a wrong name is indistinguishable from a measurement.
+        // The stage's own occurrences are the count; the funnel sums them.
+        void recordFunnelStage(config.getEnvironment(envName), 'decisions_ratified', 'ratify');
         console.log(chalk.green(`\n  Ratified by ${res.ratifiedBy ?? ratifiedBy}.`));
         if (envName === 'local') {
           console.log(chalk.dim(`  It now reads as governing in .align/decisions.md and to the local MCP server.`));

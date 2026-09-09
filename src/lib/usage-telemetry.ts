@@ -1,5 +1,6 @@
 import { ALIGN_HOSTED_GATEWAY_URL, type EnvironmentConfig, type TelemetryConsent } from './config.js';
 import { telemetryDisabledByEnv } from './telemetry-env.js';
+import { inHookContext } from './hook-context.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -195,7 +196,34 @@ export const FUNNEL_STAGES = [
   'mcp_wired',
   'first_useful_decision',
   'teammate_requested',
+  // ALI-835: the four session-import stages, emitted together by one `align import sessions`
+  // run. They are the only stages that carry a measurement (a count and an agent name). The
+  // gateway's own FUNNEL_STAGES must list these too or every ping 400s; that half shipped
+  // first, deliberately (align-stack #2237, the ALI-790 lesson).
+  'sessions_scanned',
+  'candidates_found',
+  'candidates_confirmed',
+  'decisions_ratified',
 ] as const;
+
+/**
+ * ALI-835: the stages that carry a measurement, and the only ones the gateway accepts one on.
+ * Session import is the first funnel event whose value IS a number - every earlier stage only
+ * had to happen.
+ */
+export const SESSION_IMPORT_STAGES = [
+  'sessions_scanned', 'candidates_found', 'candidates_confirmed', 'decisions_ratified',
+] as const;
+
+/**
+ * What a session-import stage reports. A count and the agent's name, and nothing else - never a
+ * repo, a path, a session id or a line of any transcript. The gateway refuses both fields on
+ * every other stage.
+ */
+export interface FunnelMeasurement {
+  count: number;
+  agent: string;
+}
 export type FunnelStage = (typeof FUNNEL_STAGES)[number];
 
 /**
@@ -230,6 +258,7 @@ export async function recordFunnelStage(
   env: EnvironmentConfig,
   stage: FunnelStage,
   command: string,
+  measurement?: FunnelMeasurement,
 ): Promise<boolean> {
   // The whole body is guarded: telemetry must never fail or delay a command (the same
   // invariant postWithTimeout enforces for the network half, extended to the config
@@ -238,6 +267,12 @@ export async function recordFunnelStage(
   // in a file this change never touched said so (tdd.md's hand-built-fake rule).
   try {
     if (telemetryOptedOut()) return false;
+    // ALI-835: never from inside an agent hook. A hook runs on the agent's clock, many times a
+    // session, with nobody watching - so a ping from there would measure an editing loop rather
+    // than a person choosing to do something, which is what every funnel stage means. Guarded
+    // HERE for the same reason first_useful_decision's once-check is: one enforcement point
+    // rather than one per call site.
+    if (inHookContext()) return false;
 
     const { createConfigStore } = await import('./config.js');
     const config = createConfigStore();
@@ -259,7 +294,16 @@ export async function recordFunnelStage(
     const commandPath = commandPathOf(command);
 
     if (isLocal) {
-      await postAnonymous({ installId: config.getInstallId(), command: commandPath, cliVersion: pkg.version, stage });
+      await postAnonymous({
+        installId: config.getInstallId(),
+        command: commandPath,
+        cliVersion: pkg.version,
+        stage,
+        // ALI-835: only the session-import stages carry these, and the gateway's schema refuses
+        // them on any other stage - so this spreads rather than setting undefined, because that
+        // schema is `.strict()` and an explicit undefined key is still a key.
+        ...(measurement ? { count: measurement.count, agent: measurement.agent } : {}),
+      });
       return true;
     }
 
@@ -274,7 +318,7 @@ export async function recordFunnelStage(
         eventName: `cli.funnel.${stage}`,
         category: 'engagement',
         platform: 'cli',
-        properties: { command: commandPath },
+        properties: { command: commandPath, ...(measurement ? { count: measurement.count, agent: measurement.agent } : {}) },
       }),
     });
     return true;
@@ -300,7 +344,7 @@ function localTierAllows(consent: TelemetryConsent | undefined, stage: FunnelSta
  * The anonymous payload, the one place its shape is spelled. Targets ALIGN_HOSTED_GATEWAY_URL,
  * never a `gatewayUrl` off the env - see recordAnonymousCommandUsage for why.
  */
-async function postAnonymous(payload: Record<string, string>): Promise<void> {
+async function postAnonymous(payload: Record<string, string | number>): Promise<void> {
   const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
   await postWithTimeout(`${target}/telemetry/anonymous`, {
     method: 'POST',
