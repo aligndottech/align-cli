@@ -26,7 +26,7 @@ import type { EnvName } from '../lib/config.js';
  */
 export async function connectDetectedAgents(
   envName: EnvName,
-): Promise<{ detected: number; connected: number }> {
+): Promise<{ detected: number; connected: number; wired: string[] }> {
   const editors = detectEditors();
   // writeMcpConfig takes undefined for prod: the default env needs no --env argument in the
   // spawned server's command line.
@@ -51,14 +51,17 @@ export async function connectDetectedAgents(
       `their config (or re-run ${chalk.bold(`align mcp --setup${envSuffix}`)} once installed):\n\n` +
       `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
     );
-    return { detected: 0, connected: 0 };
+    return { detected: 0, connected: 0, wired: [] };
   }
 
   const touched: string[] = [];
+  // ALI-950: the outro names the agent to open, so say WHICH were wired, not only how many.
+  const wired: string[] = [];
   for (const target of editors) {
     try {
       writeMcpConfig(target, envArg);
       touched.push(target.configPath);
+      wired.push(target.name);
       p.log.success(`${target.name}: align MCP connected`);
     } catch (err) {
       // One unwritable config must not abort onboarding, or a stale Zed install stops a user
@@ -90,5 +93,5 @@ export async function connectDetectedAgents(
     void recordFunnelStage(createConfigStore().getEnvironment(envName), 'mcp_wired', 'mcp');
   }
 
-  return { detected: editors.length, connected: touched.length };
+  return { detected: editors.length, connected: touched.length, wired };
 }

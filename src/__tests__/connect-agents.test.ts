@@ -45,7 +45,7 @@ describe('connectDetectedAgents', () => {
     const r = await connectDetectedAgents('local');
     expect(confirm).not.toHaveBeenCalled();
     expect(writeMcpConfig).toHaveBeenCalledTimes(2);
-    expect(r).toEqual({ detected: 2, connected: 2 });
+    expect(r).toEqual({ detected: 2, connected: 2, wired: ['Claude Desktop', 'Cursor'] });
   });
 
   it('threads the env, or a local user\'s agent reads the cloud graph', async () => {
@@ -96,7 +96,7 @@ describe('connectDetectedAgents', () => {
     writeMcpConfig.mockImplementationOnce(() => { throw new Error('permission denied'); });
     const r = await connectDetectedAgents('local');
     expect(writeMcpConfig).toHaveBeenCalledTimes(2);      // did not abort on the first
-    expect(r).toEqual({ detected: 2, connected: 1 });
+    expect(r).toEqual({ detected: 2, connected: 1, wired: ['Cursor'] });
     const out = logged.join('\n');
     expect(out).toContain('permission denied');
     expect(out).not.toContain(CLAUDE.configPath);          // the one that failed
@@ -176,5 +176,36 @@ describe('mcp_wired funnel stage (ALI-795)', () => {
     detectEditors.mockReturnValue([]);
     await connectDetectedAgents('local');
     expect(recordFunnelStage).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ALI-950: the outro names the agent to open, so the wiring step has to say WHICH agents
+ * it wired, not only how many. A count cannot be turned into "Open Cursor and ask".
+ */
+describe('connectDetectedAgents names what it wired (ALI-950)', () => {
+  beforeEach(() => {
+    logged.length = 0;
+    detectEditors.mockReset();
+    writeMcpConfig.mockReset();
+  });
+
+  it('returns the wired agents by name, in detection order', async () => {
+    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+    const r = await connectDetectedAgents('local');
+    expect(r.wired).toEqual(['Claude Desktop', 'Cursor']);
+  });
+
+  it('leaves out the one it failed to write - it is not connected, whatever was detected', async () => {
+    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+    writeMcpConfig.mockImplementationOnce(() => { throw new Error('permission denied'); });
+    const r = await connectDetectedAgents('local');
+    expect(r.wired).toEqual(['Cursor']);
+  });
+
+  it('is empty when nothing was detected', async () => {
+    detectEditors.mockReturnValue([]);
+    const r = await connectDetectedAgents('local');
+    expect(r.wired).toEqual([]);
   });
 });

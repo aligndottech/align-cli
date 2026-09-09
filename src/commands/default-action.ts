@@ -4,6 +4,10 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { runSetup } from './setup.js';
 import pkg from '../../package.json' with { type: 'json' };
 import { printBanner } from '../lib/brand.js';
+import { firstDecision } from '../lib/first-decision.js';
+import { detectWiredEditors, projectMcpAgents } from '../lib/mcp-setup.js';
+import { cardLabel, type CardValue, orderAgents, renderSecondRunCard } from '../lib/next-step.js';
+import { readValueRollup } from '../lib/read-value-rollup.js';
 
 /**
  * What `align` does with no arguments (ALI-773).
@@ -18,7 +22,9 @@ import { printBanner } from '../lib/brand.js';
  *                    flag still earns its place where there is nothing to ask: the non-TTY
  *                    branch below suggests `--local --approve` precisely because a scripted
  *                    run cannot answer the question.
- *   - set up      -> say which graph is in play and the two or three things worth doing next.
+ *   - set up      -> the second-run card (ALI-950): which graph is in play, which agents are
+ *                    wired, what the graph did this week, and the one thing to do next -
+ *                    which happens in the agent, not here.
  *
  * `align --help` still prints the full command list; Commander handles that before this runs.
  */
@@ -67,35 +73,35 @@ export async function runDefaultAction(): Promise<void> {
   // runnable but teaches a flag nobody needs and makes the tool look harder than it is.
   const envName = hasCloud ? defaultEnv : 'local';
 
-  // Whether the graph has anything in it decides which next step is useful, and it is one
-  // read. A failure here (an expired cloud token) must not turn `align` into an error - the
-  // command's job is to orient someone, so fall back to the import suggestion.
-  let hasDecisions = false;
+  // Whether the graph has anything in it decides which next step is useful, and the most
+  // recent decision is the question to hand the agent - one read gives both, and a failure
+  // (an expired cloud token) falls back to the import suggestion rather than erroring: the
+  // command's job is to orient someone.
+  const { hasDecisions, firstTitle } = await firstDecision(createGatewayClient(config.getEnvironment(envName)));
+
+  // ALI-950: the ALI-215 readout `align status` prints, read for a 7-day window so the card
+  // can say "this week" and mean it. Best effort for the same reason as above - a card with
+  // no readout line beats no card.
+  let value: CardValue | undefined;
   try {
-    const some = await createGatewayClient(config.getEnvironment(envName)).listDecisions({ limit: 1 });
-    hasDecisions = Array.isArray(some) && some.length > 0;
+    const { mode, rollup } = await readValueRollup(config, envName, { days: 7 });
+    value = { mode, decisions: rollup.decisions, conflictsCaught: rollup.conflictsCaught, reuseRate: rollup.reuseRate };
   } catch {
-    hasDecisions = false;
+    value = undefined;
   }
 
-  console.log('');
-  if (hasLocal && !hasCloud) {
-    const path = (local as { localDbPath?: string }).localDbPath ?? 'on this machine';
-    console.log(`  ${chalk.green('Local graph')}  ${chalk.dim(path)}`);
-  } else {
-    console.log(`  ${chalk.green('Signed in')}  ${chalk.dim(defaultEnv)}`);
-  }
-  console.log('');
+  // The agents wired NOW, by name: this repo's project config first (it is the one the user
+  // is most likely sitting in), then every global config that carries an align entry.
+  const agents = orderAgents({
+    project: projectMcpAgents(process.cwd()),
+    global: detectWiredEditors().map((e) => e.name),
+  });
 
-  if (hasDecisions) {
-    console.log(`${chalk.dim('  Ask it something     ')}align ask "why postgres"`);
-    console.log(`${chalk.dim('  See what is in it    ')}align decisions list`);
-    console.log(`${chalk.dim('  Add another source   ')}align import git`);
-  } else {
-    console.log(chalk.dim('  Your graph is empty. Fill it:'));
-    console.log(`${chalk.dim('    ')}align import git`);
-  }
+  const graphLine = hasLocal && !hasCloud
+    ? `${chalk.green(cardLabel('Local graph'))}${chalk.dim((local as { localDbPath?: string }).localDbPath ?? 'on this machine')}`
+    : `${chalk.green(cardLabel('Signed in'))}${chalk.dim(defaultEnv)}`;
+
   console.log('');
-  console.log(chalk.dim('  align --help for everything else'));
+  console.log(renderSecondRunCard({ graphLine, agents, hasDecisions, firstTitle, envName, value }));
   console.log('');
 }

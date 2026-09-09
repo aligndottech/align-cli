@@ -12,7 +12,8 @@ vi.mock('node:fs', async (importOriginal) => {
 });
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { type EditorTarget, detectEditors, writeMcpConfig } from '../lib/mcp-setup.js'; // eslint-disable-line sort-imports
+import path from 'node:path';
+import { type EditorTarget, detectEditors, detectWiredEditors, projectMcpAgents, writeMcpConfig } from '../lib/mcp-setup.js'; // eslint-disable-line sort-imports
 
 const mockExistsSync = existsSync as ReturnType<typeof vi.fn>;
 const mockReadFileSync = readFileSync as ReturnType<typeof vi.fn>;
@@ -346,3 +347,76 @@ describe('writeMcpConfig - codex (TOML) format', () => {
 
 // mkdirSync is exercised through the writers; keep a reference so the import is used.
 void mockMkdirSync;
+/**
+ * ALI-950: the second-run card names the agents that are wired NOW, which is a different
+ * question from detectEditors' "which agents are installed". An installed agent whose
+ * config never got an align entry (setup failed on it, or `align mcp --remove` ran) is
+ * not connected, and naming it on the card would tell someone to open an agent that
+ * cannot answer.
+ */
+describe('detectWiredEditors (ALI-950)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const enoent = (): never => {
+    const e = new Error('ENOENT') as Error & { code: string };
+    e.code = 'ENOENT';
+    throw e;
+  };
+  const cursorAndCodexInstalled = (p: unknown): boolean =>
+    typeof p === 'string' && (p.includes('.cursor') || p.includes('.codex'));
+
+  it('keeps only the detected agents whose config already carries an align entry', () => {
+    mockExistsSync.mockImplementation(cursorAndCodexInstalled);
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('.cursor')) return JSON.stringify({ mcpServers: { align: { command: 'align', args: ['mcp'] } } });
+      if (String(p).includes('.codex')) return '[mcp_servers.other]\ncommand = "other"\n';
+      return enoent();
+    });
+    expect(detectWiredEditors().map((e) => e.name)).toEqual(['Cursor']);
+  });
+
+  it('reads the Codex TOML marker block, since that format has no JSON key to look for', () => {
+    mockExistsSync.mockImplementation(cursorAndCodexInstalled);
+    mockReadFileSync.mockImplementation((p: unknown) => {
+      if (String(p).includes('.cursor')) return JSON.stringify({ mcpServers: { other: {} } });
+      if (String(p).includes('.codex')) return '# >>> align (managed by `align setup` - do not edit) >>>\n[mcp_servers.align]\ncommand = "align"\nargs = ["mcp"]\n# <<< align <<<\n';
+      return enoent();
+    });
+    expect(detectWiredEditors().map((e) => e.name)).toEqual(['Codex']);
+  });
+
+  it('treats a missing, empty or unparseable config as not wired, and never throws', () => {
+    mockExistsSync.mockImplementation(cursorAndCodexInstalled);
+    mockReadFileSync.mockImplementation((p: unknown) => (String(p).includes('.codex') ? '{not json' : enoent()));
+    expect(detectWiredEditors()).toEqual([]);
+  });
+});
+
+describe('projectMcpAgents (ALI-950)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const enoent = (): never => {
+    const e = new Error('ENOENT') as Error & { code: string };
+    e.code = 'ENOENT';
+    throw e;
+  };
+  const projectFile = path.join('/repo', '.mcp.json');
+
+  it("names Claude Code when this repo's .mcp.json carries an align server", () => {
+    mockReadFileSync.mockImplementation((p: unknown) =>
+      String(p) === projectFile ? JSON.stringify({ mcpServers: { align: { command: 'align', args: ['mcp'] } } }) : enoent());
+    expect(projectMcpAgents('/repo')).toEqual(['Claude Code']);
+  });
+
+  it('names nobody when the file is absent, or carries no align entry', () => {
+    mockReadFileSync.mockImplementation(enoent);
+    expect(projectMcpAgents('/repo')).toEqual([]);
+    mockReadFileSync.mockImplementation(() => JSON.stringify({ mcpServers: { other: {} } }));
+    expect(projectMcpAgents('/repo')).toEqual([]);
+  });
+
+  it('names nobody, and does not throw, on a file it cannot parse - the card must never error', () => {
+    mockReadFileSync.mockImplementation(() => '{not json');
+    expect(projectMcpAgents('/repo')).toEqual([]);
+  });
+});

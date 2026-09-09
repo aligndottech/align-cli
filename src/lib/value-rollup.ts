@@ -43,9 +43,9 @@ export const LOCAL_SHARE_THRESHOLD = 5;
 
 export interface ValueRollupClient {
   getStats(): Promise<{ snapshots?: number }>;
-  getConflictImpact(): Promise<{ total?: number }>;
+  getConflictImpact(days?: number): Promise<{ total?: number }>;
   getLinkCounts(): Promise<{ duplicates_count?: number; supersessions_count?: number }>;
-  getReuseRate(): Promise<{ rate: number | null }>;
+  getReuseRate(days?: number): Promise<{ rate: number | null }>;
   getHealth(): Promise<{ compositeScore?: { grade?: string } }>;
 }
 
@@ -57,12 +57,17 @@ async function settle<T>(p: Promise<T>): Promise<T | null> {
   }
 }
 
-export async function fetchValueRollup(client: ValueRollupClient): Promise<ValueRollup> {
+/**
+ * `days` is the window the impact and reuse-rate endpoints measure over. Undefined keeps
+ * each endpoint's own default (30), which is what `align status` has always read; the
+ * second-run card passes 7 so it can honestly say "this week" (ALI-950).
+ */
+export async function fetchValueRollup(client: ValueRollupClient, opts: { days?: number } = {}): Promise<ValueRollup> {
   const [stats, impact, links, reuse, health] = await Promise.all([
     settle(client.getStats()),
-    settle(client.getConflictImpact()),
+    settle(client.getConflictImpact(opts.days)),
     settle(client.getLinkCounts()),
-    settle(client.getReuseRate()),
+    settle(client.getReuseRate(opts.days)),
     settle(client.getHealth()),
   ]);
 

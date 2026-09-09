@@ -268,3 +268,48 @@ export function writeMcpConfig(target: EditorTarget, env?: string): void {
   }
   writeJsonConfig(target, env);
 }
+
+/**
+ * ALI-950: is Align already in this agent's config? The second-run card names the agents
+ * wired NOW, which is a different question from detectEditors' "installed": an agent whose
+ * write failed, or that `align mcp --remove` ran on, is installed and not connected, and
+ * telling someone to open it hands them an agent that cannot answer.
+ *
+ * Never throws - the card must never error - so an unparseable config reads as not wired.
+ * Mirrors removeMcpConfig's own lookup (JSON key per format, marker block for Codex).
+ */
+export function hasAlignEntry(target: EditorTarget): boolean {
+  try {
+    const raw = readConfig(target.configPath, target.format);
+    if (!raw.trim()) return false;
+    if (target.format === 'codex') {
+      const start = raw.indexOf(CODEX_BLOCK_START);
+      const end = raw.indexOf(CODEX_BLOCK_END);
+      return start !== -1 && end !== -1 && end > start;
+    }
+    const servers = (JSON.parse(raw) as Record<string, unknown>)[jsonTopKey(target.format)];
+    return typeof servers === 'object' && servers !== null && 'align' in servers;
+  } catch {
+    return false;
+  }
+}
+
+export function detectWiredEditors(): EditorTarget[] {
+  return detectEditors().filter(hasAlignEntry);
+}
+
+/**
+ * The agent wired through this repo's project config. `.mcp.json` is what
+ * setupAgentAlignment writes (agent-rules.ts); Claude Code reads it as a project config.
+ * (pi reads it too, via pi-mcp-adapter, but only when installed - naming an agent that may
+ * not exist on the machine is the same error as naming one that is not connected.)
+ */
+export function projectMcpAgents(cwd: string): string[] {
+  try {
+    const raw = readFileSync(path.join(cwd, '.mcp.json'), 'utf8');
+    const servers = (JSON.parse(raw) as Record<string, unknown>)['mcpServers'];
+    return typeof servers === 'object' && servers !== null && 'align' in servers ? ['Claude Code'] : [];
+  } catch {
+    return [];
+  }
+}
