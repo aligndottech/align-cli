@@ -8,6 +8,7 @@ import {
   setupAgentAlignment,
   writeAgentsNudge,
   writeClaudeCodeHook,
+  writeClaudeCodeSessionHook,
   writeCursorRule,
   writeManagedNudge,
   writeProjectMcpConfig,
@@ -94,6 +95,72 @@ describe('writeClaudeCodeHook', () => {
     mkdirSync(join(dir, '.claude'), { recursive: true });
     writeFileSync(join(dir, '.claude', 'settings.json'), '{ not json');
     expect(() => writeClaudeCodeHook(dir)).toThrow();
+  });
+});
+
+// ALI-933: the read-path counterpart to writeClaudeCodeHook. That one reaches the model
+// on a Write/Edit (the write path); this one reaches it at SessionStart, unprompted - the
+// gap named in ALI-933 ("implicit read delivery ... does not exist anywhere yet").
+describe('writeClaudeCodeSessionHook', () => {
+  it('writes a SessionStart hook that runs `align context inject`', () => {
+    writeClaudeCodeSessionHook(dir);
+    const groups = readJson('.claude/settings.json').hooks.SessionStart;
+    expect(Array.isArray(groups)).toBe(true);
+    const cmd = groups[0].hooks.find((h: any) => h.type === 'command');
+    expect(cmd.command).toBe('align context inject');
+    expect(typeof cmd.timeout).toBe('number');
+  });
+
+  // Every documented `source` (startup/resume/clear/compact/fork) should get the
+  // injection - a compacted or resumed session may have dropped the graph content from
+  // its summary, so there's no source worth excluding by default.
+  it('matches every documented SessionStart source, not just startup', () => {
+    writeClaudeCodeSessionHook(dir);
+    const group = readJson('.claude/settings.json').hooks.SessionStart[0];
+    for (const source of ['startup', 'resume', 'clear', 'compact', 'fork']) {
+      expect(new RegExp(`^(${group.matcher})$`).test(source)).toBe(true);
+    }
+  });
+
+  it('is idempotent - re-running does not duplicate the SessionStart hook group', () => {
+    writeClaudeCodeSessionHook(dir);
+    writeClaudeCodeSessionHook(dir);
+    const groups = readJson('.claude/settings.json').hooks.SessionStart;
+    const alignGroups = groups.filter((g: any) =>
+      g.hooks?.some((h: any) => String(h.command).includes('align context inject')),
+    );
+    expect(alignGroups).toHaveLength(1);
+  });
+
+  it('preserves an existing PreToolUse/PostToolUse hook written by writeClaudeCodeHook', () => {
+    writeClaudeCodeHook(dir);
+    writeClaudeCodeSessionHook(dir);
+    const { hooks } = readJson('.claude/settings.json');
+    expect(hooks.PostToolUse[0].hooks[0].command).toContain('align check --advisory');
+    expect(hooks.SessionStart[0].hooks[0].command).toBe('align context inject');
+  });
+
+  it('preserves unrelated existing settings and SessionStart hooks', () => {
+    mkdirSync(join(dir, '.claude'), { recursive: true });
+    writeFileSync(
+      join(dir, '.claude', 'settings.json'),
+      JSON.stringify({
+        model: 'opus',
+        hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo hi' }] }] },
+      }),
+    );
+    writeClaudeCodeSessionHook(dir);
+    const settings = readJson('.claude/settings.json');
+    expect(settings.model).toBe('opus');
+    const commands = settings.hooks.SessionStart.flatMap((g: any) => g.hooks.map((h: any) => h.command));
+    expect(commands).toContain('echo hi');
+    expect(commands.some((c: string) => c.includes('align context inject'))).toBe(true);
+  });
+
+  it('throws on invalid existing JSON rather than clobbering it', () => {
+    mkdirSync(join(dir, '.claude'), { recursive: true });
+    writeFileSync(join(dir, '.claude', 'settings.json'), '{ not json');
+    expect(() => writeClaudeCodeSessionHook(dir)).toThrow();
   });
 });
 
@@ -217,6 +284,14 @@ describe('setupAgentAlignment', () => {
     expect(written).toEqual(
       expect.arrayContaining(['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md']),
     );
+  });
+
+  // ALI-933: the read-path hook rides the same committed file as the write-path one, so
+  // there's no new path to report - but setup must wire both into it.
+  it('also wires the SessionStart (read-path) hook into the same .claude/settings.json', () => {
+    setupAgentAlignment({ cwd: dir, env: 'prod' });
+    const { hooks } = readJson('.claude/settings.json');
+    expect(hooks.SessionStart[0].hooks[0].command).toBe('align context inject');
   });
 
   it('writes the deterministic hook shim for every host that supports one, and reports each', () => {
