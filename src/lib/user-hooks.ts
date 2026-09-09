@@ -111,12 +111,25 @@ function readHooksFile(file: string): Record<string, unknown> | null {
   }
 }
 
+// The `hooks` map, validated (Copilot, #282). `"hooks": []` is valid JSON, and setting an
+// event key on an array adds a non-index property that JSON.stringify drops - so the write
+// would succeed and produce a file with no hook in it, a no-op that reads as done. Anything
+// parseable but not an object is the same rule as invalid JSON: refuse, name the file.
+function hooksOf(config: Record<string, unknown>, file: string): Record<string, unknown> {
+  const hooks = config['hooks'];
+  if (hooks === undefined) return {};
+  if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) {
+    throw new Error(`${file}: "hooks" is not an object - fix it manually before running align mcp --setup`);
+  }
+  return hooks as Record<string, unknown>;
+}
+
 export function writeUserHooks(target: UserHookTarget, env?: string): void {
   const spec = HOSTS[target.host];
   const command = advisoryHookCommand(target.host, env);
   const config = readHooksFile(target.path) ?? {};
 
-  const hooks = (config['hooks'] ?? {}) as Record<string, unknown>;
+  const hooks = hooksOf(config, target.path);
   for (const event of spec.events) {
     const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
     const preserved = existing.filter((e) => !isOurs(spec, e));
@@ -141,7 +154,7 @@ export function removeUserHooks(target: UserHookTarget): boolean {
   const config = readHooksFile(target.path);
   if (!config) return false;
 
-  const hooks = (config['hooks'] ?? {}) as Record<string, unknown>;
+  const hooks = hooksOf(config, target.path);
   let removed = false;
   for (const event of spec.events) {
     const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];

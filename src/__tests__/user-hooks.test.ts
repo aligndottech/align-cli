@@ -145,4 +145,15 @@ describe.each([
     expect(() => removeUserHooks(target(host, 'bad.json'))).toThrow('invalid JSON');
     expect(readFileSync(join(dir, 'bad.json'), 'utf8')).toBe('not json{{{');
   });
+
+  // Parseable but the wrong shape (Copilot, #282). `"hooks": []` is valid JSON; setting an
+  // event key on an array adds a non-index property that JSON.stringify drops, so the write
+  // would "succeed" and produce a file with no hook in it - a no-op that reads as done.
+  it.each([['[]'], ['"x"'], ['3']])('throws on a parseable "hooks": %s rather than writing a no-op file', (bad) => {
+    const before = `{ "version": 1, "hooks": ${bad} }`;
+    writeFileSync(join(dir, 'shape.json'), before);
+    expect(() => writeUserHooks(target(host, 'shape.json'))).toThrow(/"hooks" is not an object/);
+    expect(() => removeUserHooks(target(host, 'shape.json'))).toThrow(/"hooks" is not an object/);
+    expect(readFileSync(join(dir, 'shape.json'), 'utf8')).toBe(before);
+  });
 });

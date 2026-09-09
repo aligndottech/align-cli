@@ -37,7 +37,7 @@ export const MCP_INSTRUCTIONS_SHARED = `Align is this team's decision graph - wh
 - An "unknown" status means the check could not run (the service was unavailable) - it is NOT a pass. Surface it to the user and do not proceed as if aligned.
 - To answer "why did we decide X" or to understand a convention, call {search}. A decision's status (active/conflicted) and who decided it are in the graph.
 - Do the same for questions ABOUT BEHAVIOUR, which rarely name a decision: "what happens when X fails", "does it fail open", "how does Y work".
-- Cite by cite value when present; link via decision_url if present, else source_url if present, else say no link - never present one as the other.
+- Cite a decision by its cite value when present; link via decision_url if present, else source_url if present, else say no link - never present one as the other.
 - When the question was only a question, REPORT what the graph returned, with its titles and source links, and do not re-derive it from the code. Read the code to confirm only when you are about to change behaviour.
 - Search the graph BEFORE reading the code: it spans repositories, so grepping this checkout misses decisions made in another repository.`;
 
