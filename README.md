@@ -34,7 +34,10 @@ something to ask about straight away, and your decisions stay in a SQLite file o
 Nothing is sent to Align. [What touches the network](docs/local-mode.md).
 
 Want sync across machines and cross-tool relationship detection? Drop the flag. `align setup`
-logs you in, connects your tools via read-only OAuth, and wires up your editors.
+logs you in - a work email lands you in your company's graph (first person in is the admin,
+the next colleague on that domain joins it automatically); a personal email gets you a graph
+of your own, joinable to a company graph later by invite. It also connects your tools via
+read-only OAuth and wires up your editors.
 
 ## How it works
 
