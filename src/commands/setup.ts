@@ -401,7 +401,7 @@ async function collectTokens(
  * unmarked default, everything else is explicit.
  */
 export function importRetryHint(sourceId: string, envName: EnvName): string {
-  return envName === 'prod' ? `align import ${sourceId}` : `align import ${sourceId} --env ${envName}`;
+  return envName === 'prod' ? `align connect ${sourceId}` : `align connect ${sourceId} --env ${envName}`;
 }
 
 /**
@@ -503,7 +503,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel
         if (repoKnown) {
           console.log('');
           p.log.info(
-            chalk.dim(`Git: ${gitCount} decisions from ${repo} are already in your graph. \`align import git --env local\` refreshes them.`),
+            chalk.dim(`Git: ${gitCount} decisions from ${repo} are already in your graph. \`align connect git --env local\` refreshes them.`),
           );
         }
         docsKnown = knownDb.hasDocsForRepo(repo);
@@ -577,7 +577,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel
   // not after them.
   console.log('');
   if (docsKnown) {
-    p.log.info(chalk.dim('Repo docs: already in your graph. `align import docs --env local` refreshes them.'));
+    p.log.info(chalk.dim('Repo docs: already in your graph. `align connect docs --env local` refreshes them.'));
   }
   const localDocsSpinner = p.spinner();
   if (!docsKnown) localDocsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
@@ -652,8 +652,51 @@ async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel
  * the value phase's result instead of closing over local variables (refactoring.md: a pure
  * move changes only how code is reached, never what it does).
  */
-async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void> {
-  const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel, agents, firstFoundTitle } = ctx;
+/** What connectLocalSources did for one source (ALI-951): `align connect --json` prints these. */
+export interface ConnectedSourceResult {
+  id: string;
+  label: string;
+  found: number;
+  imported: number;
+  /** Set when the fetch threw; found and imported are 0 then. */
+  error?: string;
+}
+
+export interface ConnectLocalSourcesOptions {
+  interactive: boolean;
+  config: ReturnType<typeof createConfigStore>;
+  localEnv: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
+  localClient: ReturnType<typeof createGatewayClient>;
+  capture: ReturnType<typeof createCaptureCollector>;
+  approve: boolean;
+  /** ALI-951 (`align connect --source`): skip the picker and connect exactly these ids. */
+  preselected?: string[];
+  /** ALI-951 (`align connect --token`): fields that skip the paste for every preselected source. */
+  seedTokens?: Record<string, string>;
+  /** ALI-951 (`align connect --json`): print nothing per source; the caller prints one summary. */
+  json?: boolean;
+}
+
+/** The ids `align connect --source` accepts: every local paste-token source, in picker order. */
+export function localConnectorIds(): string[] {
+  return buildSources(false)
+    .filter((s) => s.id !== 'git' && s.tokenLabel)
+    .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal'])
+    .map((s) => s.id);
+}
+
+/**
+ * The picker-and-import tail of local setup: ask which read-only-token sources to connect,
+ * collect every credential up front, then fetch and import each one. Extracted from
+ * runLocalConnectorPhase for `align connect` (ALI-951), which is this same flow without the
+ * wizard around it - one picker, one paste path, one save rule, in one place. The body is
+ * the wizard's; `preselected`, `seedTokens` and `json` are the only additions, and each is
+ * inert when absent.
+ */
+export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promise<ConnectedSourceResult[]> {
+  const { interactive, config, localEnv, localClient, capture, approve } = o;
+  const quiet = o.json === true;
+  const results: ConnectedSourceResult[] = [];
 
   // Connectors: local mode connects by a read-only token the user mints themselves,
   // for every connector - their personal graph, their credential. OAuth belongs to
@@ -669,13 +712,20 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   const localConnectors = buildSources(false)
     .filter((s) => s.id !== 'git' && s.tokenLabel)
     .sort((a, b) => TIER_ORDER[a.tier ?? 'personal'] - TIER_ORDER[b.tier ?? 'personal']);
-  console.log('');
+  if (o.preselected) {
+    const known = new Set(localConnectors.map((s) => s.id));
+    const unknown = o.preselected.filter((id) => !known.has(id));
+    if (unknown.length) {
+      throw new Error(`Unknown source ${unknown.join(', ')}. --source takes one of: ${[...known].join(', ')}.`);
+    }
+  }
+  if (!quiet) console.log('');
   // Say WHY, at the point of use. This reason used to live only in the comment above:
   // the user was sent to a provider page to mint a token with no explanation, which reads
   // as the tool being clumsy rather than as the privacy trade they chose. The constraint
   // is the provider's, not ours - OAuth needs a client secret, and a secret inside a
   // distributed binary is not a secret. See ALI-778.
-  if (interactive && localConnectors.length > 0) {
+  if (interactive && localConnectors.length > 0 && !quiet) {
     // ONE story, stated as the design it is (Tom, 2026-08-31, superseding ALI-778's
     // local-OAuth direction): this is the user's PERSONAL graph, so the credential is
     // one they mint, scope and can revoke themselves. Earlier versions blamed the
@@ -699,7 +749,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     const saved = config.getConnectorFields('local', source.id);
     if (saved?.['token']) savedTokens.set(source.id, saved);
   }
-  if (savedTokens.size > 0) {
+  if (savedTokens.size > 0 && !quiet && !o.preselected) {
     const connected = localConnectors.filter((s) => savedTokens.has(s.id));
     const names = connected.map((s) => s.label).join(', ');
     // Named out loud, and left alone: a re-run adds what you pick and touches nothing else.
@@ -709,34 +759,37 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     if (interactive) {
       p.log.info(chalk.dim(`Connected: ${names} (saved read-only tokens). Select one to re-import it, or to replace its token.`));
     } else {
-      const refresh = connected.map((s) => `align import ${s.id} --env local`).join(', ');
+      const refresh = connected.map((s) => `align connect --source ${s.id} --yes`).join(', ');
       p.log.info(chalk.dim(`Connected: ${names} (saved read-only tokens), left alone: no terminal to pick from. Refresh with ${refresh}.`));
     }
   }
-  // `interactive` computed once, at the top of this function - see the comment there.
+  // `interactive` computed once, by the caller - see runLocalValuePhase.
   // ALI-794: the found-summary above sits between this picker and the last clean screen,
   // which is the exact condition that used to corrupt clack's in-place redraw for an
   // outside tester (2026-08-30). Clear first so the picker gets its own canvas.
-  if (interactive) clearScreenForPicker();
+  const askPicker = interactive && !o.preselected;
+  if (askPicker) clearScreenForPicker();
   // A windowed list ends in "..." and reads as cut off; the count turns it into "scroll".
   const maxItems = pickerMaxItems(process.stdout.rows, localConnectors.length);
   const windowed = maxItems < localConnectors.length;
-  const selected = interactive
-    ? await p.multiselect({
-        message: `Connect more sources with a read-only token? (skip to finish${windowed ? `; ${localConnectors.length} sources, scroll for more` : ''})`,
-        options: localConnectors.map((s) => ({
-          value: s.id,
-          label: s.label,
-          // A connected connector stays in the list so it can be re-imported, or its expired
-          // token replaced, without a separate command. Not selecting it leaves it alone.
-          hint: savedTokens.has(s.id) ? 'connected - select to re-import' : s.description,
-        })),
-        required: false,
-        // Without maxItems clack renders all eight and its in-place redraw miscounts
-        // once the list is taller than the viewport, painting duplicate rows.
-        maxItems,
-      })
-    : ([] as string[]);
+  const selected = o.preselected
+    ? o.preselected
+    : askPicker
+      ? await p.multiselect({
+          message: `Connect more sources with a read-only token? (skip to finish${windowed ? `; ${localConnectors.length} sources, scroll for more` : ''})`,
+          options: localConnectors.map((s) => ({
+            value: s.id,
+            label: s.label,
+            // A connected connector stays in the list so it can be re-imported, or its expired
+            // token replaced, without a separate command. Not selecting it leaves it alone.
+            hint: savedTokens.has(s.id) ? 'connected - select to re-import' : s.description,
+          })),
+          required: false,
+          // Without maxItems clack renders all eight and its in-place redraw miscounts
+          // once the list is taller than the viewport, painting duplicate rows.
+          maxItems,
+        })
+      : ([] as string[]);
 
   // Collect every credential up front, so the automatic phase below never stops to ask.
   const localReady: Array<{ source: SetupSource; tokens: Record<string, string>; reused: boolean }> = [];
@@ -745,17 +798,22 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     for (const id of selected as string[]) {
       const source = localConnectors.find((s) => s.id === id);
       if (!source) continue;
-      console.log('');
-      p.log.step(chalk.bold(source.label));
+      if (!quiet) {
+        console.log('');
+        p.log.step(chalk.bold(source.label));
+      }
       // Jira and Confluence share one Atlassian account: same email, same site
       // domain, same id.atlassian.com API token. Ask once, reuse for the other, and
       // SAY so - the same disclosure rule as the gh-token reuse, because a silently
       // absorbed credential is the thing nobody can audit afterwards.
       const isAtlassian = source.id === 'jira' || source.id === 'confluence';
       let seed: Record<string, string> = isAtlassian ? { ...atlassianShared } : {};
-      if (isAtlassian && seed['token'] !== undefined) {
+      if (isAtlassian && seed['token'] !== undefined && !quiet) {
         p.log.info(chalk.dim('  Using your Atlassian email, domain and API token from the previous connector.'));
       }
+      // ALI-951: `--token` (and any other field a flag supplied) seeds every preselected
+      // source the way the Atlassian reuse above does - a seeded field is never asked for.
+      if (o.seedTokens) seed = { ...seed, ...o.seedTokens };
       // A connected connector that was selected: re-import with the saved token unless the
       // user wants to replace it. Seeding collectTokens with the saved fields is what skips
       // every paste; an empty seed is what asks for them. --approve never stops to ask.
@@ -766,7 +824,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
       const saved = savedTokens.get(source.id);
       let reused = false;
       if (saved && seed['token'] === undefined) {
-        const reuse = opts.approve
+        const reuse = approve
           ? true
           : await p.confirm({
               message: source.tokenShortLived
@@ -780,7 +838,20 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
           reused = true;
         }
       }
-      const tokens = await collectTokens(source, seed, { approve: opts.approve });
+      // ALI-951: with no terminal there is nothing to paste into. Name the flag rather than
+      // letting clack crash on a closed stdin, which reads as the tool breaking (align-cli#118).
+      if (!interactive) {
+        const missing = (source.extraFields ?? []).map((f) => f.key).filter((k) => seed[k] === undefined);
+        if (source.tokenLabel && seed['token'] === undefined) missing.push('token');
+        if (missing.length) {
+          const fieldFlags = missing.filter((k) => k !== 'token').map((k) => `--${k} <${k}>`);
+          throw new Error(
+            `${source.label} needs a ${source.tokenLabel ?? 'token'} and there is no terminal to paste one into. ` +
+            `Pass --token <token>${fieldFlags.length ? `, or run align connect ${source.id} ${fieldFlags.join(' ')} --token <token>` : ''}.`,
+          );
+        }
+      }
+      const tokens = await collectTokens(source, seed, { approve });
       if (!tokens) continue;
       if (isAtlassian) {
         for (const k of ['email', 'domain', 'token']) {
@@ -796,7 +867,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // found" moment, not stranded behind the questions this phase exists to ask. This phase
   // is only the automatic import for the paste-token connectors just collected.
   for (const { source, tokens, reused } of localReady) {
-    const spinner = p.spinner();
+    const spinner = quiet ? { start() {}, stop() {} } : p.spinner();
     spinner.start(`Fetching from ${source.label}...`);
     try {
       const fetched = await source.fetch(tokens);
@@ -808,15 +879,19 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
       // there is one rule here rather than a branch that has to stay in step with the reuse.
       config.saveConnectorFields('local', source.id, tokens);
       spinner.stop(`Found ${items.length} items`);
+      let imported = 0;
       if (items.length) {
-        await runPersonalImport(items, localClient, {
+        imported = await runPersonalImport(items, localClient, {
           label: source.label,
           approve: true,
           appUrl: resolveAppUrl(localEnv),
           local: true,
+          quiet: quiet || undefined,
+          silent: quiet || undefined,
           funnel: { env: localEnv, source: source.id },
         });
       }
+      results.push({ id: source.id, label: source.label, found: items.length, imported });
     } catch (e) {
       const msg = (e as Error).message;
       if (reused && isAuthExpiry(e)) {
@@ -829,8 +904,16 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
       } else {
         spinner.stop(`Skipped ${source.label} - ${msg}`);
       }
+      results.push({ id: source.id, label: source.label, found: 0, imported: 0, error: msg });
     }
   }
+  return results;
+}
+
+async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void> {
+  const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel, agents, firstFoundTitle } = ctx;
+
+  await connectLocalSources({ interactive, config, localEnv, localClient, capture, approve: opts.approve ?? false });
 
   // ALI-827: what each source fetched and what it could not reach - once, after every
   // import has printed its own line, so the numbers sit together. A source whose fetch
@@ -865,7 +948,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
       : `run ${chalk.bold('align env set local')} to make local the default ` +
         `(${chalk.dim(`align env set ${bareEnv}`)} switches back)`;
     p.log.warn(
-      `Bare commands (align ask, align import ...) use the ${bareEnv} cloud graph, not this local one, because ${cause}.\n` +
+      `Bare commands (align ask, align connect ...) use the ${bareEnv} cloud graph, not this local one, because ${cause}.\n` +
       `Add ${chalk.bold('--env local')} per command, or ${remedy}.`,
     );
   }
@@ -1386,7 +1469,7 @@ async function runCloudSetup(ctx: {
   // ---- Outro ----
   const decisionsLine = totalDecisions > 0
     ? `  ${totalDecisions} decisions in your graph`
-    : `  No decisions yet - run ${chalk.bold('align import')} to load your history`;
+    : `  No decisions yet - run ${chalk.bold('align connect')} to load your history`;
   const sourceLine = sourcesImported.length > 0
     ? `\n  Sources: ${sourcesImported.join(', ')}`
     : '';

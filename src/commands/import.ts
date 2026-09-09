@@ -20,6 +20,7 @@ import { registerImportTeamsCommand } from './import/teams.js';
 import { registerImportZoomCommand } from './import/zoom.js';
 import { registerImportNotionCommand } from './import/notion.js';
 import { registerImportSessionsCommand } from './import/sessions.js';
+import { importAliasLine, invokedAsImport, runConnect } from './connect.js';
 
 interface ProgressState {
   connector: string;
@@ -167,21 +168,61 @@ function registerImportListCommands(importCmd: Command): void {
     });
 }
 
+interface ConnectGroupOpts {
+  env: EnvName; all: boolean; channel?: string; project?: string;
+  from?: string; to?: string; approve: boolean;
+  source?: string; token?: string; yes?: boolean; json?: boolean;
+}
+
+/**
+ * The `connect` group (ALI-951), which `import` still reaches as a deprecated alias. With no
+ * source and no `--all` it is the local picker (connect.ts); `connect <source>` is the old
+ * `import <source>` subcommand, unchanged; `--all` and a cloud env keep the cloud scan below.
+ * This file stays on the bare resolver on purpose - the scan's job endpoints exist only on
+ * the cloud gateway (import-env-parity.test.ts); the picker path resolves in connect.ts.
+ */
 export function registerImportCommand(program: Command): void {
   const importCmd = program
-    .command('import [connectors...]')
-    .description('Scan connected tools historically and import decisions for review')
+    .command('connect [connectors...]')
+    .alias('import')
+    .description('Connect a source and import its decisions. No source: pick from a list. --all: scan every connected cloud connector')
     .option('--env <env>', 'Environment')
+    .option('--source <id>', 'The source to connect without the picker (github, jira, ...)')
+    .option('--token <token>', 'Read-only token for --source, so nothing is pasted')
+    .option('--yes', 'Answer yes to every confirm (re-use a saved token, import what was found)')
+    .option('--json', 'Print one JSON summary instead of the report (with --source)')
     .option('--all', 'Scan all connected connectors')
     .option('--channel <id>', 'Slack channel ID (single-connector only)')
     .option('--project <key>', 'Project key (Jira prefix or GitHub org/repo)')
     .option('--from <date>', 'Start date ISO e.g. 2025-01-01')
     .option('--to <date>', 'End date ISO')
     .option('--approve', 'Auto-approve all suggestions when scan completes')
-    .action(async (connectors: string[], opts: {
-      env: EnvName; all: boolean; channel?: string; project?: string;
-      from?: string; to?: string; approve: boolean;
-    }) => {
+    .hook('preAction', (thisCommand, actionCommand) => {
+      // ALI-951: one line per invocation, whichever subcommand ran, only through the alias.
+      // rawArgs lives on the root Commander parsed from; the walk finds it from any depth.
+      let root: Command = thisCommand;
+      while (root.parent) root = root.parent;
+      // rawArgs is set by parse() and absent from Commander's typings; process.argv is the
+      // same list on the real CLI, and only a test drives parse() with anything else.
+      const rawArgs = (root as unknown as { rawArgs?: string[] }).rawArgs ?? process.argv;
+      if (invokedAsImport(rawArgs)) {
+        console.error(chalk.yellow(importAliasLine(actionCommand === thisCommand ? undefined : actionCommand.name())));
+      }
+    })
+    .hook('preSubcommand', (thisCommand, subcommand) => {
+      // `--json` is honoured by the picker path only; a subcommand would parse it (Commander
+      // awards a parent flag to the parent) and then print its human report regardless.
+      if (thisCommand.opts()['json']) {
+        console.error(chalk.red(`align connect ${subcommand.name()} does not take --json. Use: align connect --source ${subcommand.name()} --json`));
+        process.exit(2);
+      }
+    })
+    .action(async (connectors: string[], opts: ConnectGroupOpts) => {
+      if (!opts.all && !connectors.length) {
+        // The local picker (or its --source bypass). False means a cloud env: fall through
+        // to the connector scan bare `import` always ran there.
+        if (await runConnect({ source: opts.source, token: opts.token, yes: opts.yes, json: opts.json, env: opts.env })) return;
+      }
       const config = createConfigStore();
       const env = config.getEnvironment(resolveEnv(opts.env));
       const client = createGatewayClient(env);

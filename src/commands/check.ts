@@ -83,11 +83,15 @@ export function registerCheckCommand(program: Command): void {
       new Option('--adjudicate-deferred <file>', 'internal: run a deferred adjudication from a payload file').hideHelp(),
     )
     .option('--ci', 'CI mode: JSON output to stdout for GitHub Actions')
+    .option('--json', 'Same output and exit codes as --ci: one JSON document on stdout')
     .option('--title <text>', 'The decision being proposed, in words (e.g. the PR title). Without it the gateway adjudicates on the first 200 characters of the diff, which is a file header and a few + lines')
     .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')
     .option('--depth <depth>', `How deep an answer to request: ${CHECK_DEPTHS.join(', ')} - related is retrieval only, full (the gateway default) adjudicates behind its similarity cost gate, exhaustive adjudicates whatever was retrieved (for strict CI gates whose fail-on treats unknown as failure, ALI-708). Ignored in --advisory mode, which is retrieval-only by design`)
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
-    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; adjudicateDeferred?: string; format?: AdvisoryFormat; ci: boolean; base?: string; title?: string; depth?: string; resolve?: string }) => {
+    .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; adjudicateDeferred?: string; format?: AdvisoryFormat; ci: boolean; json?: boolean; base?: string; title?: string; depth?: string; resolve?: string }) => {
+      // ALI-951: `--json` is the machine contract `--ci` already is - same document, same exit
+      // codes (1 conflict, 2 unknown). One flag in the rest of this function, not two.
+      if (opts.json) opts.ci = true;
       // A typo'd depth must not silently become the gateway default: for a strict CI
       // caller that quiet fall-through would reintroduce the exact unadjudicated skip
       // --depth exhaustive exists to remove (ALI-708). Above the advisory early-return, so

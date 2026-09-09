@@ -563,7 +563,7 @@ describe('align ask names a gap on a decision it returns (ALI-796)', () => {
 
   it('names the unresolved ref under the decision that carries it', async () => {
     const all = await runAskWithResult([{ ref: 'ALI-123', platform: 'tracker' }]);
-    expect(all).toContain("cites a ticket-tracker ref I can't read - align import jira or align import linear");
+    expect(all).toContain("cites a ticket-tracker ref I can't read - align connect jira or align connect linear");
   });
 
   it('says nothing for a decision with no external references', async () => {
