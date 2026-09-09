@@ -157,9 +157,10 @@ describe('renderSecondRunCard', () => {
     expect(withConflict).toContain('So far       12 decisions in your graph, 2 conflicts caught');
   });
 
-  it('empty graph: the single action is `align import git`, the one verb the card may name', () => {
+  it('empty graph: the single action is `align connect`, the one verb the card may name', () => {
     const card = renderSecondRunCard({ ...full, hasDecisions: false, firstTitle: undefined, value: undefined });
-    expect(card).toContain('align import git');
+    expect(card).toContain('align connect');
+    expect(card).not.toContain('align import');
     expect(card.match(CLI_VERBS)).toHaveLength(1);
     expect(card).not.toMatch(/Open .* and ask:/);
     expect(card).toContain('Agents       Claude Code, Cursor');

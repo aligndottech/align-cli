@@ -116,7 +116,7 @@ describe('align status names its own gaps (ALI-796)', () => {
 
     const out = plain();
     expect(out).toMatch(/1 decision cites ticket-tracker I can't read/i);
-    expect(out).toContain('align import jira or align import linear');
+    expect(out).toContain('align connect jira or align connect linear');
   });
 
   it('says nothing once the connector is connected', async () => {

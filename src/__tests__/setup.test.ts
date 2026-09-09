@@ -822,7 +822,7 @@ describe('align setup', () => {
         const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
         expect(said).toMatch(/connected/i);
         expect(said).toMatch(/GitHub/);
-        expect(said).toMatch(/align import github --env local/);
+        expect(said).toMatch(/align connect --source github --yes/);
       });
 
       it('defaults the re-import question to No for Teams, whose Graph token lasts about an hour', async () => {
@@ -1237,7 +1237,7 @@ describe('align setup', () => {
         const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
         expect(said).toMatch(/219 decisions/);
         expect(said).toMatch(/github\.com\/o\/r/);
-        expect(said).toMatch(/align import git --env local/);
+        expect(said).toMatch(/align connect git --env local/);
       });
 
       it('still scans git when the graph holds no GIT rows for this repo, whatever else it holds', async () => {
@@ -1261,7 +1261,7 @@ describe('align setup', () => {
 
         expect(fetchDocsItems).not.toHaveBeenCalled();
         const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
-        expect(said).toMatch(/align import docs --env local/);
+        expect(said).toMatch(/align connect docs --env local/);
       });
 
       it('still reads repo docs when the graph has the repo\'s git history but no docs from it', async () => {
@@ -1622,7 +1622,7 @@ describe('align setup', () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
       const { outro } = await import('@clack/prompts');
       const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-      expect(text).toContain("1 decision references Jira keys I can't read - align import jira when you want it filled in.");
+      expect(text).toContain("1 decision references Jira keys I can't read - align connect jira when you want it filled in.");
     });
 
     it('says nothing when the graph has no gap to name', async () => {

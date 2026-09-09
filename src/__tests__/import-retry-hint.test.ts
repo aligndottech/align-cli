@@ -8,11 +8,11 @@ import { importRetryHint } from '../commands/setup.js';
 
 describe('importRetryHint (ALI-675)', () => {
   it('names the env for a non-prod session, so pasting it targets the session graph', () => {
-    expect(importRetryHint('jira', 'local')).toBe('align import jira --env local');
-    expect(importRetryHint('slack', 'preview')).toBe('align import slack --env preview');
+    expect(importRetryHint('jira', 'local')).toBe('align connect jira --env local');
+    expect(importRetryHint('slack', 'preview')).toBe('align connect slack --env preview');
   });
 
   it('prints the bare command for prod, the unmarked default (same convention as the MCP writer)', () => {
-    expect(importRetryHint('jira', 'prod')).toBe('align import jira');
+    expect(importRetryHint('jira', 'prod')).toBe('align connect jira');
   });
 });

@@ -137,8 +137,8 @@ function valueLine(v: CardValue): string {
 
 /**
  * The card bare `align` prints once set up. Graph, agents by name, the readout, and exactly
- * ONE next action. No CLI verb, with one exception: an empty graph's action is `align import
- * git`, because nothing in the agent can fill a graph yet.
+ * ONE next action. No CLI verb, with one exception: an empty graph's action is
+ * `align connect`, because nothing in the agent can fill a graph yet.
  */
 export function renderSecondRunCard(card: SecondRunCard): string {
   const lines = [
@@ -148,9 +148,9 @@ export function renderSecondRunCard(card: SecondRunCard): string {
   if (card.value) lines.push(`  ${valueLine(card.value)}`);
   lines.push('');
   if (!card.hasDecisions) {
-    // ALI-951 collapses the import tree into `align connect`; this line moves with it.
+    // ALI-951: the one verb, and it is the picker - git needs no token and is the first row.
     lines.push('  Your graph is empty. Fill it:');
-    lines.push('    align import git');
+    lines.push('    align connect');
   } else {
     lines.push(`  ${agentAskLine({ agents: card.agents, firstTitle: card.firstTitle, inRepo: false, envName: card.envName })}`);
   }

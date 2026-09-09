@@ -48,7 +48,7 @@ const PLATFORM_LABEL: Record<string, string> = {
 };
 
 function connectCommands(connectors: string[]): string {
-  return connectors.map((c) => `align import ${c}`).join(' or ');
+  return connectors.map((c) => `align connect ${c}`).join(' or ');
 }
 
 /** "a" or "an", by the label's first letter - "a Jira ref" but "an issue-tracker ref". */
@@ -87,7 +87,7 @@ export function unresolvedGaps(
 
 /**
  * The end-of-setup pull line - ONE gap, the biggest, never a wall of platforms.
- * "12 of your decisions reference Jira keys I can't read - align import jira when
+ * "12 of your decisions reference Jira keys I can't read - align connect jira when
  * you want them filled in." Null when the graph has no gap to name.
  */
 export function setupSummaryLine(gaps: UnresolvedGap[]): string | null {

@@ -81,6 +81,8 @@ export async function runPersonalImport(
   client: ReturnType<typeof createGatewayClient>,
   opts: {
     label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean; local?: boolean;
+    /** ALI-951 (`align connect --json`): with quiet, print nothing at all - the caller owns stdout. */
+    silent?: boolean;
     /** ALI-795: when present, emit the import_completed funnel stage after ingest.
      *  Carries the env because the consent decision needs it; source is the connector
      *  id ('git', 'jira'), which becomes the stage's provenance command. */
@@ -88,7 +90,7 @@ export async function runPersonalImport(
   },
 ): Promise<number> {
   if (!items.length) {
-    p.log.warn(`No items found from ${opts.label}.`);
+    if (!opts.silent) p.log.warn(`No items found from ${opts.label}.`);
     return 0;
   }
 
@@ -178,6 +180,7 @@ export async function runPersonalImport(
   // Quiet mode: one compact completion line; the shared footer is printed once
   // by the caller after all concurrent imports finish.
   if (opts.quiet) {
+    if (opts.silent) return total;
     const conn = relatedCount > 0 ? `, ${relatedCount} connection${relatedCount === 1 ? '' : 's'}` : '';
     const failNote = failures.length
       ? chalk.yellow(` (${failures.length} batch${failures.length > 1 ? 'es' : ''} failed)`)
