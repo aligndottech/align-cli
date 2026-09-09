@@ -3,23 +3,25 @@
  * decision already on disk is left alone - and never blocks or crashes a non-interactive run,
  * the same TTY-gating lesson setup-local-non-tty.test.ts pins for the connector prompt.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockConfirm = vi.fn();
 const mockIsCancel = vi.fn(() => false);
+const mockLogInfo = vi.fn();
 
 vi.mock('@clack/prompts', () => ({
   confirm: (...args: unknown[]) => mockConfirm(...args),
   isCancel: (v: unknown) => mockIsCancel(v),
+  log: { info: (...args: unknown[]) => mockLogInfo(...args) },
 }));
 
 import { maybeRequestTelemetryConsent } from '../lib/telemetry-consent.js';
 
-function fakeConfig(initial: 'granted' | 'declined' | undefined = undefined) {
+function fakeConfig(initial: 'granted' | 'declined' | 'off' | undefined = undefined) {
   let consent = initial;
   return {
     getTelemetryConsent: vi.fn(() => consent),
-    setTelemetryConsent: vi.fn((v: 'granted' | 'declined') => {
+    setTelemetryConsent: vi.fn((v: 'granted' | 'declined' | 'off') => {
       consent = v;
     }),
   };
@@ -30,6 +32,58 @@ describe('maybeRequestTelemetryConsent', () => {
     mockConfirm.mockReset();
     mockIsCancel.mockReset();
     mockIsCancel.mockReturnValue(false);
+    mockLogInfo.mockReset();
+    // The environment is an input (tdd.md): both switches explicitly OFF unless a test sets one.
+    vi.stubEnv('DO_NOT_TRACK', undefined);
+    vi.stubEnv('ALIGN_TELEMETRY', undefined);
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  // ALI-954: an env var that already turns everything off makes the question pointless, and
+  // asking it would imply the answer matters. Skip it, say why in one line, and leave the
+  // decision UNSET - a later run without the variable can still ask.
+  describe('skipped with a one-line note when an env var already disables telemetry', () => {
+    it('DO_NOT_TRACK=1: no prompt, consent stays unset, the note names the variable', async () => {
+      vi.stubEnv('DO_NOT_TRACK', '1');
+      const config = fakeConfig(undefined);
+
+      await maybeRequestTelemetryConsent(config, true);
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(config.setTelemetryConsent).not.toHaveBeenCalled();
+      expect(mockLogInfo).toHaveBeenCalledTimes(1);
+      expect(String(mockLogInfo.mock.calls[0]?.[0])).toContain('DO_NOT_TRACK');
+    });
+
+    it('ALIGN_TELEMETRY=0: same, naming ALIGN_TELEMETRY', async () => {
+      vi.stubEnv('ALIGN_TELEMETRY', '0');
+      const config = fakeConfig(undefined);
+
+      await maybeRequestTelemetryConsent(config, true);
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(config.setTelemetryConsent).not.toHaveBeenCalled();
+      expect(String(mockLogInfo.mock.calls[0]?.[0])).toContain('ALIGN_TELEMETRY');
+    });
+
+    // The note is for a person at a terminal; a scripted run gets no output it did not ask for.
+    it('non-interactive: no note either', async () => {
+      vi.stubEnv('DO_NOT_TRACK', '1');
+
+      await maybeRequestTelemetryConsent(fakeConfig(undefined), false);
+
+      expect(mockLogInfo).not.toHaveBeenCalled();
+    });
+  });
+
+  // ALI-954: `align telemetry off` stores 'off'; a stored decision of any kind is never re-asked.
+  it('consent already "off" (align telemetry off): does not ask again', async () => {
+    const config = fakeConfig('off');
+
+    await maybeRequestTelemetryConsent(config, true);
+
+    expect(mockConfirm).not.toHaveBeenCalled();
   });
 
   // test 1

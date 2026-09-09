@@ -31,7 +31,9 @@ MIT. No account needed. Beta, pre-1.0.
 
 Run it inside a git repository. `--local` seeds the graph from your commit history, so you have
 something to ask about straight away, and your decisions stay in a SQLite file on your machine.
-Nothing is sent to Align. [What touches the network](docs/local-mode.md).
+Your decisions and code never go to Align. It sends two anonymous counts by default (install,
+setup completed); usage only with your consent; `align telemetry off` or `DO_NOT_TRACK=1` stops
+all of it. [What touches the network](docs/local-mode.md), and [every field](docs/telemetry.md).
 
 Want sync across machines and cross-tool relationship detection? Drop the flag. `align setup`
 logs you in - a work email lands you in your company's graph (first person in is the admin,
@@ -103,6 +105,7 @@ Grok, any OpenAI-compatible endpoint, or a local Ollama.
 | [Importing](docs/importing.md) | Every source, tokens, flags |
 | [Alignment check](docs/check.md) | Modes, exit codes, CI, the GitHub Action |
 | [Cloud or local-only](docs/local-mode.md) | What runs where, what touches the network |
+| [Telemetry](docs/telemetry.md) | Every event and field, and how to stop it |
 | [MCP server](docs/mcp.md) | Editor config, the tools your assistant gets |
 | [Configuration](docs/configuration.md) | AI providers, env vars, auth, self-hosting |
 | [Agent hooks](docs/agent-hooks.md) | Per-host capability matrix |

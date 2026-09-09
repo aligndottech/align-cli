@@ -4,12 +4,26 @@
  *
  * Cloud mode only, by design. A cloud user is already talking to our gateway on an
  * authenticated connection, so an event about a call already being made is not a new
- * phone-home. A `--local` user never contacts us at all and has no tenant, so counting
- * them needs an explicit consent flow - a separate slice, not this one.
+ * phone-home. A `--local` user has no tenant; their side is usage-telemetry-anonymous.test.ts
+ * (consented usage, ALI-618) and usage-telemetry-install-beacon.test.ts (the two default-on
+ * counts, ALI-954) - not this file.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnvironmentConfig } from '../lib/config.js';
+
+// The two local-mode negatives below ("sends nothing ...") reach the REAL config store when
+// nothing mocks it, so they passed or failed with whatever consent the machine running the
+// suite had stored - green in CI, red on a laptop that had said yes (found on ALI-954). The
+// precondition those tests assert is "no consent recorded"; state it (tdd.md).
+vi.mock('../lib/config.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  createConfigStore: () => ({
+    getTelemetryConsent: () => undefined,
+    getInstallId: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  }),
+}));
+
 import { recordCommandUsage, TELEMETRY_TIMEOUT_MS } from '../lib/usage-telemetry.js';
 
 const mockFetch = vi.fn();

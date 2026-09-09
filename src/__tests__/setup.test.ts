@@ -1521,6 +1521,37 @@ describe('align setup', () => {
       expect(completed[0]!.env.mode).toBe('local-embedded');
     });
 
+    // ALI-954: setup_completed is beacon-tier. The wizard's job is to OFFER it after the
+    // outro whatever the consent answer was; whether it sends is the emitter's decision
+    // (usage-telemetry-funnel.test.ts, "beacon tier"). This pins the offer survives a No.
+    it('--local, consent declined at the prompt: setup_completed is still offered after the outro', async () => {
+      mockConfirm.mockImplementation(async (o: { message?: string }) => !/Help improve Align/.test(String(o?.message)));
+      const { outro } = await import('@clack/prompts');
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+      const completed = stageCalls('setup_completed');
+      expect(completed).toHaveLength(1);
+      expect(completed[0]!.command).toBe('setup');
+      expect(completed[0]!.env.mode).toBe('local-embedded');
+      expect(vi.mocked(outro).mock.invocationCallOrder[0]!).toBeLessThan(completed[0]!.order);
+    });
+
+    // ALI-954: an env var that already disables everything skips the consent question - the
+    // wizard still completes, and the skipped prompt is the ONLY thing that changes.
+    it('--local under DO_NOT_TRACK=1: the consent question is not asked, the wizard still completes', async () => {
+      vi.stubEnv('DO_NOT_TRACK', '1');
+      try {
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      const asked = mockConfirm.mock.calls.some((c) => /Help improve Align/.test(String((c[0] as { message?: string })?.message)));
+      expect(asked).toBe(false);
+      expect(stageCalls('setup_completed')).toHaveLength(1);
+    });
+
     // Copilot on #279 (second pass): a STALE stored token passes the emitter's token check,
     // so an offer made before auth is verified sends a request the gateway 401s, reports it
     // as sent (a send is a send - the once-mark trade), and suppresses the post-login offer

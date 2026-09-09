@@ -68,11 +68,23 @@ program
   .description('Align CLI - capture decisions, check alignment, and manage connectors')
   .version(version);
 
-// ALI-403/ALI-618: one usage event per invocation, so CLI activation and weekly retention are
-// countable in both cloud mode (opt-out) and local-embedded mode (opt-in, ALI-618 - a no-op
-// until `align telemetry on` is run). No-op under ALIGN_TELEMETRY=0 in either mode. Runs after
-// the command's own work, so a slow or blackholed gateway cannot delay the output the user came
-// for.
+// ALI-954: the install beacon - once per install id, on the very first run, BEFORE the
+// command's action and therefore before any prompt it shows. preAction on the root fires for
+// the root's own action (bare `align`) and for every subcommand. Fire-and-forget: the
+// request is started here and Node keeps the process alive until it completes or the 2s
+// timeout aborts it, so the wizard never waits on a blackholed network. Skips itself under
+// DO_NOT_TRACK / ALIGN_TELEMETRY, after `align telemetry off`, when a cloud token is already
+// in hand, and when the first command IS `align telemetry ...` (see recordInstallBeacon).
+program.hook('preAction', async (_thisCommand, actionCommand) => {
+  const { invocationCommandPath, recordInstallBeacon } = await import('./lib/usage-telemetry.js');
+  void recordInstallBeacon(invocationCommandPath(actionCommand));
+});
+
+// ALI-403/ALI-618/ALI-954: one usage event per invocation, so CLI activation and weekly
+// retention are countable in both cloud mode (opt-out) and local-embedded mode (with the stored
+// consent - a no-op until the setup prompt or `align telemetry on` grants it). No-op under
+// ALIGN_TELEMETRY=0 / DO_NOT_TRACK=1 in either mode. Runs after the command's own work, so a
+// slow or blackholed gateway cannot delay the output the user came for.
 program.hook('postAction', async (_thisCommand, actionCommand) => {
   const { envFlagOf, invocationCommandPath, recordInvocationUsage } = await import('./lib/usage-telemetry.js');
   // Full path ("local ask"), not the leaf name ("ask"), so recordCommandUsage can exclude the
