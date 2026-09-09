@@ -2,7 +2,7 @@ import { type Command, Option } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { spawn } from 'node:child_process';
-import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
@@ -75,7 +75,7 @@ export function registerCheckCommand(program: Command): void {
     .option('--all', 'Check full HEAD diff, not just staged changes')
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
     .option('--advisory', 'Agent hook mode: always exit 0, emit related (unadjudicated) decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
-    .option('--format <format>', 'Advisory output shape for the host agent: claude (default), gemini, pi, opencode, or text', 'claude')
+    .option('--format <format>', 'Advisory output shape for the host agent: claude (default), codex, cursor, copilot, gemini, pi, opencode, or text', 'claude')
     .option('--block-on-critical', 'Advisory hook: adjudicate each proposed change in the background, and deny a RETRY of a change already judged a critical conflict (same tool, file and text - anything else proceeds). Opt-in on purpose - in local mode adjudication calls your own AI provider, once per edit (ALI-570)')
     .addOption(
       // The deferred adjudicator's entry point. Hidden: it is spawned by the advisory hook
@@ -312,6 +312,19 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
   try {
     const payload = await readHookPayload();
     const pre = payload?.hook_event_name === 'PreToolUse';
+
+    // A USER-level hook does not run in the project (Cursor documents that user-level hook
+    // scripts run from ~/.cursor/), and everything below - the post-edit git diff, the
+    // dedup store, the verdict store - keys on process.cwd(). Move to the workspace the
+    // host named before touching any of them. Fail-open: a cwd that does not exist is left
+    // alone and the check proceeds wherever it was started (ALI-952).
+    if (payload?.cwd && existsSync(payload.cwd)) {
+      try {
+        process.chdir(payload.cwd);
+      } catch {
+        // Stay put.
+      }
+    }
 
     let text: string;
     let context: string;
@@ -629,7 +642,7 @@ function conflictContext(conflicts: AdvisoryConflict[], closing: string): string
 
 // The host agents whose hook output contract we can speak. `text` is the universal
 // fallback for a host that just runs a command and shows whatever it printed.
-export type AdvisoryFormat = 'claude' | 'gemini' | 'pi' | 'opencode' | 'text';
+export type AdvisoryFormat = 'claude' | 'codex' | 'cursor' | 'copilot' | 'gemini' | 'pi' | 'opencode' | 'text';
 
 export interface AdvisoryRenderOpts {
   pre: boolean;
@@ -646,6 +659,14 @@ export interface AdvisoryRenderOpts {
 //
 //   claude  Pre: hookSpecificOutput.additionalContext, or permissionDecision:'deny'
 //           Post: hookSpecificOutput.additionalContext
+//   codex   Claude Code's shape verbatim (Codex hooks reference documents the same
+//           hookSpecificOutput block, additionalContext included).
+//   cursor  preToolUse reads {permission, user_message, agent_message} and nothing else,
+//           so a non-blocking pre-check emits NOTHING; postToolUse carries
+//           {additional_context}. The Gemini split (ALI-952).
+//   copilot preToolUse reads {permissionDecision, permissionDecisionReason}; postToolUse
+//           carries {additionalContext}. Same split. A non-zero exit DENIES there, which
+//           is one more reason this command exits 0 without exception.
 //   gemini  BeforeTool: decision:'deny' + reason. It has NO additionalContext channel,
 //           so a non-blocking pre-check emits NOTHING and lets AfterTool carry it.
 //           AfterTool: hookSpecificOutput.additionalContext
@@ -686,9 +707,18 @@ function renderForHost(summary: string, opts: AdvisoryRenderOpts, blocking: bool
     case 'opencode':
       return blocking ? { block: true, reason: summary } : { context: summary };
 
+    case 'cursor':
+      if (opts.pre) return blocking ? { permission: 'deny', user_message: summary, agent_message: summary } : null;
+      return { additional_context: summary };
+
+    case 'copilot':
+      if (opts.pre) return blocking ? { permissionDecision: 'deny', permissionDecisionReason: summary } : null;
+      return { additionalContext: summary };
+
     case 'text':
       return summary;
 
+    case 'codex':
     default:
       if (blocking) {
         return { hookSpecificOutput: { hookEventName, permissionDecision: 'deny', permissionDecisionReason: summary } };

@@ -387,7 +387,7 @@ async function runMcpRemove(): Promise<void> {
     try {
       if (removeMcpConfig(target)) {
         removed++;
-        p.log.success(`${target.name}: align removed from ${target.configPath}`);
+        p.log.success(`${target.name}: align removed from ${[target.configPath, target.hooks?.path].filter(Boolean).join(' and ')}`);
       } else {
         // Said explicitly rather than silently skipped: "nothing happened" and "it was never
         // there" look identical otherwise, and only one of them is reassuring.
@@ -436,8 +436,8 @@ async function runMcpSetup(env?: EnvName): Promise<void> {
     const spinner = p.spinner();
     spinner.start(`Configuring ${name}...`);
     try {
-      writeMcpConfig(target, env === 'prod' || !env ? undefined : env);
-      spinner.stop(`${name}: align added to MCP servers`);
+      const files = writeMcpConfig(target, env === 'prod' || !env ? undefined : env);
+      spinner.stop(`${name}: align added to MCP servers${target.hooks ? ', pre-edit check hooked' : ''} (${files.join(', ')})`);
     } catch (err) {
       spinner.stop(`${name}: failed - ${(err as Error).message}`);
     }

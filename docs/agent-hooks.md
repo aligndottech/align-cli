@@ -18,38 +18,71 @@ file got written.
 on a `critical` conflict, and only on a **retry** of a change a background adjudicator already
 judged. See "Blocking is opt-in, everywhere" for why.
 
-| Host | Config `align setup` writes | Pre-edit check | Non-blocking context to the model | Can block |
-|---|---|---|---|---|
-| **Claude Code** | `.claude/settings.json` | yes (`PreToolUse`) | yes, on both Pre and Post | opt-in, critical retry only |
-| **pi** | `.pi/extensions/align.ts` | yes (`tool_call`) | yes, via the `tool_result` content patch | opt-in, critical retry only |
-| **Gemini CLI** | `.gemini/settings.json` | yes (`BeforeTool`) | yes, on `AfterTool` only | opt-in, critical retry only |
-| **OpenCode** | `.opencode/plugins/align.js` | yes (`tool.execute.before`) | yes, by mutating the result in `tool.execute.after` | opt-in, critical retry only |
-| **Cursor** | - | **no** | **no** | no |
-| **Codex CLI** | - | **no** (Bash only) | no | Bash only |
-| **Windsurf, Zed, VS Code** | - | no hook API | no | no |
+Two kinds of file appear in the second column. A **project** file lives in the repo you ran
+`align setup` in, is committed, and covers the whole team. A **user** file lives under your
+home directory, is written by `align setup` / `align mcp --setup` next to that host's MCP
+entry, covers every project on this machine, and comes out again with `align mcp --remove`
+(ALI-952). The vendor docs for each host are linked from the row.
 
-Everything in the last four rows still gets the MCP server and the `AGENTS.md` nudge.
-They just do not get the deterministic layer, and no amount of config on our side changes
-that.
+| Host | File `align setup` writes | Pre-edit check | Non-blocking context to the model | Can block | Payload fixture |
+|---|---|---|---|---|---|
+| **Claude Code** | project `.claude/settings.json` | yes (`PreToolUse`) | yes, on both Pre and Post | opt-in, critical retry only | real (Claude Code is the canonical shape) |
+| **pi** | project `.pi/extensions/align.ts` | yes (`tool_call`) | yes, via the `tool_result` content patch | opt-in, critical retry only | from pi's source |
+| **Gemini CLI** | project `.gemini/settings.json` | yes (`BeforeTool`) | yes, on `AfterTool` only | opt-in, critical retry only | from Gemini's docs |
+| **OpenCode** | project `.opencode/plugins/align.js` | yes (`tool.execute.before`) | yes, by mutating the result in `tool.execute.after` | opt-in, critical retry only | from OpenCode's source |
+| **Codex** | user `~/.codex/hooks.json` ([docs](https://developers.openai.com/codex/hooks)) | yes (`PreToolUse` on `apply_patch`) | yes, `PreToolUse` has `additionalContext` | opt-in, critical retry only | **pending real capture** |
+| **Cursor** | user `~/.cursor/hooks.json` ([docs](https://cursor.com/docs/agent/hooks)) | yes (`preToolUse`, matcher `Write`) | yes, on `postToolUse` only (`additional_context`) | opt-in, critical retry only | **pending real capture** |
+| **Copilot CLI** | user `~/.copilot/hooks/align.json` ([docs](https://docs.github.com/en/copilot/reference/hooks-reference)) | yes (`preToolUse` on `edit`/`create`/`str_replace_editor`/`apply_patch`) | yes, on `postToolUse` only (`additionalContext`) | opt-in, critical retry only | **pending real capture** |
+| **Claude Desktop** | - (MCP only) | no hook API | no | no | - |
+| **Windsurf** | - (MCP only) | no hook API | no | no | - |
+| **Zed** | - (MCP only) | no hook API | no | no | - |
+| **VS Code** | - (MCP only) | no hook API for the CLI to write | no | no | - |
 
-### Why Cursor cannot do it
+Every host still gets the MCP server and the `AGENTS.md` nudge. The last four do not get the
+deterministic layer, and no amount of config on our side changes that.
 
-Cursor 1.7+ has a real hook system (`.cursor/hooks.json`), and it is not enough here:
+### The three user-level hosts, and what is documented versus captured
 
-- There is **no `beforeFileEdit`**. The file-related hooks are `beforeReadFile` and
-  `afterFileEdit`.
-- `afterFileEdit` has **no output fields at all** - it is observational, for auditing and
-  formatters. It cannot return anything the agent will read.
+The Codex, Cursor and Copilot CLI shims are written against each vendor's **published hook
+schema**, cited in the table. The normaliser cases for them
+(`src/lib/hook-payload.ts`) and the tests that pin them
+(`src/__tests__/hook-payload-user-hosts.test.ts`) use that documented shape and say so in
+their names. **No payload from a real session of any of the three has been captured yet.**
+The machine this shipped from had none of the three CLIs installed; Codex was installed via
+`npx` and ran `apply_patch` end to end, but never fired a `hooks.json` on any of five
+attempts (project-level, user-level, `[features].hooks`, `--enable hooks`), so there was no
+session to capture from.
 
-So on Cursor we could detect a conflict and have nowhere to put it. `beforeShellExecution`
-and `beforeMCPExecution` *can* deny with an `agent_message`, but neither fires on a file
-edit. We write `.cursor/rules/align.md` instead, which is the discretionary layer.
+That matters because the bit the docs leave out is exactly the bit that goes wrong: the
+field names inside `tool_input` / `toolArgs` for each host's edit tool. Until a capture
+lands in `src/__tests__/fixtures/hook-payloads/` (its README says how), the honest status
+is: **the hook files are written and the output shapes are right; whether the pre-edit
+check can read the proposed text depends on the field names being what the docs imply.**
+If they are not, the pre-edit check exits 0 in silence (fail-open) and the post-edit check,
+which reads the landed `git diff` rather than the payload, still carries the finding on
+Cursor and Copilot.
 
-### Why Codex CLI cannot do it
+Two things the docs did settle, both of which used to be stated wrongly on this page:
 
-Codex's hook engine is opt-in (`[features].codex_hooks = true`) and, by design,
-**`PreToolUse` intercepts the Bash tool only**. `apply_patch`, Edit, Write, Read, web fetch
-and MCP calls do not fire it.
+- **Cursor** has a generic `preToolUse` (matcher `Write` for file edits) that can deny with
+  an `agent_message`, and a `postToolUse` with an `additional_context` channel. The earlier
+  claim that its only file hooks were `beforeReadFile`/`afterFileEdit` is out of date.
+- **Codex** `PreToolUse` intercepts `apply_patch` (the docs accept `Edit|Write` as matcher
+  aliases for it), not Bash alone, and it has an `additionalContext` output channel. Hooks
+  are on by default; `[features].codex_hooks` is the deprecated spelling of
+  `[features].hooks`.
+
+One more difference worth knowing on **Copilot CLI**: a non-timeout, non-zero exit from a
+`preToolUse` hook **denies** the tool call there. `align check --advisory` exits 0 on every
+path for that reason, and the shim's `timeoutSec` is 10.
+
+### A user-level hook does not run in the project
+
+Cursor documents that user-level hook scripts run from `~/.cursor/`. The post-edit check
+reads `git diff` in the current directory, and the surfaced-decision and verdict stores are
+keyed on it too, so a hook started somewhere else would look at the wrong tree, or exit 0 in
+silence because `~/.cursor` is not a repository. Every host puts the workspace in the
+payload's `cwd`; `align check --advisory` moves there first when it exists.
 
 ## The architecture: one engine, N shims
 
@@ -73,7 +106,8 @@ check.
 
 ### The recurring shape: pre-check, post-delivery
 
-Claude Code, pi and Gemini CLI all converge on the same split, for different reasons:
+Claude Code, pi, Gemini CLI, Cursor and Copilot CLI all converge on the same split, for
+different reasons:
 
 - **pi** - `tool_call` fires before the edit but can *only* return `{block, reason}`. So the
   check runs there and its finding is replayed into that same call's `tool_result`, whose
@@ -85,9 +119,14 @@ Claude Code, pi and Gemini CLI all converge on the same split, for different rea
   to stop an edit is to **throw**; there is no `{block}` return value. The non-blocking
   finding rides `tool.execute.after`, which is handed the result object the caller
   returns on the very next line, so mutating `output.output` reaches the model.
-- **Claude Code** - the only one where `PreToolUse` can do both, via `additionalContext`.
+- **Cursor** and **Copilot CLI** - `preToolUse` reads a permission decision and nothing
+  else, so a non-blocking pre-check emits nothing and `postToolUse` carries the context
+  (`additional_context` / `additionalContext`). Both events are registered for that reason.
+- **Claude Code** and **Codex** - the ones where `PreToolUse` can do both, via
+  `additionalContext`. Codex speaks Claude Code's hook shape, so `--format codex` renders
+  the same JSON.
 
-In all four the check still inspects the **proposed** change before it is written. Only
+In every case the check still inspects the **proposed** change before it is written. Only
 the delivery point moves.
 
 ### Verify the caller, not the type signature
