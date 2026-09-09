@@ -13,12 +13,15 @@ import { recordFunnelStage } from './usage-telemetry.js';
  * this object sends at the first offer the emitter reports as sent. Sendability is
  * recordFunnelStage's decision, not repeated here.
  *
- * "Once" is per IDENTITY, not per run. A local-mode ping is keyed on the machine's
- * installId; a cloud ping on the tenant. Nothing joins the two, so a fresh-install user who
- * consents locally and then chooses "sync to the cloud" would otherwise leave
- * `setup_started` under one identity and `setup_completed` under the other (fresh-context
- * review on #279). A later checkpoint on the OTHER transport therefore sends again under
- * its own identity; the same transport never repeats.
+ * Within one wizard run, "once" is per IDENTITY rather than once in total. A local-mode
+ * ping is keyed on the machine's installId; a cloud ping on the tenant. Nothing joins the
+ * two, so a fresh-install user who consents locally and then chooses "sync to the cloud"
+ * would otherwise leave `setup_started` under one identity and `setup_completed` under the
+ * other (fresh-context review on #279). A later checkpoint on the OTHER transport therefore
+ * sends again under its own identity; the same transport never repeats in the run. There is
+ * no cross-run memory here: one object is created per `runSetup` call, and a re-run of the
+ * wizard is a new setup_started, which is what the funnel wants (the reader counts an
+ * install once per stage regardless - `cli_activation_funnel.py`'s countIf(> 0)).
  *
  * What that means for the funnel: in local mode `setup_started` says "started, and got as
  * far as consenting" rather than "typed the command". A user who declines consent is never
