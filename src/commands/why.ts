@@ -14,6 +14,8 @@ import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { formatWhen } from '../lib/format-date.js';
 import { resolveScopeOpts } from '../lib/repo-identity.js';
 import { askTrailingLine } from '../lib/connect-prompt.js';
+import { getGitIdentities, hasOtherCommitters } from '../lib/git.js';
+import { answeredBySomeoneElse, inviteNudgeLine } from '../lib/invite-prompt.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -123,6 +125,12 @@ export function registerAskCommand(program: Command): void {
       // means local mode - a cloud result has none.
       const isConnected = (id: string) => config.getConnectorFields(envName, id) !== null;
 
+      // ALI-938: local identity for the invite nudge - two cheap `git config` reads,
+      // computed once regardless of which nudge path fires below. Outside a git repo (or
+      // with no identity configured), both come back null and every comparison below
+      // stays conservatively "not someone else" rather than guessing (invite-prompt.ts).
+      const identity = await getGitIdentities();
+
       // Pass the query through unchanged: the gateway's smart-search strategy
       // selector routes natural-language questions to semantic search. Stripping
       // the question word turned questions into keyword phrases that matched
@@ -163,6 +171,13 @@ export function registerAskCommand(program: Command): void {
         if (!results.results.length) {
           spinner.stop();
           console.log('');
+          // ALI-938: "a question returns nothing, and the repo has other committers" - the
+          // second invite-nudge moment. Never asked for a file-path lookup (that framing is
+          // "related decisions", not a question); one extra `git log`, only on the path
+          // that was already returning nothing (the same discipline graphHasDecisions
+          // below already follows), and defensively false with no local identity to
+          // compare against or outside a git repo at all (hasOtherCommitters in git.ts).
+          const otherCommitters = !filePath && await hasOtherCommitters(identity);
           if (filePath) {
             console.log(chalk.dim(`  No decisions found for ${query}.`));
             console.log(chalk.dim('  Import from more sources to build context:'));
@@ -215,6 +230,7 @@ export function registerAskCommand(program: Command): void {
               }
               console.log(chalk.dim(`    ${listCmd}`));
               console.log('');
+              if (otherCommitters) console.log(chalk.dim(`  ${inviteNudgeLine('empty-with-committers')}\n`));
               return;
             }
 
@@ -223,6 +239,7 @@ export function registerAskCommand(program: Command): void {
           }
           console.log(chalk.dim('    align import linear   # or jira, slack, notion, confluence'));
           console.log('');
+          if (otherCommitters) console.log(chalk.dim(`  ${inviteNudgeLine('empty-with-committers')}\n`));
           return;
         }
 
@@ -318,8 +335,12 @@ export function registerAskCommand(program: Command): void {
               if (gap) console.log(gap);
             }
             console.log('');
-            if (results.count >= 5) {
-              console.log(chalk.dim('  Share this graph with your team: https://align.tech/pricing'));
+            // ALI-938: the invite nudge's clearest moment - the graph just answered from a
+            // decision someone else made. Replaces the old "5+ results" heuristic, which
+            // fired on graph SIZE and had nothing to do with whether a teammate was
+            // actually the one who decided this.
+            if (answeredBySomeoneElse(shown.map((d) => d.author), identity)) {
+              console.log(chalk.dim(`  ${inviteNudgeLine('answered-by-other')}`));
               console.log('');
             }
             return;
@@ -422,8 +443,13 @@ export function registerAskCommand(program: Command): void {
           console.log(chalk.dim('  Add more sources for richer cross-tool context:'));
           console.log(chalk.dim('    align import linear   # or jira, slack, notion, confluence'));
           console.log('');
-        } else if (count >= 5) {
-          console.log(chalk.dim('  Share this graph with your team: https://align.tech/pricing'));
+        }
+        // ALI-938: the invite nudge, keyed on WHO decided rather than on graph size - the
+        // old "5+ results" heuristic fired on a count that had nothing to do with whether
+        // a teammate was the one who made the call. Same criterion as the
+        // synthesized-answer path above, checked here for the list-fallback rendering.
+        if (answeredBySomeoneElse(results.results.map((d) => d.author), identity)) {
+          console.log(chalk.dim(`  ${inviteNudgeLine('answered-by-other')}`));
           console.log('');
         }
       } catch (err) {

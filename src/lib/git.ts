@@ -275,6 +275,56 @@ export async function resolveLocalIdentity(): Promise<string> {
 }
 
 /**
+ * ALI-938: both halves of local git identity, kept separate rather than collapsed the
+ * way `getGitIdentity` collapses to "whichever is set". The invite nudge compares a
+ * decision's author against BOTH an email and a display name (a search result may carry
+ * either or both), and picking just one up front would throw away whichever field the
+ * comparison needed.
+ */
+export async function getGitIdentities(opts: { cwd?: string } = {}): Promise<{ email: string | null; name: string | null }> {
+  const read = async (key: string): Promise<string | null> => {
+    try {
+      const { stdout } = await execa('git', ['config', '--get', key], opts.cwd ? { cwd: opts.cwd } : {});
+      return stdout.trim() || null;
+    } catch {
+      return null;
+    }
+  };
+  const [email, name] = await Promise.all([read('user.email'), read('user.name')]);
+  return { email, name };
+}
+
+/**
+ * ALI-938: does this repo's recent history carry a commit from someone other than the
+ * given identity - the "there's a teammate to invite" signal behind the `align ask`
+ * empty-result nudge. Capped at the last 100 commits: this backs a one-line nudge, not
+ * an audit, and a bounded `git log` keeps it cheap even on a large repo. Defaults to
+ * false on any error (not a git repo, git not installed, no commits yet, or no local
+ * identity to compare against) - never claim a teammate exists when the check could not
+ * actually run.
+ */
+export async function hasOtherCommitters(
+  identity: { email: string | null; name: string | null },
+  opts: { cwd?: string } = {},
+): Promise<boolean> {
+  if (!identity.email && !identity.name) return false;
+  const mine = new Set(
+    [identity.email, identity.name].filter((v): v is string => Boolean(v)).map((v) => v.toLowerCase()),
+  );
+  try {
+    const { stdout } = await execa(
+      'git',
+      ['log', '-n', '100', '--format=%ae%n%an'],
+      opts.cwd ? { cwd: opts.cwd } : {},
+    );
+    const lines = stdout.split('\n').map((l) => l.trim().toLowerCase()).filter(Boolean);
+    return lines.some((l) => !mine.has(l));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The absolute repo root, for the ALI-798 fallback identity when a repo has no
  * remote (or one `repoFromRemoteUrl` does not recognise): a self-hosted GHES, or a
  * repo that has never been pushed. `--show-toplevel` always returns an absolute

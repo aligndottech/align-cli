@@ -173,13 +173,33 @@ function commandPathOf(command: string): string {
  * ALI-795: the activation-funnel stages, matching the gateway's closed enum
  * (telemetryAnonymousRoutes.ts). Repeat-use and D7 are deliberately absent - both derive
  * server-side from install_id timestamps, so a client event would be a second writer.
+ *
+ * ALI-938: `teammate_requested` is the bottom-up-thesis signal - fired by `align invite`
+ * for every genuine attempt to bring a teammate in, whether or not the invite is
+ * actually sent (a member blocked by the org_admin gate is still demand). `align invite`
+ * refuses local-embedded mode outright (it needs a real cloud tenant to invite anyone
+ * into), so in practice this ALWAYS reaches recordFunnelStage with a cloud env and takes
+ * the /telemetry/ingest path, which accepts any eventName as a string - no gateway change
+ * needed for this stage to work today.
+ *
+ * The gap that DOES exist, for completeness: the gateway's FUNNEL_STAGES enum
+ * (telemetryAnonymousRoutes.ts, guarding /telemetry/anonymous's `stage` field) has not
+ * been extended to include 'teammate_requested'. Unreachable through this command as
+ * built, but this CLI-side type now permits calling recordFunnelStage(localEnv,
+ * 'teammate_requested', ...) from anywhere else that resolves to local-embedded, and that
+ * call would 400 at the gateway and be silently dropped by postWithTimeout (which never
+ * inspects the response). Same gap, and same fix, as KNOWN_COMMANDS not yet listing
+ * 'invite' (this endpoint's OTHER closed enum, guarding the plain per-invocation
+ * cli.command ping) - also unreachable today, for the same reason. Both are align-stack
+ * gateway changes, out of scope for this CLI-only PR; see the ALI-938 PR description.
  */
 export type FunnelStage =
   | 'setup_started'
   | 'setup_completed'
   | 'import_completed'
   | 'mcp_wired'
-  | 'first_useful_decision';
+  | 'first_useful_decision'
+  | 'teammate_requested';
 
 /**
  * The single funnel-stage emitter. Same consent model as recordCommandUsage, no new

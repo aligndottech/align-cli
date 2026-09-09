@@ -11,6 +11,7 @@ import { createConfigStore, type EnvironmentConfig, type EnvName } from '../lib/
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
 import { commandIntro } from '../lib/brand.js';
+import { inviteNudgeLine } from '../lib/invite-prompt.js';
 
 // Server-level instructions (ALI-120): surfaced to the agent so it reaches for
 // Align proactively - without the user prompting - the moment this MCP server is
@@ -299,7 +300,9 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
 
       // MCP protocol requires clean stdout; log startup to stderr
       process.stderr.write(`align mcp server started (env: ${resolvedEnv}, gateway: ${env.gatewayUrl})\n`);
-      process.stderr.write('Want your whole team to have this context? https://align.tech/pricing\n');
+      // ALI-938: a URL asks someone to go figure it out later; the invite command is
+      // something they can act on right there. See invite-prompt.ts.
+      process.stderr.write(`${inviteNudgeLine('value')}\n`);
 
       const transport = new StdioServerTransport();
       await server.connect(transport);
@@ -387,6 +390,6 @@ async function runMcpSetup(env?: EnvName): Promise<void> {
     }
   }
 
-  const outroText = `${chalk.green('Done.\n\n')}Restart your editor, then ask:\n${chalk.dim('  "What has my team decided about authentication?"\n\n')}${chalk.dim('Want your whole team to have this context? https://align.tech/pricing')}`;
+  const outroText = `${chalk.green('Done.\n\n')}Restart your editor, then ask:\n${chalk.dim('  "What has my team decided about authentication?"\n\n')}${chalk.dim(inviteNudgeLine('value'))}`;
   p.outro(outroText);
 }

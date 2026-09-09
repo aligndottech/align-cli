@@ -377,6 +377,41 @@ describe('gateway client', () => {
     });
   });
 
+  // ALI-938: `align invite <email>` - POST /admin/invites, the existing org-join route.
+  describe('createInvite', () => {
+    it('posts to /admin/invites with the email in the body', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ invite_id: 'inv-1', invite_url: 'https://app.align.tech/join?token=abc' }),
+      });
+      await createGatewayClient(localEnv).createInvite('dan@align.tech');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8080/admin/invites',
+        expect.objectContaining({ method: 'POST' }),
+      );
+      const body = JSON.parse((mockFetch.mock.calls[0][1] as Parameters<typeof fetch>[1]).body as string);
+      expect(body.email).toBe('dan@align.tech');
+    });
+
+    it('renames the wire fields to camelCase', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ invite_id: 'inv-1', invite_url: 'https://app.align.tech/join?token=abc' }),
+      });
+      const result = await createGatewayClient(localEnv).createInvite('dan@align.tech');
+      expect(result).toEqual({ inviteId: 'inv-1', inviteUrl: 'https://app.align.tech/join?token=abc' });
+    });
+
+    it('throws a readable error when the gateway refuses (e.g. not an org_admin)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false, status: 403,
+        json: async () => ({ error: 'Only org admins can create invites' }),
+      });
+      await expect(createGatewayClient(localEnv).createInvite('dan@align.tech'))
+        .rejects.toThrow('Only org admins can create invites');
+    });
+  });
+
   // ALI-761 phase 2: the check carries who ran it (platform) and what it checked
   // (subject_key, head_sha), so the gateway's conflict events stop landing unattributable
   // and unjoinable. Everything here is CHECK-SCOPED on purpose: a client-wide platform

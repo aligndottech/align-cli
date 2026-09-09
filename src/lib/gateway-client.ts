@@ -208,6 +208,12 @@ export interface WhoAmI {
   tenant: { id: string; name: string };
 }
 
+/** ALI-938: what POST /admin/invites returns - an id for reference and the link to send. */
+export interface CreateInviteResult {
+  inviteId: string;
+  inviteUrl: string;
+}
+
 export interface ImportJob {
   id: string;
   connector_key: string;
@@ -379,6 +385,21 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
   return {
     async whoami(): Promise<WhoAmI> {
       return request<WhoAmI>('/auth/me');
+    },
+
+    /**
+     * ALI-938: `align invite <email>` - the org_admin-only route that already existed for
+     * the web app's org-join flow (orgJoinRoutes.ts). The gateway is the sole authority on
+     * whether the caller may create one (403 for anything but org_admin); the CLI's own
+     * role check in commands/invite.ts is a courtesy that avoids a round-trip for the
+     * common "you're not an admin" case, not a substitute for this enforcement.
+     */
+    async createInvite(email: string): Promise<CreateInviteResult> {
+      const res = await request<{ invite_id: string; invite_url: string }>('/admin/invites', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      return { inviteId: res.invite_id, inviteUrl: res.invite_url };
     },
 
     // GET /integrations returns { all: ConnectorConfig[], enabled: string[] }

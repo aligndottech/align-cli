@@ -6,6 +6,7 @@
  */
 
 import { statusGapLine, type UnresolvedGap, unresolvedGaps } from './connect-prompt.js';
+import { inviteNudgeLine } from './invite-prompt.js';
 
 export interface ValueRollup {
   decisions: number;
@@ -129,7 +130,8 @@ export function renderValueReadout(r: ValueRollup, opts: { mode: 'cloud' | 'loca
     || r.conflictsCaught > 0 || r.duplicates > 0 || r.supersessions > 0;
   if (hasValue) {
     lines.push('');
-    lines.push('  Share this graph with your team: https://app.align.tech/pricing');
+    // ALI-938: a command someone can run right there, not a URL to go figure out later.
+    lines.push(`  ${inviteNudgeLine('value')}`);
   }
   return lines.join('\n');
 }

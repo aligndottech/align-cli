@@ -28,6 +28,7 @@ import { registerTelemetryCommand } from './commands/telemetry.js';
 import { registerAskCommand } from './commands/why.js';
 import { registerSetupCommand } from './commands/setup.js';
 import { registerExportCommand } from './commands/export.js';
+import { registerInviteCommand } from './commands/invite.js';
 import { runDefaultAction } from './commands/default-action.js';
 
 // Last-resort guard so no command ever dumps a raw Node stack trace at a user.
@@ -92,6 +93,7 @@ registerTelemetryCommand(program);
 // Auth + onboarding
 registerLoginCommands(program);
 registerSetupCommand(program);
+registerInviteCommand(program);
 
 // Customer: decision capture + import
 registerCaptureCommand(program);
