@@ -117,12 +117,17 @@ export async function dispatchTool(
   }
 
   switch (name) {
+    // ONE arm for both names (ALI-952). align_search is the alias of align_ask: they were two
+    // entries for the same gateway call with two dispatch arms that had already drifted
+    // (align_search passed no limit, align_ask defaulted to 8). The question is passed
+    // through unchanged so the gateway's smart-search strategy selector can route it to
+    // semantic search (ALI-105); align_search's `query` is the same text under the old name.
     case 'align_search':
-      return client.searchDecisions(args?.['query'] as string, args?.['limit'] as number | undefined);
     case 'align_ask':
-      // Pass the question through unchanged so the gateway's smart-search strategy
-      // selector can route it to semantic search. See ALI-105.
-      return client.searchDecisions(args?.['question'] as string, (args?.['limit'] as number | undefined) ?? 8);
+      return client.searchDecisions(
+        (args?.['question'] ?? args?.['query']) as string,
+        (args?.['limit'] as number | undefined) ?? 8,
+      );
     case 'align_capture': {
       const input = args?.['input'] as string;
       let platform = 'cli';
@@ -200,22 +205,25 @@ export function createCallToolHandler(
   };
 }
 
+// Order is the ranking an agent reads off tools/list, so the pre-flight check leads (ALI-139,
+// prescription over retrieval; ALI-952 moved it here from fourth). The hosted server
+// (align-stack mcpServer.ts) registers check_alignment first for the same reason.
 export const TOOL_SCHEMAS = [
   {
-    name: 'align_search',
-    description: 'Search the Align decision graph for relevant decisions, architectural choices, and past resolutions',
+    name: 'align_check_alignment',
+    description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding. An "unknown" status means the check could not run and is NOT a pass: the decisions it returns are unchecked, so stop and ask the human rather than treating it as clear.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Search query' },
-        limit: { type: 'number', description: 'Max results (default: 10)', default: 10 },
+        diff: { type: 'string', description: 'Git diff or description of proposed change' },
+        context: { type: 'string', description: 'Additional context (branch name, PR title)' },
       },
-      required: ['query'],
+      required: ['diff'],
     },
   },
   {
     name: 'align_ask',
-    description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "how", "what was decided about", or any question about past decisions. Prefer this over align_search for natural language questions.',
+    description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "how", "what was decided about", or any question about past decisions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -223,6 +231,18 @@ export const TOOL_SCHEMAS = [
         limit: { type: 'number', description: 'Max answers (default: 8)', default: 8 },
       },
       required: ['question'],
+    },
+  },
+  {
+    name: 'align_search',
+    description: 'Alias of align_ask: the same search of the decision graph, taking the text as `query`. Kept for callers that already use this name; prefer align_ask.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+        limit: { type: 'number', description: 'Max results (default: 8)', default: 8 },
+      },
+      required: ['query'],
     },
   },
   {
@@ -234,18 +254,6 @@ export const TOOL_SCHEMAS = [
         input: { type: 'string', description: 'URL or text content of the decision to capture' },
       },
       required: ['input'],
-    },
-  },
-  {
-    name: 'align_check_alignment',
-    description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding. An "unknown" status means the check could not run and is NOT a pass: the decisions it returns are unchecked, so stop and ask the human rather than treating it as clear.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        diff: { type: 'string', description: 'Git diff or description of proposed change' },
-        context: { type: 'string', description: 'Additional context (branch name, PR title)' },
-      },
-      required: ['diff'],
     },
   },
   {
