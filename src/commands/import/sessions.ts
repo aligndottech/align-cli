@@ -1,8 +1,9 @@
 /**
  * `align import sessions` (ALI-808/809) - reads local coding-agent session transcripts
  * (Claude Code, pi, Codex CLI, opencode; gemini-cli and cursor detect files but cannot yet
- * parse them - see fixtures/sessions/README.md), finds decision-shaped moments in them with
- * two passes, and reviews each one with a human before it enters the graph:
+ * parse them - see fixtures/sessions/README.md), finds decision-shaped moments in them, and
+ * reviews each one with a human before it enters the graph. The passes, by name rather than
+ * by count, so adding one does not silently contradict this sentence:
  *
  *   Pass A (extract-structured.ts): an answered Claude Code AskUserQuestion. Structured, so
  *   every field (question, options, chosen label) is exact - fires only for Claude Code.
@@ -16,6 +17,13 @@
  *   tag (agent, "free-text", confidence %) than a Pass A record, per the ticket's own
  *   requirement - a low-confidence prose guess must never look as authoritative as a rejected-
  *   alternatives-and-rationale structured one.
+ *
+ *   Pass C (memory-files.ts, ALI-810): a Claude Code auto-memory file
+ *   (`~/.claude/projects/<project>/memory/*.md`), typed `project` or `feedback` in its own
+ *   frontmatter. Already curated by the harness - one fact per file - so it needs no
+ *   heuristic and no LLM stage, only the same confirm-each review. Read independently of
+ *   any adapter, because memory files are deliberately excluded from the transcript
+ *   retention sweep and so outlive the sessions that produced them.
  *
  * Local-only by construction: `decider_kind`/`confirmed_by`/`confirmed_at` are local-graph
  * columns (ALI-831), so this refuses any environment that is not the local embedded graph
@@ -41,7 +49,12 @@ import {
   confirmFreeTextCandidate,
   describeConfirmFailure,
 } from '../../lib/sessions/confirm-freetext.js';
-import { buildSessionSourceUrl } from '../../lib/sessions/source-url.js';
+import { buildMemorySourceUrl, buildSessionSourceUrl } from '../../lib/sessions/source-url.js';
+import {
+  extractMemoryDecisions,
+  locateMemoryFiles,
+  type MemoryDecisionCandidate,
+} from '../../lib/sessions/memory-files.js';
 import { SessionFormatUnverifiedError } from '../../lib/sessions/types.js';
 import type { LlmFailure } from '../../lib/local-llm.js';
 
@@ -110,9 +123,39 @@ class FreeTextCandidateItem implements SessionReviewItem {
   }
 }
 
+/**
+ * Pass C (ALI-810): a Claude Code auto-memory file. No LLM stage, unlike Pass B - these are
+ * already curated by the harness itself (one fact per file, typed in frontmatter), so there
+ * is no heuristic to adjudicate. It still goes through the same confirm-each review, because
+ * a memory file is a personal note, not something to bulk-import.
+ *
+ * Tagged distinctly for the same reason Pass B is: a reader must be able to tell where a
+ * candidate came from, and "Claude wrote this note to itself" is a different provenance from
+ * "a human answered a question".
+ */
+class MemoryCandidateItem implements SessionReviewItem {
+  constructor(readonly candidate: MemoryDecisionCandidate) {}
+  render(): string {
+    const c = this.candidate;
+    const first = c.body.split('\n').find(l => l.trim() && !l.startsWith('#'))?.trim() ?? '';
+    const preview = first.length > 140 ? `${first.slice(0, 140)}...` : first;
+    return `${chalk.magenta(`[claude-code - memory - ${c.type}]`)} ${c.title}\n  ${chalk.dim('note:')} "${preview}"`;
+  }
+  toWrite(): SessionWriteBody {
+    const c = this.candidate;
+    return {
+      source_url: buildMemorySourceUrl(c.memoryDir, c.filePath),
+      raw_text: c.body,
+      title: c.title,
+      ...(c.timestamp ? { created_at: c.timestamp } : {}),
+    };
+  }
+}
+
 type PendingCandidate =
   | { kind: 'structured'; timestamp: string | null; item: SessionDecisionCandidate }
-  | { kind: 'freetext'; timestamp: string | null; item: RawFreeTextCandidate };
+  | { kind: 'freetext'; timestamp: string | null; item: RawFreeTextCandidate }
+  | { kind: 'memory'; timestamp: string | null; item: MemoryDecisionCandidate };
 
 function bySortableTimestamp(a: { timestamp: string | null }, b: { timestamp: string | null }): number {
   // Undated candidates sort last rather than colliding at epoch-0, which would otherwise
@@ -171,7 +214,12 @@ export function registerImportSessionsCommand(importCmd: Command): void {
         }
       }
 
-      if (structured.length === 0 && freeText.length === 0) {
+      // Pass C (ALI-810): the harness's own auto-memory, which is a separate source from any
+      // session transcript - it is read whether or not an adapter found session files, because
+      // memory survives the transcript retention sweep that deletes them.
+      const memory = extractMemoryDecisions(locateMemoryFiles(cwd));
+
+      if (structured.length === 0 && freeText.length === 0 && memory.length === 0) {
         console.log(chalk.dim('\nNo decision-shaped moments found in your local session data.\n'));
         return;
       }
@@ -182,6 +230,7 @@ export function registerImportSessionsCommand(importCmd: Command): void {
       const pending: PendingCandidate[] = [
         ...structured.map(c => ({ kind: 'structured' as const, timestamp: c.timestamp, item: c })),
         ...freeText.map(c => ({ kind: 'freetext' as const, timestamp: c.timestamp, item: c })),
+        ...memory.map(c => ({ kind: 'memory' as const, timestamp: c.timestamp, item: c })),
       ];
       pending.sort(bySortableTimestamp);
       const limit = parseInt(opts.limit, 10);
@@ -219,6 +268,10 @@ export function registerImportSessionsCommand(importCmd: Command): void {
       for (const p of toReview) {
         if (p.kind === 'structured') {
           items.push(new SessionCandidateItem(p.item));
+          continue;
+        }
+        if (p.kind === 'memory') {
+          items.push(new MemoryCandidateItem(p.item));
           continue;
         }
         const settled = confirmResults[confirmIdx++];
