@@ -2,16 +2,25 @@
 
 `align setup` offers two modes.
 
-- **Personal cloud** (default). Your graph is hosted at Align: synced across machines, backed
-  up, and upgradeable to a shared team workspace. Connectors connect via **read-only browser
-  OAuth**, and `align ask` retrieval runs server-side.
+- **Cloud** (default). Your graph is hosted at Align: synced across machines, backed up, and
+  cross-tool relationship detection runs server-side. Connectors connect via **read-only
+  browser OAuth**, and `align ask` retrieval runs server-side. Which tenant you land in is
+  decided entirely by the email you sign in with - there's no separate personal-vs-team
+  picker:
+  - **Work email** - you join the tenant already registered for that domain, or a new one is
+    created and you're its admin if you're first. The next colleague who signs in with the same
+    domain lands in that same tenant automatically. No invite needed.
+  - **Personal email** (gmail, outlook, icloud, ...) - you get a tenant of one. Moving into a
+    company tenant later is a web-only invite flow, and everything you brought over stays
+    private (`creator_only`) until you or an admin change that. There is no automatic merge of
+    a personal graph into a team's.
 - **Local-only** (`align setup --local`). **No account, and no Align servers.** The graph,
   embeddings and search all live in a SQLite database on your machine, and the CLI never sends
   your decisions, your code, or any file content to us. The one thing it can send - opt-in,
   never by default - is an anonymous count of which commands you run; see Telemetry below.
 
-Pick cloud for sync and the team upgrade path, local for maximum privacy. You can start local
-and move to cloud later.
+Pick cloud on a work email to land straight in your company's graph, local for maximum
+privacy. You can start local and move to cloud later.
 
 ## What touches the network in local-only mode
 
