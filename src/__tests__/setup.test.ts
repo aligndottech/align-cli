@@ -1521,7 +1521,12 @@ describe('align setup', () => {
       expect(completed[0]!.env.mode).toBe('local-embedded');
     });
 
-    it('cloud with inline login: setup_started is offered again after login, against the env as it is NOW', async () => {
+    // Copilot on #279 (second pass): a STALE stored token passes the emitter's token check,
+    // so an offer made before auth is verified sends a request the gateway 401s, reports it
+    // as sent (a send is a send - the once-mark trade), and suppresses the post-login offer
+    // that would have landed. So cloud setup offers only once the token is proven: after a
+    // successful whoami, or after inline login stores a fresh one.
+    it('cloud with inline login: setup_started is never offered with the stale token; once after login, against the env as it is NOW', async () => {
       state.cloudToken = 'stale';
       mockWhoami.mockRejectedValueOnce(new Error('401'));
       mockConfirm.mockResolvedValueOnce(true); // "Log in to Align now?"
@@ -1531,13 +1536,31 @@ describe('align setup', () => {
 
       const loginAt = mockLoginInteractive.mock.invocationCallOrder[0]!;
       const started = stageCalls('setup_started');
-      expect(started.some((c) => c.order < loginAt && c.env.authToken === 'stale')).toBe(true);
+      expect(started.filter((c) => c.env.authToken === 'stale')).toHaveLength(0);
+      expect(started.filter((c) => c.order < loginAt)).toHaveLength(0);
       const afterLogin = started.filter((c) => c.order > loginAt);
       expect(afterLogin).toHaveLength(1);
       expect(afterLogin[0]!.env.authToken).toBe('fresh');
       const completed = stageCalls('setup_completed');
       expect(completed).toHaveLength(1);
       expect(completed[0]!.env.authToken).toBe('fresh');
+    });
+
+    it('cloud, already logged in: setup_started is offered only after whoami confirms the token', async () => {
+      // Asserted from INSIDE the in-flight whoami, after yielding a macrotask: an offer made
+      // "before auth" lands in a microtask, so comparing call orders alone would pass on
+      // timing rather than on the property.
+      let offersDuringWhoami = -1;
+      mockWhoami.mockImplementationOnce(async () => {
+        await new Promise((r) => setImmediate(r));
+        offersDuringWhoami = stageCalls('setup_started').length;
+        return { user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } };
+      });
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+      expect(offersDuringWhoami).toBe(0);
+      expect(stageCalls('setup_started')).toHaveLength(1);
     });
 
     it('a fresh install that stays local: setup_started offered after consent, setup_completed against the local env', async () => {

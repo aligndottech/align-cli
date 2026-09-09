@@ -1026,17 +1026,18 @@ async function runCloudSetup(ctx: {
   const { opts, config, env, envName, funnel } = ctx;
   let client = ctx.client;
 
-  // ALI-949: cloud setup has begun. A returning (logged-in) user sends here; a fresh one
-  // has no token yet and the post-login offer below is the one that lands. Reached from
-  // every route into cloud setup, including the fresh-install upgrade question.
-  void funnel.started(env);
-
   // ---- Step 1: Auth check (inline login when interactive + unauthenticated) ----
   const authSpinner = p.spinner();
   authSpinner.start('Checking authentication...');
   try {
     const me = await client.whoami();
     authSpinner.stop(`Logged in as ${me.user.email} (${me.tenant?.name ?? envName})`);
+    // ALI-949: cloud setup has begun, and the token is proven good. Offered only AFTER
+    // whoami (Copilot on #279): a stale stored token passes the emitter's token check, so an
+    // earlier offer would send a request the gateway rejects, count as sent, and suppress the
+    // post-login offer below that would have landed. Reached from every route into cloud
+    // setup, including the fresh-install upgrade question.
+    void funnel.started(config.getEnvironment(envName));
   } catch {
     authSpinner.stop('Not authenticated');
 

@@ -214,7 +214,8 @@ export type FunnelStage =
  *
  * Resolves `true` when a send was made (not necessarily delivered - see the once-mark
  * reasoning above, the same trade), `false` when this call could not send: opted out, no
- * consent, no token, already recorded, or the store threw. ALI-949: the setup wizard
+ * consent, no token, the store threw, or - for first_useful_decision only, the one
+ * once-per-install stage - already recorded on this install. ALI-949: the setup wizard
  * offers setup_started at several checkpoints because local-mode consent arrives
  * mid-wizard, and this is how it knows which offer landed (lib/setup-funnel.ts).
  */
