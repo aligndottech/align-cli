@@ -50,6 +50,8 @@ import {
   describeConfirmFailure,
 } from '../../lib/sessions/confirm-freetext.js';
 import { buildMemorySourceUrl, buildSessionSourceUrl } from '../../lib/sessions/source-url.js';
+import { renderImportSummary } from '../../lib/sessions/import-summary.js';
+import { recordFunnelStage } from '../../lib/usage-telemetry.js';
 import {
   extractMemoryDecisions,
   locateMemoryFiles,
@@ -157,6 +159,22 @@ type PendingCandidate =
   | { kind: 'freetext'; timestamp: string | null; item: RawFreeTextCandidate }
   | { kind: 'memory'; timestamp: string | null; item: MemoryDecisionCandidate };
 
+/**
+ * ALI-835: the agent a run's ping is attributed to - the one that contributed the most parsed
+ * session files. Several agents can be detected on one machine, the ping carries one name, and
+ * an invented "mixed" would be a value the gateway's closed AGENT_VALUES enum does not have.
+ * Ties resolve to the first inserted, which is registry order, so the same machine reports the
+ * same name run to run rather than flipping on a Map-iteration coincidence.
+ */
+function dominantAgent(filesByAgent: ReadonlyMap<string, number>): string | null {
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [agent, count] of filesByAgent) {
+    if (count > bestCount) { best = agent; bestCount = count; }
+  }
+  return best;
+}
+
 function bySortableTimestamp(a: { timestamp: string | null }, b: { timestamp: string | null }): number {
   // Undated candidates sort last rather than colliding at epoch-0, which would otherwise
   // interleave them arbitrarily with real early timestamps.
@@ -192,6 +210,12 @@ export function registerImportSessionsCommand(importCmd: Command): void {
 
       const structured: SessionDecisionCandidate[] = [];
       const freeText: RawFreeTextCandidate[] = [];
+      // ALI-835: files actually parsed, not files located - an adapter with no verified fixture
+      // is skipped below, and counting its files would report work that never happened.
+      let sessionsScanned = 0;
+      // The agent whose data this run is about. Several can be detected; the ping carries one
+      // name, so it carries the one with the most files rather than an invented "mixed".
+      const filesByAgent = new Map<string, number>();
       for (const { adapter, files } of detected) {
         if (!adapter.fixtureVerified) {
           console.log(chalk.yellow(`\n  Found ${adapter.agent} session data, but this reader cannot parse it yet (no verified fixture - see src/__tests__/fixtures/sessions/README.md). Skipping.`));
@@ -209,6 +233,8 @@ export function registerImportSessionsCommand(importCmd: Command): void {
             throw err;
           }
           if (!session) continue;
+          sessionsScanned++;
+          filesByAgent.set(adapter.agent, (filesByAgent.get(adapter.agent) ?? 0) + 1);
           structured.push(...extractStructuredDecisions(session));
           freeText.push(...findFreeTextCandidates(session));
         }
@@ -219,8 +245,21 @@ export function registerImportSessionsCommand(importCmd: Command): void {
       // memory survives the transcript retention sweep that deletes them.
       const memory = extractMemoryDecisions(locateMemoryFiles(cwd));
 
-      if (structured.length === 0 && freeText.length === 0 && memory.length === 0) {
-        console.log(chalk.dim('\nNo decision-shaped moments found in your local session data.\n'));
+      const agent = dominantAgent(filesByAgent);
+      const candidatesFound = structured.length + freeText.length + memory.length;
+
+      // ALI-835: the two scan-time stages. Emitted before the review loop, so a user who
+      // abandons the review still reports what was scanned and found - which is the drop-off
+      // the funnel exists to show. Fire-and-forget: telemetry never delays or fails a command.
+      if (agent) {
+        void recordFunnelStage(env, 'sessions_scanned', 'import sessions', { count: sessionsScanned, agent });
+        void recordFunnelStage(env, 'candidates_found', 'import sessions', { count: candidatesFound, agent });
+      }
+
+      if (candidatesFound === 0) {
+        // Honest at zero: a scan that found nothing still reports how much it read, so "nothing
+        // here" is distinguishable from "nothing ran".
+        console.log(chalk.dim(`\n${renderImportSummary({ sessionsScanned, candidatesFound: 0, candidatesConfirmed: 0, ratified: 0 })}\n`));
         return;
       }
 
@@ -315,6 +354,22 @@ export function registerImportSessionsCommand(importCmd: Command): void {
         }
         if (result.skipped > 0) console.log(chalk.dim(`Skipped ${result.skipped}.`));
         if (result.remaining > 0) console.log(chalk.dim(`${result.remaining} not reviewed.`));
+
+        // ALI-835: the line the demo reads aloud, and the stage that measures it - built from
+        // one counts object so the printed number and the reported number cannot disagree.
+        // `ratified` is 0 by construction here: this command writes claims, and ratifying is a
+        // separate human act. That zero is the point of the sentence.
+        const counts = {
+          sessionsScanned,
+          candidatesFound,
+          candidatesConfirmed: result.imported,
+          ratified: 0,
+        };
+        console.log('');
+        console.log(renderImportSummary(counts));
+        if (agent) {
+          void recordFunnelStage(env, 'candidates_confirmed', 'import sessions', { count: result.imported, agent });
+        }
       } finally {
         client.close();
       }

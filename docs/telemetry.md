@@ -84,7 +84,17 @@ One per command you run.
 
 Milestone pings, one of `setup_started`, `import_completed`, `mcp_wired`,
 `first_useful_decision` (once per install, the first non-empty answer, from `align ask` or
-from an agent over MCP) and `teammate_requested`.
+from an agent over MCP), `teammate_requested`, and the four session-import stages:
+`sessions_scanned`, `candidates_found`, `candidates_confirmed` and `decisions_ratified`.
+
+The session-import stages are the only ones that may carry a measurement, and it is exactly
+two extra fields: a `count` and the `agent` name (one of the six coding agents the CLI can read
+sessions for). Nothing about a session's content, a repo, a path or a file name is ever sent -
+the counts are counts, and the agent is the name of a tool on your machine. `decisions_ratified`
+is sent by `align ratify` with no count and no agent, because a ratification is a person
+standing behind a claim rather than anything an agent did.
+
+None of the four is ever sent from inside an agent hook.
 
 | Field | What it is |
 |---|---|

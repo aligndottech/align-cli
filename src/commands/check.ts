@@ -9,6 +9,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
+import { markHookContext } from '../lib/hook-context.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 import {
   adjudicationExistsFor,
@@ -92,6 +93,11 @@ export function registerCheckCommand(program: Command): void {
       // ALI-951: `--json` is the machine contract `--ci` already is - same document, same exit
       // codes (1 conflict, 2 unknown). One flag in the rest of this function, not two.
       if (opts.json) opts.ci = true;
+      // ALI-835: `--hook` and `--advisory` are the two ways this command runs as an agent hook.
+      // Marked once, here, before any work: the funnel emitter reads it and refuses to send,
+      // because a hook firing on every edit is not a person reaching a milestone. Marked for
+      // both flags rather than only --advisory, since --hook is the pre-commit hook path.
+      if (opts.hook || opts.advisory) markHookContext();
       // A typo'd depth must not silently become the gateway default: for a strict CI
       // caller that quiet fall-through would reintroduce the exact unadjudicated skip
       // --depth exhaustive exists to remove (ALI-708). Above the advisory early-return, so
