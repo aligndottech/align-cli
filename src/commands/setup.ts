@@ -458,6 +458,11 @@ async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel
   const localClient = createGatewayClient(localEnv);
   const capture = createCaptureCollector();
 
+  // ALI-949: local setup has begun. Sends now on a re-run (consent already on disk); on a
+  // first run it cannot, and the post-consent offer below is the one that lands. Fire-and-
+  // forget: a slow gateway never delays the value moment.
+  void opts.funnel.started(localEnv);
+
   // ALI-794: value before questions. Git needs no credential and no consent, so it runs
   // before anything is asked - the found-decisions summary below is what "here is what I
   // found" means, and it has to exist before the agent-wiring/consent/connector steps that
@@ -906,12 +911,12 @@ export async function runSetup(
     printBanner({ version });
     p.intro(commandIntro('align setup'));
 
-    // ALI-949: the wizard has begun. On a fresh install this offer cannot send (no token
-    // yet, no local consent yet) and the funnel object holds it until a later checkpoint
-    // can - after consent in the local value phase, after login in the cloud path. A
-    // returning cloud user sends here. Fire-and-forget: a slow gateway never delays setup.
+    // ALI-949: the wizard's setup_started / setup_completed emitter. NOT offered an env
+    // here, where the mode is still unknown: a `--local` run on a machine holding a cloud
+    // token would report a cloud setup_started for an explicitly offline session (review on
+    // #279). Each mode branch offers its own env at its top - runLocalValuePhase and
+    // runCloudSetup - and again once consent / login makes a send possible.
     const funnel = createSetupFunnel();
-    void funnel.started(env);
 
     // ---- Step 0: Cloud (default) vs local (--local) ----
     // Solo defaults to CLOUD: telemetry, the real cloud relationship classifier, backup.
@@ -1020,6 +1025,11 @@ async function runCloudSetup(ctx: {
 }): Promise<void> {
   const { opts, config, env, envName, funnel } = ctx;
   let client = ctx.client;
+
+  // ALI-949: cloud setup has begun. A returning (logged-in) user sends here; a fresh one
+  // has no token yet and the post-login offer below is the one that lands. Reached from
+  // every route into cloud setup, including the fresh-install upgrade question.
+  void funnel.started(env);
 
   // ---- Step 1: Auth check (inline login when interactive + unauthenticated) ----
   const authSpinner = p.spinner();

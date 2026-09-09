@@ -101,6 +101,28 @@ describe('first_useful_decision is once per install across `align ask` and the M
     expect(funnelEvents()).toEqual(['cli.funnel.first_useful_decision']);
   });
 
+  // The MCP server's usual home is local mode (a no-account user's agent). The ping goes to
+  // the anonymous endpoint, keyed on the installId, with 'mcp' as its provenance command.
+  it('an agent asking in LOCAL mode (consent granted) sends the anonymous stage ping once', async () => {
+    const { createConfigStore } = await import('../lib/config.js');
+    const consented = { ...createConfigStore(), getTelemetryConsent: vi.fn().mockReturnValue('granted') };
+    vi.mocked(createConfigStore).mockReturnValue(consented as ReturnType<typeof createConfigStore>);
+    const localEnv: EnvironmentConfig = { gatewayUrl: 'http://localhost:8080', authToken: null, tenantId: null, mode: 'local-embedded' };
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    const handler = createCallToolHandler(createGatewayClient(localEnv), localEnv);
+    try {
+      await handler({ params: { name: 'align_ask', arguments: { question: 'why postgres' } } });
+      await handler({ params: { name: 'align_ask', arguments: { question: 'why postgres' } } });
+      await new Promise((r) => setImmediate(r));
+    } finally {
+      vi.mocked(createConfigStore).mockReset();
+    }
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(String(mockFetch.mock.calls[0]?.[0])).toBe('https://api.align.tech/telemetry/anonymous');
+    const body = JSON.parse(String((mockFetch.mock.calls[0]?.[1] as { body: string }).body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ command: 'mcp', stage: 'first_useful_decision', installId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+  });
+
   // Positive control for the fixture: with nothing recorded yet, each path alone does send.
   it('each path alone sends the event (the fixture can produce one)', async () => {
     await agentAsk();

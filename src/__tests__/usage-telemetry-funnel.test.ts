@@ -132,7 +132,9 @@ describe('recordFunnelStage', () => {
       await expect(recordFunnelStage({ ...cloudEnv, authToken: null }, 'setup_started', 'setup')).resolves.toBe(false);
     });
 
-    it('false under ALIGN_TELEMETRY=0, so nothing keeps re-offering', async () => {
+    // "Could not send", same as no consent: a later checkpoint in the same run is offered
+    // again and refuses the same way. The opt-out is enforced per call, not by the buffer.
+    it('false under ALIGN_TELEMETRY=0 - could not send, and every later offer refuses identically', async () => {
       vi.stubEnv('ALIGN_TELEMETRY', '0');
       getTelemetryConsent.mockReturnValue('granted');
       await expect(recordFunnelStage(localEnv, 'setup_started', 'setup')).resolves.toBe(false);

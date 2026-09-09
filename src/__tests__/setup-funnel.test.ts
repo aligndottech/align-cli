@@ -47,14 +47,29 @@ describe('createSetupFunnel', () => {
     expect(calls[1]).toEqual([sendable, 'setup_started', 'setup']);
   });
 
-  it('setup_started: once sent, later checkpoints do not send again', async () => {
+  it('setup_started: once sent, later checkpoints on the same identity do not send again', async () => {
     const funnel = createSetupFunnel();
 
     await funnel.started(sendable);
     await funnel.started(sendable);
-    await funnel.started({ ...localEnv, tenantId: 'consented' });
+    await funnel.started({ ...sendable, gatewayUrl: 'https://api.preview.align.tech' });
 
     expect(stageCalls('setup_started')).toHaveLength(1);
+  });
+
+  // Fresh install, consent granted locally, then "sync to the cloud": the anonymous installId
+  // and the cloud tenant are two identities nothing joins, so each gets its own started - or
+  // the cloud funnel would show a setup_completed with no setup_started (review on #279).
+  it('setup_started: a later checkpoint on the OTHER identity sends again under that identity', async () => {
+    const funnel = createSetupFunnel();
+
+    await funnel.started({ ...localEnv, tenantId: 'consented' });
+    await funnel.started(sendable);
+    await funnel.started(sendable);
+
+    const calls = stageCalls('setup_started');
+    expect(calls).toHaveLength(2);
+    expect(calls.map((c) => (c[0] as EnvironmentConfig).mode)).toEqual(['local-embedded', 'auth']);
   });
 
   // Local-mode consent is granted mid-wizard: the first offer (cloud default, no token)
@@ -82,6 +97,25 @@ describe('createSetupFunnel', () => {
     await Promise.all([first, second]);
 
     expect(stageCalls('setup_started')).toHaveLength(1);
+  });
+
+  // Copilot on #279: the two stages were independent chains, so a slow (up to 2s) started
+  // send still in flight when the wizard finished let setup_completed reach the gateway
+  // first. completed waits for started's verdict, so the install's events arrive in order.
+  it('setup_completed: never overtakes an in-flight setup_started', async () => {
+    let releaseStarted: (sent: boolean) => void = () => {};
+    recordFunnelStage.mockImplementationOnce(() => new Promise<boolean>((resolve) => { releaseStarted = resolve; }));
+    const funnel = createSetupFunnel();
+
+    void funnel.started(sendable);            // in flight, blocked on the emitter
+    const completed = funnel.completed(sendable);
+    await new Promise((r) => setImmediate(r));
+    expect(stageCalls('setup_completed')).toHaveLength(0);
+
+    releaseStarted(true);
+    await completed;
+    expect(stageCalls('setup_completed')).toHaveLength(1);
+    expect(recordFunnelStage.mock.calls.map((c) => c[1])).toEqual(['setup_started', 'setup_completed']);
   });
 
   it('setup_completed: sends once with the env the wizard finished in', async () => {
