@@ -81,6 +81,19 @@ describe('firstQuestion', () => {
   it('falls back to the one question an agent answers with a list tool, not a search', () => {
     expect(firstQuestion(undefined)).toBe('what decisions exist in this codebase?');
   });
+
+  // ALI-934 preview QA (2026-09-11): a real imported title read as a policy statement, not
+  // an action phrase, and got jammed into the template verbatim - "why did we All PRs must
+  // pass typecheck, lint, test, and build before pushing?" is not a sentence. A title that
+  // already reads as its own rule falls back instead of being forced into the template.
+  it('falls back when the title is a policy statement, not an action phrase', () => {
+    expect(firstQuestion('All PRs must pass typecheck, lint, test, and build before pushing'))
+      .toBe('what decisions exist in this codebase?');
+  });
+
+  it('still uses a real title that starts with a quantifier-looking word but reads fine', () => {
+    expect(firstQuestion('adopt trunk-based development')).toBe('why did we adopt trunk-based development?');
+  });
 });
 
 describe('agentAskLine', () => {

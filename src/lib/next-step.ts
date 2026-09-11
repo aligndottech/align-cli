@@ -54,6 +54,23 @@ export function agentConnectedLine(agents: string[]): string | undefined {
 }
 
 /**
+ * A decision title is only safe to drop into "why did we X?" when X reads as an action
+ * phrase (what WAS decided), not when it already reads as its own policy statement (what
+ * MUST happen). "why did we All PRs must pass typecheck...?" is not a sentence - the title
+ * was the rule, not the topic. Heuristic, not a parser: a handful of quantifier/modal
+ * openers plus a length cap catch the real failure (ALI-934 preview QA, 2026-09-11) without
+ * needing to understand the title's grammar.
+ */
+const POLICY_STATEMENT_OPENERS = /^(all|every|no|never|always|nobody|everyone)\b/i;
+const MAX_TOPIC_WORDS = 12;
+
+function looksLikeTopic(title: string): boolean {
+  if (POLICY_STATEMENT_OPENERS.test(title.trim())) return false;
+  if (title.trim().split(/\s+/).length > MAX_TOPIC_WORDS) return false;
+  return true;
+}
+
+/**
  * The question to hand the agent. Against a REAL decision the wizard found when there is one,
  * because "why did we X" is checkable against the repo the user is sitting in. The fallback
  * is ABOUT the graph rather than in it, which is a bad thing to type into `align ask` (ALI-771:
@@ -61,7 +78,9 @@ export function agentConnectedLine(agents: string[]): string | undefined {
  * list tool rather than a similarity search.
  */
 export function firstQuestion(firstTitle: string | undefined): string {
-  return firstTitle ? `why did we ${firstTitle}?` : 'what decisions exist in this codebase?';
+  return firstTitle && looksLikeTopic(firstTitle)
+    ? `why did we ${firstTitle}?`
+    : 'what decisions exist in this codebase?';
 }
 
 /** Runnable AS PRINTED: bare `align mcp --setup` wires the cloud default, which is not a local user's graph. */
