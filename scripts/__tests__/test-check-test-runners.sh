@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # Guards for scripts/check-test-runners.sh, which fails when a shell suite in
-# scripts/__tests__/ is invoked by no workflow.
+# scripts/__tests__/ is invoked by no workflow step that a pull request can reach.
 #
 # The guard's failure mode is silence in both directions, so most of these tests are about
 # telling "nothing to report" apart from "the scan found nothing". An unrun test produces no
 # output, and neither does a guard that cannot see any files - which is why the first test
 # below runs against the REAL repo and asserts a non-zero file count.
+#
+# The second half of the file covers PR-reachability (ALI-727). A `run:` line that exists but
+# cannot execute on a pull request gates nothing, and it is indistinguishable from a working
+# one by eye: the difference lives in the workflow's `on:` block, or in a job-level `if:`
+# fifty lines above the step.
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -27,6 +32,12 @@ make_fixture() { # <workflow-yaml-content> <suite-name...>
   printf '%s' "$d"
 }
 
+# A second workflow in the same fixture, for the cases where the question is WHICH workflow
+# carries the runner.
+add_workflow() { # <dir> <filename> <yaml>
+  printf '%s\n' "$3" > "$1/.github/workflows/$2"
+}
+
 # --- the positive control, and it is the only test that can catch one whole bug class -----
 #
 # align-stack's copy of this guard shipped with `printf ... | grep -q` inside it, which is
@@ -43,7 +54,9 @@ else
 fi
 
 # --- an orphan must be named ---------------------------------------------------------------
-D="$(make_fixture 'jobs:
+D="$(make_fixture 'on:
+  pull_request:
+jobs:
   test:
     steps:
       - run: bash scripts/__tests__/test-wired.sh' test-wired.sh test-orphan.sh)"
@@ -62,7 +75,9 @@ fi
 rm -rf "$D"
 
 # --- a wired suite must pass ---------------------------------------------------------------
-D="$(make_fixture 'jobs:
+D="$(make_fixture 'on:
+  pull_request:
+jobs:
   test:
     steps:
       - run: bash scripts/__tests__/test-wired.sh' test-wired.sh)"
@@ -95,7 +110,9 @@ fi
 rm -rf "$D"
 
 # --- block scalars are real runners --------------------------------------------------------
-D="$(make_fixture 'jobs:
+D="$(make_fixture 'on:
+  pull_request:
+jobs:
   test:
     steps:
       - run: |
@@ -107,7 +124,9 @@ rm -rf "$D"
 
 # The other half of that: a sibling key sits at the SAME indent as `run:` and ends the block.
 # Crediting it would make an env var holding a path look like an invocation.
-D="$(make_fixture 'jobs:
+D="$(make_fixture 'on:
+  pull_request:
+jobs:
   test:
     steps:
       - run: |
@@ -123,7 +142,9 @@ fi
 rm -rf "$D"
 
 # --- an empty scan is a broken guard, not a clean tree -------------------------------------
-D="$(make_fixture 'jobs:
+D="$(make_fixture 'on:
+  pull_request:
+jobs:
   test:
     steps:
       - run: echo nothing')"
@@ -140,6 +161,136 @@ D="$(make_fixture 'jobs: {}' test-orphan.sh)"
 rm -rf "$D/.github"
 OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ]; then ok "no workflows at all means every suite is unrun"; else bad "passed with no workflows present: $OUT"; fi
+rm -rf "$D"
+
+# ============================================================================================
+# PR-reachability (ALI-727). A runner that exists is not yet a runner that gates a merge.
+# ============================================================================================
+
+# --- a workflow that never triggers on a pull request is not a gate ------------------------
+#
+# The live instance: three of align-cli's four workflows (e2e-release, promote-release,
+# release-please) trigger on release / workflow_dispatch / workflow_run / push-to-main. A
+# suite wired only into one of those runs, passes, and reports - after the merge it was
+# supposed to block.
+D="$(make_fixture 'on:
+  release:
+    types: [published]
+jobs:
+  e2e:
+    steps:
+      - run: bash scripts/__tests__/test-orphan.sh' test-orphan.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'test-orphan.sh'; then
+  ok "a runner in a workflow with no pull_request trigger does not count"
+else
+  bad "credited a runner that a pull request never reaches (rc=$rc): $OUT"
+fi
+# The two failures need different fixes, so they must not share a message. "Add a run: step"
+# is wrong advice for a suite that already has one.
+if printf '%s' "$OUT" | grep -qi 'not on a pull request'; then
+  ok "says the runner exists but no pull request reaches it"
+else
+  bad "reported it as having no runner at all, which is the wrong fix: $OUT"
+fi
+rm -rf "$D"
+
+# --- ...but a suite wired in BOTH places is fine -------------------------------------------
+# Over-eagerness here would be its own defect: the release workflow running a suite as well
+# is a good thing, not a violation.
+D="$(make_fixture 'on:
+  release:
+    types: [published]
+jobs:
+  e2e:
+    steps:
+      - run: bash scripts/__tests__/test-wired.sh' test-wired.sh)"
+add_workflow "$D" 'pr.yml' 'on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - run: bash scripts/__tests__/test-wired.sh'
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  ok "a suite run by both a release workflow and a PR workflow passes"
+else
+  bad "flagged a suite that a pull request does reach (rc=$rc): $OUT"
+fi
+rm -rf "$D"
+
+# --- the flow-style trigger is still a pull_request trigger --------------------------------
+D="$(make_fixture 'on: [push, pull_request]
+jobs:
+  test:
+    steps:
+      - run: bash scripts/__tests__/test-wired.sh' test-wired.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then ok "reads on: [push, pull_request] as PR-triggering"; else bad "missed a flow-style trigger (rc=$rc): $OUT"; fi
+rm -rf "$D"
+
+# --- a job the pull request skips is not a gate either -------------------------------------
+#
+# The live instance: ci.yml's cross-platform job carries
+# `if: github.event_name != 'pull_request'`, so it runs on push-to-main only. The workflow
+# triggers on pull_request, the step is a real run: line, and the suite still never executes
+# before a merge. The exclusion sits at the top of the job, far from the step.
+D="$(make_fixture "on:
+  pull_request:
+jobs:
+  cross-platform:
+    if: github.event_name != 'pull_request'
+    steps:
+      - run: bash scripts/__tests__/test-orphan.sh" test-orphan.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'test-orphan.sh'; then
+  ok "a job-level if: excluding pull_request does not count as a runner"
+else
+  bad "credited a runner inside a job a pull request skips (rc=$rc): $OUT"
+fi
+rm -rf "$D"
+
+# --- ...and the exclusion must stop at the job it is written on -----------------------------
+#
+# The negative control for the case above. Attribute the if: to the whole FILE rather than to
+# its job and every sibling job in ci.yml stops counting, which would fail the real repo -
+# loudly, but for a reason that has nothing to do with the tree.
+D="$(make_fixture "on:
+  pull_request:
+jobs:
+  cross-platform:
+    if: github.event_name != 'pull_request'
+    steps:
+      - run: echo not on PRs
+  test:
+    steps:
+      - run: bash scripts/__tests__/test-wired.sh" test-wired.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  ok "a sibling job's if: does not disqualify the job that carries the runner"
+else
+  bad "let one job's if: leak onto the next job (rc=$rc): $OUT"
+fi
+rm -rf "$D"
+
+# --- a STEP-level if: is not a job-level one ------------------------------------------------
+# Step-level conditions are ordinary and mostly unrelated to events; treating one as a job
+# exclusion would flag working wiring. The guard reads only the job's own `if:`.
+D="$(make_fixture "on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - name: something else
+        if: github.event_name != 'pull_request'
+        run: echo unrelated
+      - run: bash scripts/__tests__/test-wired.sh" test-wired.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  ok "a step-level if: on a different step is not a job exclusion"
+else
+  bad "read a step-level if: as excluding the whole job (rc=$rc): $OUT"
+fi
 rm -rf "$D"
 
 echo ""

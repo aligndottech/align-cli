@@ -6,7 +6,19 @@ on:
   pull_request:
 
 jobs:
-  # Job name MUST stay "test" - main's branch protection requires the "test" context.
+  # This comment used to read "Job name MUST stay 'test' - main's branch protection requires
+  # the 'test' context". That was false when checked on 2026-09-12 (ALI-727): main requires NO
+  # status check at all. The effective rules on the branch are deletion, non_fast_forward,
+  # pull_request (0 approvals) and copilot_code_review, from the org and repo rulesets both.
+  # Re-derive rather than trusting this, because it is a setting and settings move - one call,
+  # repo read only, no admin:org needed:
+  #
+  #   gh api repos/aligndottech/align-cli/rules/branches/main --jq '.[].type'
+  #
+  # So every gate in this job fails honestly and blocks nothing today: it goes red, and the
+  # merge button stays green. Making it real is a ruleset change (add the "test" context), not
+  # a code change. Keep the job name stable regardless - it is the context to add when someone
+  # does that, and scripts/check-test-runners.sh sends people here by name.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -58,10 +70,16 @@ jobs:
       # by hand, on its own run: line, so forgetting one is a single missing line that nothing
       # reports. An unrun test passes locally and gates nothing - the failure mode is silence
       # (ALI-714). Its own tests run first, because a broken guard reports a clean tree.
+      #
+      # ALI-727 added the second half: a `run:` line that a pull request never reaches is not a
+      # gate either, and it looks identical at the step. Both ways to have one are live here -
+      # three of this repo's four workflows have no pull_request trigger, and cross-platform
+      # below carries `if: github.event_name != 'pull_request'`. A suite wired into either runs,
+      # passes, and reports after the merge it was meant to block.
       - name: Shell-suite runner guards
         run: bash scripts/__tests__/test-check-test-runners.sh
 
-      - name: Every shell suite has a runner
+      - name: Every shell suite has a runner a pull request reaches
         run: bash scripts/check-test-runners.sh
 
       - name: Build
