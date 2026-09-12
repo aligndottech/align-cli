@@ -293,6 +293,196 @@ else
 fi
 rm -rf "$D"
 
+
+# ============================================================================================
+# Regressions from the review on #290. Every one of these was a FALSE RESULT from scanning
+# YAML line by line, which is why the scanner was replaced with a real parse: a line scanner
+# cannot see nesting, and all five findings are that one fact wearing five costumes
+# (verification.md, "a parser beats a regex the moment nesting is involved").
+# ============================================================================================
+
+# --- 1. a single-quoted `on:` key is still an on: key ---------------------------------------
+# Valid YAML, and the old scanner matched only bare and double-quoted spellings, so it read
+# this workflow as having no PR trigger. FALSE FAILURE on correctly wired CI.
+D="$(make_fixture "'on': pull_request
+jobs:
+  test:
+    steps:
+      - run: bash scripts/__tests__/test-wired.sh" test-wired.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then ok "a single-quoted 'on': key is read as a trigger"; else bad "false failure on 'on': (rc=$rc): $OUT"; fi
+rm -rf "$D"
+
+# --- 2. only the DIRECT children of on: are events ------------------------------------------
+# The dangerous direction. `pull_request` appearing as a branch name, a path filter or any
+# other nested value is not a trigger, and crediting it lets a runner in a push-only workflow
+# pass - the exact false green this guard exists to prevent.
+D="$(make_fixture 'on:
+  push:
+    branches:
+      - pull_request
+jobs:
+  test:
+    steps:
+      - run: bash scripts/__tests__/test-orphan.sh' test-orphan.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'test-orphan.sh'; then
+  ok "a branch named pull_request is not a pull_request trigger"
+else
+  bad "nested value read as an event, runner credited (rc=$rc): $OUT"
+fi
+rm -rf "$D"
+
+# ...and the flow-mapping spelling of the same trap.
+D="$(make_fixture 'on: { push: { branches: [pull_request] } }
+jobs:
+  test:
+    steps:
+      - run: bash scripts/__tests__/test-orphan.sh' test-orphan.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ]; then ok "flow-mapping on: with a nested pull_request value is not a trigger"; else bad "flow-mapping nesting credited (rc=$rc): $OUT"; fi
+rm -rf "$D"
+
+# --- 3. the job condition is an EXPRESSION, not one hardcoded shape -------------------------
+# `== 'push'` excludes pull requests just as surely as `!= 'pull_request'` does.
+D="$(make_fixture "on:
+  pull_request:
+jobs:
+  test:
+    if: github.event_name == 'push'
+    steps:
+      - run: bash scripts/__tests__/test-orphan.sh" test-orphan.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ]; then ok "if: event_name == 'push' excludes pull requests"; else bad "only the != shape was recognised (rc=$rc): $OUT"; fi
+rm -rf "$D"
+
+# A mapping is unordered, so an if: written AFTER steps: governs the job just the same. The
+# line scanner only saw conditions that preceded the run: line.
+D="$(make_fixture "on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - run: bash scripts/__tests__/test-orphan.sh
+    if: github.event_name != 'pull_request'" test-orphan.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ]; then ok "a job if: written after steps: still governs the job"; else bad "if: after steps: was ignored (rc=$rc): $OUT"; fi
+rm -rf "$D"
+
+# The other direction, and the one a substring match gets backwards: excluding
+# pull_request_target says nothing about pull_request. Treating it as an exclusion is a false
+# failure on wiring that is completely correct.
+D="$(make_fixture "on:
+  pull_request:
+jobs:
+  test:
+    if: github.event_name != 'pull_request_target'
+    steps:
+      - run: bash scripts/__tests__/test-wired.sh" test-wired.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then ok "!= 'pull_request_target' does not exclude pull_request"; else bad "substring-matched the wrong event (rc=$rc): $OUT"; fi
+rm -rf "$D"
+
+# ...and a disjunction that readmits pull requests must stay reachable.
+D="$(make_fixture "on:
+  pull_request:
+jobs:
+  test:
+    if: \${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+    steps:
+      - run: bash scripts/__tests__/test-wired.sh" test-wired.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then ok "a || that readmits pull_request stays reachable"; else bad "read a disjunction as an exclusion (rc=$rc): $OUT"; fi
+rm -rf "$D"
+
+# --- 4. the condition on the RUNNER'S OWN step --------------------------------------------
+# The existing control covers an if: on a DIFFERENT step, which sits on the wrong side of the
+# boundary: it can pass while the same-step case is unhandled (tdd.md, "a fixture that never
+# reaches the branch it is testing"). This is that case.
+D="$(make_fixture "on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - if: github.event_name != 'pull_request'
+        run: bash scripts/__tests__/test-orphan.sh" test-orphan.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ]; then ok "a step-level if: on the runner's own step excludes it"; else bad "same-step if: ignored (rc=$rc): $OUT"; fi
+rm -rf "$D"
+
+# ...while a sibling step that IS reachable still counts. Excluding the whole job would be the
+# over-correction.
+D="$(make_fixture "on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - if: github.event_name != 'pull_request'
+        run: echo push only
+      - run: bash scripts/__tests__/test-wired.sh" test-wired.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then ok "one excluded step does not disqualify its reachable sibling"; else bad "a step's if: leaked onto the whole job (rc=$rc): $OUT"; fi
+rm -rf "$D"
+
+# --- 5. `run` must be a STEP's key, not any key spelled run ---------------------------------
+# `with: { run: ... }` is input data to an action. Nothing executes it.
+D="$(make_fixture 'on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - uses: some/action@v1
+        with:
+          run: bash scripts/__tests__/test-orphan.sh' test-orphan.sh)"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'test-orphan.sh'; then
+  ok "a run: nested under with: is data, not a runner"
+else
+  bad "credited a with: input as a shell step (rc=$rc): $OUT"
+fi
+rm -rf "$D"
+
+# --- the parse must fail loudly, never quietly find nothing ---------------------------------
+# A workflow that does not parse makes every suite read as unrun. That is a red either way,
+# but the message has to name the file, or the next person debugs the wrong thing.
+D="$(make_fixture 'on:
+  pull_request:
+jobs:
+  test:
+    steps:
+      - run: bash scripts/__tests__/test-wired.sh' test-wired.sh)"
+printf 'this: is: not: valid: yaml:\n  - [unclosed\n' > "$D/.github/workflows/broken.yml"
+OUT="$(bash "$GUARD" "$D" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$OUT" | grep -q 'broken.yml'; then
+  ok "an unparseable workflow fails loudly and names the file"
+else
+  bad "a broken workflow did not name itself (rc=$rc): $OUT"
+fi
+rm -rf "$D"
+
+# --- a guard that cannot run must not report a clean tree ----------------------------------
+# The parse lives in a helper that needs node and js-yaml. If either is unavailable the guard
+# has to fail, not return an empty parse - an empty parse makes every suite look unrun, and the
+# reverse mistake (returning success) would make this gate vouch for a tree it never read.
+# Verified here by running a copy of the guard from a directory with no helper beside it.
+D="$(mktemp -d)"
+cp "$GUARD" "$D/check-test-runners.sh"
+mkdir -p "$D/scripts/__tests__" "$D/.github/workflows"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$D/scripts/__tests__/test-wired.sh"
+printf 'on:\n  pull_request:\njobs:\n  test:\n    steps:\n      - run: bash scripts/__tests__/test-wired.sh\n' > "$D/.github/workflows/ci.yml"
+OUT="$(bash "$D/check-test-runners.sh" "$D" 2>&1)"; rc=$?
+# Assert the GUARD's own message, not merely a non-zero exit. Node also fails on a missing
+# module and its error names the path too, so a looser assertion passes whether or not the
+# guard checks anything - a test satisfied by a different mechanism than the one it names
+# (mutation-testing.md). Only "ERROR: ... is missing" distinguishes them.
+if [ "$rc" -ne 0 ] \
+   && printf '%s' "$OUT" | grep -q 'workflow-run-steps.mjs' \
+   && printf '%s' "$OUT" | grep -q 'is missing'; then
+  ok "with no parser helper beside it, the guard fails and names what is missing"
+else
+  bad "a guard that could not parse anything reported a verdict (rc=$rc): $OUT"
+fi
+rm -rf "$D"
 echo ""
 if [ "$FAILURES" -ne 0 ]; then
   echo "CHECK-TEST-RUNNERS GUARDS: $FAILURES failed"

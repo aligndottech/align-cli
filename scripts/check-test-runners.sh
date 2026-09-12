@@ -54,102 +54,30 @@ unrun_shell=()       # no workflow invokes it at all
 unreachable_shell=() # a workflow invokes it, but no pull request gets there
 found=0
 
-# Does this workflow run on pull requests at all?
+# The run-step text comes from a real YAML PARSE, not a line scan of the workflow files.
 #
-# Read as its own pass over the file rather than folded into the scan below, so the answer does
-# not depend on `on:` appearing before `jobs:`. A YAML mapping is unordered, and a guard whose
-# verdict flips with key order is a guard that is right by luck.
+# It used to be awk. A review of #290 found five separate false results in that scanner - three
+# false greens and two false failures - and all five were one fact: YAML nests and a line
+# scanner cannot see nesting. It read `branches: [pull_request]` as a trigger, `with: { run: }`
+# as a shell step, an `if:` written after `steps:` as absent, and `!= \'pull_request_target\'` as
+# excluding pull requests. The sixth patch would have left a seventh
+# (verification.md, "a parser beats a regex the moment nesting is involved").
 #
-# Recognises `on:` and `"on":` (the quoted form people reach for because YAML 1.1 reads a bare
-# `on` as boolean true), in block, flow-sequence and scalar spellings. It does NOT recognise
-# `'on':`. An unrecognised spelling makes a workflow read as non-PR-triggering, which is a loud
-# red naming the file rather than a silent pass - the safe direction for a miss.
-workflow_triggers_pr() { # <file>
-  awk '
-    { sub(/#.*/, "", $0) }
-    # on: [push, pull_request]   or   on: pull_request
-    /^("on"|on):[ \t]*[^ \t]/ {
-      rest = $0; sub(/^[^:]*:[ \t]*/, "", rest)
-      if (rest ~ /(^|[^A-Za-z0-9_])pull_request(_target)?([^A-Za-z0-9_]|$)/) found = 1
-      inon = 0; next
-    }
-    /^("on"|on):[ \t]*$/ { inon = 1; next }
-    inon && /^[^ \t]/    { inon = 0 }
-    # a key or sequence item naming the event, inside the on: block
-    inon && /^[ \t]+-?[ \t]*pull_request(_target)?[ \t]*:?[ \t]*$/ { found = 1 }
-    END { exit found ? 0 : 1 }
-  ' "$1"
-}
+# The helper needs node and js-yaml. Both are guaranteed where this runs: js-yaml is a declared
+# devDependency and `npm ci` is step 2 of the test job, while these guards are steps 9 and 10.
+# If either is missing the helper exits non-zero and so does this, rather than reporting a clean
+# tree from an empty parse.
+GUARD_DIR="$(cd "$(dirname "$0")" && pwd)"
+STEPS_MJS="$GUARD_DIR/workflow-run-steps.mjs"
 
-# The text of `run:` steps, and nothing else.
-#
-# Stripping comments is not enough. A filename appears in workflow YAML in several places that
-# execute nothing - a `paths:` trigger filter, a step `name:`, a cache key, an `if:` expression
-# - and crediting any of them is the same defect this guard exists to catch: reading the
-# identifier instead of what executes. A whole-file grep would vouch for a suite nothing runs.
-#
-# Handles single-line `run: cmd` and block scalars (`run: |`, `run: >`), whose continuation
-# lines are indented past the `run:` KEY itself. Using the key's column rather than the line's
-# leading whitespace matters: a sibling `env:` sits at the same indent as `run:` and must not be
-# swept in, while `- run: |` puts the key two columns right of the line start.
-#
-# With prmode=1 it also tracks which JOB each step belongs to and drops the jobs a pull request
-# skips. Job attribution is per-job on purpose: a whole-file rule would let ci.yml's
-# cross-platform `if:` disqualify every sibling job in the same file, which is a false red on a
-# correctly wired tree.
-run_text() { # prmode(0|1) <file...>
-  local prmode="$1"; shift
-  [ "$#" -gt 0 ] || return 0
-  awk -v prmode="$prmode" '
-      { sub(/#.*/, "", $0) }
-      # Per-file reset. Without it a file ending inside an open `run: |` block makes the next
-      # file s leading lines read as run text (align-stack ALI-720).
-      FNR == 1 { inblock = 0; injobs = 0; excluded = 0; runcol = 0 }
-      {
-        if (inblock) {
-          if ($0 ~ /^[ \t]*$/) next
-          match($0, /^[ ]*/)
-          if (RLENGTH > runcol) { if (!prmode || !excluded) print; next }
-          inblock = 0
-        }
-
-        # A top-level key opens or closes the jobs mapping, and ends any job scope.
-        if ($0 ~ /^[A-Za-z_"]/) {
-          injobs = ($0 ~ /^jobs:[ \t]*$/) ? 1 : 0
-          excluded = 0
-        } else if (injobs && $0 ~ /^  [A-Za-z0-9_.-]+:[ \t]*$/) {
-          # a new job begins; whatever the last one said about itself does not carry over
-          excluded = 0
-        } else if (injobs && $0 ~ /^    if:/ && $0 ~ /event_name[ \t]*!=[ \t]*.pull_request/) {
-          # JOB-level if: only. Indent 4 is the job s own property; a step s if: sits at 8 or
-          # deeper and is usually about a matrix leg, not about events.
-          excluded = 1
-        }
-
-        if (match($0, /^[ ]*-?[ ]*run:[ ]*[|>]/)) {
-          match($0, /run:/); runcol = RSTART - 1
-          inblock = 1
-          next
-        }
-        if ($0 ~ /^[ ]*-?[ ]*run:[ ]/) { if (!prmode || !excluded) print }
-      }
-    ' "$@" 2>/dev/null
-}
-
-# Sorted, so the scan does not depend on the order the filesystem hands back.
-all_workflows=()
-pr_workflows=()
-WF_DIR="$ROOT/.github/workflows"
-if [ -d "$WF_DIR" ]; then
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    all_workflows+=("$f")
-    workflow_triggers_pr "$f" && pr_workflows+=("$f")
-  done < <(find "$WF_DIR" -type f \( -name '*.yaml' -o -name '*.yml' \) | sort)
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: node is required to read the workflows and is not on PATH."
+  exit 1
 fi
+[ -f "$STEPS_MJS" ] || { echo "ERROR: $STEPS_MJS is missing"; exit 1; }
 
-WF_TEXT_ALL=$(run_text 0 "${all_workflows[@]+"${all_workflows[@]}"}")
-WF_TEXT_PR=$(run_text 1 "${pr_workflows[@]+"${pr_workflows[@]}"}")
+WF_TEXT_ALL=$(node "$STEPS_MJS" "$ROOT" all) || exit 1
+WF_TEXT_PR=$(node "$STEPS_MJS" "$ROOT" pr) || exit 1
 
 # Match with a herestring, NOT `printf ... | grep -q`.
 #
@@ -197,9 +125,10 @@ fi
 if [ ${#unreachable_shell[@]} -gt 0 ]; then
   echo "Shell suites with a runner, but not on a pull request:"
   for f in "${unreachable_shell[@]}"; do echo "  - $f"; done
-  echo "  Something runs these, and nothing runs them before a merge - either the workflow has"
-  echo "  no pull_request trigger, or the job carries an if: that skips pull requests. Fix: run"
-  echo "  it from the 'test' job in .github/workflows/ci.yml as well."
+  echo "  Something runs these, and nothing runs them before a merge. Either the workflow has no"
+  echo "  pull_request trigger, or the job or the step carries an if: that a pull request fails -"
+  echo "  an if: this guard cannot evaluate counts as unreachable too. Fix: run it from the"
+  echo "  'test' job in .github/workflows/ci.yml, which is the only required status check."
   status=1
 fi
 
