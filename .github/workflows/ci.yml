@@ -6,19 +6,15 @@ on:
   pull_request:
 
 jobs:
-  # This comment used to read "Job name MUST stay 'test' - main's branch protection requires
-  # the 'test' context". That was false when checked on 2026-09-12 (ALI-727): main requires NO
-  # status check at all. The effective rules on the branch are deletion, non_fast_forward,
-  # pull_request (0 approvals) and copilot_code_review, from the org and repo rulesets both.
-  # Re-derive rather than trusting this, because it is a setting and settings move - one call,
-  # repo read only, no admin:org needed:
+  # Job name MUST stay "test" - main's branch protection requires the "test" context, and it is
+  # the ONLY required one, so every other job here is advisory. Checking that claim has two
+  # traps, both of which produced the opposite answer first (ALI-727): it is CLASSIC branch
+  # protection, not a ruleset, so `gh api .../rules/branches/main` cannot see it and reports no
+  # status checks at all; and the endpoint below 404s for any token that does not collaborate
+  # on the repo, which reads exactly like "no protection configured".
   #
-  #   gh api repos/aligndottech/align-cli/rules/branches/main --jq '.[].type'
-  #
-  # So every gate in this job fails honestly and blocks nothing today: it goes red, and the
-  # merge button stays green. Making it real is a ruleset change (add the "test" context), not
-  # a code change. Keep the job name stable regardless - it is the context to add when someone
-  # does that, and scripts/check-test-runners.sh sends people here by name.
+  #   gh api repos/aligndottech/align-cli/branches/main/protection \
+  #     --jq .required_status_checks.contexts      # ["test"]
   test:
     runs-on: ubuntu-latest
     steps:

@@ -22,20 +22,22 @@
 #
 # SCOPE, stated so it is not mistaken for more. This checks that a runner exists and that a
 # pull request reaches it. It does NOT check that the job carrying it is a REQUIRED status
-# check, and in this repo that distinction is not academic: as of 2026-09-12 align-cli's `main`
-# has no required_status_checks rule at all. Re-derive rather than trusting this sentence -
-# it is a setting, and settings move:
+# check, and in this repo that gap is narrow but real: exactly one context is required, `test`,
+# so a runner there gates a merge while one in cross-platform, binaries or install-smoke does
+# not - and the last two DO run on pull requests, so the check below passes them. Re-derive
+# rather than trusting that sentence; it is a setting, and settings move without a commit:
 #
-#   gh api repos/aligndottech/align-cli/rules/branches/main --jq '.[].type'
+#   gh api repos/aligndottech/align-cli/branches/main/protection \
+#     --jq .required_status_checks.contexts      # ["test"]
 #
-# That endpoint returns the EFFECTIVE rules (organisation ruleset + repository ruleset) and
-# needs only repo read, unlike the org ruleset endpoint which needs admin:org. Today it returns
-# deletion, non_fast_forward, pull_request and copilot_code_review - and no status check. So
-# every gate in ci.yml, this one included, currently fails honestly and blocks nothing
-# (architecture-boundaries.md, "the gate ran, failed correctly, and nothing required it").
-# Requiring the `test` context is a ruleset change, not a code change, and is deliberately not
-# hardcoded here: a list of required names living in this file would be a second writer of a
-# fact that lives in branch protection (code-style.md).
+# Two traps in that one command, both of which gave the opposite answer here first. It is
+# CLASSIC branch protection rather than a ruleset, so `gh api .../rules/branches/main` cannot
+# see it and reports no status checks on a branch that has one. And the endpoint 404s for a
+# token that does not collaborate on the repo, which reads exactly like "not configured"
+# (verification.md, "a claim of ABSENCE needs a positive control").
+#
+# The required list is deliberately not hardcoded here: it would make this file a second writer
+# of a fact that lives in branch protection (code-style.md).
 #
 # PORTED from align-stack's scripts/check-test-runners.sh, minus its helm-chart half, which
 # this repo has no charts for. That makes two copies of one rule in two repos: if you fix a
