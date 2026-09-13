@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.38.1](https://github.com/aligndottech/align-cli/compare/cli-v0.38.0...cli-v0.38.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **ci:** a shell-suite runner only counts if a pull request reaches it (ALI-727) ([#290](https://github.com/aligndottech/align-cli/issues/290)) ([70a9a5e](https://github.com/aligndottech/align-cli/commit/70a9a5e0bded84983a2032fdb45a1fa03205010d))
+* **cli:** fall back when a decision title reads as its own policy statement ([#288](https://github.com/aligndottech/align-cli/issues/288)) ([fdafe20](https://github.com/aligndottech/align-cli/commit/fdafe20a565f24b9d27b5e50c3d74968cd452edd))
+* **test:** match with a herestring so pipefail cannot invert the result (ALI-995) ([#291](https://github.com/aligndottech/align-cli/issues/291)) ([5cb75dd](https://github.com/aligndottech/align-cli/commit/5cb75dd72eb48f6ebf01c5710421ca6a32477426))
+
 ## [0.38.0](https://github.com/aligndottech/align-cli/compare/cli-v0.37.1...cli-v0.38.0) (2026-09-09)
 
 
