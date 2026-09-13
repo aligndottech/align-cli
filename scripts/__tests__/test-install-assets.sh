@@ -14,6 +14,17 @@
 # Run: bash scripts/__tests__/test-install-assets.sh
 set -uo pipefail
 
+# EVERY match below is a herestring, never `producer | grep -q`. Under the `pipefail`
+# on the line above that pipeline reports the OPPOSITE of what it measured: grep -q
+# exits the instant it matches, the producer upstream takes SIGPIPE and dies with 141,
+# and pipefail promotes that 141 over grep's 0. So the pipeline reads as "no match" on
+# a run where the match is what killed it. scripts/check-test-runners.sh carries the
+# same note and the same fix; this file is the sibling site that kept the defect
+# (ALI-995, code-style.md "fixed one site, left the identical one").
+#
+# It is worst at the negative control below, which fails OPEN: a genuinely broken
+# comparison returns 141, takes the else branch, and reports PASS.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 INSTALL_SH="$ROOT/install.sh"
@@ -74,13 +85,18 @@ EOF
   PATH="$fake:$PATH" ALIGN_DRY_RUN=1 sh "$INSTALL_SH" 2>&1
 }
 
+# Captured ONCE. The live `built_assets | grep -qx` this replaces is the exact
+# construct ALI-995 reproduced at exit 141.
+BUILT_ASSETS="$(built_assets)"
+[ -n "$BUILT_ASSETS" ] || { echo "FATAL: built_assets produced nothing"; exit 1; }
+
 echo ""
 echo "-- every platform install.sh supports must map to a built asset --"
 # Third column is what `ldd --version` prints: the musl banner or a glibc one.
 while read -r sys machine ldd_out; do
   [ -n "$sys" ] || continue
   asset="$(ask_for "$sys" "$machine" "$ldd_out")"
-  if built_assets | grep -qx "$asset"; then
+  if grep -qx -- "$asset" <<<"$BUILT_ASSETS"; then
     pass "$sys/$machine -> $asset"
   else
     fail "$sys/$machine -> '$asset', which build-binaries.sh does not produce"
@@ -97,11 +113,11 @@ MINGW64_NT-10.0 aarch64 -
 PLATFORMS
 
 # ---------------------------------------------------------------------------
-# NEGATIVE CONTROL for the comparison itself. If `built_assets | grep -qx` matched
-# anything, every row above would pass whatever install.sh said - so prove a name
-# that is NOT built is rejected.
+# NEGATIVE CONTROL for the comparison itself. If the match above succeeded against
+# anything, every row would pass whatever install.sh said - so prove a name that is
+# NOT built is rejected.
 # ---------------------------------------------------------------------------
-if built_assets | grep -qx "align-plan9-x64"; then
+if grep -qx -- "align-plan9-x64" <<<"$BUILT_ASSETS"; then
   fail "the asset comparison matches a name nothing builds - the check is broken"
 else
   pass "negative control: an unbuilt asset name is not matched"
@@ -110,13 +126,13 @@ fi
 echo ""
 echo "-- an unsupported platform must refuse, not guess --"
 out="$(ask_for "Plan9" "x86_64" "-")"
-if printf '%s' "$out" | grep -q "unsupported operating system"; then
+if grep -q -- "unsupported operating system" <<<"$out"; then
   pass "unknown OS is refused with a message naming the npm fallback"
 else
   fail "unknown OS did not refuse; it said: $out"
 fi
 out="$(ask_for "Linux" "riscv64" "-")"
-if printf '%s' "$out" | grep -q "unsupported architecture"; then
+if grep -q -- "unsupported architecture" <<<"$out"; then
   pass "unknown arch is refused"
 else
   fail "unknown arch did not refuse; it said: $out"
@@ -144,9 +160,11 @@ else
     else
       fail "install reported success but $DEST/align is missing or does not run"
     fi
-    printf '%s' "$out" | grep -q "checksum verified" \
-      && pass "checksum was verified" \
-      || fail "install did not report verifying the checksum"
+    if grep -q -- "checksum verified" <<<"$out"; then
+      pass "checksum was verified"
+    else
+      fail "install did not report verifying the checksum"
+    fi
   else
     printf '%s\n' "$out" | sed 's/^/  | /'
     fail "end-to-end install against a local release failed"
@@ -158,7 +176,7 @@ else
   DEST2="$TMP/bin2"
   if out="$(ALIGN_BASE_URL="file://$TMP/release" ALIGN_INSTALL_DIR="$DEST2" sh "$INSTALL_SH" 2>&1)"; then
     fail "a tampered binary was INSTALLED - the checksum check does not gate anything"
-  elif printf '%s' "$out" | grep -q "checksum mismatch"; then
+  elif grep -q -- "checksum mismatch" <<<"$out"; then
     pass "a tampered binary is refused on checksum mismatch"
     [ -e "$DEST2/align" ] && fail "refused, but wrote $DEST2/align anyway" || pass "nothing was written on refusal"
   else
