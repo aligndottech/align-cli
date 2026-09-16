@@ -71,8 +71,16 @@ export function instructionsFor(env: EnvironmentConfig): string {
  */
 export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
   const local = env.mode === 'local-embedded';
+  // ALI-1063 follow-up: local-embedded search cannot report whether a matched decision has
+  // been superseded (see local-gateway-client.ts - decision_links only ever holds an untyped
+  // 'relates' edge locally, never a typed supersedes/contradicts one). Rather than staying
+  // silent about that gap, tell the agent what to do instead: when two results cover the
+  // same topic, the newer decided_at/created_at is the one more likely to still hold.
   const suffix = local
-    ? ' Searches the LOCAL decision graph on this machine, not a hosted Align tenant.'
+    ? ' Searches the LOCAL decision graph on this machine, not a hosted Align tenant. ' +
+      "This local graph does not track whether a decision has been superseded - if two " +
+      'results cover the same topic, prefer the one with the most recent decided_at or ' +
+      'created_at. That is a heuristic, not a verified status.'
     : ` Searches the hosted Align graph at ${env.gatewayUrl}.`;
   return TOOL_SCHEMAS.map(tool =>
     tool.name === 'align_ask' || tool.name === 'align_search'

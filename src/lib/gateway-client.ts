@@ -86,7 +86,11 @@ export interface CapturedDecision {
 
 export interface SearchResults {
   results: Array<{
-    id: string; title: string; summary: string; status: string;
+    id: string; title: string; summary: string;
+    // Optional: local-embedded has no typed supersession data to back a status claim, so it
+    // omits the field rather than asserting one (ALI-1063 follow-up). The cloud gateway
+    // still returns a real value here.
+    status?: string;
     similarity?: number; author?: DecisionAuthor | null; created_at?: string;
     // ALI-829: the source's own date, beside created_at and never instead of it - two
     // fields, two meanings. Local search always carries it when the row has one; cloud

@@ -81,7 +81,12 @@ describe('local-gateway-client', () => {
     const result = await client.searchDecisions('language choice', 5);
     expect(result.results.length).toBeGreaterThan(0);
     expect(result.count).toBe(result.results.length);
-    expect(result.results[0]).toMatchObject({ status: 'active' });
+    // ALI-1063 follow-up: 'active' used to be hardcoded here regardless of the row - a
+    // fabricated claim, not a read, since local-embedded has no supersession/relation
+    // table typed edges to back it (decision_links only ever holds 'relates', an untyped
+    // cosine score - see local-gateway-client.ts, ingestOne). Absent beats fabricated,
+    // the same rule this function already applies to decision_url two lines away.
+    expect(result.results[0]).not.toHaveProperty('status');
     expect(typeof result.results[0].similarity).toBe('number');
   });
 
