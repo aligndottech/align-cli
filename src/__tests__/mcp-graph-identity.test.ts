@@ -20,6 +20,19 @@ import { instructionsFor, toolSchemasFor } from '../commands/mcp';
 const localEnv = { mode: 'local-embedded', gatewayUrl: '', localDbPath: '/tmp/x.db' } as unknown as EnvironmentConfig;
 const cloudEnv = { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't' } as unknown as EnvironmentConfig;
 
+function askDescriptionFor(env: EnvironmentConfig): string {
+  const ask = toolSchemasFor(env).find(t => t.name === 'align_ask');
+  // Positive control: the tool exists at all before anything is asserted about its text.
+  expect(ask).toBeDefined();
+  return ask!.description;
+}
+
+function searchDescriptionFor(env: EnvironmentConfig): string {
+  const search = toolSchemasFor(env).find(t => t.name === 'align_search');
+  expect(search).toBeDefined();
+  return search!.description;
+}
+
 describe('the MCP server says which decision graph it reads', () => {
   it('tells the agent the graph is local to this machine in local-embedded mode', () => {
     const text = instructionsFor(localEnv);
@@ -52,19 +65,12 @@ describe('the MCP server says which decision graph it reads', () => {
 });
 
 describe('the retrieval tools say which graph they search', () => {
-  function askDescription(env: EnvironmentConfig): string {
-    const ask = toolSchemasFor(env).find(t => t.name === 'align_ask');
-    // Positive control: the tool exists at all before anything is asserted about its text.
-    expect(ask).toBeDefined();
-    return ask!.description;
-  }
-
   it('marks align_ask as reading the local graph in local-embedded mode', () => {
-    expect(askDescription(localEnv).toLowerCase()).toMatch(/local|this machine/);
+    expect(askDescriptionFor(localEnv).toLowerCase()).toMatch(/local|this machine/);
   });
 
   it('does not mark align_ask as local in cloud mode', () => {
-    expect(askDescription(cloudEnv).toLowerCase()).not.toMatch(/on this machine|local decision graph/);
+    expect(askDescriptionFor(cloudEnv).toLowerCase()).not.toMatch(/on this machine|local decision graph/);
   });
 
   it('leaves tools that do not read the graph unchanged across modes', () => {
@@ -75,5 +81,40 @@ describe('the retrieval tools say which graph they search', () => {
 
   it('keeps the tool set identical across modes, so only wording differs', () => {
     expect(toolSchemasFor(localEnv).map(t => t.name)).toEqual(toolSchemasFor(cloudEnv).map(t => t.name));
+  });
+});
+
+describe('the retrieval tools warn when status/currency is not tracked (local mode only)', () => {
+  // ALI-1063 follow-up: local-embedded search used to hardcode `status: 'active'` on every
+  // result, so an agent reading a superseded decision was told, in the machine-readable field
+  // it trusts most, that the decision was current. The field is gone now (absent beats
+  // fabricated); this is the replacement signal - since there is no typed relation data to
+  // report a real status from, the tool says so and tells the agent what to do instead: prefer
+  // the most recent decided_at/created_at among same-topic results.
+
+  it('tells the agent status is not tracked locally, in align_ask', () => {
+    const text = askDescriptionFor(localEnv).toLowerCase();
+    expect(text).toMatch(/not track|no.*status|does not track/);
+    expect(text).toMatch(/decided_at|created_at|most recent|newest/);
+  });
+
+  it('tells the agent the same thing in align_search', () => {
+    const text = searchDescriptionFor(localEnv).toLowerCase();
+    expect(text).toMatch(/not track|no.*status|does not track/);
+    expect(text).toMatch(/decided_at|created_at|most recent|newest/);
+  });
+
+  it('does not add the caveat in cloud mode, where status is real', () => {
+    expect(askDescriptionFor(cloudEnv).toLowerCase()).not.toMatch(/not track|does not track/);
+    expect(searchDescriptionFor(cloudEnv).toLowerCase()).not.toMatch(/not track|does not track/);
+  });
+
+  it.each([
+    ['local-embedded', localEnv],
+    ['cloud', cloudEnv],
+  ])('keeps every tool description inside the 2048-byte budget in %s mode', (_label, env) => {
+    for (const tool of toolSchemasFor(env)) {
+      expect(tool.description.length, tool.name).toBeLessThan(2048);
+    }
   });
 });

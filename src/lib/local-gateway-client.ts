@@ -406,7 +406,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           title: row.title,
           summary: row.summary,
           platform: row.platform,
-          status: 'active',
+          // No status here either, same reason as searchDecisions above (ALI-1063 follow-up).
           created_at: row.createdAt,
           // ALI-829: absent when the source did not say, so a consumer sees the shape it
           // saw before (the field's meaning is on the type in gateway-client.ts).
@@ -478,7 +478,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             id: row.id,
             title: row.title,
             summary: row.summary,
-            status: 'active',
+            // No status: local-embedded has no supersession/relation table backing an
+            // 'active' claim (decision_links only ever holds an untyped 'relates' cosine
+            // edge - see ingestOne below). Absent beats fabricated, same rule as
+            // decision_url a few lines down. ALI-1063 follow-up.
             similarity: s.score,
             created_at: row.createdAt,
             ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
