@@ -221,13 +221,25 @@ describe('ALI-1070: the published surface', () => {
     expect(referenced.filter((n) => !registered.has(n))).toEqual([]);
   });
 
-  it.each([
-    ['local-embedded', localEnv],
-    ['cloud', cloudEnv],
-  ])('points the agent at the timeline tool in %s instructions, inside the 2048 budget', (_l, env) => {
-    const text = instructionsFor(env);
+  /**
+   * CORRECTED in the ALI-1070 follow-up (Copilot on #296, inline at mcp.ts:52). This used to
+   * assert the guidance line in BOTH modes, which is what shipped a guaranteed-fail
+   * instruction to every local user: local mode has no getTopicTimeline and the Proxy throws
+   * on every call. Cloud gets the line; local does not; both stay inside the budget. The
+   * both-directions form is in mcp-timeline-trio-followup.test.ts.
+   */
+  it('points a CLOUD agent at the timeline tool, inside the 2048 budget', () => {
+    const text = instructionsFor(cloudEnv);
     expect(text).toContain('align_get_topic_timeline');
     expect(text.length).toBeLessThan(2048);
+  });
+
+  it('does NOT point a LOCAL agent at it, and stays inside the budget', () => {
+    const text = instructionsFor(localEnv);
+    expect(text).not.toContain('align_get_topic_timeline');
+    expect(text.length).toBeLessThan(2048);
+    // Positive control: the local text is the real instructions, not an empty string.
+    expect(text).toContain('align_check_alignment');
   });
 });
 

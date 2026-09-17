@@ -17,6 +17,7 @@ import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
 import {
   DECISION_RATIONALE_TOOL,
   DECISION_TIMELINE_TOOL,
+  shapeDecisionRationale,
   shapeTopicTimeline,
   STORY_GATE,
   TOPIC_TIMELINE_TOOL,
@@ -28,30 +29,39 @@ import {
 // ONE text with the hosted server (ALI-952): the shared body lives in
 // mcp-instructions.shared.ts, byte-identical to align-stack's copy and pinned by
 // mcp-instructions-parity.test.ts. This server only supplies its names for the shared
-// tokens. It has no per-server lines: every tool it exposes is one the hosted server also
-// has, and the hosted-only tools (check_proposed_action, rate_conflict, coach,
-// get_topic_timeline) are appended on that side. The graph-identity suffix below is added
-// per environment by instructionsFor, and the whole rendered text stays under the ~2KB
-// Claude Code truncates server instructions to (mcp-graph-identity.test.ts).
+// tokens, plus the per-server lines for tools whose NAME differs between the two servers.
+// Every tool it exposes is one the hosted server also has; the remaining hosted-only tools
+// (check_proposed_action, rate_conflict, coach) are appended on that side.
+//
+// ALI-1070 added the first per-server line here: this server now exposes the topic timeline,
+// so it carries the hosted guidance sentence rendered with ITS name for the tool. That line
+// is CLOUD ONLY (see instructionsFor) because local mode has no implementation for it. The
+// graph-identity suffix is also added per environment by instructionsFor, and the whole
+// rendered text stays under the ~2KB Claude Code truncates server instructions to
+// (mcp-graph-identity.test.ts).
 export const ALIGN_MCP_INSTRUCTIONS = renderMcpInstructions(
   { check_alignment: 'align_check_alignment', search: 'align_ask' },
-  // ALI-1070: this server now HAS get_topic_timeline, so it gets the hosted server's
-  // guidance line for it - rendered with this server's name for the tool, which is the whole
-  // reason renderMcpInstructions takes per-server lines rather than one shared block.
-  //
-  // The line lives here and not in mcp-instructions.shared.ts deliberately. The shared body
-  // is byte-identical across the two repos and pinned by mcp-instructions-parity.test.ts;
-  // this sentence names a tool the two servers spell DIFFERENTLY, so it cannot live in a
-  // text with one spelling. align-stack carries its own copy in HOSTED_ONLY_LINES, and the
-  // parity test is unaffected on both sides because neither shared file changes.
-  //
-  // Budget: measured 1754/2048 in local mode before this line (the binding case - the
-  // graph-identity suffix is longest there), and this line is 137 chars. Re-derive rather
-  // than trusting that number; mcp-graph-identity.test.ts is the gate.
-  [
-    `- For "the story on X" or "how did we end up here", call ${TOPIC_TIMELINE_TOOL} - it returns the whole supersession chain in one call.`,
-  ],
+  [],
 );
+
+/**
+ * F2 (Copilot, #296 inline at mcp.ts:52): the topic-timeline guidance is CLOUD ONLY.
+ *
+ * The first port put this line in the shared base, which `instructionsFor` serves to BOTH
+ * modes. Local mode has no `getTopicTimeline` - the local-mode Proxy throws on every call, and
+ * mcp-timeline-trio-local.test.ts measures exactly that - so the line shipped a
+ * guaranteed-fail instruction to every local user. An instruction naming a tool that cannot
+ * work is the defect this trio was ported as a trio to avoid, one level up.
+ *
+ * It stays a per-server line rather than moving into mcp-instructions.shared.ts because the
+ * two servers spell this tool differently (`get_topic_timeline` hosted,
+ * `align_get_topic_timeline` here), so it cannot live in a text with one spelling. align-stack
+ * keeps its own copy in HOSTED_ONLY_LINES for the same reason, which is why the byte-identical
+ * parity test is unaffected on both sides.
+ */
+const CLOUD_ONLY_LINES = [
+  `- For "the story on X" or "how did we end up here", call ${TOPIC_TIMELINE_TOOL} - it returns the whole supersession chain in one call.`,
+];
 
 /**
  * Which decision graph THIS server reads, appended to the base instructions.
@@ -79,9 +89,22 @@ function graphIdentity(env: EnvironmentConfig): string {
   return `\n\nThis server reads the hosted Align graph at ${env.gatewayUrl}.`;
 }
 
-/** Server instructions for the environment actually being served. */
+/**
+ * Server instructions for the environment actually being served.
+ *
+ * Budget: re-derive rather than trusting a number written here. mcp-graph-identity.test.ts
+ * pins both modes under 2048, and local is the binding case because its graph-identity suffix
+ * is the longest.
+ */
 export function instructionsFor(env: EnvironmentConfig): string {
-  return ALIGN_MCP_INSTRUCTIONS + graphIdentity(env);
+  const base =
+    env.mode === 'local-embedded'
+      ? ALIGN_MCP_INSTRUCTIONS
+      : renderMcpInstructions(
+          { check_alignment: 'align_check_alignment', search: 'align_ask' },
+          CLOUD_ONLY_LINES,
+        );
+  return base + graphIdentity(env);
 }
 
 /**
@@ -104,11 +127,27 @@ export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
       'results cover the same topic, prefer the one with the most recent decided_at or ' +
       'created_at. That is a heuristic, not a verified status.'
     : ` Searches the hosted Align graph at ${env.gatewayUrl}.`;
-  return TOOL_SCHEMAS.map(tool =>
-    tool.name === 'align_ask' || tool.name === 'align_search'
-      ? { ...tool, description: tool.description + suffix }
-      : tool,
-  );
+  /**
+   * ALI-1070 follow-up: the two tools local mode cannot serve say so.
+   *
+   * They stay REGISTERED - deregistering per mode is a larger change and the Proxy stub is
+   * honest when reached. What was missing is any way for an agent reading descriptions to know
+   * before it calls. The rationale tool is deliberately NOT marked: it works locally, because
+   * the local client implements getDecision, so a blanket warning over all three would be
+   * false about one of them.
+   */
+  const cloudOnly = local
+    ? ' NOT AVAILABLE IN LOCAL MODE: this local graph has no implementation for it, so the call will fail. Use align_ask to search the local graph instead, or a cloud environment for this tool.'
+    : '';
+  return TOOL_SCHEMAS.map(tool => {
+    if (tool.name === 'align_ask' || tool.name === 'align_search') {
+      return { ...tool, description: tool.description + suffix };
+    }
+    if (cloudOnly && (tool.name === TOPIC_TIMELINE_TOOL || tool.name === DECISION_TIMELINE_TOOL)) {
+      return { ...tool, description: tool.description + cloudOnly };
+    }
+    return tool;
+  });
 }
 
 // Heavy internal fields that bloat the model's context without helping it reason.
@@ -218,8 +257,14 @@ export async function dispatchTool(
      * the cloud-only stub. The local row carries no decision_json, so the reasoning fields
      * are thinner there - honest degradation, not a failure.
      */
-    case DECISION_RATIONALE_TOOL:
-      return client.getDecision(args?.['decision_id'] as string);
+    case DECISION_RATIONALE_TOOL: {
+      // F7: PROJECTED, not returned raw. serializeMcpResult strips `decision_json`, which is
+      // where every field this tool promises lives - so the raw form answered with metadata
+      // and silently dropped the rationale. The raw id goes to the client (local mode does a
+      // database lookup with it); encoding is the HTTP boundary's job.
+      const row = await client.getDecision(args?.['decision_id'] as string);
+      return shapeDecisionRationale(row as unknown as Record<string, unknown>, args?.['decision_id'] as string);
+    }
     case DECISION_TIMELINE_TOOL:
       return client.getDecisionTimeline(args?.['decision_id'] as string);
     default:
