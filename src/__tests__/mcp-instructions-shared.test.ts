@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALIGN_MCP_INSTRUCTIONS } from '../commands/mcp.js';
+import { ALIGN_MCP_INSTRUCTIONS, TOOL_SCHEMAS } from '../commands/mcp.js';
 import {
   MCP_INSTRUCTIONS_SHARED,
   renderMcpInstructions,
@@ -56,10 +56,45 @@ describe('ALIGN_MCP_INSTRUCTIONS is the shared text rendered for the local serve
     expect(ALIGN_MCP_INSTRUCTIONS.toLowerCase()).toMatch(/never the chore|not the chore/);
   });
 
+  /**
+   * ALI-1070 made this a WHOLE-WORD check, and that is the correction rather than a
+   * loosening.
+   *
+   * This server now exposes the topic timeline as `align_get_topic_timeline`, and a
+   * substring test cannot tell that token from the bare hosted spelling it contains - so
+   * `not.toContain('get_topic_timeline')` fired on a correct instruction naming a tool that
+   * IS registered here. Every name below stays on the list, because naming the bare hosted
+   * spelling would still instruct a customer's agent to call a tool this server does not
+   * have; only the matcher changed, so the assertion now means what it says.
+   *
+   * Same fix align-stack already applied to ALIGN_MCP_INSTRUCTIONS_READ_ONLY's filter
+   * (Copilot, align-stack#1842): `includes('connect')` also matches "connected". A `\b`
+   * costs nothing and removes the whole class. Note `_` is a word character, which is
+   * exactly why `\bget_topic_timeline\b` does not match inside `align_get_topic_timeline`.
+   */
   it('names no tool the local server does not expose', () => {
     for (const tool of ['check_proposed_action', 'rate_conflict', 'coach', 'get_topic_timeline', 'search_decisions']) {
-      expect(ALIGN_MCP_INSTRUCTIONS, `local instructions name hosted-only tool ${tool}`).not.toContain(tool);
+      expect(ALIGN_MCP_INSTRUCTIONS, `local instructions name hosted-only tool ${tool}`).not.toMatch(
+        new RegExp(`\\b${tool}\\b`),
+      );
     }
+  });
+
+  /**
+   * The other direction, and the one a hand-kept denylist cannot give you (ALI-1070).
+   *
+   * The list above is five names somebody thought of; this derives the invariant from what
+   * the server actually registers, so a per-server line naming a MISSPELLED or a future
+   * hosted-only tool fails here without anyone remembering to extend a list. That is the
+   * "allowlist entry is a lie" shape closed with a computed check instead of vigilance.
+   */
+  it('names only align_ tools this server registers', () => {
+    const registered = new Set(TOOL_SCHEMAS.map((t) => t.name));
+    const named = ALIGN_MCP_INSTRUCTIONS.match(/align_[a-z_]+/g) ?? [];
+    // Positive control: the instructions really do name tools, so an empty match set
+    // cannot satisfy this vacuously.
+    expect(named.length).toBeGreaterThan(0);
+    expect(named.filter((n) => !registered.has(n))).toEqual([]);
   });
 
   it('leaves no unrendered token', () => {

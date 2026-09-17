@@ -14,6 +14,13 @@ import { commandIntro } from '../lib/brand.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
 import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
+import {
+  DECISION_RATIONALE_TOOL,
+  DECISION_TIMELINE_TOOL,
+  shapeTopicTimeline,
+  STORY_GATE,
+  TOPIC_TIMELINE_TOOL,
+} from '../lib/mcp-timeline-tools.js';
 
 // Server-level instructions (ALI-120): surfaced to the agent so it reaches for Align
 // proactively - without the user prompting - the moment this MCP server is connected.
@@ -28,7 +35,22 @@ import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
 // Claude Code truncates server instructions to (mcp-graph-identity.test.ts).
 export const ALIGN_MCP_INSTRUCTIONS = renderMcpInstructions(
   { check_alignment: 'align_check_alignment', search: 'align_ask' },
-  [],
+  // ALI-1070: this server now HAS get_topic_timeline, so it gets the hosted server's
+  // guidance line for it - rendered with this server's name for the tool, which is the whole
+  // reason renderMcpInstructions takes per-server lines rather than one shared block.
+  //
+  // The line lives here and not in mcp-instructions.shared.ts deliberately. The shared body
+  // is byte-identical across the two repos and pinned by mcp-instructions-parity.test.ts;
+  // this sentence names a tool the two servers spell DIFFERENTLY, so it cannot live in a
+  // text with one spelling. align-stack carries its own copy in HOSTED_ONLY_LINES, and the
+  // parity test is unaffected on both sides because neither shared file changes.
+  //
+  // Budget: measured 1754/2048 in local mode before this line (the binding case - the
+  // graph-identity suffix is longest there), and this line is 137 chars. Re-derive rather
+  // than trusting that number; mcp-graph-identity.test.ts is the gate.
+  [
+    `- For "the story on X" or "how did we end up here", call ${TOPIC_TIMELINE_TOOL} - it returns the whole supersession chain in one call.`,
+  ],
 );
 
 /**
@@ -170,6 +192,36 @@ export async function dispatchTool(
       return client.getConflicts();
     case 'align_get_related_decisions':
       return client.searchDecisions(`${args?.['file_path'] as string} ${args?.['context'] ?? ''}`, 5);
+    /**
+     * ALI-1070. The gateway already returns the whole story structure; what this arm adds is
+     * the projection and the RENDERING CONTRACT (mcp-timeline-tools.ts). Rows without the
+     * contract give a customer the data and not the ability to tell a supersession from a
+     * correction, which is the AlignBench split this port is measured on - so the shaping is
+     * not optional polish, it is the deliverable.
+     *
+     * `limit` is passed through undefined when the agent omitted it: the default lives in the
+     * client, so there is one writer of it.
+     */
+    case TOPIC_TIMELINE_TOOL:
+      return shapeTopicTimeline(
+        await client.getTopicTimeline(
+          args?.['topic'] as string,
+          args?.['limit'] as number | undefined,
+        ),
+        args?.['topic'] as string,
+      );
+    /**
+     * Reuses getDecision - the hosted connector's getDecisionRationale is the same
+     * `GET /snapshots/:id`, so a second client method would be two writers of one call. It
+     * also means this tool WORKS IN LOCAL MODE for free: the local client implements
+     * getDecision, so the local-mode Proxy passes it straight through instead of throwing
+     * the cloud-only stub. The local row carries no decision_json, so the reasoning fields
+     * are thinner there - honest degradation, not a failure.
+     */
+    case DECISION_RATIONALE_TOOL:
+      return client.getDecision(args?.['decision_id'] as string);
+    case DECISION_TIMELINE_TOOL:
+      return client.getDecisionTimeline(args?.['decision_id'] as string);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -334,6 +386,64 @@ export const TOOL_SCHEMAS = [
         context: { type: 'string', description: 'Additional code context' },
       },
       required: ['file_path'],
+    },
+  },
+
+  /**
+   * ALI-1070: the timeline trio, ported from the hosted server (mcp-align).
+   *
+   * APPENDED rather than ranked high on purpose. Order is the ranking an agent reads off
+   * tools/list, and the existing eight encode ALI-139's "prescription over retrieval"
+   * decision with the pre-flight check leading. Re-ranking that is a separate product call;
+   * the lever for routing an agent to the timeline tool is the instructions line above,
+   * which names it for exactly the questions it answers.
+   *
+   * All three are READS, so the write set stays at two (mcp-tool-annotations.test.ts).
+   *
+   * Registered next to each other, and the descriptions do the disambiguating, because the
+   * names are one word apart and an agent picks from descriptions alone.
+   */
+  {
+    name: TOPIC_TIMELINE_TOOL,
+    annotations: READS,
+    // The full-render prose is GATED, not merely preceded by a compact sentence: this is the
+    // one surface some clients act on alone, and a description that says compact-by-default
+    // and then unconditionally prescribes the walk talks the default out of existence. The
+    // gate phrase is shared with the per-result message via STORY_GATE so the two surfaces
+    // cannot drift.
+    description:
+      `Everything the team ever decided about a TOPIC, in time order, across every connected tool. Use for "what is the story on X", "how did we end up here", or onboarding onto an unfamiliar area. Includes superseded and archived decisions, because the retired past is what explains why the current answer is current. Not to be confused with ${DECISION_TIMELINE_TOOL}, which is the change history of ONE decision. Answer compactly by default: the current standard first in one sentence, the contested line when decisions disagree, up to three pivotal dated steps, a one-line chain summary, and the sharpest open question the chain leaves open - then offer the rest. Only when the user ${STORY_GATE} or asks the follow-up, render the full timeline: walk the supersession chain oldest first - which decision replaced which, active vs superseded - with each step's why from ${DECISION_RATIONALE_TOOL}, keep each decision's source_url inline with that decision rather than in a trailing sources list, put the status beside the title, and close with the still-open risks, each naming which decision it came from. When the payload carries \`still_open\`, those are the decisions' own stated open questions - close on them.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: 'The topic to trace, e.g. "connection pooling" or "authentication strategy"' },
+        limit: { type: 'number', description: 'Max decisions to return (default 50, capped at 200)' },
+      },
+      required: ['topic'],
+    },
+  },
+  {
+    name: DECISION_RATIONALE_TOOL,
+    annotations: READS,
+    description: 'Retrieve the rationale, goals, risks, and context behind a specific decision. Use this when you need to understand WHY a decision was made - the reasoning, trade-offs, and constraints that led to it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        decision_id: { type: 'string', description: 'The decision ID to retrieve rationale for' },
+      },
+      required: ['decision_id'],
+    },
+  },
+  {
+    name: DECISION_TIMELINE_TOOL,
+    annotations: READS,
+    description: 'Get the chronological history of events for a decision - when it was created, when conflicts were detected, when it was acknowledged or resolved. Use to understand how a decision has evolved over time.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        decision_id: { type: 'string', description: 'The decision ID to get history for' },
+      },
+      required: ['decision_id'],
     },
   },
 ];
