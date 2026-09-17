@@ -1,3 +1,5 @@
+import { citationFor, navigableSourceUrl, repositoryOf } from './decision-links.js';
+
 /**
  * ALI-1070 slice 1: the "timeline trio", ported from the hosted connector so a customer's
  * agent can reach it through `align mcp`.
@@ -61,10 +63,19 @@
  * characters of it on one 12-row prod component), so the fix is to lift the named fields out,
  * never to let the blob through.
  *
- * Ported from the hosted connector's decisionRationale.ts, including the `.ai` sub-object:
- * ALI-484 found `rationale` is a 1-2 sentence gloss on the option CHOSEN, while the reasoning
- * an agent needs is the option REJECTED and why - which the scan writes into
- * `suggested_decision_json` and the approve path copies verbatim into `decision_json.ai`.
+ * Ported from the hosted connector's decisionRationale.ts, including the `.ai` sub-object.
+ *
+ * ALI-484 is about `alternatives_considered` and `positions_considered` specifically:
+ * `rationale` is a 1-2 sentence gloss on the option CHOSEN, while the reasoning an agent needs
+ * is the option REJECTED and why, which the scan writes into `suggested_decision_json` and the
+ * approve path copies verbatim into `decision_json.ai`. Those two fields therefore read the
+ * top level and fall back to `.ai`.
+ *
+ * `rationale` keeps the HOSTED precedence - top level first, then `.ai`, then the summary.
+ * Copilot read the paragraph above as a claim that `.ai.rationale` should win (#298 inline at
+ * :134); it is not, and the fix is this wording rather than a re-ranking. A port that silently
+ * re-ranks its source stops being verifiable against it, and there is no evidence which order
+ * answers better. The both-present case is now pinned by a test so the choice is deliberate.
  */
 
 /** A stored decision is free-form JSON, so a field asked for as a list can arrive as anything. */
@@ -143,6 +154,7 @@ export function shapeDecisionRationale(
   };
 }
 
+
 /** Names this server publishes for the trio. Imported by mcp.ts, so there is one writer. */
 export const TOPIC_TIMELINE_TOOL = 'align_get_topic_timeline';
 export const DECISION_RATIONALE_TOOL = 'align_get_decision_rationale';
@@ -171,70 +183,30 @@ function truncate(text: string, max = MAX_SUMMARY_CHARS): string {
 }
 
 /**
- * Identities Align MINTS when a scan could not verify where a decision was made (ALI-538):
- * `align://claimed/<hash>` when the model claimed a source, `align://unsourced/<hash>` when it
- * claimed nothing. A second writer of the list in the gateway's suggestionHelpers.ts, and
- * pinned by a test here for that reason.
- */
-const SYNTHETIC_SOURCE_PREFIXES: readonly string[] = ['align://claimed/', 'align://unsourced/'];
-
-/** True when this source_url is an identity Align minted, not a place anyone can open. */
-function isSyntheticSource(sourceUrl: string | undefined | null): boolean {
-  if (typeof sourceUrl !== 'string') return false;
-  // startsWith, never includes: a real page may carry the text in its path.
-  return SYNTHETIC_SOURCE_PREFIXES.some((prefix) => sourceUrl.startsWith(prefix));
-}
-
-/**
- * How a decision's origin is presented to the agent (ported from the hosted `sourceFields`).
+ * The source-url helpers come from decision-links.ts, which already owns all four of them
+ * (Copilot, #298 inline at :185 - it named the synthetic list; the follow-up had in fact
+ * duplicated FOUR).
  *
- * `source_url` means "where this was decided", and a synthetic identity is not that - so it is
- * NOT emitted as `source_url` at all. The first port emitted it raw, which matters because of
- * the contract this very module carries: "Link every decision you name ... else source_url; do
- * not invent links." That instructed the agent to render `align://claimed/9f2c...` as a link,
- * for exactly the decisions whose origin Align could not verify. The hosted comment names
- * topicTimeline as the case in point.
+ * That module's own docblock says it is already a second writer of the gateway's synthetic
+ * namespace list and asks to be kept in sync, so a third copy in this repo is exactly the
+ * drift it warns about: the gateway mints a new `align://` namespace, one copy learns it, and
+ * the other silently re-exposes a minted identity as a link.
  *
- * The `claimed_source` half of the hosted helper is omitted: it needs `decision_json`, which
- * this gateway route does not project. The honest FLAG is the load-bearing half.
+ * Reuse is also a capability gain, not just deduplication: the canonical `citationFor` cites
+ * Linear and Jira tickets by their key ("ALI-346", "PROJ-12"), which the deleted local copy
+ * could not do at all. `navigableSourceUrl` is the shared refusal to hand back an `align://`
+ * identity, and `sourceFields` below is the topic-timeline presentation built on it.
  */
 function sourceFields(
   sourceUrl: string | undefined | null,
 ): { source_url?: string; source_unverified?: true } {
   if (typeof sourceUrl !== 'string' || sourceUrl.length === 0) return {};
-  if (!isSyntheticSource(sourceUrl)) return { source_url: sourceUrl };
+  const navigable = navigableSourceUrl(sourceUrl);
+  if (navigable) return { source_url: navigable };
+  // A minted identity is not "where this was decided", so it is never emitted as source_url.
+  // The agent is told the origin is unverified instead - an `align://` string handed over as
+  // an origin gets either fetched or cited, and both are wrong.
   return { source_unverified: true };
-}
-
-/**
- * One reader of the source-URL format, for `repository` and `cite` below.
- *
- * Deliberately NOT anchored to github.com: a self-hosted tenant runs GitHub Enterprise on its
- * own hostname, so a host-anchored pattern silently loses attribution for every decision that
- * tenant owns. The numbered pull/issue segment is what keeps it honest - "two path segments on
- * some host" would also match a Jira browse URL and invent repositories that do not exist.
- */
-const CODE_REF = /^https?:\/\/[^/\s]+\/([^/\s]+)\/([^/\s]+)\/(?:pull|issues)\/(\d+)(?:[/?#]|$)/;
-
-/** The "owner/repo" a decision came from, or undefined when it did not come from code. */
-function repositoryOf(sourceUrl: string | undefined): string | undefined {
-  if (!sourceUrl) return undefined;
-  const m = CODE_REF.exec(sourceUrl);
-  return m ? `${m[1]}/${m[2]}` : undefined;
-}
-
-/**
- * A decision rendered the way a human cites one: "api#1441".
- *
- * The render template asks for `{cite or id}`, so without this it always degraded to an id.
- * The first port dropped it claiming it needed the hosted `FRONTEND_URL`; that was FALSE - only
- * `decision_url` needs the env var. Both of these derive from `source_url` alone, through the
- * one regex above, and were available for nothing.
- */
-function citationFor(sourceUrl: string | undefined): string | undefined {
-  if (!sourceUrl) return undefined;
-  const m = CODE_REF.exec(sourceUrl);
-  return m ? `${m[2]}#${m[3]}` : undefined;
 }
 
 /**
@@ -489,13 +461,25 @@ export function topicTimelineMessage(opts: MessageOpts): string {
   }`;
 
   const render =
-    ' Answer COMPACTLY by default, never as paragraphs - the user asked a question, not for a history. Link every decision you name (dated row, Now, Contested, supersedes) with decision_url when present, else source_url; do not invent links. Use exactly this shape, with a blank line between sections:' +
+    ` Answer COMPACTLY by default, never as paragraphs - the user asked a question, not for a history. Link every decision you name (dated row, Now, Contested, supersedes) with decision_url when present, else source_url; do not invent links. Use exactly this shape, with a blank line between sections:` +
     `\n\n**Now:** {current position in one sentence} - {title} ({status})${contestedSlot}` +
     `\n\n{up to three pivotal dated chain steps - the first position, the biggest reversal, the newest - one line each, in the full timeline's line shape}` +
     `\n\n${chainCount} decision(s) across ${
       chainPlatforms.join(', ') || 'unknown tool(s)'
     } got it here ({oldest date} - {newest date}, ${chainSupersededCount} superseded or archived).` +
-    '\n\n{the single sharpest open question, one line}' +
+    // C6 (Copilot, #298 suppressed at :523). The stillOpenState fix reached only the
+    // full-timeline section; this compact slot is the DEFAULT path and asked for a question
+    // unconditionally, so `still_open: []` still invited the invention the empty state exists
+    // to prevent - the same defect one level up, on the more-travelled route.
+    //
+    // An interpolation rather than a bare parenthesised ternary: a conditional dropped into a
+    // chain of literals makes the whole concatenation literal-plus-expression, which is what
+    // eslint's prefer-template objects to. Identical output.
+    `\n\n${
+      stillOpenState === 'empty'
+        ? '{one line saying the chain leaves no open question}'
+        : '{the single sharpest open question, one line}'
+    }` +
     `\n\n{one-line offer of the rest - ${offerItems} - inviting the user to ask for the story}` +
     `\n\nRender the FULL VERTICAL TIMELINE instead ONLY when the user ${STORY_GATE}, the history, or how it got here - or as the follow-up after the compact answer. That shape, also with a blank line between sections:` +
     '\n\nOpen with the same **Now:** line, then:' +
@@ -504,7 +488,17 @@ export function topicTimelineMessage(opts: MessageOpts): string {
     '\n`DD Mon`  `{platform}`  **{short title}** - ... (one line per decision, oldest first)' +
     '\n\n`{platform}` is the tool the decision was made in - teams, slack, jira, github, linear, confluence. NEVER omit the platform: a Teams meeting contradicting a GitHub pull request is the thing no single tool can show, and it is invisible if every line looks alike. The cite implies it for some rows and not others, so print it explicitly on all of them.' +
     '\n\nThe gutter is the date and NEVER an id: print the row\'s date, not a ticket key, and never the same identifier twice on one line. `date_basis` says which clock it is - `decided` (`decided_at`, the source decided it), `created` (`source_created_at`: RAISED only, never agreed), `recorded` (`created_at`, Align\'s ingest minute, not a source date). Suffix anything not `decided` right after the date - `(raised)` or `(seen)` - or a column of dates all reads as decisions. Where several share a date, normal for an imported backlog, repeat the date. If MOST are `recorded`, add ONE closing note that the graph lacks their source dates.' +
-    '\n\n**Open risks** - one short line each, naming the decision it came from.';
+    // C3 (Copilot, #298 inline at :446). Gated on `why`: with no entries there are no risks
+    // to line up, so an unconditional section invites exactly the fabrication the empty state
+    // exists to prevent. The empty case says so rather than going silent, because silence
+    // reads as "there are none" too and only one of those is a measurement.
+    `${
+      whyState === 'present'
+        ? '\n\n**Open risks** - one short line each, naming the decision it came from.'
+        : whyState === 'empty'
+          ? '\n\n**Open risks** - no risks were recorded against this chain; say so in one clause and do not infer any.'
+          : ''
+    }`;
 
   /**
    * Two sources, one section, stated conditionally (ALI-627). With `still_open` present the
@@ -523,13 +517,14 @@ export function topicTimelineMessage(opts: MessageOpts): string {
         : '\n\n**Still open** (the full timeline closes on this) - the single sharpest unanswered question, one line.';
 
   const renderRules =
-    // F4 (Copilot, #296 inline at :300). This used to close "Cite decision_url and source_url
-    // as different links", unconditionally, in a port that never emits decision_url - so the
-    // agent could not satisfy the rule without inventing a link or failing to look one up. The
-    // same phrasing had already been stripped from the tool description and this copy was
-    // missed, which is the fixed-one-site-left-the-twin shape. The earlier render clause stays
-    // conditional ("with decision_url when present, else source_url") and remains true.
-    '\n\nRules for the FULL timeline: ONE LINE PER DECISION, never a paragraph. Max 15 words of explanation per line. Mark superseded entries and name which decision replaced them. Link each decision with its source_url, which is where it was decided - never a link you did not receive.';
+    // F4 (Copilot, #296 at :300) then C4 (#298 at :532). The original closed "Cite
+    // decision_url and source_url as different links", unconditionally, in a port that never
+    // emits decision_url. The first replacement then demanded `source_url` just as
+    // unconditionally - and `present()` deliberately omits THAT for a synthetic identity and
+    // for a row with no source at all, so it recreated the same defect one field along. The
+    // rule is conditional on both sides now, and it names what to do when neither arrived,
+    // because "link it" with nothing to link is what produces an invented URL.
+    '\n\nRules for the FULL timeline: ONE LINE PER DECISION, never a paragraph. Max 15 words of explanation per line. Mark superseded entries and name which decision replaced them. Link a decision when its row carries a source_url, which is where it was decided; a row marked `source_unverified` has no link anyone can open, so name it without one and never substitute a link you did not receive.';
 
   return `${count} decision(s) about "${topic}".${history}${corrections}${partial}${background}${render}${stillOpenSection}${renderRules}${disagreements}${why}`;
 }

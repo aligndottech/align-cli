@@ -1,8 +1,20 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createCallToolHandler, dispatchTool, instructionsFor, TOOL_SCHEMAS, toolSchemasFor } from '../commands/mcp.js';
 import { shapeTopicTimeline, STORY_GATE } from '../lib/mcp-timeline-tools.js';
 import type { EnvironmentConfig } from '../lib/config.js';
+import { createGatewayClient as createGatewayClientB } from '../lib/gateway-client.js';
+
+/** A fetch double for the round-2 path-segment cases at the bottom of this file. */
+const mockFetchB = vi.fn();
+vi.stubGlobal('fetch', mockFetchB);
+const cloudEnvB = {
+  gatewayUrl: 'https://api.align.tech',
+  authToken: 'tok_real',
+  tenantId: 'tenant-123',
+  mode: 'auth' as const,
+};
+beforeEach(() => mockFetchB.mockReset());
 
 /**
  * ALI-1070 follow-up: the eleven Copilot findings on #296 (6 inline + 5 suppressed), plus
@@ -514,5 +526,156 @@ describe('the gaps the #296 suite claimed to cover and did not', () => {
       'align_check_drift', 'align_get_impact', 'align_get_conflicts',
       'align_get_related_decisions',
     ]);
+  });
+});
+
+/**
+ * Round 2: the six findings Copilot raised on the follow-up itself (#298), 5 inline + 1
+ * suppressed. Two are residual halves of fixes made above, which is the shape worth naming -
+ * a fix that closes one site and leaves its twin is how this whole file started.
+ */
+describe('#298 round 2', () => {
+  /**
+   * C1, SECURITY and the sharpest. `encodeURIComponent` does NOT escape `.`, so the fix above
+   * stopped `../auth/me` only because its SLASH was encoded. A bare `..` is a valid-looking id
+   * that survives encoding untouched, and WHATWG normalisation then resolves it out of the
+   * route entirely. Measured: `https://api.align.tech/snapshots/..` has pathname `/`.
+   */
+  it.each([['..'], ['.'], ['%2e%2e'], ['%2E%2E']])('REFUSES the dot-segment id %s rather than sending it', async (id) => {
+    // Encoding cannot fix this: `%2E%2E` still resolves to `/`, because the WHATWG URL spec
+    // decodes `%2e` when testing a segment for dot-segment-ness. Measured, all three forms.
+    // So the contract is refusal, and it must refuse BEFORE the request leaves.
+    //
+    // The percent-encoded spellings are in this list because the guard decodes ONCE before
+    // judging, so `%2e%2e` is a `..` wearing a costume. The first draft of this test had them
+    // in the group below, expecting them to be sent - the guard was stricter than predicted,
+    // which is the right direction for a control to surprise you in.
+    await expect(createGatewayClientB(cloudEnvB).getDecision(id)).rejects.toThrow(
+      /Refusing to request a path built from the id/,
+    );
+    // The load-bearing half: nothing was sent. A throw after the fetch would still have
+    // attached the PAT to a request for a route the caller never named.
+    expect(mockFetchB).not.toHaveBeenCalled();
+  });
+
+  it.each([['../..'], ['..%2f..'], ['%252e%252e']])(
+    'encodes the non-dot-segment traversal shape %s and keeps it in the route',
+    async (id) => {
+      // These are NOT dot segments once encoded, so they are legitimately sent and 404 - the
+      // positive control for the refusal above, which would otherwise be satisfied by a client
+      // that refused everything.
+      mockFetchB.mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'x' }) });
+      await createGatewayClientB(cloudEnvB).getDecision(id);
+      const path = new URL(String(mockFetchB.mock.calls[0]![0])).pathname;
+      expect(path.startsWith('/snapshots/')).toBe(true);
+      expect(path).not.toBe('/');
+    },
+  );
+
+  it('still reaches the ordinary endpoint for a normal id', async () => {
+    // Second example per rule: encoding the dots must not break a legitimate id that
+    // contains one.
+    mockFetchB.mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'x' }) });
+    await createGatewayClientB(cloudEnvB).getDecision('v1.2-abc');
+    const path = new URL(String(mockFetchB.mock.calls[0]![0])).pathname;
+    expect(decodeURIComponent(path)).toBe('/snapshots/v1.2-abc');
+  });
+
+  /**
+   * C2. The precedence is the HOSTED one (top-level `rationale` first), and it stays - a port
+   * that silently re-ranks its source stops being verifiable against it. What was wrong was
+   * the COMMENT, which cited ALI-484 close enough to the precedence to read as a claim about
+   * it. ALI-484 is about alternatives_considered / positions_considered, not rationale. This
+   * test makes the choice deliberate rather than incidental.
+   */
+  it('prefers the top-level rationale over the ai one when BOTH are present', async () => {
+    const client = {
+      getDecision: vi.fn().mockResolvedValue({
+        id: 'd1', title: 'T', summary: 'S',
+        decision_json: {
+          rationale: 'the chosen gloss',
+          ai: { rationale: 'the scan reasoning', alternatives_considered: ['alt'] },
+        },
+        external_references: [],
+      }),
+    };
+    const handler = createCallToolHandler(client as never, cloudEnv);
+    const res = await handler({
+      params: { name: 'align_get_decision_rationale', arguments: { decision_id: 'd1' } },
+    });
+    const out = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
+    expect(out['rationale']).toBe('the chosen gloss');
+    // And the ALI-484 fields still come from `.ai` when the top level has none, which is what
+    // that ticket is actually about.
+    expect(out['alternatives_considered']).toEqual(['alt']);
+  });
+
+  /**
+   * C3. The `whyState === 'empty'` branch correctly says not to call the rationale tool, and
+   * the full-timeline render still appended `**Open risks**` asking one line per risk. With no
+   * `why` entries there are no risks to line up, so the section invites exactly the fabrication
+   * the empty state exists to prevent.
+   */
+  it('does not demand an Open risks section when why came back empty', () => {
+    const message = messageOf({ why: [] });
+    expect(message).not.toMatch(/\*\*Open risks\*\* - one short line each/);
+    expect(message).toMatch(/no risks were recorded|states no recorded risks/i);
+  });
+
+  it('still asks for Open risks when why carries entries', () => {
+    const message = messageOf({ why: [{ id: 'd2', rationale: 'r', risks: ['a real risk'] }] });
+    expect(message).toMatch(/\*\*Open risks\*\*/);
+  });
+
+  /**
+   * C4, and the one worth flinching at: the replacement rule I wrote for the decision_url
+   * problem RECREATED it. "Link each decision with its source_url" is unconditional, and
+   * present() deliberately omits source_url for a synthetic identity and for a row with no
+   * source at all - so the model must invent a link or drop a named decision.
+   */
+  it('makes the link rule conditional, and forbids a link where no source arrived', () => {
+    const message = messageOf();
+    expect(message).not.toMatch(/Link each decision with its source_url, which is where it was decided - never/);
+    expect(message).toMatch(/when.*source_url|if.*source_url/i);
+    // The explicit refusal is the half that stops invention.
+    expect(message).toMatch(/source_unverified|no link|without one/i);
+  });
+
+  /**
+   * C5. decision-links.ts already exports SYNTHETIC_SOURCE_PREFIXES, isSyntheticSource,
+   * repositoryOf AND citationFor - so the follow-up had duplicated FOUR helpers, not the one
+   * Copilot named. Reuse is asserted BEHAVIOURALLY rather than by grepping for an import: the
+   * canonical citationFor also cites Linear and Jira ticket keys, which the local copy could
+   * not, so a ticket cite is observable proof the shared helper is the one running.
+   */
+  it('cites a Linear ticket by key, which only the shared helper can do', () => {
+    const d = (shaped({
+      decisions: [{ ...rows()[0], source_url: 'https://linear.app/align/issue/ALI-346' }],
+    })['decisions'] as Record<string, unknown>[])[0]!;
+    expect(d['cite']).toBe('ALI-346');
+    // repositoryOf must still refuse: a Linear workspace is not an owner.
+    expect(d['repository']).toBeUndefined();
+  });
+
+  it('cites a Jira ticket by key too', () => {
+    const d = (shaped({
+      decisions: [{ ...rows()[0], source_url: 'https://acme.atlassian.net/browse/PROJ-12' }],
+    })['decisions'] as Record<string, unknown>[])[0]!;
+    expect(d['cite']).toBe('PROJ-12');
+  });
+
+  /**
+   * C6 (suppressed). The stillOpenState fix only reached the full-timeline section; the COMPACT
+   * template above it still unconditionally asked for "{the single sharpest open question, one
+   * line}". Same defect one level up, and the compact answer is the default path, so this was
+   * the more-travelled of the two.
+   */
+  it('does not ask the compact answer for an open question when still_open came back empty', () => {
+    const message = messageOf({ still_open: [] });
+    expect(message).not.toMatch(/\{the single sharpest open question, one line\}/);
+  });
+
+  it('still asks the compact answer for one when still_open is absent', () => {
+    expect(messageOf()).toMatch(/\{the single sharpest open question, one line\}/);
   });
 });

@@ -14,6 +14,45 @@ import pkg from '../../package.json' with { type: 'json' };
  * Read from package.json rather than a literal so a release cannot ship a stale version
  * string, which would make the number wrong in the one direction nobody would notice.
  */
+/**
+ * One path segment for an id, safe against dot-segment normalisation.
+ *
+ * ENCODING IS NOT ENOUGH, and that is the whole reason this function exists rather than a
+ * bare `encodeURIComponent` call. Three measurements, in order:
+ *
+ *   `/snapshots/${id}`                     with id `../auth/me` -> pathname `/auth/me`
+ *   `/snapshots/${encodeURIComponent(id)}` with id `..`         -> pathname `/`
+ *   `/snapshots/${'%2E%2E'}`               (dots encoded too)   -> pathname `/`
+ *
+ * The first was #296's defect and the second was the residual half Copilot caught on #298
+ * (inline at :494). The third is why its suggested "path-segment encoder that prevents
+ * dot-segment normalization" does not exist: the WHATWG URL spec DECODES `%2e` when it tests a
+ * segment for single-dot and double-dot, so no escaping can hide a dot segment from it.
+ *
+ * So the only safe answer is to REFUSE. A decision id, a check-event id and a snapshot id are
+ * opaque identifiers - never `.`, never `..` - so nothing legitimate is being rejected, and
+ * failing loudly here beats sending a request whose path resolves somewhere the caller never
+ * named while their PAT rides along. One decode is sufficient: a doubly-encoded `%252e%252e`
+ * decodes to `%2e%2e`, which the URL parser keeps literal (measured).
+ */
+export function encodePathSegment(value: string): string {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // A malformed escape is not a dot segment; let it through to be encoded and 404.
+  }
+  if (decoded === '.' || decoded === '..') {
+    throw new GatewayError(
+      `Refusing to request a path built from the id ${JSON.stringify(value)}: a "." or ".." ` +
+        'segment is resolved away by URL normalisation, so the request would reach a different ' +
+        'endpoint than the one named. Pass a real decision id.',
+      0,
+    );
+  }
+  return encodeURIComponent(value);
+}
+
 export const CLIENT_IDENTITY_HEADERS: Readonly<Record<string, string>> = Object.freeze({
   'x-align-client': 'cli',
   'x-align-client-version': pkg.version,
@@ -491,7 +530,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
      * legitimate id containing a reserved character.
      */
     async getDecision(id: string): Promise<CapturedDecision & { external_references: unknown[]; spaces: unknown[] }> {
-      return request(`/snapshots/${encodeURIComponent(id)}`);
+      return request(`/snapshots/${encodePathSegment(id)}`);
     },
 
     // `depth: 'related'` returns the same embedding retrieval this endpoint already does and
@@ -520,7 +559,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       _opts?: { ratifiedBy: string },
     ): Promise<{ alreadyRatified: boolean; ratifiedBy: string | null; ratifiedAt: string | null }> {
       const res = await request<{ already_ratified: boolean; ratified_by: string | null; ratified_at: string | null }>(
-        `/decisions/${encodeURIComponent(id)}/ratify`,
+        `/decisions/${encodePathSegment(id)}/ratify`,
         { method: 'POST' },
       );
       return { alreadyRatified: res.already_ratified, ratifiedBy: res.ratified_by, ratifiedAt: res.ratified_at };
@@ -535,7 +574,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       adjudicatedBy: string;
       alreadyAdjudicated: boolean;
     }> {
-      return request(`/alignment/checks/${encodeURIComponent(eventId)}/adjudicate`, {
+      return request(`/alignment/checks/${encodePathSegment(eventId)}/adjudicate`, {
         method: 'POST',
         body: JSON.stringify({ verdict, ...(note ? { note } : {}) }),
       });
@@ -630,7 +669,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
 
     /** ALI-1070: ONE decision's change history - GET /decisions/:id/history, authMiddleware only. */
     async getDecisionTimeline(decisionId: string): Promise<unknown> {
-      return request(`/decisions/${encodeURIComponent(decisionId)}/history`);
+      return request(`/decisions/${encodePathSegment(decisionId)}/history`);
     },
 
     async getConflicts(): Promise<ConflictsResult> {
