@@ -1,0 +1,24 @@
+# Every text file is LF in the working tree on every OS.
+#
+# Without this, git on Windows honours its default `core.autocrlf=true` and checks files out as
+# CRLF. `src/__tests__/commands-doc.test.ts` compares a COMMITTED markdown file against renderer
+# output, and the renderer emits LF - so that test failed on `windows-latest` only, twice, on
+# main, immediately after the cli 0.39.0 release. The text was identical; the bytes were not.
+#
+# Verified safe when added: `git ls-files --eol` reported every tracked file as `i/lf`, so this
+# renormalises nothing and is purely protective.
+#
+# The test normalises on read as well. Two layers on purpose: this one fixes the whole class for
+# any future test that reads a committed file, and the in-test normalisation means the test does
+# not depend on a contributor's git config.
+* text=auto eol=lf
+
+# Binaries git must never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
