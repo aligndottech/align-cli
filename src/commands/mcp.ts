@@ -221,9 +221,24 @@ export function createCallToolHandler(
 // Order is the ranking an agent reads off tools/list, so the pre-flight check leads (ALI-139,
 // prescription over retrieval; ALI-952 moved it here from fourth). The hosted server
 // (align-stack mcpServer.ts) registers check_alignment first for the same reason.
+/**
+ * Tool annotations, mirroring connectors/mcp-align/src/mcpServer.ts's canonical vocabulary
+ * (ALI-326 there, ALI-1063 here). A client cannot tell `align_ask` from `align_capture`
+ * without these, and the one consumer that most needs to - AlignBench's align arm, which
+ * runs under the Claude Agent SDK with permissions bypassed and no MCP gating on
+ * `allowedTools` - would otherwise have to hardcode which tools write. A hardcoded list
+ * goes stale the first time a tool is added; an annotation travels with the tool.
+ *
+ * In mcp-align exactly four tools write: rate_conflict, check_drift, capture, connect.
+ * This server exposes two of them (capture, check_drift); the rest are reads.
+ */
+const READS = { readOnlyHint: true, destructiveHint: false } as const;
+const WRITES_ADDITIVE = { readOnlyHint: false, destructiveHint: false } as const;
+
 export const TOOL_SCHEMAS = [
   {
     name: 'align_check_alignment',
+    annotations: READS,
     description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding. An "unknown" status means the check could not run and is NOT a pass: the decisions it returns are unchecked, so stop and ask the human rather than treating it as clear.',
     inputSchema: {
       type: 'object',
@@ -236,6 +251,7 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'align_ask',
+    annotations: READS,
     description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "how", "what was decided about", or any question about past decisions.',
     inputSchema: {
       type: 'object',
@@ -248,6 +264,7 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'align_search',
+    annotations: READS,
     description: 'Alias of align_ask: the same search of the decision graph, taking the text as `query`. Kept for callers that already use this name; prefer align_ask.',
     inputSchema: {
       type: 'object',
@@ -260,6 +277,7 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'align_capture',
+    annotations: WRITES_ADDITIVE,
     description: 'Capture a decision from ANY tool - a Slack thread, Jira ticket, GitHub PR, Confluence/doc URL, or raw text. Call this whenever a decision gets made in conversation so the cross-tool decision graph stays current and relationships across tools can be detected.',
     inputSchema: {
       type: 'object',
@@ -271,6 +289,7 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'align_check_drift',
+    annotations: WRITES_ADDITIVE,
     description: 'Check if code or configuration has drifted from a specific decision',
     inputSchema: {
       type: 'object',
@@ -284,6 +303,7 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'align_get_impact',
+    annotations: READS,
     description: 'Get the upstream and downstream impact of a decision',
     inputSchema: {
       type: 'object',
@@ -295,6 +315,7 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'align_get_conflicts',
+    annotations: READS,
     description:
       'List conflicts and contradictions in the decision graph. conflict_count is the exact total; the links list holds one page, and a message says when there are more than it shows - never present the listed links as the complete set unless they match conflict_count.',
     inputSchema: {
@@ -304,6 +325,7 @@ export const TOOL_SCHEMAS = [
   },
   {
     name: 'align_get_related_decisions',
+    annotations: READS,
     description: 'BEFORE editing a file or module, call this to learn what was already decided about it across all the user\'s connected tools (not just code) - surfacing the cross-tool context an agent would otherwise miss.',
     inputSchema: {
       type: 'object',
