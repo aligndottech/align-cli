@@ -28,13 +28,120 @@
  *     verbatim would instruct a customer's agent to call a tool that is not on this server -
  *     the same defect align-stack derives ALIGN_MCP_INSTRUCTIONS_READ_ONLY to prevent, and
  *     pinned here by mcp-timeline-trio.test.ts ("names no align_ tool it does not register").
- *  2. NO decision_url / cite / repository. Those need the hosted connector's FRONTEND_URL and
- *     ~150 lines of its format.ts. The contract's link clause is already conditional ("with
- *     decision_url when present, else source_url"), so it stays TRUE here rather than
- *     promising a field that is absent - the gateway rows do carry source_url.
+ *  2. NO decision_url. That one genuinely needs the hosted connector's FRONTEND_URL. The
+ *     contract's link clause is conditional ("with decision_url when present, else
+ *     source_url") so it stays TRUE here, and the closing full-timeline rule was corrected in
+ *     the ALI-1070 follow-up to stop demanding it unconditionally.
+ *
+ *     `cite` and `repository` ARE emitted. The first port dropped them claiming they needed
+ *     FRONTEND_URL too, which was simply false: both derive from `source_url` alone through
+ *     one regex, so they cost about twenty lines and no configuration. Correcting the claim is
+ *     the point - a stated reason that is wrong outlives the omission it justified.
  *  3. The result is a plain object. This server's createCallToolHandler serialises it and
- *     OMIT_RESULT_KEYS strips the heavy fields, so there is no toolText/framed wrapper.
+ *     OMIT_RESULT_KEYS strips the heavy fields, so there is no toolText/framed wrapper. That
+ *     stripping is also why the rationale tool needs shapeDecisionRationale below rather than
+ *     returning its gateway row raw.
  */
+
+/**
+ * ALI-1070 follow-up, F7 (Copilot, #296 suppressed at mcp.ts:222): project the reasoning OUT
+ * of `decision_json` before the serializer strips it.
+ *
+ * The first port was `return client.getDecision(id)` raw. `serializeMcpResult`'s
+ * OMIT_RESULT_KEYS removes `decision_json`, and EVERY field this tool's description promises -
+ * rationale, goals, risks, context - lives inside it. Measured against a realistic snapshot
+ * row before the fix: the agent received id, title, summary, status, platform, created_at and
+ * nothing else. The tool answered with metadata and dropped the rationale it advertises.
+ *
+ * Worse, the topic-timeline contract's own fallback names this tool ("call
+ * align_get_decision_rationale for the decisions whose reasoning the answer needs"), so the
+ * one escape hatch the story renderer offers returned no reasoning.
+ *
+ * Projected rather than un-omitted: `decision_json` is unbounded (ALI-498 measured 43,327
+ * characters of it on one 12-row prod component), so the fix is to lift the named fields out,
+ * never to let the blob through.
+ *
+ * Ported from the hosted connector's decisionRationale.ts, including the `.ai` sub-object:
+ * ALI-484 found `rationale` is a 1-2 sentence gloss on the option CHOSEN, while the reasoning
+ * an agent needs is the option REJECTED and why - which the scan writes into
+ * `suggested_decision_json` and the approve path copies verbatim into `decision_json.ai`.
+ */
+
+/** A stored decision is free-form JSON, so a field asked for as a list can arrive as anything. */
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/** ALI-582: the Jira keys and implementing PRs the gateway already sends in this response. */
+const MAX_ARTIFACTS_PER_DECISION = 20;
+
+function mentionedArtifacts(refs: unknown): {
+  mentioned_artifacts?: Record<string, unknown>[];
+  mentioned_artifacts_truncated?: true;
+} {
+  if (!Array.isArray(refs)) return {};
+  const all = refs
+    .map((r): Record<string, unknown> | undefined => {
+      if (!r || typeof r !== 'object') return undefined;
+      const ref = r as Record<string, unknown>;
+      const id = ref['external_id'];
+      if (typeof id !== 'string' || id.length === 0) return undefined;
+      return {
+        ...(typeof ref['connector'] === 'string' ? { connector: ref['connector'] } : {}),
+        external_id: id,
+        ...(typeof ref['external_url'] === 'string' ? { external_url: ref['external_url'] } : {}),
+        ...(typeof ref['reference_type'] === 'string'
+          ? { reference_type: ref['reference_type'] }
+          : {}),
+      };
+    })
+    .filter((a): a is Record<string, unknown> => a !== undefined);
+  // Absent rather than [] when there are none: an empty list reads as "we looked and this
+  // decision mentions nothing", which is a claim this projection cannot make.
+  if (all.length === 0) return {};
+  return {
+    mentioned_artifacts: all.slice(0, MAX_ARTIFACTS_PER_DECISION),
+    ...(all.length > MAX_ARTIFACTS_PER_DECISION ? { mentioned_artifacts_truncated: true } : {}),
+  };
+}
+
+/**
+ * Shape one `GET /snapshots/:id` row into the rationale answer.
+ *
+ * Tolerant of a row with no `decision_json` at all, which is the LOCAL case: local mode serves
+ * this tool for real (the local client implements getDecision) and its rows carry no such
+ * column. Thinner, not broken - the summary becomes the rationale, which is the same
+ * last-resort fallback the hosted handler uses.
+ */
+export function shapeDecisionRationale(
+  row: Record<string, unknown>,
+  decisionId: string,
+): Record<string, unknown> {
+  const dj = (row['decision_json'] as Record<string, unknown> | undefined) ?? {};
+  const aiSub = (dj['ai'] as Record<string, unknown> | undefined) ?? {};
+  const summary = typeof row['summary'] === 'string' ? row['summary'] : '';
+
+  return {
+    decision_id: decisionId,
+    title: row['title'],
+    summary: row['summary'],
+    status: row['status'],
+    platform: row['platform'],
+    created_at: row['created_at'],
+    rationale:
+      (dj['rationale'] as string | undefined) ??
+      (aiSub['rationale'] as string | undefined) ??
+      summary,
+    goals: (dj['goals'] as string[] | undefined) ?? [],
+    risks: (dj['risks'] as string[] | undefined) ?? (aiSub['risks'] as string[] | undefined) ?? [],
+    context: (dj['context'] as string | undefined) ?? '',
+    alternatives_considered: asArray(
+      dj['alternatives_considered'] ?? aiSub['alternatives_considered'],
+    ),
+    positions_considered: asArray(dj['positions_considered'] ?? aiSub['positions_considered']),
+    ...mentionedArtifacts(row['external_references']),
+  };
+}
 
 /** Names this server publishes for the trio. Imported by mcp.ts, so there is one writer. */
 export const TOPIC_TIMELINE_TOOL = 'align_get_topic_timeline';
@@ -48,11 +155,86 @@ export const DECISION_TIMELINE_TOOL = 'align_get_decision_timeline';
  */
 export const STORY_GATE = 'asked for the story';
 
-const MAX_SUMMARY_CHARS = 500;
+/**
+ * 280, matching the hosted connector's `format.ts` (ALI-297/ALI-498). The first port wrote 500
+ * and did not declare it as a difference; on a 50-row timeline that is up to ~11 kB of extra
+ * agent context per call, in a module whose stated purpose is bounded output.
+ */
+const MAX_SUMMARY_CHARS = 280;
 
 function truncate(text: string, max = MAX_SUMMARY_CHARS): string {
   if (text.length <= max) return text;
-  return `${text.slice(0, max - 1).trimEnd()}...`;
+  // max - 3, not max - 1: the hosted original appends a one-character ellipsis and this repo
+  // stays ASCII, so the marker costs three. The first port kept the hosted arithmetic with the
+  // longer marker and returned max + 2 - inside a cap whose whole job is to bound context.
+  return `${text.slice(0, max - 3).trimEnd()}...`;
+}
+
+/**
+ * Identities Align MINTS when a scan could not verify where a decision was made (ALI-538):
+ * `align://claimed/<hash>` when the model claimed a source, `align://unsourced/<hash>` when it
+ * claimed nothing. A second writer of the list in the gateway's suggestionHelpers.ts, and
+ * pinned by a test here for that reason.
+ */
+const SYNTHETIC_SOURCE_PREFIXES: readonly string[] = ['align://claimed/', 'align://unsourced/'];
+
+/** True when this source_url is an identity Align minted, not a place anyone can open. */
+function isSyntheticSource(sourceUrl: string | undefined | null): boolean {
+  if (typeof sourceUrl !== 'string') return false;
+  // startsWith, never includes: a real page may carry the text in its path.
+  return SYNTHETIC_SOURCE_PREFIXES.some((prefix) => sourceUrl.startsWith(prefix));
+}
+
+/**
+ * How a decision's origin is presented to the agent (ported from the hosted `sourceFields`).
+ *
+ * `source_url` means "where this was decided", and a synthetic identity is not that - so it is
+ * NOT emitted as `source_url` at all. The first port emitted it raw, which matters because of
+ * the contract this very module carries: "Link every decision you name ... else source_url; do
+ * not invent links." That instructed the agent to render `align://claimed/9f2c...` as a link,
+ * for exactly the decisions whose origin Align could not verify. The hosted comment names
+ * topicTimeline as the case in point.
+ *
+ * The `claimed_source` half of the hosted helper is omitted: it needs `decision_json`, which
+ * this gateway route does not project. The honest FLAG is the load-bearing half.
+ */
+function sourceFields(
+  sourceUrl: string | undefined | null,
+): { source_url?: string; source_unverified?: true } {
+  if (typeof sourceUrl !== 'string' || sourceUrl.length === 0) return {};
+  if (!isSyntheticSource(sourceUrl)) return { source_url: sourceUrl };
+  return { source_unverified: true };
+}
+
+/**
+ * One reader of the source-URL format, for `repository` and `cite` below.
+ *
+ * Deliberately NOT anchored to github.com: a self-hosted tenant runs GitHub Enterprise on its
+ * own hostname, so a host-anchored pattern silently loses attribution for every decision that
+ * tenant owns. The numbered pull/issue segment is what keeps it honest - "two path segments on
+ * some host" would also match a Jira browse URL and invent repositories that do not exist.
+ */
+const CODE_REF = /^https?:\/\/[^/\s]+\/([^/\s]+)\/([^/\s]+)\/(?:pull|issues)\/(\d+)(?:[/?#]|$)/;
+
+/** The "owner/repo" a decision came from, or undefined when it did not come from code. */
+function repositoryOf(sourceUrl: string | undefined): string | undefined {
+  if (!sourceUrl) return undefined;
+  const m = CODE_REF.exec(sourceUrl);
+  return m ? `${m[1]}/${m[2]}` : undefined;
+}
+
+/**
+ * A decision rendered the way a human cites one: "api#1441".
+ *
+ * The render template asks for `{cite or id}`, so without this it always degraded to an id.
+ * The first port dropped it claiming it needed the hosted `FRONTEND_URL`; that was FALSE - only
+ * `decision_url` needs the env var. Both of these derive from `source_url` alone, through the
+ * one regex above, and were available for nothing.
+ */
+function citationFor(sourceUrl: string | undefined): string | undefined {
+  if (!sourceUrl) return undefined;
+  const m = CODE_REF.exec(sourceUrl);
+  return m ? `${m[2]}#${m[3]}` : undefined;
 }
 
 /**
@@ -116,21 +298,34 @@ function present(d: TimelineRow) {
     ...(d.decided_at ? { decided_at: d.decided_at } : {}),
     ...(d.source_created_at ? { source_created_at: d.source_created_at } : {}),
     ...(d.date_basis ? { date_basis: d.date_basis } : {}),
-    ...(d.source_url ? { source_url: d.source_url } : {}),
+    ...sourceFields(d.source_url),
+    ...(repositoryOf(d.source_url) ? { repository: repositoryOf(d.source_url)! } : {}),
+    ...(citationFor(d.source_url) ? { cite: citationFor(d.source_url)! } : {}),
     ...(d.matched_by ? { matched_by: d.matched_by } : {}),
   };
 }
 
+/**
+ * Whether the gateway sent a field, and whether it had anything in it.
+ *
+ * `absent` and `empty` are DIFFERENT CLAIMS and collapsing them loses the honest one: an empty
+ * array from a gateway that looked asserts "there are none", which is stronger than "we could
+ * not look". The first port reduced both to a boolean, so `still_open: []` took the
+ * unavailable path, whose wording asks for "the single sharpest unanswered question" - an
+ * invitation to invent one (Copilot, #296 inline at :378). `disagreements` already had the
+ * three-way; this gives `why` and `still_open` the same treatment.
+ */
+export type FieldState = 'absent' | 'empty' | 'present';
+
 interface MessageOpts {
   count: number;
-  supersededCount: number;
   semanticRan: boolean;
   topic: string;
   backgroundCount: number;
-  hasWhy: boolean;
+  whyState: FieldState;
   /** undefined = the gateway never sent the field; 0 = it looked and found none. */
   disagreementCount: number | undefined;
-  hasStillOpen: boolean;
+  stillOpenState: FieldState;
   /**
    * Chain-scoped, computed over the NARRATED rows. The gateway's `count`, `platforms` and
    * `superseded_count` cover everything it RETRIEVED, and the compact summary line narrates
@@ -152,31 +347,47 @@ interface MessageOpts {
 export function topicTimelineMessage(opts: MessageOpts): string {
   const {
     count,
-    supersededCount,
     semanticRan,
     topic,
     backgroundCount,
-    hasWhy,
+    whyState,
     disagreementCount,
-    hasStillOpen,
+    stillOpenState,
     chainCount,
     chainPlatforms,
     chainSupersededCount,
     chainCorrectedCount,
   } = opts;
 
-  if (count === 0) {
-    return `No decisions found about "${topic}". Try a broader phrase, or search to see what the graph does cover.`;
-  }
-
-  const history =
-    supersededCount > 0
-      ? ` ${supersededCount} of them are superseded or archived - that is the history explaining why the current answer is current.`
-      : '';
-
+  /**
+   * F11 (Copilot, #296 suppressed at :170): the early return used to bypass the PARTIAL notice
+   * entirely. "No decisions found" plus a silently lexical-only search is the worst pairing in
+   * this whole message - the agent concludes the graph has nothing on the topic, when the half
+   * of retrieval that finds differently-worded decisions never ran. Declared before the branch
+   * so both paths use one writer of the sentence.
+   */
   const partial = semanticRan
     ? ''
     : ' PARTIAL: semantic retrieval was unavailable, so this is lexical matches only and may be missing related decisions that use different wording.';
+
+  if (count === 0) {
+    return `No decisions found about "${topic}". Try a broader phrase, or search to see what the graph does cover.${partial}`;
+  }
+
+  /**
+   * F3 (Copilot, #296 inline at :175): CHAIN-scoped, not retrieval-wide.
+   *
+   * This used the gateway's `superseded_count`, which covers everything RETRIEVED, while
+   * calling it "the history explaining why the current answer is current". A superseded
+   * BACKGROUND match is not that history and is not even listed for the agent to inspect, so
+   * the sentence named rows nobody can see. The summary line further down was already
+   * chain-scoped; these two now agree. `supersededCount` is deliberately no longer read here -
+   * it stays in the payload, where it correctly describes the retrieved set.
+   */
+  const history =
+    chainSupersededCount > 0
+      ? ` ${chainSupersededCount} of them are superseded or archived - that is the history explaining why the current answer is current.`
+      : '';
 
   /**
    * ALI-1010. The one clause that stops a correction being told as a reversal, and the single
@@ -220,18 +431,25 @@ export function topicTimelineMessage(opts: MessageOpts): string {
    * absent is worse than not mentioning it: the agent either hunts for it or decides the
    * reasons are unavailable and does not fall back.
    */
-  const why = hasWhy
-    ? ` \`why\` carries each arguing decision's reason and logged risks - use it directly and do NOT call ${DECISION_RATIONALE_TOOL} for a decision that appears there; call it only for one that does not appear there${
-        // With real questions in the payload the risks synthesis is retired for this response:
-        // two stated sources for one section is how the model picks the wrong one (ALI-627).
-        hasStillOpen ? '' : ', and draw the closing open-questions line from its risks'
-      }.`
-    : ` This payload carries no \`why\`, so call ${DECISION_RATIONALE_TOOL} for the decisions whose reasoning the answer needs${
-        // Only point at `disagreements` when the field is here AND non-empty. Pointing at one
-        // absent field from inside the fallback for another is the same defect nested one
-        // level down, and pointing at an empty list is a hunt with no quarry.
-        (disagreementCount ?? 0) > 0 ? ' - prefer the ones named in `disagreements`' : ''
-      }.`;
+  const why =
+    whyState === 'present'
+      ? ` \`why\` carries each arguing decision's reason and logged risks - use it directly and do NOT call ${DECISION_RATIONALE_TOOL} for a decision that appears there; call it only for one that does not appear there${
+          // With real questions in the payload the risks synthesis is retired for this
+          // response: two stated sources for one section is how the model picks the wrong one
+          // (ALI-627).
+          stillOpenState === 'present' ? '' : ', and draw the closing open-questions line from its risks'
+        }.`
+      : whyState === 'empty'
+        ? // The gateway looked across this chain and nothing is recorded. Sending the agent to
+          // the rationale tool per decision would find the same nothing, one call at a time,
+          // so the instruction is to SAY it rather than to go hunting.
+          ` The gateway looked for recorded reasoning on this chain and found none - say the reasons are not recorded rather than calling ${DECISION_RATIONALE_TOOL} for each decision.`
+        : ` This payload carries no \`why\`, so call ${DECISION_RATIONALE_TOOL} for the decisions whose reasoning the answer needs${
+            // Only point at `disagreements` when the field is here AND non-empty. Pointing at
+            // one absent field from inside the fallback for another is the same defect nested
+            // one level down, and pointing at an empty list is a hunt with no quarry.
+            (disagreementCount ?? 0) > 0 ? ' - prefer the ones named in `disagreements`' : ''
+          }.`;
 
   /**
    * Conditional for the same reason as the `why` clause: an instruction naming a field that is
@@ -263,8 +481,11 @@ export function topicTimelineMessage(opts: MessageOpts): string {
       : '';
   // The offer names only what THIS payload carries: risks ride in `why`, questions in
   // `still_open`, and promising an absent one makes the follow-up a hunt or an invention.
-  const offerItems = `the full chain${hasWhy ? ', the open risks' : ''}${
-    hasStillOpen ? ', the open questions' : ''
+  // Offers only what THIS payload actually carries. An `empty` state is a field that arrived
+  // with nothing in it, so offering "the open risks" off the back of it would be a promise the
+  // follow-up cannot keep.
+  const offerItems = `the full chain${whyState === 'present' ? ', the open risks' : ''}${
+    stillOpenState === 'present' ? ', the open questions' : ''
   }`;
 
   const render =
@@ -292,12 +513,23 @@ export function topicTimelineMessage(opts: MessageOpts): string {
    */
   // Both trailing sections are tier-labelled: without a label they read as unconditional
   // rules of the compact default too, which quietly rebuilds the wall.
-  const stillOpenSection = hasStillOpen
-    ? '\n\n**Still open** (the full timeline closes on this) - one line per question in `still_open`, naming the decision it came from; end with the single sharpest.'
-    : '\n\n**Still open** (the full timeline closes on this) - the single sharpest unanswered question, one line.';
+  const stillOpenSection =
+    stillOpenState === 'present'
+      ? '\n\n**Still open** (the full timeline closes on this) - one line per question in `still_open`, naming the decision it came from; end with the single sharpest.'
+      : stillOpenState === 'empty'
+        ? // The chain was asked and states none. Asking for "the single sharpest unanswered
+          // question" here is what made the model invent one.
+          '\n\n**Still open** (the full timeline closes on this) - this chain states no open questions; say so in one clause rather than naming one.'
+        : '\n\n**Still open** (the full timeline closes on this) - the single sharpest unanswered question, one line.';
 
   const renderRules =
-    '\n\nRules for the FULL timeline: ONE LINE PER DECISION, never a paragraph. Max 15 words of explanation per line. Mark superseded entries and name which decision replaced them. Cite decision_url and source_url as different links (the decision page vs where it was decided).';
+    // F4 (Copilot, #296 inline at :300). This used to close "Cite decision_url and source_url
+    // as different links", unconditionally, in a port that never emits decision_url - so the
+    // agent could not satisfy the rule without inventing a link or failing to look one up. The
+    // same phrasing had already been stripped from the tool description and this copy was
+    // missed, which is the fixed-one-site-left-the-twin shape. The earlier render clause stays
+    // conditional ("with decision_url when present, else source_url") and remains true.
+    '\n\nRules for the FULL timeline: ONE LINE PER DECISION, never a paragraph. Max 15 words of explanation per line. Mark superseded entries and name which decision replaced them. Link each decision with its source_url, which is where it was decided - never a link you did not receive.';
 
   return `${count} decision(s) about "${topic}".${history}${corrections}${partial}${background}${render}${stillOpenSection}${renderRules}${disagreements}${why}`;
 }
@@ -363,6 +595,21 @@ export function shapeTopicTimeline(
     inChain(s?.id),
   );
 
+  /**
+   * Presence and non-emptiness, kept apart (Copilot, #296 inline at :378).
+   *
+   * `absent` is "the gateway did not send the field" - an older gateway, or a degraded lookup.
+   * `empty` is "it sent one with nothing in it", which is a real observation and the stronger
+   * claim. Note a field that ARRIVED and was then filtered down to nothing by the chain scope
+   * is `empty` and not `absent`: the gateway did look, and what it found does not apply to the
+   * rows the agent is being shown. Either way the honest answer is "none here", never "we
+   * could not look".
+   */
+  const stateOf = (raw: unknown, filtered: unknown[]): FieldState =>
+    !Array.isArray(raw) ? 'absent' : filtered.length > 0 ? 'present' : 'empty';
+  const whyState = stateOf(result.why, why);
+  const stillOpenState = stateOf(result.still_open, stillOpen);
+
   return {
     topic: result.topic ?? requestedTopic,
     count: result.count ?? rows.length,
@@ -374,8 +621,11 @@ export function shapeTopicTimeline(
     ...(disagreements ? { disagreements } : {}),
     // Forwarded verbatim: the gateway already clipped every string and never sends
     // decision_json, so there is nothing left for this projection to bound.
-    ...(why.length > 0 ? { why } : {}),
-    ...(stillOpen.length > 0 ? { still_open: stillOpen } : {}),
+    // Emitted whenever the gateway SENT the field, empty included - the same rule
+    // `disagreements` above already follows. A key that is present and empty is how the
+    // absence gets reported honestly.
+    ...(whyState !== 'absent' ? { why } : {}),
+    ...(stillOpenState !== 'absent' ? { still_open: stillOpen } : {}),
     decisions: chain.map(present),
     /**
      * Counted, never enumerated. The whole defect this fixes is an agent reading 50 rows
@@ -393,13 +643,12 @@ export function shapeTopicTimeline(
       : {}),
     message: topicTimelineMessage({
       count: result.count ?? rows.length,
-      supersededCount: result.superseded_count ?? 0,
       semanticRan,
       topic: result.topic ?? requestedTopic,
       backgroundCount: background.length,
-      hasWhy: why.length > 0,
+      whyState,
       disagreementCount: disagreements === undefined ? undefined : disagreements.length,
-      hasStillOpen: stillOpen.length > 0,
+      stillOpenState,
       chainCount: chain.length,
       chainPlatforms: [
         ...new Set(chain.map((d) => d.platform).filter((p): p is string => Boolean(p))),

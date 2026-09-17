@@ -82,8 +82,18 @@ describe('ALI-1070 in local mode', () => {
     )) as Record<string, unknown>;
     // The id asserts it answered about the decision asked for, not merely that it returned
     // an object: a stub that returned {} would satisfy a bare "did not throw".
-    expect(row['id']).toBe(decisionId);
+    //
+    // `decision_id`, not `id`: the ALI-1070 follow-up projects the row through
+    // shapeDecisionRationale, because the serializer strips `decision_json` and every field
+    // this tool promises lives inside it. The projection runs on the local path too, which
+    // the rationale assertion below is what actually proves.
+    expect(row['decision_id']).toBe(decisionId);
     expect(row['title']).toBe('Verify webhook signatures with HMAC');
+    // A local row carries no decision_json, so the rationale falls back to the summary rather
+    // than to an empty string. Thinner than cloud, not broken - and a raw pass-through would
+    // have no `rationale` key at all.
+    expect(row['rationale']).toBe('Reject unsigned webhooks.');
+    expect(row['goals']).toEqual([]);
   });
 
   it('says what it does not hold, rather than reporting an empty answer', async () => {

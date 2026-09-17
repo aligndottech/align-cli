@@ -474,8 +474,24 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return request<CapturedDecision[]>(`/snapshots?${qs}`);
     },
 
+    /**
+     * ALI-1070 follow-up, SECURITY (Copilot, #296 inline at mcp.ts:222).
+     *
+     * `encodeURIComponent` on the segment, matching ratifyDecision and adjudicateCheck in this
+     * file and the new getDecisionTimeline. It was the one id-in-path method here that
+     * interpolated raw, which was survivable while every caller passed an id the USER had
+     * typed - and ALI-1070 routed an AGENT-CONTROLLED `decision_id` into it through the
+     * rationale tool. `../auth/me` is not an invalid id, it is a different GET endpoint: URL
+     * parsing resolves the dot segments before the request leaves, so the caller's PAT is
+     * attached to a request for a route they did not name. Measured: the built URL's pathname
+     * was `/auth/me`.
+     *
+     * Encoded at the HTTP boundary and nowhere else, so the LOCAL client keeps the raw id for
+     * its database lookup (local-gateway-client.ts getDecision) - encoding there would break a
+     * legitimate id containing a reserved character.
+     */
     async getDecision(id: string): Promise<CapturedDecision & { external_references: unknown[]; spaces: unknown[] }> {
-      return request(`/snapshots/${id}`);
+      return request(`/snapshots/${encodeURIComponent(id)}`);
     },
 
     // `depth: 'related'` returns the same embedding retrieval this endpoint already does and
