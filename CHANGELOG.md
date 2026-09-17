@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.39.0](https://github.com/aligndottech/align-cli/compare/cli-v0.38.1...cli-v0.39.0) (2026-09-17)
+
+
+### Features
+
+* **mcp:** publish readOnlyHint annotations on every tool, so a client can derive the write set (ALI-1063) ([#293](https://github.com/aligndottech/align-cli/issues/293)) ([4c3d641](https://github.com/aligndottech/align-cli/commit/4c3d641db5661791aade319ecb74e6bd053b39e2))
+
 ## [0.38.1](https://github.com/aligndottech/align-cli/compare/cli-v0.38.0...cli-v0.38.1) (2026-09-16)
 
 
