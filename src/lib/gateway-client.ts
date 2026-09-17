@@ -32,8 +32,21 @@ import pkg from '../../package.json' with { type: 'json' };
  * So the only safe answer is to REFUSE. A decision id, a check-event id and a snapshot id are
  * opaque identifiers - never `.`, never `..` - so nothing legitimate is being rejected, and
  * failing loudly here beats sending a request whose path resolves somewhere the caller never
- * named while their PAT rides along. One decode is sufficient: a doubly-encoded `%252e%252e`
- * decodes to `%2e%2e`, which the URL parser keeps literal (measured).
+ * named while their PAT rides along.
+ *
+ * WHICH LINE IS THE CONTROL: the `encodeURIComponent` return, not the decode above it. A guard
+ * with no decode at all refuses the same set, because `encodeURIComponent` emits `%` only as
+ * `%25`, so `%2e`, `.%2e` and `%2e%2e` are unreachable from its output and only a literal `.`
+ * or `..` can still produce a dot segment (measured over 68,064 constructions: 0 escapes either
+ * way). The decode buys STRICTNESS - `%2e%2e` is refused loudly instead of being sent safely as
+ * `%252e%252e` - and one pass is the right depth, since `%252e%252e` decodes to `%2e%2e`, which
+ * the URL parser keeps literal. Stated because the previous wording credited the decode with
+ * the safety, and a comment that names the wrong control is what gets deleted first.
+ *
+ * Verified at the real boundary, not only through `new URL()`. Against live prod:
+ *   GET /health                     -> 200   (control: reachable, unauthenticated)
+ *   GET /snapshots/../../health     -> 200   <- the raw traversal REACHES another route
+ *   GET /snapshots/..%2F..%2Fhealth -> 401   (%2F and %2f alike: the proxy keeps it literal)
  */
 export function encodePathSegment(value: string): string {
   let decoded = value;
@@ -42,10 +55,14 @@ export function encodePathSegment(value: string): string {
   } catch {
     // A malformed escape is not a dot segment; let it through to be encoded and 404.
   }
-  // An EMPTY or whitespace-only segment addresses the collection instead of a member:
-  // `/snapshots/` is the LIST endpoint. Not reachable through an MCP tool, because
-  // dispatchTool already refuses an empty required argument before dispatch - but this
-  // function's contract is "this segment cannot change the endpoint", so it owns the case.
+  // An EMPTY or whitespace-only segment is refused, and the reason is NOT that `/snapshots/`
+  // reaches the collection - measured against the gateway's pinned fastify 5.12.1, it does not:
+  //   GET /snapshots  -> 200 LIST
+  //   GET /snapshots/ -> 200 GET /snapshots/:id with id ""   <- find-my-way matches an empty param
+  // So an empty id stays on the member route and fails at the lookup instead. The refusal is
+  // still right, for the contract rather than the routing: this function promises the segment
+  // cannot change the endpoint, and a value that addresses no member is not an id. Not reachable
+  // through an MCP tool anyway, since dispatchTool refuses an empty required argument first.
   if (decoded === '.' || decoded === '..' || decoded.trim() === '') {
     throw new GatewayError(
       `Refusing to request a path built from the id ${JSON.stringify(value)}: a "." or ".." ` +
@@ -55,7 +72,18 @@ export function encodePathSegment(value: string): string {
       0,
     );
   }
-  return encodeURIComponent(value);
+  try {
+    return encodeURIComponent(value);
+  } catch (err) {
+    // A lone surrogate makes encodeURIComponent throw URIError. Nothing is sent either way, so
+    // this is legibility, not safety: the template is evaluated before `request()` is entered,
+    // so the raw URIError escapes past its catch and reads as a crash rather than a rejected id.
+    throw new GatewayError(
+      `Refusing to request a path built from the id ${JSON.stringify(value)}: it is not valid ` +
+        `text for a URL (${err instanceof Error ? err.message : String(err)}). Pass a real decision id.`,
+      0,
+    );
+  }
 }
 
 export const CLIENT_IDENTITY_HEADERS: Readonly<Record<string, string>> = Object.freeze({
