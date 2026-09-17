@@ -18,8 +18,40 @@ import { COMMANDS_DOC_END, COMMANDS_DOC_START, generatedRegion, renderCommandsRe
 import { COMMAND_REGISTRY } from '../commands/registry.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const DOC = readFileSync(join(ROOT, 'docs', 'commands.md'), 'utf8');
-const README = readFileSync(join(ROOT, 'README.md'), 'utf8');
+
+/**
+ * Read a committed text file with LF line endings, whatever the checkout did to it.
+ *
+ * This test compares a COMMITTED file against RENDERER output. The renderer emits `\n`; git on
+ * Windows checks the file out as `\r\n` because `core.autocrlf` is the default there and this
+ * repo had no `.gitattributes`. So both assertions below failed on `windows-latest` only, and
+ * for a reason with nothing to do with their subject: the region comparison diffed identical
+ * text, and the README regex's `\n+` could not match `\r\n` so it returned null and reported
+ * "README has no Everyday commands code block".
+ *
+ * A `.gitattributes` pinning `eol=lf` now fixes the checkout, and this normalises anyway -
+ * because a test that depends on the runner's git config has not established its own
+ * precondition (tdd.md), and the next contributor's `core.autocrlf` is not ours to assume.
+ *
+ * `toLf` is exported and is the ONLY normaliser: the CRLF block at the bottom of this file
+ * originally carried its own copy, so deleting the replacement here left all three of those
+ * tests green on LF-based CI - they verified the concept while the code under test was broken
+ * (Copilot, align-cli#295). One writer, so an injection into it reddens them
+ * (code-style.md, "a rule with two writers").
+ */
+export function toLf(text: string): string {
+  return text.replace(/\r\n/g, '\n');
+}
+
+/** The inverse, for the CRLF regression block below: manufacture a Windows checkout. */
+const toCrlf = (text: string) => text.replace(/\n/g, '\r\n');
+
+function readLf(...parts: string[]): string {
+  return toLf(readFileSync(join(ROOT, ...parts), 'utf8'));
+}
+
+const DOC = readLf('docs', 'commands.md');
+const README = readLf('README.md');
 
 function program() {
   return buildProgram({ internal: false, exitOverride: true, output: { writeOut() {}, writeErr() {} } });
@@ -66,5 +98,44 @@ describe('README "Everyday commands"', () => {
     expect([...new Set(verbs)]).toEqual(['align', 'ask', 'connect', 'check', 'mcp']);
     const after = README.slice(README.indexOf('## Everyday commands'), README.indexOf('## Everyday commands') + 1500);
     expect(after).toContain('docs/commands.md');
+  });
+});
+
+describe('a CRLF checkout must not fail these assertions (windows-latest, cli 0.39.0)', () => {
+  // The two tests above failed on `windows-latest` ONLY, twice on main, right after the 0.39.0
+  // release. Nothing was wrong with the docs: git checked them out CRLF and the renderer emits
+  // LF, so the region comparison diffed identical text and the README regex returned null.
+  //
+  // This reproduces that condition on any OS, because a fix verified only by a green Windows
+  // run is a fix nobody can check locally - and the runner's git config is not a precondition
+  // this suite ever established for itself (tdd.md).
+  //
+  // Every normalisation below goes through the SAME `toLf` that `readLf` uses, so these are
+  // tests of the implementation rather than of the idea.
+  it('the generated-region comparison survives CRLF once normalised', () => {
+    const crlfDoc = toCrlf(DOC);
+
+    // Negative control FIRST: without normalisation this is the exact failure CI reported.
+    expect(generatedRegion(crlfDoc)).not.toBe(renderCommandsReference(program()));
+
+    // And with it, the assertion the test actually means.
+    expect(generatedRegion(toLf(crlfDoc))).toBe(renderCommandsReference(program()));
+  });
+
+  it("the README regex matches CRLF once normalised, and demonstrably does not before", () => {
+    const pattern = /## Everyday commands\n+```bash\n([\s\S]*?)```/;
+    const crlfReadme = toCrlf(README);
+
+    // The negative control is the whole point: this is why CI said "README has no Everyday
+    // commands code block" about a README that plainly has one.
+    expect(pattern.exec(crlfReadme)).toBeNull();
+
+    expect(pattern.exec(toLf(crlfReadme))).not.toBeNull();
+  });
+
+  it('normalising is idempotent, so an LF checkout is unaffected', () => {
+    // The other side. A fix that only works on CRLF input would break every non-Windows run.
+    expect(toLf(DOC)).toBe(DOC);
+    expect(toLf(README)).toBe(README);
   });
 });
