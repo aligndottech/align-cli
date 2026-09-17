@@ -1,6 +1,7 @@
 import type { EnvironmentConfig } from './config.js';
 import { LOCAL_DEFAULT_GATEWAY_URL } from './config.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
+import type { TopicTimelineResult } from './mcp-timeline-tools.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -588,6 +589,32 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
 
     async getImpact(decisionId: string): Promise<unknown> {
       return request(`/decisions/${decisionId}/impact`);
+    },
+
+    /**
+     * ALI-1070: everything the team decided about a TOPIC, in time order, across tools.
+     *
+     * `authMiddleware` only, so this PAT already reaches it - there is nothing new to
+     * configure. The gateway fetches a brain embedding with `.catch(() => null)`, so a dead
+     * brain costs RECALL rather than the request, and the response says which halves ran in
+     * `retrieval: { lexical, semantic }`. That flag is the whole reason a degraded answer is
+     * distinguishable from a complete one: a quietly shorter list reads exactly like a full
+     * one, which is why shapeTopicTimeline turns `semantic: false` into a PARTIAL notice.
+     *
+     * Distinct from getDecisionTimeline, which is ONE decision's change history. The default
+     * limit lives HERE and not in the dispatch arm, so there is one writer of it (the hosted
+     * connector's client defaults the same way).
+     */
+    async getTopicTimeline(topic: string, limit = 50): Promise<TopicTimelineResult> {
+      return request<TopicTimelineResult>('/decisions/topic-timeline', {
+        method: 'POST',
+        body: JSON.stringify({ topic, limit }),
+      });
+    },
+
+    /** ALI-1070: ONE decision's change history - GET /decisions/:id/history, authMiddleware only. */
+    async getDecisionTimeline(decisionId: string): Promise<unknown> {
+      return request(`/decisions/${encodeURIComponent(decisionId)}/history`);
     },
 
     async getConflicts(): Promise<ConflictsResult> {

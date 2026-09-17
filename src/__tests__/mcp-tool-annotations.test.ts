@@ -23,6 +23,9 @@ import type { EnvironmentConfig } from '../lib/config';
  * - the write tools are annotated as writes: align_capture, and align_check_drift
  * - the read tools are annotated as reads: align_ask, and align_search
  * - the write set is exactly those two, so a new tool cannot be added unclassified
+ * - ALI-1070 added three tools (the timeline trio). All are READS, so WRITE_TOOLS below is
+ *   deliberately UNCHANGED - this suite going green on an unedited write set is the proof
+ *   that the new tools were classified, not that the assertion was loosened to fit them.
  * - toolSchemasFor's description rewriting preserves annotations in both modes
  */
 

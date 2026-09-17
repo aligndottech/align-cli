@@ -35,8 +35,11 @@ describe('the local MCP tool list leads with the check (ALI-139)', () => {
     expect(names).toEqual(expect.arrayContaining([
       'align_check_alignment', 'align_ask', 'align_search', 'align_capture', 'align_check_drift',
       'align_get_impact', 'align_get_conflicts', 'align_get_related_decisions',
+      // ALI-1070: the timeline trio, appended so the eight above keep the ranking ALI-139
+      // decided. All READS, so mcp-tool-annotations.test.ts's write set is unchanged.
+      'align_get_topic_timeline', 'align_get_decision_rationale', 'align_get_decision_timeline',
     ]));
-    expect(names).toHaveLength(8);
+    expect(names).toHaveLength(11);
   });
 });
 
