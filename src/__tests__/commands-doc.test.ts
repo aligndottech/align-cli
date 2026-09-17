@@ -32,9 +32,22 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
  * A `.gitattributes` pinning `eol=lf` now fixes the checkout, and this normalises anyway -
  * because a test that depends on the runner's git config has not established its own
  * precondition (tdd.md), and the next contributor's `core.autocrlf` is not ours to assume.
+ *
+ * `toLf` is exported and is the ONLY normaliser: the CRLF block at the bottom of this file
+ * originally carried its own copy, so deleting the replacement here left all three of those
+ * tests green on LF-based CI - they verified the concept while the code under test was broken
+ * (Copilot, align-cli#295). One writer, so an injection into it reddens them
+ * (code-style.md, "a rule with two writers").
  */
+export function toLf(text: string): string {
+  return text.replace(/\r\n/g, '\n');
+}
+
+/** The inverse, for the CRLF regression block below: manufacture a Windows checkout. */
+const toCrlf = (text: string) => text.replace(/\n/g, '\r\n');
+
 function readLf(...parts: string[]): string {
-  return readFileSync(join(ROOT, ...parts), 'utf8').replace(/\r\n/g, '\n');
+  return toLf(readFileSync(join(ROOT, ...parts), 'utf8'));
 }
 
 const DOC = readLf('docs', 'commands.md');
@@ -96,9 +109,9 @@ describe('a CRLF checkout must not fail these assertions (windows-latest, cli 0.
   // This reproduces that condition on any OS, because a fix verified only by a green Windows
   // run is a fix nobody can check locally - and the runner's git config is not a precondition
   // this suite ever established for itself (tdd.md).
-  const toCrlf = (s: string) => s.replace(/\n/g, '\r\n');
-  const readLfFrom = (s: string) => s.replace(/\r\n/g, '\n');
-
+  //
+  // Every normalisation below goes through the SAME `toLf` that `readLf` uses, so these are
+  // tests of the implementation rather than of the idea.
   it('the generated-region comparison survives CRLF once normalised', () => {
     const crlfDoc = toCrlf(DOC);
 
@@ -106,7 +119,7 @@ describe('a CRLF checkout must not fail these assertions (windows-latest, cli 0.
     expect(generatedRegion(crlfDoc)).not.toBe(renderCommandsReference(program()));
 
     // And with it, the assertion the test actually means.
-    expect(generatedRegion(readLfFrom(crlfDoc))).toBe(renderCommandsReference(program()));
+    expect(generatedRegion(toLf(crlfDoc))).toBe(renderCommandsReference(program()));
   });
 
   it("the README regex matches CRLF once normalised, and demonstrably does not before", () => {
@@ -117,12 +130,12 @@ describe('a CRLF checkout must not fail these assertions (windows-latest, cli 0.
     // commands code block" about a README that plainly has one.
     expect(pattern.exec(crlfReadme)).toBeNull();
 
-    expect(pattern.exec(readLfFrom(crlfReadme))).not.toBeNull();
+    expect(pattern.exec(toLf(crlfReadme))).not.toBeNull();
   });
 
   it('normalising is idempotent, so an LF checkout is unaffected', () => {
     // The other side. A fix that only works on CRLF input would break every non-Windows run.
-    expect(readLfFrom(DOC)).toBe(DOC);
-    expect(readLfFrom(README)).toBe(README);
+    expect(toLf(DOC)).toBe(DOC);
+    expect(toLf(README)).toBe(README);
   });
 });
