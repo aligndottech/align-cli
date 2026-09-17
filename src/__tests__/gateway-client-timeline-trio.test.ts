@@ -120,3 +120,53 @@ describe('ALI-1070 follow-up: the trio methods build the requests they claim to'
     expect(sentInit().method).toBeUndefined();
   });
 });
+
+/**
+ * Round 3, found by my own sweep rather than by either review: I had enumerated the id-in-path
+ * sites that ALREADY encoded and fixed those, which is the wrong search space. Sweeping for
+ * sites that INTERPOLATE found two more, and both are agent-controlled through MCP tools that
+ * predate ALI-1070:
+ *
+ *   getImpact   -> `/decisions/${decisionId}/impact`       <- align_get_impact
+ *   checkDrift  -> `/decisions/${decisionId}/drift-check`  <- align_check_drift
+ *
+ * Pre-existing, so not a defect this ticket introduced - and the same class, agent-reachable,
+ * in the file being fixed for exactly this. Leaving them would be the fixed-one-site shape
+ * this branch has spent two rounds correcting.
+ *
+ * Also the empty segment: `encodePathSegment('')` returned `''`, so `/snapshots/` is the LIST
+ * endpoint rather than a decision. Not reachable through an MCP tool - dispatchTool already
+ * refuses an empty or whitespace-only required argument, which is real defence in depth - but
+ * the guard's own contract should cover it, and refusing fails closed.
+ */
+describe('round 3: every agent-controlled id-in-path segment is guarded', () => {
+  it.each([
+    ['getImpact', (c: ReturnType<typeof createGatewayClient>, id: string) => c.getImpact(id)],
+    ['checkDrift', (c: ReturnType<typeof createGatewayClient>, id: string) => c.checkDrift(id, 'x')],
+    ['getDecision', (c: ReturnType<typeof createGatewayClient>, id: string) => c.getDecision(id)],
+    ['getDecisionTimeline', (c: ReturnType<typeof createGatewayClient>, id: string) => c.getDecisionTimeline(id)],
+  ])('%s refuses a dot-segment id before sending anything', async (_name, call) => {
+    await expect(call(createGatewayClient(cloudEnv), '..')).rejects.toThrow(
+      /Refusing to request a path built from the id/,
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['getImpact', (c: ReturnType<typeof createGatewayClient>, id: string) => c.getImpact(id)],
+    ['checkDrift', (c: ReturnType<typeof createGatewayClient>, id: string) => c.checkDrift(id, 'x')],
+  ])('%s still reaches its endpoint for a normal id', async (_name, call) => {
+    // The positive control for the refusals above, which a client that refused everything
+    // would otherwise satisfy.
+    ok({ ok: true });
+    await call(createGatewayClient(cloudEnv), 'd1');
+    expect(new URL(sentUrl()).pathname).toMatch(/^\/decisions\/d1\//);
+  });
+
+  it.each([[''], ['   ']])('refuses the empty-ish id %p, which would address the LIST endpoint', async (id) => {
+    await expect(createGatewayClient(cloudEnv).getDecision(id)).rejects.toThrow(
+      /Refusing to request a path built from the id/,
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});

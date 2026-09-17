@@ -42,11 +42,16 @@ export function encodePathSegment(value: string): string {
   } catch {
     // A malformed escape is not a dot segment; let it through to be encoded and 404.
   }
-  if (decoded === '.' || decoded === '..') {
+  // An EMPTY or whitespace-only segment addresses the collection instead of a member:
+  // `/snapshots/` is the LIST endpoint. Not reachable through an MCP tool, because
+  // dispatchTool already refuses an empty required argument before dispatch - but this
+  // function's contract is "this segment cannot change the endpoint", so it owns the case.
+  if (decoded === '.' || decoded === '..' || decoded.trim() === '') {
     throw new GatewayError(
       `Refusing to request a path built from the id ${JSON.stringify(value)}: a "." or ".." ` +
-        'segment is resolved away by URL normalisation, so the request would reach a different ' +
-        'endpoint than the one named. Pass a real decision id.',
+        'segment is resolved away by URL normalisation and an empty one addresses the ' +
+        'collection, so the request would reach a different endpoint than the one named. ' +
+        'Pass a real decision id.',
       0,
     );
   }
@@ -636,14 +641,14 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     },
 
     async checkDrift(decisionId: string, content: string, sourceType = 'manual_input'): Promise<unknown> {
-      return request(`/decisions/${decisionId}/drift-check`, {
+      return request(`/decisions/${encodePathSegment(decisionId)}/drift-check`, {
         method: 'POST',
         body: JSON.stringify({ source_type: sourceType, content }),
       });
     },
 
     async getImpact(decisionId: string): Promise<unknown> {
-      return request(`/decisions/${decisionId}/impact`);
+      return request(`/decisions/${encodePathSegment(decisionId)}/impact`);
     },
 
     /**
