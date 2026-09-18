@@ -56,7 +56,7 @@ align check                   Check current changes against the decision graph (
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
 
 align mcp                     Run Align as an MCP server for any MCP-capable agent (Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini, ...)
-                              flags: --env --setup --install --remove
+                              flags: --env --setup --install --remove --created-before
 ```
 
 ## Everything else

@@ -168,6 +168,7 @@ export async function dispatchTool(
   args: Record<string, unknown> | undefined,
   client: ReturnType<typeof createGatewayClient>,
   env: EnvironmentConfig,
+  createdBefore?: string,
 ): Promise<unknown> {
   // A required argument that never arrived used to reach the implementation and fail
   // from wherever the undefined landed: a missing `diff` surfaced as the tokenizer's
@@ -201,6 +202,7 @@ export async function dispatchTool(
       return client.searchDecisions(
         (args?.['question'] ?? args?.['query']) as string,
         (args?.['limit'] as number | undefined) ?? 8,
+        createdBefore,
       );
     case 'align_capture': {
       const input = args?.['input'] as string;
@@ -230,7 +232,7 @@ export async function dispatchTool(
     case 'align_get_conflicts':
       return client.getConflicts();
     case 'align_get_related_decisions':
-      return client.searchDecisions(`${args?.['file_path'] as string} ${args?.['context'] ?? ''}`, 5);
+      return client.searchDecisions(`${args?.['file_path'] as string} ${args?.['context'] ?? ''}`, 5, createdBefore);
     /**
      * ALI-1070. The gateway already returns the whole story structure; what this arm adds is
      * the projection and the RENDERING CONTRACT (mcp-timeline-tools.ts). Rows without the
@@ -304,10 +306,11 @@ export function isFirstUsefulToolResult(name: string, result: unknown): boolean 
 export function createCallToolHandler(
   client: ReturnType<typeof createGatewayClient>,
   env: EnvironmentConfig,
+  createdBefore?: string,
 ): (request: { params: { name: string; arguments?: Record<string, unknown> } }) => Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   return async (request) => {
     const { name, arguments: args } = request.params;
-    const result = await dispatchTool(name, args, client, env);
+    const result = await dispatchTool(name, args, client, env, createdBefore);
     if (isFirstUsefulToolResult(name, result)) {
       void recordFunnelStage(env, 'first_useful_decision', 'mcp');
     }
@@ -493,6 +496,65 @@ export const TOOL_SCHEMAS = [
   },
 ];
 
+/**
+ * ALI-1082: --created-before is a harness/audit-only bound (AlignBench's align arm passes
+ * it so it cannot see decisions the graph captured after a corpus item's frozen `asOf`).
+ * Fail closed at startup rather than silently accepting a value that does nothing:
+ *
+ * - Local-embedded mode has no server-side query to attach the bound to (the local graph
+ *   answers from SQLite directly, not through the gateway route that enforces it), so a
+ *   flag that appeared to work there would be lying.
+ * - Anything that is not an offset-bearing ISO-8601 instant is rejected the same way the
+ *   gateway's own `created_before` filter rejects it (services/gateway/src/routes/
+ *   decisions/smartSearchFilters.ts) - a bare calendar date (the shape the benchmark
+ *   corpus's `asOf` field itself carries) is refused rather than coerced, because the
+ *   caller must decide the instant in UTC, not have Postgres resolve a date-only literal
+ *   against the session TimeZone.
+ */
+const OFFSET_ISO_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+// Copilot (#302, mcp.ts:514): the pattern above checks SHAPE, not that the digits form a
+// real calendar instant - `Date.parse` silently rolls a non-existent day into the next
+// month (`2026-02-31T00:00:00Z` -> 2026-03-03) instead of rejecting it, so a corrupted
+// cutoff could pass the shape check and the fail-closed contract would be lying. This
+// reconstructs the instant from its own matched components and rejects any value whose
+// round trip does not land back on the digits the caller typed - which is what a bare
+// `Date.parse` cannot distinguish from a value it silently normalised.
+function isRealCalendarInstant(value: string, match: RegExpExecArray): boolean {
+  const [, year, month, day, hour, minute, second] = match.map(Number) as unknown as number[];
+  const asUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (Number.isNaN(asUtc.getTime())) return false;
+  return (
+    asUtc.getUTCFullYear() === year &&
+    asUtc.getUTCMonth() === month - 1 &&
+    asUtc.getUTCDate() === day &&
+    asUtc.getUTCHours() === hour &&
+    asUtc.getUTCMinutes() === minute &&
+    asUtc.getUTCSeconds() === second
+  );
+}
+
+export function validateCreatedBeforeFlag(value: string, env: EnvironmentConfig): void {
+  if (env.mode === 'local-embedded') {
+    throw new Error(
+      `--created-before is not supported in local-embedded mode: the local graph has no ` +
+      `server-side query to enforce the bound against, so accepting it would silently do ` +
+      `nothing. Got: ${value}`,
+    );
+  }
+  const match = OFFSET_ISO_PATTERN.exec(value);
+  // The offset's own range (e.g. +99:99) and an out-of-range hour/minute/second (25:00,
+  // 00:61) are already rejected by Date.parse below - only the calendar-day case needs
+  // the reconstruction above, since JS normalises it instead of erroring.
+  if (!match || Number.isNaN(Date.parse(value)) || !isRealCalendarInstant(value, match)) {
+    throw new Error(
+      `--created-before must be an offset-bearing ISO-8601 timestamp, e.g. ` +
+      `2026-08-11T00:00:00.000Z - a bare date is not enough, it must resolve to one real instant. Got: ${value}`,
+    );
+  }
+}
+
 export function registerMcpCommand(program: Command): void {
   program
     .command('mcp')
@@ -501,6 +563,7 @@ export function registerMcpCommand(program: Command): void {
     .option('--setup', 'Interactively configure your MCP-capable agents to use Align as an MCP server')
     .option('--install', 'Configure agents - alias for --setup')
     .option('--remove', 'Remove Align from your agents\' MCP config')
+    .option('--created-before <iso>', 'Hide decisions captured at or after this ISO-8601 instant (benchmark/audit use)')
     .addHelpText('after', `
 Claude Code config (~/.claude.json or workspace .mcp.json):
   {
@@ -509,7 +572,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
     }
   }
 `)
-    .action(async (opts: { env: EnvName; setup?: boolean; install?: boolean; remove?: boolean }) => {
+    .action(async (opts: { env: EnvName; setup?: boolean; install?: boolean; remove?: boolean; createdBefore?: string }) => {
       if (opts.remove) {
         await runMcpRemove();
         return;
@@ -527,6 +590,12 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
       const env = config.getEnvironment(resolvedEnv);
       const client = createGatewayClient(env);
 
+      // ALI-1082: fail closed BEFORE the server ever connects - a bound that silently does
+      // nothing is worse than no bound.
+      if (opts.createdBefore !== undefined) {
+        validateCreatedBeforeFlag(opts.createdBefore, env);
+      }
+
       const server = new Server(
         { name: 'align', version },
         { capabilities: { tools: {} }, instructions: instructionsFor(env) },
@@ -534,10 +603,17 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
 
       server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolSchemasFor(env) }));
 
-      server.setRequestHandler(CallToolRequestSchema, createCallToolHandler(client, env));
+      server.setRequestHandler(CallToolRequestSchema, createCallToolHandler(client, env, opts.createdBefore));
 
       // MCP protocol requires clean stdout; log startup to stderr
-      process.stderr.write(`align mcp server started (env: ${resolvedEnv}, gateway: ${env.gatewayUrl})\n`);
+      // ALI-1082: the cutoff is named in the banner whenever one is set, so a benchmark
+      // run's own transcript records that the bound was active - a bound nobody can see in
+      // the log is a bound nobody can audit afterwards.
+      const createdBeforeSuffix =
+        opts.createdBefore !== undefined ? `, created-before: ${opts.createdBefore}` : '';
+      process.stderr.write(
+        `align mcp server started (env: ${resolvedEnv}, gateway: ${env.gatewayUrl}${createdBeforeSuffix})\n`,
+      );
       // ALI-938: a URL asks someone to go figure it out later; the invite command is
       // something they can act on right there. See invite-prompt.ts.
       process.stderr.write(`${inviteNudgeLine('value')}\n`);

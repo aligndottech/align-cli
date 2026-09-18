@@ -205,7 +205,11 @@ describe('retrieval scoping', () => {
     expect(scoped.results.map((r) => r.title)).toContain('Use Postgres');
     expect(scoped.results.map((r) => r.title)).not.toContain('Use SvelteKit');
 
-    const all = await client.searchDecisions('database choice', 10, { all: true });
+    // ALI-1082 (Copilot #302): search.ts/why.ts send the CLOUD client's four-argument
+    // shape (q, limit, createdBefore, scope) regardless of which client resolveEnv hands
+    // back. If the local client still only declares three parameters, `scope` lands in
+    // the position JS silently drops, and --all/--repo stop doing anything in local mode.
+    const all = await client.searchDecisions('database choice', 10, undefined, { all: true });
     expect(all.scope).toBeNull();
     expect(all.results.map((r) => r.title)).toContain('Use SvelteKit');
     fs.rmSync(dirA, { recursive: true, force: true });

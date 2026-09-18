@@ -189,13 +189,13 @@ describe('align ask: a repo with nothing in it is not an empty graph (ALI-798)',
     const program = new Command();
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask', 'why jwt', '--repo', 'api']);
-    expect(searchDecisions).toHaveBeenCalledWith('why jwt', 8, { repo: 'api', all: undefined });
+    expect(searchDecisions).toHaveBeenCalledWith('why jwt', 8, undefined, { repo: 'api', all: undefined });
 
     searchDecisions.mockClear();
     const program2 = new Command();
     registerAskCommand(program2);
     await program2.parseAsync(['node', 'align', 'ask', 'why jwt', '--all']);
-    expect(searchDecisions).toHaveBeenCalledWith('why jwt', 8, { repo: undefined, all: true });
+    expect(searchDecisions).toHaveBeenCalledWith('why jwt', 8, undefined, { repo: undefined, all: true });
   });
 });
 

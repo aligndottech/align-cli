@@ -142,7 +142,7 @@ export function registerAskCommand(program: Command): void {
 
       try {
         const limit = parseInt(opts.limit, 10);
-        let results = await client.searchDecisions(searchQuery, limit, scope);
+        let results = await client.searchDecisions(searchQuery, limit, undefined, scope);
 
         // Auto-widen, stage 1: the scoped search found nothing at all. Found live
         // 2026-09-02, the same evening ALI-798's scoping shipped: a cross-repo question
@@ -156,7 +156,7 @@ export function registerAskCommand(program: Command): void {
         let widenAttempted = false;
         if (!results.results.length && results.scope && canWiden) {
           widenAttempted = true;
-          const wholeGraph = await client.searchDecisions(searchQuery, limit, { all: true });
+          const wholeGraph = await client.searchDecisions(searchQuery, limit, undefined, { all: true });
           if (wholeGraph.results.length) {
             widenedFrom = results.scope;
             results = wholeGraph;
@@ -280,7 +280,7 @@ export function registerAskCommand(program: Command): void {
           // "The context does not answer this question" at someone whose graph holds
           // the answer.
           if (answer && isAbstention(answer) && results.scope && canWiden && !widenedFrom) {
-            const wholeGraph = await client.searchDecisions(searchQuery, limit, { all: true });
+            const wholeGraph = await client.searchDecisions(searchQuery, limit, undefined, { all: true });
             if (wholeGraph.results.length) {
               const second = await synthesiseDetailed(
                 query,

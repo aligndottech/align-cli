@@ -450,7 +450,20 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       return { alreadyRatified: true, ratifiedBy: row.ratifiedBy, ratifiedAt: row.ratifiedAt };
     },
 
-    async searchDecisions(query: string, limit = 10, scope?: { repo?: string; all?: boolean }): Promise<SearchResults> {
+    // ALI-1082 (Copilot #302): `createdBefore` is accepted but ignored - there is no cutoff
+    // concept in local mode (a local graph is always fully current), and
+    // validateCreatedBeforeFlag already rejects --created-before outright in
+    // local-embedded mode before this can be reached. The parameter exists so this
+    // signature matches the cloud client's four positions; search.ts/why.ts send that
+    // shape regardless of which client resolveEnv hands back, and createGatewayClient's
+    // Proxy just forwards the call verbatim - a mismatched arity here means JS silently
+    // drops `scope`, not a type error.
+    async searchDecisions(
+      query: string,
+      limit = 10,
+      _createdBefore?: string,
+      scope?: { repo?: string; all?: boolean },
+    ): Promise<SearchResults> {
       const { dbFilter, effectiveRepo } = await resolveScope(scope);
       const embedding = await getEmbedding(query);
       let similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD, undefined, dbFilter);

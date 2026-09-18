@@ -61,7 +61,7 @@ describe('align ask', () => {
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask','why do we use postgres']);
     const client = (createGatewayClient as ReturnType<typeof vi.fn>).mock.results[0].value as { searchDecisions: ReturnType<typeof vi.fn> };
-    expect(client.searchDecisions).toHaveBeenCalledWith('why do we use postgres', 8, undefined);
+    expect(client.searchDecisions).toHaveBeenCalledWith('why do we use postgres', 8, undefined, undefined);
   });
 
   /**
@@ -158,7 +158,7 @@ describe('align ask', () => {
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask','do we use postgres']);
     const client = (createGatewayClient as ReturnType<typeof vi.fn>).mock.results[0].value as { searchDecisions: ReturnType<typeof vi.fn> };
-    expect(client.searchDecisions).toHaveBeenCalledWith('do we use postgres', 8, undefined);
+    expect(client.searchDecisions).toHaveBeenCalledWith('do we use postgres', 8, undefined, undefined);
   });
 });
 
@@ -172,7 +172,7 @@ describe('align ask - file path mode', () => {
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask', 'src/auth/middleware.ts']);
     const client = (createGatewayClient as ReturnType<typeof vi.fn>).mock.results[0].value as { searchDecisions: ReturnType<typeof vi.fn> };
-    expect(client.searchDecisions).toHaveBeenCalledWith('src/auth/middleware.ts', 8, undefined);
+    expect(client.searchDecisions).toHaveBeenCalledWith('src/auth/middleware.ts', 8, undefined, undefined);
   });
 
   it('shows "Decisions related to <path>" header for file path queries', async () => {
@@ -199,7 +199,7 @@ describe('align ask - file path mode', () => {
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask', './src/auth/middleware.ts']);
     const client = (createGatewayClient as ReturnType<typeof vi.fn>).mock.results[0].value as { searchDecisions: ReturnType<typeof vi.fn> };
-    expect(client.searchDecisions).toHaveBeenCalledWith('./src/auth/middleware.ts', 8, undefined);
+    expect(client.searchDecisions).toHaveBeenCalledWith('./src/auth/middleware.ts', 8, undefined, undefined);
   });
 
   it('treats arg as file path when existsSync returns true even with no slash', async () => {
@@ -210,7 +210,7 @@ describe('align ask - file path mode', () => {
     registerAskCommand(program);
     await program.parseAsync(['node', 'align', 'ask', 'Makefile']);
     const client = (createGatewayClient as ReturnType<typeof vi.fn>).mock.results[0].value as { searchDecisions: ReturnType<typeof vi.fn> };
-    expect(client.searchDecisions).toHaveBeenCalledWith('Makefile', 8, undefined);
+    expect(client.searchDecisions).toHaveBeenCalledWith('Makefile', 8, undefined, undefined);
   });
 
   // ALI-420. These two are a pair: each one's positive assertion is the other's control,

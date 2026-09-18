@@ -112,7 +112,7 @@ describe('align ask auto-widens a scoped search that found nothing', () => {
     const out = await ask();
 
     expect(searchDecisions).toHaveBeenCalledTimes(2);
-    expect(searchDecisions).toHaveBeenNthCalledWith(2, expect.any(String), expect.any(Number), { all: true });
+    expect(searchDecisions).toHaveBeenNthCalledWith(2, expect.any(String), expect.any(Number), undefined, { all: true });
     expect(out).toContain('The real decision, in another repo');
   });
 

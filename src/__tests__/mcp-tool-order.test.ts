@@ -65,8 +65,8 @@ describe('align_search is an alias of align_ask: one dispatch path', () => {
     await dispatchTool('align_ask', { question: 'q', limit: 3 }, ask.cast, cloudEnv);
     const search = client();
     await dispatchTool('align_search', { query: 'q', limit: 3 }, search.cast, cloudEnv);
-    expect(ask.c.searchDecisions).toHaveBeenCalledWith('q', 3);
-    expect(search.c.searchDecisions).toHaveBeenCalledWith('q', 3);
+    expect(ask.c.searchDecisions).toHaveBeenCalledWith('q', 3, undefined);
+    expect(search.c.searchDecisions).toHaveBeenCalledWith('q', 3, undefined);
   });
 
   it('says so in the schema, so an agent reading descriptions alone learns they are one tool', () => {
