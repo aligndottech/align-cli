@@ -204,7 +204,14 @@ jobs:
           # assertions read the wrong side of the wire. Escaped quotes because the
           # sink stores each body as a JSON-encoded string inside a JSON line.
           expect "$RUNNER_TEMP/sink.jsonl" '\"stage\":\"import_completed\"' "import_completed stage sent"
-          expect "$RUNNER_TEMP/sink.jsonl" "import git" "activation-by-source command path sent"
+          # ALI-951: the smoke now runs `align connect git`, because `align import` was retired
+          # in 0.40.0. This assertion is WEAKER than it was and deliberately says so rather
+          # than reading as equivalent: `connect git` collapses to bare `connect` on the wire,
+          # because usage-telemetry.ts's SUBCOMMAND_PARENTS (and the gateway's copy in
+          # telemetryAnonymousRoutes.ts, which must agree or pings 400) both list `import` and
+          # NOT `connect`. So activation-BY-SOURCE has not been reported since the 0.38.0
+          # rename, and adding `connect` to both sets is a cross-repo follow-up, not a CI fix.
+          expect "$RUNNER_TEMP/sink.jsonl" '\"command\":\"connect\"' "connect command path sent (see note: by-source granularity is lost)"
           expect "$RUNNER_TEMP/sink.jsonl" '\"stage\":\"first_useful_decision\"' "activation stage sent"
           expect "$RUNNER_TEMP/sink.jsonl" '\"stage\":\"mcp_wired\"' "mcp_wired stage sent"
           echo "--- sink contents ---"

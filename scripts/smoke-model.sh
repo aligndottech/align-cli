@@ -29,7 +29,7 @@ is_upstream_model_rate_limit() {
 
 # pass | fail | skip-upstream, for one smoke step that needs the model.
 #
-# The 429 is read BEFORE the exit code, and that ordering is the point: `align import git`
+# The 429 is read BEFORE the exit code, and that ordering is the point: `align connect git`
 # exited 0 on the ALI-713 run while reporting "Imported 0 decisions (1 batch failed)", so the
 # exit code alone certified an empty graph as a pass. A step whose output carries the upstream
 # 429 has not tested anything, whatever it exited with.

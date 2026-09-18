@@ -16,7 +16,10 @@ to create or paste. GitHub, Jira, Confluence, Slack, Microsoft Teams, Zoom, Line
 The CLI only ever reads. It can't modify your tools; write access lives only in the team and
 org bot apps.
 
-The same OAuth flow works per source: `align import <source> --personal` opens the browser
+> `align import` was renamed `align connect` in 0.40.0. The old spelling now exits 2 and
+> names the replacement; it was deprecated in 0.38.0 with a line on every run.
+
+The same OAuth flow works per source: `align connect <source> --personal` opens the browser
 consent, or reuses a token `align setup` already cached. The `--token` forms below are the
 manual and CI alternative, and how you connect self-managed hosts.
 
@@ -31,7 +34,7 @@ skip the prompt.
 No auth needed. This is what `align setup` seeds from.
 
 ```bash
-align import git
+align connect git
 ```
 
 | Flag | Default | Description |
@@ -51,7 +54,7 @@ content, split by section. It never re-imports what `align setup` already wrote 
 loop, not a decision.
 
 ```bash
-align import docs
+align connect docs
 ```
 
 | Flag | Default | Description |
@@ -62,8 +65,8 @@ align import docs
 ## GitHub and GitLab
 
 ```bash
-align import github --token ghp_...
-align import gitlab --token glpat-...   # self-managed: create a read_api (read-only) token
+align connect github --token ghp_...
+align connect gitlab --token glpat-...   # self-managed: create a read_api (read-only) token
 ```
 
 GitHub scopes to the repo you are in by default (detected from the git remote) - a
@@ -75,7 +78,7 @@ unscoped unless you pass `--repo owner/repo`. Pass `--repo owner/repo` to name a
 ## Jira
 
 ```bash
-align import jira \
+align connect jira \
   --token <your-jira-api-token> \
   --email your@email.com \
   --domain yourorg.atlassian.net
@@ -86,13 +89,13 @@ align import jira \
 OAuth scope is `read`.
 
 ```bash
-align import linear --token lin_api_...
+align connect linear --token lin_api_...
 ```
 
 ## Confluence
 
 ```bash
-align import confluence \
+align connect confluence \
   --token <your-confluence-api-token> \
   --email your@email.com \
   --domain yourorg.atlassian.net
@@ -103,13 +106,13 @@ align import confluence \
 OAuth uses read scopes only, no `chat:write`. The Slack app needs public distribution enabled,
 or you authorize from its home workspace.
 
-Manually, `align import slack` needs a Slack **user** token (`xoxp-...`), not a bot token. Go to
+Manually, `align connect slack` needs a Slack **user** token (`xoxp-...`), not a bot token. Go to
 [api.slack.com/apps](https://api.slack.com/apps), create an app, and add these User Token Scopes
 under OAuth & Permissions: `channels:read`, `channels:history`, `groups:read`, `groups:history`.
 Install to your workspace and copy the OAuth User Token.
 
 ```bash
-align import slack --token xoxp-<your-slack-user-token>
+align connect slack --token xoxp-<your-slack-user-token>
 ```
 
 | Flag | Default | Description |
@@ -123,7 +126,7 @@ Create an internal integration with **only "Read content"** capability, no inser
 then paste its secret:
 
 ```bash
-align import notion --token <your-notion-integration-token>
+align connect notion --token <your-notion-integration-token>
 ```
 
 ## Microsoft Teams
@@ -133,13 +136,13 @@ In local mode, paste a Microsoft Graph access token: sign in to
 "Access token" tab and copy it. Reading channel messages needs `ChannelMessage.Read.All`,
 which your Microsoft 365 admin may have to consent to. The token expires after about an
 hour, so re-run `align setup --local` and pick Teams to paste a fresh one when you want to
-refresh. `align import teams --token <Graph token> --env local` imports once from the
+refresh. `align connect teams --token <Graph token> --env local` imports once from the
 command line without remembering the token; setup is what makes Teams show as connected.
 
 ## Zoom
 
 Use `align setup` with a cloud account. Zoom has no personal token a human can create
-in-app, so it isn't offered in local-only setup. `align import zoom --token <OAuth token>`
+in-app, so it isn't offered in local-only setup. `align connect zoom --token <OAuth token>`
 exists for a token you got elsewhere.
 
 ## Connector scans (cloud)
@@ -148,10 +151,10 @@ With a cloud account, the gateway can run connector-side scans and hold the resu
 suggestions for review.
 
 ```bash
-align import --all           # start a scan across every enabled connector
-align import list            # scan jobs and their status
-align import suggestions     # review what a scan found
-align import scan-runs       # scan history
+align connect --all           # start a scan across every enabled connector
+align connect list            # scan jobs and their status
+align connect suggestions     # review what a scan found
+align connect scan-runs       # scan history
 ```
 
 ## Capturing one decision

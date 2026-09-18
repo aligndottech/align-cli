@@ -248,24 +248,24 @@ git -C "$FIXTURE" commit -qm "fix: cap retries at 3" \
 
 cd "$FIXTURE"
 echo ""
-echo "== import git (downloads the model on a cold cache, then embeds) =="
-IMPORT_OUT="$("$BIN" import git --approve --env local --limit 20 2>&1)"; IMPORT_RC=$?
+echo "== connect git (downloads the model on a cold cache, then embeds) =="
+IMPORT_OUT="$("$BIN" connect git --approve --env local --limit 20 2>&1)"; IMPORT_RC=$?
 printf '%s\n' "$IMPORT_OUT" | sed 's/^/  | /'
 IMPORT_VERDICT="$(classify_step_result "$IMPORT_RC" "$IMPORT_OUT")"
 
 if [ "$IMPORT_VERDICT" = skip-upstream ]; then
   SKIPPED=$((SKIPPED + 1))
-  echo "SKIP: import git - huggingface.co returned HTTP 429 for the model download."
+  echo "SKIP: connect git - huggingface.co returned HTTP 429 for the model download."
   echo "      Upstream rate limiting of a shared runner IP, not attributable to this change."
   echo "::warning title=Embedding model download rate-limited (429)::The binary embedding smoke was skipped: huggingface.co rate-limited the ~23MB model download. Upstream, not this change - re-run the job."
 elif [ "$IMPORT_VERDICT" != pass ]; then
-  fail "import git exited $IMPORT_RC in the binary"
+  fail "connect git exited $IMPORT_RC in the binary"
 else
   # An import that exits 0 having imported nothing is an assertion that cannot fail.
   if printf '%s' "$IMPORT_OUT" | grep -qE '[0-9]+ batch(es)? failed'; then
-    fail "import git exited 0 but reported a failed batch - embeddings did not run"
+    fail "connect git exited 0 but reported a failed batch - embeddings did not run"
   else
-    pass "import git completed with no failed batch"
+    pass "connect git completed with no failed batch"
   fi
 
   # The EFFECT: rows on disk, not the line the command printed. Decisions AND embeddings,
