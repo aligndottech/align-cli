@@ -1,4 +1,4 @@
-// The Align Personal OAuth flow, shared by `align setup` and `align import <src> --personal`
+// The Align Personal OAuth flow, shared by `align setup` and `align connect <src> --personal`
 // (ALI-388). Lifted verbatim from setup.ts so both entry points use one implementation: the
 // gateway's /oauth/cli-start/:key begins the flow, the browser lands credentials on the
 // localhost listener (cli-oauth.ts), and tokens persist in the local config under the
@@ -138,7 +138,7 @@ export async function collectTokensViaOAuth(
 }
 
 // Persist a connector's OAuth token plus Atlassian cloudId/site base so future
-// runs (and `align import`) can reuse the credentials without re-auth.
+// runs (and `align connect`) can reuse the credentials without re-auth.
 export function persistConnectorCreds(
   config: ConfigStore,
   envName: EnvName,
@@ -155,7 +155,7 @@ export function persistConnectorCreds(
 }
 
 // ---------------------------------------------------------------------------
-// `align import <src> --personal` (ALI-388)
+// `align connect <src> --personal` (ALI-388)
 // ---------------------------------------------------------------------------
 
 /**
@@ -183,7 +183,7 @@ export interface PersonalCreds {
 }
 
 /**
- * Resolve credentials for `align import <src> --personal`: the cached personal OAuth token
+ * Resolve credentials for `align connect <src> --personal`: the cached personal OAuth token
  * when one exists, otherwise the browser flow. Throws with a user-readable message when the
  * flow cannot run here - callers print it and exit rather than opening a doomed browser.
  */

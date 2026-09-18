@@ -61,7 +61,7 @@ export function registerImportSlackCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro(commandIntro('align import slack'));
+      p.intro(commandIntro('align connect slack'));
       const spinner = p.spinner();
       spinner.start('Fetching decision threads from Slack...');
       try {

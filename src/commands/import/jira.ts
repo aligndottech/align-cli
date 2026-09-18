@@ -67,7 +67,7 @@ export function registerImportJiraCommand(importCmd: Command): void {
       }
 
       if (!token) {
-        p.log.error('No Jira credentials found. Run align setup or align import jira --personal to connect via OAuth, or pass --email, --token, and --domain.');
+        p.log.error('No Jira credentials found. Run align setup or align connect jira --personal to connect via OAuth, or pass --email, --token, and --domain.');
         process.exit(1);
       }
       if (!cloudId && (!opts.email || !opts.domain)) {
@@ -75,7 +75,7 @@ export function registerImportJiraCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro(commandIntro('align import jira'));
+      p.intro(commandIntro('align connect jira'));
       const spinner = p.spinner();
       spinner.start('Fetching your Jira issues...');
       try {

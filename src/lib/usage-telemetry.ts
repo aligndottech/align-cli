@@ -191,7 +191,7 @@ function commandPathOf(command: string): string {
  */
 /**
  * ALI-835: the stages the gateway ACCEPTS a measurement on. Permission, not obligation - three
- * of the four come from one `align import sessions` run and carry a count and an agent name,
+ * of the four come from one `align connect sessions` run and carry a count and an agent name,
  * while `decisions_ratified` comes from `align ratify` and deliberately carries neither, since
  * a ratification is a person standing behind a claim rather than anything an agent counted.
  *
@@ -434,7 +434,7 @@ export function invocationCommandPath(actionCommand: { name(): string; parent: u
 /**
  * The `--env` the user actually typed, including one Commander handed to a parent.
  *
- * `align import git --env local` leaves the subcommand's own `opts()` empty, because `--env`
+ * `align connect git --env local` leaves the subcommand's own `opts()` empty, because `--env`
  * is declared on both and Commander resolves that in the parent's favour (align-cli#79, which
  * fixed the same read for the import commands via subcommandOpts). Reading `.opts()` here
  * would send a local command's event to the cloud default - this slice's own bug, one layer up.

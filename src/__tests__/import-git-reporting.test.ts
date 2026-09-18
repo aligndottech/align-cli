@@ -69,7 +69,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
       scanned: 10,
       rejectedByRationale: 2,
     });
-    await run(['import', 'git']);
+    await run(['connect', 'git']);
     const message = stopMock.mock.calls.at(-1)?.[0] as string;
     expect(message).toContain('2');
     // The old message reported scanned(10) - kept(3) = 7, which folds in the 5 the
@@ -83,7 +83,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
       scanned: 8,
       rejectedByRationale: 0,
     });
-    await run(['import', 'git']);
+    await run(['connect', 'git']);
     const message = stopMock.mock.calls.at(-1)?.[0] as string;
     expect(message).toBe('Found 1 commits worth importing');
   });
@@ -95,7 +95,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
       scanned: 10,
       rejectedByRationale: 2,
     });
-    await run(['import', 'git']);
+    await run(['connect', 'git']);
     const printed = logSpy.mock.calls.flat().join('\n');
     expect(printed).toContain('Git: 3 commits');
     expect(printed).toContain('2 commits stated no reason beyond the subject');
@@ -111,7 +111,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
       scanned: 10,
       rejectedByRationale: 2,
     });
-    await run(['import', 'git', '--limit', '10']);
+    await run(['connect', 'git', '--limit', '10']);
     const printed = logSpy.mock.calls.flat().join('\n');
     expect(printed).toContain('Git: 3 commits of up to 10 requested');
   });
@@ -124,7 +124,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
       scanned: 1,
       rejectedByRationale: 0,
     });
-    await run(['import', 'git']);
+    await run(['connect', 'git']);
     const items = vi.mocked(runPersonalImport).mock.calls.at(-1)?.[0] as Array<{ created_at?: string }>;
     expect(items).toHaveLength(1);
     expect(items[0].created_at).toBe('2026-01-11T08:30:00+01:00');
@@ -137,7 +137,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
       scanned: 8,
       rejectedByRationale: 0,
     });
-    await run(['import', 'git']);
+    await run(['connect', 'git']);
     const printed = logSpy.mock.calls.flat().join('\n');
     expect(printed).toContain('Git: 8 commits');
     expect(printed).not.toContain('stated no reason');

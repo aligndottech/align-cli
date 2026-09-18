@@ -3,7 +3,7 @@
  * tools where the rest of the story lives (ALI-792).
  *
  * These refs are the foundation of the gap-driven connect prompt ("12 decisions cite
- * Jira keys I can't read - `align import jira`"): a ref whose platform has no
+ * Jira keys I can't read - `align connect jira`"): a ref whose platform has no
  * connected source is a gap the graph can name. Until this module, the git import
  * discarded the commit body, so every one of these shapes died before ingest.
  *

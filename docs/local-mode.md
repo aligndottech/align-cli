@@ -28,7 +28,7 @@ privacy. You can start local and move to cloud later.
 Worth knowing before you point it at work content.
 
 - The embedding model downloads once from huggingface.co (~23MB), on the first import.
-- `align import <tool>` calls that tool's API, read-only, with the token you pasted. That's what
+- `align connect <tool>` calls that tool's API, read-only, with the token you pasted. That's what
   an import is. The data goes from your tool to your machine. None of it goes to Align.
 - **Only when an AI provider is available** (an API key in your environment, or a running
   Ollama, which needs no key) three surfaces call **your own provider**:
@@ -75,7 +75,7 @@ is listed on its own page, and a test keeps that page true.
 ## How the local graph behaves
 
 - Seeds from your git history out of the box. Other sources connect by pasting a **read-only
-  personal token you create yourself**. Add `--env local` to any `align import <tool>` run.
+  personal token you create yourself**. Add `--env local` to any `align connect <tool>` run.
 - **Why your own token, by design.** This is your personal graph, so the credential is
   yours too: you choose its scope (read-only), you can see exactly what it grants, and you
   can revoke it at the provider any time without involving Align. Tokens are stored on this
@@ -93,7 +93,7 @@ is listed on its own page, and a test keeps that page true.
   same import twice updates what changed rather than duplicating the graph.
 - **Re-running setup is additive.** `align setup --local` a second time skips the git scan
   when this repo's history is already in your graph and the docs read when its docs are (it
-  names `align import git --env local` and `align import docs --env local` as the refresh
+  names `align connect git --env local` and `align connect docs --env local` as the refresh
   commands; a repo with no GitHub or GitLab remote re-reads its docs, which is quick), lists
   the tools you already connected as *connected*, and only fetches what you pick. Pick a
   connected tool to re-import it with its saved token, or to replace an expired one; a
@@ -121,7 +121,7 @@ is listed on its own page, and a test keeps that page true.
 
 **Not yet routed to the local graph** (they address the cloud gateway): `export`,
 `drift`, `links`, `spaces`, `check --resolve`, and the connector-scan commands under
-`align import`.
+`align connect`.
 
 ## Install notes
 

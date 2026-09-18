@@ -215,7 +215,7 @@ const LEGACY_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
  * 2. A decision's `source_url` identifies it, and nothing enforced that: `insertDecision` minted
  *    a fresh UUID per call, so re-importing the same commit added a second copy. The documented
  *    first run does exactly that - `setup --local` seeds from git, then its own outro tells you
- *    to run `align import git` - so a graph goes from 2 decisions to 4 by following the tips.
+ *    to run `align connect git` - so a graph goes from 2 decisions to 4 by following the tips.
  *    Collapse the existing duplicates, then make them unrepresentable with a unique index.
  *
  * 3. ALI-798: add the `repo` column (missing on any graph that predates it) and backfill it

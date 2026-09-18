@@ -29,7 +29,7 @@ export function resolveEnv(flagValue?: string, opts: { preferLocalEmbedded?: boo
 }
 
 /**
- * Env resolution for `align import <tool>` (ALI-675).
+ * Env resolution for `align connect <tool>` (ALI-675).
  *
  * Imports were left off the preferLocalEmbedded redirect on the premise that
  * they are cloud-only. They are not: the local-embedded client implements

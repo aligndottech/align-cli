@@ -78,24 +78,24 @@ describe('import subcommand options reach the subcommand (parent/child collision
   });
 
   it('honours --approve on `import git`, so the confirm prompt is skipped', async () => {
-    await run(['import', 'git', '--approve']);
+    await run(['connect', 'git', '--approve']);
     expect(importOpts()['approve']).toBe(true);
   });
 
   // Second example for the same rule: proves this is the parsing, not something
   // special-cased for `git`.
   it('honours --approve on `import github`', async () => {
-    await run(['import', 'github', '--token', 'ghp_x', '--approve']);
+    await run(['connect', 'github', '--token', 'ghp_x', '--approve']);
     expect(importOpts()['approve']).toBe(true);
   });
 
   it('honours --env local on `import git`, so a no-account user routes locally', async () => {
-    await run(['import', 'git', '--env', 'local']);
+    await run(['connect', 'git', '--env', 'local']);
     expect(resolveImportEnv).toHaveBeenCalledWith('local');
   });
 
   it('honours --env local on `import github`', async () => {
-    await run(['import', 'github', '--token', 'ghp_x', '--env', 'local']);
+    await run(['connect', 'github', '--token', 'ghp_x', '--env', 'local']);
     expect(resolveImportEnv).toHaveBeenCalledWith('local');
   });
 
@@ -105,12 +105,12 @@ describe('import subcommand options reach the subcommand (parent/child collision
   // optsWithGlobals() already resolves it correctly; this pins that so a future change to
   // either --all's shape can't silently break it unnoticed.
   it('honours --all on `import github`, so resolveGitHubRepoScope sees it despite the parent also declaring --all', async () => {
-    await run(['import', 'github', '--token', 'ghp_x', '--all']);
+    await run(['connect', 'github', '--token', 'ghp_x', '--all']);
     expect(resolveGitHubRepoScope).toHaveBeenCalledWith(expect.objectContaining({ all: true }));
   });
 
   it('honours --approve and --env together with a child-only option', async () => {
-    await run(['import', 'git', '--approve', '--env', 'local', '--limit', '3']);
+    await run(['connect', 'git', '--approve', '--env', 'local', '--limit', '3']);
     expect(importOpts()['approve']).toBe(true);
     expect(resolveImportEnv).toHaveBeenCalledWith('local');
   });
@@ -119,14 +119,14 @@ describe('import subcommand options reach the subcommand (parent/child collision
   // fails, the defect is not the collision.
   it('still passes a child-only option through', async () => {
     const { getCommitHistoryDetailed } = await import('../lib/git.js');
-    await run(['import', 'git', '--limit', '7']);
+    await run(['connect', 'git', '--limit', '7']);
     expect(vi.mocked(getCommitHistoryDetailed)).toHaveBeenCalledWith(expect.objectContaining({ limit: 7 }));
   });
 
   // Control: without the flag, approve must stay falsy. Otherwise a fix that
   // simply forces approve on would pass every test above.
   it('leaves approve unset when the flag is absent', async () => {
-    await run(['import', 'git']);
+    await run(['connect', 'git']);
     expect(importOpts()['approve']).toBeFalsy();
   });
 });

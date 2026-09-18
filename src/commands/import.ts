@@ -20,7 +20,7 @@ import { registerImportTeamsCommand } from './import/teams.js';
 import { registerImportZoomCommand } from './import/zoom.js';
 import { registerImportNotionCommand } from './import/notion.js';
 import { registerImportSessionsCommand } from './import/sessions.js';
-import { importAliasLine, invokedAsImport, runConnect } from './connect.js';
+import { runConnect } from './connect.js';
 
 interface ProgressState {
   connector: string;
@@ -119,7 +119,7 @@ function registerImportListCommands(importCmd: Command): void {
           ],
           suggestions.map(s => [s.id, s.suggested_title, (s.confidence ?? 0).toFixed(2), s.status]),
         );
-        console.log(chalk.dim('Approve all: align import --all --approve'));
+        console.log(chalk.dim('Approve all: align connect --all --approve'));
         console.log('');
       } catch (err) {
         spinner.stop('');
@@ -175,16 +175,50 @@ interface ConnectGroupOpts {
 }
 
 /**
- * The `connect` group (ALI-951), which `import` still reaches as a deprecated alias. With no
- * source and no `--all` it is the local picker (connect.ts); `connect <source>` is the old
- * `import <source>` subcommand, unchanged; `--all` and a cloud env keep the cloud scan below.
+ * ALI-951: `import` was retired in 0.40.0, and a RETIRED command still has to exist.
+ *
+ * Deleting the alias outright is not the end state, because `align` has a default action for a
+ * free-text question (cli.ts's `program.action(runDefaultAction)`). With no `import` command
+ * registered, `align import git` parses as the QUESTION "import git", runs the default action
+ * and **exits 0** - so a script that has been importing for a year keeps reporting success and
+ * silently imports nothing. Measured on the built binary before this stub existed:
+ * `align import git` -> exit 0, and `align import git --approve` -> exit 1 with
+ * "unknown option '--approve'", which names neither the removal nor the replacement.
+ *
+ * So it stays registered, hidden from `--help`, accepting anything, and fails loudly naming the
+ * new spelling. `.error()` rather than `process.exit`, so exitOverride still works in a test.
+ * It has its own COMMAND_REGISTRY entry because help-tiers.test.ts requires every registered
+ * command to be claimed by exactly one - and it is deliberately NOT `internal`, which in this
+ * registry means "Align team only": a customer with the old spelling in a script is precisely
+ * who needs to reach it.
+ */
+export function registerRetiredImportCommand(program: Command): void {
+  const retired = program
+    .command('import [args...]', { hidden: true })
+    .allowUnknownOption()
+    .description('removed in 0.40.0 - use align connect')
+    .action((args: string[]) => {
+      const sub = args[0] ? ` ${args[0]}` : '';
+      retired.error(
+        `align import${sub} was removed in 0.40.0. Use align connect${sub}. ` +
+          'The old spelling was deprecated in 0.38.0 and printed a line on every run until now.',
+        { exitCode: 2 },
+      );
+    });
+}
+
+/**
+ * The `connect` group (ALI-951). With no source and no `--all` it is the local picker
+ * (connect.ts); `connect <source>` runs that source's import; `--all` and a cloud env take
+ * the cloud scan below. `import` no longer reaches any of it - it is the retirement stub
+ * above, which exits 2 - so this group is the only live spelling.
+ *
  * This file stays on the bare resolver on purpose - the scan's job endpoints exist only on
  * the cloud gateway (import-env-parity.test.ts); the picker path resolves in connect.ts.
  */
 export function registerImportCommand(program: Command): void {
   const importCmd = program
     .command('connect [connectors...]')
-    .alias('import')
     .description('Connect a source and import its decisions. No source: pick from a list. --all: scan every connected cloud connector')
     .option('--env <env>', 'Environment')
     .option('--source <id>', 'The source to connect without the picker (github, jira, ...)')
@@ -197,18 +231,6 @@ export function registerImportCommand(program: Command): void {
     .option('--from <date>', 'Start date ISO e.g. 2025-01-01')
     .option('--to <date>', 'End date ISO')
     .option('--approve', 'Auto-approve all suggestions when scan completes')
-    .hook('preAction', (thisCommand, actionCommand) => {
-      // ALI-951: one line per invocation, whichever subcommand ran, only through the alias.
-      // rawArgs lives on the root Commander parsed from; the walk finds it from any depth.
-      let root: Command = thisCommand;
-      while (root.parent) root = root.parent;
-      // rawArgs is set by parse() and absent from Commander's typings; process.argv is the
-      // same list on the real CLI, and only a test drives parse() with anything else.
-      const rawArgs = (root as unknown as { rawArgs?: string[] }).rawArgs ?? process.argv;
-      if (invokedAsImport(rawArgs)) {
-        console.error(chalk.yellow(importAliasLine(actionCommand === thisCommand ? undefined : actionCommand.name())));
-      }
-    })
     .hook('preSubcommand', (thisCommand, subcommand) => {
       // `--json` is honoured by the picker path only; a subcommand would parse it (Commander
       // awards a parent flag to the parent) and then print its human report regardless.
@@ -340,13 +362,13 @@ export function registerImportCommand(program: Command): void {
         if (result.async) {
           console.log(chalk.green(`Approval queued as background job: ${result.job_id}`));
           if (result.stream_url) console.log(chalk.dim(`Stream: ${result.stream_url}`));
-          console.log(chalk.dim('Run `align import list` to check progress.\n'));
+          console.log(chalk.dim('Run `align connect list` to check progress.\n'));
         } else {
           console.log(chalk.green(`Done. ${result.created_decisions} decision(s) added to the graph.\n`));
         }
       } else {
         console.log(chalk.dim(`Review at: ${resolveAppUrl(env)}/discover`));
-        console.log(chalk.dim(`Or approve all: align import --all --approve\n`));
+        console.log(chalk.dim(`Or approve all: align connect --all --approve\n`));
       }
     });
 

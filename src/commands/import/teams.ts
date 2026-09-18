@@ -57,7 +57,7 @@ export function registerImportTeamsCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro(commandIntro('align import teams'));
+      p.intro(commandIntro('align connect teams'));
       const spinner = p.spinner();
       spinner.start('Fetching channel messages from Microsoft Teams...');
       try {

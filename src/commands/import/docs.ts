@@ -33,7 +33,7 @@ export function registerImportDocsCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
-      p.intro(commandIntro('align import docs'));
+      p.intro(commandIntro('align connect docs'));
 
       const spinner = p.spinner();
       spinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');

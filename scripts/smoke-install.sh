@@ -247,7 +247,7 @@ skip_upstream() { # <name>
 # trusting a count written here, which goes stale the first time someone adds a step.
 #
 # Output is captured rather than streamed because the exit code alone cannot classify these:
-# `align setup --local` and `align import git` both report a failed batch as a WARNING and
+# `align setup --local` and `align connect git` both report a failed batch as a WARNING and
 # exit 0, which is how the ALI-713 run reported PASS for both while importing nothing.
 # classify_step_result therefore reads the 429 before the exit code (see smoke-model.sh).
 STEP_OUT=""
@@ -291,8 +291,8 @@ step "align --help"             30  align --help
 # figure local-embeddings.ts already carries is the right one.)
 step_model "align setup --local" 600 align setup --local
 if [ "$STEP_RESULT" = pass ]; then assert_import_complete "align setup --local" "$STEP_OUT"; fi
-step_model "align import git"    300 align import git --approve --env local --limit 20
-if [ "$STEP_RESULT" = pass ]; then assert_import_complete "align import git" "$STEP_OUT"; fi
+step_model "align connect git"   300 align connect git --approve --env local --limit 20
+if [ "$STEP_RESULT" = pass ]; then assert_import_complete "align connect git" "$STEP_OUT"; fi
 step "align local status"       60  align local status
 step_model "align search (local)" 120 align search "postgres" --env local --limit 5
 step "align context sync"       60  align context sync --env local
@@ -360,6 +360,8 @@ echo "$ADVISORY_OUT"
 #
 # Asserted on EVERY platform. A previous version of this block excused Windows, citing two
 # defects that do not exist: it claimed `import git` duplicated only there and that Windows
+# (`import git` was the spelling at the time; retired in 0.40.0, ALI-951 - this line records
+# what the review said, so it keeps the old name deliberately)
 # embeddings scored below threshold. Both were wrong. All nine legs reported the same 4-decision
 # graph, and Windows `search "postgres"` scored 0.51 against ubuntu's 0.51 - the divergence was
 # this harness mangling any argument containing a space, which is fixed above and now refused

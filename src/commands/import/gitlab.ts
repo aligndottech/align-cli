@@ -60,7 +60,7 @@ export function registerImportGitLabCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro(commandIntro('align import gitlab'));
+      p.intro(commandIntro('align connect gitlab'));
       const spinner = p.spinner();
       spinner.start('Fetching your GitLab merge requests...');
       try {

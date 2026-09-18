@@ -1,7 +1,7 @@
 /**
  * ALI-829: how many items each connector fetches when nobody says otherwise.
  *
- * ONE writer for two readers: `align setup` and `align import <connector>`. They disagreed
+ * ONE writer for two readers: `align setup` and `align connect <connector>`. They disagreed
  * for nine of eleven connectors (measured 2026-09-02) - `align import slack` fetched 50
  * where setup had fetched 250 - so re-importing to get more got less, and nothing anywhere
  * said so. A literal in each command is the same two-writers defect as a type and a CHECK

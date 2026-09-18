@@ -86,7 +86,12 @@ describe('docs/commands.md is generated from the registry', () => {
     expect(text).toMatch(/^align connect jira\b/m);
     expect(text).toMatch(/^align decisions list\b/m);
     expect(text).toContain('--json');
-    expect(text).toMatch(/^align import\b.*alias/m);
+    // `align import` was the alias, retired in 0.40.0 (ALI-951). It is still DOCUMENTED,
+    // because it is still registered as a stub that fails naming the replacement - someone who
+    // finds the old spelling in a script should be able to look it up and learn what replaced
+    // it. So the reference must carry it AND say it is gone.
+    expect(text).toMatch(/^align import\b/m);
+    expect(text).toMatch(/^align import\b.*removed in 0\.40\.0/m);
   });
 });
 

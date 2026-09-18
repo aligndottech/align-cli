@@ -15,7 +15,7 @@ export class AuthExpiredError extends Error {
 // worded message like "Authentication required, not authenticated".
 //
 // Deliberately NOT matched: HTTP 403 / "missing scope" (re-consenting with the
-// same scopes won't help - those stay in the "skipped, run align import later"
+// same scopes won't help - those stay in the "skipped, run align connect later"
 // path), and the bare connector-core "<x> auth failed (404/500)" phrasing, which
 // uses "auth" not "authentication".
 const AUTH_EXPIRY_PATTERNS: RegExp[] = [
@@ -38,7 +38,7 @@ const AUTH_EXPIRY_PATTERNS: RegExp[] = [
  * Consulted in the OAuth setup path (gated on source.oauthKey) and, since the
  * additive local re-run, for a SAVED local token that was reused and rejected, so
  * the dead token is forgotten. Never consulted for a freshly pasted token, so the
- * manual `align import <x> --token` error text is unchanged.
+ * manual `align connect <x> --token` error text is unchanged.
  */
 export function isAuthExpiry(err: unknown): boolean {
   if (err instanceof AuthExpiredError || err instanceof FetcherAuthError) return true;

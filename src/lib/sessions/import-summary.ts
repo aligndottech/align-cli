@@ -1,5 +1,5 @@
 /**
- * ALI-835: the line a human reads at the end of `align import sessions`, and the counts the
+ * ALI-835: the line a human reads at the end of `align connect sessions`, and the counts the
  * funnel reports.
  *
  * The line is the product moment; the ping is the measurement. They are built from ONE object
@@ -20,7 +20,7 @@ export interface SessionImportCounts {
   /**
    * How many of the confirmed claims already carry a human ratification.
    *
-   * Structurally 0 at import: `align import sessions` writes claims, and ratifying is a
+   * Structurally 0 at import: `align connect sessions` writes claims, and ratifying is a
    * separate human act (`align ratify`). It is reported anyway, because "0 have been ratified"
    * is the sentence the demo turns on - the point is that nobody has stood behind any of them
    * yet. The funnel's own decisions_ratified stage is emitted from `align ratify`, where the

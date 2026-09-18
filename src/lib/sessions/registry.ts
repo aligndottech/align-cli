@@ -15,7 +15,7 @@ export interface DetectedAgent {
   files: string[];
 }
 
-/** `align import sessions`' auto-detect: every agent that has actually left session data
+/** `align connect sessions`' auto-detect: every agent that has actually left session data
  *  for this project. An agent with zero files is "never run here" - the normal case for
  *  five of six adapters on any one machine - so it is silently excluded, not reported. */
 export function detectAgents(cwd: string, adapters: SessionAdapter[] = ADAPTERS): DetectedAgent[] {

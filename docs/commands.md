@@ -1,7 +1,8 @@
 # Command reference
 
-`align --help` shows five entries. Everything else is here, still runs, and is hidden from
-the help on purpose (ALI-951): the bare command is the product, the rest are escape hatches.
+`align --help` shows five entries. Everything else is here and hidden from the help on
+purpose (ALI-951): the bare command is the product, the rest are escape hatches. They all
+still run, apart from a command whose description says it was removed.
 
 The two blocks below are generated from the command registry by `npm run docs:commands`; a
 test fails when they drift. `(cloud)` in a description marks a command that addresses the
@@ -50,7 +51,6 @@ align connect notion          Import your Notion pages (internal integration tok
                               flags: --token --personal --limit --approve --env
 align connect sessions        Review decision-shaped moments from local coding-agent sessions (Claude Code, pi, Codex CLI, opencode) one by one
                               flags: --limit --env
-align import                  alias of align connect, deprecated - prints one line on stderr per run
 
 align check                   Check current changes against the decision graph (exit 1 = conflict found)
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
@@ -61,7 +61,8 @@ align mcp                     Run Align as an MCP server for any MCP-capable age
 
 ## Everything else
 
-Hidden from `align --help`; every one still runs.
+Hidden from `align --help`. Every one still runs, unless its description says it was removed.
+A removed command stays registered so an old script gets the new spelling and a non-zero exit.
 
 ```
 # Set or show the default environment
@@ -102,6 +103,10 @@ align invite <email>          Invite a teammate to your shared Align decision gr
 
 align capture <url>           Capture a decision from a URL (Slack/Jira/GitHub/Confluence/etc.)
                               flags: --env
+
+# Removed in 0.40.0 - use align connect
+
+align import [args]           removed in 0.40.0 - use align connect
 
 # Keyword search, ranked list
 
@@ -186,8 +191,8 @@ you have ever imported.
 `align connect` with no source opens the same picker `align setup` uses. `align connect
 <source>` runs that source's import directly; `align connect --source <id> --token <token>
 --yes` does the same with no prompt, for a script or an agent, and `--json` on that form
-prints one summary line. `align import ...` is the old spelling: it still works, prints one
-deprecation line on stderr, and is removed two minor releases after 0.38.0.
+prints one summary line. `align import ...` was the old spelling: deprecated in 0.38.0 and
+removed in 0.40.0, so it no longer runs.
 
 `--json` prints one JSON document on stdout for `check` (the same shape as `--ci`), `ask`
 (the matching decisions, no prose answer), `connect --source`, `decisions list`, `links list`
