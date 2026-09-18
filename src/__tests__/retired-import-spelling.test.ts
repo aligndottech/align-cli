@@ -24,6 +24,23 @@ import { describe, expect, it } from 'vitest';
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
+ * A repo-relative path with `/` separators, whatever the OS uses.
+ *
+ * `path.relative` returns `commands\import.ts` on Windows, and the positive control below
+ * compares against the literal `commands/import.ts` - so this suite passed on ubuntu and macOS
+ * and failed the `cross-platform (windows-latest)` leg on main the moment it landed, on its
+ * CONTROL rather than on its subject. That is the right failure mode (a control that cannot see
+ * properly must refuse to report clean) and it is still a bug in the control.
+ *
+ * `sep` is a parameter so the Windows case is reproducible on any machine: a test that can only
+ * fail on the platform none of us runs is a test nobody can check before pushing. Same lesson
+ * as the CRLF normaliser in commands-doc.test.ts (#295).
+ */
+export function toPosixPath(relative: string, sep: string = path.sep): string {
+  return relative.split(sep).join('/');
+}
+
+/**
  * The only live string allowed to say `align import` is the one announcing its removal.
  * A content predicate rather than a file allowlist on purpose: an allowlist entry's reason
  * is free text and rots, and this one is re-checked on every run.
@@ -68,9 +85,18 @@ function stringsOf(file: string): string[] {
 describe('no live string still instructs the retired `align import` (ALI-951)', () => {
   const files = tsFilesUnder(SRC);
   const said = files.flatMap((file) =>
-    stringsOf(file).map((text) => ({ file: path.relative(SRC, file), text })),
+    stringsOf(file).map((text) => ({ file: toPosixPath(path.relative(SRC, file)), text })),
   );
   const namesImport = said.filter((s) => s.text.includes('align import'));
+
+  it('normalises a Windows path, so the control below is not OS-dependent', () => {
+    // The manufactured Windows condition. Without a `sep` parameter this assertion could only
+    // ever run on Windows, which is the platform this suite was never checked on.
+    expect(toPosixPath('commands\\import.ts', '\\')).toBe('commands/import.ts');
+    expect(toPosixPath('commands\\import\\deep.ts', '\\')).toBe('commands/import/deep.ts');
+    // And the other direction: a POSIX path is already correct and must pass through untouched.
+    expect(toPosixPath('commands/import.ts', '/')).toBe('commands/import.ts');
+  });
 
   it('parsed the tree and can see a string it must not flag (the positive control)', () => {
     // Without this, a broken walk returns nothing, the sweep below finds no offenders, and
