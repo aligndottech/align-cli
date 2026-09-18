@@ -528,16 +528,27 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       });
     },
 
-    // `scope` is accepted so callers (ask, search) can pass the same three arguments
+    // `scope` is accepted so callers (ask, search) can pass the same four arguments
     // regardless of which client resolveEnv handed back - see the file-top comment on
     // "local mode returns the SAME shapes as the cloud client". The cloud gateway has no
     // repo dimension (ALI-798 is local-only), so this is silently ignored HERE - the
     // command layer is what warns when a user asks for repo scoping in cloud mode,
     // because only it knows whether the user actually typed the flag.
-    async searchDecisions(q: string, limit = 10, _scope?: { repo?: string; all?: boolean }): Promise<SearchResults> {
+    //
+    // ALI-1082: `createdBefore` is a NEW, explicitly named third parameter, not a reuse of
+    // `_scope` (a different concept - repo scoping vs a time bound) shifted to the fourth
+    // slot. Every call site passing a positional `scope` argument had to move it from
+    // third to fourth (mcp.ts's dispatchTool, why.ts x3, search.ts) - tsc catches a caller
+    // that still sends it third as a type error, since a scope object is not a string.
+    async searchDecisions(
+      q: string,
+      limit = 10,
+      createdBefore?: string,
+      _scope?: { repo?: string; all?: boolean },
+    ): Promise<SearchResults> {
       return request<SearchResults>('/decisions/smart-search', {
         method: 'POST',
-        body: JSON.stringify({ q, limit }),
+        body: JSON.stringify({ q, limit, ...(createdBefore ? { created_before: createdBefore } : {}) }),
       });
     },
 

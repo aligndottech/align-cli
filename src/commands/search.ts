@@ -25,7 +25,7 @@ export function registerSearchCommand(program: Command): void {
       const spinner = ora(`Searching "${query}"...`).start();
 
       try {
-        const results = await client.searchDecisions(query, parseInt(opts.limit, 10), scope);
+        const results = await client.searchDecisions(query, parseInt(opts.limit, 10), undefined, scope);
         spinner.stop();
 
         if (!results.results.length) {

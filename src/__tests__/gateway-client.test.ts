@@ -268,6 +268,28 @@ describe('gateway client', () => {
     );
   });
 
+  // ALI-1082: created_before is the align arm's time-box, threaded from mcp.ts's
+  // --created-before flag through dispatchTool into this third parameter.
+  it('searchDecisions with a cutoff carries created_before in the POST body', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ results: [], count: 0, strategy: 'semantic' }),
+    });
+    await createGatewayClient(localEnv).searchDecisions('auth tokens', 10, '2026-08-11T00:00:00.000Z');
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as Parameters<typeof fetch>[1]).body as string);
+    expect(body.created_before).toBe('2026-08-11T00:00:00.000Z');
+  });
+
+  it('searchDecisions with no cutoff sends no created_before key at all (not undefined)', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ results: [], count: 0, strategy: 'semantic' }),
+    });
+    await createGatewayClient(localEnv).searchDecisions('auth tokens');
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as Parameters<typeof fetch>[1]).body as string);
+    expect(body).not.toHaveProperty('created_before');
+  });
+
   it('ingestBatch posts to /ingest/batch with decisions array', async () => {
     const snapshots = [{ id: 'snap-1', title: 'Add auth', summary: 'Added JWT auth' }];
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ snapshots }) });

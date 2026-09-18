@@ -41,17 +41,17 @@ describe('align search --repo/--all', () => {
 
   it('passes --repo through as the scope', async () => {
     await search(['a query', '--repo', 'api']);
-    expect(searchDecisions).toHaveBeenCalledWith('a query', 10, { repo: 'api', all: undefined });
+    expect(searchDecisions).toHaveBeenCalledWith('a query', 10, undefined, { repo: 'api', all: undefined });
   });
 
   it('passes --all through as the scope', async () => {
     await search(['a query', '--all']);
-    expect(searchDecisions).toHaveBeenCalledWith('a query', 10, { repo: undefined, all: true });
+    expect(searchDecisions).toHaveBeenCalledWith('a query', 10, undefined, { repo: undefined, all: true });
   });
 
   it('passes undefined - no opinion - when neither flag is given', async () => {
     await search(['a query']);
-    expect(searchDecisions).toHaveBeenCalledWith('a query', 10, undefined);
+    expect(searchDecisions).toHaveBeenCalledWith('a query', 10, undefined, undefined);
   });
 
   it('names the scope it answered from', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dispatchTool } from '../commands/mcp.js';
+import { dispatchTool, validateCreatedBeforeFlag } from '../commands/mcp.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 
 /**
@@ -72,5 +72,33 @@ describe('dispatchTool required-argument validation', () => {
     const c = fakeClient();
     await dispatchTool('align_get_conflicts', undefined, cast(c), env);
     expect(c.getConflicts).toHaveBeenCalled();
+  });
+});
+
+// ALI-1082: --created-before is harness/audit-only. Fail closed at startup, before the MCP
+// server ever connects, rather than silently accepting a value that does nothing.
+describe('validateCreatedBeforeFlag', () => {
+  const cloudEnv: EnvironmentConfig = { gatewayUrl: '', authToken: null, tenantId: null, mode: 'auth' };
+  const localEnv: EnvironmentConfig = { gatewayUrl: '', authToken: null, tenantId: null, mode: 'local-embedded' };
+
+  it('rejects any value in local-embedded mode, naming the flag and the mode', () => {
+    expect(() => validateCreatedBeforeFlag('2026-08-11T00:00:00.000Z', localEnv)).toThrow(
+      /--created-before/,
+    );
+    expect(() => validateCreatedBeforeFlag('2026-08-11T00:00:00.000Z', localEnv)).toThrow(
+      /local-embedded/,
+    );
+  });
+
+  it('rejects a bare date with no time/offset, the shape the corpus carries', () => {
+    expect(() => validateCreatedBeforeFlag('2026-08-11', cloudEnv)).toThrow(/--created-before/);
+  });
+
+  it('rejects a non-date string', () => {
+    expect(() => validateCreatedBeforeFlag('yesterday', cloudEnv)).toThrow(/--created-before/);
+  });
+
+  it('accepts an offset-bearing ISO timestamp in a non-local env', () => {
+    expect(() => validateCreatedBeforeFlag('2026-08-11T00:00:00.000Z', cloudEnv)).not.toThrow();
   });
 });
