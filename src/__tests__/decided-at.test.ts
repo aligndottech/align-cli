@@ -332,7 +332,7 @@ describe('the local client surfaces decided_at', () => {
 
   it('searchDecisions: the same two fields on a hit', async () => {
     vi.mocked(cosineSimilarity).mockReturnValue(0.9);
-    const { results } = await client.searchDecisions('dated', 10, { all: true });
+    const { results } = await client.searchDecisions('dated', 10, undefined, { all: true });
     const dated = results.find((r) => r.title === 'Dated') as Record<string, unknown>;
     const undated = results.find((r) => r.title === 'Undated') as Record<string, unknown>;
     expect(dated.decided_at).toBe('2026-03-01T09:00:00.000Z');

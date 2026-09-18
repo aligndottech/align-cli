@@ -120,7 +120,7 @@ describe('the other payloads carry the same fields', () => {
   it('searchDecisions', async () => {
     const c = client();
     const { agentId, humanId } = await seed(c);
-    const { results } = await c.searchDecisions('sqlite', 10, { all: true });
+    const { results } = await c.searchDecisions('sqlite', 10, undefined, { all: true });
     const byId = Object.fromEntries(results.map((r) => [r.id, r]));
     expect(byId[agentId]).toMatchObject({ decider_kind: 'agent', ratified: false });
     expect(byId[humanId]).toMatchObject({ decider_kind: 'human', ratified: false });

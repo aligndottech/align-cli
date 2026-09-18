@@ -101,4 +101,19 @@ describe('validateCreatedBeforeFlag', () => {
   it('accepts an offset-bearing ISO timestamp in a non-local env', () => {
     expect(() => validateCreatedBeforeFlag('2026-08-11T00:00:00.000Z', cloudEnv)).not.toThrow();
   });
+
+  // ALI-1082 (Copilot #302): the shape-only regex matched digits-in-the-right-places
+  // without checking they form a real calendar instant. JS silently rolls a non-existent
+  // day into the next month (Date.parse('2026-02-31...') -> March 3) rather than
+  // rejecting it, so the regex alone let a corrupted cutoff through the fail-closed gate.
+  it('rejects a calendar-invalid date (February 31st), not just a shape mismatch', () => {
+    expect(() => validateCreatedBeforeFlag('2026-02-31T00:00:00.000Z', cloudEnv)).toThrow(/--created-before/);
+  });
+
+  // Second example for the same rule (leap-year boundary), so the fix cannot be a
+  // February-specific special case.
+  it('rejects February 29th in a non-leap year, accepts it in a leap year', () => {
+    expect(() => validateCreatedBeforeFlag('2023-02-29T00:00:00.000Z', cloudEnv)).toThrow(/--created-before/);
+    expect(() => validateCreatedBeforeFlag('2024-02-29T00:00:00.000Z', cloudEnv)).not.toThrow();
+  });
 });

@@ -511,7 +511,29 @@ export const TOOL_SCHEMAS = [
  *   caller must decide the instant in UTC, not have Postgres resolve a date-only literal
  *   against the session TimeZone.
  */
-const OFFSET_ISO_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const OFFSET_ISO_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+// Copilot (#302, mcp.ts:514): the pattern above checks SHAPE, not that the digits form a
+// real calendar instant - `Date.parse` silently rolls a non-existent day into the next
+// month (`2026-02-31T00:00:00Z` -> 2026-03-03) instead of rejecting it, so a corrupted
+// cutoff could pass the shape check and the fail-closed contract would be lying. This
+// reconstructs the instant from its own matched components and rejects any value whose
+// round trip does not land back on the digits the caller typed - which is what a bare
+// `Date.parse` cannot distinguish from a value it silently normalised.
+function isRealCalendarInstant(value: string, match: RegExpExecArray): boolean {
+  const [, year, month, day, hour, minute, second] = match.map(Number) as unknown as number[];
+  const asUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (Number.isNaN(asUtc.getTime())) return false;
+  return (
+    asUtc.getUTCFullYear() === year &&
+    asUtc.getUTCMonth() === month - 1 &&
+    asUtc.getUTCDate() === day &&
+    asUtc.getUTCHours() === hour &&
+    asUtc.getUTCMinutes() === minute &&
+    asUtc.getUTCSeconds() === second
+  );
+}
 
 export function validateCreatedBeforeFlag(value: string, env: EnvironmentConfig): void {
   if (env.mode === 'local-embedded') {
@@ -521,10 +543,14 @@ export function validateCreatedBeforeFlag(value: string, env: EnvironmentConfig)
       `nothing. Got: ${value}`,
     );
   }
-  if (!OFFSET_ISO_PATTERN.test(value)) {
+  const match = OFFSET_ISO_PATTERN.exec(value);
+  // The offset's own range (e.g. +99:99) and an out-of-range hour/minute/second (25:00,
+  // 00:61) are already rejected by Date.parse below - only the calendar-day case needs
+  // the reconstruction above, since JS normalises it instead of erroring.
+  if (!match || Number.isNaN(Date.parse(value)) || !isRealCalendarInstant(value, match)) {
     throw new Error(
       `--created-before must be an offset-bearing ISO-8601 timestamp, e.g. ` +
-      `2026-08-11T00:00:00.000Z - a bare date is not enough, it must resolve to one instant. Got: ${value}`,
+      `2026-08-11T00:00:00.000Z - a bare date is not enough, it must resolve to one real instant. Got: ${value}`,
     );
   }
 }
