@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.40.0](https://github.com/aligndottech/align-cli/compare/cli-v0.39.0...cli-v0.40.0) (2026-09-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **connect:** `align import` no longer runs an import. It exits 2 and names `align connect`. Deprecated in 0.38.0 on 2026-09-09 with a stderr line on every invocation naming both the replacement and this removal version.
+
+### Features
+
+* **connect:** retire the `align import` alias, as its own sunset test demanded ([#300](https://github.com/aligndottech/align-cli/issues/300)) ([a180cd6](https://github.com/aligndottech/align-cli/commit/a180cd678196a83960fc6de0b8dd874a53a98b5e))
+* **mcp:** add --created-before flag to bound decision searches (ALI-1082) ([#302](https://github.com/aligndottech/align-cli/issues/302)) ([ab3a16e](https://github.com/aligndottech/align-cli/commit/ab3a16e2d6440d61ed1c66dcff76ea16fa3a7721))
+* **mcp:** ALI-1070 port the timeline trio so a customer's agent can reach it ([#296](https://github.com/aligndottech/align-cli/issues/296)) ([45399e7](https://github.com/aligndottech/align-cli/commit/45399e762b09b17d9043377d77cb73ab199c78d1))
+
+
+### Bug Fixes
+
+* **ci:** pin LF line endings so the docs test stops failing on windows-latest ([#295](https://github.com/aligndottech/align-cli/issues/295)) ([ad66fb7](https://github.com/aligndottech/align-cli/commit/ad66fb78dde1340a7ad80c7e8308c815c9b490b6))
+* **mcp:** ALI-1070 follow-up - the 11 review findings [#296](https://github.com/aligndottech/align-cli/issues/296) merged without ([#298](https://github.com/aligndottech/align-cli/issues/298)) ([b311736](https://github.com/aligndottech/align-cli/commit/b311736bc0223ad55d8ff2882980a2f4e8173c17))
+* **test:** normalise the path separator, so the retirement sweep passes on Windows ([#301](https://github.com/aligndottech/align-cli/issues/301)) ([5ac57d8](https://github.com/aligndottech/align-cli/commit/5ac57d87bcf28b405700a3439e62cc450b6fcf3b))
+
 ## [0.39.0](https://github.com/aligndottech/align-cli/compare/cli-v0.38.1...cli-v0.39.0) (2026-09-17)
 
 
