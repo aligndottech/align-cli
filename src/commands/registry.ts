@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { registerLoginCommands } from './login.js';
 import { registerCaptureCommand } from './capture.js';
-import { registerImportCommand } from './import.js';
+import { registerImportCommand, registerRetiredImportCommand } from './import.js';
 import { registerSearchCommand } from './search.js';
 import { registerCheckCommand } from './check.js';
 import { registerAdjudicateCommand } from './adjudicate.js';
@@ -67,6 +67,16 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
     visible: true,
     summary: 'Connect a source and import its decisions',
     register: registerImportCommand,
+  },
+  // ALI-951: retired in 0.40.0 and still registered, so `align import git` in an old script
+  // fails loudly naming `align connect` instead of being swallowed by the default free-text
+  // action and exiting 0. Not `internal` - that means Align team only, and the people who need
+  // this are customers with the old spelling saved.
+  {
+    names: ['import'],
+    visible: false,
+    summary: 'Removed in 0.40.0 - use align connect',
+    register: registerRetiredImportCommand,
   },
 
   // Customer: search + query

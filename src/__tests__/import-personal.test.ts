@@ -122,7 +122,7 @@ describe('jira/confluence cached-token key matches what align setup persists (th
     configState.cloudIds['prod:jira-personal'] = 'cloud-1';
     configState.siteBases['prod:jira-personal'] = 'https://team.atlassian.net';
 
-    await run(['import', 'jira', '--approve']);
+    await run(['connect', 'jira', '--approve']);
 
     expect(vi.mocked(fetchJiraItems)).toHaveBeenCalledWith(
       expect.objectContaining({ token: 'cached-jira-tok', cloudId: 'cloud-1', siteBase: 'https://team.atlassian.net' })
@@ -134,7 +134,7 @@ describe('jira/confluence cached-token key matches what align setup persists (th
     configState.cloudIds['prod:confluence-personal'] = 'cloud-2';
     configState.siteBases['prod:confluence-personal'] = 'https://team.atlassian.net';
 
-    await run(['import', 'confluence', '--approve']);
+    await run(['connect', 'confluence', '--approve']);
 
     expect(vi.mocked(fetchConfluenceItems)).toHaveBeenCalledWith(
       expect.objectContaining({ token: 'cached-conf-tok', cloudId: 'cloud-2' })
@@ -146,14 +146,14 @@ describe('align import <src> --personal (ALI-388)', () => {
   it('uses a cached personal token without opening a browser', async () => {
     configState.tokens['prod:github-personal'] = 'cached-gh-tok';
 
-    await run(['import', 'github', '--personal', '--approve']);
+    await run(['connect', 'github', '--personal', '--approve']);
 
     expect(vi.mocked(fetchGitHubItems)).toHaveBeenCalledWith(expect.objectContaining({ token: 'cached-gh-tok' }));
     expect(gatewayClient.startCliOAuth).not.toHaveBeenCalled();
   });
 
   it('runs the browser OAuth flow when nothing is cached, then imports with the fresh token', async () => {
-    await run(['import', 'github', '--personal', '--approve']);
+    await run(['connect', 'github', '--personal', '--approve']);
 
     expect(gatewayClient.startCliOAuth).toHaveBeenCalledWith('github-personal', 7654, 'nonce-1');
     expect(vi.mocked(fetchGitHubItems)).toHaveBeenCalledWith(expect.objectContaining({ token: 'fresh-oauth-tok' }));
@@ -164,7 +164,7 @@ describe('align import <src> --personal (ALI-388)', () => {
   it('an explicit --token wins over --personal', async () => {
     configState.tokens['prod:github-personal'] = 'cached-gh-tok';
 
-    await run(['import', 'github', '--token', 'ghp_explicit', '--personal', '--approve']);
+    await run(['connect', 'github', '--token', 'ghp_explicit', '--personal', '--approve']);
 
     expect(vi.mocked(fetchGitHubItems)).toHaveBeenCalledWith(expect.objectContaining({ token: 'ghp_explicit' }));
     expect(gatewayClient.startCliOAuth).not.toHaveBeenCalled();
@@ -173,7 +173,7 @@ describe('align import <src> --personal (ALI-388)', () => {
   it('with neither --token nor --personal, errors naming both options', async () => {
     const p = await import('@clack/prompts');
 
-    await expect(run(['import', 'github', '--approve'])).rejects.toThrow('process.exit:1');
+    await expect(run(['connect', 'github', '--approve'])).rejects.toThrow('process.exit:1');
 
     const message = vi.mocked(p.log.error).mock.calls.map((c) => String(c[0])).join('\n');
     expect(message).toMatch(/--token/);
@@ -188,7 +188,7 @@ describe('align import <src> --personal (ALI-388)', () => {
     configState.env = { mode: 'local-embedded', localDbPath: '/tmp/x.db', authToken: 'auth-tok' };
     const p = await import('@clack/prompts');
 
-    await expect(run(['import', 'github', '--personal'])).rejects.toThrow('process.exit:1');
+    await expect(run(['connect', 'github', '--personal'])).rejects.toThrow('process.exit:1');
 
     expect(gatewayClient.startCliOAuth).not.toHaveBeenCalled();
     const message = vi.mocked(p.log.error).mock.calls.map((c) => String(c[0])).join('\n');
@@ -199,7 +199,7 @@ describe('align import <src> --personal (ALI-388)', () => {
     configState.env = { gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: 'auth' };
     const p = await import('@clack/prompts');
 
-    await expect(run(['import', 'github', '--personal'])).rejects.toThrow('process.exit:1');
+    await expect(run(['connect', 'github', '--personal'])).rejects.toThrow('process.exit:1');
 
     expect(gatewayClient.startCliOAuth).not.toHaveBeenCalled();
     const message = vi.mocked(p.log.error).mock.calls.map((c) => String(c[0])).join('\n');
@@ -207,7 +207,7 @@ describe('align import <src> --personal (ALI-388)', () => {
   });
 
   it('refuses --personal on gitlab with a self-managed --domain (the OAuth app is gitlab.com-only)', async () => {
-    await expect(run(['import', 'gitlab', '--personal', '--domain', 'git.corp.example'])).rejects.toThrow('process.exit:1');
+    await expect(run(['connect', 'gitlab', '--personal', '--domain', 'git.corp.example'])).rejects.toThrow('process.exit:1');
 
     expect(gatewayClient.startCliOAuth).not.toHaveBeenCalled();
   });
@@ -219,7 +219,7 @@ describe('align import <src> --personal (ALI-388)', () => {
     configState.cloudIds['prod:jira-personal'] = 'cloud-1';
     configState.siteBases['prod:jira-personal'] = 'https://team.atlassian.net';
 
-    await run(['import', 'jira', '--personal', '--approve']);
+    await run(['connect', 'jira', '--personal', '--approve']);
 
     expect(vi.mocked(fetchJiraItems)).toHaveBeenCalledWith(
       expect.objectContaining({ token: 'cached-jira-tok', cloudId: 'cloud-1', siteBase: 'https://team.atlassian.net' })
@@ -240,7 +240,7 @@ describe('every OAuth-capable subcommand resolves --personal (the wiring, not ju
   ])('import %s --personal uses the cached %s token', async (source, key, fetcherModule, fetcherName) => {
     configState.tokens[`prod:${key}`] = `cached-${source}-tok`;
 
-    await run(['import', source, '--personal', '--approve']);
+    await run(['connect', source, '--personal', '--approve']);
 
     const fetcher = (await import(fetcherModule))[fetcherName] as ReturnType<typeof vi.fn>;
     expect(fetcher).toHaveBeenCalledWith(expect.objectContaining({ token: `cached-${source}-tok` }));
@@ -253,7 +253,7 @@ describe('align import <x> fetches as much as align setup does (ALI-829, R29)', 
   // re-importing to get more got less. One constant, two readers.
   it('slack: no --limit means setup\'s 250 over setup\'s 90 days', async () => {
     configState.tokens['prod:slack-personal'] = 'cached-slack-tok';
-    await run(['import', 'slack', '--personal', '--approve']);
+    await run(['connect', 'slack', '--personal', '--approve']);
     const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
     expect(vi.mocked(fetchSlackItems)).toHaveBeenCalledWith(expect.objectContaining({ limit: 250, daysBack: 90 }));
   });
@@ -261,13 +261,13 @@ describe('align import <x> fetches as much as align setup does (ALI-829, R29)', 
   it('confluence: no --limit means setup\'s 250', async () => {
     configState.tokens['prod:confluence-personal'] = 'cached-conf-tok';
     configState.cloudIds['prod:confluence-personal'] = 'cloud-1';
-    await run(['import', 'confluence', '--approve']);
+    await run(['connect', 'confluence', '--approve']);
     expect(vi.mocked(fetchConfluenceItems)).toHaveBeenCalledWith(expect.objectContaining({ limit: 250 }));
   });
 
   it('an explicit --limit still wins', async () => {
     configState.tokens['prod:slack-personal'] = 'cached-slack-tok';
-    await run(['import', 'slack', '--personal', '--approve', '--limit', '7']);
+    await run(['connect', 'slack', '--personal', '--approve', '--limit', '7']);
     const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
     expect(vi.mocked(fetchSlackItems)).toHaveBeenCalledWith(expect.objectContaining({ limit: 7 }));
   });
