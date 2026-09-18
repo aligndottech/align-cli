@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.1](https://github.com/aligndottech/align-cli/compare/cli-v0.40.0...cli-v0.40.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* **e2e:** correct a wrong ALI-951 assumption about the import_completed wire value ([#303](https://github.com/aligndottech/align-cli/issues/303)) ([df9e744](https://github.com/aligndottech/align-cli/commit/df9e7447d232fd8b4eeed06f8d88a0b13617ab58))
+
 ## [0.40.0](https://github.com/aligndottech/align-cli/compare/cli-v0.39.0...cli-v0.40.0) (2026-09-18)
 
 
