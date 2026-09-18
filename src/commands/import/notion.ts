@@ -55,7 +55,7 @@ Create an integration at: https://app.notion.com/developers/tokens`)
         process.exit(1);
       }
 
-      p.intro(commandIntro('align import notion'));
+      p.intro(commandIntro('align connect notion'));
       p.log.info('Only pages shared with your integration are fetched. See --help for setup instructions.');
 
       const spinner = p.spinner();

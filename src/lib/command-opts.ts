@@ -5,7 +5,7 @@ import type { Command } from 'commander';
  *
  * The parent `import` command declares `--env` (and `--approve`) alongside every
  * subcommand that also declares them. Commander resolves that name collision in
- * the parent's favour, so `align import git --approve --env local` leaves the
+ * the parent's favour, so `align connect git --approve --env local` leaves the
  * subcommand's own `opts` with neither: `--approve` never skips the confirm and
  * `--env local` never routes to the local graph.
  *

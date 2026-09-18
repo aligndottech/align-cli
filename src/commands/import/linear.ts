@@ -51,7 +51,7 @@ export function registerImportLinearCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro(commandIntro('align import linear'));
+      p.intro(commandIntro('align connect linear'));
       const spinner = p.spinner();
       spinner.start('Fetching your Linear issues...');
       try {

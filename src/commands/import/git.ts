@@ -44,7 +44,7 @@ export function registerImportGitCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
-      p.intro(commandIntro('align import git'));
+      p.intro(commandIntro('align connect git'));
 
       const spinner = p.spinner();
       spinner.start('Reading git history...');

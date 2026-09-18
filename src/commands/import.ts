@@ -119,7 +119,7 @@ function registerImportListCommands(importCmd: Command): void {
           ],
           suggestions.map(s => [s.id, s.suggested_title, (s.confidence ?? 0).toFixed(2), s.status]),
         );
-        console.log(chalk.dim('Approve all: align import --all --approve'));
+        console.log(chalk.dim('Approve all: align connect --all --approve'));
         console.log('');
       } catch (err) {
         spinner.stop('');
@@ -175,13 +175,6 @@ interface ConnectGroupOpts {
 }
 
 /**
- * The `connect` group (ALI-951), which `import` still reaches as a deprecated alias. With no
- * source and no `--all` it is the local picker (connect.ts); `connect <source>` is the old
- * `import <source>` subcommand, unchanged; `--all` and a cloud env keep the cloud scan below.
- * This file stays on the bare resolver on purpose - the scan's job endpoints exist only on
- * the cloud gateway (import-env-parity.test.ts); the picker path resolves in connect.ts.
- */
-/**
  * ALI-951: `import` was retired in 0.40.0, and a RETIRED command still has to exist.
  *
  * Deleting the alias outright is not the end state, because `align` has a default action for a
@@ -214,6 +207,15 @@ export function registerRetiredImportCommand(program: Command): void {
     });
 }
 
+/**
+ * The `connect` group (ALI-951). With no source and no `--all` it is the local picker
+ * (connect.ts); `connect <source>` runs that source's import; `--all` and a cloud env take
+ * the cloud scan below. `import` no longer reaches any of it - it is the retirement stub
+ * above, which exits 2 - so this group is the only live spelling.
+ *
+ * This file stays on the bare resolver on purpose - the scan's job endpoints exist only on
+ * the cloud gateway (import-env-parity.test.ts); the picker path resolves in connect.ts.
+ */
 export function registerImportCommand(program: Command): void {
   const importCmd = program
     .command('connect [connectors...]')
@@ -360,13 +362,13 @@ export function registerImportCommand(program: Command): void {
         if (result.async) {
           console.log(chalk.green(`Approval queued as background job: ${result.job_id}`));
           if (result.stream_url) console.log(chalk.dim(`Stream: ${result.stream_url}`));
-          console.log(chalk.dim('Run `align import list` to check progress.\n'));
+          console.log(chalk.dim('Run `align connect list` to check progress.\n'));
         } else {
           console.log(chalk.green(`Done. ${result.created_decisions} decision(s) added to the graph.\n`));
         }
       } else {
         console.log(chalk.dim(`Review at: ${resolveAppUrl(env)}/discover`));
-        console.log(chalk.dim(`Or approve all: align import --all --approve\n`));
+        console.log(chalk.dim(`Or approve all: align connect --all --approve\n`));
       }
     });
 

@@ -59,7 +59,17 @@ export function renderCommandsReference(program: Command): string {
   for (const entry of entries.filter((e) => e.visible)) renderEntry(entry, program, lines);
   lines.push('```', '');
 
-  lines.push('## Everything else', '', 'Hidden from `align --help`; every one still runs.', '', '```');
+  // "every one still runs" was true until 0.40.0 put a retirement stub in this block
+  // (`align import`, which exits 2). The qualifier reads off the entry's own description
+  // rather than naming the command, so a second retirement does not make this line a lie.
+  lines.push(
+    '## Everything else',
+    '',
+    'Hidden from `align --help`. Every one still runs, unless its description says it was removed.',
+    'A removed command stays registered so an old script gets the new spelling and a non-zero exit.',
+    '',
+    '```',
+  );
   let first = true;
   for (const entry of entries.filter((e) => !e.visible)) {
     if (!first) lines.push('');

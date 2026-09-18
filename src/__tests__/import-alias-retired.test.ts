@@ -83,7 +83,12 @@ describe('`align import` was retired in 0.40.0 (ALI-951)', () => {
     // registered at all, `align import git` parsed as the question "import git" and exited 0 -
     // a script that had been importing for a year would keep reporting success and import
     // nothing. Measured on the built binary at the time: exit 0.
-    await expect(run(['import', 'git', '--approve'])).rejects.toThrow();
+    //
+    // Pinned to exit 2 rather than "it threw": `.rejects.toThrow()` is satisfied by ANY
+    // CommanderError, including the "unknown option '--approve'" parse error the third test
+    // below exists to rule out - which exits 1. So the weaker form passes against precisely
+    // the regression this file is here to catch, and 2 is the contract a script reads.
+    await expect(run(['import', 'git', '--approve'])).rejects.toMatchObject({ exitCode: 2 });
     expect(runPersonalImport).not.toHaveBeenCalled();
     // The message has to carry the replacement, because the person reading it is mid-script.
     const said = stderr.join('\n');
@@ -93,8 +98,8 @@ describe('`align import` was retired in 0.40.0 (ALI-951)', () => {
 
   it('names the bare replacement for a bare `import`, not a subcommand it never got', async () => {
     // Two examples for the one rule (tdd.md): with a subcommand and without. A single example
-    // is satisfied by hardcoding the `git` tail.
-    await expect(run(['import'])).rejects.toThrow();
+    // is satisfied by hardcoding the `git` tail. Same two examples for the exit code.
+    await expect(run(['import'])).rejects.toMatchObject({ exitCode: 2 });
     const said = stderr.join('\n');
     expect(said).toContain('align connect.');
     expect(said).not.toContain('align connect git');

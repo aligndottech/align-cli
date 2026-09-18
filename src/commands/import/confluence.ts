@@ -68,7 +68,7 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
       }
 
       if (!token) {
-        p.log.error('No Confluence credentials found. Run align setup or align import confluence --personal to connect via OAuth, or pass --email, --token, and --domain.');
+        p.log.error('No Confluence credentials found. Run align setup or align connect confluence --personal to connect via OAuth, or pass --email, --token, and --domain.');
         process.exit(1);
       }
       if (!cloudId && (!opts.email || !opts.domain)) {
@@ -76,7 +76,7 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro(commandIntro('align import confluence'));
+      p.intro(commandIntro('align connect confluence'));
       const spinner = p.spinner();
       spinner.start('Fetching your Confluence pages...');
       try {

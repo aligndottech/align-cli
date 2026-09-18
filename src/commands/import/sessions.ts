@@ -1,5 +1,5 @@
 /**
- * `align import sessions` (ALI-808/809) - reads local coding-agent session transcripts
+ * `align connect sessions` (ALI-808/809) - reads local coding-agent session transcripts
  * (Claude Code, pi, Codex CLI, opencode; gemini-cli and cursor detect files but cannot yet
  * parse them - see fixtures/sessions/README.md), finds decision-shaped moments in them, and
  * reviews each one with a human before it enters the graph. The passes, by name rather than
@@ -195,7 +195,7 @@ export function registerImportSessionsCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
 
       if (env.mode !== 'local-embedded' || !env.localDbPath) {
-        console.error(chalk.red('\n  align import sessions only works against your local graph.'));
+        console.error(chalk.red('\n  align connect sessions only works against your local graph.'));
         console.error(chalk.dim('  decider_kind, confirmed_by and confirmed_at are local-only columns today - run `align setup --local` first, or add --env local.\n'));
         process.exit(1);
         return;

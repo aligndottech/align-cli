@@ -1,7 +1,8 @@
 # Command reference
 
-`align --help` shows five entries. Everything else is here, still runs, and is hidden from
-the help on purpose (ALI-951): the bare command is the product, the rest are escape hatches.
+`align --help` shows five entries. Everything else is here and hidden from the help on
+purpose (ALI-951): the bare command is the product, the rest are escape hatches. They all
+still run, apart from a command whose description says it was removed.
 
 The two blocks below are generated from the command registry by `npm run docs:commands`; a
 test fails when they drift. `(cloud)` in a description marks a command that addresses the
@@ -60,7 +61,8 @@ align mcp                     Run Align as an MCP server for any MCP-capable age
 
 ## Everything else
 
-Hidden from `align --help`; every one still runs.
+Hidden from `align --help`. Every one still runs, unless its description says it was removed.
+A removed command stays registered so an old script gets the new spelling and a non-zero exit.
 
 ```
 # Set or show the default environment

@@ -51,7 +51,7 @@ export function registerImportZoomCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro(commandIntro('align import zoom'));
+      p.intro(commandIntro('align connect zoom'));
       const spinner = p.spinner();
       spinner.start('Fetching cloud recording transcripts from Zoom...');
       try {

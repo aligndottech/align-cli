@@ -76,7 +76,7 @@ export async function getCommitHistoryDetailed(opts: {
     ({ stdout } = await execa('git', ['log', ...args], opts.cwd ? { cwd: opts.cwd } : {}));
   } catch (err) {
     // A freshly initialised repo with no commits makes `git log` exit 128
-    // ("does not have any commits yet"). Return [] so `align import git` /
+    // ("does not have any commits yet"). Return [] so `align connect git` /
     // `align setup` degrade to "0 commits" instead of crashing on first run.
     // Other git failures (e.g. a bad --branch) still surface.
     const e = err as { exitCode?: number; stderr?: string };

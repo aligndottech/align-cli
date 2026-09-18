@@ -29,7 +29,7 @@ export function gitCaptureSkips(counts: { scanned: number; kept: number; rejecte
 }
 
 /**
- * The whole git report, one writer for `align setup` and `align import git`. `--limit`
+ * The whole git report, one writer for `align setup` and `align connect git`. `--limit`
  * bounds what `git log` SCANS, not what comes back, so the cap is echoed only when the
  * scan reached it: on a 40-commit repo "12 commits of up to 500 requested" would be
  * printed on every run and says nothing, while on a 2,000-commit repo it is the one

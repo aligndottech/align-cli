@@ -55,7 +55,7 @@ export function registerImportGitHubCommand(importCmd: Command): void {
         process.exit(1);
       }
 
-      p.intro(commandIntro('align import github'));
+      p.intro(commandIntro('align connect github'));
       const spinner = p.spinner();
       try {
         // Inside the try, not before it: currentRepoIdentity() shells out to git, and
