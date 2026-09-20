@@ -14,6 +14,7 @@ import { commandIntro } from '../lib/brand.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
 import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
+import { withDecisionRelationContract } from '../lib/decision-relations.js';
 import {
   DECISION_RATIONALE_TOOL,
   DECISION_TIMELINE_TOOL,
@@ -197,13 +198,19 @@ export async function dispatchTool(
     // (align_search passed no limit, align_ask defaulted to 8). The question is passed
     // through unchanged so the gateway's smart-search strategy selector can route it to
     // semantic search (ALI-105); align_search's `query` is the same text under the old name.
+    // ALI-1066/ALI-1092: the relation context the gateway attaches to a non-active hit
+    // (`successor`, `conflicts_with`) reaches the agent through this arm. It already did -
+    // serializeMcpResult is a denylist, so an unrecognised field passes through - and what
+    // withDecisionRelationContract adds is that a NULL never does. `"conflicts_with":null`
+    // tells an agent no conflict exists, which is a different claim from "not provided".
+    // See lib/decision-relations.ts for the whole reasoning and what it deliberately leaves alone.
     case 'align_search':
     case 'align_ask':
-      return client.searchDecisions(
+      return withDecisionRelationContract(await client.searchDecisions(
         (args?.['question'] ?? args?.['query']) as string,
         (args?.['limit'] as number | undefined) ?? 8,
         createdBefore,
-      );
+      ));
     case 'align_capture': {
       const input = args?.['input'] as string;
       let platform = 'cli';
@@ -231,8 +238,12 @@ export async function dispatchTool(
       return client.getImpact(args?.['decision_id'] as string);
     case 'align_get_conflicts':
       return client.getConflicts();
+    // Same shape, same agent, same contract - a row reaching an agent through this tool must not
+    // say "no conflict exists" where the other two say nothing.
     case 'align_get_related_decisions':
-      return client.searchDecisions(`${args?.['file_path'] as string} ${args?.['context'] ?? ''}`, 5, createdBefore);
+      return withDecisionRelationContract(
+        await client.searchDecisions(`${args?.['file_path'] as string} ${args?.['context'] ?? ''}`, 5, createdBefore),
+      );
     /**
      * ALI-1070. The gateway already returns the whole story structure; what this arm adds is
      * the projection and the RENDERING CONTRACT (mcp-timeline-tools.ts). Rows without the
