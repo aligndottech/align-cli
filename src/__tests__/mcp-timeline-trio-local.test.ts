@@ -89,10 +89,17 @@ describe('ALI-1070 in local mode', () => {
     // the rationale assertion below is what actually proves.
     expect(row['decision_id']).toBe(decisionId);
     expect(row['title']).toBe('Verify webhook signatures with HMAC');
-    // A local row carries no decision_json, so the rationale falls back to the summary rather
-    // than to an empty string. Thinner than cloud, not broken - and a raw pass-through would
-    // have no `rationale` key at all.
-    expect(row['rationale']).toBe('Reject unsigned webhooks.');
+    // A local row carries no decision_json, so there is no reasoning to serve. ALI-1085: it
+    // now SAYS so rather than handing back the summary under the name `rationale`.
+    //
+    // `rationale_unavailable` is deliberately what this asserts, and it keeps the
+    // discriminating power the old assertion had: a raw pass-through would carry neither that
+    // key nor `goals`, so this still proves the PROJECTION ran rather than merely that the
+    // call returned an object. Asserting only that `rationale` is undefined would not - a
+    // pass-through satisfies that too.
+    expect(row['rationale_unavailable']).toBe(true);
+    expect(row['rationale']).toBeUndefined();
+    expect(row['summary']).toBe('Reject unsigned webhooks.');
     expect(row['goals']).toEqual([]);
   });
 

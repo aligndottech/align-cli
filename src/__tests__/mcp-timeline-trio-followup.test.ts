@@ -310,9 +310,15 @@ describe('F7: the rationale tool returns the rationale it promises', () => {
     expect(out['alternatives_considered']).toEqual(['a']);
   });
 
-  it('falls back to the summary when no rationale was recorded, rather than an empty string', async () => {
+  // ALI-1085: was 'falls back to the summary when no rationale was recorded'. The summary is
+  // what was decided, not why; returning it as `rationale` made a missing reason
+  // indistinguishable from a present one for a reader that is a model.
+  it('reports the rationale as unavailable when none was recorded, rather than serving the summary', async () => {
     const out = await served({ ...row, decision_json: {} });
-    expect(out['rationale']).toBe('Reject unsigned webhooks.');
+    expect(out['rationale']).toBeUndefined();
+    expect(out['rationale_unavailable']).toBe(true);
+    // Still present under its own name - nothing is withheld, only renamed back.
+    expect(out['summary']).toBe('Reject unsigned webhooks.');
   });
 
   it('carries the mentioned artifacts the gateway already sends', async () => {
@@ -325,7 +331,10 @@ describe('F7: the rationale tool returns the rationale it promises', () => {
     // Local mode serves this tool for real, and its rows carry no decision_json. Thinner,
     // not broken - and it must not throw.
     const out = await served({ id: 'd1', title: 'T', summary: 'S', external_references: [] });
-    expect(out['rationale']).toBe('S');
+    // ALI-1085: thinner means SAYING the reasoning is absent, not substituting the summary.
+    expect(out['rationale']).toBeUndefined();
+    expect(out['rationale_unavailable']).toBe(true);
+    expect(out['summary']).toBe('S');
     expect(out['goals']).toEqual([]);
   });
 });

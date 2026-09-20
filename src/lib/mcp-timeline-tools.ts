@@ -71,7 +71,9 @@ import { citationFor, navigableSourceUrl, repositoryOf } from './decision-links.
  * approve path copies verbatim into `decision_json.ai`. Those two fields therefore read the
  * top level and fall back to `.ai`.
  *
- * `rationale` keeps the HOSTED precedence - top level first, then `.ai`, then the summary.
+ * `rationale` keeps the HOSTED precedence - top level first, then `.ai`. It no longer falls
+ * back to the summary (ALI-1085): the summary is what was decided, not why, and returning it
+ * under the name `rationale` made a missing reason indistinguishable from a present one.
  * Copilot read the paragraph above as a claim that `.ai.rationale` should win (#298 inline at
  * :134); it is not, and the fix is this wording rather than a re-ranking. A port that silently
  * re-ranks its source stops being verifiable against it, and there is no evidence which order
@@ -121,8 +123,9 @@ function mentionedArtifacts(refs: unknown): {
  *
  * Tolerant of a row with no `decision_json` at all, which is the LOCAL case: local mode serves
  * this tool for real (the local client implements getDecision) and its rows carry no such
- * column. Thinner, not broken - the summary becomes the rationale, which is the same
- * last-resort fallback the hosted handler uses.
+ * column. Thinner, not broken - such a row reports `rationale_unavailable` rather than being
+ * handed the summary under the name `rationale` (ALI-1085). Honest degradation means saying
+ * the reasoning is absent, not substituting something else for it.
  */
 export function shapeDecisionRationale(
   row: Record<string, unknown>,
@@ -130,7 +133,9 @@ export function shapeDecisionRationale(
 ): Record<string, unknown> {
   const dj = (row['decision_json'] as Record<string, unknown> | undefined) ?? {};
   const aiSub = (dj['ai'] as Record<string, unknown> | undefined) ?? {};
-  const summary = typeof row['summary'] === 'string' ? row['summary'] : '';
+  const realRationale = [dj['rationale'], aiSub['rationale']].find(
+    (v): v is string => typeof v === 'string' && v.trim().length > 0,
+  );
 
   return {
     decision_id: decisionId,
@@ -139,10 +144,26 @@ export function shapeDecisionRationale(
     status: row['status'],
     platform: row['platform'],
     created_at: row['created_at'],
-    rationale:
-      (dj['rationale'] as string | undefined) ??
-      (aiSub['rationale'] as string | undefined) ??
-      summary,
+    // ALI-1085. `summary` used to sit at the end of this chain, so a decision with no
+    // captured reasoning had its SUMMARY returned under the name `rationale`. Verified
+    // through `align mcp --env prod` on 2026-09-20: for align-frontend#213 `rationale ===
+    // summary` was true and nothing marked the substitution. An agent asking WHY was handed
+    // the WHAT and will repeat it to a human as the team's reasoning.
+    //
+    // `??` also did not fall through on an EMPTY rationale, so that shape returned '' with no
+    // marker - a second way to claim reasoning we do not have. Both are absent now, and say so.
+    //
+    // The hosted connector carried the identical defect (align-stack#2454). This is the same
+    // projection written twice in two repos; deployment-mode parity is a hard rule here, so
+    // the CLI and local-only users get the same guarantee rather than the weaker one.
+    ...(realRationale
+      ? { rationale: realRationale }
+      : {
+          rationale_unavailable: true,
+          rationale_note:
+            'No reasoning was captured for this decision. The summary above describes WHAT was ' +
+            'decided, not why - do not present it as the rationale.',
+        }),
     goals: (dj['goals'] as string[] | undefined) ?? [],
     risks: (dj['risks'] as string[] | undefined) ?? (aiSub['risks'] as string[] | undefined) ?? [],
     context: (dj['context'] as string | undefined) ?? '',
