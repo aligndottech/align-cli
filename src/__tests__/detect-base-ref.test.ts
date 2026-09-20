@@ -68,4 +68,27 @@ describe('pickBaseRef (ALI-1097 / David feedback)', () => {
     // returning a ref that will not resolve.
     expect(pickBaseRef(['origin/HEAD -> origin/gone', 'origin/master'])).toBe('origin/master');
   });
+
+  /**
+   * Copilot, #309: the local fallback was reached whenever no `origin/main` or `origin/master`
+   * existed - so a repo whose default is `origin/develop`, with a stale local `main` left over,
+   * returned `main`. The three-dot diff then reviews the branch against an unrelated base, and
+   * the output looks entirely plausible. A local branch is only the right answer when there is
+   * no remote to ask.
+   */
+  it('does NOT fall back to a local branch when remote refs exist', () => {
+    expect(pickBaseRef(['origin/develop', 'main'])).toBeNull();
+    expect(pickBaseRef(['origin/develop', 'origin/feature', 'master'])).toBeNull();
+  });
+
+  it('still honours the remote default when the repo declares one', () => {
+    expect(pickBaseRef(['origin/HEAD -> origin/develop', 'origin/develop', 'main'])).toBe(
+      'origin/develop'
+    );
+  });
+
+  /** The positive control for the rule above: with no remote at all, local IS the answer. */
+  it('uses a local branch only when nothing remote is present', () => {
+    expect(pickBaseRef(['main', 'feature/x'])).toBe('main');
+  });
 });

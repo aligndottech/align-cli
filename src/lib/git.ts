@@ -455,7 +455,20 @@ export function pickBaseRef(branchNames: string[]): string | null {
     if (target && has(target)) return target;
   }
 
-  for (const candidate of ['origin/main', 'origin/master', 'main', 'master']) {
+  for (const candidate of ['origin/main', 'origin/master']) {
+    if (has(candidate)) return candidate;
+  }
+
+  // A local branch is only the right answer when there is no remote to ask. Copilot, #309: the
+  // local fallback used to be reached whenever origin/main and origin/master were both absent,
+  // so a repo whose default is `origin/develop` with a stale local `main` lying around returned
+  // `main` - and the three-dot diff then reviews the branch against an unrelated base while
+  // looking entirely plausible. If remotes exist and none of them matched, we do not know the
+  // base, and null says so.
+  const hasRemote = names.some((n) => n.startsWith('origin/'));
+  if (hasRemote) return null;
+
+  for (const candidate of ['main', 'master']) {
     if (has(candidate)) return candidate;
   }
   return null;

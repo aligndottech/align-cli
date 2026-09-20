@@ -6,6 +6,8 @@
  * different answer than the one the engine produces.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { buildProgram } from '../cli.js';
 
@@ -36,5 +38,34 @@ describe('align review (David feedback, 2026-09-20)', () => {
     const flags = (check?.options ?? []).map((o) => o.long);
     expect(flags).toContain('--base');
     expect(flags).toContain('--title');
+  });
+});
+
+/**
+ * The branch fallback must stay out of hook mode.
+ *
+ * Copilot, #309: `--hook` is documented as silent when there is no context. The fallback makes
+ * an empty-diff invocation check the WHOLE branch instead, so a pre-commit hook would emit
+ * output and could fail the commit on a historical conflict in code the author never touched.
+ *
+ * Asserted against the source rather than by driving the command, because the condition lives
+ * inside a 640-line action closure that needs a gateway, a config store and a git repo to
+ * reach. A source assertion is weaker than a behavioural one and is the honest trade here;
+ * it is scoped to the one condition so it cannot pass by matching `opts.hook` elsewhere.
+ */
+describe("the branch fallback is excluded from hook mode (ALI-1097)", () => {
+  const source = readFileSync(
+    join(__dirname, "..", "commands", "check.ts"),
+    "utf8",
+  );
+
+  it("guards the fallback on !opts.hook as well as !opts.ci", () => {
+    const condition = source.match(/if \(!diff\.trim\(\)[^)]*\)\s*\{/);
+    expect(condition, "the empty-diff fallback condition should exist").toBeTruthy();
+    expect(condition?.[0]).toContain("!opts.ci");
+    expect(
+      condition?.[0],
+      "a --hook run must not fall back to checking the whole branch",
+    ).toContain("!opts.hook");
   });
 });

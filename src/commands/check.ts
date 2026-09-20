@@ -192,7 +192,12 @@ export function registerCheckCommand(program: Command): void {
         //
         // Not in --ci: there `--base` is documented as required precisely so a missing flag
         // fails loudly instead of being quietly papered over by a guess.
-        if (!diff.trim() && !opts.ci) {
+        // NOT in --hook. Copilot, #309: a pre-commit hook is documented as silent when there
+        // is no context (docs/check.md), and this fallback would make it check every commit on
+        // the branch - emitting output, and able to fail the commit on an unrelated historical
+        // conflict the author is not touching. Nor in --ci, where --base is required precisely
+        // so a missing flag fails loudly instead of being papered over by a guess.
+        if (!diff.trim() && !opts.ci && !opts.hook) {
           const detected = pickBaseRef(await listBranchNames());
           if (detected) {
             const branchDiff = await getBaseDiff(detected).catch(() => '');
