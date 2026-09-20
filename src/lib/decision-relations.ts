@@ -75,9 +75,12 @@ export function normaliseDecisionRelation(raw: unknown): DecisionRelation | unde
  * Apply the contract to a search payload, leaving everything else exactly as the gateway sent it.
  *
  * Non-array `results`, a non-object row, or a row with neither field are all pass-throughs: this
- * runs on every search response including local-embedded ones, where the local graph supplies no
- * typed relation edge at all (`local-db.ts` relabels every `conflicts_with` edge to `relates`,
- * ALI-503) and so has nothing for this to shape.
+ * runs on every search response including local-embedded ones, where local `searchDecisions`
+ * builds its row literal from the `decisions` table and never reads `decision_links`, so there is
+ * nothing here for it to shape. Note the reason is the READ path, not the data: a local graph can
+ * hold a `conflicts_with` edge perfectly well, because ALI-503's relabel is a one-time
+ * `user_version < 1` repair rather than a rule on insert. Pinned by
+ * `__tests__/mcp-relation-fields-local.test.ts`, which puts such an edge on disk first.
  */
 export function withDecisionRelationContract<T extends { results?: unknown }>(payload: T): T {
   const rows = (payload as { results?: unknown })?.results;

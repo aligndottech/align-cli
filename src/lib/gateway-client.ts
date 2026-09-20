@@ -186,8 +186,10 @@ export interface SearchResults {
     external_references?: Array<{ ref: string; platform: string }>;
     // Relation context the CLOUD gateway attaches to a non-active hit: what REPLACED this
     // (align-stack ALI-1066) and what CONTESTS it (ALI-1092). Both are absent on an active
-    // decision and absent in local-embedded mode, which holds no typed relation edge at all -
-    // absent, never null, because a null reads as "checked, and there is none". Declared here
+    // decision, and absent in local-embedded mode - not because the local graph cannot HOLD a
+    // typed edge (it can; ALI-503's relabel is a one-time repair, not a rule on insert) but
+    // because local search never reads `decision_links` at all. Absent, never null: a null
+    // reads as "checked, and there is none", which is a claim nobody made. Declared here
     // so the fields are part of this client's contract rather than surviving on the strength of
     // serializeMcpResult happening to be a denylist. See lib/decision-relations.ts.
     successor?: DecisionRelation;
