@@ -460,12 +460,18 @@ export function pickBaseRef(branchNames: string[]): string | null {
   const names = raw.map((n) => (n.startsWith('remote:') ? n.slice('remote:'.length) : n));
   const has = (n: string) => names.includes(n);
 
-  const headLine = names.find((n) => n.startsWith('origin/HEAD ->'));
+  // The symbolic ref is itself a REMOTE entry, so look for it among the remotes rather than in
+  // the flattened name list.
+  const headLine = [...remotes].find((n) => n.startsWith('origin/HEAD ->'));
   if (headLine) {
     const target = headLine.split('->')[1]?.trim();
-    // Only honour it if the target is really there: after a default-branch rename the
-    // symbolic ref can dangle, and returning it would fail the diff with a confusing message.
-    if (target && has(target)) return target;
+    // Only honour it if the target is really there AND is itself a remote. Copilot, #310: this
+    // checked the merged name list, which has had the marker stripped - so a dangling
+    // `origin/HEAD -> origin/trunk` next to a LOCAL branch coincidentally named `origin/trunk`
+    // resolved to the local branch. That is exactly the confusion the marker exists to remove,
+    // on the one path that most needs it. After a default-branch rename the symbolic ref can
+    // dangle, and returning a ref that will not resolve fails the diff with a confusing message.
+    if (target && remotes.has(target)) return target;
   }
 
   // Any remote's main/master, not just origin's - a fork checkout's remote is often `upstream`.

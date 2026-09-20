@@ -113,4 +113,22 @@ describe('pickBaseRef (ALI-1097 / David feedback)', () => {
   it('does not mistake a slashed LOCAL branch for a remote', () => {
     expect(pickBaseRef(['feature/login', 'main'])).toBe('main');
   });
+
+  /**
+   * Copilot, #310: the HEAD target was validated against the MERGED name set, which has had
+   * the remote marker stripped. So a dangling `origin/HEAD -> origin/trunk` alongside a LOCAL
+   * branch coincidentally named `origin/trunk` resolved to the local branch, and the whole
+   * point of the marker - never confuse the two - was lost on the one path that most needs it.
+   */
+  it('does not accept a LOCAL branch as the remote HEAD target', () => {
+    expect(
+      pickBaseRef(['remote:origin/HEAD -> origin/trunk', 'origin/trunk', 'remote:origin/master']),
+    ).toBe('origin/master');
+  });
+
+  it('still resolves HEAD when the target really is a remote', () => {
+    expect(
+      pickBaseRef(['remote:origin/HEAD -> origin/trunk', 'remote:origin/trunk']),
+    ).toBe('origin/trunk');
+  });
 });
