@@ -90,7 +90,15 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['context'], visible: false, summary: 'Write decisions to .align/decisions.md', register: registerContextCommand },
 
   // Customer: CI/alignment check
-  { names: ['check'], visible: true, summary: 'Check your changes against the graph', register: registerCheckCommand },
+  // `names` is the commands this register function ADDS, each looked up by the docs renderer -
+  // an alias is not one, so `review` is NOT listed here. It reaches help and docs through
+  // cmd.alias(). Summary widened because the branch case is the one people ask for by name.
+  {
+    names: ['check'],
+    visible: true,
+    summary: 'Check your changes - or this whole branch - against the graph (alias: review)',
+    register: registerCheckCommand,
+  },
   { names: ['adjudicate'], visible: false, summary: 'Answer a check the judge declined to rule on', register: registerAdjudicateCommand },
   // ALI-831: agent decisions as claims - the human act, and the per-item promotion after it.
   { names: ['ratify'], visible: false, summary: 'Stand behind an agent-made decision', register: registerRatifyCommand },

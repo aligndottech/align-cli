@@ -44,7 +44,11 @@ function renderEntry(entry: CommandEntry, program: Command, lines: string[]): vo
     lines.push('');
     renderCommand(cmd, [], lines);
     const alias = cmd.alias();
-    if (alias) lines.push(row(`align ${alias}`, `alias of align ${name}, deprecated - prints one line on stderr per run`));
+    // Describes the alias without asserting WHY it exists. `review` is the first alias this
+    // repo has carried, so the previous wording ("deprecated - prints one line on stderr per
+    // run") had never been rendered against a real one, and is false for an alias that is a
+    // first-class front door rather than a retired spelling.
+    if (alias) lines.push(row(`align ${alias}`, `same as align ${name}`));
   }
 }
 
