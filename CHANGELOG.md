@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.2](https://github.com/aligndottech/align-cli/compare/cli-v0.40.1...cli-v0.40.2) (2026-09-20)
+
+
+### Bug Fixes
+
+* **mcp:** stop returning the summary as the rationale ([#305](https://github.com/aligndottech/align-cli/issues/305)) ([da7a450](https://github.com/aligndottech/align-cli/commit/da7a450ffd2983906989d3ec52d1d0825ef62c30))
+
 ## [0.40.1](https://github.com/aligndottech/align-cli/compare/cli-v0.40.0...cli-v0.40.1) (2026-09-18)
 
 
