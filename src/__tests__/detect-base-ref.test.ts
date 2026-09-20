@@ -23,9 +23,9 @@ import { pickBaseRef } from '../lib/git.js';
 
 describe('pickBaseRef (ALI-1097 / David feedback)', () => {
   it('prefers the remote HEAD the repo actually declares', () => {
-    expect(pickBaseRef(['origin/HEAD -> origin/trunk', 'origin/trunk', 'origin/main'])).toBe(
-      'origin/trunk'
-    );
+    expect(
+      pickBaseRef(['remote:origin/HEAD -> origin/trunk', 'remote:origin/trunk', 'remote:origin/main'])
+    ).toBe('origin/trunk');
   });
 
   /**
@@ -35,13 +35,15 @@ describe('pickBaseRef (ALI-1097 / David feedback)', () => {
    * the old branch behind, and it is stale by definition).
    */
   it('falls back through main then master when no remote HEAD is declared', () => {
-    expect(pickBaseRef(['origin/master', 'origin/main', 'origin/feature'])).toBe('origin/main');
-    expect(pickBaseRef(['origin/master', 'origin/feature'])).toBe('origin/master');
+    expect(
+      pickBaseRef(['remote:origin/master', 'remote:origin/main', 'remote:origin/feature'])
+    ).toBe('origin/main');
+    expect(pickBaseRef(['remote:origin/master', 'remote:origin/feature'])).toBe('origin/master');
   });
 
   it('prefers a REMOTE ref over a local one of the same name', () => {
     // A local `main` can be arbitrarily stale; the remote is what the PR will merge into.
-    expect(pickBaseRef(['main', 'origin/main'])).toBe('origin/main');
+    expect(pickBaseRef(['main', 'remote:origin/main'])).toBe('origin/main');
   });
 
   it('uses a local branch when the repo has no remote at all', () => {
@@ -58,7 +60,7 @@ describe('pickBaseRef (ALI-1097 / David feedback)', () => {
    * check.ts exit EXIT_UNKNOWN on a bad `--base`.
    */
   it('returns null when nothing looks like a base branch', () => {
-    expect(pickBaseRef(['origin/feature-a', 'wip'])).toBeNull();
+    expect(pickBaseRef(['remote:origin/feature-a', 'wip'])).toBeNull();
     expect(pickBaseRef([])).toBeNull();
   });
 
@@ -66,7 +68,9 @@ describe('pickBaseRef (ALI-1097 / David feedback)', () => {
     // `origin/HEAD -> origin/main` with no `origin/main` entry means the symbolic ref is
     // dangling, which happens after a default-branch rename. Fall through rather than
     // returning a ref that will not resolve.
-    expect(pickBaseRef(['origin/HEAD -> origin/gone', 'origin/master'])).toBe('origin/master');
+    expect(
+      pickBaseRef(['remote:origin/HEAD -> origin/gone', 'remote:origin/master'])
+    ).toBe('origin/master');
   });
 
   /**
@@ -77,18 +81,54 @@ describe('pickBaseRef (ALI-1097 / David feedback)', () => {
    * no remote to ask.
    */
   it('does NOT fall back to a local branch when remote refs exist', () => {
-    expect(pickBaseRef(['origin/develop', 'main'])).toBeNull();
-    expect(pickBaseRef(['origin/develop', 'origin/feature', 'master'])).toBeNull();
+    expect(pickBaseRef(['remote:origin/develop', 'main'])).toBeNull();
+    expect(
+      pickBaseRef(['remote:origin/develop', 'remote:origin/feature', 'master']),
+    ).toBeNull();
   });
 
   it('still honours the remote default when the repo declares one', () => {
-    expect(pickBaseRef(['origin/HEAD -> origin/develop', 'origin/develop', 'main'])).toBe(
-      'origin/develop'
-    );
+    expect(
+      pickBaseRef(['remote:origin/HEAD -> origin/develop', 'remote:origin/develop', 'main'])
+    ).toBe('origin/develop');
   });
 
   /** The positive control for the rule above: with no remote at all, local IS the answer. */
   it('uses a local branch only when nothing remote is present', () => {
     expect(pickBaseRef(['main', 'feature/x'])).toBe('main');
+  });
+
+  /**
+   * The `origin/` prefix is a convention, not a guarantee. A fork checkout whose only remote is
+   * `upstream` has remote refs and no `origin/` anything, and keying the rule on that literal
+   * prefix sent it back to the stale-local-branch bug for exactly those repos. `listBranchNames`
+   * marks remotes explicitly for this reason, so the caller never has to guess from the name.
+   */
+  it('treats ANY remote as a remote, not just origin', () => {
+    expect(pickBaseRef(['remote:upstream/main', 'main'])).toBe('upstream/main');
+    expect(pickBaseRef(['remote:upstream/develop', 'main'])).toBeNull();
+  });
+
+  /** A local branch with a slash in its name is not a remote, and must not read as one. */
+  it('does not mistake a slashed LOCAL branch for a remote', () => {
+    expect(pickBaseRef(['feature/login', 'main'])).toBe('main');
+  });
+
+  /**
+   * Copilot, #310: the HEAD target was validated against the MERGED name set, which has had
+   * the remote marker stripped. So a dangling `origin/HEAD -> origin/trunk` alongside a LOCAL
+   * branch coincidentally named `origin/trunk` resolved to the local branch, and the whole
+   * point of the marker - never confuse the two - was lost on the one path that most needs it.
+   */
+  it('does not accept a LOCAL branch as the remote HEAD target', () => {
+    expect(
+      pickBaseRef(['remote:origin/HEAD -> origin/trunk', 'origin/trunk', 'remote:origin/master']),
+    ).toBe('origin/master');
+  });
+
+  it('still resolves HEAD when the target really is a remote', () => {
+    expect(
+      pickBaseRef(['remote:origin/HEAD -> origin/trunk', 'remote:origin/trunk']),
+    ).toBe('origin/trunk');
   });
 });

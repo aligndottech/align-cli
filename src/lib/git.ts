@@ -436,27 +436,49 @@ export async function isGitRepo(opts: { cwd?: string } = {}): Promise<boolean> {
  *   1. `origin/HEAD -> origin/X` - the repo's OWN declared default. Nothing beats being told.
  *   2. a remote `main`, then a remote `master`. `main` first because a renamed default
  *      usually leaves the old `master` behind, where it is stale by construction.
- *   3. the same two as LOCAL branches, for a repo with no remote. True local-only use is a
- *      first-class mode here (deployment-mode parity), not an edge case.
+ *   3. the same two as LOCAL branches, but ONLY when the repo has no remote at all. True
+ *      local-only use is a first-class mode here (deployment-mode parity), not an edge case.
+ *
+ * A remote entry is marked `remote:<name>` by `listBranchNames`, rather than inferred from the
+ * string. Inferring is what the first version did, keying on an `origin/` prefix - which is a
+ * convention and not a guarantee: a fork checkout whose only remote is `upstream` has remote
+ * refs, no `origin/` anything, and would have fallen back to a stale local `main`. It also
+ * cannot tell `origin/main` from a local branch legitimately named `feature/login`.
  *
  * Returns null rather than guessing. An unresolvable base must be loud - `check --base`
  * already exits EXIT_UNKNOWN rather than falling through to the empty-diff path, because
  * "I could not look" and "there was nothing to look at" are the same green from outside.
  */
 export function pickBaseRef(branchNames: string[]): string | null {
-  const names = branchNames.map((n) => n.trim()).filter(Boolean);
+  const raw = branchNames.map((n) => n.trim()).filter(Boolean);
+  // `remote:` is the marker listBranchNames adds; strip it for matching but remember which
+  // entries carried it, because "does this repo have any remote" is the question that decides
+  // whether a local branch may be used at all.
+  const remotes = new Set(
+    raw.filter((n) => n.startsWith('remote:')).map((n) => n.slice('remote:'.length))
+  );
+  const names = raw.map((n) => (n.startsWith('remote:') ? n.slice('remote:'.length) : n));
   const has = (n: string) => names.includes(n);
 
-  const headLine = names.find((n) => n.startsWith('origin/HEAD ->'));
+  // The symbolic ref is itself a REMOTE entry, so look for it among the remotes rather than in
+  // the flattened name list.
+  const headLine = [...remotes].find((n) => n.startsWith('origin/HEAD ->'));
   if (headLine) {
     const target = headLine.split('->')[1]?.trim();
-    // Only honour it if the target is really there: after a default-branch rename the
-    // symbolic ref can dangle, and returning it would fail the diff with a confusing message.
-    if (target && has(target)) return target;
+    // Only honour it if the target is really there AND is itself a remote. Copilot, #310: this
+    // checked the merged name list, which has had the marker stripped - so a dangling
+    // `origin/HEAD -> origin/trunk` next to a LOCAL branch coincidentally named `origin/trunk`
+    // resolved to the local branch. That is exactly the confusion the marker exists to remove,
+    // on the one path that most needs it. After a default-branch rename the symbolic ref can
+    // dangle, and returning a ref that will not resolve fails the diff with a confusing message.
+    if (target && remotes.has(target)) return target;
   }
 
-  for (const candidate of ['origin/main', 'origin/master']) {
-    if (has(candidate)) return candidate;
+  // Any remote's main/master, not just origin's - a fork checkout's remote is often `upstream`.
+  // Ordered main-before-master across all remotes, so a renamed default wins over a leftover.
+  for (const leaf of ['main', 'master']) {
+    const match = [...remotes].sort().find((r) => r.endsWith(`/${leaf}`));
+    if (match) return match;
   }
 
   // A local branch is only the right answer when there is no remote to ask. Copilot, #309: the
@@ -465,8 +487,7 @@ export function pickBaseRef(branchNames: string[]): string | null {
   // `main` - and the three-dot diff then reviews the branch against an unrelated base while
   // looking entirely plausible. If remotes exist and none of them matched, we do not know the
   // base, and null says so.
-  const hasRemote = names.some((n) => n.startsWith('origin/'));
-  if (hasRemote) return null;
+  if (remotes.size > 0) return null;
 
   for (const candidate of ['main', 'master']) {
     if (has(candidate)) return candidate;
@@ -484,14 +505,24 @@ export function pickBaseRef(branchNames: string[]): string | null {
  */
 export async function listBranchNames(opts: { cwd?: string } = {}): Promise<string[]> {
   try {
-    const result = await execa('git', ['branch', '-a', '--format=%(refname:short)'], opts.cwd ? { cwd: opts.cwd } : {});
-    const names = result.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+    const result = await execa('git', ['branch', '-a', '--format=%(refname)'], opts.cwd ? { cwd: opts.cwd } : {});
+    // `%(refname)` rather than `%(refname:short)`: the full ref is the only thing that tells a
+    // remote from a local branch whose name happens to contain a slash.
+    const names = result.stdout
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((ref) =>
+        ref.startsWith('refs/remotes/')
+          ? `remote:${ref.slice('refs/remotes/'.length)}`
+          : ref.replace(/^refs\/heads\//, '')
+      );
     // `--format=%(refname:short)` omits the symbolic origin/HEAD line that plain `git branch -a`
     // prints, so ask for it directly rather than inferring one.
     try {
       const head = await execa('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], opts.cwd ? { cwd: opts.cwd } : {});
       const target = head.stdout.trim();
-      if (target) names.unshift(`origin/HEAD -> ${target}`);
+      if (target) names.unshift(`remote:origin/HEAD -> ${target}`);
     } catch {
       // No origin/HEAD configured. Normal in a fresh clone or a repo with no remote.
     }
