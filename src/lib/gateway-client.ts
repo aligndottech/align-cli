@@ -2,6 +2,7 @@ import type { EnvironmentConfig } from './config.js';
 import { LOCAL_DEFAULT_GATEWAY_URL } from './config.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
 import type { TopicTimelineResult } from './mcp-timeline-tools.js';
+import type { DecisionRelation } from './decision-relations.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -183,6 +184,16 @@ export interface SearchResults {
     // hosted gateway yet) - what this decision's text points at, so `align ask` can
     // name a gap on the decision it just returned.
     external_references?: Array<{ ref: string; platform: string }>;
+    // Relation context the CLOUD gateway attaches to a non-active hit: what REPLACED this
+    // (align-stack ALI-1066) and what CONTESTS it (ALI-1092). Both are absent on an active
+    // decision, and absent in local-embedded mode - not because the local graph cannot HOLD a
+    // typed edge (it can; ALI-503's relabel is a one-time repair, not a rule on insert) but
+    // because local search never reads `decision_links` at all. Absent, never null: a null
+    // reads as "checked, and there is none", which is a claim nobody made. Declared here
+    // so the fields are part of this client's contract rather than surviving on the strength of
+    // serializeMcpResult happening to be a denylist. See lib/decision-relations.ts.
+    successor?: DecisionRelation;
+    conflicts_with?: DecisionRelation;
   }>;
   count: number;
   strategy: 'semantic' | 'keyword';
