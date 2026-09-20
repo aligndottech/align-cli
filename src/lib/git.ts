@@ -426,3 +426,77 @@ export async function isGitRepo(opts: { cwd?: string } = {}): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Pick the branch a PR would merge into, from a list of `git branch` / `git branch -r` names.
+ *
+ * Pure and list-driven so it is testable without a repo: the caller supplies what git said.
+ * Preference order, and each position is a decision rather than a default:
+ *
+ *   1. `origin/HEAD -> origin/X` - the repo's OWN declared default. Nothing beats being told.
+ *   2. a remote `main`, then a remote `master`. `main` first because a renamed default
+ *      usually leaves the old `master` behind, where it is stale by construction.
+ *   3. the same two as LOCAL branches, for a repo with no remote. True local-only use is a
+ *      first-class mode here (deployment-mode parity), not an edge case.
+ *
+ * Returns null rather than guessing. An unresolvable base must be loud - `check --base`
+ * already exits EXIT_UNKNOWN rather than falling through to the empty-diff path, because
+ * "I could not look" and "there was nothing to look at" are the same green from outside.
+ */
+export function pickBaseRef(branchNames: string[]): string | null {
+  const names = branchNames.map((n) => n.trim()).filter(Boolean);
+  const has = (n: string) => names.includes(n);
+
+  const headLine = names.find((n) => n.startsWith('origin/HEAD ->'));
+  if (headLine) {
+    const target = headLine.split('->')[1]?.trim();
+    // Only honour it if the target is really there: after a default-branch rename the
+    // symbolic ref can dangle, and returning it would fail the diff with a confusing message.
+    if (target && has(target)) return target;
+  }
+
+  for (const candidate of ['origin/main', 'origin/master']) {
+    if (has(candidate)) return candidate;
+  }
+
+  // A local branch is only the right answer when there is no remote to ask. Copilot, #309: the
+  // local fallback used to be reached whenever origin/main and origin/master were both absent,
+  // so a repo whose default is `origin/develop` with a stale local `main` lying around returned
+  // `main` - and the three-dot diff then reviews the branch against an unrelated base while
+  // looking entirely plausible. If remotes exist and none of them matched, we do not know the
+  // base, and null says so.
+  const hasRemote = names.some((n) => n.startsWith('origin/'));
+  if (hasRemote) return null;
+
+  for (const candidate of ['main', 'master']) {
+    if (has(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Branch names as `git branch` sees them, local and remote, including the
+ * `origin/HEAD -> origin/X` line. Feeds `pickBaseRef`, which does the choosing.
+ *
+ * Returns [] when git fails for any reason - no repo, no branches, a shallow clone. The
+ * caller must treat [] as "I could not determine a base" and never as "there is no base",
+ * which is why pickBaseRef returns null rather than a plausible default.
+ */
+export async function listBranchNames(opts: { cwd?: string } = {}): Promise<string[]> {
+  try {
+    const result = await execa('git', ['branch', '-a', '--format=%(refname:short)'], opts.cwd ? { cwd: opts.cwd } : {});
+    const names = result.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+    // `--format=%(refname:short)` omits the symbolic origin/HEAD line that plain `git branch -a`
+    // prints, so ask for it directly rather than inferring one.
+    try {
+      const head = await execa('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], opts.cwd ? { cwd: opts.cwd } : {});
+      const target = head.stdout.trim();
+      if (target) names.unshift(`origin/HEAD -> ${target}`);
+    } catch {
+      // No origin/HEAD configured. Normal in a fresh clone or a repo with no remote.
+    }
+    return names;
+  } catch {
+    return [];
+  }
+}

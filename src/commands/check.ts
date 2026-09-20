@@ -6,7 +6,7 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo } from '../lib/git.js';
+import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
 import { markHookContext } from '../lib/hook-context.js';
@@ -72,6 +72,11 @@ export function registerCheckCommand(program: Command): void {
   program
     .command('check')
     .description('Check current changes against the decision graph (exit 1 = conflict found)')
+    // `align review` is the SAME command. David Boulderstone asked for a way to ask Align
+    // whether a PR is aligned with past decisions, while holding a CLI that already did it:
+    // the capability was never missing, the front door was. `check` reads as "my working
+    // tree right now"; `review` is the verb people reach for when they open a PR.
+    .alias('review')
     .option('--env <env>', 'Environment')
     .option('--all', 'Check full HEAD diff, not just staged changes')
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
@@ -155,6 +160,7 @@ export function registerCheckCommand(program: Command): void {
       const client = createGatewayClient(config.getEnvironment(envName));
 
       let diff: string;
+      let autoBase: string | null = null;
       if (opts.base) {
         // An unresolvable base (a typo, a shallow clone with no history, a deleted branch)
         // must NOT fall through to the empty-diff path below: "I could not look" and "there
@@ -174,6 +180,37 @@ export function registerCheckCommand(program: Command): void {
       } else {
         diff = await getStagedDiff();
         if (!diff.trim() || opts.all) diff = await getHeadDiff();
+
+        // Nothing staged and nothing uncommitted. Until now that printed "No changes to check"
+        // and exited 0 - on a CLEAN branch with commits, which is the normal state when you
+        // open a PR. A gate that examined nothing, reporting success, and `--base` only ever
+        // rescued the people who already knew to pass it.
+        //
+        // So fall back to the branch's own diff against its base. This fires ONLY where the
+        // command was about to find nothing, so it cannot change any case that checks
+        // something today - it can only turn a false green into a real check.
+        //
+        // Not in --ci: there `--base` is documented as required precisely so a missing flag
+        // fails loudly instead of being quietly papered over by a guess.
+        // NOT in --hook. Copilot, #309: a pre-commit hook is documented as silent when there
+        // is no context (docs/check.md), and this fallback would make it check every commit on
+        // the branch - emitting output, and able to fail the commit on an unrelated historical
+        // conflict the author is not touching. Nor in --ci, where --base is required precisely
+        // so a missing flag fails loudly instead of being papered over by a guess.
+        if (!diff.trim() && !opts.ci && !opts.hook) {
+          const detected = pickBaseRef(await listBranchNames());
+          if (detected) {
+            const branchDiff = await getBaseDiff(detected).catch(() => '');
+            if (branchDiff.trim()) {
+              diff = branchDiff;
+              autoBase = detected;
+            }
+          }
+        }
+      }
+
+      if (autoBase && !opts.hook) {
+        console.log(chalk.dim(`No staged or uncommitted changes - reviewing this branch against ${autoBase}.`));
       }
 
       if (!diff.trim()) {

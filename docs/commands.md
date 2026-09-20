@@ -54,6 +54,7 @@ align connect sessions        Review decision-shaped moments from local coding-a
 
 align check                   Check current changes against the decision graph (exit 1 = conflict found)
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
+align review                  same as align check
 
 align mcp                     Run Align as an MCP server for any MCP-capable agent (Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini, ...)
                               flags: --env --setup --install --remove --created-before
