@@ -53,7 +53,7 @@ describe('align review (David feedback, 2026-09-20)', () => {
  * reach. A source assertion is weaker than a behavioural one and is the honest trade here;
  * it is scoped to the one condition so it cannot pass by matching `opts.hook` elsewhere.
  */
-describe("the branch fallback is excluded from hook mode (ALI-1097)", () => {
+describe("the branch fallback is excluded from hook mode (ALI-1105)", () => {
   const source = readFileSync(
     join(__dirname, "..", "commands", "check.ts"),
     "utf8",
