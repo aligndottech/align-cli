@@ -17,7 +17,7 @@ import { join } from 'node:path';
 
 import { listBranchNames, pickBaseRef } from '../lib/git.js';
 
-describe('listBranchNames (ALI-1097)', () => {
+describe('listBranchNames (ALI-1105)', () => {
   let dir: string;
   let names: string[];
 

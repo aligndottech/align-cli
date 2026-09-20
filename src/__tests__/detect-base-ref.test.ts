@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 
 import { pickBaseRef } from '../lib/git.js';
 
-describe('pickBaseRef (ALI-1097 / David feedback)', () => {
+describe('pickBaseRef (ALI-1105, David feedback)', () => {
   it('prefers the remote HEAD the repo actually declares', () => {
     expect(
       pickBaseRef(['remote:origin/HEAD -> origin/trunk', 'remote:origin/trunk', 'remote:origin/main'])
