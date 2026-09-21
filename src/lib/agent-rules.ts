@@ -271,6 +271,29 @@ export function writeProjectMcpConfig(cwd: string, env?: string): void {
 // The extension deliberately declares its own structural types instead of importing
 // them from pi: an unresolved import would throw at load and take the session with it,
 // and pi's package scope has already moved once (@mariozechner -> @earendil-works).
+/**
+ * The spawn preamble both generated plugins embed.
+ *
+ * ALI-1184. An npm global install on Windows exposes `align.cmd`, and a process spawn
+ * resolves a `.cmd` only through a shell - Node's child_process refuses one outright. `cmd`
+ * is a real executable, so `cmd /c align` launches and cmd resolves `align` -> `align.cmd`
+ * through PATH + PATHEXT. Same form ALI-1135 settled on for the MCP configs.
+ *
+ * IT BRANCHES AT RUNTIME, NOT HERE. A generated plugin is a file that can be committed,
+ * shared, or synced to a machine with a different OS than the one that generated it. Baking
+ * the GENERATING platform in would work for whoever ran `align setup` and fail for everyone
+ * who received the file, which is the same defect one layer along. So the output of these
+ * writers is identical on every platform and the decision happens where the code runs.
+ *
+ * One copy, used by both bodies: the pi extension and the opencode plugin made the identical
+ * mistake independently, which is what two writers of one fact produces.
+ */
+const PLUGIN_SPAWN_PREAMBLE = `// npm installs align.cmd on Windows, which a process spawn cannot resolve without a
+// shell. cmd is a real executable and resolves align.cmd through PATHEXT.
+const ALIGN_IS_WIN = process.platform === "win32";
+const ALIGN_BIN = ALIGN_IS_WIN ? "cmd" : "align";
+const ALIGN_PRE = ALIGN_IS_WIN ? ["/c", "align"] : [];`;
+
 function piExtensionBody(env?: string): string {
   const envArgs = env && env !== 'prod' ? `, "--env", "${env}"` : '';
   return `// Align decision graph - managed by \`align setup\`, do not edit.
@@ -284,6 +307,7 @@ type Verdict = { block?: boolean; reason?: string; context?: string };
 
 const MUTATING_TOOLS = new Set(["edit", "write"]);
 const TIMEOUT_MS = 10000;
+${PLUGIN_SPAWN_PREAMBLE}
 
 // Findings from the pre-edit check, held until that call's result comes back.
 const pending = new Map<string, string>();
@@ -292,8 +316,8 @@ function askAlign(payload: unknown): Promise<Verdict | null> {
   return new Promise((resolve) => {
     try {
       const child = execFile(
-        "align",
-        ["check", "--advisory", "--format", "pi"${envArgs}],
+        ALIGN_BIN,
+        [...ALIGN_PRE, "check", "--advisory", "--format", "pi"${envArgs}],
         { timeout: TIMEOUT_MS },
         (err, stdout) => {
           if (err || !stdout || !stdout.trim()) return resolve(null);
@@ -417,6 +441,7 @@ import { execFile } from "node:child_process";
 
 const MUTATING_TOOLS = new Set(["edit", "write", "apply_patch"]);
 const TIMEOUT_MS = 10000;
+${PLUGIN_SPAWN_PREAMBLE}
 
 // Findings from the pre-edit check, held until that call's result comes back.
 const pending = new Map();
@@ -425,8 +450,8 @@ function askAlign(payload) {
   return new Promise((resolve) => {
     try {
       const child = execFile(
-        "align",
-        ["check", "--advisory", "--format", "opencode"${envArgs}],
+        ALIGN_BIN,
+        [...ALIGN_PRE, "check", "--advisory", "--format", "opencode"${envArgs}],
         { timeout: TIMEOUT_MS },
         (err, stdout) => {
           if (err || !stdout || !stdout.trim()) return resolve(null);
