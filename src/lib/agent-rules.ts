@@ -241,7 +241,11 @@ export function writeProjectMcpConfig(cwd: string, env?: string): void {
   }
 
   const servers = (config['mcpServers'] ?? {}) as Record<string, unknown>;
-  servers['align'] = alignServerEntry('mcpServers', env);
+  // `committed: true` keeps the Windows `cmd /c` wrapper OUT of this file (ALI-1135). It is
+  // the one MCP config that travels: a wrapper written here by a Windows machine would be
+  // committed and then fail to spawn for every teammate on macOS or Linux. Windows readers
+  // get the wrapper from their own user-level entry instead.
+  servers['align'] = alignServerEntry('mcpServers', env, { committed: true });
   config['mcpServers'] = servers;
 
   writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, 'utf8');

@@ -15,6 +15,14 @@ vi.mock('node:os', async (importOriginal) => {
 });
 
 import { alignServerEntry, detectEditors, type EditorTarget, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
+import { pinPlatform } from './helpers/platform.js';
+
+// The entry's `command` is platform-conditional since ALI-1135 (Windows gets a `cmd /c`
+// wrapper, because an npm global install exposes align.cmd). These suites are about the hook
+// file rather than the platform, so they state the POSIX side once here - inheriting the
+// runner's would make them red on this repo's Windows leg for a reason they never asserted.
+// The Windows side is pinned in mcp-setup-windows.test.ts.
+pinPlatform('linux');
 
 /**
  * ALI-952: the hosts with a user-level hook file get the advisory hook written NEXT TO their

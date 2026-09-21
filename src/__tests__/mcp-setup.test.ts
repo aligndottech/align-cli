@@ -14,6 +14,14 @@ vi.mock('node:fs', async (importOriginal) => {
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { type EditorTarget, detectEditors, detectWiredEditors, projectMcpAgents, writeMcpConfig } from '../lib/mcp-setup.js'; // eslint-disable-line sort-imports
+import { pinPlatform } from './helpers/platform.js';
+
+// One platform for the whole file, stated rather than inherited (ALI-1135). Two things here
+// depend on it: the config PATHS detectEditors builds, and - since Windows needs a `cmd /c`
+// wrapper for the align.cmd shim npm installs - the `command` every writer emits. Pinning
+// POSIX keeps these assertions about what they were written for; the Windows side of both is
+// asserted in mcp-setup-windows.test.ts.
+pinPlatform('linux');
 
 const mockExistsSync = existsSync as ReturnType<typeof vi.fn>;
 const mockReadFileSync = readFileSync as ReturnType<typeof vi.fn>;

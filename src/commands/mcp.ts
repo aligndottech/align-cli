@@ -9,7 +9,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { createConfigStore, type EnvironmentConfig, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
+import { alignServerEntry, detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
 import { commandIntro } from '../lib/brand.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
@@ -575,11 +575,13 @@ export function registerMcpCommand(program: Command): void {
     .option('--install', 'Configure agents - alias for --setup')
     .option('--remove', 'Remove Align from your agents\' MCP config')
     .option('--created-before <iso>', 'Hide decisions captured at or after this ISO-8601 instant (benchmark/audit use)')
+    // Rendered, not spelled (ALI-1135): help text is copied by hand, and on Windows the bare
+    // `align` is the align.cmd shim a client cannot spawn.
     .addHelpText('after', `
 Claude Code config (~/.claude.json or workspace .mcp.json):
   {
     "mcpServers": {
-      "align": { "command": "align", "args": ["mcp"] }
+      "align": ${JSON.stringify(alignServerEntry('mcpServers'))}
     }
   }
 `)
@@ -682,11 +684,15 @@ async function runMcpSetup(env?: EnvName): Promise<void> {
 
   const editors = detectEditors();
   if (!editors.length) {
-    const envArgs = env && env !== 'prod' ? `, "--env", "${env}"` : '';
+    // Rendered from alignServerEntry rather than hand-built (ALI-1135). This branch used to
+    // spell `"command": "align"` itself, which is the one thing a Windows client cannot
+    // spawn - and this is the branch that hands the config to a HUMAN to paste, so a wrong
+    // one here is copied by hand into the file we were not allowed to write.
+    const entry = JSON.stringify(alignServerEntry('mcpServers', env === 'prod' ? undefined : env));
     p.log.warn(
       'No MCP agent detected automatically. Align works with any MCP-capable agent.\n' +
       'Add this config manually to your agent\'s MCP settings:\n\n' +
-      `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
+      `  { "mcpServers": { "align": ${entry} } }`,
     );
     p.outro('Done.');
     return;

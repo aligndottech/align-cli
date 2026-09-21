@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import * as p from '@clack/prompts';
-import { detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
+import { alignServerEntry, detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import type { EnvName } from '../lib/config.js';
 
 /**
@@ -43,13 +43,26 @@ export async function connectDetectedAgents(
     // agent detected" implied nothing was wired, which cost a user (David, 2026-08-31) a
     // confused "shouldn't this have worked" while sitting inside a working Claude Code
     // session the whole time.
-    const envArgs = envArg ? `, "--env", "${envArg}"` : '';
+    // Rendered from alignServerEntry (ALI-1135), never spelled here: this string is pasted
+    // BY HAND into a config we were not able to write, so a Windows reader copying a bare
+    // `"command": "align"` hits the align.cmd spawn failure with no writer left to fix it.
+    const entry = JSON.stringify(alignServerEntry('mcpServers', envArg));
+    // On Windows the project file is NOT sufficient, and saying it is would be ALI-1135's
+    // defect restated in prose. `.mcp.json` is committed and read by the whole team, so it
+    // keeps the portable bare `align` - which is exactly the command a Windows client cannot
+    // spawn. So on Windows those two clients need the per-machine entry as well, and this is
+    // the one place a user with no global agent config is told anything at all.
+    const projectCovers = process.platform === 'win32'
+      ? 'The project\'s .mcp.json (written above) keeps the portable `align` command so it works ' +
+        'for the whole team, and Windows cannot spawn that one - so on this machine Claude Code ' +
+        'and pi need the per-machine entry below too. '
+      : 'Claude Code and pi already read the project\'s .mcp.json (written above), so those need ' +
+        'nothing further. ';
     p.log.info(
-      'No agent found a GLOBAL config to connect to. Claude Code and pi already read the ' +
-      'project\'s .mcp.json (written above), so those need nothing further. Other MCP-capable ' +
+      `No agent found a GLOBAL config to connect to. ${projectCovers}Other MCP-capable ` +
       'agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...) work too - add this to ' +
       `their config (or re-run ${chalk.bold(`align mcp --setup${envSuffix}`)} once installed):\n\n` +
-      `  { "mcpServers": { "align": { "command": "align", "args": ["mcp"${envArgs}] } } }`,
+      `  { "mcpServers": { "align": ${entry} } }`,
     );
     return { detected: 0, connected: 0, wired: [] };
   }

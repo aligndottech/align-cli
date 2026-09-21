@@ -1,8 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as McpSetup from '../lib/mcp-setup.js';
 
 const detectEditors = vi.hoisted(() => vi.fn());
 const writeMcpConfig = vi.hoisted(() => vi.fn());
-vi.mock('../lib/mcp-setup.js', () => ({ detectEditors, writeMcpConfig }));
+// alignServerEntry is the REAL one (ALI-1135): the hand-over message below is built from it,
+// and a stub would make the platform assertions at the bottom of this file about the stub.
+vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof McpSetup>()),
+  detectEditors,
+  writeMcpConfig,
+}));
 
 const confirm = vi.hoisted(() => vi.fn());
 const logged: string[] = [];
@@ -17,6 +24,7 @@ vi.mock('@clack/prompts', () => ({
 }));
 
 import { connectDetectedAgents } from '../commands/connect-agents.js';
+import { restorePlatform, setPlatform } from './helpers/platform.js';
 
 const CLAUDE = { name: 'Claude Desktop', configPath: '/home/d/.config/Claude/x.json', format: 'mcpServers' };
 const CURSOR = { name: 'Cursor', configPath: '/home/d/.cursor/mcp.json', format: 'mcpServers' };
@@ -147,7 +155,11 @@ describe("connectDetectedAgents - the zero-editors message", () => {
     logged.length = 0;
     detectEditors.mockReset();
     writeMcpConfig.mockReset();
+    // Stated, not inherited: the sentence about .mcp.json is platform-conditional since
+    // ALI-1135, and this suite is about the POSIX wording.
+    setPlatform('linux');
   });
+  afterEach(restorePlatform);
 
   it("does not say NOTHING was detected, since .mcp.json already covers project-scoped agents", () => {
     // David, 2026-08-31: he was in an active Claude Code session - .claude/settings.json
@@ -227,5 +239,68 @@ describe('connectDetectedAgents names what it wired (ALI-950)', () => {
     detectEditors.mockReturnValue([]);
     const r = await connectDetectedAgents('local');
     expect(r.wired).toEqual([]);
+  });
+});
+
+/**
+ * ALI-1135: this message is a config the user pastes BY HAND, into a file we could not write.
+ * A bare `"command": "align"` is the align.cmd shim on Windows, which no client that spawns
+ * without a shell can launch - and here there is no writer left to correct it afterwards.
+ *
+ * Both platforms are set explicitly. Inheriting the runner's would assert one branch and
+ * report a pass for both.
+ */
+describe('connectDetectedAgents - the hand-over config is spawnable on the reader\'s platform', () => {
+  beforeEach(() => {
+    logged.length = 0;
+    detectEditors.mockReset().mockReturnValue([]);
+    writeMcpConfig.mockReset();
+  });
+  afterEach(restorePlatform);
+
+  it('wraps the command for a Windows reader', async () => {
+    setPlatform('win32');
+    await connectDetectedAgents('local');
+    const all = logged.join('\n');
+    expect(all).toContain('"command":"cmd"');
+    expect(all).toContain('"/c","align","mcp","--env","local"');
+  });
+
+  it('leaves it bare for a macOS or Linux reader', async () => {
+    setPlatform('linux');
+    await connectDetectedAgents('local');
+    const all = logged.join('\n');
+    expect(all).toContain('"command":"align"');
+    expect(all).not.toContain('cmd');
+  });
+});
+
+/**
+ * ALI-1135, Copilot #314: the message above told a Windows user that `.mcp.json` covers Claude
+ * Code and pi. It does not. That file is committed, so it keeps the portable bare `align` -
+ * the one command a Windows client cannot spawn - and this branch is the only thing a user
+ * with no global agent config is ever told.
+ */
+describe('connectDetectedAgents - what it claims .mcp.json covers', () => {
+  beforeEach(() => {
+    logged.length = 0;
+    detectEditors.mockReset().mockReturnValue([]);
+    writeMcpConfig.mockReset();
+  });
+  afterEach(restorePlatform);
+
+  it('does not tell a Windows user that the project file is enough', async () => {
+    setPlatform('win32');
+    await connectDetectedAgents('local');
+    const all = logged.join('\n');
+    expect(all).not.toContain('need nothing further');
+    expect(all).toMatch(/Windows cannot spawn/i);
+    expect(all).toMatch(/claude code and pi need the per-machine entry/i);
+  });
+
+  it('still says the project file covers them on macOS and Linux, where it does', async () => {
+    setPlatform('darwin');
+    await connectDetectedAgents('local');
+    expect(logged.join('\n')).toContain('need nothing further');
   });
 });
