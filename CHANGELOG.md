@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.41.0](https://github.com/aligndottech/align-cli/compare/cli-v0.40.2...cli-v0.41.0) (2026-09-21)
+
+
+### Features
+
+* **check:** add align review, and stop passing on a clean branch (David's feedback) ([#309](https://github.com/aligndottech/align-cli/issues/309)) ([af54be0](https://github.com/aligndottech/align-cli/commit/af54be02901ddf580bcada1ed3b33816fd8bc4d5))
+
+
+### Bug Fixes
+
+* **gateway-client:** a bodyless request must not claim to send JSON ([#312](https://github.com/aligndottech/align-cli/issues/312)) ([f0a6f86](https://github.com/aligndottech/align-cli/commit/f0a6f869b8f2d9b13b97d90ff11fe641d5094a6c))
+* **git:** mark remotes explicitly rather than inferring them from an origin/ prefix ([#310](https://github.com/aligndottech/align-cli/issues/310)) ([83378e4](https://github.com/aligndottech/align-cli/commit/83378e40689420ab68566659e7fb73c660040e8e))
+* **mcp:** never tell an agent "no conflict exists" when the gateway said nothing ([#307](https://github.com/aligndottech/align-cli/issues/307)) ([780844d](https://github.com/aligndottech/align-cli/commit/780844dd3e37f7ef26ad287142a875e0f9bded52))
+* **mcp:** write a command Windows can actually spawn (ALI-1135) ([#314](https://github.com/aligndottech/align-cli/issues/314)) ([53c4bf6](https://github.com/aligndottech/align-cli/commit/53c4bf6424199387d8cd9f1fec65d7a6e4406dd7))
+* **plugins:** spawn align through cmd on Windows, decided at runtime (ALI-1184) ([#315](https://github.com/aligndottech/align-cli/issues/315)) ([208f399](https://github.com/aligndottech/align-cli/commit/208f399a2c6011b2b203db5cfedb060ab7f3da06))
+
 ## [0.40.2](https://github.com/aligndottech/align-cli/compare/cli-v0.40.1...cli-v0.40.2) (2026-09-20)
 
 
