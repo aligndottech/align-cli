@@ -37,9 +37,22 @@ entry, covers every project on this machine, and comes out again with `align mcp
 | **Windsurf** | - (MCP only) | no hook API | no | no | - |
 | **Zed** | - (MCP only) | no hook API | no | no | - |
 | **VS Code** | - (MCP only) | no hook API for the CLI to write | no | no | - |
+| **JetBrains AI Assistant** | - (not detected; wire MCP by hand, see [mcp.md](mcp.md)) | not wired; no hook API documented for the IDE assistant | no | no | - |
+| **Junie CLI** | - (not written) | not wired, and unlike the rows above this one is our gap: Junie CLI documents `PreToolUse` | no | no | - |
 
-Every host still gets the MCP server and the `AGENTS.md` nudge. The last four do not get the
-deterministic layer, and no amount of config on our side changes that.
+Every host still gets the MCP server and the `AGENTS.md` nudge, JetBrains once you have pasted
+its config in yourself. Claude Desktop, Windsurf, Zed, VS Code and JetBrains AI Assistant do not
+get the deterministic layer, and no amount of config on our side changes that.
+
+**Junie CLI is the exception in that group, and the gap is ours rather than the host's.** It
+documents seven hook events, `PreToolUse` among them, configured under a `hooks` key in
+`~/.junie/config.json`. A `PreToolUse` hook there can return `"decision": "block"` or exit 2 to
+deny a tool call, and can return `additionalContext` to put text in front of the model, which is
+the same pair `--format claude` already renders. Nothing writes that file today. The feature is
+in JetBrains' Early Access Program and applies to **Junie CLI only**, not to Junie inside the
+IDE, so it is a follow-up rather than a missing line. Read 2026-09-21:
+[Junie CLI hooks](https://junie.jetbrains.com/docs/junie-cli-hooks.html). Not verified against a
+running Junie CLI.
 
 ### The three user-level hosts, and what is documented versus captured
 

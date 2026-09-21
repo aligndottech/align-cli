@@ -27,6 +27,17 @@ checksums, and you can read [install.sh](install.sh) before you pipe it anywhere
 Prefer npm, or already have Node? `npm install -g @aligndottech/cli` (Node 22.16+).
 Binaries for every platform are on the [releases page](https://github.com/aligndottech/align-cli/releases/latest).
 
+**On Windows, start with npm.** In PowerShell:
+
+```powershell
+npm install -g @aligndottech/cli
+align
+```
+
+The `curl ... | sh` line above needs a POSIX shell, so it runs under Git Bash or WSL and not in
+PowerShell itself. [Installing](docs/installation.md) covers the rest, including the manual
+binary download for a Windows machine with no Node on it.
+
 MIT. No account needed. Beta, pre-1.0.
 
 Run it inside a git repository. `--local` seeds the graph from your commit history, so you have
@@ -63,7 +74,7 @@ read-only OAuth and wires up your editors.
 
 | | What you get |
 |---|---|
-| **MCP server** | Claude Code, Cursor, Claude Desktop and Windsurf query the graph inline |
+| **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI and pi query the graph inline |
 | **Edit hooks** | Prior decisions reach the model before it writes. Claude Code, pi, Gemini CLI, OpenCode |
 | **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
 | **Shared `.mcp.json`** | One committed file wires up the whole team |
@@ -102,6 +113,7 @@ Grok, any OpenAI-compatible endpoint, or a local Ollama.
 
 | | |
 |---|---|
+| [Installing](docs/installation.md) | npm, the binary, Windows and PowerShell |
 | [Importing](docs/importing.md) | Every source, tokens, flags |
 | [Alignment check](docs/check.md) | Modes, exit codes, CI, the GitHub Action |
 | [Cloud or local-only](docs/local-mode.md) | What runs where, what touches the network |
