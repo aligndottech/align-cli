@@ -9,8 +9,14 @@ curl -fsSL https://align.tech/install.sh | sh
 align
 ```
 
-One file, verified against the release's own checksums. Linux, macOS and Windows, x64 and
-arm64, glibc and musl. You can read [install.sh](../install.sh) before you pipe it anywhere.
+One file. Linux, macOS and Windows, x64 and arm64, glibc and musl. You can read
+[install.sh](../install.sh) before you pipe it anywhere.
+
+It checks the download against the release's own `SHA256SUMS` and refuses to install on a
+mismatch. Two cases it cannot check, and in both it prints `checksum NOT verified` to stderr and
+carries on rather than stopping: a release with no `SHA256SUMS`, and a machine with neither
+`sha256sum` nor `shasum` on it. That is deliberate, and it means a successful install is not by
+itself proof the checksum was verified. Read the line.
 
 `install.sh` is a POSIX shell script. It picks your asset from `uname -s` and `uname -m`, and
 the only Windows values it recognises are the ones Git Bash, MSYS and Cygwin report. PowerShell
@@ -53,7 +59,7 @@ on that platform, and it tells you so rather than guessing.
 
 ```bash
 align                # set up, then see your graph and what to do next
-align mcp --setup    # wire every AI client it finds on this machine
+align mcp --setup    # find your AI clients, then wire the ones you pick
 ```
 
 [MCP server](mcp.md) has the per-client config, including VS Code and the JetBrains IDEs.

@@ -21,8 +21,9 @@ want it local-only or synced; after that it shows your graph and what to do next
 
 A standalone binary. No Node, no npm, nothing else to install, and local-only mode works
 fully - on-device embeddings included, running on a WASM backend bundled inside the binary.
-Linux, macOS and Windows, x64 and arm64, glibc and musl. Verified against the release's own
-checksums, and you can read [install.sh](install.sh) before you pipe it anywhere.
+Linux, macOS and Windows, x64 and arm64, glibc and musl. It checks the download against the
+release's own checksums and says so out loud when it cannot, and you can read
+[install.sh](install.sh) before you pipe it anywhere.
 
 Prefer npm, or already have Node? `npm install -g @aligndottech/cli` (Node 22.16+).
 Binaries for every platform are on the [releases page](https://github.com/aligndottech/align-cli/releases/latest).

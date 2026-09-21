@@ -8,10 +8,12 @@ align mcp --setup   # auto-configure detected editors
 align mcp           # start the server directly
 ```
 
-`--setup` writes a config for every client it finds on this machine: Claude Desktop, Claude
-Code, Cursor, VS Code, Windsurf, Zed, Codex, GitHub Copilot CLI, Gemini CLI and pi. It writes
-nothing for a client it does not find, and `align mcp --remove` takes the entry out again.
-JetBrains IDEs are not detected, and there is a section for them below.
+`--setup` detects the MCP clients on this machine, lists them, and asks which ones to wire. It
+writes only the ones you pick, so a client you leave unchecked is left alone. It can find Claude
+Desktop, Claude Code, Cursor, VS Code, Windsurf, Zed, Codex, GitHub Copilot CLI, Gemini CLI and
+pi, and it never offers one it cannot find. With nothing detected at all it prints a config for
+you to paste. `align mcp --remove` takes an entry out again. JetBrains IDEs are not detected,
+and there is a section for them below.
 
 ## Tools your assistant gets
 
@@ -28,7 +30,8 @@ JetBrains IDEs are not detected, and there is a section for them below.
 
 ## Manual configuration
 
-`align mcp --setup` writes these for you. Here they are if you'd rather do it by hand.
+`align mcp --setup` offers each of these and writes the ones you select. Here they are if you
+would rather do it by hand.
 
 **Claude Desktop** - `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 or `~/.config/Claude/claude_desktop_config.json` (Linux):
@@ -57,8 +60,8 @@ or `~/.config/Claude/claude_desktop_config.json` (Linux):
 
 **Cursor** - `~/.cursor/mcp.json`, same format as Claude Code above.
 
-**VS Code (Copilot Chat)** - the user-profile `mcp.json`. `align mcp --setup` writes this one
-for you when the VS Code user directory exists:
+**VS Code (Copilot Chat)** - the user-profile `mcp.json`. `align mcp --setup` offers VS Code
+when the VS Code user directory exists, and writes this file if you select it:
 
 | Platform | Path |
 |---|---|
@@ -84,6 +87,22 @@ Run `align mcp --setup --env local` instead and the args are `["mcp", "--env", "
 Reload the VS Code window afterwards, then open Copilot Chat in agent mode and look for
 `align` in its tools picker.
 
+**On Windows the server may not start with `command: "align"`.** An npm global install puts
+`align.cmd` on your `PATH`, and a Windows process spawn resolves a `.cmd` only through a shell,
+so a client that spawns without one gets `ENOENT`. This repo already meets that in its own MCP
+handshake smoke, which passes `shell: true` on win32 (`scripts/smoke-mcp-handshake.mjs`).
+`align mcp --setup` writes `"command": "align"` on every platform. If VS Code reports that the
+align server failed to start on Windows, change that one value:
+
+```json
+{ "servers": { "align": { "type": "stdio", "command": "align.cmd", "args": ["mcp"] } } }
+```
+
+Not verified against a Windows VS Code, and written down anyway because the failure is silent
+from this side: nothing the CLI can see tells you a client never launched it. Teaching the
+writer to emit `align.cmd` on win32 is a follow-up, and it is a code change rather than a
+documentation one.
+
 **What Copilot gets, and what it does not.** Copilot Chat can call every tool in the table
 above, and it reads the managed block `align setup` writes into `CLAUDE.md` and `AGENTS.md`.
 It does **not** get the deterministic pre-edit check, because VS Code exposes no hook API for
@@ -91,7 +110,7 @@ the CLI to write to. The model decides whether to look, on every edit.
 [Agent hooks](agent-hooks.md) is the per-host matrix.
 
 GitHub Copilot CLI is a different client with a different file, `~/.copilot/mcp-config.json`,
-and `align mcp --setup` writes that one too. It does get a pre-edit hook.
+and `align mcp --setup` offers that one too. It does get a pre-edit hook.
 
 **pi** - MCP isn't built in. Install the adapter first with `pi install npm:pi-mcp-adapter`,
 then restart pi. `align setup` writes `~/.pi/agent/mcp.json`, or `$PI_CODING_AGENT_DIR/mcp.json`:
