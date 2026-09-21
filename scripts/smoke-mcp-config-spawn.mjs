@@ -14,6 +14,13 @@
  * an npm global install exposes `align.cmd`, which no shell-less spawn can launch, so a config
  * naming a bare `align` fails here and a `cmd /c align` one does not.
  *
+ * MEASURED, rather than assumed. A temporary probe on this branch spawned the OLD form
+ * (`command: "align"`, shell:false) on both legs of this matrix:
+ *   windows-latest -> spawned=false, `spawn align ENOENT`   (the defect, reproduced)
+ *   ubuntu-latest  -> spawned=true                          (the control: POSIX unaffected)
+ * It was reverted rather than kept, because a permanent assertion that a bare `align` FAILS
+ * would go red the day npm ships a real executable, which would be good news.
+ *
  * Exit codes: 0 on a config that spawns and answers `initialize`; 1 on a bad config, a spawn
  * failure or a protocol failure; 2 on usage; 124 on timeout.
  */
@@ -55,25 +62,6 @@ if (!(await negativeControl())) {
   fail('negative control did not fire: a command that cannot exist spawned anyway, so a clean pass here proves nothing');
 }
 console.log('smoke-mcp-config-spawn: negative control OK - an unspawnable command is detected');
-
-// >>> TEMPORARY PROBE (ALI-1135), reverted in the next commit on this branch.
-// The ticket's first task is to REPRODUCE, not to fix: nobody had run the old config on a
-// real Windows machine, so "a bare `align` cannot be spawned there" was documented upstream
-// and unmeasured here. This asserts the defect, so a PASS on the windows-latest leg is the
-// reproduction and a PASS everywhere else is the control that POSIX is unaffected.
-const bare = await new Promise((resolve) => {
-  const c = spawn('align', ['mcp', '--env', 'local'], { stdio: 'ignore', shell: false });
-  c.on('error', (err) => resolve({ spawned: false, err: `${err.code ?? ''} ${err.message}` }));
-  c.on('spawn', () => { c.kill(); resolve({ spawned: true, err: '' }); });
-});
-console.log(`PROBE: the OLD form (command:"align", shell:false) on ${process.platform}: spawned=${bare.spawned} ${bare.err}`);
-if (process.platform === 'win32' && bare.spawned) {
-  fail('PROBE: a bare `align` DID spawn on Windows - the premise of ALI-1135 does not hold here');
-}
-if (process.platform !== 'win32' && !bare.spawned) {
-  fail(`PROBE: a bare \`align\` did NOT spawn on ${process.platform}, which should be unaffected: ${bare.err}`);
-}
-// <<< TEMPORARY PROBE
 
 const dir = mkdtempSync(path.join(tmpdir(), 'align-mcp-cfg-'));
 const configPath = path.join(dir, 'mcp.json');
