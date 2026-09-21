@@ -97,10 +97,17 @@ Refusing to report clean on a control this guard exists to prove is still on."
   CURL="${GUARD_CURL:-curl}"
   API_BASE="${GUARD_API_BASE:-https://api.github.com}"
 
-  # Bounded, because this step is in a REQUIRED job. An api.github.com that accepts the
-  # connection and then stops responding would otherwise hang until the job timeout, and a
-  # job killed at its deadline reports nothing useful - the one thing this guard is built to
-  # avoid is failing in a way that does not say why.
+  # Bounded, because an api.github.com that accepts the connection and then stops responding
+  # would otherwise hang until the job timeout, and a job killed at its deadline reports
+  # nothing useful - the one thing this guard is built to avoid is failing in a way that does
+  # not say why.
+  #
+  # That reasoning used to open "because this step is in a REQUIRED job", which is not true
+  # here: in this repo the live read is a nightly monitor
+  # (.github/workflows/ruleset-drift.yml), not a required check. The bound is worth keeping
+  # either way - a monitor whose only output is a timeout is a monitor nobody can act on - but
+  # the stated reason was wrong, and a wrong reason in a comment is what the next reader
+  # inherits.
   api() {
     "$CURL" -sS --fail-with-body --connect-timeout 10 --max-time 30 \
       -H "Authorization: Bearer $TOKEN" \

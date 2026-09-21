@@ -127,7 +127,7 @@ fi
 FAKE_CURL
 chmod +x "$FAKE"
 
-net_run() { # $1 expected exit; rest: nothing. Fixtures are written by the caller.
+net_run() { # Takes NO arguments. The caller writes the fixtures and reads $? itself.
   : > "$TMP/curl.log"; : > "$TMP/urls.log"
   FAKE_CURL_LOG="$TMP/curl.log" FAKE_CURL_URLS="$TMP/urls.log" FAKE_CURL_DIR="$TMP" \
   GUARD_CURL="$FAKE" GUARD_API_BASE="https://api.example.invalid" \

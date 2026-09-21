@@ -1,0 +1,59 @@
+name: Ruleset Drift
+
+# ALI-1185. `copilot_code_review` on this repo's ruleset carries `review_on_push`, and that
+# field decides whether Copilot reviews a PR ONCE when it opens or again on every push. With it
+# off, every commit addressing a review merges unreviewed - because a fix is a push - and the
+# review discipline around it looks like it worked the whole time. align-stack carried the same
+# defect and the same guard (ALI-1170); a ruleset is per-repo, so fixing one said nothing about
+# the other.
+#
+# WHY THIS IS A SCHEDULE AND NOT A REQUIRED CHECK, stated rather than glossed, because it is a
+# real downgrade: this reports the morning after a flip instead of blocking it.
+#
+#   - The finding is a repository SETTING. Nobody can fix it from inside the pull request the
+#     red would be blocking, and a check red on every PR for a reason its author cannot act on
+#     is a manufactured alarm - the next real failure gets scrolled past along with it.
+#   - A ruleset is edited in a web UI, with no diff and no review, so no per-PR check could
+#     have blocked the edit anyway. Bounding how long a flip can sit unnoticed is the whole of
+#     what is available, and that is what a schedule buys.
+#   - align-stack reached this conclusion for this guard already
+#     (.github/workflows/required-checks-drift.yaml).
+#
+# The PARSER half still runs on every PR, fixture-driven, in ci.yml's `ruleset-guard` job. So a
+# regression in the guard reddens the PR that caused it, and only the live read waits for the
+# schedule. Those are different claims - do not report one as the other.
+#
+# This is NOT a required status check and cannot be one: a scheduled workflow never runs on a
+# pull request, so branch protection has nothing to match. It is a monitor - it fails the job
+# and emails.
+
+on:
+  schedule:
+    # 06:00 UTC daily. A ruleset changes rarely; the point is bounding how long a change can
+    # sit unnoticed.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ruleset-drift:
+    name: Copilot still reviews every push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The default GITHUB_TOKEN reads this endpoint. Measured on align-stack 2026-09-21
+      # (ALI-1170) against a real ruleset: a job with `permissions: contents: read` returned
+      # HTTP 200 with the full rule parameters in the body. That repo's own comment had
+      # asserted the opposite for months with nothing in its history recording a measured 403 -
+      # an assumption written into a comment that became the settled account of itself. So this
+      # says what was measured, and where.
+      #
+      # The guard FAILS CLOSED on an unreadable ruleset: it dies rather than reporting clean,
+      # because "I could not look" and "the setting is on" are the same green from outside.
+      - name: copilot_code_review must have review_on_push enabled
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/check-copilot-review-on-push.sh

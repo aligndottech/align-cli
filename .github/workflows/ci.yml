@@ -365,16 +365,30 @@ jobs:
   # required context in the same change - a guard that passes only because nothing checks it
   # is the defect it exists to catch.
   ruleset-guard:
-    name: Copilot reviews every push
+    name: Copilot review guard (parser)
     runs-on: ubuntu-latest
+    # CodeQL: an explicit floor. Read is genuinely all this job needs - it checks out the repo
+    # and runs a fixture-driven shell test against a fake curl. The LIVE ruleset read is not
+    # reachable from here at all; it moved to .github/workflows/ruleset-drift.yml.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: copilot_code_review must have review_on_push enabled
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash scripts/check-copilot-review-on-push.sh
 
-      # Fixture-driven, so it proves the parser still works even while the live check above is
-      # red. Without it a broken guard and a real finding look identical.
+      # Fixture-driven ONLY, and the live read is deliberately not beside it.
+      #
+      # This job used to run both, and the live half was red on arrival by design, because this
+      # repo's copilot_code_review rule carries review_on_push: false. That was the wrong place
+      # for it. The finding is a repository SETTING, so nobody can fix it from inside the pull
+      # request the red is blocking, and a check red on every PR for a reason its author cannot
+      # act on is a manufactured alarm - the next real failure gets scrolled past with it.
+      #
+      # The two halves now split by what each can actually tell you:
+      #   here, per PR   the parser still works. A regression in the guard reddens the PR that
+      #                  caused it, which is where that belongs. Without this, a BROKEN guard
+      #                  and a clean ruleset are the same green.
+      #   the schedule   the live setting is still on, checked nightly.
+      #
+      # Those are different claims. A green here says nothing about the ruleset.
       - name: Test the guard itself
         run: bash scripts/__tests__/test-check-copilot-review-on-push.sh
