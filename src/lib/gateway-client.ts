@@ -381,8 +381,22 @@ export class GatewayError extends Error {
 function buildHttpGatewayClient(env: EnvironmentConfig) {
   const { gatewayUrl, authToken, tenantId } = env;
 
-  function buildHeaders(): Record<string, string> {
-    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  /**
+   * `hasBody` decides whether we claim to be sending JSON.
+   *
+   * Setting `Content-Type: application/json` on a request with NO body makes Fastify reject
+   * it with FST_ERR_CTP_EMPTY_JSON_BODY -> 400, before the route handler runs. That broke
+   * `align ratify` against the cloud for every id, including valid ones, and the 400 was
+   * unattributable: the ratify handler itself can only return 403, 404 or 409.
+   *
+   * Fixed here rather than at the call site so a future bodyless method cannot reintroduce
+   * it. `ratifyDecision` was the only mutating method with no body; every other POST sends
+   * one and is unaffected, which the positive control in gateway-client-empty-body.test.ts
+   * pins.
+   */
+  function buildHeaders(hasBody: boolean): Record<string, string> {
+    const h: Record<string, string> = {};
+    if (hasBody) h['Content-Type'] = 'application/json';
     if (authToken) h['Authorization'] = `Bearer ${authToken}`;
     if (tenantId) h['x-tenant-id'] = tenantId;
     return h;
@@ -450,7 +464,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
         // Identity is applied LAST so a caller passing its own `headers` cannot drop it. Every
         // other header stays caller-overridable, as before.
         headers: {
-          ...buildHeaders(),
+          ...buildHeaders(options.body !== undefined && options.body !== null),
           ...(options.headers as Record<string, string> ?? {}),
           ...CLIENT_IDENTITY_HEADERS,
         },
