@@ -4,7 +4,7 @@ Run Align as a local [Model Context Protocol](https://modelcontextprotocol.io) s
 assistants can query your decision graph inline.
 
 ```bash
-align mcp --setup   # auto-configure detected editors
+align mcp --setup   # detect your clients, then wire the ones you pick
 align mcp           # start the server directly
 ```
 
