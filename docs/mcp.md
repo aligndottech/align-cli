@@ -43,8 +43,11 @@ writes the wrapped form on Windows; this is only for the files you edit yourself
 One file is deliberately left on the bare form on every platform: the project-local `.mcp.json`
 that `align setup` writes, because it is committed and read by the whole team, and there is no
 one string that spawns on both platforms. A Windows machine that wrapped it would commit a
-config that fails for every macOS and Linux checkout. On Windows, wire your user-level config
-instead (`align mcp --setup`), which is per-machine and does get the wrapper.
+config that fails for every macOS and Linux checkout.
+
+**So on Windows that file is not enough by itself.** Claude Code and pi read it, and neither can
+spawn the bare `align` it contains, so run `align mcp --setup` as well - the per-machine entry it
+writes is wrapped. `align setup` says so on Windows when it finds no global agent config.
 
 **Claude Desktop** - `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 or `~/.config/Claude/claude_desktop_config.json` (Linux):

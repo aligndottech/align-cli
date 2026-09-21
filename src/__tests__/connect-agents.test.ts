@@ -155,7 +155,11 @@ describe("connectDetectedAgents - the zero-editors message", () => {
     logged.length = 0;
     detectEditors.mockReset();
     writeMcpConfig.mockReset();
+    // Stated, not inherited: the sentence about .mcp.json is platform-conditional since
+    // ALI-1135, and this suite is about the POSIX wording.
+    setPlatform('linux');
   });
+  afterEach(restorePlatform);
 
   it("does not say NOTHING was detected, since .mcp.json already covers project-scoped agents", () => {
     // David, 2026-08-31: he was in an active Claude Code session - .claude/settings.json
@@ -268,5 +272,35 @@ describe('connectDetectedAgents - the hand-over config is spawnable on the reade
     const all = logged.join('\n');
     expect(all).toContain('"command":"align"');
     expect(all).not.toContain('cmd');
+  });
+});
+
+/**
+ * ALI-1135, Copilot #314: the message above told a Windows user that `.mcp.json` covers Claude
+ * Code and pi. It does not. That file is committed, so it keeps the portable bare `align` -
+ * the one command a Windows client cannot spawn - and this branch is the only thing a user
+ * with no global agent config is ever told.
+ */
+describe('connectDetectedAgents - what it claims .mcp.json covers', () => {
+  beforeEach(() => {
+    logged.length = 0;
+    detectEditors.mockReset().mockReturnValue([]);
+    writeMcpConfig.mockReset();
+  });
+  afterEach(restorePlatform);
+
+  it('does not tell a Windows user that the project file is enough', async () => {
+    setPlatform('win32');
+    await connectDetectedAgents('local');
+    const all = logged.join('\n');
+    expect(all).not.toContain('need nothing further');
+    expect(all).toMatch(/Windows cannot spawn/i);
+    expect(all).toMatch(/claude code and pi need the per-machine entry/i);
+  });
+
+  it('still says the project file covers them on macOS and Linux, where it does', async () => {
+    setPlatform('darwin');
+    await connectDetectedAgents('local');
+    expect(logged.join('\n')).toContain('need nothing further');
   });
 });
