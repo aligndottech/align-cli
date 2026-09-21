@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import type * as McpSetup from '../lib/mcp-setup.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnvironmentConfig } from '../lib/config.js';
 
@@ -43,7 +44,14 @@ vi.mock('../lib/config.js', () => ({
   })),
 }));
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({})) }));
-vi.mock('../lib/mcp-setup.js', () => ({ detectEditors: vi.fn(() => []), writeMcpConfig: vi.fn() }));
+// Spread the real module (ALI-1135): a factory listing only the exports the SUT used on the
+// day it was written breaks the moment it imports one more - here alignServerEntry, which
+// renders the hand-over config - with a rejected promise rather than a readable failure.
+vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof McpSetup>()),
+  detectEditors: vi.fn(() => []),
+  writeMcpConfig: vi.fn(),
+}));
 vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
   Server: vi.fn(() => ({ setRequestHandler: vi.fn(), connect: vi.fn().mockResolvedValue(undefined) })),
 }));

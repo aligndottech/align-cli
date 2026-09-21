@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { type Platform, restorePlatform, setPlatform } from './helpers/platform.js';
 import {
   ALIGN_NUDGE_END,
   ALIGN_NUDGE_START,
@@ -233,11 +234,23 @@ describe('writeCursorRule', () => {
 });
 
 describe('writeProjectMcpConfig', () => {
-  it('writes .mcp.json with the align stdio server', () => {
-    writeProjectMcpConfig(dir);
-    const cfg = readJson('.mcp.json');
-    expect(cfg.mcpServers.align).toEqual({ command: 'align', args: ['mcp'] });
-  });
+  // Both platforms are stated rather than inherited (ALI-1135): what this writer emits is now
+  // platform-conditional everywhere EXCEPT here, and a test that took the runner's platform
+  // could not tell the exception from the rule.
+  afterEach(restorePlatform);
+
+  it.each(['linux', 'darwin', 'win32'] as Platform[])(
+    'writes .mcp.json with the align stdio server, portable on %s',
+    (platform) => {
+      setPlatform(platform);
+      writeProjectMcpConfig(dir);
+      const cfg = readJson('.mcp.json');
+      // No `cmd /c` wrapper even on Windows: this file is committed and read by the whole
+      // team, so a Windows-only command here breaks every other checkout. The Windows
+      // machine's own wrapper lives in its user-level config, which mcp-setup.ts writes.
+      expect(cfg.mcpServers.align).toEqual({ command: 'align', args: ['mcp'] });
+    },
+  );
 
   // .mcp.json is the SHARED, committed file that pi, Claude Code and others all read,
   // so it must stay host-neutral. pi's directTools belongs in the pi-owned override

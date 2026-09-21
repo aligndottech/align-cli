@@ -33,6 +33,19 @@ and there is a section for them below.
 `align mcp --setup` offers each of these and writes the ones you select. Here they are if you
 would rather do it by hand.
 
+**Every block below is the macOS and Linux form. On Windows, replace**
+`"command": "align", "args": ["mcp"]` **with** `"command": "cmd", "args": ["/c", "align", "mcp"]`,
+keeping any other fields as they are. An npm global install exposes `align.cmd`, a batch shim,
+and a Windows process spawn resolves a `.cmd` only through a shell - so a bare `align` is not
+launchable by a client that spawns without one, which most do not. `align mcp --setup` already
+writes the wrapped form on Windows; this is only for the files you edit yourself.
+
+One file is deliberately left on the bare form on every platform: the project-local `.mcp.json`
+that `align setup` writes, because it is committed and read by the whole team, and there is no
+one string that spawns on both platforms. A Windows machine that wrapped it would commit a
+config that fails for every macOS and Linux checkout. On Windows, wire your user-level config
+instead (`align mcp --setup`), which is per-machine and does get the wrapper.
+
 **Claude Desktop** - `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 or `~/.config/Claude/claude_desktop_config.json` (Linux):
 
@@ -87,21 +100,18 @@ Run `align mcp --setup --env local` instead and the args are `["mcp", "--env", "
 Reload the VS Code window afterwards, then open Copilot Chat in agent mode and look for
 `align` in its tools picker.
 
-**On Windows the server may not start with `command: "align"`.** An npm global install puts
-`align.cmd` on your `PATH`, and a Windows process spawn resolves a `.cmd` only through a shell,
-so a client that spawns without one gets `ENOENT`. This repo already meets that in its own MCP
-handshake smoke, which passes `shell: true` on win32 (`scripts/smoke-mcp-handshake.mjs`).
-`align mcp --setup` writes `"command": "align"` on every platform. If VS Code reports that the
-align server failed to start on Windows, change that one value:
+**On Windows the entry is wrapped, and `align mcp --setup` writes it that way for you**
+(ALI-1135). An npm global install puts `align.cmd` on your `PATH`, and a Windows process spawn
+resolves a `.cmd` only through a shell, so `"command": "align"` names something VS Code cannot
+launch and you get `ENOENT` against a file Align wrote. `cmd` is a real executable, so this
+starts whether or not the client uses a shell of its own:
 
 ```json
-{ "servers": { "align": { "type": "stdio", "command": "align.cmd", "args": ["mcp"] } } }
+{ "servers": { "align": { "type": "stdio", "command": "cmd", "args": ["/c", "align", "mcp"] } } }
 ```
 
-Not verified against a Windows VS Code, and written down anyway because the failure is silent
-from this side: nothing the CLI can see tells you a client never launched it. Teaching the
-writer to emit `align.cmd` on win32 is a follow-up, and it is a code change rather than a
-documentation one.
+That is what `align mcp --setup` now writes on Windows, for every client it wires - see the
+Windows note under [Manual configuration](#manual-configuration) if you are pasting by hand.
 
 **What Copilot gets, and what it does not.** Copilot Chat can call every tool in the table
 above, and it reads the managed block `align setup` writes into `CLAUDE.md` and `AGENTS.md`.

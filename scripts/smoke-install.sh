@@ -387,6 +387,12 @@ step "align mcp --setup"        60  align mcp --setup --env local
 # Windows, and cmd resolves `align` -> align.cmd via PATH + PATHEXT, while the
 # full POSIX-style path to the sh shim is unrunnable there.
 step "MCP handshake"            60  node "$SCRIPT_DIR/smoke-mcp-handshake.mjs" align
+# ALI-1135. The two steps above cannot see a config that names an unspawnable command.
+# `align mcp --setup` writes NOTHING here - the synthetic HOME above means detectEditors()
+# finds no editor, so only its exit code is exercised - and the handshake spawns through a
+# shell on Windows, which is exactly what a client like VS Code does not do. This drives the
+# WRITE through the installed package and then spawns what it wrote with shell:false.
+step "MCP config spawns as written" 60  node "$SCRIPT_DIR/smoke-mcp-config-spawn.mjs" "$CLI_PKG"
 
 rm -f "$TARBALL"
 

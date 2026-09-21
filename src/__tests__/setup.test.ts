@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as McpSetup from '../lib/mcp-setup.js';
 import { Command } from 'commander';
 import { AuthExpiredError } from '../lib/errors.js';
 import type * as RepoIdentity from '../lib/repo-identity.js';
@@ -166,7 +167,11 @@ vi.mock('../lib/login-flow.js', () => ({
 const mockRecordFunnelStage = vi.hoisted(() => vi.fn().mockResolvedValue(false));
 vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage: mockRecordFunnelStage }));
 
-vi.mock('../lib/mcp-setup.js', () => ({
+// Spread the real module (ALI-1135): a factory listing only the exports the SUT used on the
+// day it was written breaks the moment it imports one more - here alignServerEntry, which
+// renders the hand-over config - with a rejected promise rather than a readable failure.
+vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof McpSetup>()),
   detectEditors: vi.fn().mockReturnValue([]),
   writeMcpConfig: vi.fn(),
 }));

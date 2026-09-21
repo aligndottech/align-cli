@@ -30,29 +30,64 @@ function alignArgs(env?: string): string[] {
   return env ? ['mcp', '--env', env] : ['mcp'];
 }
 
+/**
+ * How a client should SPAWN the align MCP server, per platform (ALI-1135).
+ *
+ * An npm global install on Windows exposes `align.cmd`, a batch shim, and a Windows process
+ * spawn resolves a `.cmd` only through a shell - Node's own child_process refuses one outright
+ * without `shell: true` since CVE-2024-27980. So `command: "align"` names something the client
+ * cannot launch, and it fails on OUR side, silently: our write succeeded, so nothing here has
+ * an error to report, and the user sees an ENOENT from a config Align wrote for them.
+ *
+ * `cmd` is a real executable, so `cmd /c align mcp` launches whether or not the client spawns
+ * through a shell of its own, and cmd resolves `align` -> `align.cmd` through PATH + PATHEXT.
+ * That is the form the MCP ecosystem settled on for exactly this (microsoft/vscode#299595,
+ * modelcontextprotocol/servers#3460), and the form this repo's own Windows smoke already
+ * depends on (scripts/smoke-install.sh, the MCP handshake step).
+ *
+ * ONE writer of this fact, used by every format including the Codex TOML block, because the
+ * reported site is a lower bound: every client in detectEditors() spawns the same way.
+ */
+function alignSpawn(env?: string): { command: string; args: string[] } {
+  const args = alignArgs(env);
+  return process.platform === 'win32'
+    ? { command: 'cmd', args: ['/c', 'align', ...args] }
+    : { command: 'align', args };
+}
+
 // The per-format entry shape for the `align` server. VS Code requires `type`;
 // Zed silently drops entries without `source: "custom"`. Exported so the shared
 // project-local .mcp.json (agent-rules.ts) builds the entry from here rather than
 // keeping a second copy that can drift from this one.
-export function alignServerEntry(format: McpFormat, env?: string): Record<string, unknown> {
-  const args = alignArgs(env);
+export function alignServerEntry(
+  format: McpFormat,
+  env?: string,
+  opts: { committed?: boolean } = {},
+): Record<string, unknown> {
+  // `committed` is for a file that TRAVELS between machines - today only the project-local
+  // `.mcp.json`, which agent-rules.ts writes once for the whole team. There is no string that
+  // spawns on both platforms, so the Windows wrapper below is correct for the machine that ran
+  // the command and wrong for everyone else's checkout. A per-machine config takes the
+  // wrapper; a committed one stays portable and its Windows readers use their user-level
+  // entry, which `align mcp --setup` writes with the wrapper (ALI-1135).
+  const { command, args } = opts.committed ? { command: 'align', args: alignArgs(env) } : alignSpawn(env);
   switch (format) {
     case 'vscode':
-      return { type: 'stdio', command: 'align', args };
+      return { type: 'stdio', command, args };
     case 'zed':
-      return { source: 'custom', command: 'align', args };
+      return { source: 'custom', command, args };
     case 'pi':
       // pi's MCP adapter is lazy by default: every server hides behind one proxy tool
       // the agent has to search before it can call anything. That directly undercuts
       // ALIGN_MCP_INSTRUCTIONS' "call align_check_alignment BEFORE writing code", so
       // ask for the tools to be registered directly.
-      return { command: 'align', args, directTools: true };
+      return { command, args, directTools: true };
     case 'copilot':
       // Copilot CLI requires `type` and a `tools` allowlist; without `tools` the server is
       // configured and none of its tools are callable (GitHub's MCP configuration docs).
-      return { type: 'local', command: 'align', args, tools: ['*'] };
+      return { type: 'local', command, args, tools: ['*'] };
     default:
-      return { command: 'align', args };
+      return { command, args };
   }
 }
 
@@ -179,11 +214,15 @@ const CODEX_BLOCK_START = '# >>> align (managed by `align setup` - do not edit) 
 const CODEX_BLOCK_END = '# <<< align <<<';
 
 function codexBlock(env?: string): string {
-  const args = alignArgs(env).map((a) => `"${a}"`).join(', ');
+  // Through alignSpawn, not a second `command = "align"` of its own: this block used to
+  // carry the literal, so the platform fix would have landed on the JSON formats and left
+  // Codex broken on Windows - two writers of one fact (code-style.md).
+  const spawn = alignSpawn(env);
+  const args = spawn.args.map((a) => `"${a}"`).join(', ');
   return [
     CODEX_BLOCK_START,
     '[mcp_servers.align]',
-    'command = "align"',
+    `command = "${spawn.command}"`,
     `args = [${args}]`,
     CODEX_BLOCK_END,
   ].join('\n');
