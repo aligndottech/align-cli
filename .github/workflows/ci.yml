@@ -350,3 +350,31 @@ jobs:
         with:
           path: .hf-model-cache
           key: align-hf-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2-q8-v1
+
+  # ALI-1185. Advisory BY CONSTRUCTION rather than by continue-on-error: main's branch
+  # protection requires only the "test" context, as the comment on that job records, so every
+  # other job here already reports without blocking.
+  #
+  # THIS JOB IS CURRENTLY RED, AND THAT IS THE FINDING. align-cli's ruleset has
+  # copilot_code_review with review_on_push: false, so Copilot reviews a PR once at open and
+  # never again - a push does not re-trigger it and a REST re-request does not either. A
+  # finding therefore sits Open against a stale commit until a human clicks, and the PR
+  # misreports itself. align-cli#314 demonstrated it live.
+  #
+  # Do not silence this by deleting the job. Fix the ruleset field, then promote this to a
+  # required context in the same change - a guard that passes only because nothing checks it
+  # is the defect it exists to catch.
+  ruleset-guard:
+    name: Copilot reviews every push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: copilot_code_review must have review_on_push enabled
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/check-copilot-review-on-push.sh
+
+      # Fixture-driven, so it proves the parser still works even while the live check above is
+      # red. Without it a broken guard and a real finding look identical.
+      - name: Test the guard itself
+        run: bash scripts/__tests__/test-check-copilot-review-on-push.sh
