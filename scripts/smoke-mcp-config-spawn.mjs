@@ -56,6 +56,25 @@ if (!(await negativeControl())) {
 }
 console.log('smoke-mcp-config-spawn: negative control OK - an unspawnable command is detected');
 
+// >>> TEMPORARY PROBE (ALI-1135), reverted in the next commit on this branch.
+// The ticket's first task is to REPRODUCE, not to fix: nobody had run the old config on a
+// real Windows machine, so "a bare `align` cannot be spawned there" was documented upstream
+// and unmeasured here. This asserts the defect, so a PASS on the windows-latest leg is the
+// reproduction and a PASS everywhere else is the control that POSIX is unaffected.
+const bare = await new Promise((resolve) => {
+  const c = spawn('align', ['mcp', '--env', 'local'], { stdio: 'ignore', shell: false });
+  c.on('error', (err) => resolve({ spawned: false, err: `${err.code ?? ''} ${err.message}` }));
+  c.on('spawn', () => { c.kill(); resolve({ spawned: true, err: '' }); });
+});
+console.log(`PROBE: the OLD form (command:"align", shell:false) on ${process.platform}: spawned=${bare.spawned} ${bare.err}`);
+if (process.platform === 'win32' && bare.spawned) {
+  fail('PROBE: a bare `align` DID spawn on Windows - the premise of ALI-1135 does not hold here');
+}
+if (process.platform !== 'win32' && !bare.spawned) {
+  fail(`PROBE: a bare \`align\` did NOT spawn on ${process.platform}, which should be unaffected: ${bare.err}`);
+}
+// <<< TEMPORARY PROBE
+
 const dir = mkdtempSync(path.join(tmpdir(), 'align-mcp-cfg-'));
 const configPath = path.join(dir, 'mcp.json');
 writeMcpConfig({ name: 'VS Code', configPath, format: 'vscode' }, 'local');
