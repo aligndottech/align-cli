@@ -170,7 +170,9 @@ export function localValueRollup(
     conflictsCaught: count('conflicts_with') + count('contradicts'),
     similarDecisions: count('relates'),
     duplicates: count('duplicates'),
-    supersessions: count('supersedes'),
+    // ALI-1065: partially_supersedes is a real capture-time typed edge now too - counting
+    // only 'supersedes' would undercount the moment a decision partially replaces another.
+    supersessions: count('supersedes') + count('partially_supersedes'),
     reuseRate: null,
     healthGrade: null,
     gaps: unresolvedGaps(db.getAllRefs(), isConnected),
