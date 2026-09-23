@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.42.0](https://github.com/aligndottech/align-cli/compare/cli-v0.41.0...cli-v0.42.0) (2026-09-23)
+
+
+### Features
+
+* **access-capability:** publish the API/CLI-JSON/MCP capability matrix (ALI-1003) ([#317](https://github.com/aligndottech/align-cli/issues/317)) ([cd652f7](https://github.com/aligndottech/align-cli/commit/cd652f7ae8a4c1a20058b00b444e3457204b0995))
+* **local:** type relationships at capture, not just check-time (ALI-1065) ([#319](https://github.com/aligndottech/align-cli/issues/319)) ([090890b](https://github.com/aligndottech/align-cli/commit/090890bd6dc2968cb6a86e2494073dddc0813a58))
+
 ## [0.41.0](https://github.com/aligndottech/align-cli/compare/cli-v0.40.2...cli-v0.41.0) (2026-09-21)
 
 
