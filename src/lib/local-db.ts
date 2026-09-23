@@ -828,6 +828,21 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
+     * ALI-1065: a pair gets ONE edge, never two. `insertLinkRow`'s unique index is on
+     * (source_id, target_id, relation), so writing `supersedes` for a pair that already
+     * carries a `relates` row for the SAME pair does not collide - it appends a second
+     * row, and a reader would see both. This deletes any existing edge between the pair
+     * (either direction, any relation) before writing the new one, so capture-time
+     * classification can upgrade a cosine `relates` edge into a typed one atomically.
+     */
+    replaceLink(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
+      db.prepare(
+        'DELETE FROM decision_links WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)',
+      ).run(link.sourceId, link.targetId, link.targetId, link.sourceId);
+      insertLinkRow(link);
+    },
+
+    /**
      * ALI-792: what this decision's text points at (ticket keys, #N, tool URLs).
      * REPLACE semantics, deliberately: insertDecision refreshes the summary on
      * re-import (a rewritten commit message should be current), so the refs derived

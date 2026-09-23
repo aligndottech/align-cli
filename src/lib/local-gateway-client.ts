@@ -1,9 +1,9 @@
-import { createLocalDb, type DecisionRow, normaliseDecidedAt } from './local-db.js';
+import { createLocalDb, type DecisionRow, type LinkRow, normaliseDecidedAt } from './local-db.js';
 import { deriveDeciderKind } from './decider-kind.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
 import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
-import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
+import { hasConfiguredProvider, noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
 import { repositoryOf } from './decision-links.js';
 import { localCitationFor } from './commit-cite.js';
 import { extractRefs, refIdentityFor } from './decision-refs.js';
@@ -85,6 +85,19 @@ export const RETRIEVAL_RELATES_THRESHOLD = 0.3;
 // were lab-tested first and moved nothing (title+cleaned scored 0.274 vs 0.286 raw).
 export const RELATED_TOP_K = 3;
 export const RELATED_FLOOR = RELATES_THRESHOLD;
+
+/**
+ * ALI-1065: the capture-time classification budget. Only the high-confidence tier
+ * (score >= SIMILARITY_THRESHOLD) is ever classified - the lower related-only tier stays
+ * a plain cosine `relates` edge, because typing a merely-related pair is exactly the
+ * manufactured-detection failure ALI-503 removed from the conflict counters.
+ *
+ * Capped at 3 regardless of how many candidates clear the high-confidence bar, and skipped
+ * entirely (0 calls) with no provider configured - see ingestOne. Worst case: 3 classifier
+ * calls per capture, each a single LLM round trip. Typical capture (0-1 near-duplicates)
+ * costs 0-1 calls.
+ */
+export const CAPTURE_CLASSIFY_TOP_K = 3;
 
 // Below this similarity between a decision and new content, the content is
 // considered to have drifted from the decision.
@@ -195,6 +208,59 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   // Used by both captureDecision (single, may parse a URL) and ingestBatch.
   // Says "similar", not "conflicts": an embedding cannot tell agreement from opposition,
   // and calling this conflict detection is what ALI-503 was (see SIMILARITY_THRESHOLD).
+  /**
+   * ALI-1065: the capture-time typed edges, shaped for the wire the SAME way the cloud
+   * gateway spells them (align-stack ALI-1066/ALI-1092: `successor`/`conflicts_with`, as
+   * `{ id, title, source_url, relation }`) - so `withDecisionRelationContract` in
+   * decision-relations.ts needs no local-specific branch to carry them to an agent.
+   */
+  function relationFieldsFor(decisionId: string): {
+    status?: 'superseded' | 'conflicted';
+    successor?: { id: string; title: string; source_url?: string; relation: string };
+    conflicts_with?: { id: string; title: string; source_url?: string; relation: string };
+  } {
+    const links: LinkRow[] = db.listLinks({ decisionId });
+
+    // Conflict is symmetric: either end of the edge reports it, pointing at the other end.
+    const conflict = links.find(l => l.relation === 'contradicts' || l.relation === 'conflicts_with');
+    if (conflict) {
+      const otherId = conflict.sourceId === decisionId ? conflict.targetId : conflict.sourceId;
+      const row = db.getDecisionById(otherId);
+      if (row) {
+        return {
+          status: 'conflicted',
+          conflicts_with: {
+            id: row.id,
+            title: row.title,
+            ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
+            relation: conflict.relation,
+          },
+        };
+      }
+    }
+
+    // Asymmetric, deliberately: THIS decision must be the TARGET (the superseded one),
+    // not the source - or a decision would report itself replaced by something it superseded.
+    const supersession = links.find(
+      l => (l.relation === 'supersedes' || l.relation === 'partially_supersedes') && l.targetId === decisionId,
+    );
+    if (supersession) {
+      const row = db.getDecisionById(supersession.sourceId);
+      if (row) {
+        return {
+          status: 'superseded',
+          successor: {
+            id: row.id,
+            title: row.title,
+            ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
+            relation: supersession.relation,
+          },
+        };
+      }
+    }
+    return {};
+  }
+
   async function ingestOne(
     input: string,
     platform: string,
@@ -267,7 +333,43 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     const candidates = ranked.filter(
       (c, i) => c.score >= SIMILARITY_THRESHOLD || (i < RELATED_TOP_K && c.score >= RELATED_FLOOR),
     );
+
+    // ALI-1065: classify only the high-confidence tier, capped, and only with a provider
+    // configured - hasConfiguredProvider is an env-only check, so this costs nothing when
+    // no key exists (the common case for a fresh clone). chainStopped mirrors
+    // checkAlignment's own short-circuit: once one candidate's classification fails with a
+    // stopped provider, further calls in THIS capture are skipped rather than repeated.
+    const toClassify = hasConfiguredProvider()
+      ? candidates.filter(c => c.score >= SIMILARITY_THRESHOLD).slice(0, CAPTURE_CLASSIFY_TOP_K)
+      : [];
+    const classifyIds = new Set(toClassify.map(c => c.decisionId));
+    const newDecision = { title, summary };
+    let chainStopped = false;
     for (const c of candidates) {
+      if (classifyIds.has(c.decisionId) && !chainStopped) {
+        // The EXISTING decision is the subject (A); the new capture is the candidate (B) -
+        // "how does B relate to A" reads naturally as "does this new thing supersede/conflict
+        // with what's already there", which is the direction a capture-time check asks in.
+        const existingRow = db.getDecisionById(c.decisionId);
+        const outcome: ClassificationOutcome = existingRow
+          ? await classifyRelationship({ title: existingRow.title, summary: existingRow.summary }, newDecision)
+          : { ok: false, reason: 'classifier_error' };
+        if (!outcome.ok && outcome.failure?.kind === 'provider_stopped') chainStopped = true;
+        if (outcome.ok) {
+          // replaceLink, not insertLink: this upgrades the cosine `relates` edge findSimilar
+          // would otherwise also write below into a typed one, rather than leaving both on
+          // the pair (local-db.ts's unique index is per-relation, so both would coexist).
+          db.replaceLink({
+            sourceId: id,
+            targetId: c.decisionId,
+            relation: outcome.relationship.type,
+            confidence: outcome.relationship.confidence,
+          });
+          continue;
+        }
+        // Falls through to the untyped write below on any classifier failure - a candidate
+        // still worth surfacing as related even when nothing could type it.
+      }
       // ALI-503: `relates`, not `conflicts_with`. This is a cosine score with no judgement
       // behind it, and labelling it a conflict made `align local status` and the
       // align_get_conflicts MCP tool report manufactured findings as detections.
@@ -394,28 +496,38 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     //
     // ALI-798: `repo`/`all` mirror searchDecisions' scope resolution - naming neither
     // defaults to the current repo (+ unattributed rows) when one exists.
-    async listDecisions(params: { limit?: number; repo?: string; all?: boolean; unratified?: boolean } = {}) {
+    async listDecisions(
+      params: { limit?: number; repo?: string; all?: boolean; unratified?: boolean; status?: string } = {},
+    ) {
       const limit = params.limit ?? 200;
       const { dbFilter } = await resolveScope({ repo: params.repo, all: params.all });
       // ALI-831: the human queue - agent-decided rows no human has ratified.
       const filter = params.unratified ? { ...dbFilter, unratified: true } : dbFilter;
-      return db.listDecisions(filter).slice(0, limit).map((row) => {
-        const cite = localCitationFor(row.sourceUrl);
-        return {
-          id: row.id,
-          title: row.title,
-          summary: row.summary,
-          platform: row.platform,
-          // No status here either, same reason as searchDecisions above (ALI-1063 follow-up).
-          created_at: row.createdAt,
-          // ALI-829: absent when the source did not say, so a consumer sees the shape it
-          // saw before (the field's meaning is on the type in gateway-client.ts).
-          ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
-          ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
-          ...(cite ? { cite } : {}),
-          ...provenanceOf(row),
-        };
-      });
+      // Filter AFTER shaping (relationFieldsFor needs the row's own id) and slice LAST, so
+      // `status: 'active'` excludes superseded rows rather than truncating before they are
+      // even checked - `align context sync` relies on this to stop leaking superseded
+      // decisions into .align/decisions.md (ALI-1065).
+      return db
+        .listDecisions(filter)
+        .map((row) => {
+          const cite = localCitationFor(row.sourceUrl);
+          return {
+            id: row.id,
+            title: row.title,
+            summary: row.summary,
+            platform: row.platform,
+            created_at: row.createdAt,
+            // ALI-829: absent when the source did not say, so a consumer sees the shape it
+            // saw before (the field's meaning is on the type in gateway-client.ts).
+            ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
+            ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
+            ...(cite ? { cite } : {}),
+            ...provenanceOf(row),
+            ...relationFieldsFor(row.id),
+          };
+        })
+        .filter((d) => params.status !== 'active' || d.status !== 'superseded')
+        .slice(0, limit);
     },
 
     /**
@@ -491,10 +603,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             id: row.id,
             title: row.title,
             summary: row.summary,
-            // No status: local-embedded has no supersession/relation table backing an
-            // 'active' claim (decision_links only ever holds an untyped 'relates' cosine
-            // edge - see ingestOne below). Absent beats fabricated, same rule as
-            // decision_url a few lines down. ALI-1063 follow-up.
+            ...relationFieldsFor(row.id),
             similarity: s.score,
             created_at: row.createdAt,
             ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
