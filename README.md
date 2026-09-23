@@ -122,6 +122,7 @@ Grok, any OpenAI-compatible endpoint, or a local Ollama.
 | [MCP server](docs/mcp.md) | Editor config, the tools your assistant gets |
 | [Configuration](docs/configuration.md) | AI providers, env vars, auth, self-hosting |
 | [Agent hooks](docs/agent-hooks.md) | Per-host capability matrix |
+| [Choosing an access path](docs/access-capability.md) | API vs CLI JSON vs MCP, and why |
 | [All commands](docs/commands.md) | Full reference |
 
 ## Why bother
