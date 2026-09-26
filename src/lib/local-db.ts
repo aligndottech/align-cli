@@ -47,6 +47,11 @@ export interface LinkRow {
   targetId: string;
   relation: string;
   confidence: number;
+  /** ALI-1087: when the edge itself was recorded, distinct from either endpoint's own
+   *  `createdAt`. An as-of query has to bound both separately - the two decisions can
+   *  predate a cutoff while the edge asserting a relation between them was written after
+   *  it, and a relation nobody had recorded yet is not one the as-of answer may use. */
+  createdAt: string;
 }
 
 export interface DbStats {
@@ -792,14 +797,26 @@ export function createLocalDb(dbPath: string) {
      * on - only local-gateway-client.ts's findSimilar passes it, with the currently active
      * EMBEDDING_MODEL_ID.
      */
-    getAllEmbeddings(filter: { repo?: string; includeUnattributed?: boolean; model?: string } = {}): Array<{ decisionId: string; embedding: Float32Array }> {
+    /**
+     * ALI-1087: `createdBefore` excludes any decision whose OWN `created_at` is at or after
+     * the cutoff, so an as-of query never ranks a candidate that did not exist yet at that
+     * moment. Joins `decisions` whenever either it or `repo` is set - both need the same
+     * table, and joining twice would be a second writer of the same predicate.
+     */
+    getAllEmbeddings(filter: { repo?: string; includeUnattributed?: boolean; model?: string; createdBefore?: string } = {}): Array<{ decisionId: string; embedding: Float32Array }> {
       let sql = `SELECT e.decision_id, e.embedding FROM decision_embeddings e`;
       const where: string[] = [];
       const params: string[] = [];
-      if (filter.repo !== undefined) {
+      if (filter.repo !== undefined || filter.createdBefore !== undefined) {
         sql += ` JOIN decisions d ON d.id = e.decision_id`;
+      }
+      if (filter.repo !== undefined) {
         where.push(filter.includeUnattributed ? `(d.repo = ? OR d.repo IS NULL)` : `d.repo = ?`);
         params.push(filter.repo);
+      }
+      if (filter.createdBefore !== undefined) {
+        where.push(`d.created_at < ?`);
+        params.push(filter.createdBefore);
       }
       if (filter.model !== undefined) {
         where.push(`(e.model = ? OR e.model IS NULL)`);
@@ -920,7 +937,7 @@ export function createLocalDb(dbPath: string) {
     },
 
     listLinks(filter?: { relation?: string; decisionId?: string }): LinkRow[] {
-      let sql = `SELECT id, source_id as sourceId, target_id as targetId, relation, confidence FROM decision_links WHERE 1=1`;
+      let sql = `SELECT id, source_id as sourceId, target_id as targetId, relation, confidence, created_at as createdAt FROM decision_links WHERE 1=1`;
       const params: string[] = [];
       if (filter?.relation) { sql += ` AND relation = ?`; params.push(filter.relation); }
       if (filter?.decisionId) { sql += ` AND (source_id = ? OR target_id = ?)`; params.push(filter.decisionId, filter.decisionId); }

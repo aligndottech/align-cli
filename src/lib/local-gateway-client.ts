@@ -186,7 +186,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // Scoping HERE rather than after ranking is what keeps `topK` honest: filtering
     // post-rank could silently return fewer than topK whenever some of the best global
     // matches fall outside the scope.
-    scopeFilter?: { repo?: string; includeUnattributed?: boolean },
+    scopeFilter?: { repo?: string; includeUnattributed?: boolean; createdBefore?: string },
   ): Promise<Array<{ decisionId: string; score: number }>> {
     // ALI-787: unconditional, not opt-in. `embedding` is always current-model (getEmbedding's
     // one production path), so a stored vector tagged with a DIFFERENT model would produce a
@@ -214,19 +214,30 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
    * `{ id, title, source_url, relation }`) - so `withDecisionRelationContract` in
    * decision-relations.ts needs no local-specific branch to carry them to an agent.
    */
-  function relationFieldsFor(decisionId: string): {
+  /**
+   * ALI-1087: `createdBefore`, when given, bounds an as-of query - mirroring the cloud's
+   * `attachSupersessionSuccessors`/`attachConflictCounterparts` (align-stack#2447). BOTH
+   * halves of an edge are bounded separately, because they can differ: the edge itself may
+   * have been recorded after the cutoff even though both decisions it joins predate it (a
+   * relation nobody had recorded yet is not one the as-of answer may use), and the OTHER
+   * decision may itself postdate the cutoff even though the edge and this decision do not
+   * (a decision that did not exist yet cannot be reported as this one's conflict/successor).
+   */
+  function relationFieldsFor(decisionId: string, createdBefore?: string): {
     status?: 'superseded' | 'conflicted';
     successor?: { id: string; title: string; source_url?: string; relation: string };
     conflicts_with?: { id: string; title: string; source_url?: string; relation: string };
   } {
-    const links: LinkRow[] = db.listLinks({ decisionId });
+    const links: LinkRow[] = db
+      .listLinks({ decisionId })
+      .filter(l => createdBefore === undefined || l.createdAt < createdBefore);
 
     // Conflict is symmetric: either end of the edge reports it, pointing at the other end.
     const conflict = links.find(l => l.relation === 'contradicts' || l.relation === 'conflicts_with');
     if (conflict) {
       const otherId = conflict.sourceId === decisionId ? conflict.targetId : conflict.sourceId;
       const row = db.getDecisionById(otherId);
-      if (row) {
+      if (row && (createdBefore === undefined || row.createdAt < createdBefore)) {
         return {
           status: 'conflicted',
           conflicts_with: {
@@ -246,7 +257,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     );
     if (supersession) {
       const row = db.getDecisionById(supersession.sourceId);
-      if (row) {
+      if (row && (createdBefore === undefined || row.createdAt < createdBefore)) {
         return {
           status: 'superseded',
           successor: {
@@ -562,23 +573,25 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       return { alreadyRatified: true, ratifiedBy: row.ratifiedBy, ratifiedAt: row.ratifiedAt };
     },
 
-    // ALI-1082 (Copilot #302): `createdBefore` is accepted but ignored - there is no cutoff
-    // concept in local mode (a local graph is always fully current), and
-    // validateCreatedBeforeFlag already rejects --created-before outright in
-    // local-embedded mode before this can be reached. The parameter exists so this
-    // signature matches the cloud client's four positions; search.ts/why.ts send that
-    // shape regardless of which client resolveEnv hands back, and createGatewayClient's
-    // Proxy just forwards the call verbatim - a mismatched arity here means JS silently
-    // drops `scope`, not a type error.
+    /**
+     * ALI-1087: `createdBefore`, when given, bounds this query to what the local graph knew
+     * as of that instant - the same guarantee `validateCreatedBeforeFlag` now offers instead
+     * of refusing local-embedded mode outright. `resolveScope`'s `dbFilter` handles repo
+     * scoping; `createdBefore` rides alongside it into `findSimilar` (which excludes any
+     * candidate decision whose own `created_at` is at or after the cutoff, via
+     * `getAllEmbeddings`) and into `relationFieldsFor` (which separately bounds the LINK and
+     * the counterpart decision - see its own doc comment for why both are needed).
+     */
     async searchDecisions(
       query: string,
       limit = 10,
-      _createdBefore?: string,
+      createdBefore?: string,
       scope?: { repo?: string; all?: boolean },
     ): Promise<SearchResults> {
       const { dbFilter, effectiveRepo } = await resolveScope(scope);
+      const boundedFilter = { ...dbFilter, createdBefore };
       const embedding = await getEmbedding(query);
-      let similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD, undefined, dbFilter);
+      let similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD, undefined, boundedFilter);
       // A natural-language question embeds less densely than its subject does, so on a
       // small graph it can miss a decision that its own content words hit. Retry once,
       // only on an empty result, mirroring the gateway's own keyword-to-semantic
@@ -587,7 +600,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       if (!similar.length) {
         const reduced = contentWordQuery(query);
         if (reduced) {
-          similar = await findSimilar(await getEmbedding(reduced), limit, SEARCH_THRESHOLD, undefined, dbFilter);
+          similar = await findSimilar(await getEmbedding(reduced), limit, SEARCH_THRESHOLD, undefined, boundedFilter);
         }
       }
       const results = similar
@@ -603,7 +616,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             id: row.id,
             title: row.title,
             summary: row.summary,
-            ...relationFieldsFor(row.id),
+            ...relationFieldsFor(row.id, createdBefore),
             similarity: s.score,
             created_at: row.createdAt,
             ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
