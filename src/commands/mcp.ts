@@ -508,19 +508,26 @@ export const TOOL_SCHEMAS = [
 ];
 
 /**
- * ALI-1082: --created-before is a harness/audit-only bound (AlignBench's align arm passes
- * it so it cannot see decisions the graph captured after a corpus item's frozen `asOf`).
- * Fail closed at startup rather than silently accepting a value that does nothing:
+ * ALI-1082/ALI-1087: --created-before is a harness/audit-only bound (AlignBench's align arm
+ * passes it so it cannot see decisions the graph captured after a corpus item's frozen
+ * `asOf`), and every deployment mode - cloud, self-host, and true local-embedded - carries
+ * the same as-of correctness guarantee. Fail closed at startup rather than silently
+ * accepting a value that does nothing:
  *
- * - Local-embedded mode has no server-side query to attach the bound to (the local graph
- *   answers from SQLite directly, not through the gateway route that enforces it), so a
- *   flag that appeared to work there would be lying.
  * - Anything that is not an offset-bearing ISO-8601 instant is rejected the same way the
  *   gateway's own `created_before` filter rejects it (services/gateway/src/routes/
  *   decisions/smartSearchFilters.ts) - a bare calendar date (the shape the benchmark
  *   corpus's `asOf` field itself carries) is refused rather than coerced, because the
- *   caller must decide the instant in UTC, not have Postgres resolve a date-only literal
- *   against the session TimeZone.
+ *   caller must decide the instant in UTC, not have Postgres (or, locally, a string
+ *   comparison against SQLite's `created_at`) resolve a date-only literal against the
+ *   session TimeZone.
+ *
+ * ALI-1087 removed the local-embedded rejection that used to sit here: "there is no cutoff
+ * concept locally" described the implementation of the day, not a reason. The local graph
+ * stores every decision and edge with a real `created_at`, so `createLocalGatewayClient`
+ * now honours the bound the same way the cloud query does (see its `searchDecisions` and
+ * `relationFieldsFor`) - a local-only user, the most privacy-sensitive path in the product,
+ * no longer gets the weakest correctness guarantee.
  */
 const OFFSET_ISO_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -546,14 +553,9 @@ function isRealCalendarInstant(value: string, match: RegExpExecArray): boolean {
   );
 }
 
-export function validateCreatedBeforeFlag(value: string, env: EnvironmentConfig): void {
-  if (env.mode === 'local-embedded') {
-    throw new Error(
-      `--created-before is not supported in local-embedded mode: the local graph has no ` +
-      `server-side query to enforce the bound against, so accepting it would silently do ` +
-      `nothing. Got: ${value}`,
-    );
-  }
+// `_env` stays in the signature for call-site compatibility (the one call site below, and
+// every test, passes it) even though the format check no longer branches on the mode.
+export function validateCreatedBeforeFlag(value: string, _env: EnvironmentConfig): void {
   const match = OFFSET_ISO_PATTERN.exec(value);
   // The offset's own range (e.g. +99:99) and an out-of-range hour/minute/second (25:00,
   // 00:61) are already rejected by Date.parse below - only the calendar-day case needs

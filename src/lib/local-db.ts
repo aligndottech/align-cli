@@ -47,6 +47,11 @@ export interface LinkRow {
   targetId: string;
   relation: string;
   confidence: number;
+  /** ALI-1087: when the edge itself was recorded, distinct from either endpoint's own
+   *  `createdAt`. An as-of query has to bound both separately - the two decisions can
+   *  predate a cutoff while the edge asserting a relation between them was written after
+   *  it, and a relation nobody had recorded yet is not one the as-of answer may use. */
+  createdAt: string;
 }
 
 export interface DbStats {
@@ -792,14 +797,35 @@ export function createLocalDb(dbPath: string) {
      * on - only local-gateway-client.ts's findSimilar passes it, with the currently active
      * EMBEDDING_MODEL_ID.
      */
-    getAllEmbeddings(filter: { repo?: string; includeUnattributed?: boolean; model?: string } = {}): Array<{ decisionId: string; embedding: Float32Array }> {
+    /**
+     * ALI-1087: `createdBefore` excludes any decision whose OWN `created_at` is at or after
+     * the cutoff, so an as-of query never ranks a candidate that did not exist yet at that
+     * moment. Joins `decisions` whenever either it or `repo` is set - both need the same
+     * table, and joining twice would be a second writer of the same predicate.
+     *
+     * `julianday(...)`, not a raw string compare (Copilot, #320). `d.created_at` is written
+     * ONLY by SQLite's own `datetime('now')` default - 'YYYY-MM-DD HH:MM:SS', a space, no
+     * offset - while `createdBefore` is validated as an ISO-8601 instant with a 'T' and an
+     * offset/Z. On any date the two share, ' ' (0x20) sorts before 'T' (0x54) regardless of
+     * the actual clock time, so `d.created_at < ?` as plain TEXT would call every decision
+     * captured LATER on the cutoff's own calendar day "before" it. `julianday()` parses both
+     * formats (SQLite treats a bare space-separated datetime as UTC, which matches what
+     * `datetime('now')` writes) into a real instant before comparing.
+     */
+    getAllEmbeddings(filter: { repo?: string; includeUnattributed?: boolean; model?: string; createdBefore?: string } = {}): Array<{ decisionId: string; embedding: Float32Array }> {
       let sql = `SELECT e.decision_id, e.embedding FROM decision_embeddings e`;
       const where: string[] = [];
       const params: string[] = [];
-      if (filter.repo !== undefined) {
+      if (filter.repo !== undefined || filter.createdBefore !== undefined) {
         sql += ` JOIN decisions d ON d.id = e.decision_id`;
+      }
+      if (filter.repo !== undefined) {
         where.push(filter.includeUnattributed ? `(d.repo = ? OR d.repo IS NULL)` : `d.repo = ?`);
         params.push(filter.repo);
+      }
+      if (filter.createdBefore !== undefined) {
+        where.push(`julianday(d.created_at) < julianday(?)`);
+        params.push(filter.createdBefore);
       }
       if (filter.model !== undefined) {
         where.push(`(e.model = ? OR e.model IS NULL)`);
@@ -919,11 +945,19 @@ export function createLocalDb(dbPath: string) {
       }
     },
 
-    listLinks(filter?: { relation?: string; decisionId?: string }): LinkRow[] {
-      let sql = `SELECT id, source_id as sourceId, target_id as targetId, relation, confidence FROM decision_links WHERE 1=1`;
+    /**
+     * ALI-1087: `createdBefore` bounds the edge itself to what existed as of that instant.
+     * `julianday(...)`, not a raw string compare - `created_at` is written only by SQLite's
+     * `datetime('now')` default, in the same space-separated, offset-less format that makes
+     * a plain TEXT comparison against an ISO cutoff wrong on the cutoff's own calendar day
+     * (see `getAllEmbeddings`'s doc comment for the mechanism).
+     */
+    listLinks(filter?: { relation?: string; decisionId?: string; createdBefore?: string }): LinkRow[] {
+      let sql = `SELECT id, source_id as sourceId, target_id as targetId, relation, confidence, created_at as createdAt FROM decision_links WHERE 1=1`;
       const params: string[] = [];
       if (filter?.relation) { sql += ` AND relation = ?`; params.push(filter.relation); }
       if (filter?.decisionId) { sql += ` AND (source_id = ? OR target_id = ?)`; params.push(filter.decisionId, filter.decisionId); }
+      if (filter?.createdBefore) { sql += ` AND julianday(created_at) < julianday(?)`; params.push(filter.createdBefore); }
       return db.prepare(sql).all(...params) as unknown as LinkRow[];
     },
 
