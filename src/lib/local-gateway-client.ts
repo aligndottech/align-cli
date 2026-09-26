@@ -215,6 +215,22 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
    * decision-relations.ts needs no local-specific branch to carry them to an agent.
    */
   /**
+   * ALI-1087 (Copilot #320): `DecisionRow.createdAt` is written only by SQLite's own
+   * `datetime('now')` default - 'YYYY-MM-DD HH:MM:SS', a space, no offset - while
+   * `createdBefore` is validated as an ISO-8601 instant with a 'T' and an offset/Z. On any
+   * date the two share, ' ' (0x20) sorts before 'T' (0x54) regardless of the actual clock
+   * time, so a plain string compare calls every decision captured LATER on the cutoff's own
+   * calendar day "before" it. `getAllEmbeddings`/`listLinks` push the equivalent SQL
+   * comparison through `julianday(...)`, which parses both formats correctly; this is the
+   * same fix for the two JS-side comparisons below, which read an already-fetched
+   * `DecisionRow` rather than issuing SQL.
+   */
+  function isBeforeCutoff(storedCreatedAt: string, cutoff: string): boolean {
+    const normalised = storedCreatedAt.includes('T') ? storedCreatedAt : `${storedCreatedAt.replace(' ', 'T')}Z`;
+    return new Date(normalised).getTime() < new Date(cutoff).getTime();
+  }
+
+  /**
    * ALI-1087: `createdBefore`, when given, bounds an as-of query - mirroring the cloud's
    * `attachSupersessionSuccessors`/`attachConflictCounterparts` (align-stack#2447). BOTH
    * halves of an edge are bounded separately, because they can differ: the edge itself may
@@ -222,22 +238,27 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
    * relation nobody had recorded yet is not one the as-of answer may use), and the OTHER
    * decision may itself postdate the cutoff even though the edge and this decision do not
    * (a decision that did not exist yet cannot be reported as this one's conflict/successor).
+   *
+   * Iterates every candidate rather than stopping at the first found (Copilot #320): with
+   * more than one supersession edge, `links.find(...)` returning the one whose successor
+   * postdates the cutoff used to end the search there, hiding an EARLIER, genuinely valid
+   * successor. Supersession candidates are tried most-recent-edge-first, matching the
+   * cloud's `ORDER BY dl.created_at DESC` - the first one whose OWN counterpart also
+   * predates the cutoff wins.
    */
   function relationFieldsFor(decisionId: string, createdBefore?: string): {
     status?: 'superseded' | 'conflicted';
     successor?: { id: string; title: string; source_url?: string; relation: string };
     conflicts_with?: { id: string; title: string; source_url?: string; relation: string };
   } {
-    const links: LinkRow[] = db
-      .listLinks({ decisionId })
-      .filter(l => createdBefore === undefined || l.createdAt < createdBefore);
+    const links: LinkRow[] = db.listLinks({ decisionId, createdBefore });
 
     // Conflict is symmetric: either end of the edge reports it, pointing at the other end.
-    const conflict = links.find(l => l.relation === 'contradicts' || l.relation === 'conflicts_with');
-    if (conflict) {
+    const conflictCandidates = links.filter(l => l.relation === 'contradicts' || l.relation === 'conflicts_with');
+    for (const conflict of conflictCandidates) {
       const otherId = conflict.sourceId === decisionId ? conflict.targetId : conflict.sourceId;
       const row = db.getDecisionById(otherId);
-      if (row && (createdBefore === undefined || row.createdAt < createdBefore)) {
+      if (row && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
         return {
           status: 'conflicted',
           conflicts_with: {
@@ -252,12 +273,12 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
 
     // Asymmetric, deliberately: THIS decision must be the TARGET (the superseded one),
     // not the source - or a decision would report itself replaced by something it superseded.
-    const supersession = links.find(
-      l => (l.relation === 'supersedes' || l.relation === 'partially_supersedes') && l.targetId === decisionId,
-    );
-    if (supersession) {
+    const supersessionCandidates = links
+      .filter(l => (l.relation === 'supersedes' || l.relation === 'partially_supersedes') && l.targetId === decisionId)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+    for (const supersession of supersessionCandidates) {
       const row = db.getDecisionById(supersession.sourceId);
-      if (row && (createdBefore === undefined || row.createdAt < createdBefore)) {
+      if (row && (createdBefore === undefined || isBeforeCutoff(row.createdAt, createdBefore))) {
         return {
           status: 'superseded',
           successor: {
