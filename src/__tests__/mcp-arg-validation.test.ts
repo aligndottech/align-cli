@@ -81,13 +81,18 @@ describe('validateCreatedBeforeFlag', () => {
   const cloudEnv: EnvironmentConfig = { gatewayUrl: '', authToken: null, tenantId: null, mode: 'auth' };
   const localEnv: EnvironmentConfig = { gatewayUrl: '', authToken: null, tenantId: null, mode: 'local-embedded' };
 
-  it('rejects any value in local-embedded mode, naming the flag and the mode', () => {
-    expect(() => validateCreatedBeforeFlag('2026-08-11T00:00:00.000Z', localEnv)).toThrow(
-      /--created-before/,
-    );
-    expect(() => validateCreatedBeforeFlag('2026-08-11T00:00:00.000Z', localEnv)).toThrow(
-      /local-embedded/,
-    );
+  // ALI-1087: local-embedded mode used to reject --created-before outright ("there is no
+  // cutoff concept locally"), which described the implementation rather than a real limit -
+  // the local graph stores a real created_at on every decision and edge, so the bound is
+  // exactly as honourable there as it is against the cloud gateway.
+  it('accepts a valid offset-bearing ISO timestamp in local-embedded mode too', () => {
+    expect(() => validateCreatedBeforeFlag('2026-08-11T00:00:00.000Z', localEnv)).not.toThrow();
+  });
+
+  // Second example for the same rule: the format check still applies in local-embedded mode,
+  // so this cannot be "local-embedded skips validation entirely".
+  it('still rejects a bare date with no time/offset in local-embedded mode', () => {
+    expect(() => validateCreatedBeforeFlag('2026-08-11', localEnv)).toThrow(/--created-before/);
   });
 
   it('rejects a bare date with no time/offset, the shape the corpus carries', () => {
