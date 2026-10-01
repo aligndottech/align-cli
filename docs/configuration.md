@@ -3,10 +3,20 @@
 ## AI provider
 
 Align is **provider-agnostic**. `align ask` and local relationship typing use **your own AI
-provider**. No key is ever required: without one, `align ask` prints a ranked list of matching
-decisions instead of a synthesised paragraph.
+provider** - there is no Align-managed fallback, in either cloud or local mode. No key is ever
+required: without one, `align ask` prints a ranked list of matching decisions instead of a
+synthesised paragraph.
 
-It resolves a provider in this order.
+`align setup` offers a guided path to a free key rather than leaving you to find one: a Groq
+key (no card, ever - the fastest free tier) as the primary, with Gemini offered as a second key
+for when Groq's daily request cap is hit. Say yes to both and Groq is the one actually tried
+first - see the priority order below. Declining costs nothing; `align ask` still works without
+either, just without prose. Skip the prompt and set a key yourself any time, or re-run
+`align setup` to be offered it again.
+
+It resolves a provider in this order - named providers are tried in the order listed under (2)
+below, so with both GROQ_API_KEY and GEMINI_API_KEY set, Groq answers and Gemini is only reached
+if Groq's response is itself unusable (not on a plain rate limit - see the warning under (2)).
 
 ### 1. Any OpenAI-compatible endpoint
 
@@ -22,11 +32,20 @@ export ALIGN_LLM_MODEL=deepseek-chat
 
 ### 2. A named provider via env key
 
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `GROQ_API_KEY`,
-`MISTRAL_API_KEY`, or `GROK_API_KEY` (or `XAI_API_KEY`).
+Tried in this order: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`
+(or `GOOGLE_API_KEY`), `MISTRAL_API_KEY`, `GROK_API_KEY` (or `XAI_API_KEY`) - Groq ahead of
+Gemini specifically so the guided setup pairing above has a real primary.
 
 Each has an optional model override: `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`,
-`ALIGN_GEMINI_MODEL`, `ALIGN_GROQ_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`.
+`ALIGN_GROQ_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`.
+
+> **A real rate limit stops that one `align ask` call rather than falling through to the next
+> provider.** If you've set both a Groq and a Gemini key and Groq returns a rate-limit error
+> (its daily cap included), the error names Groq and that call returns no answer - it does not
+> silently retry on Gemini. This is deliberate: a provider that answered, badly, falling
+> through to a different, weaker model would misattribute whose answer you are reading. The
+> next `align ask` call tries Groq again, since nothing here remembers the failure. Unset
+> `GROQ_API_KEY` for the rest of the day if you'd rather answer on Gemini until Groq resets.
 
 ### 3. Ollama
 

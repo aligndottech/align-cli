@@ -91,6 +91,44 @@ export function migrateConfigDirectory(oldDir: string, newDir: string): void {
   fs.copyFileSync(oldFile, newFile);
 }
 
+/**
+ * The two free-tier providers `align setup` guides a user through (ALI-1284). Not the
+ * full `AiProvider` union from local-llm.ts: this is specifically the pair the guided
+ * setup step offers and persists, not a general secret store for every provider local-llm
+ * already resolves from a plain env var.
+ */
+export type GuidedProviderKey = 'groq' | 'gemini';
+
+const PROVIDER_ENV_VAR: Record<GuidedProviderKey, string> = {
+  groq: 'GROQ_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+};
+
+/**
+ * ALI-1284: fills `process.env` from a previously-saved provider key, so `align ask`
+ * keeps working on every invocation after the one where `align setup` collected it -
+ * without local-llm.ts (which resolves providers from plain env vars, and stays a
+ * dependency-free pure module on purpose) ever knowing a config store exists.
+ *
+ * A real env var always wins and is never overwritten: this is a convenience default,
+ * not a second source of truth, the same precedence `getEnvironment` already gives
+ * ALIGN_TOKEN/ALIGN_TENANT_ID/ALIGN_GATEWAY_URL above. Called once, from src/index.ts,
+ * before any command runs - never from inside createConfigStore() itself, for the same
+ * reason migrateConfigDirectory is split out (Copilot review, PR #231): a pure
+ * constructor stays mockable without needing to stub `process.env` in every test that
+ * merely constructs a store.
+ */
+export function hydrateProviderKeyEnv(
+  config: { getProviderKey(provider: GuidedProviderKey): string | null },
+  env: Record<string, string | undefined> = process.env,
+): void {
+  for (const [provider, varName] of Object.entries(PROVIDER_ENV_VAR) as Array<[GuidedProviderKey, string]>) {
+    if (env[varName]) continue;
+    const stored = config.getProviderKey(provider);
+    if (stored) env[varName] = stored;
+  }
+}
+
 export function createConfigStore() {
   const store = new Conf<{
     environments: Record<string, Partial<EnvironmentConfig>>;
@@ -99,6 +137,7 @@ export function createConfigStore() {
     installId?: string;
     telemetryConsent?: TelemetryConsent;
     funnelStagesRecorded?: string[];
+    providerKeys?: Partial<Record<GuidedProviderKey, string>>;
   }>({
     projectName: 'align-cli',
     // conf's own default is 'nodejs' (node_modules/conf/dist/source/index.js), which
@@ -252,6 +291,17 @@ export function createConfigStore() {
     },
     setTelemetryConsent(value: TelemetryConsent) {
       store.set('telemetryConsent', value);
+    },
+    // ALI-1284: the key `align setup`'s guided free-tier path collected, persisted the same
+    // way a local connector's read-only token already is (saveConnectorFields above) - one
+    // paste, reused on every later invocation. hydrateProviderKeyEnv is what reads this back
+    // into process.env at startup; local-llm.ts itself stays a pure env-reader.
+    getProviderKey(provider: GuidedProviderKey): string | null {
+      return store.get('providerKeys')?.[provider] ?? null;
+    },
+    setProviderKey(provider: GuidedProviderKey, key: string) {
+      const existing = store.get('providerKeys') ?? {};
+      store.set('providerKeys', { ...existing, [provider]: key });
     },
     // ALI-795: which one-shot funnel stages this install has already emitted. Per-install
     // like installId (a funnel counts an install once); the emitter consults it so the

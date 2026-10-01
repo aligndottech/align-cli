@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createConfigStore } from '../lib/config.js';
+import { createConfigStore, hydrateProviderKeyEnv } from '../lib/config.js';
 
 vi.mock('conf', () => {
   let store: Record<string, unknown> = {};
@@ -106,6 +106,31 @@ describe('config store', () => {
     expect(c.getConnectorCloudId('preview', 'jira')).toBe('preview-cloud-id');
   });
 
+  // ALI-1284: a free-tier provider key collected during `align setup` has to survive to the
+  // NEXT invocation of `align ask`, which only reads `process.env` (local-llm.ts stays a pure
+  // env-reader on purpose, so it is testable without filesystem I/O). So the key is persisted
+  // here, the same way a local connector's read-only token already is, and hydrated back into
+  // process.env at CLI startup - see hydrateProviderKeyEnv below.
+  describe('provider keys (ALI-1284)', () => {
+    it('returns null for a provider with no stored key', () => {
+      expect(createConfigStore().getProviderKey('groq')).toBeNull();
+    });
+
+    it('saves and retrieves a provider key', () => {
+      const c = createConfigStore();
+      c.setProviderKey('groq', 'gsk_abc');
+      expect(c.getProviderKey('groq')).toBe('gsk_abc');
+    });
+
+    it('keeps groq and gemini keys distinct', () => {
+      const c = createConfigStore();
+      c.setProviderKey('groq', 'gsk_groq');
+      c.setProviderKey('gemini', 'gem_key');
+      expect(c.getProviderKey('groq')).toBe('gsk_groq');
+      expect(c.getProviderKey('gemini')).toBe('gem_key');
+    });
+  });
+
   // ALI-618: install id and telemetry consent are global to the machine, not per-env - a
   // local-only user has no `environments` entry to hang either off (unlike authToken/tenantId).
   describe('anonymous local telemetry state', () => {
@@ -136,6 +161,43 @@ describe('config store', () => {
       const c = createConfigStore();
       c.setTelemetryConsent('declined');
       expect(c.getTelemetryConsent()).toBe('declined');
+    });
+  });
+
+  // ALI-1284: run at real process startup (src/index.ts), before any command runs - a pure
+  // function over an env object rather than mutating process.env itself, so it stays testable
+  // the way migrateConfigDirectory does (no hidden global state in the function under test).
+  describe('hydrateProviderKeyEnv', () => {
+    const fakeConfig = (keys: Partial<Record<'groq' | 'gemini', string>>) => ({
+      getProviderKey: (p: 'groq' | 'gemini') => keys[p] ?? null,
+    });
+
+    it('sets GROQ_API_KEY from a stored key when the env var is unset', () => {
+      const env: Record<string, string | undefined> = {};
+      hydrateProviderKeyEnv(fakeConfig({ groq: 'gsk_stored' }), env);
+      expect(env['GROQ_API_KEY']).toBe('gsk_stored');
+    });
+
+    it('sets GEMINI_API_KEY from a stored key when the env var is unset', () => {
+      const env: Record<string, string | undefined> = {};
+      hydrateProviderKeyEnv(fakeConfig({ gemini: 'gem_stored' }), env);
+      expect(env['GEMINI_API_KEY']).toBe('gem_stored');
+    });
+
+    // The second example for the same rule: a real env var must win, never be overwritten by
+    // a stored convenience default - otherwise a user who deliberately rotates their own
+    // GROQ_API_KEY for one shell session would silently get the stale stored one instead.
+    it('never overwrites a real env var already set, even with a different stored value', () => {
+      const env: Record<string, string | undefined> = { GROQ_API_KEY: 'from-the-shell' };
+      hydrateProviderKeyEnv(fakeConfig({ groq: 'gsk_stored' }), env);
+      expect(env['GROQ_API_KEY']).toBe('from-the-shell');
+    });
+
+    it('leaves the env untouched when nothing is stored', () => {
+      const env: Record<string, string | undefined> = {};
+      hydrateProviderKeyEnv(fakeConfig({}), env);
+      expect(env['GROQ_API_KEY']).toBeUndefined();
+      expect(env['GEMINI_API_KEY']).toBeUndefined();
     });
   });
 });

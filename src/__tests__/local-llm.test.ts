@@ -81,6 +81,22 @@ describe('callChat (provider-agnostic resolver)', () => {
     expect(mockFetch.mock.calls[0][0]).toBe('https://api.anthropic.com/v1/messages');
   });
 
+  // ALI-1284: `align setup` now offers Groq as the default free-tier provider, with Gemini
+  // as the backup key for when Groq's daily cap is hit. That pairing only means "primary" if
+  // Groq is actually tried first when both are configured - the two response shapes differ
+  // (OpenAI-compatible choices[] vs Gemini's candidates[]), so this fails loudly rather than
+  // just reading the wrong URL if the order ever regresses.
+  it('prefers Groq over Gemini when both keys are present (ALI-1284 default pairing)', async () => {
+    vi.stubEnv('GROQ_API_KEY', 'groq-k');
+    vi.stubEnv('GEMINI_API_KEY', 'gemini-k');
+    mockFetch.mockResolvedValue(openAiResponse('groq answer'));
+
+    const r = await callChat('s', 'u');
+
+    expect(r).toBe('groq answer');
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.groq.com/openai/v1/chat/completions');
+  });
+
   it('returns null when no provider is configured and Ollama is unreachable', async () => {
     mockFetch.mockResolvedValue({ ok: false }); // ollama /api/tags not ok
     const r = await callChat('s', 'u');

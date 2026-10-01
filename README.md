@@ -106,9 +106,10 @@ That is the whole of `align --help`. Every other command (`search`, `decisions`,
 [docs/commands.md](docs/commands.md).
 
 `align ask` needs an AI provider to write prose. Without one it returns the matching decisions
-as a ranked list, which needs no key. Bring your own: Anthropic, OpenAI, Gemini, Groq, Mistral,
-Grok, any OpenAI-compatible endpoint, or a local Ollama.
-[Setting one up](docs/configuration.md#ai-provider).
+as a ranked list, which needs no key. `align setup` offers a free Groq key (no card, ever) as
+the guided default, with Gemini as a backup for when Groq's daily limit is hit - or bring your
+own: Anthropic, OpenAI, Gemini, Groq, Mistral, Grok, any OpenAI-compatible endpoint, or a local
+Ollama. [Setting one up](docs/configuration.md#ai-provider).
 
 ## Docs
 

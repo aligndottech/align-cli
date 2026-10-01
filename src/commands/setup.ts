@@ -34,6 +34,7 @@ import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
 import { agentAskLine, agentConnectedLine, orderAgents, projectAgentsFromWritten } from '../lib/next-step.js';
 import { firstDecision } from '../lib/first-decision.js';
+import { hasConfiguredProvider } from '../lib/local-llm.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -424,6 +425,74 @@ function writeAgentAlignment(envName: EnvName): string[] {
     p.log.warn(`Could not write auto-alignment files: ${(err as Error).message}`);
     return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Guided free-tier AI provider key (ALI-1284)
+// ---------------------------------------------------------------------------
+
+/**
+ * ALI-1283 made BYOK mandatory for every tenant, including free/solo, retiring the
+ * Align-managed LLM fallback. Before this, `align ask` without a provider key just
+ * returned a ranked list with no guidance toward getting one - "bring any key" with
+ * nothing pointing at where to get one fast. That is a cliff against this project's own
+ * target (a useful first answer within an hour), so the guided default is Groq (no card,
+ * ever; fastest free-tier inference) with Gemini Flash-Lite offered as a second key for
+ * when Groq's daily request cap is hit. Both DECIDED 2026-09-24 - see the ALI-1284 ticket
+ * for the free-tier limits that were checked before picking Groq+Gemini over Cerebras
+ * (now needs a card for its trial) and OpenRouter's `:free` tier (tighter, weaker models).
+ *
+ * Skipped entirely, in order:
+ *  - under --approve: a scripted run has no terminal to paste a key into.
+ *  - when a provider is already configured via env (hasConfiguredProvider): nothing to fix.
+ *  - when a key from a PREVIOUS run of this offer is already stored: do not re-ask every time.
+ *
+ * Declining costs nothing - `align ask` still returns a ranked list - so every question
+ * here defaults to a plain confirm the user can say no to without losing anything.
+ */
+async function offerFreeProviderKey(
+  config: ReturnType<typeof createConfigStore>,
+  opts: { approve?: boolean },
+): Promise<void> {
+  if (opts.approve) return;
+  if (hasConfiguredProvider()) return;
+  if (config.getProviderKey('groq') || config.getProviderKey('gemini')) return;
+
+  console.log('');
+  const wantGroq = await p.confirm({
+    message:
+      `${chalk.bold('align ask')} needs an AI provider key to write prose answers ` +
+      `(without one it still returns a ranked list of matching decisions). ` +
+      `Set up a free Groq key now? No card, ever - and it's the fastest free tier.`,
+    initialValue: true,
+  });
+  if (p.isCancel(wantGroq) || !wantGroq) return;
+
+  p.log.info(`Get one free: ${chalk.bold('https://console.groq.com/keys')}`);
+  const groqKey = await guardedPrompt('Groq API key', () => p.password({ message: '  Groq API key:' }));
+  if (groqKey === null || p.isCancel(groqKey) || !groqKey) {
+    p.log.warn(`No key entered - skipping. Set ${chalk.bold('GROQ_API_KEY')} yourself any time, or run ${chalk.bold('align setup')} again.`);
+    return;
+  }
+  config.setProviderKey('groq', groqKey as string);
+  process.env['GROQ_API_KEY'] = groqKey as string; // usable immediately, this run
+  p.log.success(`Saved - ${chalk.bold('align ask')} will use it on this machine from now on.`);
+
+  const wantGemini = await p.confirm({
+    message: `Also add a Gemini key as backup for when Groq's daily limit is hit? (also free, no card)`,
+    initialValue: true,
+  });
+  if (p.isCancel(wantGemini) || !wantGemini) return;
+
+  p.log.info(`Get one free: ${chalk.bold('https://aistudio.google.com/apikey')}`);
+  const geminiKey = await guardedPrompt('Gemini API key', () => p.password({ message: '  Gemini API key:' }));
+  if (geminiKey === null || p.isCancel(geminiKey) || !geminiKey) {
+    p.log.warn('No key entered - skipping the backup.');
+    return;
+  }
+  config.setProviderKey('gemini', geminiKey as string);
+  process.env['GEMINI_API_KEY'] = geminiKey as string;
+  p.log.success('Saved as backup.');
 }
 
 // ---------------------------------------------------------------------------
@@ -962,6 +1031,12 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   refsDb.close();
   const gapLine = setupSummaryLine(gaps);
 
+  // ALI-1284: the same guided free-tier key as the cloud path - local mode needs one too,
+  // `align ask` resolves providers identically either way. Gated on `interactive` like
+  // every other prompt in this phase, rather than only on `opts.approve`, since local mode
+  // (unlike cloud) is routinely run non-interactively with no terminal to paste a key into.
+  if (interactive) await offerFreeProviderKey(config, opts);
+
   // ALI-950: the last line is the next step, and it happens in the agent - named, with a
   // question about a decision the wizard just found, and no CLI verb. This used to end on
   // `align ask "why <a thing you decided>"`, a prompt verb on the one screen whose job is to
@@ -1465,6 +1540,9 @@ async function runCloudSetup(ctx: {
     console.log(captureText);
     console.log('');
   }
+
+  // ---- Step 7b: guided free-tier AI provider key (ALI-1284) ----
+  await offerFreeProviderKey(config, opts);
 
   // ---- Outro ----
   const decisionsLine = totalDecisions > 0
