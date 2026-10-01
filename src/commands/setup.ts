@@ -550,7 +550,12 @@ async function offerFreeProviderKey(
 
   p.log.info(`Get one free: ${chalk.bold('https://console.groq.com/keys')}`);
   const groqKey = await guardedPrompt('Groq API key', () => p.password({ message: '  Groq API key:' }));
-  if (groqKey === null || p.isCancel(groqKey) || !groqKey) {
+  // Cancel here needs the same abort as the confirm above it (Copilot review, PR #323,
+  // "previously missed" - the confirm fix alone left this prompt's own Ctrl-C still
+  // falling through to the outro). `null` (guardedPrompt already warned about a crashed
+  // prompt) and an empty paste are not cancellation and keep the softer skip-and-continue.
+  if (p.isCancel(groqKey)) { p.cancel('Cancelled.'); process.exit(0); }
+  if (groqKey === null || !groqKey) {
     p.log.warn(`No key entered - skipping. Set ${chalk.bold('GROQ_API_KEY')} yourself any time, or run ${chalk.bold('align setup')} again.`);
     return;
   }
@@ -580,7 +585,9 @@ async function offerFreeProviderKey(
 
   p.log.info(`Get one free: ${chalk.bold('https://aistudio.google.com/apikey')}`);
   const geminiKey = await guardedPrompt('Gemini API key', () => p.password({ message: '  Gemini API key:' }));
-  if (geminiKey === null || p.isCancel(geminiKey) || !geminiKey) {
+  // Same split as the Groq password prompt above.
+  if (p.isCancel(geminiKey)) { p.cancel('Cancelled.'); process.exit(0); }
+  if (geminiKey === null || !geminiKey) {
     p.log.warn('No key entered - skipping the backup.');
     return;
   }

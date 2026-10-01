@@ -1736,6 +1736,48 @@ describe('align setup', () => {
           expect(outro).not.toHaveBeenCalled();
           exitSpy.mockRestore();
         });
+
+        // Copilot review, PR #323 ("Previously missed" - the confirm-prompt fix above left
+        // this one standing): cancelling the PASSWORD prompt (after accepting the Groq
+        // confirm) was folded into the same branch as "no key entered" - a plain return,
+        // which reports success. Only the confirm prompts were fixed; the password prompts
+        // immediately after each one were not.
+        it('aborts on Ctrl-C at the Groq PASSWORD prompt too, not just the confirm before it', async () => {
+          mockGetProviderKey.mockImplementation(() => null);
+          const { isCancel, outro, password } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async () => true); // accept the Groq confirm
+          vi.mocked(password).mockResolvedValueOnce(Symbol('cancel'));
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup']),
+          ).rejects.toThrow();
+
+          expect(exitSpy).toHaveBeenCalledWith(0);
+          expect(outro).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+        });
+
+        it('aborts on Ctrl-C at the Gemini PASSWORD prompt too', async () => {
+          mockGetProviderKey.mockImplementation(() => null);
+          const { isCancel, outro, password } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async () => true); // accept both confirms
+          vi.mocked(password)
+            .mockResolvedValueOnce('gsk_fresh') // Groq key pastes fine
+            .mockResolvedValueOnce(Symbol('cancel')); // Gemini password prompt is cancelled
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup']),
+          ).rejects.toThrow();
+
+          expect(exitSpy).toHaveBeenCalledWith(0);
+          expect(outro).not.toHaveBeenCalled();
+          delete process.env['GROQ_API_KEY'];
+          exitSpy.mockRestore();
+        });
       });
     });
   });
