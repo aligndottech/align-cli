@@ -1537,6 +1537,22 @@ describe('align setup', () => {
         delete process.env['GROQ_API_KEY'];
       });
 
+      // Copilot review, PR #322: --reset was never threaded from runSetup's own opts down
+      // through runLocalSetup/runLocalValuePhase to the local connector phase, so
+      // `align setup --local --reset` silently dropped it - the one way to actually act on
+      // a declined-Groq/stored-Gemini switch (see the cloud-path tests above) had no local
+      // equivalent at all.
+      it('also honours --reset in local (--local) mode, re-offering a stored key', async () => {
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+        mockConfirm.mockResolvedValue(false);
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--reset']);
+
+        expect(mockConfirm).toHaveBeenCalledWith(
+          expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+        );
+      });
+
       // Copilot review, PR #322: hydrateProviderKeyEnv (cli.ts's preAction) already wrote
       // any stored key into process.env before this command's own action runs, so without
       // --reset bypassing BOTH guards, hasConfiguredProvider() alone would hide the offer

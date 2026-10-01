@@ -533,7 +533,10 @@ interface LocalValuePhaseResult {
   localEnv: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
   localClient: ReturnType<typeof createGatewayClient>;
   dbPath: string;
-  opts: { approve?: boolean };
+  // ALI-1284 (Copilot review, PR #322): reset is only read by offerFreeProviderKey below, but
+  // it travels through this same opts bag the rest of the local phase already threads, rather
+  // than becoming a second parameter every caller has to remember to also pass.
+  opts: { approve?: boolean; reset?: boolean };
   /** ALI-827: every source the value phase fetched, for the one report the connector
    *  phase prints at the end. */
   capture: ReturnType<typeof createCaptureCollector>;
@@ -548,7 +551,7 @@ interface LocalValuePhaseResult {
 /** Thrown inside the docs block to leave it without starting a read; never surfaces. */
 class SkipDocs extends Error {}
 
-async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
+async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
@@ -1080,7 +1083,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
 // Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
 // the two phases above unchanged - this is exactly what ran before the ALI-794 split, just
 // as two calls instead of one function body.
-async function runLocalSetup(opts: { approve?: boolean; funnel: SetupFunnel }): Promise<void> {
+async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; funnel: SetupFunnel }): Promise<void> {
   const ctx = await runLocalValuePhase(opts);
   await runLocalConnectorPhase(ctx);
 }
@@ -1092,7 +1095,7 @@ export function registerSetupCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--approve', 'Skip confirmation prompts (for scripted use)')
     .option('--local', 'Set up local-only mode (no account, no cloud)')
-    .option('--reset', 'Clear cached OAuth tokens and re-authenticate all connectors')
+    .option('--reset', 'Clear cached OAuth tokens and saved AI provider keys, and redo their setup')
     .action(runSetup);
 }
 
@@ -1160,7 +1163,7 @@ export async function runSetup(
     }
 
     if (mode === 'local') {
-      await runLocalSetup({ approve: opts.approve, funnel });
+      await runLocalSetup({ approve: opts.approve, reset: opts.reset, funnel });
       return;
     }
 
@@ -1185,7 +1188,7 @@ async function runFreshSetup(ctx: {
   opts: { approve?: boolean; reset?: boolean };
   funnel: SetupFunnel;
 }): Promise<void> {
-  const phase = await runLocalValuePhase({ approve: ctx.opts.approve, funnel: ctx.funnel });
+  const phase = await runLocalValuePhase({ approve: ctx.opts.approve, reset: ctx.opts.reset, funnel: ctx.funnel });
   // The value phase's capture report is printed by runLocalConnectorPhase, so choosing
   // cloud below drops it - deliberately: runCloudSetup re-imports git and docs into the
   // cloud tenant and prints its own report, which is the one that describes that graph.
@@ -1269,7 +1272,7 @@ async function runCloudSetup(ctx: {
       // Declined cloud login: offer the local escape hatch instead of failing.
       const wantLocal = await p.confirm({ message: 'Set up local-only mode instead? (no account, stays on this machine)' });
       if (!p.isCancel(wantLocal) && wantLocal) {
-        await runLocalSetup({ approve: opts.approve, funnel });
+        await runLocalSetup({ approve: opts.approve, reset: opts.reset, funnel });
         return;
       }
       p.log.warn(`Run ${chalk.bold('align login')} when ready, then ${chalk.bold('align setup')}.`);
