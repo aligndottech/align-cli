@@ -1504,6 +1504,72 @@ describe('align setup', () => {
         );
       });
 
+      // Copilot review, PR #322: --approve returned before --reset could act at all, so
+      // `align setup --reset --approve` left saved credentials in place even though the
+      // option's own help text says --reset clears them - and never prompting is correct
+      // under --approve (no terminal), but SKIPPING the clear is not the same thing as
+      // skipping the PROMPT.
+      it('--reset --approve clears any stored keys without prompting, rather than leaving them in place', async () => {
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' || p === 'gemini' ? 'already-stored' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+
+        expect(mockConfirm).not.toHaveBeenCalledWith(
+          expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+        );
+        expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
+        expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
+      });
+
+      // Copilot review, PR #323: the cloud case above passes because runCloudSetup calls
+      // offerFreeProviderKey unconditionally near its end. Local mode gates that SAME call
+      // behind `interactive`, which is false under --approve by construction (no TTY) - so
+      // `align setup --local --reset --approve` never even reaches the clear.
+      it('--local --reset --approve ALSO clears stored keys, not only the cloud path', async () => {
+        // The enclosing describe's beforeEach forces isTTY=true unconditionally - real
+        // --approve runs have no TTY at all, which is exactly the condition this bug lives
+        // in (runLocalConnectorPhase gates offerFreeProviderKey behind `interactive`), so
+        // this test has to override that back to false or it cannot see the real bug.
+        Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--reset', '--approve']);
+
+        expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
+      });
+
+      // Copilot review, PR #323: clearStoredProviderKeys deleted GROQ_API_KEY whenever ANY
+      // stored value existed, with no check that the CURRENT env value was the one hydration
+      // supplied. A stale stored key plus a freshly (and separately) exported real one under
+      // --reset --approve deleted the real export, not just the stale stored copy.
+      it('--reset --approve does NOT delete a real exported key that differs from the stale stored one', async () => {
+        vi.stubEnv('GROQ_API_KEY', 'gsk_the_real_one_i_just_exported');
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'gsk_stale_stored' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+
+        expect(process.env['GROQ_API_KEY']).toBe('gsk_the_real_one_i_just_exported');
+      });
+
+      // Copilot review, PR #323 ("previously missed" - deeper than the case above): equality
+      // with the stored value does NOT prove hydration put it there. hydrateProviderKeyEnv
+      // never overwrites a real shell-exported value, so a shell that happens to export the
+      // SAME string the stored value holds (set up once, then also added to .bashrc, say)
+      // looks identical - from inside this process - to "hydration injected it". There is no
+      // way to tell the two apart from process.env alone, so the safe answer is to never
+      // delete env state at all here: only the ON-DISK stored value matters for what future
+      // invocations hydrate, and a real credential must never be destroyed on a guess.
+      it('--reset --approve does not delete a real exported key even when it happens to equal the stale stored one', async () => {
+        vi.stubEnv('GROQ_API_KEY', 'gsk_same_value_coincidentally');
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'gsk_same_value_coincidentally' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+
+        expect(process.env['GROQ_API_KEY']).toBe('gsk_same_value_coincidentally');
+        expect(mockClearProviderKey).toHaveBeenCalledWith('groq'); // the STORED value is still cleared
+      });
+
       it('skips the offer when a provider is already configured via env', async () => {
         vi.stubEnv('ANTHROPIC_API_KEY', 'already-set');
 
@@ -1580,6 +1646,30 @@ describe('align setup', () => {
           expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
         });
 
+        // Copilot review, PR #322: cancelling (Ctrl-C) was treated identically to an
+        // explicit "no", so aborting the whole wizard mid-prompt had the side effect of
+        // silently deleting a saved credential - a destructive action from a keystroke
+        // that means "stop", not "remove this".
+        it('does NOT clear the stored Groq key when the re-offer is CANCELLED, as opposed to declined', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+          const { isCancel } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async (o: { message?: string }) =>
+            /free Groq key/i.test(String(o?.message)) ? Symbol('cancel') : false,
+          );
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          // Round 4 (Copilot review, PR #323): a cancel here now ABORTS the command
+          // (p.cancel + process.exit(0)) rather than falling through to the outro, matching
+          // every other top-level setup prompt - so this test's own exit must be stubbed.
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup', '--reset']),
+          ).rejects.toThrow();
+
+          expect(mockClearProviderKey).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+        });
+
         it('does not clear anything when there was no stored Groq key to begin with', async () => {
           mockConfirm.mockResolvedValue(false);
 
@@ -1620,6 +1710,91 @@ describe('align setup', () => {
 
           expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
           delete process.env['GROQ_API_KEY'];
+        });
+
+        // Second example for the Gemini side of the same cancel/decline split as Groq above.
+        it('does NOT clear the stored Gemini key when its re-offered backup is CANCELLED', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'gemini' ? 'already-stored' : null));
+          const { password, isCancel } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async (o: { message?: string }) => {
+            const m = String(o?.message);
+            if (/free Groq key/i.test(m)) return true; // accept Groq (re-paste)
+            if (/Gemini key as backup/i.test(m)) return Symbol('cancel'); // cancel, not decline
+            return false;
+          });
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          vi.mocked(password).mockResolvedValueOnce('gsk_fresh');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup', '--reset']),
+          ).rejects.toThrow();
+
+          expect(mockClearProviderKey).not.toHaveBeenCalledWith('gemini');
+          delete process.env['GROQ_API_KEY'];
+          exitSpy.mockRestore();
+        });
+
+        // Copilot review, PR #323: a bare `return` after a prompt cancellation let the
+        // wizard fall through to the normal "Setup complete" outro and setup_completed
+        // telemetry, silently treating an aborted run as a finished one - inconsistent
+        // with every other top-level prompt in this file.
+        it('aborts the whole command on Ctrl-C, rather than reporting setup as complete', async () => {
+          mockGetProviderKey.mockImplementation(() => null);
+          const { isCancel, outro } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async () => Symbol('cancel'));
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup']),
+          ).rejects.toThrow();
+
+          expect(exitSpy).toHaveBeenCalledWith(0);
+          expect(outro).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+        });
+
+        // Copilot review, PR #323 ("Previously missed" - the confirm-prompt fix above left
+        // this one standing): cancelling the PASSWORD prompt (after accepting the Groq
+        // confirm) was folded into the same branch as "no key entered" - a plain return,
+        // which reports success. Only the confirm prompts were fixed; the password prompts
+        // immediately after each one were not.
+        it('aborts on Ctrl-C at the Groq PASSWORD prompt too, not just the confirm before it', async () => {
+          mockGetProviderKey.mockImplementation(() => null);
+          const { isCancel, outro, password } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async () => true); // accept the Groq confirm
+          vi.mocked(password).mockResolvedValueOnce(Symbol('cancel'));
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup']),
+          ).rejects.toThrow();
+
+          expect(exitSpy).toHaveBeenCalledWith(0);
+          expect(outro).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+        });
+
+        it('aborts on Ctrl-C at the Gemini PASSWORD prompt too', async () => {
+          mockGetProviderKey.mockImplementation(() => null);
+          const { isCancel, outro, password } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async () => true); // accept both confirms
+          vi.mocked(password)
+            .mockResolvedValueOnce('gsk_fresh') // Groq key pastes fine
+            .mockResolvedValueOnce(Symbol('cancel')); // Gemini password prompt is cancelled
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup']),
+          ).rejects.toThrow();
+
+          expect(exitSpy).toHaveBeenCalledWith(0);
+          expect(outro).not.toHaveBeenCalled();
+          delete process.env['GROQ_API_KEY'];
+          exitSpy.mockRestore();
         });
       });
     });

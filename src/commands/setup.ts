@@ -462,10 +462,42 @@ function writeAgentAlignment(envName: EnvName): string[] {
  * Declining costs nothing - `align ask` still returns a ranked list - so every question
  * here defaults to a plain confirm the user can say no to without losing anything.
  */
+/**
+ * The non-interactive half of --reset for the Groq/Gemini pair: drop whichever of them is
+ * stored, so hydrateProviderKeyEnv has nothing left to re-apply on the next invocation.
+ * Called unconditionally and EARLY in runSetup (Copilot review, PR #323) - not from inside
+ * offerFreeProviderKey, which is reached too late and too conditionally to guarantee this:
+ * runLocalConnectorPhase only calls that function when `interactive` (always false under
+ * --approve, by construction - no TTY), so `align setup --local --reset --approve` never
+ * reached it at all; a cloud --approve run that is not yet logged in exits even earlier.
+ * Calling this before mode selection means neither path matters.
+ */
+function clearStoredProviderKeys(config: ReturnType<typeof createConfigStore>): void {
+  // Clears the STORED (on-disk) value only, and never touches process.env (Copilot review,
+  // PR #323, "previously missed" - deeper than an earlier fix here). The earlier version
+  // deleted the env var when it equalled the stored value, reasoning that equality meant
+  // hydration had put it there. It does not: hydrateProviderKeyEnv never overwrites a real
+  // shell-exported value, so a shell that happens to export the SAME string the stored
+  // value holds (set up once, then also added to a shell profile, say) is indistinguishable
+  // from "hydration injected it" by equality alone - there is no way to tell the two apart
+  // from process.env state. Clearing the stored value is what actually matters: it is what
+  // future invocations hydrate from, so this is enough to make the backup take over on the
+  // NEXT run. The cost is that THIS run may still see the old value in its own process.env
+  // for its own remaining work - a stale-for-one-run concession, not a destroyed credential.
+  config.clearProviderKey('groq');
+  config.clearProviderKey('gemini');
+}
+
 async function offerFreeProviderKey(
   config: ReturnType<typeof createConfigStore>,
   opts: { approve?: boolean; reset?: boolean },
 ): Promise<void> {
+  // --approve never prompts, full stop. The non-prompting --reset clear it still needs
+  // (Copilot review, PR #323) runs unconditionally in runSetup, BEFORE mode selection -
+  // not here, because this function is reached late and conditionally: runLocalConnectorPhase
+  // only calls it when `interactive` (false under --approve by construction, so --local
+  // --reset --approve never reached it at all), and an unauthenticated cloud --approve run
+  // exits earlier still. clearStoredProviderKeys running up front means neither path matters.
   if (opts.approve) return;
   if (!opts.reset) {
     if (hasConfiguredProvider()) return;
@@ -491,14 +523,26 @@ async function offerFreeProviderKey(
       `Set up a free Groq key now? No card, ever - and it's the fastest free tier.`,
     initialValue: true,
   });
-  if (p.isCancel(wantGroq) || !wantGroq) {
+  // Cancel (Ctrl-C) and an explicit "no" are NOT the same thing (Copilot review, PR #322):
+  // cancelling means "stop asking me", and must never have the side effect of deleting a
+  // saved credential - unaffected by round-4's fix moving the --reset clear to the top of
+  // runSetup, which runs unconditionally before this prompt is ever reached. Round 4
+  // (Copilot review): a bare `return` here let the wizard fall through to the normal
+  // outro and report `setup_completed`, silently swallowing the cancel - inconsistent with
+  // every other top-level prompt in this file (`p.cancel(...)` + `process.exit(0)`, lines
+  // ~1208/1260). Matched here too, so Ctrl-C at this LAST step aborts the wizard rather than
+  // reporting success for a run the user explicitly cut short.
+  if (p.isCancel(wantGroq)) { p.cancel('Cancelled.'); process.exit(0); }
+  if (!wantGroq) {
     // --reset declining Groq is the one way to make a previously stored Gemini key (or no
     // key at all) actually take over: hydration re-applies whatever is stored on every
     // invocation regardless of what the shell does, so "decline" has to mean "forget it",
-    // not merely "don't re-ask" (Copilot review, PR #322).
+    // not merely "don't re-ask".
     if (opts.reset && config.getProviderKey('groq')) {
+      // Clears only the STORED value, deliberately never process.env - see
+      // clearStoredProviderKeys's comment: equality with the stored value does not prove
+      // the current env value came from hydration rather than the user's own shell.
       config.clearProviderKey('groq');
-      delete process.env['GROQ_API_KEY'];
       p.log.info('Cleared the saved Groq key.');
     }
     return;
@@ -506,7 +550,12 @@ async function offerFreeProviderKey(
 
   p.log.info(`Get one free: ${chalk.bold('https://console.groq.com/keys')}`);
   const groqKey = await guardedPrompt('Groq API key', () => p.password({ message: '  Groq API key:' }));
-  if (groqKey === null || p.isCancel(groqKey) || !groqKey) {
+  // Cancel here needs the same abort as the confirm above it (Copilot review, PR #323,
+  // "previously missed" - the confirm fix alone left this prompt's own Ctrl-C still
+  // falling through to the outro). `null` (guardedPrompt already warned about a crashed
+  // prompt) and an empty paste are not cancellation and keep the softer skip-and-continue.
+  if (p.isCancel(groqKey)) { p.cancel('Cancelled.'); process.exit(0); }
+  if (groqKey === null || !groqKey) {
     p.log.warn(`No key entered - skipping. Set ${chalk.bold('GROQ_API_KEY')} yourself any time, or run ${chalk.bold('align setup')} again.`);
     return;
   }
@@ -518,14 +567,17 @@ async function offerFreeProviderKey(
     message: `Also add a Gemini key as backup for when Groq's daily limit is hit? (also free, no card)`,
     initialValue: true,
   });
-  if (p.isCancel(wantGemini) || !wantGemini) {
+  // Same cancel/decline split as Groq above, including round 4's fix: terminate rather
+  // than fall through to the outro.
+  if (p.isCancel(wantGemini)) { p.cancel('Cancelled.'); process.exit(0); }
+  if (!wantGemini) {
     // Symmetric with the Groq decline above: without this, clearProviderKey('gemini') had
     // no caller anywhere, and `--reset` could remove a stored Groq key but never a stored
     // Gemini one - so "clears saved AI provider keys" (the option's own help text) was not
-    // actually true for Gemini (Copilot review, PR #322).
+    // actually true for Gemini.
     if (opts.reset && config.getProviderKey('gemini')) {
+      // Same reasoning as the Groq decline above: clears only the stored value.
       config.clearProviderKey('gemini');
-      delete process.env['GEMINI_API_KEY'];
       p.log.info('Cleared the saved Gemini key.');
     }
     return;
@@ -533,7 +585,9 @@ async function offerFreeProviderKey(
 
   p.log.info(`Get one free: ${chalk.bold('https://aistudio.google.com/apikey')}`);
   const geminiKey = await guardedPrompt('Gemini API key', () => p.password({ message: '  Gemini API key:' }));
-  if (geminiKey === null || p.isCancel(geminiKey) || !geminiKey) {
+  // Same split as the Groq password prompt above.
+  if (p.isCancel(geminiKey)) { p.cancel('Cancelled.'); process.exit(0); }
+  if (geminiKey === null || !geminiKey) {
     p.log.warn('No key entered - skipping the backup.');
     return;
   }
@@ -1139,6 +1193,15 @@ export async function runSetup(
     const envName = resolveEnv(opts.env);
     const env = config.getEnvironment(envName);
     const client = createGatewayClient(env);
+
+    // --reset --approve: clear unconditionally, before mode selection and before any
+    // auth/TTY-gated exit can skip it (Copilot review, PR #323). Gated on BOTH flags,
+    // deliberately: a plain interactive `--reset` (no --approve) must NOT wipe the stored
+    // key here, or offerFreeProviderKey's re-offer below would find nothing to re-offer and
+    // the user would never get the chance to choose - only the non-prompting --approve case
+    // needs this early, unconditional clear. See clearStoredProviderKeys's own comment for
+    // why this cannot live inside offerFreeProviderKey instead.
+    if (opts.approve && opts.reset) clearStoredProviderKeys(config);
 
     // The one place a full brand moment belongs: first run, before any questions.
     printBanner({ version });
