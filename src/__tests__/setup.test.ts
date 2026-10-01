@@ -1539,6 +1539,19 @@ describe('align setup', () => {
         expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
       });
 
+      // Copilot review, PR #323: clearStoredProviderKeys deleted GROQ_API_KEY whenever ANY
+      // stored value existed, with no check that the CURRENT env value was the one hydration
+      // supplied. A stale stored key plus a freshly (and separately) exported real one under
+      // --reset --approve deleted the real export, not just the stale stored copy.
+      it('--reset --approve does NOT delete a real exported key that differs from the stale stored one', async () => {
+        vi.stubEnv('GROQ_API_KEY', 'gsk_the_real_one_i_just_exported');
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'gsk_stale_stored' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+
+        expect(process.env['GROQ_API_KEY']).toBe('gsk_the_real_one_i_just_exported');
+      });
+
       it('skips the offer when a provider is already configured via env', async () => {
         vi.stubEnv('ANTHROPIC_API_KEY', 'already-set');
 

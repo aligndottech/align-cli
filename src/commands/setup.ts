@@ -473,13 +473,20 @@ function writeAgentAlignment(envName: EnvName): string[] {
  * Calling this before mode selection means neither path matters.
  */
 function clearStoredProviderKeys(config: ReturnType<typeof createConfigStore>): void {
-  if (config.getProviderKey('groq')) {
+  // Only delete the env var if it still EQUALS the stored value - i.e. hydration put it
+  // there, nothing else has (Copilot review, PR #323). Without this check, a stale stored
+  // key plus a freshly and separately exported real key of the same name meant --reset
+  // deleted the real export: this function cannot tell "hydration's value" from "the
+  // user's own" by presence alone, only by whether they still match.
+  const storedGroq = config.getProviderKey('groq');
+  if (storedGroq) {
     config.clearProviderKey('groq');
-    delete process.env['GROQ_API_KEY'];
+    if (process.env['GROQ_API_KEY'] === storedGroq) delete process.env['GROQ_API_KEY'];
   }
-  if (config.getProviderKey('gemini')) {
+  const storedGemini = config.getProviderKey('gemini');
+  if (storedGemini) {
     config.clearProviderKey('gemini');
-    delete process.env['GEMINI_API_KEY'];
+    if (process.env['GEMINI_API_KEY'] === storedGemini) delete process.env['GEMINI_API_KEY'];
   }
 }
 
