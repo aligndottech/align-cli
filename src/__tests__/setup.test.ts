@@ -1538,6 +1538,22 @@ describe('align setup', () => {
         expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
       });
 
+      // Copilot review, PR #324: documented as an explicit asymmetry with the interactive
+      // case above (which skips entirely when another provider is configured) - --approve
+      // runs the clear unconditionally, from the top of runSetup, before the
+      // hasConfiguredProvider(['groq','gemini']) guard that governs the interactive path is
+      // ever consulted. Added because the doc claim was wrong in the OTHER direction before
+      // this test existed (said --reset always preserves in this case, which --approve does
+      // not), so the claim now has a check rather than only prose.
+      it('--reset --approve clears stored keys even when a DIFFERENT provider is configured via env', async () => {
+        vi.stubEnv('ANTHROPIC_API_KEY', 'already-set-and-unrelated');
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+
+        expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
+      });
+
       // Copilot review, PR #323: the cloud case above passes because runCloudSetup calls
       // offerFreeProviderKey unconditionally near its end. Local mode gates that SAME call
       // behind `interactive`, which is false under --approve by construction (no TTY) - so
