@@ -5,6 +5,7 @@ import {
   callChat,
   callChatDetailed,
   explainAbstention,
+  hasConfiguredProvider,
   HOSTED_WINDOW_TOKENS_DEFAULT,
   isAbstention,
   SYNTHESIS_MAX_TOKENS,
@@ -23,6 +24,10 @@ function openAiResponse(text: string) {
 // Anthropic response shape
 function anthropicResponse(text: string) {
   return { ok: true, json: async () => ({ content: [{ text }] }) };
+}
+// Gemini response shape
+function geminiResponse(text: string) {
+  return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) };
 }
 
 const ALL_KEYS = [
@@ -81,10 +86,68 @@ describe('callChat (provider-agnostic resolver)', () => {
     expect(mockFetch.mock.calls[0][0]).toBe('https://api.anthropic.com/v1/messages');
   });
 
+  // ALI-1284: `align setup` now offers Groq as the default free-tier provider, with Gemini
+  // as the backup key for when Groq's daily cap is hit. That pairing only means "primary" if
+  // Groq is actually tried first when both are configured - the two response shapes differ
+  // (OpenAI-compatible choices[] vs Gemini's candidates[]), so this fails loudly rather than
+  // just reading the wrong URL if the order ever regresses.
+  it('prefers Groq over Gemini when both keys are present (ALI-1284 default pairing)', async () => {
+    vi.stubEnv('GROQ_API_KEY', 'groq-k');
+    vi.stubEnv('GEMINI_API_KEY', 'gemini-k');
+    mockFetch.mockResolvedValue(openAiResponse('groq answer'));
+
+    const r = await callChat('s', 'u');
+
+    expect(r).toBe('groq answer');
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.groq.com/openai/v1/chat/completions');
+  });
+
+  // ALI-1284 (Copilot review, PR #322): `align setup`'s Gemini backup offer is sold as
+  // "Flash-Lite" by name (docs/configuration.md, the ticket itself) - the model actually
+  // called has to match that claim, not a different Gemini tier with different free-tier
+  // limits. Pinned so the default can never silently drift back to a plain (non-Lite) model.
+  it('calls a Flash-Lite model by default when only GEMINI_API_KEY is set', async () => {
+    vi.stubEnv('GEMINI_API_KEY', 'gemini-k');
+    mockFetch.mockResolvedValue(geminiResponse('gemini answer'));
+
+    const r = await callChat('s', 'u');
+
+    expect(r).toBe('gemini answer');
+    expect(String(mockFetch.mock.calls[0][0])).toContain('flash-lite');
+  });
+
   it('returns null when no provider is configured and Ollama is unreachable', async () => {
     mockFetch.mockResolvedValue({ ok: false }); // ollama /api/tags not ok
     const r = await callChat('s', 'u');
     expect(r).toBeNull();
+  });
+});
+
+// ALI-1284 (Copilot review, PR #322): `align setup --reset` needs to re-offer the guided
+// Groq/Gemini pair WITHOUT bypassing the "a real OTHER provider is configured, leave it
+// alone" promise - the whole point of hasConfiguredProvider() in the first place. Before
+// this, --reset skipped the check entirely, so a genuinely unrelated ANTHROPIC_API_KEY plus
+// --reset still re-opened the Groq wizard.
+describe('hasConfiguredProvider(excluding) lets a caller ignore specific providers', () => {
+  beforeEach(() => {
+    for (const k of ALL_KEYS) vi.stubEnv(k, '');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('still reports configured when an EXCLUDED provider is the only one set', () => {
+    vi.stubEnv('GROQ_API_KEY', 'g');
+    expect(hasConfiguredProvider(['groq'])).toBe(false);
+  });
+
+  it('reports configured when a provider OUTSIDE the exclusion list is set', () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'a');
+    expect(hasConfiguredProvider(['groq', 'gemini'])).toBe(true);
+  });
+
+  it('excluding nothing is the same as the original no-argument behaviour', () => {
+    vi.stubEnv('GROQ_API_KEY', 'g');
+    expect(hasConfiguredProvider()).toBe(true);
+    expect(hasConfiguredProvider([])).toBe(true);
   });
 });
 

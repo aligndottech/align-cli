@@ -2,6 +2,7 @@ import { Command, Help } from 'commander';
 import pkg from '../package.json' with { type: 'json' };
 import { COMMAND_REGISTRY, ROOT_SUMMARY, visibleEntries } from './commands/registry.js';
 import { runDefaultAction } from './commands/default-action.js';
+import { createConfigStore, hydrateProviderKeyEnv } from './lib/config.js';
 
 const { version } = pkg;
 
@@ -71,6 +72,24 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     const { invocationCommandPath, recordInstallBeacon } = await import('./lib/usage-telemetry.js');
     void recordInstallBeacon(invocationCommandPath(actionCommand));
+  });
+
+  // ALI-1284: a provider key `align setup`'s guided free-tier path collected on a
+  // previous run, read back into process.env before the command's own action runs so
+  // `align ask`/local relationship typing see it exactly as if the user had exported it
+  // themselves. `preAction` only, never module scope in index.ts: it fires for every real
+  // command but never for `--version`/`--help`, which Commander short-circuits without
+  // calling any hook - so a fresh-machine `align --version` still creates no config.json
+  // (startup-migration.test.ts pins exactly that for the module-scope migrations above
+  // it, and constructing a Conf store is not the pure operation those keep themselves to -
+  // see createConfigStore's own comment on migrateConfigDirectory for why that split
+  // exists). Non-fatal: an unreadable config must never stop the command the user asked for.
+  program.hook('preAction', () => {
+    try {
+      hydrateProviderKeyEnv(createConfigStore());
+    } catch (e) {
+      if (process.env['ALIGN_DEBUG']) console.error('align: provider key hydration failed (non-fatal):', e);
+    }
   });
 
   // ALI-403/ALI-618/ALI-954: one usage event per invocation, so CLI activation and weekly

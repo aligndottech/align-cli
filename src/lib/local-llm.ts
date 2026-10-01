@@ -464,7 +464,14 @@ async function tryGemini(
   maxTokens = 256,
   temperature?: number,
 ): Promise<AdapterOutcome> {
-  const geminiModel = process.env['ALIGN_GEMINI_MODEL'] || 'gemini-1.5-flash';
+  // ALI-1284 (Copilot review, PR #322): the guided setup offer sells this as "Gemini
+  // Flash-Lite" by name (docs/configuration.md, the decided ticket text), so the default
+  // actually called has to be a Flash-Lite model, not plain Flash - gemini-1.5-flash is
+  // also long past its intro date. Verified against Google's model docs at the time of
+  // writing (two independent fetches agreed `gemini-2.5-flash-lite` is a current, stable
+  // model id); not confirmed by a live API call, so if Google retires it, override with
+  // ALIGN_GEMINI_MODEL rather than assuming this default still resolves.
+  const geminiModel = process.env['ALIGN_GEMINI_MODEL'] || 'gemini-2.5-flash-lite';
   const geminiTimeoutMs = resolveLlmTimeoutMs('https://generativelanguage.googleapis.com');
   let res: Response;
   try {
@@ -887,7 +894,21 @@ async function callProvider(
   }
 }
 
-const ALL_PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'gemini', 'groq', 'mistral', 'grok'];
+// groq comes before gemini (ALI-1284): `align setup`'s guided free-tier path offers Groq
+// as the primary key and Gemini Flash-Lite as the backup for when Groq's daily cap is hit,
+// so when both are configured Groq has to actually be the one tried first. No test pinned
+// the old gemini-before-groq position - it was incidental ordering from the original
+// bootstrap, not a decision.
+//
+// This reorder does NOT make Gemini an automatic in-call fallback on a Groq rate limit: a
+// 429 from a chosen provider stops the chain rather than advancing (ALI-692, deliberately -
+// see isAvailabilityFailure), and Groq's exact rate-limit error body is undocumented, so a
+// pattern match against it would be an unverified guess sitting in a security-adjacent
+// code path. Today, hitting Groq's cap fails that one `align ask` call and names Groq in
+// the error; a configured Gemini key answers the NEXT call once the day's events differ
+// (e.g. GROQ_API_KEY unset, or a future availability-pattern addition for a verified Groq
+// daily-limit body). See the ALI-1284 PR description for this trade-off.
+const ALL_PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'groq', 'gemini', 'mistral', 'grok'];
 
 /**
  * Is any LLM provider configured by environment? (ALI-414)
@@ -899,17 +920,24 @@ const ALL_PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'gemini', 'groq', 'm
  * env-only: it does NOT probe Ollama, so a
  * machine whose only provider is a broken local Ollama reads as unconfigured. The
  * remedy that points at - configure a provider - is still the right one.
+ *
+ * `excluding` (ALI-1284, Copilot review PR #322): lets a caller ask "is anything ELSE
+ * configured" - `align setup --reset` re-offers a stored Groq/Gemini key, and needs to
+ * know whether some OTHER provider is genuinely configured (which should still block the
+ * offer) without the Groq/Gemini pair itself, which --reset exists to let the user redo,
+ * counting against it. `ALIGN_LLM_BASE_URL` is never excludable: it is not one of the
+ * named providers this list manages, so it always means "configured" regardless.
  */
-export function hasConfiguredProvider(): boolean {
+export function hasConfiguredProvider(excluding: readonly AiProvider[] = []): boolean {
   if (process.env['ALIGN_LLM_BASE_URL']) return true;
-  return ALL_PROVIDERS.some(p => Boolean(keyForProvider(p)));
+  return ALL_PROVIDERS.some(p => !excluding.includes(p) && Boolean(keyForProvider(p)));
 }
 
 /**
  * Provider-agnostic chat call. Resolution order:
  *   1. ALIGN_LLM_BASE_URL  - any OpenAI-compatible endpoint (Grok, OpenRouter,
  *      Together, DeepSeek, LM Studio, vLLM, ...) via ALIGN_LLM_MODEL/ALIGN_LLM_API_KEY
- *   2. named providers by env key (Anthropic, OpenAI, Gemini, Groq, Mistral, Grok)
+ *   2. named providers by env key (Anthropic, OpenAI, Groq, Gemini, Mistral, Grok)
  *   3. local Ollama (no key)
  * Returns the model's text, or the reason there is none - see LlmFailure. The reason
  * is RETURNED rather than recorded in module state, so concurrent calls cannot read

@@ -74,6 +74,12 @@ const mockSetConnectorToken = vi.hoisted(() => vi.fn());
 const mockGetConnectorFields = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
 const mockForgetConnector = vi.hoisted(() => vi.fn());
+// ALI-1284: nothing saved by default, so every pre-existing test keeps its subject - the
+// guided-key offer only fires when hasConfiguredProvider() is also false (gated by real env
+// vars, cleared per-test in the describe block that exercises this).
+const mockGetProviderKey = vi.hoisted(() => vi.fn().mockReturnValue(null));
+const mockSetProviderKey = vi.hoisted(() => vi.fn());
+const mockClearProviderKey = vi.hoisted(() => vi.fn());
 
 vi.mock('../lib/config.js', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -96,6 +102,9 @@ vi.mock('../lib/config.js', async (importOriginal) => ({
     // default (false) - these tests are not about telemetry consent, so nothing here asserts on it.
     getTelemetryConsent: vi.fn().mockReturnValue(undefined),
     setTelemetryConsent: vi.fn(),
+    getProviderKey: mockGetProviderKey,
+    setProviderKey: mockSetProviderKey,
+    clearProviderKey: mockClearProviderKey,
   })),
 }));
 
@@ -1408,6 +1417,210 @@ describe('align setup', () => {
         expect(mockSelect).toHaveBeenCalledWith(
           expect.objectContaining({ message: 'How are you using Align?' }),
         );
+      });
+    });
+
+    // ALI-1284: ALI-1283 made BYOK mandatory for every tenant, including free/solo, which
+    // means a new signup now hits "get a key, paste it in" before any value - a cliff
+    // against this project's own under-an-hour target. Decided mitigation: default the
+    // "paste a key" step to Groq (no card, fastest free tier), with Gemini as the guided
+    // backup for when Groq's daily cap is hit, rather than today's silent "bring any key".
+    describe('guided free-tier provider key (ALI-1284)', () => {
+      const PROVIDER_ENV_KEYS = [
+        'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY',
+        'GROQ_API_KEY', 'MISTRAL_API_KEY', 'GROK_API_KEY', 'XAI_API_KEY', 'ALIGN_LLM_BASE_URL',
+      ];
+      beforeEach(() => {
+        for (const k of PROVIDER_ENV_KEYS) vi.stubEnv(k, '');
+        mockGetProviderKey.mockReturnValue(null);
+      });
+      afterEach(() => vi.unstubAllEnvs());
+
+      it('offers a free Groq key when nothing is configured, and stores an accepted one', async () => {
+        mockConfirm.mockImplementation(async (o: { message?: string }) =>
+          /free Groq key/i.test(String(o?.message)) ? true : false,
+        );
+        const { password } = await import('@clack/prompts');
+        vi.mocked(password).mockResolvedValueOnce('gsk_pasted');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+        expect(mockConfirm).toHaveBeenCalledWith(
+          expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+        );
+        expect(mockSetProviderKey).toHaveBeenCalledWith('groq', 'gsk_pasted');
+        expect(process.env['GROQ_API_KEY']).toBe('gsk_pasted');
+        delete process.env['GROQ_API_KEY']; // this run set a REAL env var; clean up after it
+      });
+
+      it('does not store anything when the offer is declined', async () => {
+        mockConfirm.mockResolvedValue(false);
+
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+        expect(mockSetProviderKey).not.toHaveBeenCalled();
+      });
+
+      it('also offers a Gemini backup key after Groq is accepted, and stores both', async () => {
+        mockConfirm.mockImplementation(async (o: { message?: string }) => {
+          const m = String(o?.message);
+          if (/free Groq key/i.test(m)) return true;
+          if (/Gemini key as backup/i.test(m)) return true;
+          return false;
+        });
+        const { password } = await import('@clack/prompts');
+        vi.mocked(password)
+          .mockResolvedValueOnce('gsk_pasted')
+          .mockResolvedValueOnce('gem_pasted');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+        expect(mockSetProviderKey).toHaveBeenCalledWith('groq', 'gsk_pasted');
+        expect(mockSetProviderKey).toHaveBeenCalledWith('gemini', 'gem_pasted');
+        expect(process.env['GEMINI_API_KEY']).toBe('gem_pasted');
+        delete process.env['GROQ_API_KEY'];
+        delete process.env['GEMINI_API_KEY'];
+      });
+
+      it('declining the Gemini backup still keeps the accepted Groq key', async () => {
+        mockConfirm.mockImplementation(async (o: { message?: string }) =>
+          /free Groq key/i.test(String(o?.message)),
+        );
+        const { password } = await import('@clack/prompts');
+        vi.mocked(password).mockResolvedValueOnce('gsk_pasted');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+        expect(mockSetProviderKey).toHaveBeenCalledWith('groq', 'gsk_pasted');
+        expect(mockSetProviderKey).not.toHaveBeenCalledWith('gemini', expect.anything());
+        delete process.env['GROQ_API_KEY'];
+      });
+
+      it('never offers it under --approve (scripted runs cannot paste a key interactively)', async () => {
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+
+        expect(mockConfirm).not.toHaveBeenCalledWith(
+          expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+        );
+      });
+
+      it('skips the offer when a provider is already configured via env', async () => {
+        vi.stubEnv('ANTHROPIC_API_KEY', 'already-set');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+        expect(mockConfirm).not.toHaveBeenCalledWith(
+          expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+        );
+      });
+
+      it('skips the offer when a provider key is already stored from a previous run', async () => {
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'stored-already' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup']);
+
+        expect(mockConfirm).not.toHaveBeenCalledWith(
+          expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+        );
+      });
+
+      it('offers the same guided key in local (--local) mode too', async () => {
+        mockConfirm.mockImplementation(async (o: { message?: string }) =>
+          /free Groq key/i.test(String(o?.message)),
+        );
+        const { password } = await import('@clack/prompts');
+        vi.mocked(password).mockResolvedValueOnce('gsk_local');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+        expect(mockSetProviderKey).toHaveBeenCalledWith('groq', 'gsk_local');
+        delete process.env['GROQ_API_KEY'];
+      });
+
+      // Copilot review, PR #322: --reset was never threaded from runSetup's own opts down
+      // through runLocalSetup/runLocalValuePhase to the local connector phase, so
+      // `align setup --local --reset` silently dropped it - the one way to actually act on
+      // a declined-Groq/stored-Gemini switch (see the cloud-path tests above) had no local
+      // equivalent at all.
+      it('also honours --reset in local (--local) mode, re-offering a stored key', async () => {
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+        mockConfirm.mockResolvedValue(false);
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--reset']);
+
+        expect(mockConfirm).toHaveBeenCalledWith(
+          expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+        );
+      });
+
+      // Copilot review, PR #322: hydrateProviderKeyEnv (cli.ts's preAction) already wrote
+      // any stored key into process.env before this command's own action runs, so without
+      // --reset bypassing BOTH guards, hasConfiguredProvider() alone would hide the offer
+      // from even reaching the stored-key check.
+      describe('--reset re-offers a stored key, and clearing it is what makes the backup real', () => {
+        it('re-offers the Groq step even though a key is already stored', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+          mockConfirm.mockResolvedValue(false);
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockConfirm).toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+          );
+        });
+
+        it('clears the stored Groq key when the re-offer is declined, rather than only skipping the ask', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+          mockConfirm.mockImplementation(async (o: { message?: string }) =>
+            !/free Groq key/i.test(String(o?.message)),
+          );
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
+        });
+
+        it('does not clear anything when there was no stored Groq key to begin with', async () => {
+          mockConfirm.mockResolvedValue(false);
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockClearProviderKey).not.toHaveBeenCalled();
+        });
+
+        // Copilot review, PR #322: --reset used to bypass hasConfiguredProvider() entirely,
+        // so a genuinely unrelated real provider (nothing to do with the Groq/Gemini pair)
+        // still re-opened the wizard - breaking the documented "a configured provider means
+        // nothing to fix" contract specifically for --reset runs.
+        it('still does not re-open the wizard under --reset when a DIFFERENT provider is configured via env', async () => {
+          vi.stubEnv('ANTHROPIC_API_KEY', 'already-set-and-unrelated');
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockConfirm).not.toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+          );
+        });
+
+        // Copilot review, PR #322: clearProviderKey('gemini') had no caller anywhere before
+        // this - a stored Gemini key could never actually be removed through the CLI, even
+        // though --reset's own help text now says it clears saved AI provider keys.
+        it('clears a stored Gemini key when its re-offered backup is declined', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'gemini' ? 'already-stored' : null));
+          mockConfirm.mockImplementation(async (o: { message?: string }) => {
+            const m = String(o?.message);
+            if (/free Groq key/i.test(m)) return true;   // accept Groq (re-paste)
+            if (/Gemini key as backup/i.test(m)) return false; // decline the stale backup
+            return false;
+          });
+          const { password } = await import('@clack/prompts');
+          vi.mocked(password).mockResolvedValueOnce('gsk_fresh');
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
+          delete process.env['GROQ_API_KEY'];
+        });
       });
     });
   });

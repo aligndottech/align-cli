@@ -34,6 +34,7 @@ import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
 import { agentAskLine, agentConnectedLine, orderAgents, projectAgentsFromWritten } from '../lib/next-step.js';
 import { firstDecision } from '../lib/first-decision.js';
+import { hasConfiguredProvider } from '../lib/local-llm.js';
 
 // ---------------------------------------------------------------------------
 // Source definitions
@@ -427,6 +428,121 @@ function writeAgentAlignment(envName: EnvName): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Guided free-tier AI provider key (ALI-1284)
+// ---------------------------------------------------------------------------
+
+/**
+ * ALI-1283 made BYOK mandatory for every tenant, including free/solo, retiring the
+ * Align-managed LLM fallback. Before this, `align ask` without a provider key just
+ * returned a ranked list with no guidance toward getting one - "bring any key" with
+ * nothing pointing at where to get one fast. That is a cliff against this project's own
+ * target (a useful first answer within an hour), so the guided default is Groq (no card,
+ * ever; fastest free-tier inference) with Gemini Flash-Lite offered as a second key for
+ * when Groq's daily request cap is hit. Both DECIDED 2026-09-24 - see the ALI-1284 ticket
+ * for the free-tier limits that were checked before picking Groq+Gemini over Cerebras
+ * (now needs a card for its trial) and OpenRouter's `:free` tier (tighter, weaker models).
+ *
+ * Skipped entirely, in order:
+ *  - under --approve: a scripted run has no terminal to paste a key into.
+ *  - when a DIFFERENT provider is already configured via env: nothing to fix, with or
+ *    without --reset - this wizard only ever owns Groq and Gemini, so it must never
+ *    re-open itself over someone's genuinely separate ANTHROPIC_API_KEY (Copilot review,
+ *    PR #322: hasConfiguredProvider(['groq', 'gemini']) is what makes this true under
+ *    --reset too, since the plain no-argument form would also count a --reset'd Groq/
+ *    Gemini key hydrateProviderKeyEnv already wrote into process.env before this ran).
+ *  - when a key from a PREVIOUS run of this offer is already stored, UNLESS --reset: do not
+ *    re-ask every time, but give `--reset` the same "clear and redo" meaning here it already
+ *    has for OAuth connectors - without this there was no way to act on the Gemini-backup
+ *    documentation once Groq was stored: hydration restores the stored Groq key on every
+ *    later invocation regardless of what the user unsets in their shell, so
+ *    `align setup --reset` is the real (and now the documented) remedy. Declining either
+ *    re-offered key under --reset CLEARS it (clearProviderKey), not just skips re-asking -
+ *    otherwise a stale stored Gemini key could never actually be removed.
+ *
+ * Declining costs nothing - `align ask` still returns a ranked list - so every question
+ * here defaults to a plain confirm the user can say no to without losing anything.
+ */
+async function offerFreeProviderKey(
+  config: ReturnType<typeof createConfigStore>,
+  opts: { approve?: boolean; reset?: boolean },
+): Promise<void> {
+  if (opts.approve) return;
+  if (!opts.reset) {
+    if (hasConfiguredProvider()) return;
+    if (config.getProviderKey('groq') || config.getProviderKey('gemini')) return;
+  } else if (hasConfiguredProvider(['groq', 'gemini'])) {
+    // --reset only concerns the Groq/Gemini pair THIS wizard manages, so skip only the
+    // stored-key guard, not the real-env one (Copilot review, PR #322): --reset must not
+    // re-open the wizard for someone who genuinely configured a DIFFERENT provider
+    // (ANTHROPIC_API_KEY, say) - that still means "nothing to fix" regardless of the flag.
+    // hydrateProviderKeyEnv (cli.ts's preAction) already wrote any stored Groq/Gemini key
+    // into process.env before this command's action started, so the plain
+    // hasConfiguredProvider() the non-reset branch uses would read a --reset'd stored
+    // value as "already configured" and never reach the re-offer at all - hence the
+    // exclusion rather than reusing that call directly.
+    return;
+  }
+
+  console.log('');
+  const wantGroq = await p.confirm({
+    message:
+      `${chalk.bold('align ask')} needs an AI provider key to write prose answers ` +
+      `(without one it still returns a ranked list of matching decisions). ` +
+      `Set up a free Groq key now? No card, ever - and it's the fastest free tier.`,
+    initialValue: true,
+  });
+  if (p.isCancel(wantGroq) || !wantGroq) {
+    // --reset declining Groq is the one way to make a previously stored Gemini key (or no
+    // key at all) actually take over: hydration re-applies whatever is stored on every
+    // invocation regardless of what the shell does, so "decline" has to mean "forget it",
+    // not merely "don't re-ask" (Copilot review, PR #322).
+    if (opts.reset && config.getProviderKey('groq')) {
+      config.clearProviderKey('groq');
+      delete process.env['GROQ_API_KEY'];
+      p.log.info('Cleared the saved Groq key.');
+    }
+    return;
+  }
+
+  p.log.info(`Get one free: ${chalk.bold('https://console.groq.com/keys')}`);
+  const groqKey = await guardedPrompt('Groq API key', () => p.password({ message: '  Groq API key:' }));
+  if (groqKey === null || p.isCancel(groqKey) || !groqKey) {
+    p.log.warn(`No key entered - skipping. Set ${chalk.bold('GROQ_API_KEY')} yourself any time, or run ${chalk.bold('align setup')} again.`);
+    return;
+  }
+  config.setProviderKey('groq', groqKey as string);
+  process.env['GROQ_API_KEY'] = groqKey as string; // usable immediately, this run
+  p.log.success(`Saved - ${chalk.bold('align ask')} will use it on this machine from now on.`);
+
+  const wantGemini = await p.confirm({
+    message: `Also add a Gemini key as backup for when Groq's daily limit is hit? (also free, no card)`,
+    initialValue: true,
+  });
+  if (p.isCancel(wantGemini) || !wantGemini) {
+    // Symmetric with the Groq decline above: without this, clearProviderKey('gemini') had
+    // no caller anywhere, and `--reset` could remove a stored Groq key but never a stored
+    // Gemini one - so "clears saved AI provider keys" (the option's own help text) was not
+    // actually true for Gemini (Copilot review, PR #322).
+    if (opts.reset && config.getProviderKey('gemini')) {
+      config.clearProviderKey('gemini');
+      delete process.env['GEMINI_API_KEY'];
+      p.log.info('Cleared the saved Gemini key.');
+    }
+    return;
+  }
+
+  p.log.info(`Get one free: ${chalk.bold('https://aistudio.google.com/apikey')}`);
+  const geminiKey = await guardedPrompt('Gemini API key', () => p.password({ message: '  Gemini API key:' }));
+  if (geminiKey === null || p.isCancel(geminiKey) || !geminiKey) {
+    p.log.warn('No key entered - skipping the backup.');
+    return;
+  }
+  config.setProviderKey('gemini', geminiKey as string);
+  process.env['GEMINI_API_KEY'] = geminiKey as string;
+  p.log.success('Saved as backup.');
+}
+
+// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
@@ -441,7 +557,10 @@ interface LocalValuePhaseResult {
   localEnv: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
   localClient: ReturnType<typeof createGatewayClient>;
   dbPath: string;
-  opts: { approve?: boolean };
+  // ALI-1284 (Copilot review, PR #322): reset is only read by offerFreeProviderKey below, but
+  // it travels through this same opts bag the rest of the local phase already threads, rather
+  // than becoming a second parameter every caller has to remember to also pass.
+  opts: { approve?: boolean; reset?: boolean };
   /** ALI-827: every source the value phase fetched, for the one report the connector
    *  phase prints at the end. */
   capture: ReturnType<typeof createCaptureCollector>;
@@ -456,7 +575,7 @@ interface LocalValuePhaseResult {
 /** Thrown inside the docs block to leave it without starting a read; never surfaces. */
 class SkipDocs extends Error {}
 
-async function runLocalValuePhase(opts: { approve?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
+async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
@@ -962,6 +1081,12 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   refsDb.close();
   const gapLine = setupSummaryLine(gaps);
 
+  // ALI-1284: the same guided free-tier key as the cloud path - local mode needs one too,
+  // `align ask` resolves providers identically either way. Gated on `interactive` like
+  // every other prompt in this phase, rather than only on `opts.approve`, since local mode
+  // (unlike cloud) is routinely run non-interactively with no terminal to paste a key into.
+  if (interactive) await offerFreeProviderKey(config, opts);
+
   // ALI-950: the last line is the next step, and it happens in the agent - named, with a
   // question about a decision the wizard just found, and no CLI verb. This used to end on
   // `align ask "why <a thing you decided>"`, a prompt verb on the one screen whose job is to
@@ -982,7 +1107,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
 // Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
 // the two phases above unchanged - this is exactly what ran before the ALI-794 split, just
 // as two calls instead of one function body.
-async function runLocalSetup(opts: { approve?: boolean; funnel: SetupFunnel }): Promise<void> {
+async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; funnel: SetupFunnel }): Promise<void> {
   const ctx = await runLocalValuePhase(opts);
   await runLocalConnectorPhase(ctx);
 }
@@ -994,7 +1119,7 @@ export function registerSetupCommand(program: Command): void {
     .option('--env <env>', 'Environment')
     .option('--approve', 'Skip confirmation prompts (for scripted use)')
     .option('--local', 'Set up local-only mode (no account, no cloud)')
-    .option('--reset', 'Clear cached OAuth tokens and re-authenticate all connectors')
+    .option('--reset', 'Clear cached OAuth tokens and saved AI provider keys, and redo their setup')
     .action(runSetup);
 }
 
@@ -1062,7 +1187,7 @@ export async function runSetup(
     }
 
     if (mode === 'local') {
-      await runLocalSetup({ approve: opts.approve, funnel });
+      await runLocalSetup({ approve: opts.approve, reset: opts.reset, funnel });
       return;
     }
 
@@ -1087,7 +1212,7 @@ async function runFreshSetup(ctx: {
   opts: { approve?: boolean; reset?: boolean };
   funnel: SetupFunnel;
 }): Promise<void> {
-  const phase = await runLocalValuePhase({ approve: ctx.opts.approve, funnel: ctx.funnel });
+  const phase = await runLocalValuePhase({ approve: ctx.opts.approve, reset: ctx.opts.reset, funnel: ctx.funnel });
   // The value phase's capture report is printed by runLocalConnectorPhase, so choosing
   // cloud below drops it - deliberately: runCloudSetup re-imports git and docs into the
   // cloud tenant and prints its own report, which is the one that describes that graph.
@@ -1171,7 +1296,7 @@ async function runCloudSetup(ctx: {
       // Declined cloud login: offer the local escape hatch instead of failing.
       const wantLocal = await p.confirm({ message: 'Set up local-only mode instead? (no account, stays on this machine)' });
       if (!p.isCancel(wantLocal) && wantLocal) {
-        await runLocalSetup({ approve: opts.approve, funnel });
+        await runLocalSetup({ approve: opts.approve, reset: opts.reset, funnel });
         return;
       }
       p.log.warn(`Run ${chalk.bold('align login')} when ready, then ${chalk.bold('align setup')}.`);
@@ -1465,6 +1590,9 @@ async function runCloudSetup(ctx: {
     console.log(captureText);
     console.log('');
   }
+
+  // ---- Step 7b: guided free-tier AI provider key (ALI-1284) ----
+  await offerFreeProviderKey(config, opts);
 
   // ---- Outro ----
   const decisionsLine = totalDecisions > 0
