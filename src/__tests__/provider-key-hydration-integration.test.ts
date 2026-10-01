@@ -32,13 +32,17 @@ import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const exec = promisify(execFile);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const TSX = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-const CLI_TS = join(ROOT, 'src', 'cli.ts');
+// A `file://` URL, not a raw filesystem path (Copilot review, PR #323, high severity): on
+// Windows a bare `C:\...` path is parsed by Node ESM as a URL with scheme `c:`, which it
+// rejects outright - the generated import below would fail before the test's own
+// assertion ever ran.
+const CLI_TS_URL = pathToFileURL(join(ROOT, 'src', 'cli.ts')).href;
 
 /**
  * A throwaway Commander command whose action prints the ONE thing this test cares about -
@@ -48,7 +52,7 @@ const CLI_TS = join(ROOT, 'src', 'cli.ts');
  */
 function probeScript(): string {
   return [
-    `import { buildProgram } from ${JSON.stringify(CLI_TS)};`,
+    `import { buildProgram } from ${JSON.stringify(CLI_TS_URL)};`,
     `const program = buildProgram({ exitOverride: true });`,
     `program.command('__hydration-probe').action(() => {`,
     `  process.stdout.write(JSON.stringify({ groq: process.env.GROQ_API_KEY ?? null }));`,
@@ -84,6 +88,11 @@ function makeIsolatedHome() {
       LOCALAPPDATA: undefined,
       GROQ_API_KEY: undefined,
       GEMINI_API_KEY: undefined,
+      // The child runs the REAL buildProgram(), install-beacon preAction hook included -
+      // without this, a fresh isolated store with no opt-out sends a real POST to the
+      // hosted telemetry endpoint on every test run (Copilot review, PR #323, "previously
+      // missed"). DO_NOT_TRACK is the one usage-telemetry.ts checks before any network call.
+      DO_NOT_TRACK: '1',
     } as unknown as Record<string, string>,
   };
 }

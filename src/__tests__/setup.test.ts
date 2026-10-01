@@ -1453,6 +1453,23 @@ describe('align setup', () => {
         delete process.env['GROQ_API_KEY']; // this run set a REAL env var; clean up after it
       });
 
+      // Copilot review, PR #323 ("previously missed"): the retry hint after an empty paste
+      // pointed at plain `align setup`, which under --reset would hydrate the still-stored
+      // key (never cleared on an empty paste) and skip the offer entirely on the retry -
+      // repeating this PR's own documentation bug.
+      it('points the empty-paste retry hint at --reset when the offer itself was a --reset re-offer', async () => {
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+        mockConfirm.mockImplementation(async (o: { message?: string }) =>
+          /free Groq key/i.test(String(o?.message)),
+        );
+        const { password, log } = await import('@clack/prompts');
+        vi.mocked(password).mockResolvedValueOnce('');
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align setup --reset'));
+      });
+
       it('does not store anything when the offer is declined', async () => {
         mockConfirm.mockResolvedValue(false);
 
