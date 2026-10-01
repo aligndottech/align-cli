@@ -5,6 +5,7 @@ import {
   callChat,
   callChatDetailed,
   explainAbstention,
+  hasConfiguredProvider,
   HOSTED_WINDOW_TOKENS_DEFAULT,
   isAbstention,
   SYNTHESIS_MAX_TOKENS,
@@ -119,6 +120,34 @@ describe('callChat (provider-agnostic resolver)', () => {
     mockFetch.mockResolvedValue({ ok: false }); // ollama /api/tags not ok
     const r = await callChat('s', 'u');
     expect(r).toBeNull();
+  });
+});
+
+// ALI-1284 (Copilot review, PR #322): `align setup --reset` needs to re-offer the guided
+// Groq/Gemini pair WITHOUT bypassing the "a real OTHER provider is configured, leave it
+// alone" promise - the whole point of hasConfiguredProvider() in the first place. Before
+// this, --reset skipped the check entirely, so a genuinely unrelated ANTHROPIC_API_KEY plus
+// --reset still re-opened the Groq wizard.
+describe('hasConfiguredProvider(excluding) lets a caller ignore specific providers', () => {
+  beforeEach(() => {
+    for (const k of ALL_KEYS) vi.stubEnv(k, '');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('still reports configured when an EXCLUDED provider is the only one set', () => {
+    vi.stubEnv('GROQ_API_KEY', 'g');
+    expect(hasConfiguredProvider(['groq'])).toBe(false);
+  });
+
+  it('reports configured when a provider OUTSIDE the exclusion list is set', () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'a');
+    expect(hasConfiguredProvider(['groq', 'gemini'])).toBe(true);
+  });
+
+  it('excluding nothing is the same as the original no-argument behaviour', () => {
+    vi.stubEnv('GROQ_API_KEY', 'g');
+    expect(hasConfiguredProvider()).toBe(true);
+    expect(hasConfiguredProvider([])).toBe(true);
   });
 });
 

@@ -920,10 +920,17 @@ const ALL_PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'groq', 'gemini', 'm
  * env-only: it does NOT probe Ollama, so a
  * machine whose only provider is a broken local Ollama reads as unconfigured. The
  * remedy that points at - configure a provider - is still the right one.
+ *
+ * `excluding` (ALI-1284, Copilot review PR #322): lets a caller ask "is anything ELSE
+ * configured" - `align setup --reset` re-offers a stored Groq/Gemini key, and needs to
+ * know whether some OTHER provider is genuinely configured (which should still block the
+ * offer) without the Groq/Gemini pair itself, which --reset exists to let the user redo,
+ * counting against it. `ALIGN_LLM_BASE_URL` is never excludable: it is not one of the
+ * named providers this list manages, so it always means "configured" regardless.
  */
-export function hasConfiguredProvider(): boolean {
+export function hasConfiguredProvider(excluding: readonly AiProvider[] = []): boolean {
   if (process.env['ALIGN_LLM_BASE_URL']) return true;
-  return ALL_PROVIDERS.some(p => Boolean(keyForProvider(p)));
+  return ALL_PROVIDERS.some(p => !excluding.includes(p) && Boolean(keyForProvider(p)));
 }
 
 /**

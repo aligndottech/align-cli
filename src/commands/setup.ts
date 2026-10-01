@@ -444,13 +444,20 @@ function writeAgentAlignment(envName: EnvName): string[] {
  *
  * Skipped entirely, in order:
  *  - under --approve: a scripted run has no terminal to paste a key into.
- *  - when a provider is already configured via env (hasConfiguredProvider): nothing to fix.
+ *  - when a DIFFERENT provider is already configured via env: nothing to fix, with or
+ *    without --reset - this wizard only ever owns Groq and Gemini, so it must never
+ *    re-open itself over someone's genuinely separate ANTHROPIC_API_KEY (Copilot review,
+ *    PR #322: hasConfiguredProvider(['groq', 'gemini']) is what makes this true under
+ *    --reset too, since the plain no-argument form would also count a --reset'd Groq/
+ *    Gemini key hydrateProviderKeyEnv already wrote into process.env before this ran).
  *  - when a key from a PREVIOUS run of this offer is already stored, UNLESS --reset: do not
  *    re-ask every time, but give `--reset` the same "clear and redo" meaning here it already
- *    has for OAuth connectors (Copilot review, PR #322) - without this there was no way to
- *    act on the Gemini-backup documentation once Groq was stored: hydration restores the
- *    stored Groq key on every later invocation regardless of what the user unsets in their
- *    shell, so `align setup --reset` is the real (and now the documented) remedy.
+ *    has for OAuth connectors - without this there was no way to act on the Gemini-backup
+ *    documentation once Groq was stored: hydration restores the stored Groq key on every
+ *    later invocation regardless of what the user unsets in their shell, so
+ *    `align setup --reset` is the real (and now the documented) remedy. Declining either
+ *    re-offered key under --reset CLEARS it (clearProviderKey), not just skips re-asking -
+ *    otherwise a stale stored Gemini key could never actually be removed.
  *
  * Declining costs nothing - `align ask` still returns a ranked list - so every question
  * here defaults to a plain confirm the user can say no to without losing anything.
@@ -460,14 +467,20 @@ async function offerFreeProviderKey(
   opts: { approve?: boolean; reset?: boolean },
 ): Promise<void> {
   if (opts.approve) return;
-  // Under --reset, skip BOTH guards below rather than just the second: hydrateProviderKeyEnv
-  // (cli.ts's preAction hook) already wrote any stored key into process.env before this
-  // command's own action started running, so hasConfiguredProvider() would read as "already
-  // configured" from the very value --reset exists to let the user redo, and never reach the
-  // stored-key check at all.
   if (!opts.reset) {
     if (hasConfiguredProvider()) return;
     if (config.getProviderKey('groq') || config.getProviderKey('gemini')) return;
+  } else if (hasConfiguredProvider(['groq', 'gemini'])) {
+    // --reset only concerns the Groq/Gemini pair THIS wizard manages, so skip only the
+    // stored-key guard, not the real-env one (Copilot review, PR #322): --reset must not
+    // re-open the wizard for someone who genuinely configured a DIFFERENT provider
+    // (ANTHROPIC_API_KEY, say) - that still means "nothing to fix" regardless of the flag.
+    // hydrateProviderKeyEnv (cli.ts's preAction) already wrote any stored Groq/Gemini key
+    // into process.env before this command's action started, so the plain
+    // hasConfiguredProvider() the non-reset branch uses would read a --reset'd stored
+    // value as "already configured" and never reach the re-offer at all - hence the
+    // exclusion rather than reusing that call directly.
+    return;
   }
 
   console.log('');
@@ -505,7 +518,18 @@ async function offerFreeProviderKey(
     message: `Also add a Gemini key as backup for when Groq's daily limit is hit? (also free, no card)`,
     initialValue: true,
   });
-  if (p.isCancel(wantGemini) || !wantGemini) return;
+  if (p.isCancel(wantGemini) || !wantGemini) {
+    // Symmetric with the Groq decline above: without this, clearProviderKey('gemini') had
+    // no caller anywhere, and `--reset` could remove a stored Groq key but never a stored
+    // Gemini one - so "clears saved AI provider keys" (the option's own help text) was not
+    // actually true for Gemini (Copilot review, PR #322).
+    if (opts.reset && config.getProviderKey('gemini')) {
+      config.clearProviderKey('gemini');
+      delete process.env['GEMINI_API_KEY'];
+      p.log.info('Cleared the saved Gemini key.');
+    }
+    return;
+  }
 
   p.log.info(`Get one free: ${chalk.bold('https://aistudio.google.com/apikey')}`);
   const geminiKey = await guardedPrompt('Gemini API key', () => p.password({ message: '  Gemini API key:' }));

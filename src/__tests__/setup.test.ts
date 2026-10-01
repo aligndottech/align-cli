@@ -1587,6 +1587,40 @@ describe('align setup', () => {
 
           expect(mockClearProviderKey).not.toHaveBeenCalled();
         });
+
+        // Copilot review, PR #322: --reset used to bypass hasConfiguredProvider() entirely,
+        // so a genuinely unrelated real provider (nothing to do with the Groq/Gemini pair)
+        // still re-opened the wizard - breaking the documented "a configured provider means
+        // nothing to fix" contract specifically for --reset runs.
+        it('still does not re-open the wizard under --reset when a DIFFERENT provider is configured via env', async () => {
+          vi.stubEnv('ANTHROPIC_API_KEY', 'already-set-and-unrelated');
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockConfirm).not.toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+          );
+        });
+
+        // Copilot review, PR #322: clearProviderKey('gemini') had no caller anywhere before
+        // this - a stored Gemini key could never actually be removed through the CLI, even
+        // though --reset's own help text now says it clears saved AI provider keys.
+        it('clears a stored Gemini key when its re-offered backup is declined', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'gemini' ? 'already-stored' : null));
+          mockConfirm.mockImplementation(async (o: { message?: string }) => {
+            const m = String(o?.message);
+            if (/free Groq key/i.test(m)) return true;   // accept Groq (re-paste)
+            if (/Gemini key as backup/i.test(m)) return false; // decline the stale backup
+            return false;
+          });
+          const { password } = await import('@clack/prompts');
+          vi.mocked(password).mockResolvedValueOnce('gsk_fresh');
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
+          delete process.env['GROQ_API_KEY'];
+        });
       });
     });
   });
