@@ -473,21 +473,19 @@ function writeAgentAlignment(envName: EnvName): string[] {
  * Calling this before mode selection means neither path matters.
  */
 function clearStoredProviderKeys(config: ReturnType<typeof createConfigStore>): void {
-  // Only delete the env var if it still EQUALS the stored value - i.e. hydration put it
-  // there, nothing else has (Copilot review, PR #323). Without this check, a stale stored
-  // key plus a freshly and separately exported real key of the same name meant --reset
-  // deleted the real export: this function cannot tell "hydration's value" from "the
-  // user's own" by presence alone, only by whether they still match.
-  const storedGroq = config.getProviderKey('groq');
-  if (storedGroq) {
-    config.clearProviderKey('groq');
-    if (process.env['GROQ_API_KEY'] === storedGroq) delete process.env['GROQ_API_KEY'];
-  }
-  const storedGemini = config.getProviderKey('gemini');
-  if (storedGemini) {
-    config.clearProviderKey('gemini');
-    if (process.env['GEMINI_API_KEY'] === storedGemini) delete process.env['GEMINI_API_KEY'];
-  }
+  // Clears the STORED (on-disk) value only, and never touches process.env (Copilot review,
+  // PR #323, "previously missed" - deeper than an earlier fix here). The earlier version
+  // deleted the env var when it equalled the stored value, reasoning that equality meant
+  // hydration had put it there. It does not: hydrateProviderKeyEnv never overwrites a real
+  // shell-exported value, so a shell that happens to export the SAME string the stored
+  // value holds (set up once, then also added to a shell profile, say) is indistinguishable
+  // from "hydration injected it" by equality alone - there is no way to tell the two apart
+  // from process.env state. Clearing the stored value is what actually matters: it is what
+  // future invocations hydrate from, so this is enough to make the backup take over on the
+  // NEXT run. The cost is that THIS run may still see the old value in its own process.env
+  // for its own remaining work - a stale-for-one-run concession, not a destroyed credential.
+  config.clearProviderKey('groq');
+  config.clearProviderKey('gemini');
 }
 
 async function offerFreeProviderKey(
@@ -541,8 +539,10 @@ async function offerFreeProviderKey(
     // invocation regardless of what the shell does, so "decline" has to mean "forget it",
     // not merely "don't re-ask".
     if (opts.reset && config.getProviderKey('groq')) {
+      // Clears only the STORED value, deliberately never process.env - see
+      // clearStoredProviderKeys's comment: equality with the stored value does not prove
+      // the current env value came from hydration rather than the user's own shell.
       config.clearProviderKey('groq');
-      delete process.env['GROQ_API_KEY'];
       p.log.info('Cleared the saved Groq key.');
     }
     return;
@@ -576,8 +576,8 @@ async function offerFreeProviderKey(
     // Gemini one - so "clears saved AI provider keys" (the option's own help text) was not
     // actually true for Gemini.
     if (opts.reset && config.getProviderKey('gemini')) {
+      // Same reasoning as the Groq decline above: clears only the stored value.
       config.clearProviderKey('gemini');
-      delete process.env['GEMINI_API_KEY'];
       p.log.info('Cleared the saved Gemini key.');
     }
     return;

@@ -57,6 +57,20 @@ function probeScript(): string {
   ].join('\n');
 }
 
+/**
+ * The exact directory `env-paths` (env-paths 3.0.0, suffix: '' per config.ts) would resolve
+ * to for `home`, re-derived from its published algorithm rather than calling the real
+ * `envPaths()` here - which would read ITS OWN frozen `os.homedir()`, not this `home`
+ * parameter (Copilot review, PR #323, high severity: the first version of this test
+ * hardcoded the Linux form and would silently assert against the wrong path on darwin/win32).
+ */
+function expectedConfigDir(home: string, platform: typeof process.platform): string {
+  const name = 'align-cli';
+  if (platform === 'darwin') return join(home, 'Library', 'Preferences', name);
+  if (platform === 'win32') return join(home, 'AppData', 'Roaming', name, 'Config');
+  return join(home, '.config', name); // linux and other XDG-following POSIX platforms
+}
+
 function makeIsolatedHome() {
   const home = mkdtempSync(join(tmpdir(), 'align-hydration-home-'));
   return {
@@ -78,11 +92,9 @@ describe('startup provider-key hydration actually fires end to end', () => {
   it('a Groq key saved in a previous run reaches process.env before a real command action runs', async () => {
     const { home, env } = makeIsolatedHome();
     try {
-      // Written where Conf itself would write it on Linux/macOS - suffix-free, matching
-      // config.ts's own projectSuffix: ''. Windows resolves a different subdirectory, so
-      // this half of the test is Linux/macOS-only; startup-migration.test.ts's own
-      // DIVERGES guard is the precedent for platform-scoping a real-filesystem test.
-      const configDir = join(home, '.config', 'align-cli');
+      // Written exactly where Conf itself would write it on THIS platform, suffix-free,
+      // matching config.ts's own projectSuffix: '' - see expectedConfigDir's own comment.
+      const configDir = expectedConfigDir(home, process.platform);
       mkdirSync(configDir, { recursive: true });
       writeFileSync(
         join(configDir, 'config.json'),
@@ -103,7 +115,7 @@ describe('startup provider-key hydration actually fires end to end', () => {
     const { home, env } = makeIsolatedHome();
     env['GROQ_API_KEY'] = 'gsk_the_real_one_i_just_exported';
     try {
-      const configDir = join(home, '.config', 'align-cli');
+      const configDir = expectedConfigDir(home, process.platform);
       mkdirSync(configDir, { recursive: true });
       writeFileSync(
         join(configDir, 'config.json'),

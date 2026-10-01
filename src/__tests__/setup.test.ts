@@ -1552,6 +1552,24 @@ describe('align setup', () => {
         expect(process.env['GROQ_API_KEY']).toBe('gsk_the_real_one_i_just_exported');
       });
 
+      // Copilot review, PR #323 ("previously missed" - deeper than the case above): equality
+      // with the stored value does NOT prove hydration put it there. hydrateProviderKeyEnv
+      // never overwrites a real shell-exported value, so a shell that happens to export the
+      // SAME string the stored value holds (set up once, then also added to .bashrc, say)
+      // looks identical - from inside this process - to "hydration injected it". There is no
+      // way to tell the two apart from process.env alone, so the safe answer is to never
+      // delete env state at all here: only the ON-DISK stored value matters for what future
+      // invocations hydrate, and a real credential must never be destroyed on a guess.
+      it('--reset --approve does not delete a real exported key even when it happens to equal the stale stored one', async () => {
+        vi.stubEnv('GROQ_API_KEY', 'gsk_same_value_coincidentally');
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'gsk_same_value_coincidentally' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+
+        expect(process.env['GROQ_API_KEY']).toBe('gsk_same_value_coincidentally');
+        expect(mockClearProviderKey).toHaveBeenCalledWith('groq'); // the STORED value is still cleared
+      });
+
       it('skips the offer when a provider is already configured via env', async () => {
         vi.stubEnv('ANTHROPIC_API_KEY', 'already-set');
 
