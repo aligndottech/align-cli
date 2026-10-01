@@ -466,7 +466,24 @@ async function offerFreeProviderKey(
   config: ReturnType<typeof createConfigStore>,
   opts: { approve?: boolean; reset?: boolean },
 ): Promise<void> {
-  if (opts.approve) return;
+  if (opts.approve) {
+    // --approve means "never prompt", not "never act". Returning here unconditionally
+    // (Copilot review, PR #322) meant `align setup --reset --approve` left saved
+    // credentials in place while --reset's own help text promised they'd be cleared -
+    // skipping the PROMPT is correct under --approve; skipping the CLEAR is a different
+    // thing, and only --reset asks for that.
+    if (opts.reset) {
+      if (config.getProviderKey('groq')) {
+        config.clearProviderKey('groq');
+        delete process.env['GROQ_API_KEY'];
+      }
+      if (config.getProviderKey('gemini')) {
+        config.clearProviderKey('gemini');
+        delete process.env['GEMINI_API_KEY'];
+      }
+    }
+    return;
+  }
   if (!opts.reset) {
     if (hasConfiguredProvider()) return;
     if (config.getProviderKey('groq') || config.getProviderKey('gemini')) return;
@@ -491,11 +508,15 @@ async function offerFreeProviderKey(
       `Set up a free Groq key now? No card, ever - and it's the fastest free tier.`,
     initialValue: true,
   });
-  if (p.isCancel(wantGroq) || !wantGroq) {
+  // Cancel (Ctrl-C) and an explicit "no" are NOT the same thing (Copilot review, PR #322):
+  // cancelling means "stop asking me", and must never have the side effect of deleting a
+  // saved credential. Only a real decline reaches the destructive --reset clear below.
+  if (p.isCancel(wantGroq)) return;
+  if (!wantGroq) {
     // --reset declining Groq is the one way to make a previously stored Gemini key (or no
     // key at all) actually take over: hydration re-applies whatever is stored on every
     // invocation regardless of what the shell does, so "decline" has to mean "forget it",
-    // not merely "don't re-ask" (Copilot review, PR #322).
+    // not merely "don't re-ask".
     if (opts.reset && config.getProviderKey('groq')) {
       config.clearProviderKey('groq');
       delete process.env['GROQ_API_KEY'];
@@ -518,11 +539,13 @@ async function offerFreeProviderKey(
     message: `Also add a Gemini key as backup for when Groq's daily limit is hit? (also free, no card)`,
     initialValue: true,
   });
-  if (p.isCancel(wantGemini) || !wantGemini) {
+  // Same cancel/decline split as Groq above.
+  if (p.isCancel(wantGemini)) return;
+  if (!wantGemini) {
     // Symmetric with the Groq decline above: without this, clearProviderKey('gemini') had
     // no caller anywhere, and `--reset` could remove a stored Groq key but never a stored
     // Gemini one - so "clears saved AI provider keys" (the option's own help text) was not
-    // actually true for Gemini (Copilot review, PR #322).
+    // actually true for Gemini.
     if (opts.reset && config.getProviderKey('gemini')) {
       config.clearProviderKey('gemini');
       delete process.env['GEMINI_API_KEY'];

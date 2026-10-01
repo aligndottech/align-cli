@@ -1504,6 +1504,23 @@ describe('align setup', () => {
         );
       });
 
+      // Copilot review, PR #322: --approve returned before --reset could act at all, so
+      // `align setup --reset --approve` left saved credentials in place even though the
+      // option's own help text says --reset clears them - and never prompting is correct
+      // under --approve (no terminal), but SKIPPING the clear is not the same thing as
+      // skipping the PROMPT.
+      it('--reset --approve clears any stored keys without prompting, rather than leaving them in place', async () => {
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' || p === 'gemini' ? 'already-stored' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+
+        expect(mockConfirm).not.toHaveBeenCalledWith(
+          expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+        );
+        expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
+        expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
+      });
+
       it('skips the offer when a provider is already configured via env', async () => {
         vi.stubEnv('ANTHROPIC_API_KEY', 'already-set');
 
@@ -1580,6 +1597,23 @@ describe('align setup', () => {
           expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
         });
 
+        // Copilot review, PR #322: cancelling (Ctrl-C) was treated identically to an
+        // explicit "no", so aborting the whole wizard mid-prompt had the side effect of
+        // silently deleting a saved credential - a destructive action from a keystroke
+        // that means "stop", not "remove this".
+        it('does NOT clear the stored Groq key when the re-offer is CANCELLED, as opposed to declined', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+          const { isCancel } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async (o: { message?: string }) =>
+            /free Groq key/i.test(String(o?.message)) ? Symbol('cancel') : false,
+          );
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockClearProviderKey).not.toHaveBeenCalled();
+        });
+
         it('does not clear anything when there was no stored Groq key to begin with', async () => {
           mockConfirm.mockResolvedValue(false);
 
@@ -1619,6 +1653,25 @@ describe('align setup', () => {
           await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
 
           expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
+          delete process.env['GROQ_API_KEY'];
+        });
+
+        // Second example for the Gemini side of the same cancel/decline split as Groq above.
+        it('does NOT clear the stored Gemini key when its re-offered backup is CANCELLED', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'gemini' ? 'already-stored' : null));
+          const { password, isCancel } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async (o: { message?: string }) => {
+            const m = String(o?.message);
+            if (/free Groq key/i.test(m)) return true; // accept Groq (re-paste)
+            if (/Gemini key as backup/i.test(m)) return Symbol('cancel'); // cancel, not decline
+            return false;
+          });
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          vi.mocked(password).mockResolvedValueOnce('gsk_fresh');
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockClearProviderKey).not.toHaveBeenCalledWith('gemini');
           delete process.env['GROQ_API_KEY'];
         });
       });

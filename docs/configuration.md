@@ -11,8 +11,11 @@ synthesised paragraph.
 key (no card, ever - the fastest free tier) as the primary, with Gemini offered as a second key
 for when Groq's daily request cap is hit. Say yes to both and Groq is the one actually tried
 first - see the priority order below. Declining costs nothing; `align ask` still works without
-either, just without prose. Skip the prompt and set a key yourself any time, or re-run
-`align setup` to be offered it again.
+either, just without prose. Skip the prompt and set a key yourself any time.
+
+A plain re-run of `align setup` does **not** re-offer either key once one is saved - it would
+otherwise nag on every run. If you saved Groq but skipped the Gemini backup and want to add it
+later (or remove either key), use `align setup --reset`, which re-asks both questions.
 
 It resolves a provider in this order - named providers are tried in the order listed under (2)
 below, so with both GROQ_API_KEY and GEMINI_API_KEY set, Groq answers and Gemini is only reached
