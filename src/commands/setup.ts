@@ -556,7 +556,11 @@ async function offerFreeProviderKey(
   // prompt) and an empty paste are not cancellation and keep the softer skip-and-continue.
   if (p.isCancel(groqKey)) { p.cancel('Cancelled.'); process.exit(0); }
   if (groqKey === null || !groqKey) {
-    p.log.warn(`No key entered - skipping. Set ${chalk.bold('GROQ_API_KEY')} yourself any time, or run ${chalk.bold('align setup')} again.`);
+    // Under --reset, a plain re-run would hydrate the still-stored key and skip this offer
+    // entirely (Copilot review, PR #323, "previously missed") - pointing back at plain
+    // `align setup` here repeats the exact documentation bug this PR exists to fix.
+    const retryHint = opts.reset ? 'align setup --reset' : 'align setup';
+    p.log.warn(`No key entered - skipping. Set ${chalk.bold('GROQ_API_KEY')} yourself any time, or run ${chalk.bold(retryHint)} again.`);
     return;
   }
   config.setProviderKey('groq', groqKey as string);

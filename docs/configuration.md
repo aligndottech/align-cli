@@ -21,6 +21,14 @@ returns without ever reaching the Gemini question, since declining under `--rese
 "forget this key," not "skip past it." If you only want to add Gemini and keep Groq as-is,
 accept the Groq re-offer (paste the same key again) to reach the Gemini question.
 
+**Interactive `--reset`** only re-offers when nothing ELSE is configured: if you have a
+different provider set via env (`ANTHROPIC_API_KEY`, say) alongside a stale stored
+Groq/Gemini key, `--reset` leaves the stale stored key in place rather than re-asking or
+clearing it - that other provider already means "nothing to fix" as far as this wizard is
+concerned. **`--reset --approve` does not share that exception** - being non-interactive, it
+clears both stored keys unconditionally, even with another provider configured, so a
+scripted `--reset --approve` run is the one path that always removes them regardless.
+
 It resolves a provider in this order - named providers are tried in the order listed under (2)
 below, so with both GROQ_API_KEY and GEMINI_API_KEY set, Groq answers and Gemini is only reached
 if Groq's response is itself unusable (not on a plain rate limit - see the warning under (2)).
