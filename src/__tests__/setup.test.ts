@@ -1521,6 +1521,24 @@ describe('align setup', () => {
         expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
       });
 
+      // Copilot review, PR #323: the cloud case above passes because runCloudSetup calls
+      // offerFreeProviderKey unconditionally near its end. Local mode gates that SAME call
+      // behind `interactive`, which is false under --approve by construction (no TTY) - so
+      // `align setup --local --reset --approve` never even reaches the clear.
+      it('--local --reset --approve ALSO clears stored keys, not only the cloud path', async () => {
+        // The enclosing describe's beforeEach forces isTTY=true unconditionally - real
+        // --approve runs have no TTY at all, which is exactly the condition this bug lives
+        // in (runLocalConnectorPhase gates offerFreeProviderKey behind `interactive`), so
+        // this test has to override that back to false or it cannot see the real bug.
+        Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+        mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--reset', '--approve']);
+
+        expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
+      });
+
       it('skips the offer when a provider is already configured via env', async () => {
         vi.stubEnv('ANTHROPIC_API_KEY', 'already-set');
 
@@ -1608,10 +1626,17 @@ describe('align setup', () => {
             /free Groq key/i.test(String(o?.message)) ? Symbol('cancel') : false,
           );
           vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          // Round 4 (Copilot review, PR #323): a cancel here now ABORTS the command
+          // (p.cancel + process.exit(0)) rather than falling through to the outro, matching
+          // every other top-level setup prompt - so this test's own exit must be stubbed.
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup', '--reset']),
+          ).rejects.toThrow();
 
           expect(mockClearProviderKey).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
         });
 
         it('does not clear anything when there was no stored Groq key to begin with', async () => {
@@ -1668,11 +1693,35 @@ describe('align setup', () => {
           });
           vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
           vi.mocked(password).mockResolvedValueOnce('gsk_fresh');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup', '--reset']),
+          ).rejects.toThrow();
 
           expect(mockClearProviderKey).not.toHaveBeenCalledWith('gemini');
           delete process.env['GROQ_API_KEY'];
+          exitSpy.mockRestore();
+        });
+
+        // Copilot review, PR #323: a bare `return` after a prompt cancellation let the
+        // wizard fall through to the normal "Setup complete" outro and setup_completed
+        // telemetry, silently treating an aborted run as a finished one - inconsistent
+        // with every other top-level prompt in this file.
+        it('aborts the whole command on Ctrl-C, rather than reporting setup as complete', async () => {
+          mockGetProviderKey.mockImplementation(() => null);
+          const { isCancel, outro } = await import('@clack/prompts');
+          mockConfirm.mockImplementation(async () => Symbol('cancel'));
+          vi.mocked(isCancel).mockImplementation((v: unknown) => typeof v === 'symbol');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+          await expect(
+            makeProgram().parseAsync(['node', 'align', 'setup']),
+          ).rejects.toThrow();
+
+          expect(exitSpy).toHaveBeenCalledWith(0);
+          expect(outro).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
         });
       });
     });
