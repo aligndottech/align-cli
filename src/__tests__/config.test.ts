@@ -129,6 +129,22 @@ describe('config store', () => {
       expect(c.getProviderKey('groq')).toBe('gsk_groq');
       expect(c.getProviderKey('gemini')).toBe('gem_key');
     });
+
+    it('clears a stored key so hydration has nothing left to re-apply', () => {
+      const c = createConfigStore();
+      c.setProviderKey('groq', 'gsk_groq');
+      c.clearProviderKey('groq');
+      expect(c.getProviderKey('groq')).toBeNull();
+    });
+
+    it('clearing one provider leaves the other untouched', () => {
+      const c = createConfigStore();
+      c.setProviderKey('groq', 'gsk_groq');
+      c.setProviderKey('gemini', 'gem_key');
+      c.clearProviderKey('groq');
+      expect(c.getProviderKey('groq')).toBeNull();
+      expect(c.getProviderKey('gemini')).toBe('gem_key');
+    });
   });
 
   // ALI-618: install id and telemetry consent are global to the machine, not per-env - a
@@ -198,6 +214,18 @@ describe('config store', () => {
       hydrateProviderKeyEnv(fakeConfig({}), env);
       expect(env['GROQ_API_KEY']).toBeUndefined();
       expect(env['GEMINI_API_KEY']).toBeUndefined();
+    });
+
+    // Copilot review, PR #322: keyForProvider('gemini') in local-llm.ts accepts
+    // GOOGLE_API_KEY as a real alias for GEMINI_API_KEY. Hydrating a stored key into
+    // GEMINI_API_KEY while the user has deliberately set GOOGLE_API_KEY would make the
+    // stored (possibly stale) value win keyForProvider's own `||`, silently shadowing a
+    // real credential the user just set.
+    it('does not hydrate a stored Gemini key over a real GOOGLE_API_KEY alias', () => {
+      const env: Record<string, string | undefined> = { GOOGLE_API_KEY: 'real-google-key' };
+      hydrateProviderKeyEnv(fakeConfig({ gemini: 'stale-stored-key' }), env);
+      expect(env['GEMINI_API_KEY']).toBeUndefined();
+      expect(env['GOOGLE_API_KEY']).toBe('real-google-key');
     });
   });
 });

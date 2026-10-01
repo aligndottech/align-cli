@@ -445,18 +445,30 @@ function writeAgentAlignment(envName: EnvName): string[] {
  * Skipped entirely, in order:
  *  - under --approve: a scripted run has no terminal to paste a key into.
  *  - when a provider is already configured via env (hasConfiguredProvider): nothing to fix.
- *  - when a key from a PREVIOUS run of this offer is already stored: do not re-ask every time.
+ *  - when a key from a PREVIOUS run of this offer is already stored, UNLESS --reset: do not
+ *    re-ask every time, but give `--reset` the same "clear and redo" meaning here it already
+ *    has for OAuth connectors (Copilot review, PR #322) - without this there was no way to
+ *    act on the Gemini-backup documentation once Groq was stored: hydration restores the
+ *    stored Groq key on every later invocation regardless of what the user unsets in their
+ *    shell, so `align setup --reset` is the real (and now the documented) remedy.
  *
  * Declining costs nothing - `align ask` still returns a ranked list - so every question
  * here defaults to a plain confirm the user can say no to without losing anything.
  */
 async function offerFreeProviderKey(
   config: ReturnType<typeof createConfigStore>,
-  opts: { approve?: boolean },
+  opts: { approve?: boolean; reset?: boolean },
 ): Promise<void> {
   if (opts.approve) return;
-  if (hasConfiguredProvider()) return;
-  if (config.getProviderKey('groq') || config.getProviderKey('gemini')) return;
+  // Under --reset, skip BOTH guards below rather than just the second: hydrateProviderKeyEnv
+  // (cli.ts's preAction hook) already wrote any stored key into process.env before this
+  // command's own action started running, so hasConfiguredProvider() would read as "already
+  // configured" from the very value --reset exists to let the user redo, and never reach the
+  // stored-key check at all.
+  if (!opts.reset) {
+    if (hasConfiguredProvider()) return;
+    if (config.getProviderKey('groq') || config.getProviderKey('gemini')) return;
+  }
 
   console.log('');
   const wantGroq = await p.confirm({
@@ -466,7 +478,18 @@ async function offerFreeProviderKey(
       `Set up a free Groq key now? No card, ever - and it's the fastest free tier.`,
     initialValue: true,
   });
-  if (p.isCancel(wantGroq) || !wantGroq) return;
+  if (p.isCancel(wantGroq) || !wantGroq) {
+    // --reset declining Groq is the one way to make a previously stored Gemini key (or no
+    // key at all) actually take over: hydration re-applies whatever is stored on every
+    // invocation regardless of what the shell does, so "decline" has to mean "forget it",
+    // not merely "don't re-ask" (Copilot review, PR #322).
+    if (opts.reset && config.getProviderKey('groq')) {
+      config.clearProviderKey('groq');
+      delete process.env['GROQ_API_KEY'];
+      p.log.info('Cleared the saved Groq key.');
+    }
+    return;
+  }
 
   p.log.info(`Get one free: ${chalk.bold('https://console.groq.com/keys')}`);
   const groqKey = await guardedPrompt('Groq API key', () => p.password({ message: '  Groq API key:' }));

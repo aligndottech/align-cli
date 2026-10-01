@@ -79,6 +79,7 @@ const mockForgetConnector = vi.hoisted(() => vi.fn());
 // vars, cleared per-test in the describe block that exercises this).
 const mockGetProviderKey = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSetProviderKey = vi.hoisted(() => vi.fn());
+const mockClearProviderKey = vi.hoisted(() => vi.fn());
 
 vi.mock('../lib/config.js', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -103,6 +104,7 @@ vi.mock('../lib/config.js', async (importOriginal) => ({
     setTelemetryConsent: vi.fn(),
     getProviderKey: mockGetProviderKey,
     setProviderKey: mockSetProviderKey,
+    clearProviderKey: mockClearProviderKey,
   })),
 }));
 
@@ -1533,6 +1535,42 @@ describe('align setup', () => {
 
         expect(mockSetProviderKey).toHaveBeenCalledWith('groq', 'gsk_local');
         delete process.env['GROQ_API_KEY'];
+      });
+
+      // Copilot review, PR #322: hydrateProviderKeyEnv (cli.ts's preAction) already wrote
+      // any stored key into process.env before this command's own action runs, so without
+      // --reset bypassing BOTH guards, hasConfiguredProvider() alone would hide the offer
+      // from even reaching the stored-key check.
+      describe('--reset re-offers a stored key, and clearing it is what makes the backup real', () => {
+        it('re-offers the Groq step even though a key is already stored', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+          mockConfirm.mockResolvedValue(false);
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockConfirm).toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
+          );
+        });
+
+        it('clears the stored Groq key when the re-offer is declined, rather than only skipping the ask', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
+          mockConfirm.mockImplementation(async (o: { message?: string }) =>
+            !/free Groq key/i.test(String(o?.message)),
+          );
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
+        });
+
+        it('does not clear anything when there was no stored Groq key to begin with', async () => {
+          mockConfirm.mockResolvedValue(false);
+
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+
+          expect(mockClearProviderKey).not.toHaveBeenCalled();
+        });
       });
     });
   });

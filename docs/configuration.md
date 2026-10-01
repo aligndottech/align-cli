@@ -44,8 +44,13 @@ Each has an optional model override: `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODE
 > (its daily cap included), the error names Groq and that call returns no answer - it does not
 > silently retry on Gemini. This is deliberate: a provider that answered, badly, falling
 > through to a different, weaker model would misattribute whose answer you are reading. The
-> next `align ask` call tries Groq again, since nothing here remembers the failure. Unset
-> `GROQ_API_KEY` for the rest of the day if you'd rather answer on Gemini until Groq resets.
+> next `align ask` call tries Groq again, since nothing here remembers the failure.
+>
+> A key the guided `align setup` step stored is re-applied on every invocation, so **unsetting
+> `GROQ_API_KEY` in your shell does not work** as a way to prefer Gemini for the rest of the
+> day - the stored value comes straight back. Run `align setup --reset` and decline the
+> re-offered Groq key: that clears the stored key (not just skips re-asking for it), so a
+> previously-stored Gemini key, or none at all, takes over on the next `align ask`.
 
 ### 3. Ollama
 

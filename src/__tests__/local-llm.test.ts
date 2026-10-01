@@ -24,6 +24,10 @@ function openAiResponse(text: string) {
 function anthropicResponse(text: string) {
   return { ok: true, json: async () => ({ content: [{ text }] }) };
 }
+// Gemini response shape
+function geminiResponse(text: string) {
+  return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) };
+}
 
 const ALL_KEYS = [
   'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY',
@@ -95,6 +99,20 @@ describe('callChat (provider-agnostic resolver)', () => {
 
     expect(r).toBe('groq answer');
     expect(mockFetch.mock.calls[0][0]).toBe('https://api.groq.com/openai/v1/chat/completions');
+  });
+
+  // ALI-1284 (Copilot review, PR #322): `align setup`'s Gemini backup offer is sold as
+  // "Flash-Lite" by name (docs/configuration.md, the ticket itself) - the model actually
+  // called has to match that claim, not a different Gemini tier with different free-tier
+  // limits. Pinned so the default can never silently drift back to a plain (non-Lite) model.
+  it('calls a Flash-Lite model by default when only GEMINI_API_KEY is set', async () => {
+    vi.stubEnv('GEMINI_API_KEY', 'gemini-k');
+    mockFetch.mockResolvedValue(geminiResponse('gemini answer'));
+
+    const r = await callChat('s', 'u');
+
+    expect(r).toBe('gemini answer');
+    expect(String(mockFetch.mock.calls[0][0])).toContain('flash-lite');
   });
 
   it('returns null when no provider is configured and Ollama is unreachable', async () => {

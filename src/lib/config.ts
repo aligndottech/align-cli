@@ -105,6 +105,19 @@ const PROVIDER_ENV_VAR: Record<GuidedProviderKey, string> = {
 };
 
 /**
+ * Every real env var `local-llm.ts`'s `keyForProvider` accepts for this provider - not just
+ * the primary name hydration writes to. Gemini has a second, equally real alias
+ * (`GOOGLE_API_KEY`), checked there with `||` ahead of a stored value. Missing this (Copilot
+ * review, PR #322) meant a user who exported only `GOOGLE_API_KEY` still got the STORED
+ * Gemini key hydrated into `GEMINI_API_KEY`, which then won `keyForProvider`'s own `||` -
+ * silently shadowing a real, deliberately-set credential with a possibly-stale stored one.
+ */
+const PROVIDER_ENV_ALIASES: Record<GuidedProviderKey, readonly string[]> = {
+  groq: ['GROQ_API_KEY'],
+  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+};
+
+/**
  * ALI-1284: fills `process.env` from a previously-saved provider key, so `align ask`
  * keeps working on every invocation after the one where `align setup` collected it -
  * without local-llm.ts (which resolves providers from plain env vars, and stays a
@@ -112,9 +125,14 @@ const PROVIDER_ENV_VAR: Record<GuidedProviderKey, string> = {
  *
  * A real env var always wins and is never overwritten: this is a convenience default,
  * not a second source of truth, the same precedence `getEnvironment` already gives
- * ALIGN_TOKEN/ALIGN_TENANT_ID/ALIGN_GATEWAY_URL above. Called once, from src/index.ts,
- * before any command runs - never from inside createConfigStore() itself, for the same
- * reason migrateConfigDirectory is split out (Copilot review, PR #231): a pure
+ * ALIGN_TOKEN/ALIGN_TENANT_ID/ALIGN_GATEWAY_URL above. Checks every alias `keyForProvider`
+ * itself accepts (not just the primary name), or hydrating the primary name from storage
+ * would outrank a real credential the user set under an alias - see PROVIDER_ENV_ALIASES.
+ * Called from the `preAction` Commander hook in cli.ts, before a command's own action runs
+ * - never from module scope in index.ts, or a Conf store would be constructed (and its
+ * defaults written to disk) for `align --version`, which startup-migration.test.ts pins as
+ * untouched on a fresh machine. Never from inside createConfigStore() itself either, for the
+ * same reason migrateConfigDirectory is split out (Copilot review, PR #231): a pure
  * constructor stays mockable without needing to stub `process.env` in every test that
  * merely constructs a store.
  */
@@ -123,7 +141,7 @@ export function hydrateProviderKeyEnv(
   env: Record<string, string | undefined> = process.env,
 ): void {
   for (const [provider, varName] of Object.entries(PROVIDER_ENV_VAR) as Array<[GuidedProviderKey, string]>) {
-    if (env[varName]) continue;
+    if (PROVIDER_ENV_ALIASES[provider].some((alias) => env[alias])) continue;
     const stored = config.getProviderKey(provider);
     if (stored) env[varName] = stored;
   }
@@ -302,6 +320,15 @@ export function createConfigStore() {
     setProviderKey(provider: GuidedProviderKey, key: string) {
       const existing = store.get('providerKeys') ?? {};
       store.set('providerKeys', { ...existing, [provider]: key });
+    },
+    // ALI-1284 (Copilot review, PR #322): `align setup --reset` needs a real way to stop a
+    // previously-stored key from coming back - hydrateProviderKeyEnv re-applies whatever is
+    // stored on every invocation, so declining a re-offered key has to clear it, not just
+    // skip re-asking for it.
+    clearProviderKey(provider: GuidedProviderKey) {
+      const existing = store.get('providerKeys') ?? {};
+      const { [provider]: _removed, ...rest } = existing;
+      store.set('providerKeys', rest);
     },
     // ALI-795: which one-shot funnel stages this install has already emitted. Per-install
     // like installId (a funnel counts an install once); the emitter consults it so the
