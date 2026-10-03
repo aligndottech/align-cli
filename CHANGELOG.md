@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.44.0](https://github.com/aligndottech/align-cli/compare/cli-v0.43.0...cli-v0.44.0) (2026-10-03)
+
+
+### Features
+
+* **mcp:** instruct agents to read later_on_topic before answering (ALI-1412) ([#328](https://github.com/aligndottech/align-cli/issues/328)) ([1db140f](https://github.com/aligndottech/align-cli/commit/1db140f244aba008d9a177e0bf352be5a06e7cd5))
+* **mcp:** pin the later_on_topic contract on align_ask (ALI-1412) ([#326](https://github.com/aligndottech/align-cli/issues/326)) ([0594cf9](https://github.com/aligndottech/align-cli/commit/0594cf942a0485fe41a9d645f5a2cf486b387474))
+
 ## [0.43.0](https://github.com/aligndottech/align-cli/compare/cli-v0.42.0...cli-v0.43.0) (2026-10-03)
 
 
