@@ -528,6 +528,22 @@ describe('gateway client', () => {
       expect(result.pagination?.['has_more']).toBe(true);
     });
 
+    // ALI-1411: the as-of cutoff rides the endpoint's timestamp cursor, which bounds the
+    // DATA query to `dl.created_at < cutoff` server-side (a cursor makes the gateway skip its
+    // count query, which is why the MCP layer never reports a gateway count under a cutoff).
+    it('sends the as-of cutoff as the cursor, encoded', async () => {
+      mockFetch.mockResolvedValueOnce(pageResponse([], { next_cursor: null, has_more: false }));
+      await createGatewayClient(localEnv).getConflicts({ createdBefore: '2026-08-11T00:00:00+00:00' });
+      const url = String(mockFetch.mock.calls[0]?.[0]);
+      expect(url).toContain('cursor=2026-08-11T00%3A00%3A00%2B00%3A00');
+    });
+
+    it('sends no cursor when no cutoff is given', async () => {
+      mockFetch.mockResolvedValueOnce(pageResponse([], { next_cursor: null, has_more: false }));
+      await createGatewayClient(localEnv).getConflicts();
+      expect(String(mockFetch.mock.calls[0]?.[0])).not.toContain('cursor=');
+    });
+
     it('omits the partial-set markers when the page holds the whole set', async () => {
       mockFetch.mockResolvedValueOnce(
         pageResponse([mkLink(1), mkLink(2)], { next_cursor: null, has_more: false, total_count: 2 }),

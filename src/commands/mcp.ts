@@ -16,6 +16,15 @@ import { inviteNudgeLine } from '../lib/invite-prompt.js';
 import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
 import {
+  createAsOfGuard,
+  filterAlignmentAsOf,
+  filterConflictsAsOf,
+  filterDecisionTimelineAsOf,
+  filterImpactAsOf,
+  filterTopicTimelineAsOf,
+  notInGraphAsOf,
+} from '../lib/as-of.js';
+import {
   DECISION_RATIONALE_TOOL,
   DECISION_TIMELINE_TOOL,
   shapeDecisionRationale,
@@ -192,6 +201,14 @@ export async function dispatchTool(
     );
   }
 
+  // ALI-1411: every READ tool honours the as-of cutoff, not just the three built on
+  // searchDecisions. Only smart-search and the decision-links cursor bound it server-side;
+  // the rest are filtered by lib/as-of.ts, which says what that cannot cover. With no cutoff
+  // the guard is never built, so every arm below calls and returns exactly what it did before.
+  const asOf = createdBefore
+    ? createAsOfGuard(createdBefore, (id) => client.getDecision(id))
+    : undefined;
+
   switch (name) {
     // ONE arm for both names (ALI-952). align_search is the alias of align_ask: they were two
     // entries for the same gateway call with two dispatch arms that had already drifted
@@ -230,14 +247,25 @@ export async function dispatchTool(
       }
       return client.captureDecision(input, platform);
     }
-    case 'align_check_alignment':
-      return client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined);
+    case 'align_check_alignment': {
+      const result = await client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined);
+      return asOf ? filterAlignmentAsOf(result, asOf) : result;
+    }
     case 'align_check_drift':
+      // Drift against a decision that did not exist yet is not an as-of answer.
+      if (asOf) await asOf.assertDecision(args?.['decision_id'] as string);
       return client.checkDrift(args?.['decision_id'] as string, args?.['content'] as string, args?.['source_type'] as string | undefined);
-    case 'align_get_impact':
-      return client.getImpact(args?.['decision_id'] as string);
+    case 'align_get_impact': {
+      if (asOf) await asOf.assertDecision(args?.['decision_id'] as string);
+      const result = await client.getImpact(args?.['decision_id'] as string);
+      return asOf ? filterImpactAsOf(result, asOf) : result;
+    }
     case 'align_get_conflicts':
-      return client.getConflicts();
+      // The cutoff bounds the link query server-side (the endpoint's timestamp cursor); the
+      // filter then bounds both endpoints and recounts. No cutoff keeps the no-argument call.
+      return asOf
+        ? filterConflictsAsOf(await client.getConflicts({ createdBefore: asOf.cutoff }), asOf)
+        : client.getConflicts();
     // Same shape, same agent, same contract - a row reaching an agent through this tool must not
     // say "no conflict exists" where the other two say nothing.
     case 'align_get_related_decisions':
@@ -254,14 +282,13 @@ export async function dispatchTool(
      * `limit` is passed through undefined when the agent omitted it: the default lives in the
      * client, so there is one writer of it.
      */
-    case TOPIC_TIMELINE_TOOL:
-      return shapeTopicTimeline(
-        await client.getTopicTimeline(
-          args?.['topic'] as string,
-          args?.['limit'] as number | undefined,
-        ),
+    case TOPIC_TIMELINE_TOOL: {
+      const raw = await client.getTopicTimeline(
         args?.['topic'] as string,
+        args?.['limit'] as number | undefined,
       );
+      return shapeTopicTimeline(asOf ? filterTopicTimelineAsOf(raw, asOf) : raw, args?.['topic'] as string);
+    }
     /**
      * Reuses getDecision - the hosted connector's getDecisionRationale is the same
      * `GET /snapshots/:id`, so a second client method would be two writers of one call. It
@@ -276,10 +303,15 @@ export async function dispatchTool(
       // and silently dropped the rationale. The raw id goes to the client (local mode does a
       // database lookup with it); encoding is the HTTP boundary's job.
       const row = await client.getDecision(args?.['decision_id'] as string);
+      // The row carries its own created_at, so the as-of check needs no second lookup.
+      if (asOf && !asOf.isBefore(row?.created_at)) throw notInGraphAsOf(args?.['decision_id'] as string, asOf.cutoff);
       return shapeDecisionRationale(row as unknown as Record<string, unknown>, args?.['decision_id'] as string);
     }
-    case DECISION_TIMELINE_TOOL:
-      return client.getDecisionTimeline(args?.['decision_id'] as string);
+    case DECISION_TIMELINE_TOOL: {
+      if (asOf) await asOf.assertDecision(args?.['decision_id'] as string);
+      const result = await client.getDecisionTimeline(args?.['decision_id'] as string);
+      return asOf ? filterDecisionTimelineAsOf(result, asOf) : result;
+    }
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
