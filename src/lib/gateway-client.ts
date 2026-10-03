@@ -741,7 +741,14 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return request(`/decisions/${encodePathSegment(decisionId)}/history`);
     },
 
-    async getConflicts(): Promise<ConflictsResult> {
+    /**
+     * ALI-1411: `createdBefore` rides the endpoint's legacy TIMESTAMP cursor, which bounds the
+     * data query to `dl.created_at < cursor` server-side - the one as-of bound this route has.
+     * It does NOT bound the count query (by design, for pagination), so under a cutoff
+     * `total_count` still counts post-cutoff links; the MCP layer (lib/as-of.ts) therefore
+     * recounts from the delivered links and never reports the gateway's total.
+     */
+    async getConflicts(opts: { createdBefore?: string } = {}): Promise<ConflictsResult> {
       // ALI-587. One 50-row fetch was served to agents as the complete conflict set, with
       // nothing marking a tenant past 50 links as partial. The honest total costs nothing
       // extra: the gateway computes pagination.total_count over the WHOLE matching set on
@@ -757,7 +764,11 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       const data = await request<{
         links?: unknown[];
         pagination?: Record<string, unknown> & { total_count?: number | null };
-      }>('/decision-links?relation=conflicts_with,contradicts&unresolved_only=true&paginated=true&limit=50');
+      }>(
+        `/decision-links?relation=conflicts_with,contradicts&unresolved_only=true&paginated=true&limit=50${
+          opts.createdBefore ? `&cursor=${encodeURIComponent(opts.createdBefore)}` : ''
+        }`,
+      );
       if (!Array.isArray(data?.links)) {
         // A shape this client does not understand must fail loudly. Degrading to an empty
         // list reads as an affirmative "no conflicts" to the agent consuming this.

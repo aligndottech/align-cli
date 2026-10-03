@@ -40,10 +40,9 @@ describe('dispatchTool (MCP CallTool routing)', () => {
     expect(c.searchDecisions).toHaveBeenCalledWith('src/auth.ts jwt', 5, undefined);
   });
 
-  // ALI-1082: the benchmark/audit time-box. A fifth dispatchTool parameter, forwarded ONLY
-  // into the three searchDecisions-based tools - align_get_conflicts, align_check_alignment,
-  // align_check_drift and align_get_impact are separate gateway routes with no observed role
-  // in the reversed-item failures this flag exists for (out of scope, deliberately).
+  // ALI-1082: the benchmark/audit time-box, a fifth dispatchTool parameter. The three
+  // searchDecisions-based tools forward it to the gateway. ALI-1411 extended it to every other
+  // read tool; those pairs live in mcp-as-of-all-tools.test.ts.
   const CUTOFF = '2026-08-11T00:00:00.000Z';
 
   it('align_search passes the cutoff through', async () => {
