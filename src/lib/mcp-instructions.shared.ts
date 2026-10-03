@@ -39,7 +39,8 @@ export const MCP_INSTRUCTIONS_SHARED = `Align is this team's decision graph - wh
 - Do the same for questions ABOUT BEHAVIOUR, which rarely name a decision: "what happens when X fails", "does it fail open", "how does Y work".
 - Cite a decision by its cite value when present; link via decision_url if present, else source_url if present, else say no link - never present one as the other.
 - When the question was only a question, REPORT what the graph returned, with its titles and source links, and do not re-derive it from the code. Read the code to confirm only when you are about to change behaviour.
-- Search the graph BEFORE reading the code: it spans repositories, so grepping this checkout misses decisions made in another repository.`;
+- Search the graph BEFORE reading the code: it spans repositories, so grepping this checkout misses decisions made in another repository.
+- A {search} hit may carry later_on_topic: newer decisions on the same topic. Check them before answering; if one reversed the hit, answer from the newer one.`;
 
 /**
  * Render the shared text for one server: substitute each {token} with that server's name for
