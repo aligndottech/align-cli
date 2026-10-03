@@ -36,11 +36,11 @@ export const MCP_INSTRUCTIONS_SHARED = `Align is this team's decision graph - wh
 - BEFORE writing or changing non-trivial code, call {check_alignment} with the diff, phrased as the DECISION and its value ("set the worker pool to 12"), never the chore ("wire up a worker"). A "conflict" result, or a matched decision whose OWN status is conflicted, means a past decision opposes the change - STOP and confirm with the user before proceeding.
 - An "unknown" status means the check could not run (the service was unavailable) - it is NOT a pass. Surface it to the user and do not proceed as if aligned.
 - To answer "why did we decide X" or to understand a convention, call {search}. A decision's status (active/conflicted) and who decided it are in the graph.
-- Do the same for questions ABOUT BEHAVIOUR, which rarely name a decision: "what happens when X fails", "does it fail open", "how does Y work".
+- Also for behaviour questions that name no decision: "what happens when X fails", "does it fail open".
 - Cite a decision by its cite value when present; link via decision_url if present, else source_url if present, else say no link - never present one as the other.
 - When the question was only a question, REPORT what the graph returned, with its titles and source links, and do not re-derive it from the code. Read the code to confirm only when you are about to change behaviour.
 - Search the graph BEFORE reading the code: it spans repositories, so grepping this checkout misses decisions made in another repository.
-- A {search} hit may carry later_on_topic: newer decisions on the same topic. Check them before answering; if one reversed the hit, answer from the newer one.`;
+- A {search} hit's later_on_topic lists newer decisions on its topic: read them before answering, and answer from one that reversed it.`;
 
 /**
  * Render the shared text for one server: substitute each {token} with that server's name for
