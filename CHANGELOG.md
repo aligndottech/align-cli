@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.43.0](https://github.com/aligndottech/align-cli/compare/cli-v0.42.0...cli-v0.43.0) (2026-10-03)
+
+
+### Features
+
+* **mcp:** apply the --created-before as-of cutoff to every read tool (ALI-1411) ([#325](https://github.com/aligndottech/align-cli/issues/325)) ([4d07c8d](https://github.com/aligndottech/align-cli/commit/4d07c8dfdbe2b952c920e092f48caea2b3e69f17))
+
+
+### Bug Fixes
+
+* **local:** honour --created-before in local-embedded mode (ALI-1087) ([#320](https://github.com/aligndottech/align-cli/issues/320)) ([bf84af0](https://github.com/aligndottech/align-cli/commit/bf84af0496b34abb264c3e19084fc8667f376824))
+
 ## [0.42.0](https://github.com/aligndottech/align-cli/compare/cli-v0.41.0...cli-v0.42.0) (2026-09-23)
 
 
