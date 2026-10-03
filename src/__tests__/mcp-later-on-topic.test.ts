@@ -107,3 +107,13 @@ describe('MCP align_ask later_on_topic (ALI-1412)', () => {
     expect(rows[0]).toEqual(plain);
   });
 });
+
+describe('server instructions point the agent at later_on_topic (ALI-1412)', () => {
+  it('tells the agent to check newer decisions on the topic before answering, naming the field', async () => {
+    const { ALIGN_MCP_INSTRUCTIONS } = await import('../commands/mcp.js');
+    const line = ALIGN_MCP_INSTRUCTIONS.split('\n').find((l: string) => l.includes('later_on_topic'));
+    expect(line).toBeDefined();
+    expect(line).toMatch(/before answering/);
+    expect(line).toMatch(/\balign_ask\b/); // rendered with the CLI's tool name
+  });
+});
