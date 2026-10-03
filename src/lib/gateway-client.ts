@@ -744,9 +744,9 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     /**
      * ALI-1411: `createdBefore` rides the endpoint's legacy TIMESTAMP cursor, which bounds the
      * data query to `dl.created_at < cursor` server-side - the one as-of bound this route has.
-     * It does NOT bound the count query (by design, for pagination), so under a cutoff
-     * `total_count` still counts post-cutoff links; the MCP layer (lib/as-of.ts) therefore
-     * recounts from the delivered links and never reports the gateway's total.
+     * Any cursor makes the gateway skip its count query, so every count field comes back null
+     * and the total below falls back to the page; the MCP layer (lib/as-of.ts) recounts from
+     * the delivered links and never reports a gateway count under a cutoff.
      */
     async getConflicts(opts: { createdBefore?: string } = {}): Promise<ConflictsResult> {
       // ALI-587. One 50-row fetch was served to agents as the complete conflict set, with

@@ -529,8 +529,8 @@ describe('gateway client', () => {
     });
 
     // ALI-1411: the as-of cutoff rides the endpoint's timestamp cursor, which bounds the
-    // DATA query to `dl.created_at < cutoff` server-side (it deliberately leaves the count
-    // query alone, which is why the MCP layer never reports total_count under a cutoff).
+    // DATA query to `dl.created_at < cutoff` server-side (a cursor makes the gateway skip its
+    // count query, which is why the MCP layer never reports a gateway count under a cutoff).
     it('sends the as-of cutoff as the cursor, encoded', async () => {
       mockFetch.mockResolvedValueOnce(pageResponse([], { next_cursor: null, has_more: false }));
       await createGatewayClient(localEnv).getConflicts({ createdBefore: '2026-08-11T00:00:00+00:00' });

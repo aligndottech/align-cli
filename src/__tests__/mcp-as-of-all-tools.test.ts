@@ -118,6 +118,41 @@ describe('align_check_alignment under an as-of cutoff', () => {
     expect((out['relevant_decisions'] as Array<{ id: string }>).map((d) => d.id)).toEqual(['old']);
   });
 
+  it('rebuilds an unknown result\'s message so it does not count a dropped decision', async () => {
+    const c = fakeClient({ old: BEFORE, new: AFTER });
+    c.checkAlignment.mockResolvedValue({
+      status: 'unknown',
+      reason: 'no_llm_key',
+      confidence: 0,
+      check_event_id: 'evt-u',
+      relevant_decisions: [
+        { id: 'old', title: 'Old', summary: 's', similarity: 0.8 },
+        { id: 'new', title: 'New', summary: 's', similarity: 0.9 },
+      ],
+      conflicts: [],
+      // The local client's wording, counted over the whole graph.
+      message: 'Could not check 2 related decision(s) - the relationship classifier did not run.',
+    });
+
+    const out = (await dispatchTool('align_check_alignment', { diff: 'd' }, cast(c), cloud, CUTOFF)) as Record<string, unknown>;
+
+    expect(out['status']).toBe('unknown');
+    expect(String(out['message'])).toContain('Could not check 1 related decision(s)');
+    expect(String(out['message'])).toContain('NOT a pass');
+    expect('check_event_id' in out).toBe(false);
+    expect(out['confidence']).toBe(0);
+  });
+
+  it('recomputes confidence from the surviving decisions, not the dropped one', async () => {
+    const c = fakeClient({ old: BEFORE, new: AFTER });
+    c.checkAlignment.mockResolvedValue(conflicting());
+
+    const out = (await dispatchTool('align_check_alignment', { diff: 'd' }, cast(c), cloud, CUTOFF)) as Record<string, unknown>;
+
+    // 0.9 was the gateway's figure and the post-cutoff decision's similarity; 0.8 is old's.
+    expect(out['confidence']).toBe(0.8);
+  });
+
   it('without a cutoff the result is returned untouched and nothing extra is fetched', async () => {
     const c = fakeClient({ old: BEFORE, new: AFTER });
     const raw = conflicting();
@@ -272,7 +307,7 @@ describe('align_get_conflicts under an as-of cutoff', () => {
 
     expect((out['links'] as Array<{ id: string }>).map((l) => l.id)).toEqual(['keep']);
     expect(out['conflict_count']).toBe(1);
-    expect(out['pagination']).toEqual({ has_more: false, next_cursor: null });
+    expect(out['pagination']).toEqual({ has_more: false });
     expect('showing' in out).toBe(false);
     expect('message' in out).toBe(false);
   });
@@ -281,12 +316,15 @@ describe('align_get_conflicts under an as-of cutoff', () => {
     const c = fakeClient();
     c.getConflicts.mockResolvedValue({
       links: [link('keep', BEFORE, BEFORE, BEFORE)],
-      pagination: { has_more: true, next_cursor: 'x|y', total_count: 400 },
+      pagination: { has_more: true, next_cursor: '2026-09-02T00:00:00Z|dropped-link-id', total_count: 400 },
       conflict_count: 400,
     });
 
     const out = (await dispatchTool('align_get_conflicts', {}, cast(c), cloud, CUTOFF)) as Record<string, unknown>;
 
+    // The cursor encodes the last RAW row, which can be a link this filter removed.
+    expect(out['pagination']).toEqual({ has_more: true });
+    expect(JSON.stringify(out)).not.toContain('dropped-link-id');
     expect(out['conflict_count']).toBe(1);
     expect(out['showing']).toBe(1);
     expect(String(out['message'])).toContain('more exist');
@@ -308,6 +346,36 @@ describe('align_get_conflicts under an as-of cutoff', () => {
 
     expect((out['links'] as Array<{ id: string }>).map((l) => l.id)).toEqual(['l1']);
     expect(out['conflict_count']).toBe(1);
+  });
+
+  it('drops a local link whose endpoint no longer exists instead of failing the whole call', async () => {
+    const c = fakeClient({ a: BEFORE, b: BEFORE });
+    c.getDecision.mockImplementation(async (id: string) => {
+      if (id === 'gone') throw new Error('No decision gone in your local graph. `align decisions list` shows what is there.');
+      return { id, created_at: BEFORE };
+    });
+    c.getConflicts.mockResolvedValue({
+      links: [
+        { id: 'l1', sourceId: 'a', targetId: 'b', relation: 'conflicts_with', confidence: 1, createdAt: '2026-08-02 00:00:00' },
+        { id: 'l2', sourceId: 'a', targetId: 'gone', relation: 'conflicts_with', confidence: 1, createdAt: '2026-08-02 00:00:00' },
+      ],
+      conflict_count: 2,
+    });
+
+    const out = (await dispatchTool('align_get_conflicts', {}, cast(c), cloud, CUTOFF)) as Record<string, unknown>;
+
+    expect((out['links'] as Array<{ id: string }>).map((l) => l.id)).toEqual(['l1']);
+  });
+
+  it('still fails on a lookup error that is not a missing decision', async () => {
+    const c = fakeClient();
+    c.getDecision.mockRejectedValue(new Error('ECONNRESET'));
+    c.getConflicts.mockResolvedValue({
+      links: [{ id: 'l1', sourceId: 'a', targetId: 'b', relation: 'conflicts_with', confidence: 1, createdAt: '2026-08-02 00:00:00' }],
+      conflict_count: 1,
+    });
+
+    await expect(dispatchTool('align_get_conflicts', {}, cast(c), cloud, CUTOFF)).rejects.toThrow('ECONNRESET');
   });
 
   it('without a cutoff the call has no argument and the result is untouched', async () => {
@@ -370,6 +438,17 @@ describe('align_get_topic_timeline under an as-of cutoff', () => {
 
     expect(out['disagreements']).toEqual([]);
     expect((out['decisions'] as Array<{ id: string }>).map((d) => d.id)).toEqual(['a', 'b']);
+  });
+
+  it('narrates the survivors when every chain member postdates the cutoff', async () => {
+    const c = fakeClient();
+    c.getTopicTimeline.mockResolvedValue({ ...raw(), chain_ids: ['c'] });
+
+    const out = (await dispatchTool(TOPIC_TIMELINE_TOOL, { topic: 'auth' }, cast(c), cloud, CUTOFF)) as Record<string, unknown>;
+
+    // An emptied chain would narrate nothing; with it omitted the shaper narrates every row.
+    expect((out['decisions'] as Array<{ id: string }>).map((d) => d.id)).toEqual(['a', 'b']);
+    expect(JSON.stringify(out)).not.toContain('ALI-391');
   });
 
   it('without a cutoff the shaped output is exactly what it was', async () => {

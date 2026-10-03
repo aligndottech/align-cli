@@ -22,10 +22,11 @@
  * a row's `status` is its status today (a decision superseded after the cutoff still reads
  * `superseded`); an impact-graph EDGE recorded after the cutoff between two older decisions is
  * invisible in that response; `/alignment/check`'s verdict was reached by a judge that saw
- * post-cutoff candidates; and server-side limits (topic timeline 50, conflicts 50) are spent
+ * post-cutoff candidates, so a kept conflict's `reason` prose can still mention one; a kept
+ * history event can carry an `acknowledged_at` after the cutoff; and server-side limits (topic timeline 50, conflicts 50) are spent
  * before the filter, so an as-of answer can be shorter than the true as-of graph.
  */
-import type { AlignmentResult, ConflictsResult } from './gateway-client.js';
+import { type AlignmentResult, type ConflictsResult, GatewayError } from './gateway-client.js';
 import type { TimelineRow, TopicTimelineResult } from './mcp-timeline-tools.js';
 
 /** An offset or `Z` at the end of the string - a timestamp that already names its zone. */
@@ -66,8 +67,18 @@ export interface AsOfGuard {
 }
 
 /**
- * One guard per tool call. `getDecision` errors propagate: a failed lookup is not evidence the
- * decision is old OR new, and dropping it silently would change the answer on a network blip.
+ * A lookup that says the decision does not exist (cloud 404, or the local client's "No decision
+ * <id> in your local graph"). Such a decision is not in the as-of graph either, so it reads as
+ * "not before" - one dangling link endpoint must not fail a whole tool call.
+ */
+function isNotFound(err: unknown): boolean {
+  if (err instanceof GatewayError) return err.statusCode === 404;
+  return err instanceof Error && /^No decision \S+ in your local graph/.test(err.message);
+}
+
+/**
+ * One guard per tool call. Other `getDecision` errors propagate: a failed lookup is not evidence
+ * the decision is old OR new, and dropping it silently would change the answer on a network blip.
  */
 export function createAsOfGuard(
   cutoff: string,
@@ -78,7 +89,13 @@ export function createAsOfGuard(
   const decisionBefore = (id: string): Promise<boolean> => {
     let known = seen.get(id);
     if (!known) {
-      known = getDecision(id).then((row) => isBefore((row as { created_at?: unknown } | null)?.created_at));
+      known = getDecision(id).then(
+        (row) => isBefore((row as { created_at?: unknown } | null)?.created_at),
+        (err: unknown) => {
+          if (isNotFound(err)) return false;
+          throw err;
+        },
+      );
       seen.set(id, known);
     }
     return known;
@@ -130,10 +147,12 @@ export async function filterAlignmentAsOf(result: AlignmentResult, guard: AsOfGu
     }
   }
 
-  // The gateway's message can name a dropped decision, so it is rebuilt from what survived.
+  // The gateway's message can name a dropped decision, or count it (local 'unknown' says "Could
+  // not check N related decision(s)"), so it is rebuilt from what survived - 'unknown' included.
   const message =
     status === 'unknown'
-      ? result.message
+      ? `Could not check ${keptRelevant.length} related decision(s) recorded before ${guard.cutoff}. ` +
+        'This is NOT a pass: treat it as unchecked and review these decisions before proceeding.'
       : status === 'conflicting'
         ? `Potential conflict with ${keptConflicts.length} decision(s).`
         : status === 'no-context'
@@ -147,12 +166,17 @@ export async function filterAlignmentAsOf(result: AlignmentResult, guard: AsOfGu
     status,
     relevant_decisions: keptRelevant,
     ...(result.conflicts !== undefined ? { conflicts: keptConflicts } : {}),
-    ...(status === 'no-context' ? { confidence: 0 } : {}),
+    // The gateway's confidence is a max over candidates that included a dropped decision, so it
+    // is recomputed from the survivors' similarity ('unknown' already reports no confidence).
+    ...(status !== 'unknown'
+      ? { confidence: Math.max(0, ...keptRelevant.map((d) => (typeof d.similarity === 'number' ? d.similarity : 0))) }
+      : {}),
     message,
   };
   // The event id and any prior sign-off belong to the verdict the gateway reached. Once that
   // verdict is withdrawn, carrying them would let a person adjudicate a result nobody returned.
-  if (status !== result.status) {
+  // An 'unknown' result left the dropped decision in its unchecked set, so the same applies.
+  if (status !== result.status || status === 'unknown') {
     delete out.check_event_id;
     delete out.prior_adjudication;
   }
@@ -185,9 +209,10 @@ async function keepLinks(links: unknown[], guard: AsOfGuard): Promise<unknown[]>
 }
 
 /**
- * `conflict_count` is recounted from the surviving links. The gateway's `total_count` is computed
- * without the cursor, so it counts post-cutoff links too and is never reported under a cutoff -
- * nor are the per-relation counts beside it in the envelope.
+ * `conflict_count` is recounted from the surviving links. The gateway returns its count fields as
+ * null whenever a cursor is sent, and none of them could be trusted as-of anyway, so no gateway
+ * count is reported under a cutoff. `next_cursor` is dropped too: it encodes the last RAW row's
+ * timestamp and id, which may be a link this filter removed, and no tool takes a cursor.
  */
 export async function filterConflictsAsOf(result: ConflictsResult, guard: AsOfGuard): Promise<ConflictsResult> {
   if (!Array.isArray(result?.links)) throw cannotFilter('conflicts');
@@ -196,7 +221,7 @@ export async function filterConflictsAsOf(result: ConflictsResult, guard: AsOfGu
   return {
     links,
     ...(result.pagination
-      ? { pagination: { has_more: hasMore, next_cursor: result.pagination['next_cursor'] ?? null } }
+      ? { pagination: { has_more: hasMore } }
       : {}),
     conflict_count: links.length,
     ...(hasMore
@@ -276,13 +301,18 @@ export function filterTopicTimelineAsOf(result: TopicTimelineResult, guard: AsOf
     superseded_count: decisions.filter((d) => d.status === 'superseded' || d.status === 'archived').length,
     platforms,
     spans_platforms: platforms.length > 1,
-    ...(Array.isArray(result.chain_ids) ? { chain_ids: result.chain_ids.filter(has) } : {}),
+    // An emptied chain would put every survivor in background and narrate nothing; omitting it
+    // takes the shaper's older-gateway path, which narrates all rows.
+    ...(Array.isArray(result.chain_ids) && result.chain_ids.some(has)
+      ? { chain_ids: result.chain_ids.filter(has) }
+      : {}),
     ...(Array.isArray(result.disagreements)
       ? { disagreements: result.disagreements.filter((d) => has(d?.from?.id) && has(d?.to?.id)) }
       : {}),
     ...(Array.isArray(result.why) ? { why: result.why.filter((w) => has(w?.id)) } : {}),
     ...(Array.isArray(result.still_open) ? { still_open: result.still_open.filter((s) => has(s?.id)) } : {}),
   };
+  if (!result.chain_ids?.some(has)) delete out.chain_ids;
   delete out.background_platforms;
   delete out.activity;
   return out;
