@@ -194,6 +194,9 @@ export interface SearchResults {
     // serializeMcpResult happening to be a denylist. See lib/decision-relations.ts.
     successor?: DecisionRelation;
     conflicts_with?: DecisionRelation;
+    // ALI-1412: up to 3 LATER decisions on this row's topic, cloud only, on any status. An entry
+    // with no `relation` was never linked - "newer and similar", not "replaced this".
+    later_on_topic?: DecisionRelation[];
   }>;
   count: number;
   strategy: 'semantic' | 'keyword';

@@ -72,6 +72,26 @@ export function normaliseDecisionRelation(raw: unknown): DecisionRelation | unde
 }
 
 /**
+ * ALI-1412: the LATER decisions on a row's topic (align-stack db/laterOnTopic.ts) - up to 3,
+ * linked or merely similar, each `{ id, title, source_url, status?, date, date_basis,
+ * relation?, direction?, similarity? }`. Unlike the two fields above it is a LIST and is present
+ * regardless of status: the case it exists for is an `active` row a later, unlinked decision
+ * reversed (AlignBench v7's `reversed` split, 57%).
+ */
+export const LATER_ON_TOPIC_FIELD = 'later_on_topic';
+
+/**
+ * Each entry gets the same treatment as a single relation (null fields dropped, an entry with no
+ * id dropped), and a list left with nothing followable - or a value that was never a list -
+ * yields undefined, so the key goes rather than reading as "checked, nothing newer".
+ */
+export function normaliseLaterOnTopic(raw: unknown): DecisionRelation[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const entries = raw.map(normaliseDecisionRelation).filter((e): e is DecisionRelation => e !== undefined);
+  return entries.length > 0 ? entries : undefined;
+}
+
+/**
  * Apply the contract to a search payload, leaving everything else exactly as the gateway sent it.
  *
  * Non-array `results`, a non-object row, or a row with neither field are all pass-throughs.
@@ -98,6 +118,11 @@ export function withDecisionRelationContract<T extends { results?: unknown }>(pa
         const shaped = normaliseDecisionRelation(out[field]);
         if (shaped) out[field] = shaped;
         else delete out[field];
+      }
+      if (LATER_ON_TOPIC_FIELD in out) {
+        const later = normaliseLaterOnTopic(out[LATER_ON_TOPIC_FIELD]);
+        if (later) out[LATER_ON_TOPIC_FIELD] = later;
+        else delete out[LATER_ON_TOPIC_FIELD];
       }
       return out;
     }),
