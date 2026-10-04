@@ -823,7 +823,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       };
     },
 
-    async checkDrift(decisionId: string, content: string, _sourceType?: string) {
+    // `_createdBefore` matches the cloud signature. A local drift check is a pure read and stores
+    // no row, so the cutoff has nothing to suppress here (ALI-1438).
+    async checkDrift(decisionId: string, content: string, _sourceType?: string, _createdBefore?: string) {
       const decisionEmbedding = db.getEmbedding(decisionId);
       if (!decisionEmbedding) return { decisionId, score: null, drifted: null, note: 'Decision not found or not yet embedded.' };
       // ALI-787: a stored vector tagged with a DIFFERENT model is not comparable to a

@@ -714,10 +714,23 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       });
     },
 
-    async checkDrift(decisionId: string, content: string, sourceType = 'manual_input'): Promise<unknown> {
+    /**
+     * ALI-1438: with `createdBefore` the gateway still returns the verdict but stores no
+     * decision_drift_checks row, so a frozen run leaves nothing behind. No cutoff, no key.
+     */
+    async checkDrift(
+      decisionId: string,
+      content: string,
+      sourceType = 'manual_input',
+      createdBefore?: string,
+    ): Promise<unknown> {
       return request(`/decisions/${encodePathSegment(decisionId)}/drift-check`, {
         method: 'POST',
-        body: JSON.stringify({ source_type: sourceType, content }),
+        body: JSON.stringify({
+          source_type: sourceType,
+          content,
+          ...(createdBefore ? { created_before: createdBefore } : {}),
+        }),
       });
     },
 
