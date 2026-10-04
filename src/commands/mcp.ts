@@ -201,6 +201,17 @@ export async function dispatchTool(
     );
   }
 
+  // ALI-1420: a frozen run must never write a decision into the graph, or the next frozen run
+  // (or the live graph) would see a decision the run invented. align_capture is the one tool
+  // that does. Scoped to decisions on purpose: align_check_drift and align_check_alignment stay
+  // available, and the gateway still records their check events (a known limit, not a decision).
+  if (createdBefore && name === 'align_capture') {
+    throw new Error(
+      `align_capture adds a decision to the graph, and this server is frozen as of ${createdBefore}, ` +
+        'so it never captures. Restart align mcp without --created-before to capture.',
+    );
+  }
+
   // ALI-1411: every READ tool honours the as-of cutoff, not just the three built on
   // searchDecisions. Only smart-search and the decision-links cursor bound it server-side;
   // the rest are filtered by lib/as-of.ts, which says what that cannot cover. With no cutoff
@@ -248,7 +259,13 @@ export async function dispatchTool(
       return client.captureDecision(input, platform);
     }
     case 'align_check_alignment': {
-      const result = await client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined);
+      // ALI-1420: the gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
+      // gateway that predates the parameter. No cutoff keeps the two-argument call.
+      const result = asOf
+        ? await client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined, {
+            createdBefore: asOf.cutoff,
+          })
+        : await client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined);
       return asOf ? filterAlignmentAsOf(result, asOf) : result;
     }
     case 'align_check_drift':
@@ -257,7 +274,9 @@ export async function dispatchTool(
       return client.checkDrift(args?.['decision_id'] as string, args?.['content'] as string, args?.['source_type'] as string | undefined);
     case 'align_get_impact': {
       if (asOf) await asOf.assertDecision(args?.['decision_id'] as string);
-      const result = await client.getImpact(args?.['decision_id'] as string);
+      const result = asOf
+        ? await client.getImpact(args?.['decision_id'] as string, asOf.cutoff)
+        : await client.getImpact(args?.['decision_id'] as string);
       return asOf ? filterImpactAsOf(result, asOf) : result;
     }
     case 'align_get_conflicts':
@@ -283,10 +302,9 @@ export async function dispatchTool(
      * client, so there is one writer of it.
      */
     case TOPIC_TIMELINE_TOOL: {
-      const raw = await client.getTopicTimeline(
-        args?.['topic'] as string,
-        args?.['limit'] as number | undefined,
-      );
+      const raw = asOf
+        ? await client.getTopicTimeline(args?.['topic'] as string, args?.['limit'] as number | undefined, asOf.cutoff)
+        : await client.getTopicTimeline(args?.['topic'] as string, args?.['limit'] as number | undefined);
       return shapeTopicTimeline(asOf ? filterTopicTimelineAsOf(raw, asOf) : raw, args?.['topic'] as string);
     }
     /**

@@ -520,3 +520,73 @@ describe('align_get_decision_timeline under an as-of cutoff', () => {
     expect(c.getDecision).not.toHaveBeenCalled();
   });
 });
+
+// ALI-1420: the gateway now bounds three of these reads itself, so the cutoff is SENT, not only
+// applied afterwards. The client-side filters stay as a backstop for a gateway that predates the
+// parameter (it ignores an unknown field), which is the fail-closed direction.
+describe('the cutoff reaches the gateway (ALI-1420)', () => {
+  it('align_check_alignment sends createdBefore; without a cutoff the call is exactly as before', async () => {
+    const c = fakeClient({});
+    c.checkAlignment.mockResolvedValue({ status: 'no-context', relevant_decisions: [] });
+    await dispatchTool('align_check_alignment', { diff: 'd', context: 'ctx' }, cast(c), cloud, CUTOFF);
+    expect(c.checkAlignment).toHaveBeenCalledWith('d', 'ctx', { createdBefore: CUTOFF });
+
+    const c2 = fakeClient({});
+    c2.checkAlignment.mockResolvedValue({ status: 'no-context', relevant_decisions: [] });
+    await dispatchTool('align_check_alignment', { diff: 'd', context: 'ctx' }, cast(c2), cloud);
+    expect(c2.checkAlignment).toHaveBeenCalledWith('d', 'ctx');
+  });
+
+  it('align_get_topic_timeline sends createdBefore; without a cutoff the call is exactly as before', async () => {
+    const empty = { topic: 'auth', count: 0, decisions: [], retrieval: { lexical: true, semantic: true } };
+    const c = fakeClient({});
+    c.getTopicTimeline.mockResolvedValue(empty);
+    await dispatchTool(TOPIC_TIMELINE_TOOL, { topic: 'auth', limit: 7 }, cast(c), cloud, CUTOFF);
+    expect(c.getTopicTimeline).toHaveBeenCalledWith('auth', 7, CUTOFF);
+
+    const c2 = fakeClient({});
+    c2.getTopicTimeline.mockResolvedValue(empty);
+    await dispatchTool(TOPIC_TIMELINE_TOOL, { topic: 'auth', limit: 7 }, cast(c2), cloud);
+    expect(c2.getTopicTimeline).toHaveBeenCalledWith('auth', 7);
+  });
+
+  it('align_get_impact sends createdBefore (the no-cutoff call is pinned above as getImpact("root"))', async () => {
+    const c = fakeClient({ root: BEFORE });
+    c.getImpact.mockResolvedValue({ decision: { id: 'root' }, impact: { decisions: [] }, dependencies: { decisions: [] } });
+    await dispatchTool('align_get_impact', { decision_id: 'root' }, cast(c), cloud, CUTOFF);
+    expect(c.getImpact).toHaveBeenCalledWith('root', CUTOFF);
+  });
+});
+
+// ALI-1420: a frozen run must never write decisions into the graph. align_capture is the one
+// tool that does, so it is refused under a cutoff.
+describe('align_capture under an as-of cutoff (ALI-1420)', () => {
+  const captureClient = () => ({ ...fakeClient({}), captureDecision: vi.fn().mockResolvedValue({ id: 'x' }) });
+
+  it('align_capture is refused and nothing is captured', async () => {
+    const c = captureClient();
+    await expect(
+      dispatchTool('align_capture', { input: 'https://github.com/a/b/pull/1' }, c as unknown as Client, cloud, CUTOFF),
+    ).rejects.toThrow(/frozen.*never captures/i);
+    expect(c.captureDecision).not.toHaveBeenCalled();
+  });
+
+  it('the refusal names the cutoff and the way out', async () => {
+    const c = captureClient();
+    await expect(
+      dispatchTool('align_capture', { input: 'https://github.com/a/b/pull/1' }, c as unknown as Client, cloud, CUTOFF),
+    ).rejects.toThrow(new RegExp(`${CUTOFF.replace(/[.]/g, '\\.')}.*--created-before`));
+  });
+
+  it('without a cutoff align_capture still captures (the control)', async () => {
+    const c = captureClient();
+    await dispatchTool('align_capture', { input: 'https://github.com/a/b/pull/1' }, c as unknown as Client, cloud);
+    expect(c.captureDecision).toHaveBeenCalledWith('https://github.com/a/b/pull/1', 'github');
+  });
+
+  it('read tools are not refused (ask runs under a cutoff)', async () => {
+    const c = fakeClient({});
+    await dispatchTool('align_ask', { question: 'q' }, cast(c), cloud, CUTOFF);
+    expect(c.searchDecisions).toHaveBeenCalledWith('q', 8, CUTOFF);
+  });
+});

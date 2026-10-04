@@ -668,6 +668,12 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
         platform?: string;
         subjectKey?: string;
         headSha?: string;
+        /**
+         * ALI-1420: `align mcp --created-before`. The gateway bounds candidate retrieval by it,
+         * so the judge's verdict is reached over the graph as it stood - a client-side filter
+         * afterwards cannot undo a verdict that already saw post-cutoff decisions.
+         */
+        createdBefore?: string;
       } = {},
     ): Promise<AlignmentResult> {
       return request<AlignmentResult>('/alignment/check', {
@@ -691,6 +697,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
           // content it was sent) - what makes a gate verdict joinable to its PR outcome.
           ...(opts.subjectKey ? { subject_key: opts.subjectKey } : {}),
           ...(opts.headSha ? { head_sha: opts.headSha } : {}),
+          ...(opts.createdBefore ? { created_before: opts.createdBefore } : {}),
         }),
       });
     },
@@ -714,8 +721,14 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       });
     },
 
-    async getImpact(decisionId: string): Promise<unknown> {
-      return request(`/decisions/${encodePathSegment(decisionId)}/impact`);
+    /**
+     * ALI-1420: `createdBefore` bounds the traversal itself on the gateway. An edge recorded after
+     * the cutoff between two older decisions carries no timestamp in this response, so only the
+     * server can leave it out.
+     */
+    async getImpact(decisionId: string, createdBefore?: string): Promise<unknown> {
+      const asOf = createdBefore ? `?created_before=${encodeURIComponent(createdBefore)}` : '';
+      return request(`/decisions/${encodePathSegment(decisionId)}/impact${asOf}`);
     },
 
     /**
@@ -732,10 +745,11 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
      * limit lives HERE and not in the dispatch arm, so there is one writer of it (the hosted
      * connector's client defaults the same way).
      */
-    async getTopicTimeline(topic: string, limit = 50): Promise<TopicTimelineResult> {
+    async getTopicTimeline(topic: string, limit = 50, createdBefore?: string): Promise<TopicTimelineResult> {
+      // ALI-1420: bounded server-side so the limit is spent on rows that existed at the cutoff.
       return request<TopicTimelineResult>('/decisions/topic-timeline', {
         method: 'POST',
-        body: JSON.stringify({ topic, limit }),
+        body: JSON.stringify({ topic, limit, ...(createdBefore ? { created_before: createdBefore } : {}) }),
       });
     },
 
