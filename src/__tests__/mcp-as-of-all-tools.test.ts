@@ -165,17 +165,20 @@ describe('align_check_alignment under an as-of cutoff', () => {
   });
 });
 
-// ALI-1420: a frozen run must never write. align_check_drift records a drift_check row on the
-// gateway, so under a cutoff it is refused like align_capture - even for a decision that
-// predates the cutoff, which ALI-1411 used to run.
 describe('align_check_drift under an as-of cutoff', () => {
-  it('is refused outright, for a pre-cutoff decision too, without running the check', async () => {
-    const c = fakeClient({ old: BEFORE });
+  it('refuses a decision created after the cutoff without running the check', async () => {
+    const c = fakeClient({ new: AFTER });
     await expect(
-      dispatchTool('align_check_drift', { decision_id: 'old', content: 'x' }, cast(c), cloud, CUTOFF),
-    ).rejects.toThrow(/frozen.*never writes|writes to the graph/i);
+      dispatchTool('align_check_drift', { decision_id: 'new', content: 'x' }, cast(c), cloud, CUTOFF),
+    ).rejects.toThrow(`No decision new in the graph as of ${CUTOFF}`);
     expect(c.checkDrift).not.toHaveBeenCalled();
-    expect(c.getDecision).not.toHaveBeenCalled();
+  });
+
+  it('runs the check for a decision that predates the cutoff', async () => {
+    const c = fakeClient({ old: BEFORE });
+    const out = await dispatchTool('align_check_drift', { decision_id: 'old', content: 'x' }, cast(c), cloud, CUTOFF);
+    expect(c.checkDrift).toHaveBeenCalledWith('old', 'x', undefined);
+    expect(out).toEqual({ drifted: false, score: 0.9 });
   });
 
   it('without a cutoff it does not look the decision up', async () => {
@@ -555,16 +558,16 @@ describe('the cutoff reaches the gateway (ALI-1420)', () => {
   });
 });
 
-// ALI-1420: a frozen run must never write. Every tool annotated as a write is refused under a
-// cutoff, derived from the annotations tools/list publishes rather than a hand-kept list.
-describe('write tools under an as-of cutoff (ALI-1420)', () => {
+// ALI-1420: a frozen run must never write decisions into the graph. align_capture is the one
+// tool that does, so it is refused under a cutoff.
+describe('align_capture under an as-of cutoff (ALI-1420)', () => {
   const captureClient = () => ({ ...fakeClient({}), captureDecision: vi.fn().mockResolvedValue({ id: 'x' }) });
 
   it('align_capture is refused and nothing is captured', async () => {
     const c = captureClient();
     await expect(
       dispatchTool('align_capture', { input: 'https://github.com/a/b/pull/1' }, c as unknown as Client, cloud, CUTOFF),
-    ).rejects.toThrow(/frozen.*never writes|writes to the graph/i);
+    ).rejects.toThrow(/frozen.*never captures/i);
     expect(c.captureDecision).not.toHaveBeenCalled();
   });
 
