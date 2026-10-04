@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.0](https://github.com/aligndottech/align-cli/compare/cli-v0.44.0...cli-v0.45.0) (2026-10-04)
+
+
+### Features
+
+* **mcp:** send created_before to the gateway; align_capture refuses when frozen (ALI-1420) ([#329](https://github.com/aligndottech/align-cli/issues/329)) ([e9f1c25](https://github.com/aligndottech/align-cli/commit/e9f1c25385356f0896e09e4ef8db821a83e091e4))
+
 ## [0.44.0](https://github.com/aligndottech/align-cli/compare/cli-v0.43.0...cli-v0.44.0) (2026-10-03)
 
 
