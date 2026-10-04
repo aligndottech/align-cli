@@ -18,7 +18,15 @@
  *   post-cutoff decision tells the agent it exists.
  * - **No cutoff, no change.** Callers only reach this module when a cutoff is set.
  *
- * What client-side filtering cannot see, and so is NOT covered (each needs gateway support):
+ * ALI-1420: `/alignment/check`, `/decisions/topic-timeline` and `/decisions/:id/impact` now take
+ * `created_before` and bound the query server-side (retrieval before the judge, the LIMIT, the
+ * traversal's edges), and mcp.ts sends it. The filters below still run as a backstop for a
+ * gateway that predates the parameter. They bound on capture time (`created_at`) where the
+ * gateway bounds on source time, so a decision decided before the cutoff but captured after it
+ * is dropped here - over-pruning, the safe direction.
+ *
+ * What client-side filtering cannot see on its own (the gateway bound above covers the first
+ * three when it supports the parameter):
  * a row's `status` is its status today (a decision superseded after the cutoff still reads
  * `superseded`); an impact-graph EDGE recorded after the cutoff between two older decisions is
  * invisible in that response; `/alignment/check`'s verdict was reached by a judge that saw

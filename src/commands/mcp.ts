@@ -201,6 +201,16 @@ export async function dispatchTool(
     );
   }
 
+  // ALI-1420: a frozen run must never write. Any tool tools/list annotates as a write
+  // (readOnlyHint: false - align_capture, align_check_drift) is refused under a cutoff, read
+  // from the same annotations so a new write tool is covered without a second list to keep.
+  if (createdBefore && isWriteTool(name)) {
+    throw new Error(
+      `${name} writes to the graph, and this server is frozen as of ${createdBefore}, so it never writes. ` +
+        'Restart align mcp without --created-before to capture or record anything.',
+    );
+  }
+
   // ALI-1411: every READ tool honours the as-of cutoff, not just the three built on
   // searchDecisions. Only smart-search and the decision-links cursor bound it server-side;
   // the rest are filtered by lib/as-of.ts, which says what that cannot cover. With no cutoff
@@ -248,16 +258,23 @@ export async function dispatchTool(
       return client.captureDecision(input, platform);
     }
     case 'align_check_alignment': {
-      const result = await client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined);
+      // ALI-1420: the gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
+      // gateway that predates the parameter. No cutoff keeps the two-argument call.
+      const result = asOf
+        ? await client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined, {
+            createdBefore: asOf.cutoff,
+          })
+        : await client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined);
       return asOf ? filterAlignmentAsOf(result, asOf) : result;
     }
     case 'align_check_drift':
-      // Drift against a decision that did not exist yet is not an as-of answer.
-      if (asOf) await asOf.assertDecision(args?.['decision_id'] as string);
+      // Never reached under a cutoff: it records a drift check, so the write guard above refuses it.
       return client.checkDrift(args?.['decision_id'] as string, args?.['content'] as string, args?.['source_type'] as string | undefined);
     case 'align_get_impact': {
       if (asOf) await asOf.assertDecision(args?.['decision_id'] as string);
-      const result = await client.getImpact(args?.['decision_id'] as string);
+      const result = asOf
+        ? await client.getImpact(args?.['decision_id'] as string, asOf.cutoff)
+        : await client.getImpact(args?.['decision_id'] as string);
       return asOf ? filterImpactAsOf(result, asOf) : result;
     }
     case 'align_get_conflicts':
@@ -283,10 +300,9 @@ export async function dispatchTool(
      * client, so there is one writer of it.
      */
     case TOPIC_TIMELINE_TOOL: {
-      const raw = await client.getTopicTimeline(
-        args?.['topic'] as string,
-        args?.['limit'] as number | undefined,
-      );
+      const raw = asOf
+        ? await client.getTopicTimeline(args?.['topic'] as string, args?.['limit'] as number | undefined, asOf.cutoff)
+        : await client.getTopicTimeline(args?.['topic'] as string, args?.['limit'] as number | undefined);
       return shapeTopicTimeline(asOf ? filterTopicTimelineAsOf(raw, asOf) : raw, args?.['topic'] as string);
     }
     /**
@@ -377,6 +393,15 @@ export function createCallToolHandler(
  */
 const READS = { readOnlyHint: true, destructiveHint: false } as const;
 const WRITES_ADDITIVE = { readOnlyHint: false, destructiveHint: false } as const;
+
+/**
+ * ALI-1420: whether tools/list annotates this tool as a write. Unknown names are not writes here;
+ * dispatchTool's own default arm refuses them.
+ */
+function isWriteTool(name: string): boolean {
+  const tool = TOOL_SCHEMAS.find((t) => t.name === name) as { annotations?: { readOnlyHint?: boolean } } | undefined;
+  return tool?.annotations?.readOnlyHint === false;
+}
 
 export const TOOL_SCHEMAS = [
   {

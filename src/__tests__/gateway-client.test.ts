@@ -290,6 +290,36 @@ describe('gateway client', () => {
     expect(body).not.toHaveProperty('created_before');
   });
 
+  // ALI-1420: the three reads the gateway now bounds server-side carry the cutoff; with none,
+  // the request is byte-for-byte what it was (no key, no query string).
+  it('checkAlignment with a cutoff carries created_before in the POST body; without one, no key', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ status: 'no-context', relevant_decisions: [] }) });
+    await createGatewayClient(localEnv).checkAlignment('diff', 'ctx', { createdBefore: '2026-08-11T00:00:00.000Z' });
+    await createGatewayClient(localEnv).checkAlignment('diff', 'ctx');
+    const bodyOf = (i: number) => JSON.parse((mockFetch.mock.calls[i][1] as Parameters<typeof fetch>[1]).body as string);
+    expect(bodyOf(0).created_before).toBe('2026-08-11T00:00:00.000Z');
+    expect(bodyOf(1)).not.toHaveProperty('created_before');
+  });
+
+  it('getTopicTimeline with a cutoff carries created_before in the POST body; without one, no key', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ topic: 't', decisions: [] }) });
+    await createGatewayClient(localEnv).getTopicTimeline('t', 10, '2026-08-11T00:00:00.000Z');
+    await createGatewayClient(localEnv).getTopicTimeline('t', 10);
+    const bodyOf = (i: number) => JSON.parse((mockFetch.mock.calls[i][1] as Parameters<typeof fetch>[1]).body as string);
+    expect(bodyOf(0)).toEqual({ topic: 't', limit: 10, created_before: '2026-08-11T00:00:00.000Z' });
+    expect(bodyOf(1)).toEqual({ topic: 't', limit: 10 });
+  });
+
+  it('getImpact with a cutoff sends it URL-encoded in the query string; without one, the bare path', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+    await createGatewayClient(localEnv).getImpact('d-1', '2026-08-11T01:00:00+01:00');
+    await createGatewayClient(localEnv).getImpact('d-1');
+    expect(mockFetch.mock.calls[0][0]).toBe(
+      'http://localhost:8080/decisions/d-1/impact?created_before=2026-08-11T01%3A00%3A00%2B01%3A00',
+    );
+    expect(mockFetch.mock.calls[1][0]).toBe('http://localhost:8080/decisions/d-1/impact');
+  });
+
   it('ingestBatch posts to /ingest/batch with decisions array', async () => {
     const snapshots = [{ id: 'snap-1', title: 'Add auth', summary: 'Added JWT auth' }];
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ snapshots }) });
