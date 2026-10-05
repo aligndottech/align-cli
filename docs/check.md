@@ -81,7 +81,8 @@ align check --resolve <decision_id>:honored      # or overridden | context_chang
 ```
 
 An exit `2` can also mean the judge reached your change and declined to rule, which no re-run
-will change on its own. Answer it once, using the event id the failing check prints:
+will change on its own. Answer it once from a terminal, using the event id the failing check prints. The answer is
+recorded as yours, so the command refuses a hook, a pipe or an agent shell:
 
 ```bash
 align adjudicate <event-id> --verdict accepted --note "why this may proceed"
