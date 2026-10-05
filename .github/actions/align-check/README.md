@@ -113,7 +113,8 @@ One kind does not. The judge can reach your change, find a relationship it canno
 either a pass or a conflict, and decline to rule - `reason_class: non_verdict`. That answer is
 a function of the diff and the recorded decisions, so re-running returns it again, forever.
 
-A person on your team resolves it:
+A person on your team resolves it, from a terminal. The command refuses a hook, a pipe or an
+agent shell, because the answer is recorded as that person's:
 
 ```
 align adjudicate <event-id> --verdict accepted --note "why"

@@ -10,6 +10,13 @@
  * The gateway matches the answer to a digest of the content it was sent, so re-running the
  * check on the same change finds it, and answering something you were never shown is not
  * available.
+ *
+ * ALI-1448: the gateway records this answer as a PERSON's, and it clears a CI gate, so the
+ * command refuses a caller that is not at a terminal, as `align ratify` does: a hook, a pipe
+ * and an agent's shell tool all arrive with a stdin that is not a TTY. There is deliberately no
+ * `--yes` bypass, because a bypass flag is exactly what an agent would pass. The TTY check is a
+ * strong signal, not proof: a caller that allocates a pty to fake one is not stopped by it.
+ * ALI-1449 replaces it with a browser step-up the gateway can verify.
  */
 import type { Command } from 'commander';
 import chalk from 'chalk';
@@ -38,6 +45,15 @@ export function registerAdjudicateCommand(program: Command): void {
     .option('--note <note>', 'Why - recorded alongside your answer')
     .option('--env <env>', 'Environment')
     .action(async (eventId: string, opts: { verdict: string; note?: string; env?: EnvName }) => {
+      // stdin, not stdout: a person may pipe the OUTPUT and still be a person.
+      if (!process.stdin.isTTY) {
+        console.error(chalk.red('\n  align adjudicate answers a check as a human, and this was not run from a terminal.'));
+        console.error(chalk.red('  A hook, a pipe, or an agent shell cannot adjudicate.'));
+        console.error(chalk.dim(`\n  Open a terminal and run: align adjudicate ${eventId} --verdict <accepted|conflicting>\n`));
+        process.exit(1);
+        return;
+      }
+
       if (!isVerdict(opts.verdict)) {
         console.error(
           chalk.red(`\n  --verdict must be one of: ${VERDICTS.join(', ')}\n`),
