@@ -118,6 +118,43 @@ function mentionedArtifacts(refs: unknown): {
   };
 }
 
+// ALI-1426: wire-level bounds, identical to the hosted connector's (align-stack#3049).
+export const MAX_ACCEPTANCE_CRITERIA_CHARS = 1200;
+export const MAX_ACTIONS = 10;
+export const MAX_ACTION_CHARS = 300;
+
+/** First non-empty array across the candidates; a non-array candidate counts as empty. */
+function firstNonEmptyArray(...candidates: unknown[]): unknown[] {
+  return candidates.map(asArray).find((a) => a.length > 0) ?? [];
+}
+
+/** First non-blank string across the candidates, trimmed and capped at `max`. */
+function boundedText(
+  max: number,
+  ...candidates: unknown[]
+): { text: string; truncated: boolean } | undefined {
+  const found = candidates.find((v): v is string => typeof v === 'string' && v.trim().length > 0);
+  if (found === undefined) return undefined;
+  const text = found.trim();
+  return { text: text.slice(0, max), truncated: text.length > max };
+}
+
+/** The brain writes actions as `{text, owner?, due?}`; older rows carry plain strings. */
+function actionTexts(value: unknown): string[] {
+  return asArray(value)
+    .map((a) => (typeof a === 'string' ? a : (a as { text?: unknown } | null)?.text))
+    .filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+}
+
+/** Filter BEFORE choosing a location, so a top-level list with no usable text yields to ai. */
+function boundedActions(...candidates: unknown[]): { actions: string[]; truncated: boolean } {
+  const texts = candidates.map(actionTexts).find((t) => t.length > 0) ?? [];
+  return {
+    actions: texts.slice(0, MAX_ACTIONS).map((t) => t.trim().slice(0, MAX_ACTION_CHARS)),
+    truncated: texts.length > MAX_ACTIONS || texts.some((t) => t.trim().length > MAX_ACTION_CHARS),
+  };
+}
+
 /**
  * Shape one `GET /snapshots/:id` row into the rationale answer.
  *
@@ -136,6 +173,14 @@ export function shapeDecisionRationale(
   const realRationale = [dj['rationale'], aiSub['rationale']].find(
     (v): v is string => typeof v === 'string' && v.trim().length > 0,
   );
+  // ALI-1426: the prescribed fix often lives in acceptance_criteria/actions and nowhere else
+  // (AlignBench v11 gh-token item). Same semantics as the hosted connector (align-stack#3049).
+  const acceptance = boundedText(
+    MAX_ACCEPTANCE_CRITERIA_CHARS,
+    dj['acceptance_criteria'],
+    aiSub['acceptance_criteria'],
+  );
+  const actions = boundedActions(dj['actions'], aiSub['actions']);
 
   return {
     decision_id: decisionId,
@@ -164,13 +209,24 @@ export function shapeDecisionRationale(
             'No reasoning was captured for this decision. The summary above describes WHAT was ' +
             'decided, not why - do not present it as the rationale.',
         }),
-    goals: (dj['goals'] as string[] | undefined) ?? [],
+    // ALI-1426: goals are stored under decision_json.ai, so a top-level-only read returned [].
+    goals: firstNonEmptyArray(dj['goals'], aiSub['goals']),
     risks: (dj['risks'] as string[] | undefined) ?? (aiSub['risks'] as string[] | undefined) ?? [],
     context: (dj['context'] as string | undefined) ?? '',
     alternatives_considered: asArray(
       dj['alternatives_considered'] ?? aiSub['alternatives_considered'],
     ),
     positions_considered: asArray(dj['positions_considered'] ?? aiSub['positions_considered']),
+    // Absent rather than '' / [] when not stored, like mentioned_artifacts below.
+    ...(acceptance
+      ? {
+          acceptance_criteria: acceptance.text,
+          ...(acceptance.truncated ? { acceptance_criteria_truncated: true } : {}),
+        }
+      : {}),
+    ...(actions.actions.length > 0
+      ? { actions: actions.actions, ...(actions.truncated ? { actions_truncated: true } : {}) }
+      : {}),
     ...mentionedArtifacts(row['external_references']),
   };
 }

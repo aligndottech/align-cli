@@ -534,7 +534,7 @@ export const TOOL_SCHEMAS = [
   {
     name: DECISION_RATIONALE_TOOL,
     annotations: READS,
-    description: 'Retrieve the rationale, goals, risks, and context behind a specific decision. Use this when you need to understand WHY a decision was made - the reasoning, trade-offs, and constraints that led to it.',
+    description: 'Retrieve the rationale, goals, risks, and context behind a specific decision, plus its acceptance criteria and actions when stored (often the concrete fix or command the decision prescribes). Use this when you need to understand WHY a decision was made - the reasoning, trade-offs, and constraints that led to it - or exactly what it requires.',
     inputSchema: {
       type: 'object',
       properties: {
