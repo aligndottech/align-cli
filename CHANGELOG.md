@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.46.0](https://github.com/aligndottech/align-cli/compare/cli-v0.45.0...cli-v0.46.0) (2026-10-07)
+
+
+### Features
+
+* **mcp:** tell agents to give the user a conflict's review_url (ALI-1443) ([#332](https://github.com/aligndottech/align-cli/issues/332)) ([8f0f1ab](https://github.com/aligndottech/align-cli/commit/8f0f1ab3c5c0fcdc7d9ebca42c01df324d2ec9c2))
+
+
+### Bug Fixes
+
+* **adjudicate:** refuse a run that is not from a terminal (ALI-1448) ([#334](https://github.com/aligndottech/align-cli/issues/334)) ([76aa6c3](https://github.com/aligndottech/align-cli/commit/76aa6c3af709025f568cdffbd89775849532f0b2))
+* **mcp:** return goals, acceptance criteria and actions in decision rationale ([#335](https://github.com/aligndottech/align-cli/issues/335)) ([73560e4](https://github.com/aligndottech/align-cli/commit/73560e42770fa170cdb2d7c8743b3a6eaf50e080))
+
 ## [0.45.0](https://github.com/aligndottech/align-cli/compare/cli-v0.44.0...cli-v0.45.0) (2026-10-04)
 
 
