@@ -39,10 +39,15 @@ const AI_ALTS = [
 ];
 const TOP_ALTS = [{ option: 'Circuit breaker only', rejected_because: 'too coarse per call' }];
 
-describe('shapeDecisionRationale risks and alternatives_considered (ALI-1465)', () => {
+describe('shapeDecisionRationale risks, alternatives_considered and positions_considered (ALI-1465)', () => {
   const cases = [
     { field: 'risks', top: TOP_RISKS, ai: AI_RISKS },
     { field: 'alternatives_considered', top: TOP_ALTS, ai: AI_ALTS },
+    {
+      field: 'positions_considered',
+      top: [{ position: 'Keep the shared token', held_by: 'platform' }],
+      ai: [{ position: 'Per-connector tokens', held_by: 'security' }],
+    },
   ] as const;
 
   for (const { field, top, ai } of cases) {
