@@ -35,11 +35,11 @@ export const MCP_INSTRUCTIONS_SHARED = `Align is this team's decision graph - wh
 
 - BEFORE writing or changing non-trivial code, call {check_alignment} with the diff, phrased as the DECISION and its value ("set the worker pool to 12"), never the chore ("wire up a worker"). A "conflict" result, or a matched decision whose OWN status is conflicted, means a past decision opposes the change - STOP and confirm with the user before proceeding. Give the user its review_url, if any.
 - An "unknown" status means the check could not run - it is NOT a pass. Surface it to the user and do not proceed as if aligned.
-- To answer "why did we decide X" or to understand a convention, call {search}.
-- Also for behaviour questions that name no decision: "what happens when X fails", "does it fail open".
-- Cite a decision by its cite value when present; link via decision_url if present, else source_url if present, else say no link - never present one as the other.
-- When the question was only a question, REPORT what the graph returned, with its titles and source links, and do not re-derive it from the code. Read the code to confirm only when you are about to change behaviour.
-- Search the graph BEFORE reading the code: it spans repositories, so grepping this checkout misses other repositories' decisions.
+- To answer "why did we decide X", a convention, or a behaviour question ("what happens when X fails", "does it fail open"), call {search}.
+- Cite a decision by its cite value when present; link its decision_url if present, else its source_url, else say no link - never one as the other.
+- When the question was only a question, REPORT what the graph returned, with titles and source links; do not re-derive it from the code. Read the code to confirm only when you are about to change behaviour.
+- Search the graph BEFORE reading the code: it spans repositories this checkout cannot grep.
+- A {search} hit's implemented_by lists the merged PRs that shipped it; each may differ, so cover every one.
 - Read a {search} hit's later_on_topic (newer decisions on its topic) before answering; answer from one that reversed it.`;
 
 /**

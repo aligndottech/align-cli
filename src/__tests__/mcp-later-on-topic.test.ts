@@ -117,3 +117,17 @@ describe('server instructions point the agent at later_on_topic (ALI-1412)', () 
     expect(line).toMatch(/\balign_ask\b/); // rendered with the CLI's tool name
   });
 });
+
+// ALI-1426 (AlignBench v13, teams item 1/5): the gateway attaches implemented_by to a ticket hit,
+// the merged PRs that shipped it, and nothing told an agent what that field is. With #1401 (the
+// clientState guard) listed beside #1405 (the JWT route), 4 of 5 answers named only #1405.
+describe('server instructions explain implemented_by', () => {
+  it('names the field, says what it lists, and asks for every listed PR to be covered', async () => {
+    const { ALIGN_MCP_INSTRUCTIONS } = await import('../commands/mcp.js');
+    const line = ALIGN_MCP_INSTRUCTIONS.split('\n').find((l: string) => l.includes('implemented_by'));
+    expect(line).toBeDefined();
+    expect(line).toMatch(/merged PRs/);
+    expect(line).toMatch(/\bevery\b|\beach\b/);
+    expect(line).toMatch(/\balign_ask\b/);
+  });
+});
