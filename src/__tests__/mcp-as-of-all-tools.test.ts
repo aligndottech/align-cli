@@ -177,7 +177,8 @@ describe('align_check_drift under an as-of cutoff', () => {
   it('runs the check for a decision that predates the cutoff', async () => {
     const c = fakeClient({ old: BEFORE });
     const out = await dispatchTool('align_check_drift', { decision_id: 'old', content: 'x' }, cast(c), cloud, CUTOFF);
-    expect(c.checkDrift).toHaveBeenCalledWith('old', 'x', undefined);
+    // ALI-1438: the cutoff reaches the gateway, which then stores no decision_drift_checks row.
+    expect(c.checkDrift.mock.calls[0]).toStrictEqual(['old', 'x', undefined, CUTOFF]);
     expect(out).toEqual({ drifted: false, score: 0.9 });
   });
 
@@ -185,7 +186,8 @@ describe('align_check_drift under an as-of cutoff', () => {
     const c = fakeClient({});
     await dispatchTool('align_check_drift', { decision_id: 'new', content: 'x' }, cast(c), cloud);
     expect(c.getDecision).not.toHaveBeenCalled();
-    expect(c.checkDrift).toHaveBeenCalledWith('new', 'x', undefined);
+    // No cutoff keeps the three-argument call, so the request is what it was before ALI-1438.
+    expect(c.checkDrift.mock.calls[0]).toStrictEqual(['new', 'x', undefined]);
   });
 });
 

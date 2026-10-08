@@ -204,7 +204,8 @@ export async function dispatchTool(
   // ALI-1420: a frozen run must never write a decision into the graph, or the next frozen run
   // (or the live graph) would see a decision the run invented. align_capture is the one tool
   // that does. Scoped to decisions on purpose: align_check_drift and align_check_alignment stay
-  // available, and the gateway still records their check events (a known limit, not a decision).
+  // available, and both send the cutoff so the gateway records no check event or drift row for
+  // them (ALI-1429, ALI-1438).
   if (createdBefore && name === 'align_capture') {
     throw new Error(
       `align_capture adds a decision to the graph, and this server is frozen as of ${createdBefore}, ` +
@@ -271,7 +272,16 @@ export async function dispatchTool(
     case 'align_check_drift':
       // Drift against a decision that did not exist yet is not an as-of answer.
       if (asOf) await asOf.assertDecision(args?.['decision_id'] as string);
-      return client.checkDrift(args?.['decision_id'] as string, args?.['content'] as string, args?.['source_type'] as string | undefined);
+      // ALI-1438: the cutoff tells the gateway not to store a drift-check row. No cutoff keeps
+      // the three-argument call.
+      return asOf
+        ? client.checkDrift(
+            args?.['decision_id'] as string,
+            args?.['content'] as string,
+            args?.['source_type'] as string | undefined,
+            asOf.cutoff,
+          )
+        : client.checkDrift(args?.['decision_id'] as string, args?.['content'] as string, args?.['source_type'] as string | undefined);
     case 'align_get_impact': {
       if (asOf) await asOf.assertDecision(args?.['decision_id'] as string);
       const result = asOf

@@ -301,6 +301,17 @@ describe('gateway client', () => {
     expect(bodyOf(1)).not.toHaveProperty('created_before');
   });
 
+  // ALI-1438: drift-check stores a decision_drift_checks row unless the request carries the
+  // cutoff, so a frozen run sends it; with none, the body is what it was (no key).
+  it('checkDrift with a cutoff carries created_before in the POST body; without one, no key', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ result: {}, check: null }) });
+    await createGatewayClient(localEnv).checkDrift('dec-1', 'pool = 12', undefined, '2026-08-11T00:00:00.000Z');
+    await createGatewayClient(localEnv).checkDrift('dec-1', 'pool = 12');
+    const bodyOf = (i: number) => JSON.parse((mockFetch.mock.calls[i][1] as Parameters<typeof fetch>[1]).body as string);
+    expect(bodyOf(0)).toEqual({ source_type: 'manual_input', content: 'pool = 12', created_before: '2026-08-11T00:00:00.000Z' });
+    expect(bodyOf(1)).toStrictEqual({ source_type: 'manual_input', content: 'pool = 12' });
+  });
+
   it('getTopicTimeline with a cutoff carries created_before in the POST body; without one, no key', async () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ topic: 't', decisions: [] }) });
     await createGatewayClient(localEnv).getTopicTimeline('t', 10, '2026-08-11T00:00:00.000Z');
