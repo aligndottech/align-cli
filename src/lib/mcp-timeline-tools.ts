@@ -210,11 +210,14 @@ export function shapeDecisionRationale(
             'decided, not why - do not present it as the rationale.',
         }),
     // ALI-1426: goals are stored under decision_json.ai, so a top-level-only read returned [].
+    // ALI-1465: risks and alternatives share the same helper, so an empty top-level [] no
+    // longer hides a populated ai list.
     goals: firstNonEmptyArray(dj['goals'], aiSub['goals']),
-    risks: (dj['risks'] as string[] | undefined) ?? (aiSub['risks'] as string[] | undefined) ?? [],
+    risks: firstNonEmptyArray(dj['risks'], aiSub['risks']),
     context: (dj['context'] as string | undefined) ?? '',
-    alternatives_considered: asArray(
-      dj['alternatives_considered'] ?? aiSub['alternatives_considered'],
+    alternatives_considered: firstNonEmptyArray(
+      dj['alternatives_considered'],
+      aiSub['alternatives_considered'],
     ),
     positions_considered: asArray(dj['positions_considered'] ?? aiSub['positions_considered']),
     // Absent rather than '' / [] when not stored, like mentioned_artifacts below.
