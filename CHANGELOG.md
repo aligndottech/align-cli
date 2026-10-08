@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.1](https://github.com/aligndottech/align-cli/compare/cli-v0.46.0...cli-v0.46.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **mcp:** risks and alternatives in decision rationale fall back to ai like goals (ALI-1465) ([#336](https://github.com/aligndottech/align-cli/issues/336)) ([8add00d](https://github.com/aligndottech/align-cli/commit/8add00de8b870fb009387e1d09bbc1dfd2cda047))
+
 ## [0.46.0](https://github.com/aligndottech/align-cli/compare/cli-v0.45.0...cli-v0.46.0) (2026-10-07)
 
 
