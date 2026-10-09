@@ -2,7 +2,8 @@ import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BACKUP_SUFFIX, mergeWrittenConfig, safeWriteJson, setWriteRecorder, undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
+import { BACKUP_SUFFIX, mergeWrittenConfig, type SafeFs, safeWriteJson, setWriteRecorder, undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
+import * as realFs from 'node:fs';
 import { applyConfigWrite } from '../lib/launch/config-writes.js';
 import { writeMcpConfig } from '../lib/mcp-setup.js';
 import { writeUserHooks } from '../lib/user-hooks.js';
@@ -180,28 +181,23 @@ describe('a file align created that the user then populated (MEDIUM, last check)
     expect(read().mcpServers['align-local']).toBeUndefined();
   });
 
-  it('a second variant, all on the launch path: the user\'s own `align-local` is never replaced, but a populated file is snapshotted before a second launch write', () => {
+  it('a second variant, all on the launch path: a second launch write over a populated file keeps the user\'s entry and leaves no needless snapshot', () => {
     launchWrite();
     touch((c) => { c.mcpServers.mine = { command: 'm' }; });
     applyConfigWrite({ kind: 'mcp-entry', file: file(), topKey: 'mcpServers', name: 'align-local-2', entry: { command: 'align' } }, note);
-    expect(existsSync(`${file() + BACKUP_SUFFIX  }.1`)).toBe(true);
+    expect(readdirSync(dir).filter((f) => f.includes('.align-backup'))).toEqual([]); // it replaced nothing of theirs
     undoWrittenConfigs(manifest);
     expect(read()).toEqual({ mcpServers: { mine: { command: 'm' } } });
   });
 
-  it('snapshots are regular files, 0600, numbered without overwriting, and the manifest holds hashes only (never values)', () => {
+  it('a snapshot that holds a replaced value is a regular file, 0600; the manifest holds hashes only (never values)', () => {
     launchWrite();
-    touch((c) => { c.mcpServers.secret = { env: { TOKEN: 'hunter2-very-secret' } }; });
+    touch((c) => { c.mcpServers.align = { command: 'user-own', env: { TOKEN: 'hunter2-very-secret' } }; });
     writeMcpConfig(cursorTarget() as never, undefined);
-    touch((c) => { c.mcpServers.more = { command: 'x' }; });
-    writeMcpConfig(cursorTarget() as never, 'staging');
-    const snaps = readdirSync(dir).filter((f) => /\.align-backup\.\d+$/.test(f)).sort();
-    expect(snaps).toEqual(['hooks.json.align-backup.1', 'hooks.json.align-backup.2']);
-    for (const f of snaps) {
-      expect(lstatSync(path.join(dir, f)).isFile()).toBe(true);
-      expect(statSync(path.join(dir, f)).mode & 0o777).toBe(0o600);
-    }
-    expect(readFileSync(path.join(dir, snaps[0]!), 'utf8')).not.toContain('"more"');
+    const snaps = readdirSync(dir).filter((f) => /\.align-backup\.\d+$/.test(f));
+    expect(snaps).toEqual(['hooks.json.align-backup.1']);
+    expect(lstatSync(path.join(dir, snaps[0]!)).isFile()).toBe(true);
+    expect(statSync(path.join(dir, snaps[0]!)).mode & 0o777).toBe(0o600);
     expect(JSON.stringify(manifest)).not.toContain('hunter2');
   });
 
@@ -242,6 +238,64 @@ describe('a file align created that the user then populated (MEDIUM, last check)
     undoWrittenConfigs(manifest);
     expect(read().mcpServers.align).toEqual(userOwn);
     expect(readFileSync(`${file() + BACKUP_SUFFIX  }.1`, 'utf8')).toBe('someone else\'s'); // still there after the undo
+  });
+
+  it('(probe L) five rounds of "the user edits an unrelated key, then setup runs" leave no unreferenced snapshot', () => {
+    launchWrite();
+    for (let n = 0; n < 5; n++) {
+      touch((c) => { c.unrelated = n; });
+      writeMcpConfig(cursorTarget() as never, undefined);
+    }
+    expect(readdirSync(dir).filter((f) => /\.align-backup\.\d+$/.test(f))).toEqual([]);
+    undoWrittenConfigs(manifest);
+    expect(read()).toEqual({ unrelated: 4 });
+  });
+
+  it('a write that does replace a user value keeps exactly one snapshot, however many rounds came before', () => {
+    launchWrite();
+    for (let n = 0; n < 3; n++) {
+      touch((c) => { c.unrelated = n; });
+      writeMcpConfig(cursorTarget() as never, undefined);
+    }
+    touch((c) => { c.mcpServers.align = userOwn; });
+    writeMcpConfig(cursorTarget() as never, 'staging');
+    expect(readdirSync(dir).filter((f) => /\.align-backup\.\d+$/.test(f))).toHaveLength(1);
+    undoWrittenConfigs(manifest);
+    expect(read().mcpServers.align).toEqual(userOwn);
+    expect(readdirSync(dir).filter((f) => f.includes('.align-backup'))).toEqual([]);
+  });
+
+  it('a write that aborts on a conflict leaves no snapshot behind', () => {
+    launchWrite();
+    touch((c) => { c.mcpServers.align = userOwn; });
+    let n = 0;
+    const fs: SafeFs = {
+      ...(realFs as unknown as SafeFs),
+      writeFileSync: ((f: string, ...rest: unknown[]) => {
+        if (String(f).endsWith('.align-tmp')) { n += 1; (realFs.writeFileSync as (...a: unknown[]) => void)(file(), JSON.stringify({ other: n }), 'utf8'); }
+        return (realFs.writeFileSync as (...a: unknown[]) => void)(f, ...rest);
+      }) as SafeFs['writeFileSync'],
+    };
+    expect(() => safeWriteJson(file(), (c) => ({ ...c, a: 1 }), { note, fs })).toThrow();
+    expect(readdirSync(dir).filter((f) => f.includes('.align-backup') || f.includes('align-tmp'))).toEqual([]);
+  });
+
+  it('a recorder that throws costs the manifest only: an unreferenced snapshot is still removed, a referenced one kept', () => {
+    launchWrite();
+    touch((c) => { c.unrelated = 1; });
+    setWriteRecorder(() => { throw new Error('manifest unavailable'); }, (f) => manifest[f]);
+    writeMcpConfig(cursorTarget() as never, undefined);
+    expect(readdirSync(dir).filter((f) => /\.align-backup\.\d+$/.test(f))).toEqual([]);
+    touch((c) => { c.mcpServers.align = userOwn; });
+    writeMcpConfig(cursorTarget() as never, 'staging');
+    expect(readdirSync(dir).filter((f) => /\.align-backup\.\d+$/.test(f))).toHaveLength(1); // the only copy of their entry
+  });
+
+  it('the snapshot cap fails with a message that names `align use --undo`, not a raw error', () => {
+    launchWrite();
+    touch((c) => { c.unrelated = 1; });
+    for (let n = 1; n <= 200; n++) writeFileSync(`${file()}${BACKUP_SUFFIX}.${n}`, 'x');
+    expect(() => writeMcpConfig(cursorTarget() as never, undefined)).toThrow(/align use --undo/);
   });
 
   it('nothing is snapshotted while the file is exactly what align last wrote', () => {

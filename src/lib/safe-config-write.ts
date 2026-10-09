@@ -247,7 +247,7 @@ function backupOnce(fs: SafeFs, file: string): { state: 'made' | 'foreign'; sha2
  * `<file>.align-backup.<n>`, exclusive, 0600 (it may hold secrets), never overwritten.
  */
 function takeSnapshot(fs: SafeFs, file: string, content: string, taken: number[]): { n: number; sha256: string } {
-  for (let n = Math.max(0, ...taken) + 1; n < 200; n++) {
+  for (let n = Math.max(0, ...taken) + 1; n <= MAX_SNAPSHOTS; n++) {
     const target = `${file}${BACKUP_SUFFIX}.${n}`;
     if (linkAt(fs, target) !== 'missing') continue;
     try {
@@ -258,9 +258,22 @@ function takeSnapshot(fs: SafeFs, file: string, content: string, taken: number[]
     }
     return { n, sha256: sha(content) };
   }
-  throw new Error(`could not find a free name for a snapshot of ${file}`);
+  throw new Error(`${file} already has ${taken.length} snapshots from align. Run \`align use --undo\` to clear them, then try again.`);
 }
 
+/** Delete snapshots THIS call made (verified: a regular file whose hash is the one taken). */
+function dropSnapshots(fs: SafeFs, file: string, list: Array<{ n: number; sha256: string }>): void {
+  for (const { n, sha256: want } of list) {
+    const target = `${file}${BACKUP_SUFFIX}.${n}`;
+    try {
+      if (fs.lstatSync(target).isFile() && sha(fs.readFileSync(target)) === want) fs.unlinkSync(target);
+    } catch {
+      // already gone
+    }
+  }
+}
+
+const MAX_SNAPSHOTS = 200;
 const STALE_TMP_MS = 60_000;
 /** A crash between staging and rename leaves `.<name>.<hex>.align-tmp`. Old ones are removed. */
 function sweepStaleTemps(fs: SafeFs, file: string): void {
@@ -358,7 +371,32 @@ function safeWrite(
       }
     }
 
-    if (!stageAndRename(fs, file, next, mode, () => readCurrent(fs, file) === before)) continue;
+    let staged = false;
+    try {
+      staged = stageAndRename(fs, file, next, mode, () => readCurrent(fs, file) === before);
+    } catch (err) {
+      dropSnapshots(fs, file, snapshots);
+      throw err;
+    }
+    if (!staged) continue;
+    // A snapshot stays only if a unit this write replaced or removed points at it; otherwise it
+    // holds nothing the file or the first backup does not, and would just pile up.
+    const lastSnap = snapshots.length > 0 ? snapshots[snapshots.length - 1]!.n : 0;
+    let owned: Pick<WrittenConfig, 'owned'> = {};
+    let block: WrittenConfig['block'];
+    try {
+      owned = describe?.(lastSnap) ?? {};
+      const b = opts.markers ? blockOf(before, next, opts.markers) : undefined;
+      block = b ? { ...b, ...(b.replaced ? { snapshot: lastSnap } : {}) } : undefined;
+    } catch {
+      // Not knowing what we changed costs the undo, never the write.
+    }
+    const referenced = new Set<number>([
+      ...(owned.owned ?? []).filter((i) => i.replaced).map((i) => i.snapshot ?? 0),
+      ...(block?.replaced ? [block.snapshot ?? 0] : []),
+    ]);
+    const kept = snapshots.filter((x) => referenced.has(x.n));
+    dropSnapshots(fs, file, snapshots.filter((x) => !referenced.has(x.n)));
     try {
       recorder?.(file, {
         created: before === null,
@@ -366,15 +404,17 @@ function safeWrite(
         firstSha256: sha(next),
         backup: backup.state,
         ...(backup.sha256 ? { backupSha256: backup.sha256 } : {}),
-        ...(snapshots.length > 0 ? { snapshots } : {}),
-        ...describe?.(snapshots.length > 0 ? snapshots[snapshots.length - 1]!.n : 0),
-        ...(opts.markers && blockOf(before, next, opts.markers) ? { block: { ...blockOf(before, next, opts.markers)!, ...(blockOf(before, next, opts.markers)!.replaced ? { snapshot: snapshots.length > 0 ? snapshots[snapshots.length - 1]!.n : 0 } : {}) } } : {}),
+        ...(kept.length > 0 ? { snapshots: kept } : {}),
+        ...owned,
+        ...(block ? { block } : {}),
       });
     } catch {
-      // The file is written. A manifest that cannot be updated costs the undo, not the write.
+      // The file is written. A manifest that cannot be updated costs the undo, not the write. A
+      // snapshot that holds a replaced user value is kept anyway: it may be the only copy.
     }
     return 'written';
   }
+  dropSnapshots(fs, file, snapshots);
   throw new SafeWriteConflictError(file);
 }
 
