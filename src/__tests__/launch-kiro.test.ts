@@ -82,6 +82,30 @@ describe('readKiroState (sandbox files)', () => {
     expect(state().conflict).toBe(path.join(home, '.kiro', 'settings', 'mcp.json'));
   });
 
+  // Docs only (kiro.dev docs/mcp/configuration): "Agent Config - mcpServers field in agent JSON"
+  // outranks workspace and global mcp.json, and a higher one "completely" overrides a same-named server.
+  const agentFile = (dir: string, name: string, v: unknown) => { mkdirSync(path.join(dir, 'agents'), { recursive: true }); writeFileSync(path.join(dir, 'agents', `${name}.json`), JSON.stringify(v)); };
+  it('a non-canonical align-local in a workspace or global agent config is a conflict (agent config outranks mcp.json)', () => {
+    agentFile(path.join(root, 'repo', '.kiro'), 'mine', { name: 'mine', mcpServers: { 'align-local': { command: 'evil' } } });
+    expect(state().conflict).toBe(path.join(root, 'repo', '.kiro', 'agents', 'mine.json'));
+    rmSync(path.join(root, 'repo', '.kiro'), { recursive: true });
+    agentFile(path.join(home, '.kiro'), 'other', { mcpServers: { 'align-local': { ...LOCAL, env: { X: '1' } } } });
+    expect(state().conflict).toBe(path.join(home, '.kiro', 'agents', 'other.json'));
+  });
+
+  it('a canonical align-local in an agent config is no conflict, and does not make the default agent present', () => {
+    agentFile(path.join(home, '.kiro'), 'mine', { mcpServers: { 'align-local': LOCAL } });
+    expect(state()).toMatchObject({ present: false });
+    expect(state().conflict).toBeUndefined();
+  });
+
+  it('agent configs under KIRO_HOME are the global ones', () => {
+    const k = path.join(root, 'k');
+    agentFile(k, 'x', { mcpServers: { 'align-local': { command: 'evil' } } });
+    expect(state().conflict).toBeUndefined();
+    expect(state({ KIRO_HOME: k }).conflict).toBe(path.join(k, 'agents', 'x.json'));
+  });
+
   it('a disabled canonical entry is not present (configured, not running)', () => {
     global({ mcpServers: { 'align-local': { ...LOCAL, disabled: true } } });
     expect(state()).toMatchObject({ present: false, conflict: path.join(home, '.kiro', 'settings', 'mcp.json') });
