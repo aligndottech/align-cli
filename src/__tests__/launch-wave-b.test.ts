@@ -18,14 +18,16 @@ import { AGENT_REGISTRY } from '../lib/launch/registry/index.js';
 import { runAgent } from '../lib/launch/run-agent.js';
 import { mergeWrittenConfig, setWriteRecorder, undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
 import { prependPath, writeFakeAgent } from './helpers/fake-agent.js';
-import { pinPlatform } from './helpers/platform.js';
 
 /*
  * Wave B wiring: Qwen Code, Factory Droid, Amp, Kiro CLI and Grok Build are launch targets.
  * Each launches with ALIGN_WRAPPED and the local graph, writes nothing to stdout, shows in the
  * picker and in `align agents`, and a written-once write is written once and undone exactly.
  */
-pinPlatform('linux');
+// Not pinned: these suites spawn fake agents and walk real files, so they run on the host's own
+// platform (a pinned 'linux' on Windows spawns a .cmd without its shim and reads C:\ paths with
+// POSIX rules). Grok Build's gate reads USERPROFILE on Windows, so the sandbox home is stubbed there.
+const HOST = process.platform;
 const WAVE_B = { qwen: 'qwen', droid: 'droid', amp: 'amp', kiro: 'kiro-cli', 'grok-build': 'grok' } as const;
 
 let root: string, home: string, cwd: string;
@@ -49,7 +51,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; bins?: Record<st
     argv: ['node', 'align'],
     cwd,
     home,
-    platform: 'linux',
+    platform: HOST,
     isTTY: true,
     config: { getAgent: () => over.stored, setAgent: () => {} },
     findOnPath: (bin) => bins[bin] ?? null,
@@ -211,6 +213,7 @@ describe('written once, against FAKE kiro-cli and grok binaries (real pipeline)'
     setWriteRecorder((f, e) => { manifest[f] = mergeWrittenConfig(manifest[f], e); }, (f) => manifest[f]);
     for (const k of ['ALIGN_WRAPPED', 'ALIGN_NO_LAUNCH', 'ALIGN_LAUNCH_DRY_RUN', 'GROK_HOME', 'KIRO_HOME']) vi.stubEnv(k, undefined);
     vi.stubEnv('HOME', home);
+    vi.stubEnv('USERPROFILE', home);
     vi.stubEnv('PATH', prependPath(bin, prependPath(path.join(home, '.grok', 'bin'), process.env['PATH'])));
   });
   afterEach(() => { setWriteRecorder(undefined); vi.unstubAllEnvs(); });
@@ -229,8 +232,9 @@ describe('written once, against FAKE kiro-cli and grok binaries (real pipeline)'
   it('spawns the RESOLVED binary: an empty PATH element never lets a ./grok in the repo run in its place', async () => {
     // findOnPath skips an empty PATH element; a bare-name spawn would read it as the cwd.
     const marker = path.join(root, 'hijacked');
-    writeFileSync(path.join(cwd, 'grok'), `#!/bin/sh\necho x > "${marker}"\n`, { mode: 0o755 });
-    vi.stubEnv('PATH', `:${path.join(home, '.grok', 'bin')}${path.delimiter}${process.env['PATH']}`);
+    // A `grok` (grok.cmd on Windows) in the repo, which a bare-name spawn would find first.
+    writeFakeAgent(cwd, 'grok', { record: marker, recordBody: '"hijacked"', exitCode: 0 });
+    vi.stubEnv('PATH', `${path.delimiter}${path.join(home, '.grok', 'bin')}${path.delimiter}${process.env['PATH']}`);
     const before = process.cwd();
     process.chdir(cwd);
     try {
@@ -298,6 +302,7 @@ describe('wave B: a key align saved never reaches the new agents (#351 provider-
     writeFakeAgent(path.join(home, '.grok', 'bin'), 'grok', { record, recordBody: body, exitCode: 0 });
     for (const k of ['ALIGN_WRAPPED', 'ALIGN_NO_LAUNCH', 'ALIGN_LAUNCH_DRY_RUN', 'GROK_HOME']) vi.stubEnv(k, undefined);
     vi.stubEnv('HOME', home);
+    vi.stubEnv('USERPROFILE', home);
     vi.stubEnv('QWEN_CODE_SYSTEM_SETTINGS_PATH', path.join(root, 'qwen-sys.json'));
     vi.stubEnv('PATH', prependPath(bin, prependPath(path.join(home, '.grok', 'bin'), process.env['PATH'])));
     // As if align had put saved keys into its own environment.

@@ -15,6 +15,8 @@ import { pinPlatform, setPlatform } from './helpers/platform.js';
  * Folder trust is OFF by default in Qwen (Gemini: on), and when on, an untrusted folder has MCP off.
  */
 pinPlatform('linux');
+/** The real platform, read before pinPlatform swaps it: tests that walk real files must use the host's path rules. */
+const HOST = process.platform;
 const LOCAL = { command: 'align', args: ['mcp', '--env', 'local'] };
 const SYS = '/etc/qwen-code/settings.json';
 const BASE: QwenLaunchContext = {
@@ -152,7 +154,7 @@ describe('readQwenState and qwenFolderTrust (sandbox files)', () => {
   });
 
   it('trust is off by default, and off counts the workspace in (Qwen loads it)', () => {
-    expect(qwenFolderTrust(proj, home, env(), 'linux')).toBe('off');
+    expect(qwenFolderTrust(proj, home, env(), HOST)).toBe('off');
     expect(state().trust).toBe('off');
   });
 
@@ -168,14 +170,14 @@ describe('readQwenState and qwenFolderTrust (sandbox files)', () => {
     user({ security: { folderTrust: { enabled: true } } });
     const tf = path.join(home, '.qwen', 'trustedFolders.json');
     writeFileSync(tf, JSON.stringify({ [path.join(proj, 'x')]: 'TRUST_PARENT' }));
-    expect(qwenFolderTrust(proj, home, env(), 'linux')).toBe('trusted');
+    expect(qwenFolderTrust(proj, home, env(), HOST)).toBe('trusted');
     writeFileSync(tf, JSON.stringify({ [root]: 'TRUST_FOLDER', [proj]: 'DO_NOT_TRUST' }));
-    expect(qwenFolderTrust(proj, home, env(), 'linux')).toBe('untrusted');
+    expect(qwenFolderTrust(proj, home, env(), HOST)).toBe('untrusted');
   });
 
   it('an invalid trustedFolders.json is unknown; the system file can turn trust on too', () => {
     writeFileSync(path.join(root, 'sys.json'), JSON.stringify({ security: { folderTrust: { enabled: true } } }));
     writeFileSync(path.join(home, '.qwen', 'trustedFolders.json'), '{"x": "MAYBE"}');
-    expect(qwenFolderTrust(proj, home, env(), 'linux')).toBe('unknown');
+    expect(qwenFolderTrust(proj, home, env(), HOST)).toBe('unknown');
   });
 });

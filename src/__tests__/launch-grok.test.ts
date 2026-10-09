@@ -16,6 +16,8 @@ import { pinPlatform } from './helpers/platform.js';
  * align-owned block. `grok` is a generic name: it counts only from Grok Build's install places.
  */
 pinPlatform('linux');
+/** The real platform, read before pinPlatform swaps it: tests that walk real files must use the host's path rules. */
+const HOST = process.platform;
 const LOCAL = { command: 'align', args: ['mcp', '--env', 'local'] };
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -132,7 +134,7 @@ describe('readGrokState and the TOML write (sandbox files)', () => {
 
   it('state: a relative GROK_HOME is resolved, not left relative to wherever the write runs', () => {
     expect(path.isAbsolute(state({ GROK_HOME: 'rel/grok' }).configFile)).toBe(true);
-    expect(grokHome({ GROK_HOME: 'rel' }, 'linux', '/h')).toBe(path.resolve('rel'));
+    expect(grokHome({ GROK_HOME: 'rel' }, HOST, '/h')).toBe(path.resolve('rel'));
   });
 
   it('state: a local align imported from ~/.claude.json is present, unless [compat.claude] mcps = false', () => {

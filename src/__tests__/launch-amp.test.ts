@@ -79,9 +79,9 @@ describe('readAmpState (sandbox files)', () => {
   const workspace = (dir: string, v: unknown) => { mkdirSync(path.join(dir, '.amp'), { recursive: true }); writeFileSync(path.join(dir, '.amp', 'settings.json'), JSON.stringify(v)); };
 
   it('finds the settings file: --settings-file, else AMP_SETTINGS_FILE, else XDG_CONFIG_HOME, else ~/.config', () => {
-    expect(ampSettingsFile(home, {}, ['--settings-file', '/f.json'])).toBe('/f.json');
-    expect(ampSettingsFile(home, { AMP_SETTINGS_FILE: '/e.json' }, [])).toBe('/e.json');
-    expect(ampSettingsFile(home, { XDG_CONFIG_HOME: '/x' }, [])).toBe('/x/amp/settings.json');
+    expect(ampSettingsFile(home, {}, ['--settings-file', '/f.json'])).toBe(path.resolve('/f.json'));
+    expect(ampSettingsFile(home, { AMP_SETTINGS_FILE: '/e.json' }, [])).toBe(path.resolve('/e.json'));
+    expect(ampSettingsFile(home, { XDG_CONFIG_HOME: '/x' }, [])).toBe(path.join('/x', 'amp', 'settings.json'));
     expect(ampSettingsFile(home, {}, [])).toBe(path.join(home, '.config', 'amp', 'settings.json'));
     expect(state().settingsFile).toBe(userFile());
   });

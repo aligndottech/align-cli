@@ -116,7 +116,9 @@ export function readGrokState(
   // `grok --cwd <dir>` moves the project Grok loads; relative to the cwd, as a shell gives it.
   const project = path.resolve(cwd, optionValue(passthrough, '--cwd') ?? '.');
   const o = { ...opts, platform, host: 'mcpServers' as const };
-  const configFile = path.join(grokHome(env, platform, home), 'config.toml');
+  // A path on this machine's own filesystem: built with the host's path rules (in production the
+  // platform is the host's anyway). grokHome uses `platform`'s rules for the binary gate.
+  const configFile = path.join(env['GROK_HOME'] ? path.resolve(env['GROK_HOME']) : path.join(home, '.grok'), 'config.toml');
   const userServers = readToml(configFile)?.['mcp_servers'];
   const state: GrokProjectState = { present: false, overridden: [], configFile };
   const canonical = (s: unknown) => isObject(s) && (isCanonicalLocalEntry(s['align'], o) || isCanonicalLocalEntry(s['align-local'], o));
