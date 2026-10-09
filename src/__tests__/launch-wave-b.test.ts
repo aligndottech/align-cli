@@ -1,0 +1,355 @@
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runAgents } from '../commands/agents.js';
+import { runUse } from '../commands/use.js';
+import { supportedAgents } from '../lib/launch/agents.js';
+import { pickAgent } from '../lib/launch/pick-agent.js';
+import { applyConfigWrite } from '../lib/launch/config-writes.js';
+import { findOnPath } from '../lib/launch/detect.js';
+import { readGrokState } from '../lib/launch/grok-state.js';
+import { readKiroState } from '../lib/launch/kiro-state.js';
+import { readQwenState } from '../lib/launch/qwen-state.js';
+import { writeIfChanged } from '../lib/launch/launch-files.js';
+import { type LaunchDeps, launchIfChosen } from '../lib/launch/launch.js';
+import { AGENT_REGISTRY } from '../lib/launch/registry/index.js';
+import { runAgent } from '../lib/launch/run-agent.js';
+import { mergeWrittenConfig, setWriteRecorder, undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
+import { prependPath, writeFakeAgent } from './helpers/fake-agent.js';
+
+/*
+ * Wave B wiring: Qwen Code, Factory Droid, Amp, Kiro CLI and Grok Build are launch targets.
+ * Each launches with ALIGN_WRAPPED and the local graph, writes nothing to stdout, shows in the
+ * picker and in `align agents`, and a written-once write is written once and undone exactly.
+ */
+// Not pinned: these suites spawn fake agents and walk real files, so they run on the host's own
+// platform (a pinned 'linux' on Windows spawns a .cmd without its shim and reads C:\ paths with
+// POSIX rules). Grok Build's gate reads USERPROFILE on Windows, so the sandbox home is stubbed there.
+const HOST = process.platform;
+const WAVE_B = { qwen: 'qwen', droid: 'droid', amp: 'amp', kiro: 'kiro-cli', 'grok-build': 'grok' } as const;
+
+let root: string, home: string, cwd: string;
+beforeEach(() => {
+  root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'align-wave-b-')));
+  home = path.join(root, 'home');
+  cwd = path.join(root, 'repo');
+  mkdirSync(home);
+  mkdirSync(cwd);
+});
+afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+/** Real state readers over the sandbox; the agent itself is a mock. */
+function harness(over: Partial<LaunchDeps> & { stored?: string; bins?: Record<string, string> } = {}) {
+  const err: string[] = [];
+  const runAgentMock = vi.fn().mockResolvedValue(0);
+  const applied: unknown[] = [];
+  const bins = over.bins ?? {};
+  const deps: Partial<LaunchDeps> = {
+    env: { HOME: home, QWEN_CODE_SYSTEM_SETTINGS_PATH: path.join(root, 'qwen-sys.json'), XDG_CONFIG_HOME: path.join(home, '.config') },
+    argv: ['node', 'align'],
+    cwd,
+    home,
+    platform: HOST,
+    isTTY: true,
+    config: { getAgent: () => over.stored, setAgent: () => {} },
+    findOnPath: (bin) => bins[bin] ?? null,
+    cacheDir: () => path.join(root, 'cache'),
+    writeIfChanged: () => true,
+    pruneLaunchFiles: () => {},
+    applyConfigWrite: (w) => { applied.push(w); },
+    runAgent: runAgentMock,
+    record: vi.fn(),
+    pick: vi.fn(async () => null),
+    err: (l) => err.push(l),
+    now: () => 1,
+    ...over,
+  };
+  return { deps, err, runAgentMock, applied };
+}
+
+describe('wave B: each launches with Align wired in', () => {
+  beforeEach(() => {
+    // Grok Build's gate needs a `grok` that resolves inside ~/.grok/bin.
+    mkdirSync(path.join(home, '.grok', 'bin'), { recursive: true });
+    writeFileSync(path.join(home, '.grok', 'bin', 'grok'), '');
+  });
+  const binPath = (b: string) => (b === 'grok' ? path.join(home, '.grok', 'bin', 'grok') : `/usr/bin/${b}`);
+
+  it.each(Object.entries(WAVE_B))('%s: runs %s with ALIGN_WRAPPED=1, carries align-local, writes nothing to stdout', async (name, bin) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      const h = harness({ stored: name, bins: { [bin]: binPath(bin) } });
+      expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+      const spec = h.runAgentMock.mock.calls[0]![0];
+      expect(spec.bin).toBe(binPath(bin));
+      expect(spec.env['ALIGN_WRAPPED']).toBe('1');
+      expect(JSON.stringify({ spec, applied: h.applied })).toContain('align-local');
+      expect(log).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      write.mockRestore();
+    }
+  });
+
+  it('per-session ones write nothing to the user\'s config; written-once ones ask for exactly one write', async () => {
+    for (const [name, bin] of Object.entries(WAVE_B)) {
+      const h = harness({ stored: name, bins: { [bin]: binPath(bin) } });
+      await launchIfChosen(h.deps);
+      expect(h.applied, name).toHaveLength(['kiro', 'grok-build', 'amp'].includes(name) ? 1 : 0);
+    }
+  });
+
+  it('win32: the resolved .cmd shim is what runs, with the injected flags kept (qwen env, droid args)', async () => {
+    const q = harness({ stored: 'qwen', platform: 'win32', bins: { qwen: 'C:\\npm\\qwen.cmd' } });
+    await launchIfChosen(q.deps);
+    expect(q.runAgentMock.mock.calls[0]![0].bin).toBe('C:\\npm\\qwen.cmd');
+    expect(q.runAgentMock.mock.calls[0]![0].env['QWEN_CODE_SYSTEM_SETTINGS_PATH']).toBeDefined();
+    const a = harness({ stored: 'droid', platform: 'win32', bins: { droid: 'C:\\npm\\droid.cmd' } });
+    await launchIfChosen(a.deps);
+    expect(a.runAgentMock.mock.calls[0]![0]).toMatchObject({ bin: 'C:\\npm\\droid.cmd', args: ['--settings', expect.stringContaining('droid-settings.json'), '--append-system-prompt-file', expect.stringContaining('align-instructions.md')] });
+  });
+
+  it('the Droid, Amp and Grok readers get the user\'s args (--cwd, --settings, --settings-file change what they read)', async () => {
+    const seen: string[][] = [];
+    const args = ['node', 'align', '--', '--cwd', '/elsewhere'];
+    for (const [name, bin] of [['droid', 'droid'], ['amp', 'amp'], ['grok-build', 'grok']] as const) {
+      const h = harness({ stored: name, bins: { [bin]: binPath(bin) }, argv: args,
+        readDroidState: (_c, _h, _e, _p, pt) => { seen.push(pt); return { present: true, overridden: [], projectHasBlock: true }; },
+        readAmpState: (_c, _h, _e, _p, pt) => { seen.push(pt); return { present: true, overridden: [], settingsFile: '/s', commented: false }; },
+        readGrokState: (_c, _h, _e, _p, pt) => { seen.push(pt); return { present: true, overridden: [], configFile: '/g' }; } });
+      await launchIfChosen(h.deps);
+    }
+    expect(seen).toEqual([['--cwd', '/elsewhere'], ['--cwd', '/elsewhere'], ['--cwd', '/elsewhere']]);
+  });
+
+  it('an ALIGN_WRAPPED session never launches another (nested align)', async () => {
+    const h = harness({ stored: 'qwen', bins: { qwen: '/usr/bin/qwen' }, env: { ALIGN_WRAPPED: '1' } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
+    expect(h.runAgentMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('Grok Build: a generic `grok` on PATH', () => {
+  it('a `grok` outside Grok Build\'s install places is not Grok Build: a stored choice says it is not installed', async () => {
+    const other = path.join(root, 'usr-bin-grok');
+    writeFileSync(other, '');
+    const h = harness({ stored: 'grok-build', bins: { grok: other }, argv: ['node', 'align', '--'] });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 127 });
+    expect(h.runAgentMock).not.toHaveBeenCalled();
+    expect(h.err.join('\n')).toContain('Grok Build is not installed any more');
+  });
+
+  it('the picker marks such a `grok` not installed, and Grok Build\'s own as installed', async () => {
+    const other = path.join(root, 'grok');
+    writeFileSync(other, '');
+    const h = harness({ bins: { grok: other } });
+    await launchIfChosen(h.deps);
+    const labelOf = (opts: Array<{ value: string; label: string }>) => opts.find((o) => o.value === 'grok-build')!.label;
+    expect(labelOf((h.deps.pick as ReturnType<typeof vi.fn>).mock.calls[0]![0])).toBe('Grok Build (not installed)');
+    mkdirSync(path.join(home, '.grok', 'bin'), { recursive: true });
+    writeFileSync(path.join(home, '.grok', 'bin', 'grok'), '');
+    const g = harness({ bins: { grok: path.join(home, '.grok', 'bin', 'grok') } });
+    await launchIfChosen(g.deps);
+    expect(labelOf((g.deps.pick as ReturnType<typeof vi.fn>).mock.calls[0]![0])).toBe('Grok Build');
+  });
+
+  it('`align use grok-build` refuses a foreign `grok`', async () => {
+    const other = path.join(root, 'grok');
+    writeFileSync(other, '');
+    const errs: string[] = [];
+    const config = { getAgent: () => undefined, setAgent: vi.fn(), clearAgent: vi.fn(), setLaunchOff: vi.fn(), clearRefusedWrites: vi.fn() };
+    const code = await runUse('grok-build', { config, findOnPath: () => other, writtenConfigs: { get: () => ({}), drop: () => {} }, env: { HOME: home }, platform: 'linux', log: () => {}, err: (l) => errs.push(l) });
+    expect(code).toBe(1);
+    expect(config.setAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe('the picker and `align agents` list wave B with how to install', () => {
+  it('picker: every wave B agent, not installed, with its install text', async () => {
+    const h = harness();
+    await launchIfChosen(h.deps);
+    const opts = (h.deps.pick as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Array<{ value: string; label: string; hint?: string }>;
+    const hint = (v: string) => opts.find((o) => o.value === v)!.hint;
+    expect(hint('qwen')).toBe('install: npm i -g @qwen-code/qwen-code');
+    expect(hint('droid')).toBe('install: curl -fsSL https://app.factory.ai/cli | sh');
+    expect(hint('amp')).toBe('install: curl -fsSL https://ampcode.com/install.sh | bash');
+    expect(hint('kiro')).toBe('install: curl -fsSL https://cli.kiro.dev/install | bash');
+    expect(hint('grok-build')).toBe('install: curl -fsSL https://x.ai/cli/install.sh | bash');
+  });
+
+  it('`align agents`: one row each, installed per the same gate, how Align connects', () => {
+    const out: string[] = [];
+    const other = path.join(root, 'grok');
+    writeFileSync(other, '');
+    runAgents({ json: true }, { specs: AGENT_REGISTRY, findOnPath: (b) => ({ qwen: '/usr/bin/qwen', grok: other } as Record<string, string>)[b] ?? null, env: { HOME: home }, platform: 'linux', out: (l) => out.push(l), err: () => {} });
+    const rows = JSON.parse(out.join('\n')) as Array<Record<string, unknown>>;
+    const row = (id: string) => rows.find((r) => r['id'] === id)!;
+    expect(row('qwen')).toMatchObject({ label: 'Qwen Code', installed: true, connects: 'per-session', installCommand: 'npm i -g @qwen-code/qwen-code' });
+    expect(row('grok-build')).toMatchObject({ label: 'Grok Build', bin: 'grok', installed: false, connects: 'written-once' });
+    expect(row('kiro')).toMatchObject({ label: 'Kiro CLI', bin: 'kiro-cli', installed: false, connects: 'written-once', install: { kind: 'docs' } });
+    expect(row('droid')).toMatchObject({ connects: 'per-session', install: { kind: 'docs' } });
+    expect(row('amp')).toMatchObject({ connects: 'written-once', install: { kind: 'docs' } });
+  });
+});
+
+describe('written once, against FAKE kiro-cli and grok binaries (real pipeline)', () => {
+  let bin: string, record: string;
+  let manifest: Record<string, WrittenConfig>;
+  let lines: string[];
+  const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+  beforeEach(() => {
+    bin = path.join(root, 'bin');
+    mkdirSync(bin);
+    record = path.join(root, 'record.json');
+    writeFakeAgent(bin, 'kiro-cli', { record, recordBody: '{argv: args, wrapped: env.ALIGN_WRAPPED ?? null}', exitCode: 0 });
+    mkdirSync(path.join(home, '.grok', 'bin'), { recursive: true });
+    writeFakeAgent(path.join(home, '.grok', 'bin'), 'grok', { record, recordBody: '{argv: args, wrapped: env.ALIGN_WRAPPED ?? null}', exitCode: 0 });
+    manifest = {};
+    lines = [];
+    setWriteRecorder((f, e) => { manifest[f] = mergeWrittenConfig(manifest[f], e); }, (f) => manifest[f]);
+    for (const k of ['ALIGN_WRAPPED', 'ALIGN_NO_LAUNCH', 'ALIGN_LAUNCH_DRY_RUN', 'GROK_HOME', 'KIRO_HOME']) vi.stubEnv(k, undefined);
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('USERPROFILE', home);
+    vi.stubEnv('PATH', prependPath(bin, prependPath(path.join(home, '.grok', 'bin'), process.env['PATH'])));
+  });
+  afterEach(() => { setWriteRecorder(undefined); vi.unstubAllEnvs(); });
+  const run = (agent: string) => launchIfChosen({
+    env: { ...process.env }, argv: ['node', 'align', '--', 'hi'], cwd, home, platform: process.platform, isTTY: true,
+    config: { getAgent: () => agent, setAgent: () => {} },
+    findOnPath,
+    readKiroState: (c, h, e, p) => readKiroState(c, h, { localIsDefault: true }, e, p),
+    readGrokState: (c, h, e, p, pt) => readGrokState(c, h, { localIsDefault: true }, e, p, pt),
+    applyConfigWrite,
+    cacheDir: () => path.join(root, 'cache'), writeIfChanged, runAgent: (spec) => runAgent(spec),
+    record: () => {}, pick: async () => null, err: (l) => lines.push(l), now: () => 0,
+  });
+  const recorded = () => JSON.parse(readFileSync(record, 'utf8')) as { argv: string[]; wrapped: string | null };
+
+  it('spawns the RESOLVED binary: an empty PATH element never lets a ./grok in the repo run in its place', async () => {
+    // findOnPath skips an empty PATH element; a bare-name spawn would read it as the cwd.
+    const marker = path.join(root, 'hijacked');
+    // A `grok` (grok.cmd on Windows) in the repo, which a bare-name spawn would find first.
+    writeFakeAgent(cwd, 'grok', { record: marker, recordBody: '"hijacked"', exitCode: 0 });
+    vi.stubEnv('PATH', `${path.delimiter}${path.join(home, '.grok', 'bin')}${path.delimiter}${process.env['PATH']}`);
+    const before = process.cwd();
+    process.chdir(cwd);
+    try {
+      expect(await run('grok-build')).toEqual({ handled: true, code: 0 });
+    } finally {
+      process.chdir(before);
+    }
+    expect(existsSync(marker)).toBe(false);
+    expect(recorded().wrapped).toBe('1');
+  });
+
+  it('kiro: adds align-local to ~/.kiro/settings/mcp.json once, keeps the user\'s server, and --undo restores it byte for byte', async () => {
+    const f = path.join(home, '.kiro', 'settings', 'mcp.json');
+    mkdirSync(path.dirname(f), { recursive: true });
+    const original = '{ "mcpServers": { "mine": { "command": "x" } } }\n';
+    writeFileSync(f, original);
+    expect(await run('kiro')).toEqual({ handled: true, code: 0 });
+    expect(recorded()).toEqual({ argv: ['hi'], wrapped: '1' });
+    expect(Object.keys(JSON.parse(readFileSync(f, 'utf8')).mcpServers)).toEqual(['mine', 'align-local']);
+    const once = readFileSync(f, 'utf8');
+    lines.length = 0;
+    await run('kiro');
+    expect(readFileSync(f, 'utf8')).toBe(once);
+    expect(lines.filter((l) => l.startsWith('Added'))).toEqual([]);
+    expect(undoWrittenConfigs(manifest).restored).toEqual([f]);
+    expect(sha(readFileSync(f, 'utf8'))).toBe(sha(original));
+  });
+
+  it('kiro: a commented (JSONC) mcp.json is never rewritten: the session opens and one line says why', async () => {
+    const f = path.join(home, '.kiro', 'settings', 'mcp.json');
+    mkdirSync(path.dirname(f), { recursive: true });
+    const original = '// mine\n{ "mcpServers": {} }\n';
+    writeFileSync(f, original);
+    expect(await run('kiro')).toEqual({ handled: true, code: 0 });
+    expect(readFileSync(f, 'utf8')).toBe(original);
+    expect(lines.some((l) => l.includes(f))).toBe(true);
+  });
+
+  it('grok: appends the table once to ~/.grok/config.toml, keeps the user\'s text, and --undo restores it byte for byte', async () => {
+    const f = path.join(home, '.grok', 'config.toml');
+    const original = '# mine\n[mcp_servers.mine]\ncommand = "x"\n';
+    writeFileSync(f, original);
+    expect(await run('grok-build')).toEqual({ handled: true, code: 0 });
+    expect(recorded()).toEqual({ argv: ['hi'], wrapped: '1' });
+    const once = readFileSync(f, 'utf8');
+    expect(once.startsWith(original)).toBe(true);
+    expect(once).toContain('[mcp_servers.align-local]');
+    await run('grok-build');
+    expect(readFileSync(f, 'utf8')).toBe(once);
+    expect(undoWrittenConfigs(manifest).restored).toEqual([f]);
+    expect(sha(readFileSync(f, 'utf8'))).toBe(sha(original));
+    expect(existsSync(`${f}.align-backup`)).toBe(false);
+  });
+});
+
+describe('wave B: a key align saved never reaches the new agents (#351 provider-env reset)', () => {
+  let bin: string, record: string;
+  beforeEach(() => {
+    bin = path.join(root, 'bin');
+    mkdirSync(bin);
+    record = path.join(root, 'env.json');
+    const body = '{anthropic: env.ANTHROPIC_API_KEY ?? null, openai: env.OPENAI_API_KEY ?? null, wrapped: env.ALIGN_WRAPPED ?? null}';
+    writeFakeAgent(bin, 'qwen', { record, recordBody: body, exitCode: 0 });
+    mkdirSync(path.join(home, '.grok', 'bin'), { recursive: true });
+    writeFakeAgent(path.join(home, '.grok', 'bin'), 'grok', { record, recordBody: body, exitCode: 0 });
+    for (const k of ['ALIGN_WRAPPED', 'ALIGN_NO_LAUNCH', 'ALIGN_LAUNCH_DRY_RUN', 'GROK_HOME']) vi.stubEnv(k, undefined);
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('USERPROFILE', home);
+    vi.stubEnv('QWEN_CODE_SYSTEM_SETTINGS_PATH', path.join(root, 'qwen-sys.json'));
+    vi.stubEnv('PATH', prependPath(bin, prependPath(path.join(home, '.grok', 'bin'), process.env['PATH'])));
+    // As if align had put saved keys into its own environment.
+    vi.stubEnv('ANTHROPIC_API_KEY', 'saved-by-align');
+    vi.stubEnv('OPENAI_API_KEY', 'saved-by-align');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+  const run = (agent: string, startupEnv: Record<string, string>) => launchIfChosen({
+    env: { ...process.env }, argv: ['node', 'align', '--'], cwd, home, platform: process.platform, isTTY: true,
+    config: { getAgent: () => agent, setAgent: () => {} },
+    findOnPath,
+    readQwenState: (c, h, e, p) => readQwenState(c, h, { localIsDefault: true }, e, p),
+    readGrokState: (c, h, e, p, pt) => readGrokState(c, h, { localIsDefault: true }, e, p, pt),
+    applyConfigWrite: () => {},
+    cacheDir: () => path.join(root, 'cache'), writeIfChanged, pruneLaunchFiles: () => {},
+    runAgent: (spec) => runAgent(spec, { startupEnv }),
+    record: () => {}, pick: async () => null, err: () => {}, now: () => 0,
+  });
+  const env = () => JSON.parse(readFileSync(record, 'utf8')) as { anthropic: string | null; openai: string | null; wrapped: string | null };
+
+  it.each(['qwen', 'grok-build'])('%s: a saved ANTHROPIC/OPENAI key is absent from the child env', async (agent) => {
+    expect(await run(agent, {})).toEqual({ handled: true, code: 0 });
+    expect(env()).toEqual({ anthropic: null, openai: null, wrapped: '1' });
+  });
+
+  it.each(['qwen', 'grok-build'])('%s control: keys the user exported in their shell do reach it', async (agent) => {
+    await run(agent, { ANTHROPIC_API_KEY: 'users-own', OPENAI_API_KEY: 'users-own' });
+    expect(env()).toEqual({ anthropic: 'users-own', openai: 'users-own', wrapped: '1' });
+  });
+});
+
+describe('wave B: the wizard without a terminal keeps its old answers', () => {
+  const run = (onPath: string[], opts: { approve?: boolean } = {}) => {
+    let stored: string | undefined;
+    const say: string[] = [];
+    const config = { getAgent: () => stored, setAgent: (a: string) => { stored = a; } };
+    return pickAgent(config, { interactive: false, ...opts }, { agents: supportedAgents(), env: {}, platform: 'linux', findOnPath: (b) => (onPath.includes(b) ? `/b/${b}` : null), select: vi.fn(), say: (l) => say.push(l) }).then((r) => ({ r, say }));
+  };
+  it('Codex plus a wave B agent picks Codex, as before wave B (two examples)', async () => {
+    expect((await run(['codex', 'qwen'])).r).toBe('codex');
+    expect((await run(['gemini', 'amp', 'droid'])).r).toBe('gemini-cli');
+  });
+  it('two pre-wave-B agents still do not guess; a wave B agent alone is still picked', async () => {
+    expect((await run(['codex', 'gemini', 'qwen'])).r).toBeNull();
+    expect((await run(['qwen'])).r).toBe('qwen');
+  });
+  it('only wave B agents, two of them: no guess', async () => {
+    expect((await run(['qwen', 'amp'])).r).toBeNull();
+  });
+});

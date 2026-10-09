@@ -25,7 +25,9 @@ const CONNECTS: Record<AgentSpec['injection'], string> = {
  */
 export function runAgents(opts: { json?: boolean }, d: AgentsDeps): number {
   const rows = d.specs.map((s) => {
-    const path = d.findOnPath(s.bin, d.env, d.platform);
+    // The same test the launcher uses, so a generic `grok` that is not Grok Build is "no" here too.
+    const found = d.findOnPath(s.bin, d.env, d.platform);
+    const path = found && s.acceptsBin && !s.acceptsBin(found, d.env, d.platform) ? null : found;
     return { spec: s, path };
   });
   if (opts.json) {

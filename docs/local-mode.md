@@ -113,6 +113,9 @@ is listed on its own page, and a test keeps that page true.
   `--repo <name>` (a short name, `owner/repo`, or the full identity) to target another repo by
   name. Two clones of the same remote group under one identity automatically.
 - `align local status` inspects the graph, `align local reset` wipes it.
+- **Qwen Code reads a per-session copy of its system settings when bare `align`
+  opens it**, so a setting saved at system scope during that session lands in Align's copy
+  and is gone next time. Save it at user or workspace scope instead.
 
 ## What works locally today
 

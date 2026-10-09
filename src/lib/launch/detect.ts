@@ -15,7 +15,8 @@ export function findOnPath(bin: string, env: Record<string, string | undefined>,
   for (const dir of raw.split(win ? ';' : ':')) {
     if (!dir) continue;
     for (const name of names) {
-      const candidate = path.join(dir, name);
+      // Absolute, so what was checked here is what gets spawned whatever the cwd is by then.
+      const candidate = path.resolve(dir, name);
       try {
         if (!statSync(candidate).isFile()) continue;
         if (!win) accessSync(candidate, constants.X_OK);

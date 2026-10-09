@@ -14,6 +14,11 @@ import { type InstallOfferDeps, offerInstall } from './install.js';
 import { chooseAgent, type PickerOption } from './picker-options.js';
 import { confirmDefaultNo, selectAgent } from './prompts.js';
 import { type GeminiProjectState, readGeminiState } from './gemini-state.js';
+import { type AmpProjectState, readAmpState } from './amp-state.js';
+import { type DroidProjectState, readDroidState } from './droid-state.js';
+import { type GrokProjectState, readGrokState } from './grok-state.js';
+import { type KiroProjectState, readKiroState } from './kiro-state.js';
+import { type QwenProjectState, readQwenState } from './qwen-state.js';
 import { launchCacheDir, pruneLaunchFiles, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
 import { type PiProjectState, readPiState } from './pi-state.js';
@@ -51,6 +56,20 @@ export interface LaunchDeps {
   readGeminiState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): GeminiProjectState;
   /** What Copilot CLI would already load ($COPILOT_HOME or ~/.copilot, and the workspace). */
   readCopilotState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): CopilotProjectState;
+  /*
+   * Wave B readers. Optional only so a test harness written for earlier waves still type-checks:
+   * defaultDeps always sets them, and launchIfChosen merges overrides over defaultDeps.
+   */
+  /** What Qwen Code would already load, the system settings file it reads, and folder trust. */
+  readQwenState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): QwenProjectState;
+  /** What Factory Droid would already load, and whether the user brings their own runtime settings. */
+  readDroidState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): DroidProjectState;
+  /** What Amp would already load (its settings file, workspace files), and the user's own --mcp-config. */
+  readAmpState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): AmpProjectState;
+  /** What Kiro CLI would already load, and the global mcp.json align adds to. */
+  readKiroState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): KiroProjectState;
+  /** What Grok Build would already load, and the config.toml align adds to. */
+  readGrokState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): GrokProjectState;
   /** Add to a file in the user's own agent config, once (C4). Lines go to `note`. */
   applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
@@ -126,6 +145,11 @@ function defaultDeps(): LaunchDeps {
     readCodexState: (cwd, home, env, platform, passthrough) => readCodexState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     readGeminiState: (cwd, home, env, platform) => readGeminiState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
     readCopilotState: (cwd, home, env, platform) => readCopilotState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
+    readQwenState: (cwd, home, env, platform) => readQwenState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
+    readDroidState: (cwd, home, env, platform, passthrough) => readDroidState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
+    readAmpState: (cwd, home, env, platform, passthrough) => readAmpState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
+    readKiroState: (cwd, home, env, platform) => readKiroState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
+    readGrokState: (cwd, home, env, platform, passthrough) => readGrokState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
     cacheDir: launchCacheDir,
     writeIfChanged,
@@ -266,9 +290,12 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     d.err(`Could not write launch files (${(e as Error).message}). Showing your graph instead.`);
     return { handled: false };
   }
-  // On win32 the resolved path is what tells runAgent it holds a .cmd shim.
   for (const n of spec.notes ?? []) d.err(n);
-  const toRun: LaunchSpec = d.platform === 'win32' ? { ...spec, bin: found } : spec;
+  // Spawn the path the PATH scan found, never the bare name, on every platform. findOnPath skips
+  // an empty PATH element, but a bare-name spawn reads one as the cwd: a `grok` in the repo would
+  // run in place of the binary that `acceptsBin` checked. On win32 the path is also what tells
+  // runAgent it holds a .cmd shim.
+  const toRun: LaunchSpec = { ...spec, bin: found };
 
   if (set(d.env['ALIGN_LAUNCH_TRACE'])) d.err(`align-overhead-ms=${Math.round(d.now())}`);
   // A dry run measures; it must not change the machine, so nothing is persisted before this.

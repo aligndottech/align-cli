@@ -8,7 +8,7 @@ import type { BuildInput, LaunchDeps } from '../launch.js'; // type-only: no run
  * launch target before align reads its session history (Copilot), and widening AgentName would
  * reach every parser's exhaustive switch for nothing.
  */
-export type LaunchAgentId = AgentName | 'copilot';
+export type LaunchAgentId = AgentName | 'copilot' | 'qwen' | 'droid' | 'amp' | 'kiro' | 'grok-build';
 
 /**
  * One launchable (or planned) coding agent. R1 carries today's `LaunchAgent` fields plus the
@@ -27,6 +27,11 @@ export interface AgentSpec {
    * `docs`: a script or URL installer, which Align only ever prints (plan Decision 4).
    */
   install: AgentInstall;
+  /**
+   * For a binary whose name is too generic to trust on its own (`grok`): whether the file PATH
+   * found is really this agent. A `bin` on PATH that this refuses counts as not installed.
+   */
+  acceptsBin?: (found: string, env: Record<string, string | undefined>, platform: string) => boolean;
   /** The adapter. Absent for agents that are not launch targets yet. */
   build?: (d: LaunchDeps, base: BuildInput) => LaunchSpec;
 }

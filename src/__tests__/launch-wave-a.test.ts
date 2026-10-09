@@ -75,7 +75,7 @@ describe('wave A: the picker offers them when installed, and not when absent', (
     h.pick.mockResolvedValue('codex');
     await launchIfChosen(h.deps);
     expect(h.pick.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { label: string }) => o.label)).toEqual(['Claude Code', 'Codex', 'Gemini CLI', 'GitHub Copilot CLI']);
-    expect(h.runAgent.mock.calls[0]![0].bin).toBe('codex');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/codex');
   });
   it('bare `align` marks them not installed when they are not on PATH (only Claude: preselected, Enter opens it)', async () => {
     const h = harness({ onPath: ['claude'] });
@@ -83,7 +83,7 @@ describe('wave A: the picker offers them when installed, and not when absent', (
     const opts = h.pick.mock.calls[0]![0] as Array<{ value: string; label: string }>;
     for (const id of WAVE_A) expect(opts.find((o) => o.value === id)!.label).toMatch(/ \(not installed\)$/);
     expect(h.pick.mock.calls[0]![1]).toBe('claude-code');
-    expect(h.runAgent.mock.calls[0]![0].bin).toBe('claude');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/claude');
   });
   it('the wizard offers the installed ones from the same table', async () => {
     const select = vi.fn().mockResolvedValue('gemini-cli');
@@ -113,7 +113,7 @@ describe('wave A: each launches with Align wired in', () => {
       const h = harness({ stored: name, onPath: [BINS[name]!] });
       expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
       const spec = h.runAgent.mock.calls[0]![0];
-      expect(spec.bin).toBe(BINS[name]);
+      expect(spec.bin).toBe(`/usr/bin/${BINS[name]}`);
       expect(spec.env['ALIGN_WRAPPED']).toBe('1');
       expect(JSON.stringify(spec)).toContain('align-local');
       expect(log).not.toHaveBeenCalled();
@@ -198,7 +198,7 @@ describe('wave A: a state reader or adapter that throws', () => {
   it('still launches the agent, without Align, with one stderr line and no stack trace', async () => {
     const h = harness({ stored: 'codex', onPath: ['codex'], argv: ['node', 'align', '--', 'resume'], readCodexState: () => { throw new TypeError('Cannot convert undefined or null to object'); } });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
-    expect(h.runAgent.mock.calls[0]![0]).toEqual({ bin: 'codex', args: ['resume'], env: { ALIGN_WRAPPED: '1' }, files: [] });
+    expect(h.runAgent.mock.calls[0]![0]).toEqual({ bin: '/usr/bin/codex', args: ['resume'], env: { ALIGN_WRAPPED: '1' }, files: [] });
     expect(h.err).toEqual(["Could not prepare Align for Codex (Cannot convert undefined or null to object). Opening it without Align's graph."]);
   });
   it('the same for a repo .mcp.json holding an own __proto__ key, end to end through the real reader', async () => {
@@ -224,19 +224,19 @@ describe('wave A: no terminal, several installed (scripted first runs keep worki
   it('picks by the old priority, Claude Code first, then names it and how to change it on stderr', async () => {
     const h = noTty(['claude', 'codex', 'gemini', 'copilot']);
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
-    expect(h.runAgent.mock.calls[0]![0].bin).toBe('claude');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/claude');
     expect(h.err).toEqual(['Opening Claude Code: more than one coding agent is installed and there is no terminal to ask. Change it with: align use <agent>']);
     expect(h.pick).not.toHaveBeenCalled();
   });
   it('an agent from before wave A comes ahead of the new ones (OpenCode over Codex and Gemini)', async () => {
     const h = noTty(['gemini', 'codex', 'opencode']);
     await launchIfChosen(h.deps);
-    expect(h.runAgent.mock.calls[0]![0].bin).toBe('opencode');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/opencode');
   });
   it('among the new ones only: Codex, then Copilot, then Gemini CLI', async () => {
     const h = noTty(['gemini', 'copilot']);
     await launchIfChosen(h.deps);
-    expect(h.runAgent.mock.calls[0]![0].bin).toBe('copilot');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/copilot');
   });
   it('on a TTY it still asks', async () => {
     const h = harness({ onPath: ['claude', 'codex'], isTTY: true });
