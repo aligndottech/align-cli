@@ -388,6 +388,16 @@ function removeTomlTable(cur: string, table: { path: string[]; sha256: string })
   const rest = cur.slice(from + headers[0]![0].length);
   const nextHeader = /^[ \t]*\[/m.exec(rest);
   const to = nextHeader ? from + headers[0]![0].length + nextHeader.index : cur.length;
+  // The cut must hold align's table lines and nothing else: no comment (a note the user put there
+  // would go with it), no blank line inside the table, at most one blank line after it.
+  const body = cur.slice(from + headers[0]![0].length, to).replace(/^\n/, '').split('\n');
+  if (body[body.length - 1] === '') body.pop();
+  let trailing = 0;
+  while (trailing < body.length && body[body.length - 1 - trailing]!.trim() === '') trailing += 1;
+  const inner = body.slice(0, body.length - trailing);
+  if (headers[0]![0].includes('#') || inner.some((l) => l.trim() === '' || l.includes('#')) || trailing > 1) {
+    return { why: `align's marked block is gone and other lines sit inside or around ${name}; remove the ${name} table by hand` };
+  }
   const next = `${cur.slice(0, from)}${cur.slice(to)}`.replace(/\n{3,}/g, '\n\n');
   const expected = JSON.parse(JSON.stringify(before)) as Json;
   const parent = getAt(expected, table.path.slice(0, -1));

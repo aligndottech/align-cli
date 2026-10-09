@@ -211,6 +211,32 @@ describe('readGrokState and the TOML write (sandbox files)', () => {
     expect(existsSync(`${cfg}.align-backup`)).toBe(false);
   });
 
+  it('marker-less undo never cuts a comment the user placed after align\'s table: skipped, record and backup kept', () => {
+    writeFileSync(cfg, '# my comment\n[mcp_servers.user_own]\ncommand = "echo"\n');
+    write();
+    const withNote = grokRewrite().replace('[mcp_servers.later]', '# keep this note\n[mcp_servers.later]');
+    writeFileSync(cfg, withNote);
+    const report = undoWrittenConfigs(manifest);
+    expect(report.cleaned).toEqual([]);
+    expect(report.done).toEqual([]);
+    expect(report.skipped.join('\n')).toContain('[mcp_servers.align-local]');
+    expect(readFileSync(cfg, 'utf8')).toBe(withNote);
+    expect(existsSync(`${cfg}.align-backup`)).toBe(true);
+  });
+
+  it('marker-less undo also skips when blank lines sit inside align\'s table or more than one follows it', () => {
+    for (const mangle of [(t: string) => t.replace('command = "align"\n', 'command = "align"\n\n'), (t: string) => t.replace('\n\n[mcp_servers.later]', '\n\n\n[mcp_servers.later]')]) {
+      for (const k of Object.keys(manifest)) delete manifest[k];
+      writeFileSync(cfg, '[mcp_servers.user_own]\ncommand = "echo"\n');
+      try { rmSync(`${cfg}.align-backup`); } catch { /* none */ }
+      write();
+      const text = mangle(grokRewrite());
+      writeFileSync(cfg, text);
+      expect(undoWrittenConfigs(manifest).cleaned).toEqual([]);
+      expect(readFileSync(cfg, 'utf8')).toBe(text);
+    }
+  });
+
   it('undo after Grok rewrote the file AND align-local was changed: skipped, record and backup kept, says what to remove', () => {
     writeFileSync(cfg, '# my comment\n[mcp_servers.user_own]\ncommand = "echo"\n');
     write();
