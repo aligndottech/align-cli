@@ -16,7 +16,7 @@ export const LAUNCH_AGENTS: readonly LaunchAgent[] = [
   { name: 'codex', label: 'Codex', bin: 'codex', injection: 'per-session', supported: false, install: 'npm i -g @openai/codex' },
   { name: 'cursor', label: 'Cursor', bin: 'cursor-agent', injection: 'written-once', supported: false, install: 'https://cursor.com/cli' },
   { name: 'gemini-cli', label: 'Gemini CLI', bin: 'gemini', injection: 'per-session', supported: false, install: 'npm i -g @google/gemini-cli' },
-  { name: 'opencode', label: 'OpenCode', bin: 'opencode', injection: 'per-session', supported: false, install: 'npm i -g opencode-ai' },
+  { name: 'opencode', label: 'OpenCode', bin: 'opencode', injection: 'per-session', supported: true, install: 'npm i -g opencode-ai' },
   { name: 'pi', label: 'pi', bin: 'pi', injection: 'per-session', supported: false, install: 'https://pi.dev' },
 ];
 

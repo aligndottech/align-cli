@@ -12,7 +12,8 @@ import { removeUserHooks, type UserHookTarget, writeUserHooks } from './user-hoo
 //  - 'codex' TOML        [mcp_servers.align] table                          OpenAI Codex CLI
 //  - 'pi' JSON           {"mcpServers":{"align":{...,"directTools":true}}}   pi (pi.dev)
 //  - 'copilot' JSON      {"mcpServers":{"align":{"type":"local","command","args","tools":["*"]}}}  GitHub Copilot CLI
-export type McpFormat = 'mcpServers' | 'vscode' | 'zed' | 'codex' | 'pi' | 'copilot';
+//  - 'opencode' JSON     {"mcp":{"align":{"type":"local","command":[...]}}}  OpenCode (command is ONE array)
+export type McpFormat = 'mcpServers' | 'vscode' | 'zed' | 'codex' | 'pi' | 'copilot' | 'opencode';
 
 export interface EditorTarget {
   name: string;
@@ -86,6 +87,9 @@ export function alignServerEntry(
       // Copilot CLI requires `type` and a `tools` allowlist; without `tools` the server is
       // configured and none of its tools are callable (GitHub's MCP configuration docs).
       return { type: 'local', command, args, tools: ['*'] };
+    case 'opencode':
+      // OpenCode takes the executable and its arguments as a single `command` array.
+      return { type: 'local', command: [command, ...args] };
     default:
       return { command, args };
   }
@@ -97,6 +101,8 @@ function jsonTopKey(format: McpFormat): string {
       return 'servers';
     case 'zed':
       return 'context_servers';
+    case 'opencode':
+      return 'mcp';
     default:
       return 'mcpServers';
   }
@@ -202,6 +208,16 @@ export function detectEditors(): EditorTarget[] {
   // Gemini CLI (~/.gemini/settings.json, `mcpServers`)
   if (existsSync(path.join(home, '.gemini'))) {
     found.push({ name: 'Gemini CLI', configPath: path.join(home, '.gemini', 'settings.json'), format: 'mcpServers' });
+  }
+
+  // OpenCode. Global config is ~/.config/opencode/opencode.json (opencode.ai/docs/config:
+  // "~/.config/opencode/opencode.json for the main config"), honouring an absolute
+  // $XDG_CONFIG_HOME like the rest of the XDG-based tools. A user who keeps opencode.jsonc
+  // instead is fine: OpenCode merges every config it finds, so our file simply sits beside it.
+  const xdgConfig = process.env['XDG_CONFIG_HOME'];
+  const openCodeDir = path.join(xdgConfig && path.isAbsolute(xdgConfig) ? xdgConfig : path.join(home, '.config'), 'opencode');
+  if (existsSync(openCodeDir)) {
+    found.push({ name: 'OpenCode', configPath: path.join(openCodeDir, 'opencode.json'), format: 'opencode' });
   }
 
   return found;

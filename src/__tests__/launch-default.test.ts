@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { type LaunchDeps, launchIfChosen } from '../lib/launch/launch.js';
-import { LAUNCH_AGENTS } from '../lib/launch/agents.js';
 
 const CLAUDE = '/usr/bin/claude';
 function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<string, string> } = {}) {
@@ -23,6 +22,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     config: { getAgent: () => stored, setAgent },
     findOnPath: (bin) => onPath[bin] ?? null,
     readProjectState: () => ({ projectHasPreHook: false, projectHasPostHook: false, projectHasMcp: false, projectHasBlock: false }),
+    readOpenCodeState: () => ({ projectHasPlugin: false, projectHasMcp: false, projectHasBlock: false }),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content) => { written.push([name, content]); return true; },
     runAgent,
@@ -164,34 +164,79 @@ describe('launchIfChosen: no agent chosen (nobody has to run `align use` first)'
   });
 });
 
-describe('launchIfChosen: more than one supported agent installed (C2 adds to the list; the branch exists now)', () => {
-  const two = (over: Partial<Parameters<typeof harness>[0]> = {}) => {
-    // Flip a second agent to supported for this test only, the way C2 will.
-    const second = LAUNCH_AGENTS.find((a) => a.name === 'opencode')!;
-    return { second, h: harness({ onPath: { claude: CLAUDE, opencode: '/usr/bin/opencode' }, ...over }) };
-  };
-  it('asks once on a TTY and stores the answer', async () => {
-    const { second, h } = two({ isTTY: true });
-    second.supported = true;
-    try {
-      h.pick.mockResolvedValue('claude-code');
-      await launchIfChosen(h.deps);
-      expect(h.pick).toHaveBeenCalledTimes(1);
-      expect(h.setAgent).toHaveBeenCalledWith('claude-code');
-      expect(h.runAgent).toHaveBeenCalledTimes(1);
-    } finally { second.supported = false; }
+describe('launchIfChosen: more than one supported agent installed', () => {
+  const two = (over: Partial<Parameters<typeof harness>[0]> = {}) =>
+    harness({ onPath: { claude: CLAUDE, opencode: '/usr/bin/opencode' }, ...over });
+  it('asks once on a TTY, offers both, and stores the answer', async () => {
+    const h = two({ isTTY: true });
+    h.pick.mockResolvedValue('opencode');
+    await launchIfChosen(h.deps);
+    expect(h.pick).toHaveBeenCalledTimes(1);
+    expect(h.pick.mock.calls[0]![0].map((a: { name: string }) => a.name)).toEqual(['claude-code', 'opencode']);
+    expect(h.setAgent).toHaveBeenCalledWith('opencode');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('opencode');
   });
   it('does not guess without a TTY: 3-line hint on stderr, exit 2, nothing stored or launched', async () => {
-    const { second, h } = two({ isTTY: false, argv: ['node', 'align', '--', 'x'] });
-    second.supported = true;
-    try {
-      const r = await launchIfChosen(h.deps);
-      expect(r).toEqual({ handled: true, code: 2 });
-      expect(h.err).toHaveLength(3);
-      expect(h.pick).not.toHaveBeenCalled();
-      expect(h.setAgent).not.toHaveBeenCalled();
-      expect(h.runAgent).not.toHaveBeenCalled();
-    } finally { second.supported = false; }
+    const h = two({ isTTY: false, argv: ['node', 'align', '--', 'x'] });
+    const r = await launchIfChosen(h.deps);
+    expect(r).toEqual({ handled: true, code: 2 });
+    expect(h.err).toHaveLength(3);
+    expect(h.pick).not.toHaveBeenCalled();
+    expect(h.setAgent).not.toHaveBeenCalled();
+    expect(h.runAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe('launchIfChosen: OpenCode (C2)', () => {
+  const OC = '/usr/bin/opencode';
+  it('auto-picks opencode when it is the only supported agent on PATH', async () => {
+    const h = harness({ onPath: { opencode: OC } });
+    await launchIfChosen(h.deps);
+    expect(h.setAgent).toHaveBeenCalledWith('opencode');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('opencode');
+  });
+  it('spawns opencode with OPENCODE_CONFIG_CONTENT and OPENCODE_CONFIG_DIR in the env, and writes the launch files', async () => {
+    const h = harness({ stored: 'opencode', onPath: { opencode: OC } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+    const spec = h.runAgent.mock.calls[0]![0];
+    expect(JSON.parse(spec.env.OPENCODE_CONFIG_CONTENT).mcp['align-local'].command[0]).toBe('align');
+    expect(spec.env.OPENCODE_CONFIG_DIR).toBe('/cache/opencode-config');
+    expect(spec.env.ALIGN_WRAPPED).toBe('1');
+    expect(h.written.map(([n]) => n).sort()).toEqual(['align-instructions.md', 'opencode-config/plugins/align.js']);
+  });
+  it('reads the user\'s own OPENCODE_CONFIG_CONTENT from the launch env and merges it', async () => {
+    const h = harness({ stored: 'opencode', onPath: { opencode: OC }, env: { OPENCODE_CONFIG_CONTENT: '{"model":"a/b"}' } });
+    await launchIfChosen(h.deps);
+    const cfg = JSON.parse(h.runAgent.mock.calls[0]![0].env.OPENCODE_CONFIG_CONTENT);
+    expect(cfg.model).toBe('a/b');
+    expect(cfg.mcp['align-local']).toBeDefined();
+  });
+  it('skips each injection the project already carries', async () => {
+    const h = harness({ stored: 'opencode', onPath: { opencode: OC }, readOpenCodeState: () => ({ projectHasPlugin: true, projectHasMcp: true, projectHasBlock: true }) });
+    await launchIfChosen(h.deps);
+    expect(h.runAgent.mock.calls[0]![0].env).toEqual({ ALIGN_WRAPPED: '1' });
+    expect(h.written).toEqual([]);
+  });
+  it('prints one stderr line when the user\'s OPENCODE_CONFIG_CONTENT is unusable, and still launches', async () => {
+    const h = harness({ stored: 'opencode', onPath: { opencode: OC }, env: { OPENCODE_CONFIG_CONTENT: '{nope' } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+    expect(h.err.filter((l) => l.includes('OPENCODE_CONFIG_CONTENT'))).toHaveLength(1);
+  });
+  it('passes args after -- through to opencode, untouched', async () => {
+    const h = harness({ stored: 'opencode', onPath: { opencode: OC }, argv: ['node', 'align', '--', 'run', 'hi'] });
+    await launchIfChosen(h.deps);
+    expect(h.runAgent.mock.calls[0]![0].args).toEqual(['run', 'hi']);
+  });
+  it('does not consult the Claude project state for opencode (and vice versa)', async () => {
+    const claudeState = vi.fn().mockReturnValue({ projectHasPreHook: false, projectHasPostHook: false, projectHasMcp: false, projectHasBlock: false });
+    const h = harness({ stored: 'opencode', onPath: { opencode: OC }, readProjectState: claudeState });
+    await launchIfChosen(h.deps);
+    expect(claudeState).not.toHaveBeenCalled();
+  });
+  it('ALIGN_WRAPPED stops the recursion for opencode too', async () => {
+    const h = harness({ stored: 'opencode', onPath: { opencode: OC }, env: { ALIGN_WRAPPED: '1' } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
+    expect(h.runAgent).not.toHaveBeenCalled();
   });
 });
 

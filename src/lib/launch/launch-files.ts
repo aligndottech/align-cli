@@ -38,12 +38,15 @@ export function writeIfChanged(dir: string, name: string, content: string, opts:
     throw new Error(`${dir} is owned by another user; refusing to use it for launch files`);
   }
   const target = path.join(dir, name);
+  // A name may carry sub-directories (OpenCode loads plugins/align.js from a config dir).
+  const targetDir = path.dirname(target);
+  if (targetDir !== dir) mkdirSync(targetDir, { recursive: true, mode: 0o700 });
   try {
     if (readFileSync(target, 'utf8') === content) return false;
   } catch {
     // missing: write it
   }
-  const tmp = path.join(dir, `.${name}.${process.pid}.tmp`);
+  const tmp = path.join(targetDir, `.${path.basename(name)}.${process.pid}.tmp`);
   writeFileSync(tmp, content, 'utf8');
   renameSync(tmp, target);
   return true;

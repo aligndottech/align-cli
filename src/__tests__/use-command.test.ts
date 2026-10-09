@@ -31,12 +31,21 @@ describe('align use', () => {
     expect(h.setAgent).not.toHaveBeenCalled();
     expect(h.err.join('\n')).toContain('npm i -g @anthropic-ai/claude-code');
   });
-  it.each(['codex', 'opencode'])('reports %s as coming soon and stores nothing', async (name) => {
+  it.each(['codex'])('reports %s as coming soon and stores nothing', async (name) => {
     const h = harness('claude-code', { codex: '/bin/codex', opencode: '/bin/opencode', claude: '/bin/claude' });
     expect(await runUse(name, h.deps)).toBe(1);
     expect(h.setAgent).not.toHaveBeenCalled();
     expect(h.current()).toBe('claude-code');
     expect(h.err.join('\n')).toMatch(/coming soon/);
+  });
+  it('stores opencode when it is on PATH, and refuses it when it is not (C2)', async () => {
+    const on = harness('claude-code', { opencode: '/bin/opencode', claude: '/bin/claude' });
+    expect(await runUse('opencode', on.deps)).toBe(0);
+    expect(on.setAgent).toHaveBeenCalledExactlyOnceWith('opencode');
+    const off = harness('claude-code', { claude: '/bin/claude' });
+    expect(await runUse('opencode', off.deps)).toBe(1);
+    expect(off.setAgent).not.toHaveBeenCalled();
+    expect(off.err.join('\n')).toContain('npm i -g opencode-ai');
   });
   it('rejects an unknown name, listing the valid ones, and stores nothing', async () => {
     const h = harness();

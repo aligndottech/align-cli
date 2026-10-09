@@ -446,7 +446,7 @@ export function writeGeminiHooks(cwd: string, env?: string): void {
 //   tool.execute.after   is handed the result object and the caller does `return output`
 //                        on the next line, so mutating output.output reaches the model.
 // Both hooks are declared `=> Promise<void>`; mutation is in place, not by return value.
-function openCodePluginBody(env?: string): string {
+export function openCodePluginBody(env?: string): string {
   const envArgs = env && env !== 'prod' ? `, "--env", "${env}"` : '';
   return `// Align decision graph - managed by \`align setup\`, do not edit.
 // Checks each proposed edit against your team's prior decisions and feeds any conflict
