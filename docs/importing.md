@@ -6,11 +6,13 @@ cross-tool relationship detection.
 ## The easy way
 
 ```bash
+align login     # team graph only; a solo setup is local and needs no login
 align setup
 ```
 
-It connects each source through a **read-only browser OAuth** consent, so there are no tokens
-to create or paste. GitHub, Jira, Confluence, Slack, Microsoft Teams, Zoom, Linear, GitLab
+On a team graph, setup connects each source through a **read-only browser OAuth** consent, so
+there are no tokens to create or paste. The solo (local) wizard that bare `align` runs has no
+OAuth callback to receive, so it asks you to paste a read-only token for each source instead. GitHub, Jira, Confluence, Slack, Microsoft Teams, Zoom, Linear, GitLab
 (gitlab.com) and Notion all use OAuth. Self-managed GitLab uses a read-only token you paste.
 
 The CLI only ever reads. It can't modify your tools; write access lives only in the team and

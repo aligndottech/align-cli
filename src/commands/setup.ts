@@ -5,7 +5,7 @@ import chalk from 'chalk';
 import { tryOpenUrl } from '../lib/open-url.js';
 import { execa } from 'execa';
 import { clearScreenForPicker, CLI_TOKEN_SOURCES, cliTokenDecision, detectVerifiedCliToken, pickerMaxItems } from '../lib/setup-ux.js';
-import { createConfigStore, type EnvName, isFreshInstall } from '../lib/config.js';
+import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
 import { connectDetectedAgents } from './connect-agents.js';
@@ -33,6 +33,11 @@ import { guardedPrompt } from '../lib/prompt-guard.js';
 import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
 import { agentAskLine, agentConnectedLine, orderAgents, projectAgentsFromWritten } from '../lib/next-step.js';
+import { foreignNotice } from '../lib/foreign-env.js';
+import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
+import { InvalidEnvError, routeSetup } from '../lib/setup-route.js';
+import { agentByName } from '../lib/launch/agents.js';
+import type { AgentName } from '../lib/sessions/types.js';
 import { firstDecision } from '../lib/first-decision.js';
 import { hasConfiguredProvider } from '../lib/local-llm.js';
 
@@ -412,7 +417,7 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
  */
 function writeAgentAlignment(envName: EnvName): string[] {
   try {
-    const written = setupAgentAlignment({ cwd: process.cwd(), env: envName });
+    const written = setupAgentAlignment({ cwd: process.cwd(), env: envName, onForeign: (file) => p.log.warn(foreignNotice(file, 'project')) });
     p.log.success(`Auto-alignment configured: ${written.join(', ')}`);
     p.log.info(
       chalk.dim(
@@ -618,7 +623,7 @@ interface LocalValuePhaseResult {
   // ALI-1284 (Copilot review, PR #322): reset is only read by offerFreeProviderKey below, but
   // it travels through this same opts bag the rest of the local phase already threads, rather
   // than becoming a second parameter every caller has to remember to also pass.
-  opts: { approve?: boolean; reset?: boolean };
+  opts: { approve?: boolean; reset?: boolean; launchNext?: boolean };
   /** ALI-827: every source the value phase fetched, for the one report the connector
    *  phase prints at the end. */
   capture: ReturnType<typeof createCaptureCollector>;
@@ -628,22 +633,43 @@ interface LocalValuePhaseResult {
   agents: string[];
   /** ALI-950: the first decision the wizard found (git, else docs), for the outro's question. */
   firstFoundTitle: string | undefined;
+  /** C5: the coding agent `align` opens next, or null when none is installed or chosen. */
+  agent: AgentName | null;
+}
+
+/**
+ * The local outro's one next step, or nothing. No link: the only place to go from here is the
+ * agent. When bare `align` is about to open the agent itself the line would be read for half a
+ * second and then be false, so it is dropped. With no agent the install hints were already
+ * printed once by the pick, and are not repeated here.
+ */
+function nextStepLine(agent: AgentName | null, launchNext: boolean): string | null {
+  const label = agent ? agentByName(agent)?.label : undefined;
+  if (label) return launchNext ? null : `Run ${chalk.bold('align')} to open ${label} with your graph.`;
+  return `Run ${chalk.bold('align')} once a coding agent is installed.`;
 }
 
 /** Thrown inside the docs block to leave it without starting a read; never surfaces. */
 class SkipDocs extends Error {}
 
-async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
+async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
   // function so a scripted `setup --local` never blocks on either of them.
   const interactive = process.stdin.isTTY && process.stdout.isTTY;
 
+  const config = createConfigStore();
+  // C5: the coding agent comes first. It is the thing `align` opens at the end, and it is the
+  // only question a solo developer is asked before the graph starts to fill. Same table, PATH
+  // scan and config key as the launcher, so this IS the launcher's choice (no `align use`).
+  // Before initLocalMode on purpose: cancelling here must leave no half-built graph behind.
+  const picked = await pickAgent(config, { interactive: Boolean(interactive), approve: opts.approve });
+  if (picked === PICK_CANCELLED) { p.cancel('Cancelled.'); process.exit(0); }
+  const agent = picked;
+
   const { dbPath } = await initLocalMode();
   p.log.success('Local graph ready - no account needed, your data stays on this machine.');
-
-  const config = createConfigStore();
   const localEnv = config.getEnvironment('local');
   const localClient = createGatewayClient(localEnv);
   const capture = createCaptureCollector();
@@ -818,7 +844,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; fu
   // not send for a fresh install, so the funnel object is offered the local env again here.
   void opts.funnel.started(localEnv);
 
-  return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel, agents, firstFoundTitle };
+  return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel, agents, firstFoundTitle, agent };
 }
 
 /**
@@ -1088,7 +1114,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
 }
 
 async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void> {
-  const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel, agents, firstFoundTitle } = ctx;
+  const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel, agents, firstFoundTitle, agent } = ctx;
 
   await connectLocalSources({ interactive, config, localEnv, localClient, capture, approve: opts.approve ?? false });
 
@@ -1149,11 +1175,12 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // question about a decision the wizard just found, and no CLI verb. This used to end on
   // `align ask "why <a thing you decided>"`, a prompt verb on the one screen whose job is to
   // send the user into their agent. The gap line, when there is one, sits above it.
+  const nextStep = nextStepLine(agent, Boolean(opts.launchNext));
   p.outro(
     `${chalk.green('You are set up in local mode.')}\n` +
     `  Graph: ${chalk.dim(dbPath)}\n` +
-    `  Run ${chalk.bold('align')} any time to see your graph and what to do next.` +
-    `${gapLine ? `\n\n  ${chalk.dim(gapLine)}` : ''}\n\n` +
+    `${nextStep ? `  ${nextStep}\n` : ''}` +
+    `${gapLine ? `\n  ${chalk.dim(gapLine)}\n` : ''}\n` +
     `  ${chalk.bold(agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName: 'local' }))}`,
   );
   // ALI-949: after the outro, never before it - telemetry must not delay what the user is
@@ -1165,7 +1192,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
 // Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
 // the two phases above unchanged - this is exactly what ran before the ALI-794 split, just
 // as two calls instead of one function body.
-async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; funnel: SetupFunnel }): Promise<void> {
+async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; funnel: SetupFunnel }): Promise<void> {
   const ctx = await runLocalValuePhase(opts);
   await runLocalConnectorPhase(ctx);
 }
@@ -1173,10 +1200,10 @@ async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; funnel:
 export function registerSetupCommand(program: Command): void {
   program
     .command('setup')
-    .description('Guided onboarding: connect your tools and configure MCP in one command')
-    .option('--env <env>', 'Environment')
+    .description('Guided onboarding: your local graph by default, your team graph when you are logged in')
+    .option('--env <env>', 'local, preview or prod. Logged in to a team? Setup uses it; --env local builds the local graph instead')
     .option('--approve', 'Skip confirmation prompts (for scripted use)')
-    .option('--local', 'Set up local-only mode (no account, no cloud)')
+    .option('--local', 'Same as --env local: build the local graph even if you are logged in to a team')
     .option('--reset', 'Clear cached OAuth tokens and saved AI provider keys, and redo their setup')
     .action(runSetup);
 }
@@ -1191,130 +1218,66 @@ export function registerSetupCommand(program: Command): void {
  * which would fire the postAction telemetry hook twice for one invocation.
  */
 export async function runSetup(
-  opts: { env?: EnvName; approve?: boolean; local?: boolean; reset?: boolean } = {},
+  opts: { env?: string; approve?: boolean; local?: boolean; reset?: boolean; launchNext?: boolean } = {},
 ): Promise<void> {
     const config = createConfigStore();
-    const envName = resolveEnv(opts.env);
-    const env = config.getEnvironment(envName);
-    const client = createGatewayClient(env);
 
-    // --reset --approve: clear unconditionally, before mode selection and before any
-    // auth/TTY-gated exit can skip it (Copilot review, PR #323). Gated on BOTH flags,
-    // deliberately: a plain interactive `--reset` (no --approve) must NOT wipe the stored
-    // key here, or offerFreeProviderKey's re-offer below would find nothing to re-offer and
-    // the user would never get the chance to choose - only the non-prompting --approve case
-    // needs this early, unconditional clear. See clearStoredProviderKeys's own comment for
-    // why this cannot live inside offerFreeProviderKey instead.
+    // C5: solo is local only, and a team LOGIN means TEAM. Which one this run is comes from
+    // routeSetup (a stored token, ALIGN_TOKEN or ALIGN_ENV=prod|preview means team; an
+    // explicit --env / --local always wins), so nothing below ever rewires a team user to the
+    // local graph unasked. `--local` is kept as the explicit spelling of `--env local`.
+    let route;
+    try {
+      route = routeSetup(opts, config, process.env);
+    } catch (err) {
+      if (!(err instanceof InvalidEnvError)) throw err;
+      console.error(err.message);
+      process.exit(1);
+    }
+
+    // --reset --approve: clear unconditionally, before any auth/TTY-gated exit can skip it
+    // (Copilot review, PR #323). Gated on BOTH flags, deliberately: a plain interactive
+    // `--reset` (no --approve) must NOT wipe the stored key here, or offerFreeProviderKey's
+    // re-offer below would find nothing to re-offer and the user would never get the chance
+    // to choose - only the non-prompting --approve case needs this early, unconditional
+    // clear. See clearStoredProviderKeys's own comment for why this cannot live inside
+    // offerFreeProviderKey instead.
     if (opts.approve && opts.reset) clearStoredProviderKeys(config);
+
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+    if (route.kind === 'team') {
+      const env = config.getEnvironment(route.env);
+      // Without a terminal there is nobody to log in; with one, runCloudSetup offers it inline.
+      if (!env.authToken && !interactive) {
+        p.log.warn(`Run ${chalk.bold(`align login --env ${route.env}`)} first, then re-run ${chalk.bold('align setup')}.`);
+        process.exit(1);
+      }
+      printBanner({ version });
+      p.intro(commandIntro('align setup'));
+      await runCloudSetup({ opts, config, env, client: createGatewayClient(env), envName: route.env, funnel: createSetupFunnel() });
+      return;
+    }
 
     // The one place a full brand moment belongs: first run, before any questions.
     printBanner({ version });
     p.intro(commandIntro('align setup'));
+    if (route.teamLoginUntouched) {
+      p.log.info(`Your ${route.teamLoginUntouched} team login is untouched. This sets up the local graph only.`);
+    }
 
     // ALI-949: the wizard's setup_started / setup_completed emitter. NOT offered an env
-    // here, where the mode is still unknown: a `--local` run on a machine holding a cloud
-    // token would report a cloud setup_started for an explicitly offline session (review on
-    // #279). Each mode branch offers its own env at its top - runLocalValuePhase and
-    // runCloudSetup - and again once consent / login makes a send possible.
-    const funnel = createSetupFunnel();
-
-    // ---- Step 0: Cloud (default) vs local (--local) ----
-    // Solo defaults to CLOUD: telemetry, the real cloud relationship classifier, backup.
-    // A work email lands you in the tenant already registered for that domain (or creates
-    // one, admin if first); a personal email gets a tenant of one, with a web-only invite
-    // path into a company tenant later (reuses the personal->org join flow). --local is
-    // the opt-in offline escape hatch; --approve runs the cloud path non-interactively.
-    //
-    // ALI-794: on a genuinely fresh machine (neither mode configured yet), interactively,
-    // with neither flag forcing a mode, invert this - build the local graph and show what
-    // is in it BEFORE asking anything. A returning user (either mode already set up) is
-    // not asked to sit through that again; they keep the question below, same as today.
-    const interactive = process.stdin.isTTY && process.stdout.isTTY;
-    if (!opts.local && !opts.approve && interactive && isFreshInstall(config)) {
-      await runFreshSetup({ config, env, client, envName, opts, funnel });
-      return;
-    }
-
-    let mode: 'cloud' | 'local';
-    if (opts.local) {
-      mode = 'local';
-    } else if (opts.approve) {
-      mode = 'cloud';
-    } else {
-      const choice = await p.select({
-        message: 'How are you using Align?',
-        options: [
-          { value: 'cloud', label: 'Cloud (recommended) - your personal decision graph', hint: "work email: your company's graph; personal email: just you" },
-          { value: 'local', label: 'Local only - private, offline, no account', hint: 'stays on this machine (--local)' },
-        ],
-        initialValue: 'cloud',
-      });
-      if (p.isCancel(choice)) { p.cancel('Cancelled.'); process.exit(0); }
-      mode = choice as 'cloud' | 'local';
-    }
-
-    if (mode === 'local') {
-      await runLocalSetup({ approve: opts.approve, reset: opts.reset, funnel });
-      return;
-    }
-
-    await runCloudSetup({ opts, config, env, client, envName, funnel });
+    // here, where the mode is still unknown: each branch offers its own env at its top -
+    // runLocalValuePhase and runCloudSetup - and again once consent / login makes a send
+    // possible.
+    await runLocalSetup({ approve: opts.approve, reset: opts.reset, launchNext: opts.launchNext, funnel: createSetupFunnel() });
 }
 
-/**
- * ALI-794: the value-first fresh-install flow. Builds and shows the local graph with
- * nothing asked for, THEN offers the upgrade - inverting the mode-question-first order
- * above for the one case that pays for it: nobody has configured anything yet.
- *
- * Choosing cloud hands off to the existing `runCloudSetup`, completely unchanged - its own
- * git scan and agent-file write run again there. Both are idempotent, and re-running them is
- * the accepted cost of the local graph above being a real, usable preview rather than
- * provisional state (component 1's "nothing about the cloud path changes once chosen").
- */
-async function runFreshSetup(ctx: {
-  config: ReturnType<typeof createConfigStore>;
-  env: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
-  client: ReturnType<typeof createGatewayClient>;
-  envName: EnvName;
-  opts: { approve?: boolean; reset?: boolean };
-  funnel: SetupFunnel;
-}): Promise<void> {
-  const phase = await runLocalValuePhase({ approve: ctx.opts.approve, reset: ctx.opts.reset, funnel: ctx.funnel });
-  // The value phase's capture report is printed by runLocalConnectorPhase, so choosing
-  // cloud below drops it - deliberately: runCloudSetup re-imports git and docs into the
-  // cloud tenant and prints its own report, which is the one that describes that graph.
-
-  // Framed by what the graph is missing, not "how are you using Align" in the abstract -
-  // there is already a local graph on screen, so the question is whether to extend it.
-  //
-  // "A path to team sharing", never "for team sharing": choosing cloud on a personal
-  // email creates a tenant of one (the option's hint says so), and joining a team is a
-  // separate web invite later. A work email already lands you in the shared tenant,
-  // which is why the hint distinguishes them rather than promising a generic upgrade.
-  // The question and the option below must keep agreeing on that - the question
-  // overclaimed for a while and a live tester read it as sharing starting here.
-  const choice = await p.select({
-    message: 'Stay local, or sync to the cloud for backup, richer detection, and a path to team sharing?',
-    options: [
-      { value: 'local', label: 'Stay local - keep what you just built, private and offline', hint: 'no account' },
-      { value: 'cloud', label: 'Sync to the cloud - backup, team upgrade path, richer detection', hint: "work email: your company's graph; personal email: just you" },
-    ],
-    initialValue: 'local',
-  });
-  if (p.isCancel(choice)) { p.cancel('Cancelled.'); process.exit(0); }
-
-  if (choice === 'local') {
-    await runLocalConnectorPhase(phase);
-    return;
-  }
-
-  await runCloudSetup(ctx);
-}
-
-
-// Cloud (personal-tenant) onboarding: verify login, wire MCP, seed from git,
-// then offer personal-scoped connectors. A personal-email login lands on an
-// isolated personal tenant server-side; connectors auto-bind to it.
+// Cloud (team) onboarding: verify login, wire MCP, seed from git, then offer
+// personal-scoped connectors. Reached through routeSetup's team route: an explicit
+// `--env prod|preview`, a stored token or ALIGN_TOKEN, or ALIGN_ENV=prod|preview (a solo
+// developer's graph is local, and the gateway no longer creates personal tenants).
+// Connectors bind per-user to the team tenant.
 async function runCloudSetup(ctx: {
   opts: { approve?: boolean; reset?: boolean };
   config: ReturnType<typeof createConfigStore>;
@@ -1347,7 +1310,7 @@ async function runCloudSetup(ctx: {
       process.exit(1);
     }
 
-    const wantLogin = await p.confirm({ message: 'Log in to Align now? (your personal cloud graph)' });
+    const wantLogin = await p.confirm({ message: 'Log in to Align now? (your team graph)' });
     if (!p.isCancel(wantLogin) && wantLogin) {
       const ok = await loginInteractive(env, envName, config);
       if (!ok) {

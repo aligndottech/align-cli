@@ -81,9 +81,9 @@ const mockGetProviderKey = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSetProviderKey = vi.hoisted(() => vi.fn());
 const mockClearProviderKey = vi.hoisted(() => vi.fn());
 
-vi.mock('../lib/config.js', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  createConfigStore: vi.fn(() => ({
+// The suite's default store: logged in on every env (authToken 'tok'). A function so a
+// test that needs a different machine can swap it and put this one back.
+const makeDefaultConfig = () => ({
     getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: 'tok' }),
     getDefaultEnv: vi.fn().mockReturnValue('prod'),
     setAuthToken: vi.fn(),
@@ -105,7 +105,11 @@ vi.mock('../lib/config.js', async (importOriginal) => ({
     getProviderKey: mockGetProviderKey,
     setProviderKey: mockSetProviderKey,
     clearProviderKey: mockClearProviderKey,
-  })),
+  });
+
+vi.mock('../lib/config.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  createConfigStore: vi.fn(() => makeDefaultConfig()),
 }));
 
 vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('prod') }));
@@ -163,6 +167,14 @@ const mockLocalDb = vi.hoisted(() => ({
 }));
 const mockCreateLocalDb = vi.hoisted(() => vi.fn(() => mockLocalDb));
 vi.mock('../lib/local-db.js', () => ({ createLocalDb: mockCreateLocalDb }));
+
+// C5: the wizard's agent pick has its own suite (pick-agent.test.ts). Here it is a spy, so the
+// wizard tests can say WHEN it runs and with what, and no test reads the developer's real PATH.
+const mockPickAgent = vi.hoisted(() => vi.fn().mockResolvedValue('claude-code'));
+vi.mock('../lib/launch/pick-agent.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  pickAgent: mockPickAgent,
+}));
 
 const mockLoginInteractive = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock('../lib/login-flow.js', () => ({
@@ -301,7 +313,7 @@ describe('align setup', () => {
   });
 
   it('calls whoami to verify authentication on the happy path', async () => {
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     expect(mockWhoami).toHaveBeenCalled();
   });
 
@@ -310,7 +322,7 @@ describe('align setup', () => {
     const { log } = await import('@clack/prompts');
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
     await expect(
-      makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
+      makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
     ).rejects.toThrow();
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align login'));
     expect(mockLoginInteractive).not.toHaveBeenCalled();
@@ -323,7 +335,7 @@ describe('align setup', () => {
     mockWhoami.mockRejectedValueOnce(new Error('401'));
     mockConfirm.mockResolvedValueOnce(true);
     mockLoginInteractive.mockResolvedValueOnce(true);
-    await makeProgram().parseAsync(['node', 'align', 'setup']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
     expect(mockLoginInteractive).toHaveBeenCalled();
     // Proceeded past auth into the cloud flow (git import ran)
     expect(mockIngestBatch).toHaveBeenCalled();
@@ -334,21 +346,21 @@ describe('align setup', () => {
     mockWhoami.mockRejectedValueOnce(new Error('401'));
     mockConfirm.mockResolvedValueOnce(false); // decline "Log in now?"
     mockConfirm.mockResolvedValueOnce(true);   // accept "Set up local instead?"
-    await makeProgram().parseAsync(['node', 'align', 'setup']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
     expect(mockLoginInteractive).not.toHaveBeenCalled();
     expect(mockInitLocalMode).toHaveBeenCalled();
   });
 
   it('shows the connector multiselect with a "connect more sources" message', async () => {
     const { multiselect } = await import('@clack/prompts');
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     expect(multiselect).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining('Connect more sources') }),
     );
   });
 
   it('orders connectors personal-frictionless first, then site-scoped, then workspace-admin', async () => {
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     const connectorCall = mockMultiselect.mock.calls.find(
       (c: any[]) => c[0]?.message?.includes('Connect more sources'),
     );
@@ -366,7 +378,7 @@ describe('align setup', () => {
     // The flow is "pick your tools, then it runs": every question up front, then the
     // automatic phase. It also keeps the picker off the bottom of a screenful of git
     // output, which is the condition that corrupted clack's redraw for a tester.
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     const askedAt = mockMultiselect.mock.invocationCallOrder[0];
     const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
     expect(askedAt).toBeDefined();
@@ -378,7 +390,7 @@ describe('align setup', () => {
     // An outside tester saw the picker paint "Notion" three times and scroll badly.
     // clack redraws in place and miscounts once the option list is taller than the
     // terminal, which is reachable here: 8+ connectors under a screenful of git output.
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     const connectorCall = mockMultiselect.mock.calls.find(
       (c: any[]) => c[0]?.message?.includes('Connect more sources'),
     );
@@ -390,7 +402,7 @@ describe('align setup', () => {
   });
 
   it('labels Slack and Teams as needing workspace/org admin', async () => {
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     const connectorCall = mockMultiselect.mock.calls.find(
       (c: any[]) => c[0]?.message?.includes('Connect more sources'),
     );
@@ -400,7 +412,7 @@ describe('align setup', () => {
   });
 
   it('auto-imports git commits without showing git in the connector multiselect', async () => {
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     expect(mockIngestBatch).toHaveBeenCalled();
     // git should not appear as an option in the connector multiselect
     const { multiselect } = await import('@clack/prompts');
@@ -413,7 +425,7 @@ describe('align setup', () => {
 
   it('stops the git spinner before batch import begins (no overlapping spinners)', async () => {
     spinnerInstances.length = 0;
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
     // The git phase uses a clack spinner; runPersonalImport uses its own ora spinner.
     // Find the git-phase spinner by its start/stop message.
@@ -434,7 +446,7 @@ describe('align setup', () => {
 
   describe('deterministic auto-alignment (ALI-121)', () => {
     it('writes the PostToolUse hook + nudge files in the cloud path', async () => {
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       expect(mockSetupAgentAlignment).toHaveBeenCalledWith(
         expect.objectContaining({ cwd: expect.any(String), env: 'prod' }),
       );
@@ -448,7 +460,7 @@ describe('align setup', () => {
     it('does not abort setup if writing agent rules fails', async () => {
       mockSetupAgentAlignment.mockImplementationOnce(() => { throw new Error('EACCES'); });
       await expect(
-        makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
+        makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
       ).resolves.not.toThrow();
     });
   });
@@ -458,14 +470,14 @@ describe('align setup', () => {
     (detectEditors as ReturnType<typeof vi.fn>).mockReturnValueOnce([
       { name: 'Claude Code', configPath: '/tmp/.claude.json', format: 'mcpServers' },
     ]);
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     expect(writeMcpConfig).toHaveBeenCalled();
   });
 
   it('git import skips silently when no commits found', async () => {
     const { getCommitHistoryDetailed } = await import('../lib/git.js');
     (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ commits: [], scanned: 0, rejectedByRationale: 0 });
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     expect(mockIngestBatch).not.toHaveBeenCalled();
   });
 
@@ -473,7 +485,7 @@ describe('align setup', () => {
     const { getCommitHistoryDetailed } = await import('../lib/git.js');
     (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('no git'));
     await expect(
-      makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
+      makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
     ).resolves.not.toThrow();
   });
 
@@ -1301,35 +1313,13 @@ describe('align setup', () => {
       });
     });
 
-    it('defaults the interactive intent prompt to the cloud personal path (not local)', async () => {
-      // mockSelect default is 'cloud'
-      await makeProgram().parseAsync(['node', 'align', 'setup']);
-      expect(mockWhoami).toHaveBeenCalled();
-      expect(mockInitLocalMode).not.toHaveBeenCalled();
-    });
-
-    it('routes to local mode when the user selects "local" in the intent prompt', async () => {
-      mockSelect.mockResolvedValueOnce('local');
-      await makeProgram().parseAsync(['node', 'align', 'setup']);
-      expect(mockInitLocalMode).toHaveBeenCalled();
-      expect(mockWhoami).not.toHaveBeenCalled();
-    });
-
-    it('--approve runs the cloud path non-interactively (no prompt, no local mode, auth checked)', async () => {
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-      expect(mockInitLocalMode).not.toHaveBeenCalled();
-      expect(mockWhoami).toHaveBeenCalled();
-      expect(mockSelect).not.toHaveBeenCalled();
-    });
-
-    describe('fresh install (ALI-794): value before the mode question', () => {
-      async function mockFreshConfig(): Promise<void> {
-        // Neither mode configured yet - isFreshInstall's true case. Only the FIRST
-        // createConfigStore() call (the one runSetup's Step 0 check reads) needs this
-        // shape; later calls elsewhere in the flow fall back to the suite's default
-        // mock, which nothing downstream of the fork treats as meaningful.
+    // ---- C5: local-first wizard. A solo developer gets a true local graph and is never asked
+    // to choose a cloud. The cloud path is for someone who named a team env (and logged in).
+    describe('local-first wizard (C5)', () => {
+      /** Config with no cloud login anywhere and no local graph yet: a fresh machine. */
+      async function mockNoLogin(): Promise<void> {
         const { createConfigStore } = await import('../lib/config.js');
-        vi.mocked(createConfigStore).mockReturnValueOnce({
+        const noLogin = () => ({
           getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: null, mode: 'demo' }),
           getDefaultEnv: vi.fn().mockReturnValue('prod'),
           setAuthToken: vi.fn(),
@@ -1345,78 +1335,235 @@ describe('align setup', () => {
           setConnectorSiteBase: vi.fn(),
           getTelemetryConsent: vi.fn().mockReturnValue(undefined),
           setTelemetryConsent: vi.fn(),
+          getProviderKey: mockGetProviderKey,
+          setProviderKey: mockSetProviderKey,
+          clearProviderKey: mockClearProviderKey,
         } as unknown as ReturnType<typeof createConfigStore>);
+        vi.mocked(createConfigStore).mockImplementation(noLogin);
       }
+      const askedMessages = (): string[] =>
+        [...mockSelect.mock.calls, ...mockConfirm.mock.calls].map((c: unknown[]) => (c[0] as { message?: string })?.message ?? '');
+      const cloudQuestion = /stay local|sync to the cloud|how are you using|cloud \(recommended\)|personal cloud/i;
 
-      it('builds the local graph and shows the found summary BEFORE asking cloud-or-local, with no flags at all', async () => {
-        await mockFreshConfig();
-        const { note } = await import('@clack/prompts');
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        expect(mockInitLocalMode).toHaveBeenCalled();
-        const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
-        const summaryAt = vi.mocked(note).mock.invocationCallOrder[0];
-        const askedAt = mockSelect.mock.invocationCallOrder[0];
-        expect(importedAt).toBeDefined();
-        expect(summaryAt).toBeDefined();
-        expect(askedAt).toBeDefined();
-        expect(importedAt).toBeLessThan(summaryAt!);
-        expect(summaryAt).toBeLessThan(askedAt!);
+      afterEach(async () => {
+        // mockNoLogin replaces the factory's implementation for the whole file, so put the
+        // suite's logged-in default back.
+        const { createConfigStore } = await import('../lib/config.js');
+        vi.mocked(createConfigStore).mockImplementation(() => makeDefaultConfig() as never);
       });
 
-      it('asks the upgrade question defaulted to staying local, framed by what the graph is missing', async () => {
-        // A call-args assertion, deliberately: mockSelect's resolved value is queued
-        // independently of what production code passes in, so it cannot tell the fresh
-        // flow's question apart from the returning-user question below by OUTCOME alone
-        // - only by what was actually asked.
-        await mockFreshConfig();
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        expect(mockSelect).toHaveBeenCalledWith(
-          expect.objectContaining({
-            initialValue: 'local',
-            message: expect.stringMatching(/stay local|sync to the cloud/i),
-          }),
-        );
+      const infoLines = async (): Promise<string[]> => {
+        const { log } = await import('@clack/prompts');
+        return vi.mocked(log.info).mock.calls.map((c) => String(c[0]));
+      };
+      const asNonTty = async (fn: () => Promise<void>): Promise<void> => {
+        const inTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+        Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+        try { await fn(); } finally { if (inTty) Object.defineProperty(process.stdin, 'isTTY', inTty); }
+      };
+
+      describe('solo: no login anywhere', () => {
+        it('a fresh machine on a TTY builds the local graph and is never asked a cloud question', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          expect(mockInitLocalMode).toHaveBeenCalled();
+          expect(mockWhoami).not.toHaveBeenCalled();
+          expect(askedMessages().filter((m) => cloudQuestion.test(m))).toEqual([]);
+          expect(mockLoginInteractive).not.toHaveBeenCalled();
+        });
+
+        it('--approve builds the LOCAL graph, with no prompt and no auth check', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+          expect(mockInitLocalMode).toHaveBeenCalled();
+          expect(mockWhoami).not.toHaveBeenCalled();
+          expect(mockSelect).not.toHaveBeenCalled();
+        });
+
+        it('--local --approve still builds the local graph (the flag is accepted)', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+          expect(mockInitLocalMode).toHaveBeenCalled();
+          expect(mockWhoami).not.toHaveBeenCalled();
+        });
+
+        it('prints no "team login is untouched" line when there is no team login', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          expect((await infoLines()).filter((l) => /team login/i.test(l))).toEqual([]);
+        });
       });
 
-      it('the upgrade question does not promise what choosing cloud does not do', async () => {
-        // Caught live 2026-09-02: the question said "sync to the cloud for team
-        // sharing", but choosing cloud creates a PERSONAL tenant (the option's own
-        // hint says so) - a team is a separate join/upgrade later. "A path to team
-        // sharing" keeps the upgrade visible and is what actually happens; "for team
-        // sharing" claims a capability the choice does not grant.
-        await mockFreshConfig();
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        const call = mockSelect.mock.calls.find(
-          (c: unknown[]) => /stay local/i.test((c[0] as { message?: string })?.message ?? ''),
-        );
-        expect(call).toBeDefined();
-        const message = (call![0] as { message: string }).message;
-        expect(message).not.toMatch(/for team sharing/i);
-        expect(message).toMatch(/path to team sharing/i);
+      describe('a team login means TEAM, never silently local', () => {
+        // The suite's default config holds a token on every env: a logged-in team user.
+        it.each([[['setup']], [['setup', '--approve']]])('`align %j` runs the team setup, not the local wizard', async (args) => {
+          await makeProgram().parseAsync(['node', 'align', ...args]);
+          expect(mockWhoami).toHaveBeenCalled();
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+          expect(mockPickAgent).not.toHaveBeenCalled();
+          expect(askedMessages().filter((m) => cloudQuestion.test(m))).toEqual([]);
+        });
+
+        it('ALIGN_ENV=prod with no stored token is team too: it offers the login instead of building local', async () => {
+          await mockNoLogin();
+          mockWhoami.mockRejectedValueOnce(new Error('401'));
+          vi.stubEnv('ALIGN_ENV', 'prod');
+          try {
+            const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+            await expect(makeProgram().parseAsync(['node', 'align', 'setup'])).rejects.toThrow('exit');
+            exitSpy.mockRestore();
+            expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
+            expect(mockInitLocalMode).not.toHaveBeenCalled();
+          } finally { vi.unstubAllEnvs(); }
+        });
+
+        it.each([['--env', 'local'], ['--local']])('%s on a logged-in machine builds local AND says the team login is untouched', async (...flags) => {
+          await makeProgram().parseAsync(['node', 'align', 'setup', ...flags.flat()]);
+          expect(mockInitLocalMode).toHaveBeenCalled();
+          expect(mockWhoami).not.toHaveBeenCalled();
+          const lines = (await infoLines()).filter((l) => /team login/i.test(l));
+          expect(lines).toHaveLength(1);
+          expect(lines[0]).toMatch(/untouched/i);
+          expect(lines[0]).toContain('prod');
+        });
+
+        it.each(['prod', 'preview'])('--env %s with a token reaches the team (cloud) path', async (env) => {
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', env]);
+          expect(mockWhoami).toHaveBeenCalled();
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+          expect(mockPickAgent).not.toHaveBeenCalled();
+        });
+
+        it.each(['prod', 'preview'])('--env %s with no token on a TTY offers the inline login', async (env) => {
+          await mockNoLogin();
+          mockWhoami.mockRejectedValueOnce(new Error('401'));
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', env])).rejects.toThrow('exit');
+          exitSpy.mockRestore();
+          expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+        });
+
+        it.each(['prod', 'preview'])('--env %s with no token and no TTY says to run align login first and exits 1', async (env) => {
+          await mockNoLogin();
+          const { log } = await import('@clack/prompts');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await asNonTty(async () => {
+            await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', env])).rejects.toThrow('exit');
+          });
+          expect(exitSpy).toHaveBeenCalledWith(1);
+          expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align login'));
+          expect(mockWhoami).not.toHaveBeenCalled();
+          expect(mockLoginInteractive).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+        });
+
+        it.each(['production', 'stage'])('an unrecognised --env %s exits 1 naming the valid ones, and runs nothing', async (bad) => {
+          const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', bad])).rejects.toThrow('exit');
+          expect(exitSpy).toHaveBeenCalledWith(1);
+          expect(err.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/local, preview, prod/);
+          expect(mockWhoami).not.toHaveBeenCalled();
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+          err.mockRestore();
+        });
+
+        it('the team login prompt (expired token) calls it a team graph, not a personal cloud graph', async () => {
+          mockWhoami.mockRejectedValueOnce(new Error('401'));
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod'])).rejects.toThrow('exit');
+          exitSpy.mockRestore();
+          expect(askedMessages().filter((m) => /personal/i.test(m))).toEqual([]);
+          expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
+        });
       });
 
-      it('choosing cloud in the upgrade question hands off to the SAME cloud setup returning users get', async () => {
-        await mockFreshConfig();
-        mockSelect.mockResolvedValueOnce('cloud');
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        // The local value phase still ran (it always does, on a fresh install)...
-        expect(mockInitLocalMode).toHaveBeenCalled();
-        // ...and THEN cloud setup proper ran, unchanged - same auth check as any other
-        // route into runCloudSetup.
-        expect(mockWhoami).toHaveBeenCalled();
+      describe('the agent pick', () => {
+        it('happens before the local graph is created or anything is imported', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          const pickedAt = mockPickAgent.mock.invocationCallOrder[0];
+          const builtAt = mockInitLocalMode.mock.invocationCallOrder[0];
+          const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
+          expect(pickedAt).toBeDefined();
+          expect(pickedAt).toBeLessThan(builtAt!);
+          expect(pickedAt).toBeLessThan(importedAt!);
+          expect(mockPickAgent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ interactive: true }));
+        });
+
+        it('--approve asks the pick to choose without a prompt', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+          expect(mockPickAgent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ approve: true }));
+        });
+
+        it('a cancelled picker cancels the wizard: exit 0 and no local graph is created', async () => {
+          await mockNoLogin();
+          const { PICK_CANCELLED } = await import('../lib/launch/pick-agent.js');
+          mockPickAgent.mockResolvedValueOnce(PICK_CANCELLED);
+          const { cancel } = await import('@clack/prompts');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await expect(makeProgram().parseAsync(['node', 'align', 'setup'])).rejects.toThrow('exit');
+          expect(exitSpy).toHaveBeenCalledWith(0);
+          expect(cancel).toHaveBeenCalled();
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+        });
       });
 
-      it('a returning user (cloud token already set) is asked the OLD mode question, not the upgrade one', async () => {
-        // Base mock default: authToken 'tok', so isFreshInstall is false. Asserted on the
-        // question actually asked - "not routed through the fresh flow" by outcome alone
-        // is what the pre-existing "defaults to cloud" test already covers and would stay
-        // green even if this fork mis-fired, since both paths can resolve to cloud.
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        expect(mockInitLocalMode).not.toHaveBeenCalled();
-        expect(mockWhoami).toHaveBeenCalled();
-        expect(mockSelect).toHaveBeenCalledWith(
-          expect.objectContaining({ message: 'How are you using Align?' }),
-        );
+      describe('a project file left alone', () => {
+        it('is reported with p.log.warn inside the wizard frame, naming the file', async () => {
+          await mockNoLogin();
+          mockSetupAgentAlignment.mockImplementationOnce((o: { onForeign?: (f: string) => void }) => {
+            o.onForeign?.('.mcp.json');
+            return ['CLAUDE.md'];
+          });
+          const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+          const { log } = await import('@clack/prompts');
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          const warned = vi.mocked(log.warn).mock.calls.map((c) => String(c[0])).filter((m) => m.includes('.mcp.json'));
+          expect(warned).toHaveLength(1);
+          expect(warned[0]).toMatch(/left .*as is/i);
+          expect(err).not.toHaveBeenCalled();
+          err.mockRestore();
+        });
+      });
+
+      describe('the outro', () => {
+        const outroText = async (): Promise<string> => {
+          const { outro } = await import('@clack/prompts');
+          // eslint-disable-next-line no-control-regex
+          return String(vi.mocked(outro).mock.calls[0]?.[0]).replace(/\x1b\[[0-9;]*m/g, '');
+        };
+
+        it('with an agent chosen, `align setup` tells you to run align to open it', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce('claude-code');
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          const text = await outroText();
+          expect(text).toContain('Run align to open Claude Code with your graph.');
+          expect(text).not.toMatch(/pricing|align\.tech|https?:/i);
+        });
+
+        it('when the agent opens right after (bare align), that line is dropped', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce('claude-code');
+          const { runSetup } = await import('../commands/setup.js');
+          await runSetup({ launchNext: true });
+          expect(await outroText()).not.toContain('to open Claude Code');
+        });
+
+        it('with no agent, the outro says what to do next without repeating the install hints', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce(null);
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          const text = await outroText();
+          expect(text).toContain('Run align once a coding agent is installed.');
+          expect(text).not.toMatch(/npm i|install claude|cursor\.com|pi\.dev/i);
+          expect(text).not.toMatch(/pricing/i);
+        });
       });
     });
 
@@ -1443,7 +1590,7 @@ describe('align setup', () => {
         const { password } = await import('@clack/prompts');
         vi.mocked(password).mockResolvedValueOnce('gsk_pasted');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
 
         expect(mockConfirm).toHaveBeenCalledWith(
           expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
@@ -1465,7 +1612,7 @@ describe('align setup', () => {
         const { password, log } = await import('@clack/prompts');
         vi.mocked(password).mockResolvedValueOnce('');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
 
         expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align setup --reset'));
       });
@@ -1473,7 +1620,7 @@ describe('align setup', () => {
       it('does not store anything when the offer is declined', async () => {
         mockConfirm.mockResolvedValue(false);
 
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
 
         expect(mockSetProviderKey).not.toHaveBeenCalled();
       });
@@ -1490,7 +1637,7 @@ describe('align setup', () => {
           .mockResolvedValueOnce('gsk_pasted')
           .mockResolvedValueOnce('gem_pasted');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
 
         expect(mockSetProviderKey).toHaveBeenCalledWith('groq', 'gsk_pasted');
         expect(mockSetProviderKey).toHaveBeenCalledWith('gemini', 'gem_pasted');
@@ -1506,7 +1653,7 @@ describe('align setup', () => {
         const { password } = await import('@clack/prompts');
         vi.mocked(password).mockResolvedValueOnce('gsk_pasted');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
 
         expect(mockSetProviderKey).toHaveBeenCalledWith('groq', 'gsk_pasted');
         expect(mockSetProviderKey).not.toHaveBeenCalledWith('gemini', expect.anything());
@@ -1514,7 +1661,7 @@ describe('align setup', () => {
       });
 
       it('never offers it under --approve (scripted runs cannot paste a key interactively)', async () => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
         expect(mockConfirm).not.toHaveBeenCalledWith(
           expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
@@ -1529,7 +1676,7 @@ describe('align setup', () => {
       it('--reset --approve clears any stored keys without prompting, rather than leaving them in place', async () => {
         mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' || p === 'gemini' ? 'already-stored' : null));
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset', '--approve']);
 
         expect(mockConfirm).not.toHaveBeenCalledWith(
           expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
@@ -1549,7 +1696,7 @@ describe('align setup', () => {
         vi.stubEnv('ANTHROPIC_API_KEY', 'already-set-and-unrelated');
         mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset', '--approve']);
 
         expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
       });
@@ -1580,7 +1727,7 @@ describe('align setup', () => {
         vi.stubEnv('GROQ_API_KEY', 'gsk_the_real_one_i_just_exported');
         mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'gsk_stale_stored' : null));
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset', '--approve']);
 
         expect(process.env['GROQ_API_KEY']).toBe('gsk_the_real_one_i_just_exported');
       });
@@ -1597,7 +1744,7 @@ describe('align setup', () => {
         vi.stubEnv('GROQ_API_KEY', 'gsk_same_value_coincidentally');
         mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'gsk_same_value_coincidentally' : null));
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset', '--approve']);
 
         expect(process.env['GROQ_API_KEY']).toBe('gsk_same_value_coincidentally');
         expect(mockClearProviderKey).toHaveBeenCalledWith('groq'); // the STORED value is still cleared
@@ -1606,7 +1753,7 @@ describe('align setup', () => {
       it('skips the offer when a provider is already configured via env', async () => {
         vi.stubEnv('ANTHROPIC_API_KEY', 'already-set');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
 
         expect(mockConfirm).not.toHaveBeenCalledWith(
           expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
@@ -1616,7 +1763,7 @@ describe('align setup', () => {
       it('skips the offer when a provider key is already stored from a previous run', async () => {
         mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'stored-already' : null));
 
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
 
         expect(mockConfirm).not.toHaveBeenCalledWith(
           expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
@@ -1661,7 +1808,7 @@ describe('align setup', () => {
           mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
           mockConfirm.mockResolvedValue(false);
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
 
           expect(mockConfirm).toHaveBeenCalledWith(
             expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
@@ -1674,7 +1821,7 @@ describe('align setup', () => {
             !/free Groq key/i.test(String(o?.message)),
           );
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
 
           expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
         });
@@ -1696,7 +1843,7 @@ describe('align setup', () => {
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
           await expect(
-            makeProgram().parseAsync(['node', 'align', 'setup', '--reset']),
+            makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']),
           ).rejects.toThrow();
 
           expect(mockClearProviderKey).not.toHaveBeenCalled();
@@ -1706,7 +1853,7 @@ describe('align setup', () => {
         it('does not clear anything when there was no stored Groq key to begin with', async () => {
           mockConfirm.mockResolvedValue(false);
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
 
           expect(mockClearProviderKey).not.toHaveBeenCalled();
         });
@@ -1718,7 +1865,7 @@ describe('align setup', () => {
         it('still does not re-open the wizard under --reset when a DIFFERENT provider is configured via env', async () => {
           vi.stubEnv('ANTHROPIC_API_KEY', 'already-set-and-unrelated');
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
 
           expect(mockConfirm).not.toHaveBeenCalledWith(
             expect.objectContaining({ message: expect.stringContaining('free Groq key') }),
@@ -1739,7 +1886,7 @@ describe('align setup', () => {
           const { password } = await import('@clack/prompts');
           vi.mocked(password).mockResolvedValueOnce('gsk_fresh');
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
 
           expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
           delete process.env['GROQ_API_KEY'];
@@ -1760,7 +1907,7 @@ describe('align setup', () => {
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
           await expect(
-            makeProgram().parseAsync(['node', 'align', 'setup', '--reset']),
+            makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']),
           ).rejects.toThrow();
 
           expect(mockClearProviderKey).not.toHaveBeenCalledWith('gemini');
@@ -1780,7 +1927,7 @@ describe('align setup', () => {
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
           await expect(
-            makeProgram().parseAsync(['node', 'align', 'setup']),
+            makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']),
           ).rejects.toThrow();
 
           expect(exitSpy).toHaveBeenCalledWith(0);
@@ -1802,7 +1949,7 @@ describe('align setup', () => {
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
           await expect(
-            makeProgram().parseAsync(['node', 'align', 'setup']),
+            makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']),
           ).rejects.toThrow();
 
           expect(exitSpy).toHaveBeenCalledWith(0);
@@ -1821,7 +1968,7 @@ describe('align setup', () => {
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
           await expect(
-            makeProgram().parseAsync(['node', 'align', 'setup']),
+            makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']),
           ).rejects.toThrow();
 
           expect(exitSpy).toHaveBeenCalledWith(0);
@@ -1918,7 +2065,7 @@ describe('align setup', () => {
       mockRecordFunnelStage.mockResolvedValue(true);
       const { outro } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       const started = stageCalls('setup_started');
       const completed = stageCalls('setup_completed');
@@ -1996,7 +2143,7 @@ describe('align setup', () => {
       mockConfirm.mockResolvedValueOnce(true); // "Log in to Align now?"
       mockLoginInteractive.mockImplementationOnce(async () => { state.cloudToken = 'fresh'; return true; });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
 
       const loginAt = mockLoginInteractive.mock.invocationCallOrder[0]!;
       const started = stageCalls('setup_started');
@@ -2021,16 +2168,15 @@ describe('align setup', () => {
         return { user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } };
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       expect(offersDuringWhoami).toBe(0);
       expect(stageCalls('setup_started')).toHaveLength(1);
     });
 
-    it('a fresh install that stays local: setup_started offered after consent, setup_completed against the local env', async () => {
+    it('a fresh install: setup_started offered after consent, setup_completed against the local env', async () => {
       state.cloudToken = null;
       consentYes();
-      mockSelect.mockResolvedValueOnce('local');
 
       await makeProgram().parseAsync(['node', 'align', 'setup']);
 
@@ -2043,33 +2189,35 @@ describe('align setup', () => {
       expect(completed[0]!.env.mode).toBe('local-embedded');
     });
 
-    // The split-identity case (fresh-context review on #279): consent granted locally, then
-    // "sync to the cloud". The anonymous installId and the cloud tenant are two identities
-    // nothing joins, so BOTH get a setup_started, and setup_completed lands on the cloud one.
-    it('a fresh install that upgrades to cloud: setup_started on both identities, setup_completed on the cloud one', async () => {
+    // C5: there is no upgrade-to-cloud step left in the solo wizard, so a fresh install has
+    // exactly one identity (the anonymous one). The split-identity case from #279 now exists
+    // only for a team user, who starts with a token.
+    it('a fresh install never offers a stage against a cloud identity', async () => {
       state.cloudToken = null;
-      mockRecordFunnelStage.mockImplementation(async (env: Env) =>
-        env.mode === 'local-embedded' ? state.consent === 'granted' : Boolean(env.authToken));
       consentYes();
-      mockSelect.mockResolvedValueOnce('cloud');
-      mockWhoami.mockRejectedValueOnce(new Error('401'));
-      mockConfirm.mockImplementation(async (o: { message?: string }) =>
-        /Help improve Align|Log in to Align now/.test(String(o?.message)));
-      mockLoginInteractive.mockImplementationOnce(async () => { state.cloudToken = 'fresh'; return true; });
 
       await makeProgram().parseAsync(['node', 'align', 'setup']);
 
-      // Which offers the emitter reported as SENT: one anonymous (after consent), one cloud
-      // (after login). Read off the mock's results rather than assumed from the calls.
-      const offers = mockRecordFunnelStage.mock.results
-        .map((r, i) => ({ sent: r.value as Promise<boolean>, call: mockRecordFunnelStage.mock.calls[i]! }))
-        .filter((x) => x.call[1] === 'setup_started');
-      const sentOn = await Promise.all(offers.map(async (x) => ((await x.sent) ? (x.call[0] as Env).mode : null)));
-      expect(sentOn.filter(Boolean)).toEqual(['local-embedded', 'auth']);
-      const completed = stageCalls('setup_completed');
-      expect(completed).toHaveLength(1);
-      expect(completed[0]!.env.mode).toBe('auth');
-      expect(completed[0]!.env.authToken).toBe('fresh');
+      const offered = mockRecordFunnelStage.mock.calls.map((c) => c[0] as Env);
+      expect(offered.length).toBeGreaterThan(0);
+      expect(offered.every((e) => e.mode === 'local-embedded')).toBe(true);
+    });
+
+    it('cloud, already logged in: setup_started is offered only after whoami confirms the token', async () => {
+      // Asserted from INSIDE the in-flight whoami, after yielding a macrotask: an offer made
+      // "before auth" lands in a microtask, so comparing call orders alone would pass on
+      // timing rather than on the property.
+      let offersDuringWhoami = -1;
+      mockWhoami.mockImplementationOnce(async () => {
+        await new Promise((r) => setImmediate(r));
+        offersDuringWhoami = stageCalls('setup_started').length;
+        return { user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } };
+      });
+
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+
+      expect(offersDuringWhoami).toBe(0);
+      expect(stageCalls('setup_started')).toHaveLength(1);
     });
   });
 
@@ -2188,7 +2336,7 @@ describe('align setup', () => {
       const { detectEditors } = await import('../lib/mcp-setup.js');
       vi.mocked(detectEditors).mockReturnValue([CURSOR]);
       mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       const last = await outroLastLine();
       expect(last).toBe('Open Cursor in this repo and ask: why did we switch to postgres?');
       expect(last).not.toMatch(/\balign\s+[a-z-]+/);
@@ -2200,7 +2348,7 @@ describe('align setup', () => {
       vi.mocked(detectEditors).mockReturnValue([CURSOR]);
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       expect(await outroLastLine()).toBe('Open Claude Code in this repo and ask: why did we switch to postgres?');
       expect(await infoLines()).toContain('Your agent is connected: Claude Code, Cursor.');
     });
@@ -2209,21 +2357,21 @@ describe('align setup', () => {
   it('completes setup without calling startCliOAuth when no connectors are selected', async () => {
     mockMultiselect.mockResolvedValue([]);
     await expect(
-      makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
+      makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
     ).resolves.not.toThrow();
     expect(mockStartCliOAuth).not.toHaveBeenCalled();
   });
 
   it('shows pricing link in outro regardless of import count', async () => {
     mockMultiselect.mockResolvedValue([]);
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     const { outro } = await import('@clack/prompts');
     expect((outro as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('app.align.tech/pricing');
   });
 
   it('cloud outro mentions upgrading to a team and notes connectors re-auth after joining', async () => {
     mockMultiselect.mockResolvedValue([]);
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
     const { outro } = await import('@clack/prompts');
     const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     // Upgrade path is the web join flow; decisions carry over, connectors do not.
@@ -2235,14 +2383,14 @@ describe('align setup', () => {
     it('warns with install command when align is not on PATH', async () => {
       mockExeca.mockRejectedValueOnce(new Error('not found'));
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('npm install -g @aligndottech/cli'));
     });
 
     it('does not warn about PATH when align is found', async () => {
       mockExeca.mockResolvedValueOnce({ stdout: '/usr/local/bin/align' });
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       const warnCalls = (log.warn as ReturnType<typeof vi.fn>).mock.calls as string[][];
       expect(warnCalls.every(c => !String(c[0]).includes('npm install -g'))).toBe(true);
     });
@@ -2256,7 +2404,7 @@ describe('align setup', () => {
         port: 7654,
       });
       const { password } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
       expect(mockWaitForCallback).toHaveBeenCalled();
       expect(password).not.toHaveBeenCalled();
     });
@@ -2268,14 +2416,14 @@ describe('align setup', () => {
         port: 7654,
       });
       const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
-      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
       expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'ghu_from_oauth' }));
     });
 
     it('caches the OAuth token and skips browser flow on repeat run', async () => {
       mockMultiselect.mockResolvedValue(['github']);
       mockGetConnectorToken.mockReturnValueOnce('ghu_cached_token');
-      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
       expect(mockWaitForCallback).not.toHaveBeenCalled();
       const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
       expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'ghu_cached_token' }));
@@ -2287,7 +2435,7 @@ describe('align setup', () => {
         data: { connector: 'github', credentials: { access_token: 'ghu_new_token' } },
         port: 7654,
       });
-      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
       expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'github-personal', 'ghu_new_token');
     });
 
@@ -2308,7 +2456,7 @@ describe('align setup', () => {
       mockGetConnectorToken.mockImplementation((_env: string, key: string) =>
         key === 'confluence-personal' ? 'atl_token' : null,
       );
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'jira-personal', 'atl_token');
       expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'confluence-personal', 'atl_token');
       // Only ONE browser OAuth flow despite two Atlassian connectors selected
@@ -2338,7 +2486,7 @@ describe('align setup', () => {
         port: 7654,
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       // The sibling reconnected by the shared app must NOT open a second browser flow.
       expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
@@ -2364,7 +2512,7 @@ describe('align setup', () => {
       mockGetConnectorToken.mockImplementation((_env: string, key: string) =>
         key === 'confluence-personal' ? 'atl_token' : null,
       );
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--reset', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset', '--approve']);
       expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
     });
   });
@@ -2375,7 +2523,7 @@ describe('align setup', () => {
       mockWaitForCallback.mockResolvedValue({ data: { connector: 'x', credentials: { access_token: 'tok' } }, port: 7654 });
       const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
       const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       expect(mockWaitForCallback).toHaveBeenCalledTimes(2);
       const lastConsent = Math.max(...mockWaitForCallback.mock.invocationCallOrder);
       const fetchOrders = [
@@ -2409,7 +2557,7 @@ describe('align setup', () => {
       });
 
       try {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
         expect(order).toContain('slack-start');
         expect(order).toContain('gh-end');
         expect(order.indexOf('slack-start')).toBeLessThan(order.indexOf('gh-end'));
@@ -2434,7 +2582,7 @@ describe('align setup', () => {
         report: { scanned: 1, skips: [] },
       });
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       // The parallel import phase announces itself...
       expect((log.step as ReturnType<typeof vi.fn>).mock.calls.some((c) => /parallel/i.test(String(c[0])))).toBe(true);
       // ...and every connected source is ingested (github + linear items both sent).
@@ -2452,7 +2600,7 @@ describe('align setup', () => {
       // start the CLI OAuth flow, not open the settings/API token page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['linear']);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       // OAuth path runs the browser callback flow; paste path would instead open
       // the settings/API token page.
       expect(mockWaitForCallback).toHaveBeenCalled();
@@ -2470,7 +2618,7 @@ describe('align setup', () => {
       // OAuth flow, not open the my-integrations page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['notion']);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       expect(mockWaitForCallback).toHaveBeenCalled();
       expect(open).not.toHaveBeenCalledWith('https://www.notion.so/my-integrations');
     });
@@ -2481,7 +2629,7 @@ describe('align setup', () => {
       mockMultiselect.mockResolvedValueOnce(['gitlab']);
       const { text } = await import('@clack/prompts');
       (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined); // blank submit returns undefined
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       expect(mockWaitForCallback).toHaveBeenCalled();
       expect(open).not.toHaveBeenCalledWith(
         expect.stringContaining('/-/user_settings/personal_access_tokens'),
@@ -2493,7 +2641,7 @@ describe('align setup', () => {
       mockMultiselect.mockResolvedValueOnce(['gitlab']);
       const { text } = await import('@clack/prompts');
       (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('gitlab.mycompany.com');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       // self-managed → token page on that host, no OAuth callback
       expect(open).toHaveBeenCalledWith(
         'https://gitlab.mycompany.com/-/user_settings/personal_access_tokens?name=Align+CLI&scopes=read_api',
@@ -2508,7 +2656,7 @@ describe('align setup', () => {
     (multiselect as ReturnType<typeof vi.fn>).mockResolvedValueOnce(Symbol('cancel'));
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
     await expect(
-      makeProgram().parseAsync(['node', 'align', 'setup', '--approve']),
+      makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
     ).rejects.toThrow();
     expect(cancel).toHaveBeenCalled();
     exitSpy.mockRestore();
@@ -2539,7 +2687,7 @@ describe('align setup', () => {
         port: 7654,
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       expect(mockConfirm).toHaveBeenCalledWith(
         expect.objectContaining({ message: expect.stringContaining('Linear token expired') }),
@@ -2566,7 +2714,7 @@ describe('align setup', () => {
         port: 7654,
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       expect(mockConfirm).toHaveBeenCalledWith(
         expect.objectContaining({ message: expect.stringContaining('Zoom token expired') }),
@@ -2586,7 +2734,7 @@ describe('align setup', () => {
       mockConfirm.mockResolvedValue(false); // decline "Reconnect now?"
       const { log } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       expect(mockConfirm).toHaveBeenCalledWith(
         expect.objectContaining({ message: expect.stringContaining('Linear token expired') }),
@@ -2609,7 +2757,7 @@ describe('align setup', () => {
       mockWaitForCallback.mockRejectedValue(new Error('callback timed out')); // ...but OAuth fails
       const { log } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('re-auth cancelled or failed'));
       expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(1); // no successful retry
@@ -2631,7 +2779,7 @@ describe('align setup', () => {
         port: 7654,
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(2); // initial + retry, both fail
       expect(
@@ -2648,7 +2796,7 @@ describe('align setup', () => {
       vi.mocked(fetchLinearItems).mockRejectedValueOnce(new Error('Linear API failed (500). Server error.'));
       const { log } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       expect(mockConfirm).not.toHaveBeenCalled(); // no reconnect prompt for a 500
       expect(mockWaitForCallback).not.toHaveBeenCalled();
@@ -2677,7 +2825,7 @@ describe('align setup', () => {
       });
       const { log } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
 
       expect(vi.mocked(fetchGitHubItems)).toHaveBeenCalled(); // github imported (default mock returns a PR)
       expect(mockConfirm).toHaveBeenCalledWith(
@@ -2713,7 +2861,7 @@ describe('align setup', () => {
         items: [{ source_url: 'https://linear.app/team/issue/ISS-1', title: 'Issue', raw_text: 'x', type: 'issue' }],
         report: { scanned: 1, requested: 250, skips: [] },
       });
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       const reports = reportsPrinted();
       expect(reports).toHaveLength(1);
       expect(reports[0]).toContain('Git: 1 commits');

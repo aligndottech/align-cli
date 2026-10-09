@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 
 // ALI-952: user-level advisory hooks for the hosts whose hook API lives in a file under the
 // user's home rather than in the project. Written by mcp-setup.ts next to the MCP entry for
@@ -124,12 +125,18 @@ function hooksOf(config: Record<string, unknown>, file: string): Record<string, 
   return hooks as Record<string, unknown>;
 }
 
-export function writeUserHooks(target: UserHookTarget, env?: string): void {
+export function writeUserHooks(target: UserHookTarget, env?: string, onForeign?: OnForeign): boolean {
   const spec = HOSTS[target.host];
   const command = advisoryHookCommand(target.host, env);
   const config = readHooksFile(target.path) ?? {};
 
   const hooks = hooksOf(config, target.path);
+  // The local wizard never replaces a hook that checks against a team env.
+  if (onForeign && env === 'local' && spec.events.some((event) =>
+    (Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []).some((e) => isOurs(spec, e) && !carriesLocalEnv(JSON.stringify(e))))) {
+    onForeign(target.path);
+    return false;
+  }
   for (const event of spec.events) {
     const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
     const preserved = existing.filter((e) => !isOurs(spec, e));
@@ -142,6 +149,7 @@ export function writeUserHooks(target: UserHookTarget, env?: string): void {
   const dir = path.dirname(target.path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(target.path, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  return true;
 }
 
 /**

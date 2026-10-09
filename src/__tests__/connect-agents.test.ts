@@ -13,13 +13,14 @@ vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
 
 const confirm = vi.hoisted(() => vi.fn());
 const logged: string[] = [];
+const warnings: string[] = [];
 vi.mock('@clack/prompts', () => ({
   confirm,
   isCancel: vi.fn().mockReturnValue(false),
   log: {
     info: (m: string) => logged.push(m),
     success: (m: string) => logged.push(m),
-    warn: (m: string) => logged.push(m),
+    warn: (m: string) => { logged.push(m); warnings.push(m); },
   },
 }));
 
@@ -43,6 +44,7 @@ const CURSOR = { name: 'Cursor', configPath: '/home/d/.cursor/mcp.json', format:
 describe('connectDetectedAgents', () => {
   beforeEach(() => {
     logged.length = 0;
+    warnings.length = 0;
     detectEditors.mockReset();
     // ALI-952: the writer reports the files it touched - the MCP config, plus the
     // user-level hook file on the hosts that have one.
@@ -61,13 +63,52 @@ describe('connectDetectedAgents', () => {
   it('threads the env, or a local user\'s agent reads the cloud graph', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
     await connectDetectedAgents('local');
-    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, 'local');
+    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, 'local', expect.any(Function));
   });
 
   it('passes undefined for prod, so the agent gets the default env', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
     await connectDetectedAgents('prod');
-    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, undefined);
+    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, undefined, expect.any(Function));
+  });
+
+  describe('an existing align entry is never overwritten by the local wiring', () => {
+    const skipClaude = () =>
+      writeMcpConfig.mockImplementation((t: { configPath: string }, _env: string, onForeign: (f: string) => void) => {
+        if (t === CLAUDE) { onForeign(t.configPath); return []; }
+        return [t.configPath];
+      });
+
+    it('warns inside the wizard frame, naming the file and the exact command to switch', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+      skipClaude();
+      await connectDetectedAgents('local');
+      const warned = warnings.filter((m) => m.includes(CLAUDE.configPath));
+      expect(warned).toHaveLength(1);
+      expect(warned[0]).toMatch(/left .*as is/i);
+      expect(warned[0]).toContain('align mcp --setup --env local');
+      // It does not claim the entry is a team graph: with no token it resolves to local.
+      expect(warned[0]).not.toMatch(/team graph/i);
+      expect(err).not.toHaveBeenCalled();
+      err.mockRestore();
+    });
+
+    it('does not report a skipped agent as connected or wired, and does not claim its file', async () => {
+      detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+      skipClaude();
+      const r = await connectDetectedAgents('local');
+      expect(logged.join('\n')).not.toContain(`${CLAUDE.name}: align MCP connected`);
+      expect(logged.join('\n')).toContain(`${CURSOR.name}: align MCP connected`);
+      expect(logged.join('\n')).toContain(CURSOR.configPath);
+      expect(r).toEqual({ detected: 2, connected: 1, wired: ['Cursor'] });
+    });
+
+    it('says nothing of the kind when nothing was skipped', async () => {
+      detectEditors.mockReturnValue([CURSOR]);
+      await connectDetectedAgents('local');
+      expect(warnings).toEqual([]);
+    });
   });
 
   /**

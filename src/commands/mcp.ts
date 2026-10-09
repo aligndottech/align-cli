@@ -9,7 +9,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { createConfigStore, type EnvironmentConfig, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { alignServerEntry, detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
+import { alignEntryTargetsElsewhere, alignServerEntry, detectEditors, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
 import { commandIntro } from '../lib/brand.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
@@ -776,8 +776,11 @@ async function runMcpSetup(env?: EnvName): Promise<void> {
     const spinner = p.spinner();
     spinner.start(`Configuring ${name}...`);
     try {
+      // Explicit, so it overwrites by design - this is how a user SWITCHES an agent to the local
+      // graph. Say so when it replaced an entry that pointed somewhere else.
+      const replaces = env === 'local' && alignEntryTargetsElsewhere(target);
       const files = writeMcpConfig(target, env === 'prod' || !env ? undefined : env);
-      spinner.stop(`${name}: align added to MCP servers${target.hooks ? ', pre-edit check hooked' : ''} (${files.join(', ')})`);
+      spinner.stop(`${name}: align added to MCP servers${target.hooks ? ', pre-edit check hooked' : ''} (${files.join(', ')})${replaces ? ' - replaced the existing align entry, which pointed at a non-local graph' : ''}`);
     } catch (err) {
       spinner.stop(`${name}: failed - ${(err as Error).message}`);
     }

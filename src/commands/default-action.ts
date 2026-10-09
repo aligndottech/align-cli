@@ -14,11 +14,11 @@ import { launchIfChosen } from '../lib/launch/launch.js';
  * capture, context and env before anything happened.
  *
  * The tool already knows whether it is set up, so it acts on that:
- *   - not set up  -> run the onboarding `align setup` runs. That flow asks cloud-or-local
- *                    itself, so nobody has to know `--local` to get the offline path. The
- *                    flag still earns its place where there is nothing to ask: the non-TTY
- *                    branch below suggests `--local --approve` precisely because a scripted
- *                    run cannot answer the question.
+ *   - not set up  -> run the local-first wizard `align setup` runs (C5): pick your coding
+ *                    agent, connect your tools, build the local graph - then open the agent.
+ *                    There is no cloud question; a solo developer's graph is local. The
+ *                    non-TTY branch below suggests `align setup --approve` because a
+ *                    scripted run cannot answer the wizard's questions.
  *   - set up      -> the second-run card (ALI-950): which graph is in play, which agents are
  *                    wired, what the graph did this week, and the one thing to do next -
  *                    which happens in the agent, not here.
@@ -34,20 +34,25 @@ export async function runDefaultAction(): Promise<void> {
   const hasLocal = local.mode === 'local-embedded';
   const hasCloud = Boolean(cloud.authToken);
 
+  // Nothing set up. A team user (a token on the default env) is not here: they keep the
+  // "Signed in" card below exactly as before, and `align setup` routes them to team setup.
+  // What runs here is `runSetup`, which itself routes by login / ALIGN_ENV, so an
+  // ALIGN_ENV=prod machine with no token lands in the team login, not the local wizard.
+  const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!hasLocal && !hasCloud) {
     // Onboarding asks questions. Without a TTY - a pipe, a CI step, a Dockerfile - those
     // prompts cannot be answered, and starting anyway leaves a half-drawn cancelled prompt
     // and no explanation. Say what to run instead.
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    if (!tty) {
       console.log('');
       console.log('  Align is not set up yet, and setup asks a couple of questions.');
       console.log('  Run it from a terminal:');
       console.log('');
       console.log('    align setup');
       console.log('');
-      console.log('  Or skip the questions and stay offline, no account:');
+      console.log('  Or skip the questions:');
       console.log('');
-      console.log('    align setup --local --approve');
+      console.log('    align setup --approve');
       console.log('');
       return;
     }
@@ -55,7 +60,18 @@ export async function runDefaultAction(): Promise<void> {
     // stacked two full banners on a fresh user's very first command (found live
     // 2026-09-02). The banner belongs to whichever flow owns the screen.
     const { runSetup } = await import('./setup.js');
-    await runSetup();
+    await runSetup({ launchNext: true });
+
+    // The wizard's last step is `align` itself: open the agent it just wired. Re-read the
+    // config (the wizard wrote it). Launch only when a local graph now exists AND an agent was
+    // chosen: with none installed the real launcher prints its own "no agent" error and returns
+    // exit 1, which would turn a finished wizard into a failed command. The wizard already
+    // said what to install, so a clean exit 0 is the right end.
+    const after = createConfigStore();
+    if (after.getEnvironment('local').mode === 'local-embedded' && after.getAgent()) {
+      const launch = await launchIfChosen();
+      if (launch.handled) process.exit(launch.code);
+    }
     return;
   }
 

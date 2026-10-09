@@ -16,8 +16,9 @@ curl -fsSL https://align.tech/install.sh | sh
 align
 ```
 
-That is the whole thing. `align` sets itself up the first time you run it and asks whether you
-want it local-only or synced; after that it shows your graph and what to do next.
+That is the whole thing. The first time you run it, `align` asks which coding agent you use,
+connects your tools and builds a local graph on your machine. After that, `align` opens your
+agent with the graph already wired in.
 
 A standalone binary. No Node, no npm, nothing else to install, and local-only mode works
 fully - on-device embeddings included, running on a WASM backend bundled inside the binary.
@@ -47,11 +48,12 @@ Your decisions and code never go to Align. It sends two anonymous counts by defa
 setup completed); usage only with your consent; `align telemetry off` or `DO_NOT_TRACK=1` stops
 all of it. [What touches the network](docs/local-mode.md), and [every field](docs/telemetry.md).
 
-Want sync across machines and cross-tool relationship detection? Drop the flag. `align setup`
-logs you in - a work email lands you in your company's graph (first person in is the admin,
-the next colleague on that domain joins it automatically); a personal email gets you a graph
-of your own, joinable to a company graph later by invite. It also connects your tools via
-read-only OAuth and wires up your editors.
+Working with a team? Team graphs are separate from the local one. Run `align login`, then
+`align setup`: a work email lands you in your company's graph (first person in is the admin, the
+next colleague on that domain joins it automatically), and setup connects your tools through
+read-only OAuth and wires up your editors. A personal email does not get a cloud graph; solo use
+is the local graph that `align` builds. A team login is never switched to local behind your
+back: `align setup --env local` builds the local graph on purpose and leaves the login alone.
 
 ## How it works
 
