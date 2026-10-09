@@ -134,7 +134,7 @@ describe('SCHEMA_VERSION and migrate() are one fact', () => {
    * literal, so the next migration cannot introduce the drift silently.
    */
   it('SCHEMA_VERSION equals the highest migration step in migrate()', () => {
-    const source = readFileSync(new URL('../lib/local-db.ts', import.meta.url), 'utf8');
+    const source = readFileSync(new URL('../lib/local-db-migrate.ts', import.meta.url), 'utf8');
     const steps = [...source.matchAll(/if \(version < (\d+)\)/g)].map(m => Number(m[1]));
 
     // Positive control: an empty parse would make the comparison below vacuous.
