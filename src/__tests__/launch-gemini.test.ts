@@ -47,7 +47,7 @@ describe('buildGeminiLaunch: injection', () => {
     expect(fileOf(spec)).toEqual({ mcpServers: { 'align-local': LOCAL } });
     expect(spec.env['ALIGN_WRAPPED']).toBe('1');
     expect(spec.notes ?? []).toEqual([]);
-    expect(spec.remove ?? []).toEqual([]);
+    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-', keep: geminiCopyName(SYS) });
   });
 
   it('names the copy per source: two sources never share a file, one source always reuses its own', () => {
@@ -91,7 +91,7 @@ describe('buildGeminiLaunch: injection', () => {
     expect(spec.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']).toBeUndefined();
     expect(spec.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH']).toBeUndefined();
     expect(spec.files).toEqual([]);
-    expect(spec.remove).toEqual([geminiCopyName('/opt/admin/gem.json')]);
+    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-' });
     expect(spec.notes).toHaveLength(1);
     expect(spec.notes![0]).toContain('/opt/admin/gem.json');
     expect(spec.notes![0]).toMatch(/graph tools were not added/);
@@ -101,7 +101,7 @@ describe('buildGeminiLaunch: injection', () => {
     const spec = buildGeminiLaunch(ctx(sys(SYS, null, true)));
     expect(spec.files).toEqual([]);
     expect(spec.notes).toHaveLength(1);
-    expect(spec.remove).toEqual([geminiCopyName(SYS)]);
+    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-' });
   });
 
   it('a usable file, or one that is absent, says nothing', () => {
@@ -114,7 +114,7 @@ describe('buildGeminiLaunch: injection', () => {
     expect(spec.env).toEqual({ ALIGN_WRAPPED: '1' });
     expect(spec.files).toEqual([]);
     expect(spec.notes ?? []).toEqual([]);
-    expect(spec.remove).toEqual([geminiCopyName('/x.json')]);
+    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-' });
   });
 
   it('a non-canonical align-local anywhere is replaced by ours (system tier wins), with one line naming the files', () => {
@@ -200,8 +200,15 @@ describe('readGeminiState', () => {
     expect(state().present).toBe(false);
     userSettings({ mcpServers: { align: CANON } });
     expect(state().present).toBe(true);
-    writeFileSync(path.join(home, '.gemini', 'settings.json'), `// mine\n{ "mcpServers": { "align-local": ${JSON.stringify(CANON)} /* c */ } }`);
+    writeFileSync(path.join(home, '.gemini', 'settings.json'), `// mine\n{ "mcpServers": { "align": ${JSON.stringify(CANON)} /* c */ } }`);
     expect(state().present).toBe(true);
+  });
+
+  it('a canonical align-local never counts as present: our system-tier copy is injected anyway', () => {
+    userSettings({ mcpServers: { 'align-local': CANON } });
+    expect(state()).toMatchObject({ present: false, overridden: [] });
+    writeFileSync(sysFile(), JSON.stringify({ mcpServers: { 'align-local': CANON } }));
+    expect(state()).toMatchObject({ present: false, overridden: [] });
   });
 
   it('another graph, a shell that mentions align, or win32 bare align is not present', () => {
@@ -222,12 +229,13 @@ describe('readGeminiState', () => {
   it('the same workspace file in an UNTRUSTED folder is ignored: Gemini does not load it', () => {
     workspace({ mcpServers: { 'align-local': HOSTILE } });
     expect(state()).toMatchObject({ present: false, overridden: [] });
-    workspace({ mcpServers: { 'align-local': CANON } });
+    workspace({ mcpServers: { align: CANON } });
     expect(state().present).toBe(false);
   });
 
-  it('a canonical workspace align-local counts only in a trusted folder', () => {
-    workspace({ mcpServers: { 'align-local': CANON } });
+  it('a canonical workspace align counts only in a trusted folder', () => {
+    workspace({ mcpServers: { align: CANON } });
+    expect(state().present).toBe(false);
     trustProj();
     expect(state().present).toBe(true);
   });
@@ -240,7 +248,7 @@ describe('readGeminiState', () => {
   it('reads GEMINI_CLI_HOME for the user settings', () => {
     const gh = path.join(root, 'gh');
     mkdirSync(path.join(gh, '.gemini'), { recursive: true });
-    writeFileSync(path.join(gh, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: { 'align-local': CANON } }));
+    writeFileSync(path.join(gh, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: { align: CANON } }));
     expect(state({ env: { ...sysEnv(), GEMINI_CLI_HOME: gh } }).present).toBe(true);
     expect(state().present).toBe(false);
   });

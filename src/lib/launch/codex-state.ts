@@ -22,7 +22,7 @@ function readToml(file: string): Json {
   }
 }
 
-/** The git root above cwd (cwd included), or null with no .git anywhere above. */
+/** The nearest ancestor (cwd included) holding `.git`, a directory or a worktree's file; null with none. */
 function gitRoot(cwd: string): string | null {
   for (let dir = cwd; ; dir = path.dirname(dir)) {
     if (existsSync(path.join(dir, '.git'))) return dir;
@@ -40,37 +40,43 @@ function projectDirs(cwd: string, root: string | null): string[] {
   }
 }
 
-/** Codex loads project config only for a trusted project: `[projects."<git root or cwd>"] trust_level = "trusted"`. */
-function trusted(user: Json, cwd: string, root: string | null): boolean {
-  const projects = isObject(user['projects']) ? user['projects'] : {};
-  return [root ?? cwd, cwd].some((k) => (projects[k] as Json | undefined)?.['trust_level'] === 'trusted');
-}
-
 /** Every key -c overrides when it replaces align-local: command, args, and enabled=true. */
 const REPLACEABLE = new Set(['command', 'args', 'enabled']);
 
 /**
  * What Codex would already load for align, read with a TOML parser (sub-tables, dotted keys and
- * inline tables all land on the same object). Layers in Codex's merge order: $CODEX_HOME (or
- * ~/.codex)/config.toml, then each .codex/config.toml from the git root down to cwd, and those
- * only when Codex trusts the project (verified on 0.153.0: an untrusted repo's file is ignored).
+ * inline tables all land on the same object).
+ *
+ * The CONFLICT scan reads every layer Codex might load, whatever the trust state, and fails
+ * closed. align cannot reproduce Codex's trust resolution: a worktree resolves to its main
+ * repo's trust, and an untrusted repo becomes trusted with one Enter at Codex's own prompt,
+ * after which the config reloads WITH our -c overrides and the repo's keys merge into them
+ * (both verified on 0.153.0). So: /etc/codex/config.toml, /etc/codex/managed_config.toml (both
+ * named in the 0.153.0 binary), $CODEX_HOME (or ~/.codex)/config.toml, and each .codex/config.toml
+ * from the nearest ancestor holding `.git` (a dir, or a worktree's file) down to cwd, or cwd alone.
+ *
+ * "Already present" counts only the user and system layers. A project's canonical align-local
+ * is simply overwritten by our identical -c values; a project's canonical `align` at worst
+ * duplicates tools.
  */
 export function readCodexState(
   cwd: string,
   home: string,
-  opts: { localIsDefault: boolean },
+  opts: { localIsDefault: boolean; systemDir?: string },
   env: Record<string, string | undefined>,
   platform: string,
 ): CodexProjectState {
+  const o = { localIsDefault: opts.localIsDefault, platform, host: 'codex' as const };
+  const replaceable = (e: unknown): boolean => isObject(e) && Object.keys(e).every((k) => REPLACEABLE.has(k));
+  const at = (file: string): Layer => ({ file, servers: readToml(file)['mcp_servers'] });
+  const systemDir = opts.systemDir ?? '/etc/codex';
   const userFile = path.join(env['CODEX_HOME'] ? env['CODEX_HOME'] : path.join(home, '.codex'), 'config.toml');
-  const user = readToml(userFile);
-  const root = gitRoot(cwd);
-  const layers: Layer[] = [{ file: userFile, servers: user['mcp_servers'] }];
-  if (trusted(user, cwd, root)) {
-    for (const dir of projectDirs(cwd, root)) {
-      const file = path.join(dir, '.codex', 'config.toml');
-      layers.push({ file, servers: readToml(file)['mcp_servers'] });
-    }
-  }
-  return foldLayers(layers, { ...opts, platform, host: 'codex' }, (e) => isObject(e) && Object.keys(e).every((k) => REPLACEABLE.has(k)));
+  const base = foldLayers([at(path.join(systemDir, 'config.toml')), at(userFile), at(path.join(systemDir, 'managed_config.toml'))], o, replaceable);
+  const project = foldLayers(projectDirs(cwd, gitRoot(cwd)).map((d) => at(path.join(d, '.codex', 'config.toml'))), o, replaceable);
+  const conflict = base.conflict ?? project.conflict;
+  return {
+    present: base.present,
+    overridden: [...base.overridden, ...project.overridden],
+    ...(conflict ? { conflict } : {}),
+  };
 }

@@ -54,6 +54,27 @@ describe('isCanonicalLocalEntry', () => {
     expect(canon({ type: 'local', command: 'align', args: LOCAL }, cp)).toBe(false);
   });
 
+  it.each([['constructor', {}], ['toString', 'x'], ['valueOf', 1], ['hasOwnProperty', true]])('an own %s key (an inherited name) is not canonical, for every host', (k, v) => {
+    for (const host of ['mcpServers', 'codex', 'copilot'] as const) {
+      const base = host === 'copilot' ? { type: 'local', command: 'align', args: LOCAL, tools: ['*'] } : { command: 'align', args: LOCAL };
+      expect(canon({ ...base, [k]: v }, { host })).toBe(false);
+    }
+  });
+
+  it('an own __proto__ key, as JSON.parse and smol-toml return it, is not canonical and does not throw', () => {
+    const fromJson = JSON.parse('{"command":"align","args":["mcp","--env","local"],"__proto__":{}}');
+    expect(Object.hasOwn(fromJson, '__proto__')).toBe(true);
+    for (const host of ['mcpServers', 'codex', 'copilot'] as const) expect(() => canon(fromJson, { host })).not.toThrow();
+    expect(canon(fromJson)).toBe(false);
+    expect(canon(JSON.parse('{"__proto__":{}}'))).toBe(false);
+  });
+
+  it('copilot\'s required keys must be OWN keys, not inherited ones', () => {
+    const proto = { type: 'local', tools: ['*'] };
+    const inherits = Object.assign(Object.create(proto), { command: 'align', args: LOCAL });
+    expect(canon(inherits, { host: 'copilot' })).toBe(false);
+  });
+
   it('non-objects are not canonical', () => {
     for (const e of [null, undefined, 'align mcp', ['align', 'mcp'], 1]) expect(canon(e)).toBe(false);
   });

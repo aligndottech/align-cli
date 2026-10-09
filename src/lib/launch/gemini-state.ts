@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { geminiDir, geminiFolderTrust, geminiSystemDefaultsPath, geminiSystemSettingsPath, type GeminiTrust } from './gemini-trust.js';
-import { type AlignLocalState, foldLayers, type Layer, parseJsonc } from './strict-entry.js';
+import { type AlignLocalState, foldLayers, isCanonicalLocalEntry, type Layer, parseJsonc } from './strict-entry.js';
 
 /** The system settings file Gemini would read with no help from align, and what it holds. */
 export interface GeminiSystemSettings {
@@ -22,8 +22,10 @@ export interface GeminiProjectState extends AlignLocalState {
  * The launch-cache name of the merged copy of one system settings file. One name per SOURCE,
  * so two concurrent launches that read different system files never write the same copy.
  */
+export const COPY_PREFIX = 'gemini-system-settings-';
+
 export function geminiCopyName(source: string): string {
-  return `gemini-system-settings-${createHash('sha256').update(path.resolve(source)).digest('hex').slice(0, 12)}.json`;
+  return `${COPY_PREFIX}${createHash('sha256').update(path.resolve(source)).digest('hex').slice(0, 12)}.json`;
 }
 
 function readSystem(file: string): GeminiSystemSettings {
@@ -70,6 +72,11 @@ export function readGeminiState(
     ...(trust === 'trusted' || trust === 'off' ? [layer(workspacePath, readText(workspacePath))] : []),
     layer(system.path, system.text),
   ];
-  const state = foldLayers(layers, { ...opts, platform, host: 'mcpServers' }, () => true);
-  return { ...state, systemSettings: system, trust };
+  const o = { ...opts, platform, host: 'mcpServers' as const };
+  const { overridden } = foldLayers(layers, o, () => true);
+  // Only the user's own `align` stands in for us. A canonical align-local does not: the system
+  // copy replaces it whole anyway, and skipping would let a workspace align-local trusted later
+  // take its place.
+  const present = layers.some((l) => isCanonicalLocalEntry((l.servers as Record<string, unknown> | undefined)?.['align'], o));
+  return { present, overridden, systemSettings: system, trust };
 }

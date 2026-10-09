@@ -36,9 +36,11 @@ export function isCanonicalLocalEntry(entry: unknown, o: CanonicalOptions): bool
   const extra = EXTRA[o.host];
   for (const key of Object.keys(entry)) {
     if (key === 'command' || key === 'args') continue;
-    if (!extra[key]?.(entry[key])) return false;
+    // Own keys of the allowlist only: an entry's `constructor`, `toString` or an own `__proto__`
+    // (JSON.parse and smol-toml both return one) must not reach Object.prototype's members.
+    if (!Object.hasOwn(extra, key) || !extra[key]!(entry[key])) return false;
   }
-  if (!REQUIRED[o.host].every((k) => k in entry)) return false;
+  if (!REQUIRED[o.host].every((k) => Object.hasOwn(entry, k))) return false;
   // On win32 an npm global install is align.cmd, which only cmd can spawn (mcp-setup.ts, ALI-1135).
   const [command, prefix] = o.platform === 'win32' ? ['cmd', ['/c', 'align']] : ['align', []];
   if (entry['command'] !== command) return false;

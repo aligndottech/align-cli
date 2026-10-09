@@ -1,5 +1,5 @@
 import envPaths from 'env-paths';
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -46,7 +46,8 @@ export function writeIfChanged(dir: string, name: string, content: string, opts:
   const targetDir = path.dirname(target);
   if (targetDir !== dir) mkdirSync(targetDir, { recursive: true, mode: 0o700 });
   try {
-    if (readFileSync(target, 'utf8') === content) {
+    // Only a regular file counts as up to date: a link here (planted, or left by hand) is replaced.
+    if (lstatSync(target).isFile() && readFileSync(target, 'utf8') === content) {
       if (opts.mode !== undefined && posix && (statSync(target).mode & 0o777) !== opts.mode) chmodSync(target, opts.mode);
       return false;
     }
@@ -54,19 +55,28 @@ export function writeIfChanged(dir: string, name: string, content: string, opts:
     // missing: write it
   }
   const tmp = path.join(targetDir, `.${path.basename(name)}.${process.pid}.tmp`);
-  if (opts.mode === undefined) {
-    writeFileSync(tmp, content, 'utf8');
-  } else {
-    // Created with the mode from the first byte (wx: never through an existing file or link).
-    // A umask can only remove bits, so the file is never looser than `mode`.
+  // Never through whatever sits at the temp path: create it exclusively (wx), with the mode from
+  // the first byte (a umask only removes bits). Something already there (a crashed launch's
+  // leftover, or a planted link) is removed, not followed, and the exclusive create is retried.
+  const create = (): void => writeFileSync(tmp, content, { encoding: 'utf8', flag: 'wx', ...(opts.mode === undefined ? {} : { mode: opts.mode }) });
+  try {
+    create();
+  } catch (e) {
+    if ((e as { code?: string }).code !== 'EEXIST') throw e;
     rmSync(tmp, { force: true });
-    writeFileSync(tmp, content, { encoding: 'utf8', mode: opts.mode, flag: 'wx' });
+    create();
   }
   renameSync(tmp, target);
   return true;
 }
 
-/** Remove a launch file an earlier launch left behind. Missing is fine. */
-export function removeLaunchFile(dir: string, name: string): void {
-  rmSync(path.join(dir, name), { force: true });
+/** Remove every launch file named `<prefix>...` except `keep` (all of them with no keep). A missing dir is fine. */
+export function pruneLaunchFiles(dir: string, prefix: string, keep?: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const n of names) if (n.startsWith(prefix) && n !== keep) rmSync(path.join(dir, n), { force: true });
 }

@@ -20,7 +20,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
   const err: string[] = [];
   const written: Array<[string, string]> = [];
   const modes: Record<string, number | undefined> = {};
-  const removed: string[] = [];
+  const pruned: Array<{ prefix: string; keep?: string }> = [];
   const runAgent = vi.fn().mockResolvedValue(0);
   const pick = vi.fn();
   const deps: LaunchDeps = {
@@ -39,7 +39,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
     readCodexState: () => ({ present: false, overridden: [] }),
     readGeminiState: () => ({ present: false, overridden: [], systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'untrusted' }),
     readCopilotState: () => ({ present: false, overridden: [] }),
-    removeLaunchFile: (_d, name) => { removed.push(name); },
+    pruneLaunchFiles: (_d, prefix, keep) => { pruned.push({ prefix, keep }); },
     applyConfigWrite: vi.fn(),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content, opts) => { written.push([name, content]); modes[name] = opts?.mode; return true; },
@@ -50,7 +50,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
     now: () => 42,
     ...over,
   };
-  return { deps, err, written, modes, removed, runAgent, pick, stored: () => stored };
+  return { deps, err, written, modes, pruned, runAgent, pick, stored: () => stored };
 }
 
 describe('wave A: the registry', () => {
@@ -142,13 +142,13 @@ describe('wave A: each launches with Align wired in', () => {
     expect(h.runAgent.mock.calls[0]![0].env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']).toBe(`/cache/${name}`);
     expect(h.err.some((l) => l.includes('Trust this folder in Gemini'))).toBe(true);
   });
-  it('gemini: a launch that does not inject removes the stale copy, and one that does removes nothing', async () => {
+  it('gemini: prunes every older copy but this source\'s, and all of them when it does not inject', async () => {
     const h = harness({ stored: 'gemini-cli', onPath: ['gemini'], readGeminiState: () => ({ present: true, overridden: [], systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'trusted' }) });
     await launchIfChosen(h.deps);
-    expect(h.removed).toEqual([geminiCopyName('/etc/gemini-cli/settings.json')]);
+    expect(h.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: undefined }]);
     const i = harness({ stored: 'gemini-cli', onPath: ['gemini'] });
     await launchIfChosen(i.deps);
-    expect(i.removed).toEqual([]);
+    expect(i.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: geminiCopyName('/etc/gemini-cli/settings.json') }]);
   });
   it('copilot: writes its launch file and passes it with @', async () => {
     const h = harness({ stored: 'copilot', onPath: ['copilot'] });
@@ -178,6 +178,31 @@ describe('wave A: each launches with Align wired in', () => {
     const p = harness({ stored: 'copilot', onPath: ['copilot'], platform: 'darwin', readCopilotState: (_c, _h, _e, platform) => { seen.push(platform); return { present: false, overridden: [] }; } });
     await launchIfChosen(p.deps);
     expect(seen).toEqual(['win32', 'darwin']);
+  });
+});
+
+describe('wave A: a state reader or adapter that throws', () => {
+  it('still launches the agent, without Align, with one stderr line and no stack trace', async () => {
+    const h = harness({ stored: 'codex', onPath: ['codex'], argv: ['node', 'align', '--', 'resume'], readCodexState: () => { throw new TypeError('Cannot convert undefined or null to object'); } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+    expect(h.runAgent.mock.calls[0]![0]).toEqual({ bin: 'codex', args: ['resume'], env: { ALIGN_WRAPPED: '1' }, files: [] });
+    expect(h.err).toEqual(["Could not prepare Align for Codex (Cannot convert undefined or null to object). Opening it without Align's graph."]);
+  });
+  it('the same for a repo .mcp.json holding an own __proto__ key, end to end through the real reader', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const { readCopilotState } = await import('../lib/launch/copilot-state.js');
+    const root = mkdtempSync(path.join(os.tmpdir(), 'align-proto-'));
+    try {
+      mkdirSync(path.join(root, '.git'));
+      writeFileSync(path.join(root, '.mcp.json'), '{"mcpServers":{"align-local":{"__proto__":{}}}}');
+      const h = harness({ stored: 'copilot', onPath: ['copilot'], cwd: root, readCopilotState: (c, hm, e, p) => readCopilotState(c, hm, { localIsDefault: false }, e, p) });
+      expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+      expect(h.runAgent).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

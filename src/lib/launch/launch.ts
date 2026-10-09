@@ -10,7 +10,7 @@ import { type CopilotProjectState, readCopilotState } from './copilot-state.js';
 import { type CursorProjectState, readCursorState } from './cursor-state.js';
 import { findOnPath } from './detect.js';
 import { type GeminiProjectState, readGeminiState } from './gemini-state.js';
-import { launchCacheDir, removeLaunchFile, writeIfChanged } from './launch-files.js';
+import { launchCacheDir, pruneLaunchFiles, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
 import { type PiProjectState, readPiState } from './pi-state.js';
 import { type ProjectState, readProjectState } from './project-state.js';
@@ -51,8 +51,8 @@ export interface LaunchDeps {
   applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
   writeIfChanged(dir: string, name: string, content: string, opts?: { mode?: number }): boolean;
-  /** Delete a launch file an earlier launch wrote and this one must not leave behind. */
-  removeLaunchFile(dir: string, name: string): void;
+  /** Delete launch files earlier launches wrote and this one must not leave behind. */
+  pruneLaunchFiles(dir: string, prefix: string, keep?: string): void;
   runAgent(spec: LaunchSpec): Promise<number>;
   /** Fire and forget: the caller never awaits what this returns. */
   record(agent: LaunchAgentId): void;
@@ -96,7 +96,7 @@ function defaultDeps(): LaunchDeps {
     applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
     cacheDir: launchCacheDir,
     writeIfChanged,
-    removeLaunchFile,
+    pruneLaunchFiles,
     runAgent: (spec) => runAgent(spec),
     record: (agent) => {
       // Dynamic and un-awaited: telemetry consent rules live in recordFunnelStage, and none of
@@ -203,7 +203,15 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   }
 
   const dir = d.cacheDir(d.env);
-  const built = build(d, { passthrough, cachePath: (name) => `${dir}/${name}` });
+  let built: LaunchSpec;
+  try {
+    built = build(d, { passthrough, cachePath: (name) => `${dir}/${name}` });
+  } catch (e) {
+    // Reading the user's or a repo's config is reading untrusted input. Whatever it does to the
+    // reader, the user still gets their agent, without Align, and one line instead of a trace.
+    d.err(`Could not prepare Align for ${agent!.label} (${(e as Error).message}). Opening it without Align's graph.`);
+    built = { bin: agent!.bin, args: [...passthrough], env: { ALIGN_WRAPPED: '1' }, files: [] };
+  }
   // The adapter names the agent's usual binary; run whichever name is actually installed.
   const spec: LaunchSpec = resolved && resolved.bin !== built.bin ? { ...built, bin: resolved.bin } : built;
   try {
@@ -211,7 +219,7 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
       if (f.mode === undefined) d.writeIfChanged(dir, f.name, f.content);
       else d.writeIfChanged(dir, f.name, f.content, { mode: f.mode });
     }
-    for (const n of spec.remove ?? []) d.removeLaunchFile(dir, n);
+    if (spec.prune) d.pruneLaunchFiles(dir, spec.prune.prefix, spec.prune.keep);
   } catch (e) {
     d.err(`Could not write launch files (${(e as Error).message}). Showing your graph instead.`);
     return { handled: false };

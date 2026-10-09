@@ -1,8 +1,8 @@
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { launchCacheDir, removeLaunchFile, writeIfChanged } from '../lib/launch/launch-files.js';
+import { launchCacheDir, pruneLaunchFiles, writeIfChanged } from '../lib/launch/launch-files.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(os.tmpdir(), 'align-lf-')); });
@@ -103,13 +103,45 @@ describe('writeIfChanged: a file with a mode (review F3: the Gemini system copy 
   });
 });
 
-describe('removeLaunchFile', () => {
-  it('removes a stale launch file, and a missing one is fine', () => {
-    writeIfChanged(dir, 'old.json', '{}');
-    removeLaunchFile(dir, 'old.json');
-    expect(readdirSync(dir)).toEqual([]);
-    expect(() => removeLaunchFile(dir, 'old.json')).not.toThrow();
-    expect(() => removeLaunchFile(path.join(dir, 'nope'), 'x.json')).not.toThrow();
+describe('writeIfChanged: never writes through a link someone planted (review: prove wx, not just the mode)', () => {
+  let victimDir: string;
+  beforeEach(() => { victimDir = mkdtempSync(path.join(os.tmpdir(), 'align-victim-')); });
+  afterEach(() => { rmSync(victimDir, { recursive: true, force: true }); });
+  const victim = () => path.join(victimDir, 'victim.txt');
+
+  it.skipIf(process.platform === 'win32').each([['with a mode', { mode: 0o600 }], ['without a mode', {}]] as const)(
+    'a symlink at the temp path (%s) is not followed: the victim is untouched and the file is a regular file',
+    (_l, opts) => {
+      writeFileSync(victim(), 'secret');
+      symlinkSync(victim(), path.join(dir, `.copy.json.${process.pid}.tmp`));
+      expect(writeIfChanged(dir, 'copy.json', '{"a":1}', opts)).toBe(true);
+      expect(readFileSync(victim(), 'utf8')).toBe('secret');
+      expect(lstatSync(path.join(dir, 'copy.json')).isSymbolicLink()).toBe(false);
+      expect(readFileSync(path.join(dir, 'copy.json'), 'utf8')).toBe('{"a":1}');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('a symlink at the target name is replaced by a real file, even when the victim already holds our content', () => {
+    writeFileSync(victim(), '{"a":1}');
+    symlinkSync(victim(), path.join(dir, 'copy.json'));
+    expect(writeIfChanged(dir, 'copy.json', '{"a":1}', { mode: 0o600 })).toBe(true);
+    expect(lstatSync(path.join(dir, 'copy.json')).isSymbolicLink()).toBe(false);
+    expect(statSync(path.join(dir, 'copy.json')).mode & 0o777).toBe(0o600);
+    expect(readFileSync(victim(), 'utf8')).toBe('{"a":1}');
+  });
+});
+
+describe('pruneLaunchFiles', () => {
+  it('removes every file with the prefix except the one to keep, and nothing else', () => {
+    for (const n of ['g-aaa.json', 'g-bbb.json', 'g-ccc.json', 'claude-mcp.json']) writeIfChanged(dir, n, '{}');
+    pruneLaunchFiles(dir, 'g-', 'g-bbb.json');
+    expect(readdirSync(dir).sort()).toEqual(['claude-mcp.json', 'g-bbb.json']);
+  });
+  it('with nothing to keep, removes them all; a missing dir is fine', () => {
+    for (const n of ['g-aaa.json', 'g-bbb.json', 'other.json']) writeIfChanged(dir, n, '{}');
+    pruneLaunchFiles(dir, 'g-');
+    expect(readdirSync(dir)).toEqual(['other.json']);
+    expect(() => pruneLaunchFiles(path.join(dir, 'nope'), 'g-')).not.toThrow();
   });
 });
 

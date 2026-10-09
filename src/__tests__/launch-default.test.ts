@@ -29,7 +29,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     readCodexState: () => ({ present: false, overridden: [] }),
     readGeminiState: () => ({ present: false, overridden: [], systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'untrusted' }),
     readCopilotState: () => ({ present: false, overridden: [] }),
-    removeLaunchFile: vi.fn(),
+    pruneLaunchFiles: vi.fn(),
     applyConfigWrite: vi.fn(),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content) => { written.push([name, content]); return true; },

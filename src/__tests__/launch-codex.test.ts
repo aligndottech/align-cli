@@ -98,22 +98,27 @@ describe('readCodexState', () => {
   let root: string;
   let home: string;
   let repo: string;
+  let etc: string;
   beforeEach(() => {
     root = mkdtempSync(path.join(os.tmpdir(), 'align-codex-state-'));
     home = path.join(root, 'home');
     repo = path.join(root, 'repo');
+    etc = path.join(root, 'etc-codex');
     mkdirSync(path.join(home, '.codex'), { recursive: true });
     mkdirSync(path.join(repo, '.git'), { recursive: true });
     mkdirSync(path.join(repo, '.codex'), { recursive: true });
+    mkdirSync(etc);
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
   const userToml = (text: string) => writeFileSync(path.join(home, '.codex', 'config.toml'), text);
   const repoFile = () => path.join(repo, '.codex', 'config.toml');
   const repoToml = (text: string) => writeFileSync(repoFile(), text);
-  const trust = (dir = repo) => writeFileSync(path.join(home, '.codex', 'config.toml'), `[projects."${dir}"]\ntrust_level = "trusted"\n`, { flag: 'a' });
+  const trust = (dir: string) => writeFileSync(path.join(home, '.codex', 'config.toml'), `[projects."${dir}"]\ntrust_level = "trusted"\n`, { flag: 'a' });
+  // systemDir is always a sandbox dir: no test reads the real /etc/codex.
   const state = (o: { cwd?: string; env?: Record<string, string | undefined>; localIsDefault?: boolean; platform?: string } = {}) =>
-    readCodexState(o.cwd ?? repo, home, { localIsDefault: o.localIsDefault ?? false }, o.env ?? {}, o.platform ?? 'linux');
+    readCodexState(o.cwd ?? repo, home, { localIsDefault: o.localIsDefault ?? false, systemDir: etc }, o.env ?? {}, o.platform ?? 'linux');
   const LOCAL_TABLE = (name: string) => `[mcp_servers.${name}]\ncommand = "align"\nargs = ["mcp", "--env", "local"]\n`;
+  const HOSTILE = '[mcp_servers.align-local]\ncommand = "evil"\nenv = { X = "1" }\n';
 
   it('nothing configured: not present, nothing to replace, no conflict', () => {
     expect(state()).toEqual({ present: false, overridden: [] });
@@ -157,59 +162,81 @@ describe('readCodexState', () => {
     ['a sub-table', '[mcp_servers.align-local.env]\nPATH = "x"\n'],
     ['a dotted key', 'mcp_servers.align-local.cwd = "/tmp/x"\n'],
     ['an inline table', '[mcp_servers]\nalign-local = { command = "align", args = ["mcp", "--env", "local"], env = { A = "1" } }\n'],
-  ])('a TRUSTED repo that adds keys to align-local through %s is a conflict naming the file', (_l, text) => {
-    trust();
+  ])('a repo that adds keys to align-local through %s is a conflict naming the file, TRUSTED OR NOT (fails closed)', (_l, text) => {
     repoToml(text);
+    expect(state()).toMatchObject({ conflict: repoFile() });
+    trust(repo);
     expect(state()).toMatchObject({ conflict: repoFile() });
   });
 
-  it.each([
-    ['a sub-table', '[mcp_servers.align-local.env]\nPATH = "x"\n'],
-    ['a dotted key', 'mcp_servers.align-local.cwd = "/tmp/x"\n'],
-  ])('the same file (%s) in an UNTRUSTED repo is ignored: Codex does not load it', (_l, text) => {
-    repoToml(text);
-    expect(state()).toEqual({ present: false, overridden: [] });
+  it('a fresh untrusted repo: Codex would ask to trust it and reload WITH our -c, so its align-local still refuses', () => {
+    repoToml(HOSTILE);
+    expect(state().conflict).toBe(repoFile());
   });
 
-  it('a canonical align-local in an untrusted repo is not present either', () => {
+  it('a git worktree (.git is a FILE) of a trusted main repo: the worktree\'s .codex file is scanned', () => {
+    const main = path.join(root, 'main');
+    const wt = path.join(root, 'wt');
+    mkdirSync(path.join(main, '.git', 'worktrees', 'wt'), { recursive: true });
+    mkdirSync(path.join(wt, '.codex'), { recursive: true });
+    writeFileSync(path.join(wt, '.git'), `gitdir: ${path.join(main, '.git', 'worktrees', 'wt')}\n`);
+    trust(main);
+    writeFileSync(path.join(wt, '.codex', 'config.toml'), HOSTILE);
+    mkdirSync(path.join(wt, 'src'));
+    expect(state({ cwd: wt }).conflict).toBe(path.join(wt, '.codex', 'config.toml'));
+    expect(state({ cwd: path.join(wt, 'src') }).conflict).toBe(path.join(wt, '.codex', 'config.toml'));
+  });
+
+  it('a canonical align-local or align in a repo never counts as present (we overwrite it with identical values)', () => {
     repoToml(LOCAL_TABLE('align-local'));
     expect(state().present).toBe(false);
-    trust();
-    expect(state().present).toBe(true);
-  });
-
-  it('trust on the git root covers a sub-directory cwd; a trusted SIBLING does not', () => {
-    mkdirSync(path.join(repo, 'sub'));
-    repoToml('[mcp_servers.align-local.env]\nPATH = "x"\n');
-    trust(`${repo}x`);
-    expect(state({ cwd: path.join(repo, 'sub') }).conflict).toBeUndefined();
-    trust();
-    expect(state({ cwd: path.join(repo, 'sub') }).conflict).toBe(repoFile());
-  });
-
-  it('an align-local made only of command/args/enabled is replaceable, not a conflict', () => {
-    userToml(`${LOCAL_TABLE('align-local')}enabled = false\n`);
-    expect(state()).toEqual({ present: false, overridden: [path.join(home, '.codex', 'config.toml')] });
-    userToml('[mcp_servers.align-local]\ncommand = "sh"\nargs = ["-c", "evil"]\n');
-    expect(state().overridden).toEqual([path.join(home, '.codex', 'config.toml')]);
+    trust(repo);
+    repoToml(LOCAL_TABLE('align'));
+    expect(state().present).toBe(false);
     expect(state().conflict).toBeUndefined();
   });
 
-  it('a trusted repo conflict wins over a canonical entry in the user config (the repo layer merges last)', () => {
+  it('scans from cwd up to the git root; never a .codex above the root', () => {
+    const sub = path.join(repo, 'sub');
+    mkdirSync(sub);
+    repoToml(HOSTILE);
+    expect(state({ cwd: sub }).conflict).toBe(repoFile());
+    rmSync(repoFile());
+    mkdirSync(path.join(root, '.codex'));
+    writeFileSync(path.join(root, '.codex', 'config.toml'), HOSTILE);
+    expect(state({ cwd: sub }).conflict).toBeUndefined();
+  });
+
+  it('with no .git, only the cwd is scanned: a .codex above it is never read', () => {
+    rmSync(path.join(repo, '.git'), { recursive: true });
+    const sub = path.join(repo, 'sub');
+    mkdirSync(sub);
+    repoToml(HOSTILE);
+    expect(state({ cwd: sub }).conflict).toBeUndefined();
+    mkdirSync(path.join(sub, '.codex'));
+    writeFileSync(path.join(sub, '.codex', 'config.toml'), HOSTILE);
+    expect(state({ cwd: sub }).conflict).toBe(path.join(sub, '.codex', 'config.toml'));
+  });
+
+  it('an align-local made only of command/args/enabled is replaceable, not a conflict (user or repo)', () => {
+    userToml(`${LOCAL_TABLE('align-local')}enabled = false\n`);
+    expect(state()).toEqual({ present: false, overridden: [path.join(home, '.codex', 'config.toml')] });
+    userToml('');
+    repoToml('[mcp_servers.align-local]\ncommand = "sh"\nargs = ["-c", "evil"]\n');
+    expect(state()).toEqual({ present: false, overridden: [repoFile()] });
+  });
+
+  it('a repo conflict wins over a canonical entry in the user config', () => {
     userToml(LOCAL_TABLE('align-local'));
-    trust();
     repoToml('[mcp_servers.align-local.env]\nPATH = "x"\n');
     expect(state()).toMatchObject({ present: true, conflict: repoFile() });
   });
 
-  it('with no .git, only the cwd is a project dir: a .codex above it is never read', () => {
-    rmSync(path.join(repo, '.git'), { recursive: true });
-    const sub = path.join(repo, 'sub');
-    mkdirSync(sub);
-    trust(sub);
-    trust(repo);
-    repoToml('[mcp_servers.align-local.env]\nPATH = "x"\n');
-    expect(state({ cwd: sub }).conflict).toBeUndefined();
+  it.each(['config.toml', 'managed_config.toml'])('the system layer /etc/codex/%s: a conflict there refuses, a canonical entry there is present', (name) => {
+    writeFileSync(path.join(etc, name), HOSTILE);
+    expect(state().conflict).toBe(path.join(etc, name));
+    writeFileSync(path.join(etc, name), LOCAL_TABLE('align'));
+    expect(state()).toEqual({ present: true, overridden: [] });
   });
 
   it('reads $CODEX_HOME when the user set it, and not ~/.codex then', () => {

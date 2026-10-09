@@ -1,5 +1,5 @@
 import { alignServerEntry } from '../../mcp-setup.js';
-import { geminiCopyName, type GeminiProjectState } from '../gemini-state.js';
+import { COPY_PREFIX, geminiCopyName, type GeminiProjectState } from '../gemini-state.js';
 import { geminiSystemDefaultsPath } from '../gemini-trust.js';
 import { parseJsonc } from '../strict-entry.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
@@ -71,8 +71,9 @@ export function buildGeminiLaunch(c: GeminiLaunchContext): LaunchSpec {
     args: [...c.passthrough],
     env,
     files,
-    // Not injecting: a copy from an earlier launch must not linger with the admin's settings in it.
-    ...(injected ? {} : { remove: [copy] }),
+    // Copies from earlier launches (other sources, or this one when not injecting) must not
+    // linger with an admin's settings in them.
+    prune: { prefix: COPY_PREFIX, ...(injected ? { keep: copy } : {}) },
     ...(notes.length > 0 ? { notes } : {}),
   };
 }

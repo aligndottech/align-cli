@@ -152,6 +152,17 @@ describe('readCopilotState', () => {
     expect(state({ cwd: sub }).conflict).toBeUndefined();
   });
 
+  it('a worktree (.git is a FILE) bounds the walk the same way, and its own .mcp.json is scanned', () => {
+    const wt = path.join(root, 'wt');
+    mkdirSync(path.join(wt, 'src'), { recursive: true });
+    writeFileSync(path.join(wt, '.git'), 'gitdir: /elsewhere/.git/worktrees/wt\n');
+    put(path.join(wt, '.mcp.json'), { mcpServers: { 'align-local': HOSTILE } });
+    put(path.join(root, '.mcp.json'), { mcpServers: { 'align-local': HOSTILE } });
+    expect(state({ cwd: path.join(wt, 'src') }).conflict).toBe(path.join(wt, '.mcp.json'));
+    rmSync(path.join(wt, '.mcp.json'));
+    expect(state({ cwd: path.join(wt, 'src') }).conflict).toBeUndefined();
+  });
+
   it('with no .git it reads the cwd only, never a parent', () => {
     rmSync(path.join(repo, '.git'), { recursive: true });
     const sub = path.join(repo, 'sub');
