@@ -88,10 +88,11 @@ describe('buildGeminiLaunch: injection', () => {
     ['mcpServers of the wrong type', '{"mcpServers":[]}'],
   ])('an unusable system file (%s): no injection, one line naming the file, and the stale copy is removed', (_l, text) => {
     const spec = buildGeminiLaunch(ctx(sys('/opt/admin/gem.json', text)));
+    const COPY = geminiCopyName('/opt/admin/gem.json');
     expect(spec.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']).toBeUndefined();
     expect(spec.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH']).toBeUndefined();
     expect(spec.files).toEqual([]);
-    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-' });
+    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-', remove: COPY });
     expect(spec.notes).toHaveLength(1);
     expect(spec.notes![0]).toContain('/opt/admin/gem.json');
     expect(spec.notes![0]).toMatch(/graph tools were not added/);
@@ -99,9 +100,10 @@ describe('buildGeminiLaunch: injection', () => {
 
   it('an unreadable system file: same, no injection, one line, stale copy removed', () => {
     const spec = buildGeminiLaunch(ctx(sys(SYS, null, true)));
+    const COPY = geminiCopyName(SYS);
     expect(spec.files).toEqual([]);
     expect(spec.notes).toHaveLength(1);
-    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-' });
+    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-', remove: COPY });
   });
 
   it('a usable file, or one that is absent, says nothing', () => {
@@ -111,10 +113,11 @@ describe('buildGeminiLaunch: injection', () => {
 
   it('align\'s own local server already present: no env, no file, no note, and the stale copy is removed', () => {
     const spec = buildGeminiLaunch(ctx({ present: true, ...sys('/x.json', '{bad') }));
+    const COPY = geminiCopyName('/x.json');
     expect(spec.env).toEqual({ ALIGN_WRAPPED: '1' });
     expect(spec.files).toEqual([]);
     expect(spec.notes ?? []).toEqual([]);
-    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-' });
+    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-', remove: COPY });
   });
 
   it('a non-canonical align-local anywhere is replaced by ours (system tier wins), with one line naming the files', () => {

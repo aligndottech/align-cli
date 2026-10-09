@@ -17,8 +17,8 @@ export interface LaunchSpec {
   env: Record<string, string>;
   /** Launch files the args point at. Commands and text only, never secrets. */
   files: LaunchFile[];
-  /** Launch files from earlier launches that must not survive this one: every `<prefix>*` but `keep`. */
-  prune?: { prefix: string; keep?: string };
+  /** Tidy `<prefix>*` launch files: refresh `keep`, delete `remove`, and age out the rest (pruneLaunchFiles). */
+  prune?: { prefix: string; keep?: string; remove?: string };
   /** Lines align prints to stderr before launching (why an injection was skipped). */
   notes?: string[];
   /** Files in the user's own agent config to add to ONCE (C4). Applied after the dry-run exit, never before. */

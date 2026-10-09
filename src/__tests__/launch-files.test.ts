@@ -1,4 +1,4 @@
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -131,33 +131,41 @@ describe('writeIfChanged: never writes through a link someone planted (review: p
   });
 });
 
-describe('pruneLaunchFiles', () => {
-  it('removes every file with the prefix except the one to keep, and nothing else', () => {
-    for (const n of ['g-aaa.json', 'g-bbb.json', 'g-ccc.json', 'claude-mcp.json']) writeIfChanged(dir, n, '{}');
-    pruneLaunchFiles(dir, 'g-', 'g-bbb.json');
-    expect(readdirSync(dir).sort()).toEqual(['claude-mcp.json', 'g-bbb.json']);
-  });
-  it('with nothing to keep, removes them all; a missing dir is fine', () => {
-    for (const n of ['g-aaa.json', 'g-bbb.json', 'other.json']) writeIfChanged(dir, n, '{}');
-    pruneLaunchFiles(dir, 'g-');
-    expect(readdirSync(dir)).toEqual(['other.json']);
-    expect(() => pruneLaunchFiles(path.join(dir, 'nope'), 'g-')).not.toThrow();
-  });
-});
+describe('pruneLaunchFiles (a concurrent session\'s live copy survives)', () => {
+  const HOUR = 3600_000;
+  const now = Date.now();
+  const age = (n: string, ms: number) => utimesSync(path.join(dir, n), new Date(now - ms), new Date(now - ms));
+  const names = () => readdirSync(dir).sort();
 
-describe('writeIfChanged: nested names (C2: OPENCODE_CONFIG_DIR needs plugins/align.js under a cached dir)', () => {
-  it('creates the sub-directories and writes the file', () => {
-    expect(writeIfChanged(dir, 'opencode-config/plugins/align.js', 'x')).toBe(true);
-    expect(readFileSync(path.join(dir, 'opencode-config', 'plugins', 'align.js'), 'utf8')).toBe('x');
+  it('a launch for B leaves a fresh copy A alone (another session may be reading it)', () => {
+    for (const n of ['g-A.json', 'g-B.json']) writeIfChanged(dir, n, '{}');
+    pruneLaunchFiles(dir, 'g-', { keep: 'g-B.json', now });
+    expect(names()).toEqual(['g-A.json', 'g-B.json']);
   });
-  it('does not rewrite identical nested content, and rewrites changed content', () => {
-    writeIfChanged(dir, 'a/b.js', 'x');
-    expect(writeIfChanged(dir, 'a/b.js', 'x')).toBe(false);
-    expect(writeIfChanged(dir, 'a/b.js', 'y')).toBe(true);
-    expect(readFileSync(path.join(dir, 'a', 'b.js'), 'utf8')).toBe('y');
+  it('a copy older than 24 hours is removed; one just under 24 hours is not', () => {
+    for (const n of ['g-A.json', 'g-B.json', 'g-C.json']) writeIfChanged(dir, n, '{}');
+    age('g-A.json', 25 * HOUR);
+    age('g-C.json', 23 * HOUR);
+    pruneLaunchFiles(dir, 'g-', { keep: 'g-B.json', now });
+    expect(names()).toEqual(['g-B.json', 'g-C.json']);
   });
-  it('leaves no temp file beside the nested target', () => {
-    writeIfChanged(dir, 'a/b.js', 'x');
-    expect(readdirSync(path.join(dir, 'a'))).toEqual(['b.js']);
+  it('a launch for B that does not inject removes B, and a fresh A survives', () => {
+    for (const n of ['g-A.json', 'g-B.json']) writeIfChanged(dir, n, '{}');
+    pruneLaunchFiles(dir, 'g-', { remove: 'g-B.json', now });
+    expect(names()).toEqual(['g-A.json']);
+  });
+  it('the copy in use has its mtime refreshed, so an old but live copy is not aged out later', () => {
+    writeIfChanged(dir, 'g-B.json', '{}');
+    age('g-B.json', 30 * HOUR);
+    pruneLaunchFiles(dir, 'g-', { keep: 'g-B.json', now });
+    expect(names()).toEqual(['g-B.json']);
+    expect(Math.abs(statSync(path.join(dir, 'g-B.json')).mtimeMs - now)).toBeLessThan(2000);
+  });
+  it('files without the prefix are never touched, however old; a missing dir is fine', () => {
+    writeIfChanged(dir, 'claude-mcp.json', '{}');
+    age('claude-mcp.json', 100 * HOUR);
+    pruneLaunchFiles(dir, 'g-', { now });
+    expect(names()).toEqual(['claude-mcp.json']);
+    expect(() => pruneLaunchFiles(path.join(dir, 'nope'), 'g-', { now })).not.toThrow();
   });
 });

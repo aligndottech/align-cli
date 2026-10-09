@@ -20,7 +20,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
   const err: string[] = [];
   const written: Array<[string, string]> = [];
   const modes: Record<string, number | undefined> = {};
-  const pruned: Array<{ prefix: string; keep?: string }> = [];
+  const pruned: Array<{ prefix: string; keep?: string; remove?: string }> = [];
   const runAgent = vi.fn().mockResolvedValue(0);
   const pick = vi.fn();
   const deps: LaunchDeps = {
@@ -39,7 +39,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
     readCodexState: () => ({ present: false, overridden: [] }),
     readGeminiState: () => ({ present: false, overridden: [], systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'untrusted' }),
     readCopilotState: () => ({ present: false, overridden: [] }),
-    pruneLaunchFiles: (_d, prefix, keep) => { pruned.push({ prefix, keep }); },
+    pruneLaunchFiles: (_d, prefix, opts) => { pruned.push({ prefix, keep: opts.keep, remove: opts.remove }); },
     applyConfigWrite: vi.fn(),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content, opts) => { written.push([name, content]); modes[name] = opts?.mode; return true; },
@@ -142,13 +142,13 @@ describe('wave A: each launches with Align wired in', () => {
     expect(h.runAgent.mock.calls[0]![0].env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']).toBe(`/cache/${name}`);
     expect(h.err.some((l) => l.includes('Trust this folder in Gemini'))).toBe(true);
   });
-  it('gemini: prunes every older copy but this source\'s, and all of them when it does not inject', async () => {
+  it('gemini: keeps (and refreshes) this source\'s copy when injecting; removes only it when not', async () => {
     const h = harness({ stored: 'gemini-cli', onPath: ['gemini'], readGeminiState: () => ({ present: true, overridden: [], systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'trusted' }) });
     await launchIfChosen(h.deps);
-    expect(h.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: undefined }]);
+    expect(h.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: undefined, remove: geminiCopyName('/etc/gemini-cli/settings.json') }]);
     const i = harness({ stored: 'gemini-cli', onPath: ['gemini'] });
     await launchIfChosen(i.deps);
-    expect(i.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: geminiCopyName('/etc/gemini-cli/settings.json') }]);
+    expect(i.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: geminiCopyName('/etc/gemini-cli/settings.json'), remove: undefined }]);
   });
   it('copilot: writes its launch file and passes it with @', async () => {
     const h = harness({ stored: 'copilot', onPath: ['copilot'] });
@@ -169,6 +169,13 @@ describe('wave A: each launches with Align wired in', () => {
     expect(await launchIfChosen(c.deps)).toEqual({ handled: true, code: 0 });
     expect(c.runAgent.mock.calls[0]![0].args).toEqual([]);
     expect(c.err.join('\n')).toContain('/r/.codex/config.toml redefines the align-local MCP server');
+  });
+
+  it('the codex reader gets the user\'s args (a -p profile adds a config layer)', async () => {
+    const seen: string[][] = [];
+    const h = harness({ stored: 'codex', onPath: ['codex'], argv: ['node', 'align', '--', '-p', 'work', 'exec', 'x'], readCodexState: (_c, _h, _e, _p, passthrough) => { seen.push(passthrough); return { present: false, overridden: [] }; } });
+    await launchIfChosen(h.deps);
+    expect(seen).toEqual([['-p', 'work', 'exec', 'x']]);
   });
 
   it('the state readers get the platform (win32 decides what counts as present)', async () => {

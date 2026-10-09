@@ -41,8 +41,8 @@ export interface LaunchDeps {
   readPiState(cwd: string, home: string, env: Record<string, string | undefined>): PiProjectState;
   /** What Cursor would already read. */
   readCursorState(cwd: string, home: string): CursorProjectState;
-  /** What Codex would already load ($CODEX_HOME or ~/.codex, and the project's .codex/). */
-  readCodexState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): CodexProjectState;
+  /** What Codex would already load (/etc/codex, $CODEX_HOME or ~/.codex, a -p profile in the user's args, every ancestor .codex/). */
+  readCodexState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): CodexProjectState;
   /** What Gemini CLI would already load, the system settings file it reads, and folder trust. */
   readGeminiState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): GeminiProjectState;
   /** What Copilot CLI would already load ($COPILOT_HOME or ~/.copilot, and the workspace). */
@@ -51,8 +51,8 @@ export interface LaunchDeps {
   applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
   writeIfChanged(dir: string, name: string, content: string, opts?: { mode?: number }): boolean;
-  /** Delete launch files earlier launches wrote and this one must not leave behind. */
-  pruneLaunchFiles(dir: string, prefix: string, keep?: string): void;
+  /** Tidy launch files from earlier launches without removing one a concurrent session uses. */
+  pruneLaunchFiles(dir: string, prefix: string, opts: { keep?: string; remove?: string }): void;
   runAgent(spec: LaunchSpec): Promise<number>;
   /** Fire and forget: the caller never awaits what this returns. */
   record(agent: LaunchAgentId): void;
@@ -90,7 +90,7 @@ function defaultDeps(): LaunchDeps {
     readOpenCodeState: (cwd, home) => readOpenCodeState(cwd, home, { localIsDefault: isLocalDefault() }, process.env),
     readPiState: (cwd, home, env) => readPiState(cwd, home, { localIsDefault: isLocalDefault() }, env),
     readCursorState: (cwd, home) => readCursorState(cwd, home, { localIsDefault: isLocalDefault() }),
-    readCodexState: (cwd, home, env, platform) => readCodexState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
+    readCodexState: (cwd, home, env, platform, passthrough) => readCodexState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     readGeminiState: (cwd, home, env, platform) => readGeminiState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
     readCopilotState: (cwd, home, env, platform) => readCopilotState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
     applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
@@ -219,7 +219,7 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
       if (f.mode === undefined) d.writeIfChanged(dir, f.name, f.content);
       else d.writeIfChanged(dir, f.name, f.content, { mode: f.mode });
     }
-    if (spec.prune) d.pruneLaunchFiles(dir, spec.prune.prefix, spec.prune.keep);
+    if (spec.prune) d.pruneLaunchFiles(dir, spec.prune.prefix, { keep: spec.prune.keep, remove: spec.prune.remove });
   } catch (e) {
     d.err(`Could not write launch files (${(e as Error).message}). Showing your graph instead.`);
     return { handled: false };

@@ -1,5 +1,5 @@
 import envPaths from 'env-paths';
-import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -70,13 +70,37 @@ export function writeIfChanged(dir: string, name: string, content: string, opts:
   return true;
 }
 
-/** Remove every launch file named `<prefix>...` except `keep` (all of them with no keep). A missing dir is fine. */
-export function pruneLaunchFiles(dir: string, prefix: string, keep?: string): void {
+/** How long a copy nobody launched with is kept: long enough for any session still reading it to have started. */
+export const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Tidy launch files named `<prefix>...` without pulling one from under a concurrent session:
+ *  - `keep`: the file this launch uses; its mtime is refreshed, so it is never aged out while in use;
+ *  - `remove`: this launch's own file when it is NOT used (its source no longer injects);
+ *  - any other `<prefix>` file untouched for longer than STALE_AFTER_MS.
+ * A missing dir is fine.
+ */
+export function pruneLaunchFiles(dir: string, prefix: string, opts: { keep?: string; remove?: string; now?: number } = {}): void {
+  const now = opts.now ?? Date.now();
   let names: string[];
   try {
     names = readdirSync(dir);
   } catch {
     return;
   }
-  for (const n of names) if (n.startsWith(prefix) && n !== keep) rmSync(path.join(dir, n), { force: true });
+  for (const n of names) {
+    if (!n.startsWith(prefix)) continue;
+    const file = path.join(dir, n);
+    if (n === opts.keep) {
+      utimesSync(file, new Date(now), new Date(now));
+    } else if (n === opts.remove) {
+      rmSync(file, { force: true });
+    } else {
+      try {
+        if (now - lstatSync(file).mtimeMs > STALE_AFTER_MS) rmSync(file, { force: true });
+      } catch {
+        // gone already
+      }
+    }
+  }
 }

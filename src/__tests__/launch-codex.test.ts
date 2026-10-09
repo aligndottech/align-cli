@@ -115,8 +115,8 @@ describe('readCodexState', () => {
   const repoToml = (text: string) => writeFileSync(repoFile(), text);
   const trust = (dir: string) => writeFileSync(path.join(home, '.codex', 'config.toml'), `[projects."${dir}"]\ntrust_level = "trusted"\n`, { flag: 'a' });
   // systemDir is always a sandbox dir: no test reads the real /etc/codex.
-  const state = (o: { cwd?: string; env?: Record<string, string | undefined>; localIsDefault?: boolean; platform?: string } = {}) =>
-    readCodexState(o.cwd ?? repo, home, { localIsDefault: o.localIsDefault ?? false, systemDir: etc }, o.env ?? {}, o.platform ?? 'linux');
+  const state = (o: { cwd?: string; env?: Record<string, string | undefined>; localIsDefault?: boolean; platform?: string; passthrough?: string[] } = {}) =>
+    readCodexState(o.cwd ?? repo, home, { localIsDefault: o.localIsDefault ?? false, systemDir: etc }, o.env ?? {}, o.platform ?? 'linux', o.passthrough ?? []);
   const LOCAL_TABLE = (name: string) => `[mcp_servers.${name}]\ncommand = "align"\nargs = ["mcp", "--env", "local"]\n`;
   const HOSTILE = '[mcp_servers.align-local]\ncommand = "evil"\nenv = { X = "1" }\n';
 
@@ -196,26 +196,36 @@ describe('readCodexState', () => {
     expect(state().conflict).toBeUndefined();
   });
 
-  it('scans from cwd up to the git root; never a .codex above the root', () => {
+  it('scans cwd and the git root', () => {
     const sub = path.join(repo, 'sub');
     mkdirSync(sub);
     repoToml(HOSTILE);
     expect(state({ cwd: sub }).conflict).toBe(repoFile());
-    rmSync(repoFile());
-    mkdirSync(path.join(root, '.codex'));
-    writeFileSync(path.join(root, '.codex', 'config.toml'), HOSTILE);
-    expect(state({ cwd: sub }).conflict).toBeUndefined();
   });
 
-  it('with no .git, only the cwd is scanned: a .codex above it is never read', () => {
+  it('scans a .codex ABOVE the git root too: project_root_markers can move Codex\'s project root there', () => {
+    // The reviewer's cx2 shape: user config sets project_root_markers = ["MARK"], MARK sits above the repo.
+    userToml('project_root_markers = ["MARK"]\n');
+    writeFileSync(path.join(root, 'MARK'), '');
+    mkdirSync(path.join(root, '.codex'));
+    writeFileSync(path.join(root, '.codex', 'config.toml'), '[mcp_servers.align-local]\nenv = { X = "above-git-root" }\n');
+    expect(state({ cwd: path.join(repo) }).conflict).toBe(path.join(root, '.codex', 'config.toml'));
+  });
+
+  it('with no .git at all, every ancestor .codex is still scanned', () => {
     rmSync(path.join(repo, '.git'), { recursive: true });
     const sub = path.join(repo, 'sub');
     mkdirSync(sub);
     repoToml(HOSTILE);
-    expect(state({ cwd: sub }).conflict).toBeUndefined();
-    mkdirSync(path.join(sub, '.codex'));
-    writeFileSync(path.join(sub, '.codex', 'config.toml'), HOSTILE);
-    expect(state({ cwd: sub }).conflict).toBe(path.join(sub, '.codex', 'config.toml'));
+    expect(state({ cwd: sub }).conflict).toBe(repoFile());
+  });
+
+  it('the user config met as an ancestor .codex is read once, as the user layer, not again as a project layer', () => {
+    const fake = path.join(root, 'fakehome');
+    mkdirSync(path.join(fake, '.codex'), { recursive: true });
+    mkdirSync(path.join(fake, 'work'));
+    writeFileSync(path.join(fake, '.codex', 'config.toml'), '[mcp_servers.align-local]\ncommand = "x"\n');
+    expect(state({ cwd: path.join(fake, 'work'), env: { CODEX_HOME: path.join(fake, '.codex') } }).overridden).toEqual([path.join(fake, '.codex', 'config.toml')]);
   });
 
   it('an align-local made only of command/args/enabled is replaceable, not a conflict (user or repo)', () => {
@@ -237,6 +247,37 @@ describe('readCodexState', () => {
     expect(state().conflict).toBe(path.join(etc, name));
     writeFileSync(path.join(etc, name), LOCAL_TABLE('align'));
     expect(state()).toEqual({ present: true, overridden: [] });
+  });
+
+  it.each([
+    ['-p prof', ['-p', 'prof']],
+    ['--profile prof', ['--profile', 'prof']],
+    ['--profile=prof', ['--profile=prof']],
+  ])('%s layers $CODEX_HOME/prof.config.toml: a hostile align-local there is a conflict', (_l, passthrough) => {
+    writeFileSync(path.join(home, '.codex', 'prof.config.toml'), HOSTILE);
+    expect(state({ passthrough: ['exec', ...passthrough, 'x'] }).conflict).toBe(path.join(home, '.codex', 'prof.config.toml'));
+  });
+
+  it('no profile flag: the profile file is not read; a profile flag after `--` is not a flag', () => {
+    writeFileSync(path.join(home, '.codex', 'prof.config.toml'), HOSTILE);
+    expect(state().conflict).toBeUndefined();
+    expect(state({ passthrough: ['--', '-p', 'prof'] }).conflict).toBeUndefined();
+  });
+
+  it('a canonical entry in the selected profile counts as present, like the user layer', () => {
+    writeFileSync(path.join(home, '.codex', 'prof.config.toml'), LOCAL_TABLE('align'));
+    expect(state({ passthrough: ['-p', 'prof'] }).present).toBe(true);
+    expect(state().present).toBe(false);
+  });
+
+  it.each([['../evil'], ['a/b'], ['..'], ['a\\b']])('a profile name like %s is never turned into a path', (name) => {
+    // Each name's would-be path holds a hostile file, so turning the name into a path would show.
+    writeFileSync(path.join(home, 'evil.config.toml'), HOSTILE);
+    mkdirSync(path.join(home, '.codex', 'a'), { recursive: true });
+    writeFileSync(path.join(home, '.codex', 'a', 'b.config.toml'), HOSTILE);
+    writeFileSync(path.join(home, '.codex', '...config.toml'), HOSTILE);
+    if (process.platform !== 'win32') writeFileSync(path.join(home, '.codex', 'a\\b.config.toml'), HOSTILE);
+    expect(state({ passthrough: ['-p', name] })).toEqual({ present: false, overridden: [] });
   });
 
   it('reads $CODEX_HOME when the user set it, and not ~/.codex then', () => {

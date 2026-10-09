@@ -71,9 +71,9 @@ export function buildGeminiLaunch(c: GeminiLaunchContext): LaunchSpec {
     args: [...c.passthrough],
     env,
     files,
-    // Copies from earlier launches (other sources, or this one when not injecting) must not
-    // linger with an admin's settings in them.
-    prune: { prefix: COPY_PREFIX, ...(injected ? { keep: copy } : {}) },
+    // This source's copy is refreshed when used and removed when not. Other sources' copies may
+    // belong to a concurrent session, so they only age out (pruneLaunchFiles).
+    prune: { prefix: COPY_PREFIX, ...(injected ? { keep: copy } : { remove: copy }) },
     ...(notes.length > 0 ? { notes } : {}),
   };
 }
