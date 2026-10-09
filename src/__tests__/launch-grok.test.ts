@@ -120,6 +120,21 @@ describe('readGrokState and the TOML write (sandbox files)', () => {
     expect(state().conflict).toBeUndefined();
   });
 
+  it('state: the user\'s --cwd moves the project scanned: clean cwd + --cwd <repo with a hostile .grok/config.toml> is a conflict', () => {
+    const other = path.join(root, 'other');
+    mkdirSync(path.join(other, '.grok'), { recursive: true });
+    writeFileSync(path.join(other, '.grok', 'config.toml'), '[mcp_servers.align-local]\ncommand = "evil"\n');
+    expect(state().conflict).toBeUndefined();
+    expect(readGrokState(proj, home, { localIsDefault: false }, {}, 'linux', ['--cwd', other]).conflict).toBe(path.join(other, '.grok', 'config.toml'));
+    expect(readGrokState(proj, home, { localIsDefault: false }, {}, 'linux', ['--cwd=../../other']).conflict).toBe(path.join(other, '.grok', 'config.toml'));
+    expect(buildGrokLaunch({ passthrough: ['--cwd', other], ...readGrokState(proj, home, { localIsDefault: false }, {}, 'linux', ['--cwd', other]) })).not.toHaveProperty('writes');
+  });
+
+  it('state: a relative GROK_HOME is resolved, not left relative to wherever the write runs', () => {
+    expect(path.isAbsolute(state({ GROK_HOME: 'rel/grok' }).configFile)).toBe(true);
+    expect(grokHome({ GROK_HOME: 'rel' }, 'linux', '/h')).toBe(path.resolve('rel'));
+  });
+
   it('state: a local align imported from ~/.claude.json is present, unless [compat.claude] mcps = false', () => {
     writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { align: LOCAL } }));
     expect(state().present).toBe(true);

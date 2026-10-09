@@ -69,7 +69,7 @@ export interface LaunchDeps {
   /** What Kiro CLI would already load, and the global mcp.json align adds to. */
   readKiroState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): KiroProjectState;
   /** What Grok Build would already load, and the config.toml align adds to. */
-  readGrokState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): GrokProjectState;
+  readGrokState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): GrokProjectState;
   /** Add to a file in the user's own agent config, once (C4). Lines go to `note`. */
   applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
@@ -149,7 +149,7 @@ function defaultDeps(): LaunchDeps {
     readDroidState: (cwd, home, env, platform, passthrough) => readDroidState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     readAmpState: (cwd, home, env, platform, passthrough) => readAmpState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     readKiroState: (cwd, home, env, platform) => readKiroState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
-    readGrokState: (cwd, home, env, platform) => readGrokState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
+    readGrokState: (cwd, home, env, platform, passthrough) => readGrokState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
     cacheDir: launchCacheDir,
     writeIfChanged,

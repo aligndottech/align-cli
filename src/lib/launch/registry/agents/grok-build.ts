@@ -11,5 +11,5 @@ export const grokBuild: AgentSpec = {
   supported: true,
   install: { kind: 'docs', url: 'https://x.ai/build', text: 'curl -fsSL https://x.ai/cli/install.sh | bash' },
   acceptsBin: (found, env, platform) => isGrokBuildBin(found, env, platform),
-  build: (d, base) => buildGrokLaunch({ ...base, ...d.readGrokState!(d.cwd, d.home, d.env, d.platform) }),
+  build: (d, base) => buildGrokLaunch({ ...base, ...d.readGrokState!(d.cwd, d.home, d.env, d.platform, base.passthrough) }),
 };

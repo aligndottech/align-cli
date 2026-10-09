@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parse } from 'smol-toml';
-import { ancestors, readText } from './layer-files.js';
+import { ancestors, optionValue, readText } from './layer-files.js';
 import { type AlignLocalState, isCanonicalLocalEntry, parseJsonc } from './strict-entry.js';
 
 export interface GrokProjectState extends AlignLocalState {
@@ -34,7 +34,7 @@ function homeOf(env: Record<string, string | undefined>, platform: string): stri
  * Grok Build's own installer and `grok_home()` do (xai-org/grok-build xai-dirs, npm postinstall.js).
  */
 export function grokHome(env: Record<string, string | undefined>, platform: string, home = homeOf(env, platform)): string {
-  if (env['GROK_HOME']) return env['GROK_HOME'];
+  if (env['GROK_HOME']) return pathFor(platform).resolve(env['GROK_HOME']);
   return pathFor(platform).join(platform === 'win32' ? home : real(home), '.grok');
 }
 
@@ -102,9 +102,19 @@ function readToml(file: string): Json | null {
  *    non-canonical align-local there would replace ours: a conflict, nothing is written;
  *  - ~/.claude.json and ~/.cursor/mcp.json (Grok imports them): a same-named server there LOSES
  *    to config.toml (verified), so it is no conflict; a canonical local `align` there is present.
- * A project `.mcp.json` is repo input and never counts as present.
+ * A project `.mcp.json` is repo input and never counts as present. The project is `--cwd` when
+ * the user passes one.
  */
-export function readGrokState(cwd: string, home: string, opts: { localIsDefault: boolean }, env: Record<string, string | undefined>, platform: string): GrokProjectState {
+export function readGrokState(
+  cwd: string,
+  home: string,
+  opts: { localIsDefault: boolean },
+  env: Record<string, string | undefined>,
+  platform: string,
+  passthrough: string[] = [],
+): GrokProjectState {
+  // `grok --cwd <dir>` moves the project Grok loads; relative to the cwd, as a shell gives it.
+  const project = path.resolve(cwd, optionValue(passthrough, '--cwd') ?? '.');
   const o = { ...opts, platform, host: 'mcpServers' as const };
   const configFile = path.join(grokHome(env, platform, home), 'config.toml');
   const userServers = readToml(configFile)?.['mcp_servers'];
@@ -112,7 +122,7 @@ export function readGrokState(cwd: string, home: string, opts: { localIsDefault:
   const canonical = (s: unknown) => isObject(s) && (isCanonicalLocalEntry(s['align'], o) || isCanonicalLocalEntry(s['align-local'], o));
   if (canonical(userServers)) state.present = true;
   else if (isObject(userServers) && 'align-local' in userServers) state.conflict = configFile;
-  for (const dir of ancestors(cwd)) {
+  for (const dir of ancestors(project)) {
     const file = path.join(dir, '.grok', 'config.toml');
     if (file === configFile) continue;
     const servers = readToml(file)?.['mcp_servers'];

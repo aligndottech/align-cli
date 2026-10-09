@@ -110,6 +110,19 @@ describe('wave B: each launches with Align wired in', () => {
     expect(a.runAgentMock.mock.calls[0]![0]).toMatchObject({ bin: 'C:\\npm\\droid.cmd', args: ['--settings', expect.stringContaining('droid-settings.json'), '--append-system-prompt-file', expect.stringContaining('align-instructions.md')] });
   });
 
+  it('the Droid, Amp and Grok readers get the user\'s args (--cwd, --settings, --settings-file change what they read)', async () => {
+    const seen: string[][] = [];
+    const args = ['node', 'align', '--', '--cwd', '/elsewhere'];
+    for (const [name, bin] of [['droid', 'droid'], ['amp', 'amp'], ['grok-build', 'grok']] as const) {
+      const h = harness({ stored: name, bins: { [bin]: binPath(bin) }, argv: args,
+        readDroidState: (_c, _h, _e, _p, pt) => { seen.push(pt); return { present: true, overridden: [], projectHasBlock: true }; },
+        readAmpState: (_c, _h, _e, _p, pt) => { seen.push(pt); return { present: true, overridden: [], settingsFile: '/s', commented: false }; },
+        readGrokState: (_c, _h, _e, _p, pt) => { seen.push(pt); return { present: true, overridden: [], configFile: '/g' }; } });
+      await launchIfChosen(h.deps);
+    }
+    expect(seen).toEqual([['--cwd', '/elsewhere'], ['--cwd', '/elsewhere'], ['--cwd', '/elsewhere']]);
+  });
+
   it('an ALIGN_WRAPPED session never launches another (nested align)', async () => {
     const h = harness({ stored: 'qwen', bins: { qwen: '/usr/bin/qwen' }, env: { ALIGN_WRAPPED: '1' } });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
@@ -205,7 +218,7 @@ describe('written once, against FAKE kiro-cli and grok binaries (real pipeline)'
     config: { getAgent: () => agent, setAgent: () => {} },
     findOnPath,
     readKiroState: (c, h, e, p) => readKiroState(c, h, { localIsDefault: true }, e, p),
-    readGrokState: (c, h, e, p) => readGrokState(c, h, { localIsDefault: true }, e, p),
+    readGrokState: (c, h, e, p, pt) => readGrokState(c, h, { localIsDefault: true }, e, p, pt),
     applyConfigWrite,
     cacheDir: () => path.join(root, 'cache'), writeIfChanged, runAgent: (spec) => runAgent(spec),
     record: () => {}, pick: async () => null, err: (l) => lines.push(l), now: () => 0,
