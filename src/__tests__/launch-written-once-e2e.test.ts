@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ import { readOpenCodeState } from '../lib/launch/opencode-state.js';
 import { readPiState } from '../lib/launch/pi-state.js';
 import { readProjectState } from '../lib/launch/project-state.js';
 import { runAgent } from '../lib/launch/run-agent.js';
+import { prependPath, writeFakeAgent } from './helpers/fake-agent.js';
 import { BACKUP_SUFFIX, mergeWrittenConfig, setWriteRecorder, undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
 
 /*
@@ -24,12 +25,11 @@ let lines: string[];
 let manifest: Record<string, WrittenConfig>;
 
 function fake(name: string) {
-  const script = path.join(bin, name);
-  writeFileSync(script, `#!/bin/sh
-node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({argv: process.argv.slice(2), agentDir: process.env.PI_CODING_AGENT_DIR ?? null, wrapped: process.env.ALIGN_WRAPPED ?? null}))' "${record}" "$@"
-exit 5
-`);
-  chmodSync(script, 0o755);
+  writeFakeAgent(bin, name, {
+    record,
+    recordBody: '{argv: args, agentDir: env.PI_CODING_AGENT_DIR ?? null, wrapped: env.ALIGN_WRAPPED ?? null}',
+    exitCode: 5,
+  });
 }
 beforeEach(() => {
   root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'align-wo-e2e-')));
@@ -42,7 +42,7 @@ beforeEach(() => {
   lines = []; manifest = {};
   setWriteRecorder((f, e) => { manifest[f] = mergeWrittenConfig(manifest[f], e); }, (f) => manifest[f]);
   for (const k of ['ALIGN_WRAPPED', 'ALIGN_NO_LAUNCH', 'PI_CODING_AGENT_DIR', 'ALIGN_LAUNCH_DRY_RUN', 'ALIGN_LAUNCH_TRACE']) vi.stubEnv(k, undefined);
-  vi.stubEnv('PATH', `${bin}:${process.env['PATH']}`);
+  vi.stubEnv('PATH', prependPath(bin, process.env['PATH']));
 });
 afterEach(() => { setWriteRecorder(undefined); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 
@@ -66,7 +66,9 @@ describe('pi against a fake binary', () => {
     vi.stubEnv('PI_CODING_AGENT_DIR', agentDir); // the child inherits process.env
     expect(await run('pi', ['node', 'align', '--', 'fix it'], { PI_CODING_AGENT_DIR: agentDir })).toEqual({ handled: true, code: 5 });
     const r = recorded();
-    expect(r.argv.slice(0, 3)).toEqual(['fix it', '-e', path.join(cache, 'pi-align.ts')]);
+    expect(r.argv.slice(0, 2)).toEqual(['fix it', '-e']);
+    // launch.ts builds cache paths with a forward slash; compare as the OS would resolve them.
+    expect(path.normalize(r.argv[2]!)).toBe(path.join(cache, 'pi-align.ts'));
     expect(r.agentDir).toBe(agentDir); // the user's own value, passed through untouched
     expect(r.wrapped).toBe('1');
     expect(readFileSync(path.join(cache, 'pi-align.ts'), 'utf8')).toBe(piExtensionBody('local'));

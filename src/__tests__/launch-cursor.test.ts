@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildCursorLaunch, type CursorLaunchContext } from '../lib/launch/adapters/cursor.js';
+import { alignEntryShape } from './helpers/platform.js';
 
 /*
  * C4 Test List (Cursor adapter, pure builder; cursor-agent is NOT installed on the dev machine):
@@ -39,7 +40,7 @@ describe('buildCursorLaunch', () => {
   it('the MCP entry targets the local graph and is never named align', () => {
     const w = buildCursorLaunch(ctx()).writes![0] as { name: string; entry: { args: string[] } };
     expect(w.name).toBe('align-local');
-    expect(w.entry.args).toEqual(['mcp', '--env', 'local']);
+    expect(w.entry.args).toEqual(alignEntryShape(['mcp', '--env', 'local']).args);
   });
 
   it('projectHasMcp drops the write, and with it everything', () => {

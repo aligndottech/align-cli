@@ -12,7 +12,7 @@
  * that is easy to get wrong, and a suite that forgets it leaks the stub into every file
  * vitest runs after it in the same worker.
  */
-import { afterAll, beforeEach } from 'vitest';
+import { afterAll, beforeEach, expect } from 'vitest';
 
 /** The set `process.platform` can hold, without naming the NodeJS global (eslint: no-undef). */
 export type Platform = typeof process.platform;
@@ -36,4 +36,32 @@ export function restorePlatform(): void {
 export function pinPlatform(value: Platform): void {
   beforeEach(() => setPlatform(value));
   afterAll(restorePlatform);
+}
+
+/**
+ * The `{command, args}` an `align mcp` server entry holds on the platform the test really runs
+ * on: bare `align` on POSIX, `cmd /c align ...` on Windows (ALI-1135). For tests that are about
+ * something else (the launch pipeline, overwrite policy) and only need the entry's shape to
+ * match what production wrote, so they stay correct on both legs without pinning a platform.
+ */
+export function alignEntryShape(args: string[]): { command: string; args: string[] } {
+  return process.platform === 'win32'
+    ? { command: 'cmd', args: ['/c', 'align', ...args] }
+    : { command: 'align', args };
+}
+
+/** The same entry as one argv array, the form OpenCode stores (`command: [...]`). */
+export function alignEntryArgv(args: string[]): string[] {
+  const { command, args: rest } = alignEntryShape(args);
+  return [command, ...rest];
+}
+
+/**
+ * Assert a file's permission bits on POSIX only. Windows has no 0600/0700: stat reports 0o666
+ * for a writable file and 0o777 for a directory whatever the writer asked for, and chmod can only
+ * toggle read-only. The rest of the calling test still runs there; only this one claim is dropped.
+ */
+export function expectPosixMode(statMode: number, expected: number): void {
+  if (process.platform === 'win32') return;
+  expect(statMode & 0o777).toBe(expected);
 }

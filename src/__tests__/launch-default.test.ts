@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { type LaunchDeps, launchIfChosen } from '../lib/launch/launch.js';
+import { alignEntryShape } from './helpers/platform.js';
 
 const CLAUDE = '/usr/bin/claude';
 function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<string, string> } = {}) {
@@ -202,7 +203,7 @@ describe('launchIfChosen: OpenCode (C2)', () => {
     const h = harness({ stored: 'opencode', onPath: { opencode: OC } });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
     const spec = h.runAgent.mock.calls[0]![0];
-    expect(JSON.parse(spec.env.OPENCODE_CONFIG_CONTENT).mcp['align-local'].command[0]).toBe('align');
+    expect(JSON.parse(spec.env.OPENCODE_CONFIG_CONTENT).mcp['align-local'].command[0]).toBe(alignEntryShape([]).command);
     expect(spec.env.OPENCODE_CONFIG_DIR).toBe('/cache/opencode-config');
     expect(spec.env.ALIGN_WRAPPED).toBe('1');
     expect(h.written.map(([n]) => n).sort()).toEqual(['align-instructions.md', 'opencode-config/plugins/align.js']);

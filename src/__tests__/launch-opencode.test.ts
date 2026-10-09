@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { openCodePluginBody } from '../lib/agent-rules.js';
 import { buildOpenCodeLaunch, type OpenCodeLaunchContext } from '../lib/launch/adapters/opencode.js';
-import { restorePlatform, setPlatform } from './helpers/platform.js';
+import { alignEntryArgv, restorePlatform, setPlatform } from './helpers/platform.js';
 
 /*
  * C2 Test List (OpenCode adapter, pure builder):
@@ -29,7 +29,7 @@ describe('buildOpenCodeLaunch: injection', () => {
     const spec = buildOpenCodeLaunch(ctx());
     expect(spec.bin).toBe('opencode');
     expect(spec.env['ALIGN_WRAPPED']).toBe('1');
-    expect(content(spec).mcp['align-local']).toEqual({ type: 'local', command: ['align', 'mcp', '--env', 'local'] });
+    expect(content(spec).mcp['align-local']).toEqual({ type: 'local', command: alignEntryArgv(['mcp', '--env', 'local']) });
     expect(content(spec).instructions).toEqual(['/cache/align-instructions.md']);
     expect(spec.env['OPENCODE_CONFIG_DIR']).toBe('/cache/opencode-config');
     expect(spec.files.map((f) => f.name).sort()).toEqual(['align-instructions.md', 'opencode-config/plugins/align.js']);

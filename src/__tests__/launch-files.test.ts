@@ -27,7 +27,10 @@ describe('launchCacheDir', () => {
     } finally { vi.unstubAllEnvs(); }
   });
   it('falls back to a per-user cache dir ending in align-cli/launch', () => {
-    expect(launchCacheDir({})).toMatch(/align-cli[\\/]launch$/);
+    // env-paths puts the cache under a "Cache" folder on Windows (%LOCALAPPDATA%\align-cli\Cache);
+    // the other platforms end in align-cli/launch directly.
+    const tail = process.platform === 'win32' ? path.join('align-cli', 'Cache', 'launch') : path.join('align-cli', 'launch');
+    expect(launchCacheDir({}).endsWith(path.sep + tail)).toBe(true);
   });
 });
 

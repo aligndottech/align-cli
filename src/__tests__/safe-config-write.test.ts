@@ -14,6 +14,7 @@ import {
   type WrittenConfig,
 } from '../lib/safe-config-write.js';
 import * as realFs from 'node:fs';
+import { expectPosixMode } from './helpers/platform.js';
 
 /*
  * C4 Test List (safe writer):
@@ -101,7 +102,7 @@ describe('safeWriteJson: atomic write', () => {
     writeFileSync(file(), '{}');
     chmodSync(file(), mode);
     safeWriteJson(file(), () => ({ a: 1 }), { note });
-    expect(statSync(file()).mode & 0o777).toBe(mode);
+    expectPosixMode(statSync(file()).mode, mode);
     expect(readdirSync(dir).filter((f) => f.includes('align-tmp'))).toEqual([]);
   });
 });
@@ -394,7 +395,7 @@ describe('symlinked directories (MEDIUM 4)', () => {
   it('creates missing directories 0700', () => {
     const f = path.join(dir, 'newagent', 'mcp.json');
     safeWriteJson(f, () => ({ a: 1 }), { note, root: dir });
-    expect(statSync(path.dirname(f)).mode & 0o777).toBe(0o700);
+    expectPosixMode(statSync(path.dirname(f)).mode, 0o700);
   });
 });
 
@@ -409,7 +410,7 @@ describe('the staged temp file (MEDIUM 5)', () => {
     safeWriteJson(file(), () => ({ a: 1 }), { note });
     expect(existsSync(stale)).toBe(false);
     expect(existsSync(fresh)).toBe(true); // too young to be a crash leftover
-    expect(statSync(file()).mode & 0o777).toBe(0o600);
+    expectPosixMode(statSync(file()).mode, 0o600);
   });
 
   it('picks another name when the first is taken (EEXIST), instead of writing through it', () => {

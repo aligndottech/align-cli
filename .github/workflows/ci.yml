@@ -100,6 +100,11 @@ jobs:
     # INSTALL path (ALI-713's huggingface rate limit, ALI-740's binary targets), and
     # install-smoke still covers that on every PR on every OS. Runs on push-to-main, and
     # releases are covered by e2e-release.yml, so a break is caught before it can ship.
+    #
+    # The one thing that gap let through was the launcher's Windows path: 37 tests were red on
+    # main for a day before anyone saw them, because only a merge runs this job. The
+    # `windows-launch` job below closes exactly that hole on pull requests - Windows only, and
+    # only when the diff touches launch or config-writing code - so this job stays as it is.
     if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
@@ -124,6 +129,64 @@ jobs:
 
       - name: Smoke - CLI binary runs
         run: node dist/index.js --version
+
+  # Windows tests on a pull request, but only for a diff that can change Windows behaviour in
+  # the launcher or the config writers. cross-platform above is skipped on PRs for cost, which
+  # is how the launcher shipped 37 Windows-only failures (it spawns through `cmd /c`, has no
+  # POSIX file modes, and walks paths with backslashes). A workflow-level `paths:` filter would
+  # leave this check absent on other PRs; a path check inside the job always reports, and a
+  # diff that touches none of these exits success after the checkout, before `npm ci`.
+  #
+  # NOT a required context, and branch protection is not touched: it is advisory like every
+  # job here but `test`. Windows bills 2x, and a diff outside these paths pays only the
+  # checkout. The patterns below are a hand-kept list: a new launch-adjacent file outside them
+  # is not covered here, and the post-merge cross-platform job still catches it.
+  windows-launch:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The three-dot diff below needs the merge base, which a shallow clone lacks.
+          fetch-depth: 0
+
+      - name: Does this diff touch launch or config-writing code?
+        id: scope
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git diff --name-only "$BASE_SHA...HEAD" > changed.txt
+          # A zero-line diff is a broken checkout, not "nothing touched": say so rather than
+          # report a clean skip (the check examined nothing).
+          if [ ! -s changed.txt ]; then
+            echo "::error::the diff against $BASE_SHA is empty; cannot tell what this PR touches"
+            exit 1
+          fi
+          PATTERN='^(src/lib/launch/|src/lib/mcp-setup\.ts$|src/lib/safe-config-write\.ts$|src/lib/user-hooks\.ts$|src/commands/use[^/]*\.ts$|src/commands/default-action\.ts$|src/__tests__/(launch|safe-config|mcp-setup|local-wiring|use-|user-hooks|default-action)|src/__tests__/helpers/|\.github/workflows/ci\.yml$)'
+          if grep -E "$PATTERN" changed.txt > touched.txt; then
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+            echo "Windows-relevant files in this diff:"; cat touched.txt
+          else
+            echo "touched=false" >> "$GITHUB_OUTPUT"
+            echo "No launch or config-writing files in this diff; nothing to run on Windows."
+          fi
+
+      - if: steps.scope.outputs.touched == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16'
+          cache: 'npm'
+
+      - if: steps.scope.outputs.touched == 'true'
+        run: npm ci
+
+      - name: Test
+        if: steps.scope.outputs.touched == 'true'
+        run: npm test
 
   # Same gate on the newest Node (not a required context). 22.16 is the floor and the
   # required `test` job covers it, so the value here is the OTHER end of the range.
