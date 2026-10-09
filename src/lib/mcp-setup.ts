@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 import os from 'node:os';
+import { safeWriteJson, safeWriteText } from './safe-config-write.js';
 import { removeUserHooks, type UserHookTarget, writeUserHooks } from './user-hooks.js';
 
 // Align is agent-agnostic: any MCP-capable client is a first-class setup target.
@@ -266,30 +267,31 @@ function ensureDir(configPath: string): void {
 }
 
 function writeCodexConfig(configPath: string, env?: string, onForeign?: OnForeign): boolean {
-  const existing = readConfig(configPath, 'codex');
   const block = codexBlock(env);
+  let foreign = false;
 
-  // Opt-in: only a caller that passes onForeign (the wizard's local wiring) preserves a team
-  // entry. Explicit `align mcp --setup --env local` passes none, and overwrites by design.
-  if (onForeign && env === 'local' && codexAlignTargetsElsewhere(existing)) {
-    onForeign(configPath);
+  // C4: the file is the user's own, so it goes through the safe writer (backup, change
+  // detection, atomic rename, no symlinks). The decision runs inside it, on the text it read.
+  const status = safeWriteText(configPath, (cur) => {
+    const existing = cur ?? '';
+    // Opt-in: only a caller that passes onForeign (the wizard's local wiring) preserves a team
+    // entry. Explicit `align mcp --setup --env local` passes none, and overwrites by design.
+    if (onForeign && env === 'local' && codexAlignTargetsElsewhere(existing)) {
+      foreign = true;
+      return undefined;
+    }
+    const start = existing.indexOf(CODEX_BLOCK_START);
+    const end = existing.indexOf(CODEX_BLOCK_END);
+    if (start !== -1 && end !== -1 && end > start) {
+      return `${existing.slice(0, start)}${block}${existing.slice(end + CODEX_BLOCK_END.length)}`;
+    }
+    return existing.trim() ? `${existing.replace(/\s*$/, '')}\n\n${block}\n` : `${block}\n`;
+  }, { markers: { start: CODEX_BLOCK_START, end: CODEX_BLOCK_END } });
+  if (foreign) {
+    onForeign!(configPath);
     return false;
   }
-
-  let content: string;
-  const start = existing.indexOf(CODEX_BLOCK_START);
-  const end = existing.indexOf(CODEX_BLOCK_END);
-  if (start !== -1 && end !== -1 && end > start) {
-    content = `${existing.slice(0, start)}${block}${existing.slice(end + CODEX_BLOCK_END.length)}`;
-  } else if (existing.trim()) {
-    content = `${existing.replace(/\s*$/, '')}\n\n${block}\n`;
-  } else {
-    content = `${block}\n`;
-  }
-
-  ensureDir(configPath);
-  writeFileSync(configPath, content, 'utf8');
-  return true;
+  return status !== 'symlink';
 }
 
 /**
@@ -321,7 +323,30 @@ export function alignEntryTargetsElsewhere(target: EditorTarget): boolean {
   }
 }
 
+/** Cursor's config is the user's own, in a dir align does not own: it gets the safe writer (C4). */
+const usesSafeWriter = (target: EditorTarget): boolean => target.name === 'Cursor';
+
 function writeJsonConfig(target: EditorTarget, env?: string, onForeign?: OnForeign): boolean {
+  const key = jsonTopKey(target.format);
+  const merge = (existing: Record<string, unknown>): Record<string, unknown> | undefined => {
+    const servers = (existing[key] ?? {}) as Record<string, unknown>;
+    if (onForeign && env === 'local' && servers['align'] !== undefined && !carriesLocalEnv(JSON.stringify(servers['align']))) {
+      return undefined;
+    }
+    servers['align'] = alignServerEntry(target.format, env);
+    existing[key] = servers;
+    return existing;
+  };
+
+  if (usesSafeWriter(target)) {
+    const status = safeWriteJson(target.configPath, merge, { invalidJsonAdvice: ' before running align mcp --setup' });
+    if (status === 'declined') {
+      onForeign!(target.configPath);
+      return false;
+    }
+    return status !== 'symlink';
+  }
+
   const raw = readConfig(target.configPath, target.format);
   let existing: Record<string, unknown> = {};
   if (raw.trim()) {
@@ -332,14 +357,10 @@ function writeJsonConfig(target: EditorTarget, env?: string, onForeign?: OnForei
     }
   }
 
-  const key = jsonTopKey(target.format);
-  const servers = (existing[key] ?? {}) as Record<string, unknown>;
-  if (onForeign && env === 'local' && servers['align'] !== undefined && !carriesLocalEnv(JSON.stringify(servers['align']))) {
-    onForeign(target.configPath);
+  if (merge(existing) === undefined) {
+    onForeign!(target.configPath);
     return false;
   }
-  servers['align'] = alignServerEntry(target.format, env);
-  existing[key] = servers;
 
   ensureDir(target.configPath);
   writeFileSync(target.configPath, JSON.stringify(existing, null, 2), 'utf8');

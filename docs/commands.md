@@ -98,7 +98,7 @@ align setup                   Guided onboarding: your local graph by default, yo
 # Choose the coding agent bare `align` opens
 
 align use [agent]             Choose the coding agent bare `align` opens (no argument shows the current one)
-                              flags: --none
+                              flags: --none --undo
 
 # Invite a teammate to your graph
 

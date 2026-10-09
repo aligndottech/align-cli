@@ -1,5 +1,6 @@
 import { alignClaudeHooks, alignNudgeBody } from '../../agent-rules.js';
 import { alignServerEntry } from '../../mcp-setup.js';
+import type { ConfigWrite } from '../config-writes.js';
 
 export interface LaunchFile {
   name: string;
@@ -16,6 +17,8 @@ export interface LaunchSpec {
   files: LaunchFile[];
   /** Lines align prints to stderr before launching (why an injection was skipped). */
   notes?: string[];
+  /** Files in the user's own agent config to add to ONCE (C4). Applied after the dry-run exit, never before. */
+  writes?: ConfigWrite[];
 }
 
 export interface LaunchContext {

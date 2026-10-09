@@ -3,12 +3,17 @@ import { performance } from 'node:perf_hooks';
 import { createConfigStore } from '../config.js';
 import { resolveEnv } from '../resolve-env.js';
 import type { AgentName } from '../sessions/types.js';
-import { agentByName, type LaunchAgent, supportedAgents } from './agents.js';
+import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
 import { buildClaudeLaunch, type LaunchSpec } from './adapters/claude-code.js';
+import { buildCursorLaunch } from './adapters/cursor.js';
 import { buildOpenCodeLaunch } from './adapters/opencode.js';
+import { buildPiLaunch } from './adapters/pi.js';
+import { applyConfigWrite, type ConfigWrite } from './config-writes.js';
+import { type CursorProjectState, readCursorState } from './cursor-state.js';
 import { findOnPath } from './detect.js';
 import { launchCacheDir, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
+import { type PiProjectState, readPiState } from './pi-state.js';
 import { type ProjectState, readProjectState } from './project-state.js';
 import { runAgent } from './run-agent.js';
 
@@ -26,11 +31,17 @@ export interface LaunchDeps {
   home: string;
   platform: string;
   isTTY: boolean;
-  config: { getAgent(): string | undefined; setAgent(agent: string): void };
+  config: { getAgent(): string | undefined; setAgent(agent: string): void; isLaunchOff?(): boolean };
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
   readProjectState(cwd: string, home: string): ProjectState;
   /** What OpenCode would already load. Separate from readProjectState: it reads other files. */
   readOpenCodeState(cwd: string, home: string): OpenCodeProjectState;
+  /** What pi would already load, and where its MCP file is. */
+  readPiState(cwd: string, home: string, env: Record<string, string | undefined>): PiProjectState;
+  /** What Cursor would already read. */
+  readCursorState(cwd: string, home: string): CursorProjectState;
+  /** Add to a file in the user's own agent config, once (C4). Lines go to `note`. */
+  applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
   writeIfChanged(dir: string, name: string, content: string): boolean;
   runAgent(spec: LaunchSpec): Promise<number>;
@@ -68,6 +79,9 @@ function defaultDeps(): LaunchDeps {
     findOnPath,
     readProjectState: (cwd, home) => readProjectState(cwd, home, { localIsDefault: isLocalDefault() }),
     readOpenCodeState: (cwd, home) => readOpenCodeState(cwd, home, { localIsDefault: isLocalDefault() }, process.env),
+    readPiState: (cwd, home, env) => readPiState(cwd, home, { localIsDefault: isLocalDefault() }, env),
+    readCursorState: (cwd, home) => readCursorState(cwd, home, { localIsDefault: isLocalDefault() }),
+    applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
     cacheDir: launchCacheDir,
     writeIfChanged,
     runAgent: (spec) => runAgent(spec),
@@ -108,6 +122,8 @@ interface BuildInput {
 const BUILDERS: Partial<Record<AgentName, (d: LaunchDeps, base: BuildInput) => LaunchSpec>> = {
   'claude-code': (d, base) => buildClaudeLaunch({ ...base, ...d.readProjectState(d.cwd, d.home) }),
   opencode: (d, base) => buildOpenCodeLaunch({ ...base, env: d.env, ...d.readOpenCodeState(d.cwd, d.home) }),
+  pi: (d, base) => buildPiLaunch({ ...base, ...d.readPiState(d.cwd, d.home, d.env) }),
+  cursor: (d, base) => buildCursorLaunch({ ...base, ...d.readCursorState(d.cwd, d.home) }),
 };
 
 /**
@@ -132,10 +148,17 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   if (!d.isTTY && !explicit) return { handled: false };
 
   let agent = agentByName(d.config.getAgent());
+  // `align use --undo` turned launching off: no auto-pick, no config writes, until `align use <agent>`.
+  if (!agent && d.config.isLaunchOff?.()) {
+    d.err('Launching is off after `align use --undo`. Run `align use <agent>` to turn it back on.');
+    // Bare `align` shows the card; an explicit `align -- ...` asked for a session, so dropping
+    // its arguments silently would be wrong (same rule as an agent that is not installed).
+    return explicit ? { handled: true, code: 1 } : { handled: false };
+  }
   const stored = agent !== undefined;
   let announce: string | undefined;
   if (!agent) {
-    const installed = supportedAgents().filter((a) => d.findOnPath(a.bin, d.env, d.platform) !== null);
+    const installed = supportedAgents().filter((a) => resolveAgentBin(a, d.findOnPath, d.env, d.platform) !== null);
     if (installed.length === 0) {
       const works = supportedAgents();
       d.err(`No coding agent that Align can open was found on your PATH. Align works with: ${works.map((a) => a.label).join(', ')}.`);
@@ -164,7 +187,8 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     return { handled: false };
   }
 
-  const found = d.findOnPath(agent!.bin, d.env, d.platform);
+  const resolved = resolveAgentBin(agent!, d.findOnPath, d.env, d.platform);
+  const found = resolved?.path ?? null;
   if (!found) {
     // Reachable only for a stored choice (a fresh pick came from the installed list).
     d.err(`${agent!.label} is not installed any more. Run \`align use\` to pick another, or reinstall it.`);
@@ -174,7 +198,9 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   }
 
   const dir = d.cacheDir(d.env);
-  const spec = build(d, { passthrough, cachePath: (name) => `${dir}/${name}` });
+  const built = build(d, { passthrough, cachePath: (name) => `${dir}/${name}` });
+  // The adapter names the agent's usual binary; run whichever name is actually installed.
+  const spec: LaunchSpec = resolved && resolved.bin !== built.bin ? { ...built, bin: resolved.bin } : built;
   try {
     for (const f of spec.files) d.writeIfChanged(dir, f.name, f.content);
   } catch (e) {
@@ -190,6 +216,15 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   if (set(d.env['ALIGN_LAUNCH_DRY_RUN'])) return { handled: true, code: 0 };
 
   if (!stored) d.config.setAgent(agent!.name);
+  // Written-once agents (pi, Cursor): the one place align adds to the user's own config. Not
+  // fatal: the session still opens, just without that piece.
+  for (const w of spec.writes ?? []) {
+    try {
+      d.applyConfigWrite({ ...w, root: d.home }, d.err);
+    } catch (e) {
+      d.err(`Could not update ${w.file} (${(e as Error).message}). Opening ${agent!.label} without it.`);
+    }
+  }
   if (announce) d.err(announce);
   d.record(agent!.name);
   try {

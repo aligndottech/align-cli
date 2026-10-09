@@ -2,6 +2,7 @@ import Conf from 'conf';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -135,6 +136,9 @@ export function createConfigStore() {
     installId?: string;
     telemetryConsent?: TelemetryConsent;
     agent?: string;
+    launchOff?: boolean;
+    refusedWrites?: string[];
+    writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
   }>({
@@ -292,9 +296,55 @@ export function createConfigStore() {
     },
     setAgent(agent: string) {
       store.set('agent', agent);
+      // Choosing an agent is the way back on after `align use --undo`.
+      store.delete('launchOff');
+    },
+    // C4: set by `align use --undo` so bare `align` stops opening an agent (and re-adding the
+    // configs just restored) until the user picks one again.
+    isLaunchOff(): boolean {
+      return store.get('launchOff') === true;
+    },
+    setLaunchOff(off: boolean) {
+      if (off) store.set('launchOff', true);
+      else store.delete('launchOff');
     },
     clearAgent() {
       store.delete('agent');
+    },
+    // C4: every other-product config file align wrote (safe-config-write.ts), so
+    // `align use --undo` can put each one back. Keyed by absolute path; the whole map is
+    // read and set as one value because conf treats a dot in a key as a path separator.
+    getWrittenConfigs(): Record<string, WrittenConfig> {
+      return store.get('writtenConfigs') ?? {};
+    },
+    // `entry` is what ONE write added; mergeWrittenConfig folds it into what is already here
+    // (the first write's `created` and backup stay, owned entries accumulate).
+    recordWrittenConfig(file: string, entry: WrittenConfig) {
+      const all = store.get('writtenConfigs') ?? {};
+      store.set('writtenConfigs', { ...all, [file]: mergeWrittenConfig(all[file], entry) });
+    },
+    /** Forget only the files whose undo finished; a skipped file keeps its record. */
+    dropWrittenConfigs(files: string[]) {
+      const all = { ...(store.get('writtenConfigs') ?? {}) };
+      for (const f of files) delete all[f];
+      if (Object.keys(all).length === 0) store.delete('writtenConfigs');
+      else store.set('writtenConfigs', all);
+    },
+    // Refused writes (a symlinked agent config): remembered so the one-line notice is printed
+    // once, not on every launch.
+    wasWriteRefused(file: string): boolean {
+      return (store.get('refusedWrites') ?? []).includes(file);
+    },
+    unmarkWriteRefused(file: string) {
+      const all = store.get('refusedWrites') ?? [];
+      store.set('refusedWrites', all.filter((f) => f !== file));
+    },
+    clearRefusedWrites() {
+      store.delete('refusedWrites');
+    },
+    markWriteRefused(file: string) {
+      const all = store.get('refusedWrites') ?? [];
+      if (!all.includes(file)) store.set('refusedWrites', [...all, file]);
     },
     getTelemetryConsent(): TelemetryConsent | undefined {
       return store.get('telemetryConsent');

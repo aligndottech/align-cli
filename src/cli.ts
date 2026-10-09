@@ -3,6 +3,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { COMMAND_REGISTRY, ROOT_SUMMARY, visibleEntries } from './commands/registry.js';
 import { runDefaultAction } from './commands/default-action.js';
 import { createConfigStore, hydrateProviderKeyEnv } from './lib/config.js';
+import { setWriteRecorder } from './lib/safe-config-write.js';
 
 const { version } = pkg;
 
@@ -89,6 +90,18 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
       hydrateProviderKeyEnv(createConfigStore());
     } catch (e) {
       if (process.env['ALIGN_DEBUG']) console.error('align: provider key hydration failed (non-fatal):', e);
+    }
+  });
+
+  // C4: every file align writes into another product's config is remembered, so
+  // `align use --undo` can restore it. Installed here, never in the writer, so a test that
+  // calls the writer does not touch the real config store. Non-fatal for the same reason.
+  program.hook('preAction', () => {
+    try {
+      const config = createConfigStore();
+      setWriteRecorder((file, entry) => config.recordWrittenConfig(file, entry), (file) => config.getWrittenConfigs()[file]);
+    } catch (e) {
+      if (process.env['ALIGN_DEBUG']) console.error('align: written-config recorder failed (non-fatal):', e);
     }
   });
 

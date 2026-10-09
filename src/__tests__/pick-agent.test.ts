@@ -109,3 +109,14 @@ describe('pickAgent: a re-run', () => {
     expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBe('claude-code');
   });
 });
+
+describe('pickAgent: after `align use --undo` (C4)', () => {
+  it('says that choosing an agent turned launching back on (the wizard re-enables it), and says nothing when it was not off', async () => {
+    const h = harness({ onPath: ['claude'] });
+    await pickAgent({ ...h.config, isLaunchOff: () => true }, { interactive: true }, h.deps);
+    expect(h.say.join('\n')).toContain('Launching is on again');
+    const quiet = harness({ onPath: ['claude'] });
+    await pickAgent({ ...quiet.config, isLaunchOff: () => false }, { interactive: true }, quiet.deps);
+    expect(quiet.say.join('\n')).not.toContain('Launching is on again');
+  });
+});

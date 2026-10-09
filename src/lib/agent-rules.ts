@@ -323,7 +323,7 @@ const ALIGN_IS_WIN = process.platform === "win32";
 const ALIGN_BIN = ALIGN_IS_WIN ? "cmd" : "align";
 const ALIGN_PRE = ALIGN_IS_WIN ? ["/c", "align"] : [];`;
 
-function piExtensionBody(env?: string): string {
+export function piExtensionBody(env?: string): string {
   const envArgs = env && env !== 'prod' ? `, "--env", "${env}"` : '';
   return `// Align decision graph - managed by \`align setup\`, do not edit.
 // Checks each proposed edit against your team's prior decisions and feeds any
