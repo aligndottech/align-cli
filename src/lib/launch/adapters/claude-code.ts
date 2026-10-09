@@ -18,7 +18,9 @@ export interface LaunchSpec {
 
 export interface LaunchContext {
   passthrough: string[];
-  projectHasHooks: boolean;
+  /** The project already runs an align PreToolUse / PostToolUse hook against the local graph. */
+  projectHasPreHook: boolean;
+  projectHasPostHook: boolean;
   projectHasMcp: boolean;
   projectHasBlock: boolean;
   /** Absolute path a launch file will have once written. */
@@ -31,21 +33,28 @@ const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
  * Claude Code, per session, nothing written to the user's own config. No --strict-mcp-config
  * on purpose: strict mode would drop the user's own servers and the project's .mcp.json.
  * Each injection is skipped when the project already carries it, so nothing runs twice.
+ *
+ * ORDER MATTERS: the user's pass-through args come first and --mcp-config comes last.
+ * claude's --mcp-config is variadic, so anything after it (a positional prompt) is read as
+ * another config file path.
  */
 export function buildClaudeLaunch(c: LaunchContext): LaunchSpec {
-  const args: string[] = [];
+  const args: string[] = [...c.passthrough];
   const files: LaunchFile[] = [];
-  if (!c.projectHasMcp) {
-    files.push({ name: 'claude-mcp.json', content: json({ mcpServers: { align: alignServerEntry('mcpServers', 'local') } }) });
-    args.push('--mcp-config', c.cachePath('claude-mcp.json'));
-  }
-  if (!c.projectHasHooks) {
-    files.push({ name: 'claude-settings.json', content: json({ hooks: alignClaudeHooks('local') }) });
-    args.push('--settings', c.cachePath('claude-settings.json'));
+  const missing = (['PreToolUse', 'PostToolUse'] as const).filter((e) => !(e === 'PreToolUse' ? c.projectHasPreHook : c.projectHasPostHook));
+  if (missing.length > 0) {
+    const all = alignClaudeHooks('local');
+    const name = missing.length === 2 ? 'claude-settings.json' : `claude-settings-${missing[0] === 'PreToolUse' ? 'pre' : 'post'}.json`;
+    files.push({ name, content: json({ hooks: Object.fromEntries(missing.map((e) => [e, all[e]])) }) });
+    args.push('--settings', c.cachePath(name));
   }
   if (!c.projectHasBlock) {
     files.push({ name: 'align-instructions.md', content: `${alignNudgeBody()}\n` });
     args.push('--append-system-prompt-file', c.cachePath('align-instructions.md'));
   }
-  return { bin: 'claude', args: [...args, ...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files };
+  if (!c.projectHasMcp) {
+    files.push({ name: 'claude-mcp.json', content: json({ mcpServers: { align: alignServerEntry('mcpServers', 'local') } }) });
+    args.push('--mcp-config', c.cachePath('claude-mcp.json'));
+  }
+  return { bin: 'claude', args, env: { ALIGN_WRAPPED: '1' }, files };
 }

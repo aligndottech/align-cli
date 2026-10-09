@@ -5,16 +5,17 @@ function harness(stored?: string, onPath: Record<string, string> = { claude: '/u
   let current = stored;
   const out: string[] = [];
   const err: string[] = [];
+  const clearAgent = vi.fn(() => { current = undefined; });
   const setAgent = vi.fn((a: string) => { current = a; });
   const deps: UseDeps = {
-    config: { getAgent: () => current, setAgent },
+    config: { getAgent: () => current, setAgent, clearAgent },
     findOnPath: (bin) => onPath[bin] ?? null,
     env: {},
     platform: 'linux',
     log: (l) => out.push(l),
     err: (l) => err.push(l),
   };
-  return { deps, out, err, setAgent, current: () => current };
+  return { deps, out, err, setAgent, clearAgent, current: () => current };
 }
 
 describe('align use', () => {
@@ -54,5 +55,26 @@ describe('align use', () => {
     const h = harness(undefined);
     expect(await runUse(undefined, h.deps)).toBe(0);
     expect(h.out.join('\n')).toMatch(/No agent chosen/);
+  });
+
+  it('--none clears the choice, so bare `align` picks again', async () => {
+    const h = harness('claude-code');
+    expect(await runUse(undefined, h.deps, { none: true })).toBe(0);
+    expect(h.clearAgent).toHaveBeenCalledTimes(1);
+    expect(h.current()).toBeUndefined();
+    expect(h.out.join('\n')).toMatch(/cleared/i);
+  });
+  it('--none with an agent name is a usage error and changes nothing', async () => {
+    const h = harness('claude-code');
+    expect(await runUse('claude-code', h.deps, { none: true })).toBe(2);
+    expect(h.clearAgent).not.toHaveBeenCalled();
+    expect(h.setAgent).not.toHaveBeenCalled();
+  });
+  it('without --none nothing is ever cleared', async () => {
+    const h = harness('claude-code');
+    await runUse('claude-code', h.deps);
+    await runUse(undefined, h.deps);
+    await runUse('codex', h.deps);
+    expect(h.clearAgent).not.toHaveBeenCalled();
   });
 });

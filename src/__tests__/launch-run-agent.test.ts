@@ -45,7 +45,7 @@ describe('runAgent spawn options', () => {
 });
 
 describe('runAgent signals', () => {
-  it.each(['SIGTERM', 'SIGHUP'] as const)('forwards %s to the child and waits for it', async (sig) => {
+  it.each(['SIGTERM', 'SIGHUP', 'SIGQUIT'] as const)('forwards %s to the child and waits for it', async (sig) => {
     const proc = new EventEmitter();
     let settled = false;
     const f = fake(() => { /* the child never exits by itself */ });
@@ -56,7 +56,7 @@ describe('runAgent signals', () => {
     await new Promise((r) => setImmediate(r));
     expect(settled).toBe(false);
     f.child.emit('exit', null, sig);
-    expect(await p).toBe(sig === 'SIGTERM' ? 143 : 129);
+    expect(await p).toBe({ SIGTERM: 143, SIGHUP: 129, SIGQUIT: 131 }[sig]);
   });
   it('does not exit before the child on SIGINT, and does not signal it twice', async () => {
     const proc = new EventEmitter();
@@ -75,7 +75,7 @@ describe('runAgent signals', () => {
   it('removes its signal listeners once the child is gone', async () => {
     const proc = new EventEmitter();
     await runAgent(spec, deps({ spawn: exiting(0).spawn, proc: proc as unknown as RunDeps['proc'] }));
-    for (const s of ['SIGTERM', 'SIGHUP', 'SIGINT']) expect(proc.listenerCount(s)).toBe(0);
+    for (const s of ['SIGTERM', 'SIGHUP', 'SIGQUIT', 'SIGINT']) expect(proc.listenerCount(s)).toBe(0);
   });
 });
 
@@ -88,6 +88,21 @@ describe('runAgent on win32', () => {
     expect(args.slice(0, 3)).toEqual(['/d', '/s', '/c']);
     expect(args[3]).toBe('""C:\\npm\\claude.cmd" "--resume" "a b""');
     expect(opts.windowsVerbatimArguments).toBe(true);
+  });
+  it('doubles trailing backslashes before the closing quote (CRT argv rules)', async () => {
+    const f = exiting(0);
+    await runAgent({ ...spec, bin: 'C:\\npm\\claude.cmd', args: ['C:\\proj\\', 'C:\\a b\\\\', 'mid\\dle'] }, deps({ platform: 'win32', spawn: f.spawn }));
+    const line = (f.spawnMock.mock.calls[0] as unknown as [string, string[]])[1][3]!;
+    expect(line).toBe('""C:\\npm\\claude.cmd" "C:\\proj\\\\" "C:\\a b\\\\\\\\" "mid\\dle""');
+  });
+  it('refuses a bin path that itself holds a shell character, saying so', async () => {
+    const f = exiting(0);
+    await expect(runAgent({ ...spec, bin: 'C:\\Users\\a&b\\claude.cmd' }, deps({ platform: 'win32', spawn: f.spawn }))).rejects.toThrow(/path to claude.*shell character &/s);
+    expect(f.spawnMock).not.toHaveBeenCalled();
+  });
+  it('names the argument, its position and the pass-through limit on Windows', async () => {
+    const f = exiting(0);
+    await expect(runAgent({ ...spec, bin: 'C:\\npm\\claude.cmd', args: ['ok', '50%'] }, deps({ platform: 'win32', spawn: f.spawn }))).rejects.toThrow(/argument 2 \("50%"\).*%.*passing arguments after `align --` has this limit on Windows/is);
   });
   it.each(['a&b', 'a|b', 'a<b', 'a>b', 'a^b', 'a%b', 'a"b'])('refuses a pass-through arg %s and spawns nothing', async (bad) => {
     const f = exiting(0);

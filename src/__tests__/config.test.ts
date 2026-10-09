@@ -13,6 +13,7 @@ vi.mock('conf', () => {
       get(k: string) { return store[k]; }
       set(k: string, v: unknown) { store[k] = v; }
       has(k: string) { return k in store; }
+      delete(k: string) { delete store[k]; }
       clear() { store = { ...this.defaults }; }
     },
   };
@@ -29,6 +30,15 @@ describe('config store', () => {
     vi.stubEnv('ALIGN_GATEWAY_URL', '');
   });
   afterEach(() => vi.unstubAllEnvs());
+
+  it('stores, reads and clears the chosen launch agent', () => {
+    const c = createConfigStore();
+    expect(c.getAgent()).toBeUndefined();
+    c.setAgent('claude-code');
+    expect(c.getAgent()).toBe('claude-code');
+    c.clearAgent();
+    expect(c.getAgent()).toBeUndefined();
+  });
 
   it('returns default gateway URL for local', () => {
     expect(createConfigStore().getEnvironment('local').gatewayUrl).toBe('http://localhost:8080');

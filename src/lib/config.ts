@@ -313,6 +313,9 @@ export function createConfigStore() {
     setAgent(agent: string) {
       store.set('agent', agent);
     },
+    clearAgent() {
+      store.delete('agent');
+    },
     getTelemetryConsent(): TelemetryConsent | undefined {
       return store.get('telemetryConsent');
     },

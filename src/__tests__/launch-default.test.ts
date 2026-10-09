@@ -6,8 +6,8 @@ const CLAUDE = '/usr/bin/claude';
 function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<string, string> } = {}) {
   let stored = over.stored;
   const onPath = over.onPath ?? { claude: CLAUDE };
-  const out: string[] = [];
   const err: string[] = [];
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   const written: Array<[string, string]> = [];
   const runAgent = vi.fn().mockResolvedValue(0);
   const record = vi.fn();
@@ -22,18 +22,17 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     isTTY: true,
     config: { getAgent: () => stored, setAgent },
     findOnPath: (bin) => onPath[bin] ?? null,
-    readProjectState: () => ({ projectHasHooks: false, projectHasMcp: false, projectHasBlock: false }),
+    readProjectState: () => ({ projectHasPreHook: false, projectHasPostHook: false, projectHasMcp: false, projectHasBlock: false }),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content) => { written.push([name, content]); return true; },
     runAgent,
     record,
     pick,
-    log: (l) => out.push(l),
     err: (l) => err.push(l),
     now: () => 42,
     ...over,
   };
-  return { deps, out, err, written, runAgent, record, pick, setAgent, stored: () => stored };
+  return { deps, out: err, logSpy, err, written, runAgent, record, pick, setAgent, stored: () => stored };
 }
 
 describe('launchIfChosen: when it launches', () => {
@@ -53,15 +52,15 @@ describe('launchIfChosen: when it launches', () => {
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 3 });
   });
   it('skips injections the project already carries', async () => {
-    const h = harness({ stored: 'claude-code', readProjectState: () => ({ projectHasHooks: true, projectHasMcp: true, projectHasBlock: true }) });
+    const h = harness({ stored: 'claude-code', readProjectState: () => ({ projectHasPreHook: true, projectHasPostHook: true, projectHasMcp: true, projectHasBlock: true }) });
     await launchIfChosen(h.deps);
     expect(h.runAgent.mock.calls[0]![0].args).toEqual([]);
     expect(h.written).toEqual([]);
   });
-  it('passes through the args after --, last', async () => {
+  it('passes through the args after --, first (claude\'s --mcp-config is variadic)', async () => {
     const h = harness({ stored: 'claude-code', argv: ['node', 'align', '--', '--resume', 'abc'] });
     await launchIfChosen(h.deps);
-    expect(h.runAgent.mock.calls[0]![0].args.slice(-2)).toEqual(['--resume', 'abc']);
+    expect(h.runAgent.mock.calls[0]![0].args.slice(0, 2)).toEqual(['--resume', 'abc']);
   });
   it('records agent_launched once, with the agent name, without awaiting it', async () => {
     const h = harness({ stored: 'claude-code' });
@@ -94,12 +93,12 @@ describe('launchIfChosen: when it does not', () => {
     expect(h.err.join('\n')).toContain("unknown command 'foo'");
     expect(h.runAgent).not.toHaveBeenCalled();
   });
-  it('exits 127 naming the agent and how to install it when its binary is missing', async () => {
+  it('a stored agent that is no longer on PATH falls back to the card with one stderr line', async () => {
     const h = harness({ stored: 'claude-code', onPath: {} });
-    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 127 });
-    expect(h.err.join('\n')).toContain('claude is not on your PATH');
-    expect(h.err.join('\n')).toContain('npm i -g @anthropic-ai/claude-code');
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
+    expect(h.err).toEqual(['Claude Code is not installed any more. Run `align use` to pick another, or reinstall it.']);
     expect(h.runAgent).not.toHaveBeenCalled();
+    expect(h.setAgent).not.toHaveBeenCalled();
   });
   it('exits 127 when the OS refuses to start it (ENOENT), and 2 for a refused Windows arg', async () => {
     const h = harness({ stored: 'claude-code' });
@@ -123,11 +122,25 @@ describe('launchIfChosen: no agent chosen (nobody has to run `align use` first)'
     expect(h.runAgent).toHaveBeenCalledTimes(1);
     expect(h.pick).not.toHaveBeenCalled();
   });
-  it('does the same with no TTY (it never prompts, and it does not need to)', async () => {
+  it('no TTY and no explicit --: shows the card, launches nothing, stores nothing (HIGH 1)', async () => {
     const h = harness({ isTTY: false });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
+    expect(h.setAgent).not.toHaveBeenCalled();
+    expect(h.runAgent).not.toHaveBeenCalled();
+    expect(h.record).not.toHaveBeenCalled();
+    expect(h.pick).not.toHaveBeenCalled();
+  });
+  it('no TTY but an explicit `align -- ...`: a deliberate request, so it launches (and never prompts)', async () => {
+    const h = harness({ isTTY: false, argv: ['node', 'align', '--', '-p', 'hi'] });
     expect((await launchIfChosen(h.deps)).handled).toBe(true);
+    expect(h.runAgent).toHaveBeenCalledTimes(1);
     expect(h.setAgent).toHaveBeenCalledWith('claude-code');
     expect(h.pick).not.toHaveBeenCalled();
+  });
+  it('no TTY with a CHOSEN agent and no --: still the card (a pipe or cron is not a session)', async () => {
+    const h = harness({ isTTY: false, stored: 'claude-code' });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
+    expect(h.runAgent).not.toHaveBeenCalled();
   });
   it('does not auto-pick when none is installed: lists what works, how to install, exits non-zero', async () => {
     const h = harness({ onPath: {} });
@@ -155,14 +168,15 @@ describe('launchIfChosen: more than one supported agent installed (C2 adds to th
     const { second, h } = two({ isTTY: true });
     second.supported = true;
     try {
-      h.pick.mockResolvedValue('opencode');
+      h.pick.mockResolvedValue('claude-code');
       await launchIfChosen(h.deps);
       expect(h.pick).toHaveBeenCalledTimes(1);
-      expect(h.setAgent).toHaveBeenCalledWith('opencode');
+      expect(h.setAgent).toHaveBeenCalledWith('claude-code');
+      expect(h.runAgent).toHaveBeenCalledTimes(1);
     } finally { second.supported = false; }
   });
   it('does not guess without a TTY: 3-line hint on stderr, exit 2, nothing stored or launched', async () => {
-    const { second, h } = two({ isTTY: false });
+    const { second, h } = two({ isTTY: false, argv: ['node', 'align', '--', 'x'] });
     second.supported = true;
     try {
       const r = await launchIfChosen(h.deps);
@@ -194,5 +208,40 @@ describe('launchIfChosen: ALIGN_LAUNCH_TRACE / ALIGN_LAUNCH_DRY_RUN', () => {
     await launchIfChosen(h.deps);
     expect(h.out).toEqual([]);
     expect(h.runAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe('launchIfChosen: align\'s own lines go to stderr, never stdout (MEDIUM 3)', () => {
+  it.each([
+    ['the auto-pick announcement', {}],
+    ['the trace line', { stored: 'claude-code', env: { ALIGN_LAUNCH_TRACE: '1' } }],
+    ['the coming-soon note', { stored: 'codex' }],
+  ] as const)('%s', async (_label, over) => {
+    const h = harness({ ...over });
+    await launchIfChosen(h.deps);
+    expect(h.err.length).toBeGreaterThan(0);
+    expect(h.logSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('launchIfChosen: persistence and failure fallbacks', () => {
+  it('a dry run does not persist the auto-pick (HIGH 10)', async () => {
+    const h = harness({ env: { ALIGN_LAUNCH_DRY_RUN: '1' } });
+    await launchIfChosen(h.deps);
+    expect(h.setAgent).not.toHaveBeenCalled();
+    expect(h.stored()).toBeUndefined();
+  });
+  it('a real launch does persist the auto-pick', async () => {
+    const h = harness({});
+    await launchIfChosen(h.deps);
+    expect(h.stored()).toBe('claude-code');
+  });
+  it('a launch-file write failure falls back to the card with one stderr line, not a throw (9)', async () => {
+    const h = harness({ stored: 'claude-code', writeIfChanged: () => { throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
+    expect(h.err).toHaveLength(1);
+    expect(h.err[0]).toMatch(/launch files.*EACCES/);
+    expect(h.runAgent).not.toHaveBeenCalled();
+    expect(h.setAgent).not.toHaveBeenCalled();
   });
 });

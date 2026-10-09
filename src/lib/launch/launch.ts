@@ -33,7 +33,7 @@ export interface LaunchDeps {
   record(agent: AgentName): void;
   /** Ask which agent. Only called on a TTY with more than one supported agent installed. */
   pick(candidates: LaunchAgent[]): Promise<AgentName | null>;
-  log(line: string): void;
+  /** Every line align itself writes on this path. stderr only: stdout belongs to the agent (`align -- -p ... | jq`). */
   err(line: string): void;
   now(): number;
 }
@@ -53,7 +53,8 @@ function defaultDeps(): LaunchDeps {
     isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     config,
     findOnPath,
-    readProjectState,
+    // An align command with no --env reads the local graph unless the default env is signed in.
+    readProjectState: (cwd, home) => readProjectState(cwd, home, { localIsDefault: !config.getEnvironment(config.getDefaultEnv()).authToken }),
     cacheDir: launchCacheDir,
     writeIfChanged,
     runAgent: (spec) => runAgent(spec),
@@ -72,7 +73,6 @@ function defaultDeps(): LaunchDeps {
       });
       return clack.isCancel(answer) ? null : (answer as AgentName);
     },
-    log: (l) => console.log(l),
     err: (l) => console.error(l),
     now: () => performance.now(),
   };
@@ -88,8 +88,6 @@ function splitArgv(argv: string[]): { operands: string[]; passthrough: string[] 
 
 /** One adapter per launchable agent. C2+ add entries here and flip `supported` in agents.ts. */
 const BUILDERS: Partial<Record<AgentName, (c: LaunchContext) => LaunchSpec>> = { 'claude-code': buildClaudeLaunch };
-
-const notOnPath = (a: LaunchAgent): string => `${a.bin} is not on your PATH. Install it (${a.install}), or pick another: align use`;
 
 /**
  * What bare `align` does once a local graph exists: open the user's coding agent with Align
@@ -107,7 +105,13 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     return { handled: true, code: 2 };
   }
 
+  // No terminal and no explicit `align -- ...`: a pipe, a cron job or CI ran bare `align`. That
+  // is not a request for an interactive session, so print the card as before and decide nothing.
+  const explicit = d.argv.slice(2).includes('--');
+  if (!d.isTTY && !explicit) return { handled: false };
+
   let agent = agentByName(d.config.getAgent());
+  const stored = agent !== undefined;
   let announce: string | undefined;
   if (!agent) {
     const installed = supportedAgents().filter((a) => d.findOnPath(a.bin, d.env, d.platform) !== null);
@@ -131,19 +135,19 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
       d.err('Then run `align` again.');
       return { handled: true, code: 2 };
     }
-    d.config.setAgent(agent!.name);
   }
 
-  const build = BUILDERS[agent.name];
-  if (!agent.supported || !build) {
-    d.log(`${agent.label} launching is coming soon; showing your graph instead. Switch with \`align use\`.`);
+  const build = BUILDERS[agent!.name];
+  if (!agent!.supported || !build) {
+    d.err(`${agent!.label} launching is coming soon; showing your graph instead. Switch with \`align use\`.`);
     return { handled: false };
   }
 
-  const found = d.findOnPath(agent.bin, d.env, d.platform);
+  const found = d.findOnPath(agent!.bin, d.env, d.platform);
   if (!found) {
-    d.err(notOnPath(agent));
-    return { handled: true, code: 127 };
+    // Reachable only for a stored choice (a fresh pick came from the installed list).
+    d.err(`${agent!.label} is not installed any more. Run \`align use\` to pick another, or reinstall it.`);
+    return { handled: false };
   }
 
   const dir = d.cacheDir(d.env);
@@ -152,21 +156,28 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     ...d.readProjectState(d.cwd, d.home),
     cachePath: (name) => `${dir}/${name}`,
   });
-  for (const f of spec.files) d.writeIfChanged(dir, f.name, f.content);
+  try {
+    for (const f of spec.files) d.writeIfChanged(dir, f.name, f.content);
+  } catch (e) {
+    d.err(`Could not write launch files (${(e as Error).message}). Showing your graph instead.`);
+    return { handled: false };
+  }
   // On win32 the resolved path is what tells runAgent it holds a .cmd shim.
   const toRun: LaunchSpec = d.platform === 'win32' ? { ...spec, bin: found } : spec;
 
-  if (set(d.env['ALIGN_LAUNCH_TRACE'])) d.log(`align-overhead-ms=${Math.round(d.now())}`);
+  if (set(d.env['ALIGN_LAUNCH_TRACE'])) d.err(`align-overhead-ms=${Math.round(d.now())}`);
+  // A dry run measures; it must not change the machine, so nothing is persisted before this.
   if (set(d.env['ALIGN_LAUNCH_DRY_RUN'])) return { handled: true, code: 0 };
 
-  if (announce) d.log(announce);
-  d.record(agent.name);
+  if (!stored) d.config.setAgent(agent!.name);
+  if (announce) d.err(announce);
+  d.record(agent!.name);
   try {
     return { handled: true, code: await d.runAgent(toRun) };
   } catch (e) {
     const err = e as Error & { code?: string };
     if (err.code === 'ENOENT') {
-      d.err(notOnPath(agent));
+      d.err(`${agent!.bin} is not on your PATH. Install it (${agent!.install}), or pick another: align use`);
       return { handled: true, code: 127 };
     }
     d.err(`align: ${err.message}`);

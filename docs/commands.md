@@ -98,6 +98,7 @@ align setup                   Guided onboarding: connect your tools and configur
 # Choose the coding agent bare `align` opens
 
 align use [agent]             Choose the coding agent bare `align` opens (no argument shows the current one)
+                              flags: --none
 
 # Invite a teammate to your graph
 

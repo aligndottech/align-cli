@@ -3,7 +3,8 @@ import { buildClaudeLaunch, type LaunchContext } from '../lib/launch/adapters/cl
 
 const BASE: LaunchContext = {
   passthrough: [],
-  projectHasHooks: false,
+  projectHasPreHook: false,
+  projectHasPostHook: false,
   projectHasMcp: false,
   projectHasBlock: false,
   cachePath: (name) => `/cache/${name}`,
@@ -23,19 +24,41 @@ describe('buildClaudeLaunch', () => {
   });
 
   it('skips each injection the project already carries', () => {
-    const spec = buildClaudeLaunch(ctx({ projectHasHooks: true, projectHasMcp: true, projectHasBlock: true }));
+    const spec = buildClaudeLaunch(ctx({ projectHasPreHook: true, projectHasPostHook: true, projectHasMcp: true, projectHasBlock: true }));
     expect(spec.args).toEqual([]);
     expect(spec.files).toEqual([]);
   });
 
   it.each([
-    ['projectHasHooks', '--settings'],
     ['projectHasMcp', '--mcp-config'],
     ['projectHasBlock', '--append-system-prompt-file'],
   ] as const)('%s drops only %s', (key, flag) => {
     const args = buildClaudeLaunch(ctx({ [key]: true })).args;
     expect(args).not.toContain(flag);
     expect(args.filter((a) => a.startsWith('--')).length).toBe(2);
+  });
+
+  it('with both hook groups present, --settings is dropped; with one missing it is kept', () => {
+    expect(buildClaudeLaunch(ctx({ projectHasPreHook: true, projectHasPostHook: true })).args).not.toContain('--settings');
+    expect(buildClaudeLaunch(ctx({ projectHasPreHook: true })).args).toContain('--settings');
+  });
+
+  it.each([
+    ['projectHasPreHook', 'PostToolUse', 'PreToolUse'],
+    ['projectHasPostHook', 'PreToolUse', 'PostToolUse'],
+  ] as const)('%s: the settings file carries only the missing group (%s, not %s)', (key, carried, omitted) => {
+    const spec = buildClaudeLaunch(ctx({ [key]: true }));
+    const settingsFile = spec.files.find((f) => f.name.startsWith('claude-settings'))!;
+    const hooks = JSON.parse(settingsFile.content).hooks;
+    expect(Object.keys(hooks)).toEqual([carried]);
+    expect(hooks[omitted]).toBeUndefined();
+    expect(spec.args).toContain(`/cache/${settingsFile.name}`);
+  });
+
+  it('the three settings variants have three different file names, so cached files never flap', () => {
+    const names = [ctx(), ctx({ projectHasPreHook: true }), ctx({ projectHasPostHook: true })]
+      .map((c) => buildClaudeLaunch(c).files.find((f) => f.name.startsWith('claude-settings'))!.name);
+    expect(new Set(names).size).toBe(3);
   });
 
   it('the MCP file points at the local graph and holds no secret-bearing field', () => {
@@ -57,8 +80,19 @@ describe('buildClaudeLaunch', () => {
     expect(text).toContain('align_check_alignment');
   });
 
-  it.each([[['--resume', 'abc']], [['-p', 'hi']]])('appends pass-through args %j last', (passthrough) => {
-    expect(buildClaudeLaunch(ctx({ passthrough })).args.slice(-passthrough.length)).toEqual(passthrough);
-    expect(buildClaudeLaunch(ctx({ passthrough, projectHasHooks: true, projectHasMcp: true, projectHasBlock: true })).args).toEqual(passthrough);
+  it.each([[['--resume', 'abc']], [['-p', 'hi']]])('puts pass-through args %j FIRST, before every injected flag', (passthrough) => {
+    const args = buildClaudeLaunch(ctx({ passthrough })).args;
+    expect(args.slice(0, passthrough.length)).toEqual(passthrough);
+    expect(buildClaudeLaunch(ctx({ passthrough, projectHasPreHook: true, projectHasPostHook: true, projectHasMcp: true, projectHasBlock: true })).args).toEqual(passthrough);
+  });
+
+  // claude's --mcp-config is variadic: `--mcp-config m.json "a prompt"` reads the prompt as a
+  // second config file (verified against claude 2.1.291). Nothing may follow it.
+  it('a positional prompt precedes --mcp-config, and --mcp-config is the last flag group', () => {
+    const args = buildClaudeLaunch(ctx({ passthrough: ['a prompt'], projectHasPreHook: true, projectHasPostHook: true, projectHasBlock: true })).args;
+    expect(args).toEqual(['a prompt', '--mcp-config', '/cache/claude-mcp.json']);
+    const all = buildClaudeLaunch(ctx({ passthrough: ['a prompt'] })).args;
+    expect(all.indexOf('a prompt')).toBe(0);
+    expect(all.slice(-2)).toEqual(['--mcp-config', '/cache/claude-mcp.json']);
   });
 });
