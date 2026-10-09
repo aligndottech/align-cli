@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.47.1](https://github.com/aligndottech/align-cli/compare/cli-v0.47.0...cli-v0.47.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* **setup:** one calm line for kept agent connections instead of five warnings ([#344](https://github.com/aligndottech/align-cli/issues/344)) ([e93cb07](https://github.com/aligndottech/align-cli/commit/e93cb071056b39d345e05be923029adb739bab31))
+
 ## [0.47.0](https://github.com/aligndottech/align-cli/compare/cli-v0.46.1...cli-v0.47.0) (2026-10-09)
 
 
