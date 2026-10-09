@@ -66,3 +66,20 @@ describe('writeIfChanged', () => {
     expect(writeIfChanged(dir, 'a.json', '{}', { uid: process.getuid?.() })).toBe(true);
   });
 });
+
+describe('writeIfChanged: nested names (C2: OPENCODE_CONFIG_DIR needs plugins/align.js under a cached dir)', () => {
+  it('creates the sub-directories and writes the file', () => {
+    expect(writeIfChanged(dir, 'opencode-config/plugins/align.js', 'x')).toBe(true);
+    expect(readFileSync(path.join(dir, 'opencode-config', 'plugins', 'align.js'), 'utf8')).toBe('x');
+  });
+  it('does not rewrite identical nested content, and rewrites changed content', () => {
+    writeIfChanged(dir, 'a/b.js', 'x');
+    expect(writeIfChanged(dir, 'a/b.js', 'x')).toBe(false);
+    expect(writeIfChanged(dir, 'a/b.js', 'y')).toBe(true);
+    expect(readFileSync(path.join(dir, 'a', 'b.js'), 'utf8')).toBe('y');
+  });
+  it('leaves no temp file beside the nested target', () => {
+    writeIfChanged(dir, 'a/b.js', 'x');
+    expect(readdirSync(path.join(dir, 'a'))).toEqual(['b.js']);
+  });
+});

@@ -4,9 +4,11 @@ import { createConfigStore } from '../config.js';
 import { resolveEnv } from '../resolve-env.js';
 import type { AgentName } from '../sessions/types.js';
 import { agentByName, type LaunchAgent, supportedAgents } from './agents.js';
-import { buildClaudeLaunch, type LaunchContext, type LaunchSpec } from './adapters/claude-code.js';
+import { buildClaudeLaunch, type LaunchSpec } from './adapters/claude-code.js';
+import { buildOpenCodeLaunch } from './adapters/opencode.js';
 import { findOnPath } from './detect.js';
 import { launchCacheDir, writeIfChanged } from './launch-files.js';
+import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
 import { type ProjectState, readProjectState } from './project-state.js';
 import { runAgent } from './run-agent.js';
 
@@ -27,6 +29,8 @@ export interface LaunchDeps {
   config: { getAgent(): string | undefined; setAgent(agent: string): void };
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
   readProjectState(cwd: string, home: string): ProjectState;
+  /** What OpenCode would already load. Separate from readProjectState: it reads other files. */
+  readOpenCodeState(cwd: string, home: string): OpenCodeProjectState;
   cacheDir(env: Record<string, string | undefined>): string;
   writeIfChanged(dir: string, name: string, content: string): boolean;
   runAgent(spec: LaunchSpec): Promise<number>;
@@ -63,6 +67,7 @@ function defaultDeps(): LaunchDeps {
     config,
     findOnPath,
     readProjectState: (cwd, home) => readProjectState(cwd, home, { localIsDefault: isLocalDefault() }),
+    readOpenCodeState: (cwd, home) => readOpenCodeState(cwd, home, { localIsDefault: isLocalDefault() }, process.env),
     cacheDir: launchCacheDir,
     writeIfChanged,
     runAgent: (spec) => runAgent(spec),
@@ -94,8 +99,16 @@ function splitArgv(argv: string[]): { operands: string[]; passthrough: string[] 
   return { operands: before.filter((a) => !a.startsWith('-')), passthrough: sep < 0 ? [] : user.slice(sep + 1) };
 }
 
-/** One adapter per launchable agent. C2+ add entries here and flip `supported` in agents.ts. */
-const BUILDERS: Partial<Record<AgentName, (c: LaunchContext) => LaunchSpec>> = { 'claude-code': buildClaudeLaunch };
+interface BuildInput {
+  passthrough: string[];
+  cachePath(name: string): string;
+}
+
+/** One adapter per launchable agent. Each reads the project state ITS agent would load. */
+const BUILDERS: Partial<Record<AgentName, (d: LaunchDeps, base: BuildInput) => LaunchSpec>> = {
+  'claude-code': (d, base) => buildClaudeLaunch({ ...base, ...d.readProjectState(d.cwd, d.home) }),
+  opencode: (d, base) => buildOpenCodeLaunch({ ...base, env: d.env, ...d.readOpenCodeState(d.cwd, d.home) }),
+};
 
 /**
  * What bare `align` does once a local graph exists: open the user's coding agent with Align
@@ -161,11 +174,7 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   }
 
   const dir = d.cacheDir(d.env);
-  const spec = build({
-    passthrough,
-    ...d.readProjectState(d.cwd, d.home),
-    cachePath: (name) => `${dir}/${name}`,
-  });
+  const spec = build(d, { passthrough, cachePath: (name) => `${dir}/${name}` });
   try {
     for (const f of spec.files) d.writeIfChanged(dir, f.name, f.content);
   } catch (e) {

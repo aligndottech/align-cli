@@ -13,7 +13,7 @@ vi.mock('node:fs', async (importOriginal) => {
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { type EditorTarget, detectEditors, detectWiredEditors, projectMcpAgents, writeMcpConfig } from '../lib/mcp-setup.js'; // eslint-disable-line sort-imports
+import { type EditorTarget, detectEditors, detectWiredEditors, hasAlignEntry, projectMcpAgents, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js'; // eslint-disable-line sort-imports
 import { pinPlatform } from './helpers/platform.js';
 
 // One platform for the whole file, stated rather than inherited (ALI-1135). Two things here
@@ -428,3 +428,76 @@ describe('projectMcpAgents (ALI-950)', () => {
     expect(projectMcpAgents('/repo')).toEqual([]);
   });
 });
+
+// C2: OpenCode had no global MCP registration, so a user who ran `opencode` directly (not via
+// bare `align`) never had the graph. Config file per https://opencode.ai/docs/config/:
+// ~/.config/opencode/opencode.json, servers under the top-level `mcp` key.
+describe('OpenCode (C2)', () => {
+  const savedXdg = process.env['XDG_CONFIG_HOME'];
+  beforeEach(() => { vi.clearAllMocks(); delete process.env['XDG_CONFIG_HOME']; });
+  afterEach(() => {
+    if (savedXdg === undefined) delete process.env['XDG_CONFIG_HOME'];
+    else process.env['XDG_CONFIG_HOME'] = savedXdg;
+  });
+  const target: EditorTarget = { name: 'OpenCode', configPath: '/h/.config/opencode/opencode.json', format: 'opencode' };
+
+  it('detects OpenCode when ~/.config/opencode exists, pointing at opencode.json', () => {
+    mockExistsSync.mockImplementation((p: unknown) => typeof p === 'string' && p.replace(/\\/g, '/').endsWith('/.config/opencode'));
+    const t = detectEditors().find((e) => e.name === 'OpenCode');
+    expect(t?.format).toBe('opencode');
+    expect(t?.configPath.replace(/\\/g, '/')).toMatch(/\/\.config\/opencode\/opencode\.json$/);
+  });
+
+  it('honours an absolute $XDG_CONFIG_HOME, and ignores a relative one', () => {
+    process.env['XDG_CONFIG_HOME'] = '/xdg';
+    mockExistsSync.mockImplementation((p: unknown) => typeof p === 'string' && p.replace(/\\/g, '/') === '/xdg/opencode');
+    expect(detectEditors().find((e) => e.name === 'OpenCode')?.configPath.replace(/\\/g, '/')).toBe('/xdg/opencode/opencode.json');
+    process.env['XDG_CONFIG_HOME'] = 'relative';
+    expect(detectEditors().some((e) => e.name === 'OpenCode')).toBe(false);
+  });
+
+  it('does not detect OpenCode when its config dir is absent', () => {
+    mockExistsSync.mockReturnValue(false);
+    expect(detectEditors().some((e) => e.name === 'OpenCode')).toBe(false);
+  });
+
+  it('writes mcp.align as a local server with a command ARRAY', () => {
+    mockReadFileSync.mockReturnValue('{}');
+    writeMcpConfig(target, 'local');
+    const written = JSON.parse(lastWritten()) as { mcp: Record<string, unknown> };
+    expect(written.mcp['align']).toEqual({ type: 'local', command: ['align', 'mcp', '--env', 'local'] });
+  });
+
+  it('keeps another server and every other key already in the file', () => {
+    mockReadFileSync.mockReturnValue(JSON.stringify({ model: 'a/b', mcp: { other: { type: 'remote', url: 'https://e.test' } } }));
+    writeMcpConfig(target);
+    const written = JSON.parse(lastWritten()) as { model: string; mcp: Record<string, unknown> };
+    expect(written.model).toBe('a/b');
+    expect(written.mcp['other']).toEqual({ type: 'remote', url: 'https://e.test' });
+    expect(written.mcp['align']).toEqual({ type: 'local', command: ['align', 'mcp'] });
+  });
+
+  it('throws on invalid JSON and writes nothing (never rewrites a file it cannot parse)', () => {
+    mockReadFileSync.mockReturnValue('{ "mcp": ');
+    expect(() => writeMcpConfig(target)).toThrow(/invalid JSON/);
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+
+  it('hasAlignEntry reads the mcp key: wired with an align entry, not wired without', () => {
+    mockReadFileSync.mockReturnValue(JSON.stringify({ mcp: { align: { type: 'local', command: ['align', 'mcp'] } } }));
+    expect(detectWiredEditorsFor(target)).toBe(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ mcp: { other: {} } }));
+    expect(detectWiredEditorsFor(target)).toBe(false);
+  });
+
+  it('removeMcpConfig takes out only mcp.align', () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ mcp: { align: {}, other: { type: 'remote' } } }));
+    expect(removeMcpConfig(target)).toBe(true);
+    expect(JSON.parse(lastWritten())).toEqual({ mcp: { other: { type: 'remote' } } });
+  });
+});
+
+function detectWiredEditorsFor(t: EditorTarget): boolean {
+  return hasAlignEntry(t);
+}

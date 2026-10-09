@@ -75,7 +75,7 @@ read-only OAuth and wires up your editors.
 
 | | What you get |
 |---|---|
-| **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI and pi query the graph inline |
+| **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI, pi and OpenCode query the graph inline |
 | **Edit hooks** | Prior decisions reach the model before it writes. Claude Code, pi, Gemini CLI, OpenCode |
 | **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
 | **Shared `.mcp.json`** | One committed file wires up the whole team |

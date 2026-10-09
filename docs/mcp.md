@@ -10,8 +10,8 @@ align mcp           # start the server directly
 
 `--setup` detects the MCP clients on this machine, lists them, and asks which ones to wire. It
 writes only the ones you pick, so a client you leave unchecked is left alone. It can find Claude
-Desktop, Claude Code, Cursor, VS Code, Windsurf, Zed, Codex, GitHub Copilot CLI, Gemini CLI and
-pi, and it never offers one it cannot find. With nothing detected at all it prints a config for
+Desktop, Claude Code, Cursor, VS Code, Windsurf, Zed, Codex, GitHub Copilot CLI, Gemini CLI,
+pi and OpenCode, and it never offers one it cannot find. With nothing detected at all it prints a config for
 you to paste. `align mcp --remove` takes an entry out again. JetBrains IDEs are not detected,
 and there is a section for them below.
 

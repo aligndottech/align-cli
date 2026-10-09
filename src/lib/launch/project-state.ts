@@ -33,7 +33,7 @@ function envOf(tokens: string[]): string | undefined {
 }
 
 /** Does this command line read the LOCAL graph? An env that names another graph does not. */
-function readsLocal(tokens: string[], localIsDefault: boolean): boolean {
+export function readsLocal(tokens: string[], localIsDefault: boolean): boolean {
   const env = envOf(tokens);
   return env === undefined ? localIsDefault : env === 'local';
 }
