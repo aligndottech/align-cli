@@ -132,9 +132,9 @@ export function writeUserHooks(target: UserHookTarget, env?: string, onForeign?:
 
   const hooks = hooksOf(config, target.path);
   // The local wizard never replaces a hook that checks against a team env.
-  if (env === 'local' && spec.events.some((event) =>
+  if (onForeign && env === 'local' && spec.events.some((event) =>
     (Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []).some((e) => isOurs(spec, e) && !carriesLocalEnv(JSON.stringify(e))))) {
-    onForeign?.(target.path);
+    onForeign(target.path);
     return false;
   }
   for (const event of spec.events) {

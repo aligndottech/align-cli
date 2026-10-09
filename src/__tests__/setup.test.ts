@@ -1513,6 +1513,24 @@ describe('align setup', () => {
         });
       });
 
+      describe('a project file left alone', () => {
+        it('is reported with p.log.warn inside the wizard frame, naming the file', async () => {
+          await mockNoLogin();
+          mockSetupAgentAlignment.mockImplementationOnce((o: { onForeign?: (f: string) => void }) => {
+            o.onForeign?.('.mcp.json');
+            return ['CLAUDE.md'];
+          });
+          const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+          const { log } = await import('@clack/prompts');
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          const warned = vi.mocked(log.warn).mock.calls.map((c) => String(c[0])).filter((m) => m.includes('.mcp.json'));
+          expect(warned).toHaveLength(1);
+          expect(warned[0]).toMatch(/left .*as is/i);
+          expect(err).not.toHaveBeenCalled();
+          err.mockRestore();
+        });
+      });
+
       describe('the outro', () => {
         const outroText = async (): Promise<string> => {
           const { outro } = await import('@clack/prompts');

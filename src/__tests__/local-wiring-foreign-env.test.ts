@@ -10,6 +10,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { type EditorTarget, writeMcpConfig } from '../lib/mcp-setup.js';
+import { writeOpenCodePlugin, writePiExtension } from '../lib/agent-rules.js';
+import { writeUserHooks } from '../lib/user-hooks.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), 'align-foreign-')); });
@@ -139,5 +141,80 @@ describe('global agent configs: writeMcpConfig with env local', () => {
     writeMcpConfig(target(file, 'codex'), 'local', (f) => skipped.push(f));
     expect(read(file)).toBe(before);
     expect(skipped).toEqual([file]);
+  });
+});
+
+describe('C2 shapes: OpenCode, pi, plugin files and user hooks', () => {
+  const ocTarget = (file: string): EditorTarget => ({ name: 'OpenCode', configPath: file, format: 'opencode' });
+
+  it('leaves an OpenCode prod {type:"local", command:[...]} entry untouched, even though it says "local"', () => {
+    const file = path.join(dir, 'opencode.json');
+    writeFileSync(file, JSON.stringify({ mcp: { align: { type: 'local', command: ['align', 'mcp'] } } }, null, 2));
+    const before = read(file);
+    const skipped: string[] = [];
+    expect(writeMcpConfig(ocTarget(file), 'local', (f) => skipped.push(f))).toEqual([]);
+    expect(read(file)).toBe(before);
+    expect(skipped).toEqual([file]);
+  });
+
+  it('leaves an OpenCode preview entry untouched too', () => {
+    const file = path.join(dir, 'opencode.json');
+    writeFileSync(file, JSON.stringify({ mcp: { align: { type: 'local', command: ['align', 'mcp', '--env', 'preview'] } } }));
+    const before = read(file);
+    writeMcpConfig(ocTarget(file), 'local', () => undefined);
+    expect(read(file)).toBe(before);
+  });
+
+  it('rewrites an OpenCode entry that is already local, and keeps the other servers', () => {
+    const file = path.join(dir, 'opencode.json');
+    writeFileSync(file, JSON.stringify({ mcp: { other: { type: 'remote', url: 'x' }, align: { type: 'local', command: ['align', 'mcp', '--env', 'local'] } } }));
+    const written = writeMcpConfig(ocTarget(file), 'local', () => { throw new Error('local is ours to rewrite'); });
+    expect(written).toEqual([file]);
+    const mcp = JSON.parse(read(file)).mcp;
+    expect(mcp.other).toEqual({ type: 'remote', url: 'x' });
+    expect(mcp.align.command).toEqual(['align', 'mcp', '--env', 'local']);
+  });
+
+  it.each([
+    ['pi extension', '.pi/extensions/align.ts', writePiExtension],
+    ['OpenCode plugin', '.opencode/plugins/align.js', writeOpenCodePlugin],
+  ])('leaves a prod %s file untouched and names it', (_n, rel, write) => {
+    write(dir, undefined);
+    const file = path.join(dir, rel);
+    const before = read(file);
+    const skipped: string[] = [];
+    expect(write(dir, 'local', (f) => skipped.push(f))).toBe(false);
+    expect(read(file)).toBe(before);
+    expect(skipped).toEqual([rel]);
+  });
+
+  it.each([
+    ['pi extension', '.pi/extensions/align.ts', writePiExtension],
+    ['OpenCode plugin', '.opencode/plugins/align.js', writeOpenCodePlugin],
+  ])('rewrites a %s that is already local', (_n, rel, write) => {
+    write(dir, 'local');
+    const file = path.join(dir, rel);
+    expect(write(dir, 'local', () => { throw new Error('local is ours to rewrite'); })).toBe(true);
+    expect(read(file)).toContain('"--env", "local"');
+  });
+
+  it.each([['cursor' as const], ['copilot' as const]])('leaves a prod %s user hook file untouched, and still writes the MCP entry', (host) => {
+    const hookFile = path.join(dir, `${host}-hooks.json`);
+    const t = { ...({ name: host, configPath: path.join(dir, `${host}.json`), format: 'mcpServers' } as EditorTarget), hooks: { host, path: hookFile } };
+    writeUserHooks(t.hooks, undefined);
+    const before = read(hookFile);
+    const skipped: string[] = [];
+    const written = writeMcpConfig(t, 'local', (f) => skipped.push(f));
+    expect(read(hookFile)).toBe(before);
+    expect(skipped).toEqual([hookFile]);
+    expect(written).toEqual([t.configPath]);
+    expect(JSON.parse(read(t.configPath)).mcpServers.align.args).toEqual(['mcp', '--env', 'local']);
+  });
+
+  it('rewrites a user hook file that is already local', () => {
+    const hookFile = path.join(dir, 'hooks.json');
+    const t = { ...({ name: 'c', configPath: path.join(dir, 'c.json'), format: 'mcpServers' } as EditorTarget), hooks: { host: 'cursor' as const, path: hookFile } };
+    writeUserHooks(t.hooks, 'local');
+    expect(writeMcpConfig(t, 'local', () => { throw new Error('local is ours to rewrite'); })).toEqual([t.configPath, hookFile]);
   });
 });

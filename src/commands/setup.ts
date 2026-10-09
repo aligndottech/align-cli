@@ -33,7 +33,7 @@ import { guardedPrompt } from '../lib/prompt-guard.js';
 import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
 import { agentAskLine, agentConnectedLine, orderAgents, projectAgentsFromWritten } from '../lib/next-step.js';
-import { reportForeign } from '../lib/foreign-env.js';
+import { foreignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
 import { InvalidEnvError, routeSetup } from '../lib/setup-route.js';
 import { agentByName } from '../lib/launch/agents.js';
@@ -417,7 +417,7 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
  */
 function writeAgentAlignment(envName: EnvName): string[] {
   try {
-    const written = setupAgentAlignment({ cwd: process.cwd(), env: envName, onForeign: reportForeign });
+    const written = setupAgentAlignment({ cwd: process.cwd(), env: envName, onForeign: (file) => p.log.warn(foreignNotice(file, 'project')) });
     p.log.success(`Auto-alignment configured: ${written.join(', ')}`);
     p.log.info(
       chalk.dim(
@@ -1274,9 +1274,10 @@ export async function runSetup(
 }
 
 // Cloud (team) onboarding: verify login, wire MCP, seed from git, then offer
-// personal-scoped connectors. Reached only through an explicit `--env prod|preview` with a
-// token (`align login`): a solo developer's graph is local, and the gateway no longer
-// creates personal tenants. Connectors bind per-user to the team tenant.
+// personal-scoped connectors. Reached through routeSetup's team route: an explicit
+// `--env prod|preview`, a stored token or ALIGN_TOKEN, or ALIGN_ENV=prod|preview (a solo
+// developer's graph is local, and the gateway no longer creates personal tenants).
+// Connectors bind per-user to the team tenant.
 async function runCloudSetup(ctx: {
   opts: { approve?: boolean; reset?: boolean };
   config: ReturnType<typeof createConfigStore>;

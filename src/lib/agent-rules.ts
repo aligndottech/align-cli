@@ -87,9 +87,9 @@ export function writeClaudeCodeHook(cwd: string, env?: string, onForeign?: OnFor
 
   const hooks = (settings['hooks'] ?? {}) as Record<string, unknown>;
   // The local wizard never replaces a hook that checks against a team env.
-  if (env === 'local' && (['PreToolUse', 'PostToolUse'] as const).some((event) =>
+  if (onForeign && env === 'local' && (['PreToolUse', 'PostToolUse'] as const).some((event) =>
     (Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []).some((g) => isAlignHookGroup(g) && !carriesLocalEnv(JSON.stringify(g))))) {
-    onForeign?.('.claude/settings.json');
+    onForeign('.claude/settings.json');
     return false;
   }
   // The same advisory command goes in both events; it self-detects Pre vs Post from the
@@ -265,8 +265,8 @@ export function writeProjectMcpConfig(cwd: string, env?: string, onForeign?: OnF
 
   const servers = (config['mcpServers'] ?? {}) as Record<string, unknown>;
   // A committed entry that targets a team env is the team's, not ours to replace.
-  if (env === 'local' && servers['align'] !== undefined && !carriesLocalEnv(JSON.stringify(servers['align']))) {
-    onForeign?.('.mcp.json');
+  if (onForeign && env === 'local' && servers['align'] !== undefined && !carriesLocalEnv(JSON.stringify(servers['align']))) {
+    onForeign('.mcp.json');
     return false;
   }
   // `committed: true` keeps the Windows `cmd /c` wrapper OUT of this file (ALI-1135). It is
@@ -388,8 +388,8 @@ export default function (pi: { on: (e: string, h: (ev: PiEvent) => unknown) => v
 export function writePiExtension(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const dir = path.join(cwd, '.pi', 'extensions');
   const file = path.join(dir, 'align.ts');
-  if (env === 'local' && isForeignPlugin(file)) {
-    onForeign?.('.pi/extensions/align.ts');
+  if (onForeign && env === 'local' && isForeignPlugin(file)) {
+    onForeign('.pi/extensions/align.ts');
     return false;
   }
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -451,9 +451,9 @@ export function writeGeminiHooks(cwd: string, env?: string, onForeign?: OnForeig
   }
 
   const hooks = (settings['hooks'] ?? {}) as Record<string, unknown>;
-  if (env === 'local' && (['BeforeTool', 'AfterTool'] as const).some((event) =>
+  if (onForeign && env === 'local' && (['BeforeTool', 'AfterTool'] as const).some((event) =>
     (Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []).some((g) => isAlignGeminiHook(g) && !carriesLocalEnv(JSON.stringify(g))))) {
-    onForeign?.('.gemini/settings.json');
+    onForeign('.gemini/settings.json');
     return false;
   }
   // Strip any prior align-managed group from each event first, so a re-run replaces
@@ -548,8 +548,8 @@ export const AlignPlugin = async () => ({
 export function writeOpenCodePlugin(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const dir = path.join(cwd, '.opencode', 'plugins');
   const file = path.join(dir, 'align.js');
-  if (env === 'local' && isForeignPlugin(file)) {
-    onForeign?.('.opencode/plugins/align.js');
+  if (onForeign && env === 'local' && isForeignPlugin(file)) {
+    onForeign('.opencode/plugins/align.js');
     return false;
   }
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -561,7 +561,10 @@ export function writeOpenCodePlugin(cwd: string, env?: string, onForeign?: OnFor
 // repo-relative paths written, for the caller to report.
 export function setupAgentAlignment(opts: { cwd: string; env?: string; onForeign?: OnForeign }): string[] {
   const skipped = new Set<string>();
-  const onForeign: OnForeign = (f) => { skipped.add(f); opts.onForeign?.(f); };
+  // Opt-in: with no callback every writer overwrites, exactly as before.
+  const onForeign: OnForeign | undefined = opts.onForeign
+    ? (f) => { skipped.add(f); opts.onForeign!(f); }
+    : undefined;
   // When the project's hooks belong to a team env the whole file is left as found, so the
   // session hook (which lives in the same file) is not added either.
   if (writeClaudeCodeHook(opts.cwd, opts.env, onForeign)) writeClaudeCodeSessionHook(opts.cwd);

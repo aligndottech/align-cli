@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import * as p from '@clack/prompts';
 import { alignServerEntry, detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import type { EnvName } from '../lib/config.js';
-import { reportForeign } from '../lib/foreign-env.js';
+import { foreignNotice } from '../lib/foreign-env.js';
 
 /**
  * Connect the agents installed on this machine to Align (ALI-776).
@@ -71,19 +71,28 @@ export async function connectDetectedAgents(
   const touched: string[] = [];
   // ALI-950: the outro names the agent to open, so say WHICH were wired, not only how many.
   const wired: string[] = [];
+  const skipped: string[] = [];
   for (const target of editors) {
     try {
       // The MCP entry, plus the user-level pre-edit hook on the hosts that have one
       // (ALI-952: Codex, Cursor, Copilot CLI) - the writer reports every file it wrote.
-      touched.push(...writeMcpConfig(target, envArg, reportForeign));
-      wired.push(target.name);
-      p.log.success(`${target.name}: align MCP connected${target.hooks ? ', pre-edit check hooked' : ''}`);
+      const files = writeMcpConfig(target, envArg, (file) => skipped.push(file));
+      touched.push(...files);
+      // Connected only if the MCP entry itself was written. A skipped one (the local wizard
+      // leaves an existing non-local entry alone) is reported by the warning below instead.
+      if (files.includes(target.configPath)) {
+        wired.push(target.name);
+        p.log.success(`${target.name}: align MCP connected${target.hooks ? ', pre-edit check hooked' : ''}`);
+      }
     } catch (err) {
       // One unwritable config must not abort onboarding, or a stale Zed install stops a user
       // finishing setup.
       p.log.warn(`${target.name}: ${(err as Error).message}`);
     }
   }
+
+  // Inside the wizard frame (p.log), not a bare stderr line outside it.
+  for (const file of skipped) p.log.warn(foreignNotice(file, 'global'));
 
   // Naming the FILES, not just the agents. "Cursor: connected" does not tell anyone what was
   // edited, and this is the only disclosure they get in place of being asked.

@@ -17,7 +17,15 @@ export function carriesLocalEnv(text: string): boolean {
   return /--env["',\s=]+local\b/.test(text);
 }
 
-/** The one stderr line, for every writer: stderr because stdout belongs to what runs next. */
-export const reportForeign: OnForeign = (file) => {
-  console.error(`align: left ${file} untouched - its align entry points at a team graph, not the local one.`);
-};
+/**
+ * The line shown when a writer left a file alone. It says what happened and how to change it,
+ * and nothing about WHICH graph the entry reaches: with no token a bare `align mcp` resolves to
+ * the local graph anyway, so calling it a "team graph" would sometimes be false. `global` is a
+ * user-level agent config, which `align mcp --setup --env local` can rewrite on request; a
+ * project file is the repo's own and is edited by hand.
+ */
+export function foreignNotice(file: string, scope: 'global' | 'project'): string {
+  return scope === 'global'
+    ? `Left the existing align entry in ${file} as is. To point this agent at the local graph instead, run: align mcp --setup --env local`
+    : `Left the existing align entry in ${file} as is (it is not set to --env local). Edit it by hand to use the local graph.`;
+}
