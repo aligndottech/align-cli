@@ -29,3 +29,26 @@ export function foreignNotice(file: string, scope: 'global' | 'project'): string
     ? `Left the existing align entry in ${file} as is. To point this agent at the local graph instead, run: align mcp --setup --env local`
     : `Left the existing align entry in ${file} as is (it is not set to --env local). Edit it by hand to use the local graph.`;
 }
+
+/**
+ * ONE calm line for every global agent whose existing align entry was kept. Five agents
+ * with a non-local entry is one fact, not five warnings: and the advice is mostly moot,
+ * because `align` injects `align-local` next to the user's own entry for that session.
+ */
+export function keptConnectionNotice(agents: string[]): string | undefined {
+  if (agents.length === 0) return undefined;
+  const who = agents.length === 1 ? agents[0]! : `${agents.length} agents (${agents.join(', ')})`;
+  return `Kept your existing Align connection in ${who}. Running \`align\` opens the local graph alongside it.`;
+}
+
+/**
+ * One line for committed project files left alone. A different fact from the global agents:
+ * the file is teammate-visible and editing it by hand is the only way to change it.
+ */
+export function projectForeignNotice(files: string[]): string | undefined {
+  const unique = [...new Set(files)];
+  if (unique.length === 0) return undefined;
+  return unique.length === 1
+    ? `Left the existing align entry as is in ${unique[0]} (a committed project file, not set to --env local). Edit it by hand to use the local graph.`
+    : `Left the existing align entry as is in ${unique.join(', ')} (committed project files, not set to --env local). Edit them by hand to use the local graph.`;
+}

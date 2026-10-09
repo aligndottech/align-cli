@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import * as p from '@clack/prompts';
 import { alignServerEntry, detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import type { EnvName } from '../lib/config.js';
-import { foreignNotice } from '../lib/foreign-env.js';
+import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
 
 /**
  * Connect the agents installed on this machine to Align (ALI-776).
@@ -27,6 +27,7 @@ import { foreignNotice } from '../lib/foreign-env.js';
  */
 export async function connectDetectedAgents(
   envName: EnvName,
+  opts: { verbose?: boolean } = {},
 ): Promise<{ detected: number; connected: number; wired: string[] }> {
   const editors = detectEditors();
   // writeMcpConfig takes undefined for prod: the default env needs no --env argument in the
@@ -72,11 +73,15 @@ export async function connectDetectedAgents(
   // ALI-950: the outro names the agent to open, so say WHICH were wired, not only how many.
   const wired: string[] = [];
   const skipped: string[] = [];
+  const keptAgents: string[] = [];
   for (const target of editors) {
     try {
       // The MCP entry, plus the user-level pre-edit hook on the hosts that have one
       // (ALI-952: Codex, Cursor, Copilot CLI) - the writer reports every file it wrote.
-      const files = writeMcpConfig(target, envArg, (file) => skipped.push(file));
+      const files = writeMcpConfig(target, envArg, (file) => {
+        skipped.push(file);
+        if (!keptAgents.includes(target.name)) keptAgents.push(target.name);
+      });
       touched.push(...files);
       // Connected only if the MCP entry itself was written. A skipped one (the local wizard
       // leaves an existing non-local entry alone) is reported by the warning below instead.
@@ -92,7 +97,10 @@ export async function connectDetectedAgents(
   }
 
   // Inside the wizard frame (p.log), not a bare stderr line outside it.
-  for (const file of skipped) p.log.warn(foreignNotice(file, 'global'));
+  // One calm line for the whole run; the per-file detail and the switch command are verbose-only.
+  const kept = keptConnectionNotice(keptAgents);
+  if (kept) p.log.info(kept);
+  if (opts.verbose) for (const file of skipped) p.log.info(foreignNotice(file, 'global'));
 
   // Naming the FILES, not just the agents. "Cursor: connected" does not tell anyone what was
   // edited, and this is the only disclosure they get in place of being asked.

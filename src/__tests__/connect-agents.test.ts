@@ -25,6 +25,7 @@ vi.mock('@clack/prompts', () => ({
 }));
 
 import { connectDetectedAgents } from '../commands/connect-agents.js';
+import { agentConnectedLine } from '../lib/next-step.js';
 import { restorePlatform, setPlatform } from './helpers/platform.js';
 
 const CLAUDE = { name: 'Claude Desktop', configPath: '/home/d/.config/Claude/x.json', format: 'mcpServers' };
@@ -79,19 +80,69 @@ describe('connectDetectedAgents', () => {
         return [t.configPath];
       });
 
-    it('warns inside the wizard frame, naming the file and the exact command to switch', async () => {
-      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const NAMES = ['Claude Code', 'VS Code', 'Codex', 'pi', 'Gemini CLI'];
+    const five = NAMES.map((name) => ({ name, configPath: `/home/d/.cfg/${name.replace(/ /g, '')}.json`, format: 'mcpServers' }));
+    const skipAll = () =>
+      writeMcpConfig.mockImplementation((t: { configPath: string }, _env: string, onForeign: (f: string) => void) => {
+        onForeign(t.configPath);
+        return [];
+      });
+    const keptLines = () => logged.filter((m) => m.startsWith('Kept your existing Align connection'));
+
+    it('prints ONE calm info line for five skips, naming agents and no files or warnings', async () => {
+      detectEditors.mockReturnValue(five);
+      skipAll();
+      await connectDetectedAgents('local');
+      expect(keptLines()).toEqual([
+        'Kept your existing Align connection in 5 agents (Claude Code, VS Code, Codex, pi, Gemini CLI). Running `align` opens the local graph alongside it.',
+      ]);
+      expect(warnings).toEqual([]);
+      expect(logged.join('\n')).not.toContain('/home/d/.cfg');
+      expect(logged.join('\n')).not.toContain('align mcp --setup --env local');
+    });
+
+    it('is singular for one skip', async () => {
       detectEditors.mockReturnValue([CLAUDE, CURSOR]);
       skipClaude();
       await connectDetectedAgents('local');
-      const warned = warnings.filter((m) => m.includes(CLAUDE.configPath));
-      expect(warned).toHaveLength(1);
-      expect(warned[0]).toMatch(/left .*as is/i);
-      expect(warned[0]).toContain('align mcp --setup --env local');
-      // It does not claim the entry is a team graph: with no token it resolves to local.
-      expect(warned[0]).not.toMatch(/team graph/i);
-      expect(err).not.toHaveBeenCalled();
-      err.mockRestore();
+      expect(keptLines()).toEqual([
+        'Kept your existing Align connection in Claude Desktop. Running `align` opens the local graph alongside it.',
+      ]);
+      expect(warnings).toEqual([]);
+    });
+
+    it('counts an agent once when both its config and its hook file are skipped', async () => {
+      detectEditors.mockReturnValue([CLAUDE]);
+      writeMcpConfig.mockImplementation((t: { configPath: string }, _e: string, onForeign: (f: string) => void) => {
+        onForeign(t.configPath); onForeign('/home/d/.claude/hooks.json'); return [];
+      });
+      await connectDetectedAgents('local');
+      expect(keptLines()).toHaveLength(1);
+      expect(keptLines()[0]).toContain('in Claude Desktop.');
+    });
+
+    it('with verbose, adds one line per file with the switch command', async () => {
+      detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+      skipAll();
+      await connectDetectedAgents('local', { verbose: true });
+      const perFile = logged.filter((m) => m.includes('Left the existing align entry in'));
+      expect(perFile).toHaveLength(2);
+      expect(perFile[0]).toContain(CLAUDE.configPath);
+      expect(perFile[1]).toContain(CURSOR.configPath);
+      expect(perFile[0]).toContain('align mcp --setup --env local');
+      expect(keptLines()).toHaveLength(1);
+      expect(warnings).toEqual([]);
+    });
+
+    it('the connected line counts only agents actually wired, never a skipped one', async () => {
+      detectEditors.mockReturnValue(five);
+      skipAll();
+      const none = await connectDetectedAgents('local');
+      expect(agentConnectedLine(none.wired)).toBeUndefined();
+      detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+      skipClaude();
+      const one = await connectDetectedAgents('local');
+      expect(agentConnectedLine(one.wired)).toBe('Your agent is connected: Cursor.');
     });
 
     it('does not report a skipped agent as connected or wired, and does not claim its file', async () => {
@@ -108,6 +159,7 @@ describe('connectDetectedAgents', () => {
       detectEditors.mockReturnValue([CURSOR]);
       await connectDetectedAgents('local');
       expect(warnings).toEqual([]);
+      expect(logged.join('\n')).not.toContain('Kept your existing');
     });
   });
 

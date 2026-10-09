@@ -1514,18 +1514,22 @@ describe('align setup', () => {
       });
 
       describe('a project file left alone', () => {
-        it('is reported with p.log.warn inside the wizard frame, naming the file', async () => {
+        it('is reported as ONE p.log.info line inside the wizard frame, naming every file', async () => {
           await mockNoLogin();
           mockSetupAgentAlignment.mockImplementationOnce((o: { onForeign?: (f: string) => void }) => {
             o.onForeign?.('.mcp.json');
+            o.onForeign?.('.claude/settings.json');
             return ['CLAUDE.md'];
           });
           const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
           const { log } = await import('@clack/prompts');
           await makeProgram().parseAsync(['node', 'align', 'setup']);
-          const warned = vi.mocked(log.warn).mock.calls.map((c) => String(c[0])).filter((m) => m.includes('.mcp.json'));
-          expect(warned).toHaveLength(1);
-          expect(warned[0]).toMatch(/left .*as is/i);
+          const named = (calls: unknown[][]) => calls.map((c) => String(c[0])).filter((m) => /left .*as is/i.test(m));
+          expect(named(vi.mocked(log.warn).mock.calls)).toHaveLength(0);
+          const infos = named(vi.mocked(log.info).mock.calls);
+          expect(infos).toHaveLength(1);
+          expect(infos[0]).toContain('.mcp.json');
+          expect(infos[0]).toContain('.claude/settings.json');
           expect(err).not.toHaveBeenCalled();
           err.mockRestore();
         });
