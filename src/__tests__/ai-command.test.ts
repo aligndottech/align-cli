@@ -56,7 +56,7 @@ const setTTY = (v: boolean) => {
   Object.defineProperty(process.stdout, 'isTTY', { value: v, configurable: true });
 };
 
-const KEYS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GROQ_API_KEY',
+const KEYS = ['HF_TOKEN', 'DEEPSEEK_API_KEY', 'ALIGN_LLM_PROVIDER', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GROQ_API_KEY',
   'MISTRAL_API_KEY', 'GROK_API_KEY', 'XAI_API_KEY', 'ALIGN_LLM_BASE_URL', 'ALIGN_LLM_API_KEY', 'ALIGN_LLM_MODEL'];
 
 beforeEach(() => {
@@ -192,6 +192,42 @@ describe('align ai on a terminal lists what it detects', () => {
     expect(text).toContain('Anthropic');
     expect(text).toContain('align ai --provider');
     expect(text).not.toContain('sk-ant-real');
+  });
+
+  // A key exported for another tool (HF_TOKEN for model downloads) is found but not used until
+  // chosen, and the listing has to say so - "can use" next to it read as "will use".
+  it('without a terminal: an env-only later provider is marked as not used until chosen; a six-provider key is not', async () => {
+    setTTY(false);
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-real');
+    vi.stubEnv('HF_TOKEN', 'hf_x');
+    const text = await ai();
+    expect(text).toContain('AI providers align found:');
+    expect(text).not.toContain('can use');
+    const line = (needle: string) => text.split('\n').find((l) => l.includes(needle)) ?? '';
+    expect(line('Hugging Face')).toContain('found in your shell - not used until you choose it');
+    expect(line('Anthropic')).not.toContain('not used until');
+    expect(line('Anthropic')).toContain('(env)');
+  });
+
+  it('on a terminal: the same marker in the hint, for DeepSeek but not for Anthropic', async () => {
+    setTTY(true);
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-real');
+    vi.stubEnv('DEEPSEEK_API_KEY', 'ds');
+    select.mockResolvedValueOnce('anthropic');
+    await ai();
+    const opts = select.mock.calls[0]![0] as { message: string; options: Array<{ value: string; hint?: string }> };
+    expect(opts.options.find((o) => o.value === 'deepseek')?.hint).toBe('found in your shell - not used until you choose it');
+    expect(opts.options.find((o) => o.value === 'anthropic')?.hint).toBe('env');
+  });
+
+  it('once chosen, the env-only provider loses the marker', async () => {
+    setTTY(false);
+    vi.stubEnv('HF_TOKEN', 'hf_x');
+    store.llm = { provider: 'huggingface' };
+    const text = await ai();
+    const line = text.split('\n').find((l) => l.includes('Hugging Face')) ?? '';
+    expect(line).not.toContain('not used until');
+    expect(line).toContain('current');
   });
 
   it('without a terminal and with nothing found, it says so', async () => {

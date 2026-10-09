@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
-import { listConfiguredCredentials, probeOllama } from '../lib/local-llm.js';
+import { listConfiguredCredentials, probeOllama, unusedExportedKeys } from '../lib/local-llm.js';
 import { LLM_PROVIDER_IDS, type LlmProviderId, parseProviderId, PROVIDER_LABEL } from '../lib/llm-providers.js';
 import { type DetectedProvider, detectProviders, promptForProviderKey } from '../lib/ask-key-offer.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
@@ -10,7 +10,11 @@ import { guardedPrompt } from '../lib/prompt-guard.js';
 /** `--provider auto`: forget the choice and use the default order again. */
 const AUTO = 'auto';
 
-function sourceHint(d: DetectedProvider): string {
+/** What an exported key for a provider align does not use on its own looks like in a listing. */
+const NOT_USED_YET = 'found in your shell - not used until you choose it';
+
+function sourceHint(d: DetectedProvider, unused: ReadonlySet<string>): string {
+  if (d.source === 'env' && unused.has(d.id)) return NOT_USED_YET;
   return d.source === 'env' ? 'env' : d.source === 'saved' ? 'saved' : 'local';
 }
 
@@ -62,6 +66,9 @@ export function registerAiCommand(program: Command): void {
       }
 
       const found = await detectProviders(probeOllama);
+      // Exported keys align will not use until chosen (HF_TOKEN exported for model downloads,
+      // say) - marked so "found" is never read as "in use".
+      const unused = new Set<string>(unusedExportedKeys().map((k) => k.id));
       const current = parseProviderId(config.getLlmPreference().provider ?? '');
       const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
@@ -70,9 +77,9 @@ export function registerAiCommand(program: Command): void {
         if (!found.length) {
           console.log('  No AI provider found. `align ask` lists matching decisions without one.');
         } else {
-          console.log('  AI providers `align ask` can use:');
+          console.log('  AI providers align found:');
           for (const d of found) {
-            console.log(`    ${d.id.padEnd(11)} ${PROVIDER_LABEL[d.id]} (${sourceHint(d)})${d.id === current ? '  - current' : ''}`);
+            console.log(`    ${d.id.padEnd(11)} ${PROVIDER_LABEL[d.id]} (${sourceHint(d, unused)})${d.id === current ? '  - current' : ''}`);
           }
         }
         console.log('');
@@ -84,7 +91,7 @@ export function registerAiCommand(program: Command): void {
       const options: Array<{ value: string; label: string; hint?: string }> = found.map((d) => ({
         value: d.id,
         label: PROVIDER_LABEL[d.id],
-        hint: `${sourceHint(d)}${d.id === current ? ' - current' : ''}`,
+        hint: `${sourceHint(d, unused)}${d.id === current ? ' - current' : ''}`,
       }));
       options.push({ value: 'add', label: 'Add another key...' });
       if (current) options.push({ value: 'auto', label: 'Automatic', hint: 'first available, in the default order' });
