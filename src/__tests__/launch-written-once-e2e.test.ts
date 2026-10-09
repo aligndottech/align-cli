@@ -115,9 +115,9 @@ describe('pi against a fake binary', () => {
 });
 
 describe('cursor-agent against a fake binary', () => {
-  it('runs it with --approve-mcps last and writes the MCP entry and hooks into ~/.cursor once', async () => {
+  it('runs it without --approve-mcps and writes the MCP entry and hooks into ~/.cursor once', async () => {
     expect(await run('cursor', ['node', 'align', '--', 'fix it'])).toEqual({ handled: true, code: 5 });
-    expect(recorded().argv).toEqual(['fix it', '--approve-mcps']);
+    expect(recorded().argv).toEqual(['fix it']);
     const mcp = JSON.parse(readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8'));
     expect(Object.keys(mcp.mcpServers)).toEqual(['align-local']);
     const hooks = JSON.parse(readFileSync(path.join(home, '.cursor', 'hooks.json'), 'utf8')).hooks;

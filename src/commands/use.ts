@@ -4,7 +4,7 @@ import { findOnPath } from '../lib/launch/detect.js';
 import { undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
 
 export interface UseDeps {
-  config: { getAgent(): string | undefined; setAgent(agent: string): void; clearAgent(): void };
+  config: { getAgent(): string | undefined; setAgent(agent: string): void; clearAgent(): void; setLaunchOff(off: boolean): void };
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
   /** Every file align wrote into another product's config (C4). */
   writtenConfigs: { get(): Record<string, WrittenConfig>; clear(): void };
@@ -35,6 +35,12 @@ export async function runUse(name: string | undefined, d: UseDeps, opts: { none?
     for (const f of report.removed) d.log(`Removed ${f} (align created it).`);
     for (const line of report.skipped) d.err(`Left alone: ${line}`);
     d.writtenConfigs.clear();
+    // Without this, the next bare `align` would auto-pick the one installed agent and write
+    // the same entries back.
+    d.config.clearAgent();
+    d.config.setLaunchOff(true);
+    const n = report.restored.length + report.removed.length;
+    d.log(`Restored ${n} ${n === 1 ? 'file' : 'files'}. align will not open an agent until you run \`align use <agent>\`.`);
     return report.skipped.length > 0 ? 1 : 0;
   }
   if (opts.none) {

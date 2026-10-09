@@ -79,14 +79,14 @@ describe('readCursorState', () => {
   const hooks = (pre: string, post: string) => JSON.stringify({ version: 1, hooks: { preToolUse: [{ command: pre }], postToolUse: [{ command: post }] } });
 
   it('reports nothing for a bare machine, and the global files it would add to', () => {
-    expect(read()).toEqual({ hasAlignLocalEntry: false, projectHasMcp: false, hooksPresent: false, mcpFile: path.join(home, '.cursor', 'mcp.json'), hooksFile: path.join(home, '.cursor', 'hooks.json') });
+    expect(read()).toEqual({ projectHasMcp: false, hooksPresent: false, mcpFile: path.join(home, '.cursor', 'mcp.json'), hooksFile: path.join(home, '.cursor', 'hooks.json') });
   });
 
-  it('our align-local key is present and ours; a user\'s local align server is present but not ours', () => {
+  it('an align-local key and a user\'s local align server both count as present', () => {
     put(path.join(home, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { 'align-local': { command: 'align' } } }));
-    expect(read()).toMatchObject({ hasAlignLocalEntry: true, projectHasMcp: true });
+    expect(read()).toMatchObject({ projectHasMcp: true });
     put(path.join(home, '.cursor', 'mcp.json'), server(['mcp', '--env', 'local']));
-    expect(read()).toMatchObject({ hasAlignLocalEntry: false, projectHasMcp: true });
+    expect(read()).toMatchObject({ projectHasMcp: true });
     put(path.join(home, '.cursor', 'mcp.json'), server(['mcp']));
     expect(read()).toMatchObject({ projectHasMcp: false });
   });

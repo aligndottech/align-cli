@@ -12,8 +12,9 @@ function harness(stored?: string, onPath: Record<string, string> = { claude: '/u
   const err: string[] = [];
   const clearAgent = vi.fn(() => { current = undefined; });
   const setAgent = vi.fn((a: string) => { current = a; });
+  const setLaunchOff = vi.fn();
   const deps: UseDeps = {
-    config: { getAgent: () => current, setAgent, clearAgent },
+    config: { getAgent: () => current, setAgent, clearAgent, setLaunchOff },
     writtenConfigs: { get: () => written, clear: () => { written = {}; } },
     findOnPath: (bin) => onPath[bin] ?? null,
     env: {},
@@ -21,7 +22,7 @@ function harness(stored?: string, onPath: Record<string, string> = { claude: '/u
     log: (l) => out.push(l),
     err: (l) => err.push(l),
   };
-  return { deps, out, err, setAgent, clearAgent, current: () => current, manifest: () => written };
+  return { deps, out, err, setAgent, clearAgent, setLaunchOff, current: () => current, manifest: () => written };
 }
 
 describe('align use', () => {
@@ -113,15 +114,22 @@ describe('align use --undo (C4)', () => {
       expect(readFileSync(b, 'utf8')).toBe('{"b":2}\n');
       expect(h.manifest()).toEqual({});
       expect(h.out.join('\n')).toContain(`Restored ${a}`);
+      expect(h.out).toContain('Restored 2 files. align will not open an agent until you run `align use <agent>`.');
+      expect(h.clearAgent).toHaveBeenCalledOnce();
+      expect(h.setLaunchOff).toHaveBeenCalledExactlyOnceWith(true);
+      expect(h.current()).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it('with an empty manifest it is a no-op that says so', async () => {
-    const h = harness();
+    const h = harness('claude-code');
     expect(await runUse(undefined, h.deps, { undo: true })).toBe(0);
     expect(h.out.join('\n')).toContain('Nothing to undo');
+    expect(h.clearAgent).not.toHaveBeenCalled();
+    expect(h.setLaunchOff).not.toHaveBeenCalled();
+    expect(h.current()).toBe('claude-code');
     expect(h.err).toEqual([]);
   });
 
@@ -130,11 +138,13 @@ describe('align use --undo (C4)', () => {
     expect(await runUse(undefined, h.deps, { undo: true })).toBe(1);
     expect(h.err.join('\n')).toContain('/nope/missing.json: no backup found');
     expect(h.manifest()).toEqual({});
+    expect(h.setLaunchOff).toHaveBeenCalledExactlyOnceWith(true);
   });
 
   it.each([['pi', {}], [undefined, { none: true }]])('refuses to combine with an agent name or --none (%s)', async (name, extra) => {
     const h = harness(undefined, {}, { '/x.json': { created: true, sha256: 'x' } });
     expect(await runUse(name, h.deps, { undo: true, ...extra })).toBe(2);
     expect(h.manifest()).not.toEqual({});
+    expect(h.setLaunchOff).not.toHaveBeenCalled();
   });
 });

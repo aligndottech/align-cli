@@ -31,7 +31,7 @@ export interface LaunchDeps {
   home: string;
   platform: string;
   isTTY: boolean;
-  config: { getAgent(): string | undefined; setAgent(agent: string): void };
+  config: { getAgent(): string | undefined; setAgent(agent: string): void; isLaunchOff?(): boolean };
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
   readProjectState(cwd: string, home: string): ProjectState;
   /** What OpenCode would already load. Separate from readProjectState: it reads other files. */
@@ -148,6 +148,11 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   if (!d.isTTY && !explicit) return { handled: false };
 
   let agent = agentByName(d.config.getAgent());
+  // `align use --undo` turned launching off: no auto-pick, no config writes, until `align use <agent>`.
+  if (!agent && d.config.isLaunchOff?.()) {
+    d.err('Launching is off after `align use --undo`. Run `align use <agent>` to turn it back on.');
+    return { handled: false };
+  }
   const stored = agent !== undefined;
   let announce: string | undefined;
   if (!agent) {

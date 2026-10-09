@@ -136,6 +136,7 @@ export function createConfigStore() {
     installId?: string;
     telemetryConsent?: TelemetryConsent;
     agent?: string;
+    launchOff?: boolean;
     writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
@@ -294,6 +295,17 @@ export function createConfigStore() {
     },
     setAgent(agent: string) {
       store.set('agent', agent);
+      // Choosing an agent is the way back on after `align use --undo`.
+      store.delete('launchOff');
+    },
+    // C4: set by `align use --undo` so bare `align` stops opening an agent (and re-adding the
+    // configs just restored) until the user picks one again.
+    isLaunchOff(): boolean {
+      return store.get('launchOff') === true;
+    },
+    setLaunchOff(off: boolean) {
+      if (off) store.set('launchOff', true);
+      else store.delete('launchOff');
     },
     clearAgent() {
       store.delete('agent');

@@ -24,7 +24,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     readProjectState: () => ({ projectHasPreHook: false, projectHasPostHook: false, projectHasMcp: false, projectHasBlock: false }),
     readOpenCodeState: () => ({ projectHasPlugin: false, projectHasMcp: false, projectHasBlock: false }),
     readPiState: () => ({ projectHasExtension: false, projectHasMcp: false, projectHasBlock: false, mcpFile: '/home/u/.pi/agent/mcp.json' }),
-    readCursorState: () => ({ hasAlignLocalEntry: false, projectHasMcp: false, hooksPresent: false, mcpFile: '/home/u/.cursor/mcp.json', hooksFile: '/home/u/.cursor/hooks.json' }),
+    readCursorState: () => ({ projectHasMcp: false, hooksPresent: false, mcpFile: '/home/u/.cursor/mcp.json', hooksFile: '/home/u/.cursor/hooks.json' }),
     applyConfigWrite: vi.fn(),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content) => { written.push([name, content]); return true; },
@@ -318,11 +318,11 @@ describe('launchIfChosen: written-once agents (C4)', () => {
     expect(h.err).toContain('hello');
   });
 
-  it('launches cursor-agent with --approve-mcps after the user\'s args and applies both writes', async () => {
+  it('launches cursor-agent with only the user\'s args and applies both writes', async () => {
     const applyConfigWrite = vi.fn();
     const h = harness({ stored: 'cursor', onPath: { 'cursor-agent': CURSOR }, applyConfigWrite, argv: ['node', 'align', '--', 'fix it'] });
     await launchIfChosen(h.deps);
-    expect(h.runAgent.mock.calls[0]![0].args).toEqual(['fix it', '--approve-mcps']);
+    expect(h.runAgent.mock.calls[0]![0].args).toEqual(['fix it']);
     expect(applyConfigWrite.mock.calls.map((c) => c[0].kind)).toEqual(['mcp-entry', 'cursor-hooks']);
   });
 
@@ -378,5 +378,29 @@ describe('launchIfChosen: written-once agents (C4)', () => {
     h.pick.mockResolvedValue(null);
     await launchIfChosen(h.deps);
     expect(h.pick.mock.calls[0]![0].map((a: { name: string }) => a.name)).toEqual(['claude-code', 'cursor']);
+  });
+});
+
+describe('launchIfChosen: after align use --undo (C4)', () => {
+  it('with launching off and no agent chosen, bare align neither writes nor launches, even with one agent installed', async () => {
+    const applyConfigWrite = vi.fn();
+    const h = harness({ onPath: { pi: '/usr/bin/pi' }, applyConfigWrite, config: { getAgent: () => undefined, setAgent: vi.fn(), isLaunchOff: () => true } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
+    expect(applyConfigWrite).not.toHaveBeenCalled();
+    expect(h.runAgent).not.toHaveBeenCalled();
+    expect(h.deps.config.setAgent).not.toHaveBeenCalled();
+    expect(h.err.join('\n')).toContain('align use <agent>');
+  });
+
+  it('an explicit `align -- ...` is also not launched while off', async () => {
+    const h = harness({ onPath: { pi: '/usr/bin/pi' }, argv: ['node', 'align', '--', 'hi'], config: { getAgent: () => undefined, setAgent: vi.fn(), isLaunchOff: () => true } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
+    expect(h.runAgent).not.toHaveBeenCalled();
+  });
+
+  it('with launching on (not off) the same machine auto-picks and launches', async () => {
+    const h = harness({ onPath: { pi: '/usr/bin/pi' }, config: { getAgent: () => undefined, setAgent: vi.fn(), isLaunchOff: () => false } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+    expect(h.runAgent).toHaveBeenCalledOnce();
   });
 });

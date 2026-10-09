@@ -60,6 +60,18 @@ describe('config store', () => {
     expect(c.getWrittenConfigs()['/b.json']).toEqual({ created: false, sha256: '2' });
   });
 
+  it('launch-off is set by undo and cleared by choosing an agent (both directions)', () => {
+    const c = createConfigStore();
+    expect(c.isLaunchOff()).toBe(false);
+    c.setLaunchOff(true);
+    expect(c.isLaunchOff()).toBe(true);
+    c.setAgent('pi');
+    expect(c.isLaunchOff()).toBe(false);
+    c.setLaunchOff(true);
+    c.setLaunchOff(false);
+    expect(c.isLaunchOff()).toBe(false);
+  });
+
   it('returns default gateway URL for local', () => {
     expect(createConfigStore().getEnvironment('local').gatewayUrl).toBe('http://localhost:8080');
   });

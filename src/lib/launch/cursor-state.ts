@@ -3,8 +3,6 @@ import path from 'node:path';
 import { isLocalAlignServer, readsLocal } from './project-state.js';
 
 export interface CursorProjectState {
-  /** Our `align-local` entry is in a Cursor mcp.json already (so Cursor has been told to trust it). */
-  hasAlignLocalEntry: boolean;
   /** A local align server is available to Cursor by any route (ours, or the user's own). */
   projectHasMcp: boolean;
   /** Both pre and post edit checks, aimed at the local graph, are in a hooks.json Cursor reads. */
@@ -44,10 +42,8 @@ export function readCursorState(cwd: string, home: string, opts: { localIsDefaul
   const hooksFile = path.join(home, '.cursor', 'hooks.json');
   const servers = [path.join(cwd, '.cursor', 'mcp.json'), mcpFile].map((f) => readJson(f)?.['mcpServers'] as Json | undefined);
   const hookFiles = [path.join(cwd, '.cursor', 'hooks.json'), hooksFile].map(readJson);
-  const hasAlignLocalEntry = servers.some((s) => s?.['align-local'] !== undefined);
   return {
-    hasAlignLocalEntry,
-    projectHasMcp: hasAlignLocalEntry || servers.some((s) => isLocalAlignServer(s?.['align'], localIsDefault)),
+    projectHasMcp: servers.some((s) => s?.['align-local'] !== undefined) || servers.some((s) => isLocalAlignServer(s?.['align'], localIsDefault)),
     hooksPresent: ['preToolUse', 'postToolUse'].every((ev) => hookFiles.some((f) => hasLocalHook(f, ev, localIsDefault))),
     mcpFile,
     hooksFile,

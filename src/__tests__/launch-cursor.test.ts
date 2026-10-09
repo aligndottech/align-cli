@@ -3,15 +3,14 @@ import { buildCursorLaunch, type CursorLaunchContext } from '../lib/launch/adapt
 
 /*
  * C4 Test List (Cursor adapter, pure builder; cursor-agent is NOT installed on the dev machine):
- *  1. nothing present: an align-local MCP write and a hooks write, and --approve-mcps
+ *  1. nothing present: an align-local MCP write and a hooks write, and no flags
  *  2. each write is skipped on its own flag, both sides (mcp / hooks)
- *  3. --approve-mcps only when the entry is ours: requested or already there; not for a user's own server
- *  4. pass-through first, injected last, a literal -- keeps our flag before it
+ *  3. --approve-mcps is never passed (it approves every unapproved server, the user's own included)
+ *  4. pass-through args are the whole of the args
  *  5. ALIGN_WRAPPED carried, no launch files
  */
 const BASE: CursorLaunchContext = {
   passthrough: [],
-  hasAlignLocalEntry: false,
   projectHasMcp: false,
   hooksPresent: false,
   mcpFile: '/home/u/.cursor/mcp.json',
@@ -20,10 +19,10 @@ const BASE: CursorLaunchContext = {
 const ctx = (over: Partial<CursorLaunchContext> = {}): CursorLaunchContext => ({ ...BASE, ...over });
 
 describe('buildCursorLaunch', () => {
-  it('asks for both writes and the approval flag when nothing is present', () => {
+  it('asks for both writes and no flags when nothing is present', () => {
     const spec = buildCursorLaunch(ctx());
     expect(spec.bin).toBe('cursor-agent');
-    expect(spec.args).toEqual(['--approve-mcps']);
+    expect(spec.args).toEqual([]);
     expect(spec.writes).toEqual([
       expect.objectContaining({ kind: 'mcp-entry', file: '/home/u/.cursor/mcp.json', topKey: 'mcpServers', name: 'align-local' }),
       { kind: 'cursor-hooks', file: '/home/u/.cursor/hooks.json' },
@@ -47,17 +46,16 @@ describe('buildCursorLaunch', () => {
     expect(buildCursorLaunch(ctx({ projectHasMcp: true, hooksPresent: true })).writes).toBeUndefined();
   });
 
-  it('passes --approve-mcps when our entry is already there, but not when only the user\'s own align server is', () => {
-    expect(buildCursorLaunch(ctx({ projectHasMcp: true, hasAlignLocalEntry: true })).args).toEqual(['--approve-mcps']);
-    expect(buildCursorLaunch(ctx({ projectHasMcp: true, hasAlignLocalEntry: false })).args).toEqual([]);
+  it.each([
+    [{}],
+    [{ projectHasMcp: true }],
+    [{ passthrough: ['fix it'] }],
+  ])('never passes --approve-mcps: approving servers is the user\'s call (%j)', (over) => {
+    expect(buildCursorLaunch(ctx(over)).args).not.toContain('--approve-mcps');
   });
 
-  it('puts the user\'s args first and ours last (two prompts)', () => {
-    expect(buildCursorLaunch(ctx({ passthrough: ['fix it'] })).args).toEqual(['fix it', '--approve-mcps']);
-    expect(buildCursorLaunch(ctx({ passthrough: ['-p', 'hi'] })).args).toEqual(['-p', 'hi', '--approve-mcps']);
-  });
-
-  it('keeps --approve-mcps before a literal --', () => {
-    expect(buildCursorLaunch(ctx({ passthrough: ['--', 'x'] })).args).toEqual(['--approve-mcps', '--', 'x']);
+  it('passes the user\'s args through unchanged (two prompts)', () => {
+    expect(buildCursorLaunch(ctx({ passthrough: ['fix it'] })).args).toEqual(['fix it']);
+    expect(buildCursorLaunch(ctx({ passthrough: ['-p', 'hi'] })).args).toEqual(['-p', 'hi']);
   });
 });
