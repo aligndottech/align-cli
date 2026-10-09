@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { alignNudgeBody, piExtensionBody } from '../lib/agent-rules.js';
 import { buildPiLaunch, type PiLaunchContext } from '../lib/launch/adapters/pi.js';
+import { alignEntryShape } from './helpers/platform.js';
 
 /*
  * C4 Test List (pi adapter, pure builder):
@@ -41,7 +42,7 @@ describe('buildPiLaunch', () => {
   it('the MCP write is align-local (never align) in the agent-dir file, with directTools', () => {
     const w = buildPiLaunch(ctx()).writes![0]!;
     expect(w).toMatchObject({ kind: 'mcp-entry', file: '/home/u/.pi/agent/mcp.json', topKey: 'mcpServers', name: 'align-local' });
-    expect((w as { entry: Record<string, unknown> }).entry).toMatchObject({ command: 'align', args: ['mcp', '--env', 'local'], directTools: true });
+    expect((w as { entry: Record<string, unknown> }).entry).toMatchObject({ ...alignEntryShape(['mcp', '--env', 'local']), directTools: true });
   });
 
   it.each([

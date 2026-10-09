@@ -7,6 +7,7 @@ import * as realFs from 'node:fs';
 import { applyConfigWrite } from '../lib/launch/config-writes.js';
 import { writeMcpConfig } from '../lib/mcp-setup.js';
 import { writeUserHooks } from '../lib/user-hooks.js';
+import { expectPosixMode } from './helpers/platform.js';
 
 /*
  * C4 Test List (align REMOVED or CHANGED something that was already there):
@@ -197,7 +198,7 @@ describe('a file align created that the user then populated (MEDIUM, last check)
     const snaps = readdirSync(dir).filter((f) => /\.align-backup\.\d+$/.test(f));
     expect(snaps).toEqual(['hooks.json.align-backup.1']);
     expect(lstatSync(path.join(dir, snaps[0]!)).isFile()).toBe(true);
-    expect(statSync(path.join(dir, snaps[0]!)).mode & 0o777).toBe(0o600);
+    expectPosixMode(statSync(path.join(dir, snaps[0]!)).mode, 0o600);
     expect(JSON.stringify(manifest)).not.toContain('hunter2');
   });
 

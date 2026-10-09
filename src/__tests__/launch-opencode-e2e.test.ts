@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +9,8 @@ import { launchIfChosen } from '../lib/launch/launch.js';
 import { readOpenCodeState } from '../lib/launch/opencode-state.js';
 import { readProjectState } from '../lib/launch/project-state.js';
 import { runAgent } from '../lib/launch/run-agent.js';
+import { prependPath, writeFakeAgent } from './helpers/fake-agent.js';
+import { alignEntryArgv } from './helpers/platform.js';
 
 /*
  * The real pipeline (state reader, builder, launch-file writer, spawn) against a FAKE opencode
@@ -20,14 +22,13 @@ beforeEach(() => {
   bin = path.join(root, 'bin'); cache = path.join(root, 'cache'); cwd = path.join(root, 'repo'); home = path.join(root, 'home');
   record = path.join(root, 'record.json');
   mkdirSync(bin); mkdirSync(path.join(cwd, '.git'), { recursive: true }); mkdirSync(home);
-  const script = path.join(bin, 'opencode');
-  writeFileSync(script, `#!/bin/sh
-node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({argv: process.argv.slice(2), content: process.env.OPENCODE_CONFIG_CONTENT ?? null, dir: process.env.OPENCODE_CONFIG_DIR ?? null, wrapped: process.env.ALIGN_WRAPPED ?? null}))' "${record}" "$@"
-exit 7
-`);
-  chmodSync(script, 0o755);
+  writeFakeAgent(bin, 'opencode', {
+    record,
+    recordBody: '{argv: args, content: env.OPENCODE_CONFIG_CONTENT ?? null, dir: env.OPENCODE_CONFIG_DIR ?? null, wrapped: env.ALIGN_WRAPPED ?? null}',
+    exitCode: 7,
+  });
   for (const k of ['ALIGN_WRAPPED', 'ALIGN_NO_LAUNCH', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_CONFIG']) vi.stubEnv(k, undefined);
-  vi.stubEnv('PATH', `${bin}:${process.env['PATH']}`);
+  vi.stubEnv('PATH', prependPath(bin, process.env['PATH']));
 });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 
@@ -49,8 +50,9 @@ describe('launch opencode against a fake binary', () => {
     const r = recorded();
     expect(r.argv).toEqual(['run', 'hello']);
     expect(r.wrapped).toBe('1');
-    expect(JSON.parse(r.content!).mcp['align-local'].command).toEqual(['align', 'mcp', '--env', 'local']);
-    expect(r.dir).toBe(path.join(cache, 'opencode-config'));
+    expect(JSON.parse(r.content!).mcp['align-local'].command).toEqual(alignEntryArgv(['mcp', '--env', 'local']));
+    // launch.ts builds cache paths with a forward slash; compare as the OS would resolve them.
+    expect(path.normalize(r.dir!)).toBe(path.join(cache, 'opencode-config'));
     expect(readFileSync(path.join(r.dir!, 'plugins', 'align.js'), 'utf8')).toBe(openCodePluginBody('local'));
   });
 

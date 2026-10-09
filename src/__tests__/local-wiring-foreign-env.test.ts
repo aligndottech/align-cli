@@ -12,6 +12,7 @@ import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { type EditorTarget, writeMcpConfig } from '../lib/mcp-setup.js';
 import { writeOpenCodePlugin, writePiExtension } from '../lib/agent-rules.js';
 import { writeUserHooks } from '../lib/user-hooks.js';
+import { alignEntryArgv, alignEntryShape } from './helpers/platform.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), 'align-foreign-')); });
@@ -111,7 +112,7 @@ describe('global agent configs: writeMcpConfig with env local', () => {
     const written = writeMcpConfig(target(file), 'local', () => { throw new Error('nothing to skip'); });
     const parsed = JSON.parse(read(file));
     expect(parsed.mcpServers.mine).toEqual({ command: 'x' });
-    expect(parsed.mcpServers.align.args).toEqual(['mcp', '--env', 'local']);
+    expect(parsed.mcpServers.align.args).toEqual(alignEntryShape(['mcp', '--env', 'local']).args);
     expect(written).toEqual([file]);
   });
 
@@ -172,7 +173,7 @@ describe('C2 shapes: OpenCode, pi, plugin files and user hooks', () => {
     expect(written).toEqual([file]);
     const mcp = JSON.parse(read(file)).mcp;
     expect(mcp.other).toEqual({ type: 'remote', url: 'x' });
-    expect(mcp.align.command).toEqual(['align', 'mcp', '--env', 'local']);
+    expect(mcp.align.command).toEqual(alignEntryArgv(['mcp', '--env', 'local']));
   });
 
   it.each([
@@ -208,7 +209,7 @@ describe('C2 shapes: OpenCode, pi, plugin files and user hooks', () => {
     expect(read(hookFile)).toBe(before);
     expect(skipped).toEqual([hookFile]);
     expect(written).toEqual([t.configPath]);
-    expect(JSON.parse(read(t.configPath)).mcpServers.align.args).toEqual(['mcp', '--env', 'local']);
+    expect(JSON.parse(read(t.configPath)).mcpServers.align.args).toEqual(alignEntryShape(['mcp', '--env', 'local']).args);
   });
 
   it('rewrites a user hook file that is already local', () => {

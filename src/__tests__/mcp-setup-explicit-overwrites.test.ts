@@ -30,6 +30,7 @@ vi.mock('@clack/prompts', () => ({
 }));
 
 import { registerMcpCommand } from '../commands/mcp.js';
+import { alignEntryArgv, alignEntryShape } from './helpers/platform.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), 'align-optin-')); stops.length = 0; });
@@ -45,7 +46,7 @@ describe('writeMcpConfig without onForeign overwrites, as before', () => {
     const file = path.join(dir, '.claude.json');
     writeFileSync(file, JSON.stringify({ mcpServers: { align: PROD } }));
     expect(writeMcpConfig(target(file), 'local')).toEqual([file]);
-    expect(servers(file).align.args).toEqual(['mcp', '--env', 'local']);
+    expect(servers(file).align.args).toEqual(alignEntryShape(['mcp', '--env', 'local']).args);
   });
   it('replaces a hand-written Codex table', () => {
     const file = path.join(dir, 'config.toml');
@@ -57,7 +58,7 @@ describe('writeMcpConfig without onForeign overwrites, as before', () => {
     const file = path.join(dir, 'opencode.json');
     writeFileSync(file, JSON.stringify({ mcp: { align: { type: 'local', command: ['align', 'mcp'] } } }));
     writeMcpConfig(target(file, 'opencode'), 'local');
-    expect(servers(file, 'mcp').align.command).toEqual(['align', 'mcp', '--env', 'local']);
+    expect(servers(file, 'mcp').align.command).toEqual(alignEntryArgv(['mcp', '--env', 'local']));
   });
   it('replaces a prod user hook', () => {
     const hookFile = path.join(dir, 'hooks.json');
@@ -83,7 +84,7 @@ describe('`align mcp --setup --env local`', () => {
     program.exitOverride();
     registerMcpCommand(program);
     await program.parseAsync(['node', 'align', 'mcp', '--setup', '--env', 'local']);
-    expect(servers(file).align.args).toEqual(['mcp', '--env', 'local']);
+    expect(servers(file).align.args).toEqual(alignEntryShape(['mcp', '--env', 'local']).args);
     const said = stops.join('\n');
     expect(said).toContain('align added');
     expect(said).toMatch(/replaced the existing align entry/);

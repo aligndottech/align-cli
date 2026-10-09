@@ -45,6 +45,9 @@ function externalImports(files: Iterable<string>): Set<string> {
   return out;
 }
 
+/** Repo-relative with forward slashes on every OS, so the assertions below name files one way. */
+const relSrc = (f: string): string => path.relative(SRC, f).split(path.sep).join('/');
+
 function reachable(entry: string): Set<string> {
   const seen = new Set<string>();
   const stack = [entry];
@@ -59,7 +62,7 @@ function reachable(entry: string): Set<string> {
 
 describe('the launch decision imports (from default-action.ts)', () => {
   const graph = reachable(path.join(SRC, 'commands/default-action.ts'));
-  const rel = [...graph].map((f) => path.relative(SRC, f));
+  const rel = [...graph].map((f) => relSrc(f));
 
   it('positive control: the walk sees the launcher and its real dependencies', () => {
     expect(rel).toContain('lib/launch/launch.ts');
@@ -69,7 +72,7 @@ describe('the launch decision imports (from default-action.ts)', () => {
   });
   it('positive control: the walk would catch a heavy import (it follows a known static edge)', () => {
     // commands/setup.ts statically imports gateway-client; walking from it must find it.
-    expect([...reachable(path.join(SRC, 'commands/setup.ts'))].map((f) => path.relative(SRC, f))).toContain('lib/gateway-client.ts');
+    expect([...reachable(path.join(SRC, 'commands/setup.ts'))].map((f) => relSrc(f))).toContain('lib/gateway-client.ts');
   });
   it.each(HEAVY)('does not reach %s', (heavy) => {
     expect(rel).not.toContain(heavy);
@@ -83,7 +86,7 @@ describe('the launch decision imports (from default-action.ts)', () => {
 
 describe('what the process loads at startup (from index.ts)', () => {
   const graph = reachable(path.join(SRC, 'index.ts'));
-  const rel = [...graph].map((f) => path.relative(SRC, f));
+  const rel = [...graph].map((f) => relSrc(f));
   const external = externalImports(graph);
 
   it('positive control: the walk reaches the registry and sees node: and package imports', () => {
