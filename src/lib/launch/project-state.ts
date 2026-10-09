@@ -38,7 +38,7 @@ export function readsLocal(tokens: string[], localIsDefault: boolean): boolean {
   return env === undefined ? localIsDefault : env === 'local';
 }
 
-function isLocalAlignServer(entry: unknown, localIsDefault: boolean): boolean {
+export function isLocalAlignServer(entry: unknown, localIsDefault: boolean): boolean {
   const e = entry as { command?: unknown; args?: unknown } | null;
   const tokens = [e?.command, ...(Array.isArray(e?.args) ? (e.args as unknown[]) : [])].filter((t): t is string => typeof t === 'string');
   return tokens.includes('mcp') && tokens.some((t) => /^align(\.cmd)?$/.test(path.basename(t))) && readsLocal(tokens, localIsDefault);

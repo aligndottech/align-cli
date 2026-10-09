@@ -1,21 +1,27 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { runUse, type UseDeps } from '../commands/use.js';
+import { safeWriteJson, setWriteRecorder, type WrittenConfig } from '../lib/safe-config-write.js';
 
-function harness(stored?: string, onPath: Record<string, string> = { claude: '/usr/bin/claude' }) {
+function harness(stored?: string, onPath: Record<string, string> = { claude: '/usr/bin/claude' }, manifest: Record<string, WrittenConfig> = {}) {
   let current = stored;
+  let written = manifest;
   const out: string[] = [];
   const err: string[] = [];
   const clearAgent = vi.fn(() => { current = undefined; });
   const setAgent = vi.fn((a: string) => { current = a; });
   const deps: UseDeps = {
     config: { getAgent: () => current, setAgent, clearAgent },
+    writtenConfigs: { get: () => written, clear: () => { written = {}; } },
     findOnPath: (bin) => onPath[bin] ?? null,
     env: {},
     platform: 'linux',
     log: (l) => out.push(l),
     err: (l) => err.push(l),
   };
-  return { deps, out, err, setAgent, clearAgent, current: () => current };
+  return { deps, out, err, setAgent, clearAgent, current: () => current, manifest: () => written };
 }
 
 describe('align use', () => {
@@ -85,5 +91,50 @@ describe('align use', () => {
     await runUse(undefined, h.deps);
     await runUse('codex', h.deps);
     expect(h.clearAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe('align use --undo (C4)', () => {
+  it('restores every recorded file byte-identical and clears the manifest (two files)', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'align-undo-'));
+    try {
+      const manifest: Record<string, WrittenConfig> = {};
+      setWriteRecorder((f, e) => { manifest[f] = e; });
+      const a = path.join(dir, 'a.json');
+      const b = path.join(dir, 'b.json');
+      writeFileSync(a, '{ "a":1 }');
+      writeFileSync(b, '{"b":2}\n');
+      safeWriteJson(a, (c) => ({ ...c, align: 1 }), { note: () => {} });
+      safeWriteJson(b, (c) => ({ ...c, align: 1 }), { note: () => {} });
+      setWriteRecorder(undefined);
+      const h = harness(undefined, {}, manifest);
+      expect(await runUse(undefined, h.deps, { undo: true })).toBe(0);
+      expect(readFileSync(a, 'utf8')).toBe('{ "a":1 }');
+      expect(readFileSync(b, 'utf8')).toBe('{"b":2}\n');
+      expect(h.manifest()).toEqual({});
+      expect(h.out.join('\n')).toContain(`Restored ${a}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('with an empty manifest it is a no-op that says so', async () => {
+    const h = harness();
+    expect(await runUse(undefined, h.deps, { undo: true })).toBe(0);
+    expect(h.out.join('\n')).toContain('Nothing to undo');
+    expect(h.err).toEqual([]);
+  });
+
+  it('reports a file it could not restore, exits 1, and still clears the manifest', async () => {
+    const h = harness(undefined, {}, { '/nope/missing.json': { created: false, sha256: 'x' } });
+    expect(await runUse(undefined, h.deps, { undo: true })).toBe(1);
+    expect(h.err.join('\n')).toContain('/nope/missing.json: no backup found');
+    expect(h.manifest()).toEqual({});
+  });
+
+  it.each([['pi', {}], [undefined, { none: true }]])('refuses to combine with an agent name or --none (%s)', async (name, extra) => {
+    const h = harness(undefined, {}, { '/x.json': { created: true, sha256: 'x' } });
+    expect(await runUse(name, h.deps, { undo: true, ...extra })).toBe(2);
+    expect(h.manifest()).not.toEqual({});
   });
 });

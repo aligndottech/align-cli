@@ -1,10 +1,13 @@
 import type { Command } from 'commander';
 import { agentByName, LAUNCH_AGENTS } from '../lib/launch/agents.js';
 import { findOnPath } from '../lib/launch/detect.js';
+import { undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
 
 export interface UseDeps {
   config: { getAgent(): string | undefined; setAgent(agent: string): void; clearAgent(): void };
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
+  /** Every file align wrote into another product's config (C4). */
+  writtenConfigs: { get(): Record<string, WrittenConfig>; clear(): void };
   env: Record<string, string | undefined>;
   platform: string;
   log(line: string): void;
@@ -16,7 +19,24 @@ export interface UseDeps {
  * first - bare `align` picks the one agent it finds - so this is only for changing later.
  * Returns the exit code.
  */
-export async function runUse(name: string | undefined, d: UseDeps, opts: { none?: boolean } = {}): Promise<number> {
+export async function runUse(name: string | undefined, d: UseDeps, opts: { none?: boolean; undo?: boolean } = {}): Promise<number> {
+  if (opts.undo) {
+    if (name !== undefined || opts.none) {
+      d.err('error: --undo takes no agent name and cannot be combined with --none.');
+      return 2;
+    }
+    const manifest = d.writtenConfigs.get();
+    if (Object.keys(manifest).length === 0) {
+      d.log('Nothing to undo: align has not written to any agent config.');
+      return 0;
+    }
+    const report = undoWrittenConfigs(manifest);
+    for (const f of report.restored) d.log(`Restored ${f} from its backup.`);
+    for (const f of report.removed) d.log(`Removed ${f} (align created it).`);
+    for (const line of report.skipped) d.err(`Left alone: ${line}`);
+    d.writtenConfigs.clear();
+    return report.skipped.length > 0 ? 1 : 0;
+  }
   if (opts.none) {
     if (name !== undefined) {
       d.err('error: --none takes no agent name.');
@@ -53,11 +73,14 @@ export function registerUseCommand(program: Command): void {
   program
     .command('use [agent]')
     .option('--none', 'Clear the choice, so bare `align` picks again')
+    .option('--undo', 'Put back every agent config file align wrote (restores each from its .align-backup)')
     .description('Choose the coding agent bare `align` opens (no argument shows the current one)')
-    .action(async (agent: string | undefined, opts: { none?: boolean }) => {
+    .action(async (agent: string | undefined, opts: { none?: boolean; undo?: boolean }) => {
       const { createConfigStore } = await import('../lib/config.js');
+      const config = createConfigStore();
       const code = await runUse(agent, {
-        config: createConfigStore(),
+        config,
+        writtenConfigs: { get: () => config.getWrittenConfigs(), clear: () => config.clearWrittenConfigs() },
         findOnPath,
         env: process.env,
         platform: process.platform,

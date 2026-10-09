@@ -5,10 +5,15 @@ import { resolveEnv } from '../resolve-env.js';
 import type { AgentName } from '../sessions/types.js';
 import { agentByName, type LaunchAgent, supportedAgents } from './agents.js';
 import { buildClaudeLaunch, type LaunchSpec } from './adapters/claude-code.js';
+import { buildCursorLaunch } from './adapters/cursor.js';
 import { buildOpenCodeLaunch } from './adapters/opencode.js';
+import { buildPiLaunch } from './adapters/pi.js';
+import { applyConfigWrite, type ConfigWrite } from './config-writes.js';
+import { type CursorProjectState, readCursorState } from './cursor-state.js';
 import { findOnPath } from './detect.js';
 import { launchCacheDir, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
+import { type PiProjectState, readPiState } from './pi-state.js';
 import { type ProjectState, readProjectState } from './project-state.js';
 import { runAgent } from './run-agent.js';
 
@@ -31,6 +36,12 @@ export interface LaunchDeps {
   readProjectState(cwd: string, home: string): ProjectState;
   /** What OpenCode would already load. Separate from readProjectState: it reads other files. */
   readOpenCodeState(cwd: string, home: string): OpenCodeProjectState;
+  /** What pi would already load, and where its MCP file is. */
+  readPiState(cwd: string, home: string, env: Record<string, string | undefined>): PiProjectState;
+  /** What Cursor would already read. */
+  readCursorState(cwd: string, home: string): CursorProjectState;
+  /** Add to a file in the user's own agent config, once (C4). Lines go to `note`. */
+  applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
   writeIfChanged(dir: string, name: string, content: string): boolean;
   runAgent(spec: LaunchSpec): Promise<number>;
@@ -68,6 +79,9 @@ function defaultDeps(): LaunchDeps {
     findOnPath,
     readProjectState: (cwd, home) => readProjectState(cwd, home, { localIsDefault: isLocalDefault() }),
     readOpenCodeState: (cwd, home) => readOpenCodeState(cwd, home, { localIsDefault: isLocalDefault() }, process.env),
+    readPiState: (cwd, home, env) => readPiState(cwd, home, { localIsDefault: isLocalDefault() }, env),
+    readCursorState: (cwd, home) => readCursorState(cwd, home, { localIsDefault: isLocalDefault() }),
+    applyConfigWrite,
     cacheDir: launchCacheDir,
     writeIfChanged,
     runAgent: (spec) => runAgent(spec),
@@ -108,6 +122,8 @@ interface BuildInput {
 const BUILDERS: Partial<Record<AgentName, (d: LaunchDeps, base: BuildInput) => LaunchSpec>> = {
   'claude-code': (d, base) => buildClaudeLaunch({ ...base, ...d.readProjectState(d.cwd, d.home) }),
   opencode: (d, base) => buildOpenCodeLaunch({ ...base, env: d.env, ...d.readOpenCodeState(d.cwd, d.home) }),
+  pi: (d, base) => buildPiLaunch({ ...base, ...d.readPiState(d.cwd, d.home, d.env) }),
+  cursor: (d, base) => buildCursorLaunch({ ...base, ...d.readCursorState(d.cwd, d.home) }),
 };
 
 /**
@@ -190,6 +206,15 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   if (set(d.env['ALIGN_LAUNCH_DRY_RUN'])) return { handled: true, code: 0 };
 
   if (!stored) d.config.setAgent(agent!.name);
+  // Written-once agents (pi, Cursor): the one place align adds to the user's own config. Not
+  // fatal: the session still opens, just without that piece.
+  for (const w of spec.writes ?? []) {
+    try {
+      d.applyConfigWrite(w, d.err);
+    } catch (e) {
+      d.err(`Could not update ${w.file} (${(e as Error).message}). Opening ${agent!.label} without it.`);
+    }
+  }
   if (announce) d.err(announce);
   d.record(agent!.name);
   try {

@@ -2,6 +2,7 @@ import Conf from 'conf';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { WrittenConfig } from './safe-config-write.js';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -135,6 +136,7 @@ export function createConfigStore() {
     installId?: string;
     telemetryConsent?: TelemetryConsent;
     agent?: string;
+    writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
   }>({
@@ -295,6 +297,20 @@ export function createConfigStore() {
     },
     clearAgent() {
       store.delete('agent');
+    },
+    // C4: every other-product config file align wrote (safe-config-write.ts), so
+    // `align use --undo` can put each one back. Keyed by absolute path; the whole map is
+    // read and set as one value because conf treats a dot in a key as a path separator.
+    getWrittenConfigs(): Record<string, WrittenConfig> {
+      return store.get('writtenConfigs') ?? {};
+    },
+    recordWrittenConfig(file: string, entry: WrittenConfig) {
+      const all = store.get('writtenConfigs') ?? {};
+      // `created` is a fact about the FIRST write; a later rewrite must not flip it.
+      store.set('writtenConfigs', { ...all, [file]: { created: all[file]?.created ?? entry.created, sha256: entry.sha256 } });
+    },
+    clearWrittenConfigs() {
+      store.delete('writtenConfigs');
     },
     getTelemetryConsent(): TelemetryConsent | undefined {
       return store.get('telemetryConsent');

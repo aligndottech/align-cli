@@ -8,6 +8,11 @@ vi.mock('node:fs', async (importOriginal) => {
     readFileSync: vi.fn().mockReturnValue('{}'),
     writeFileSync: vi.fn(),
     mkdirSync: vi.fn(),
+    // The safe writer (C4) stages a temp file and renames it; nothing here may touch disk.
+    renameSync: vi.fn(),
+    copyFileSync: vi.fn(),
+    chmodSync: vi.fn(),
+    unlinkSync: vi.fn(),
   };
 });
 

@@ -40,6 +40,26 @@ describe('config store', () => {
     expect(c.getAgent()).toBeUndefined();
   });
 
+  it('records written configs by path (dots in the path are not key separators) and clears them', () => {
+    const c = createConfigStore();
+    expect(c.getWrittenConfigs()).toEqual({});
+    c.recordWrittenConfig('/home/u/.cursor/mcp.json', { created: false, sha256: 'a' });
+    c.recordWrittenConfig('/home/u/.pi/agent/mcp.json', { created: true, sha256: 'b' });
+    expect(Object.keys(c.getWrittenConfigs()).sort()).toEqual(['/home/u/.cursor/mcp.json', '/home/u/.pi/agent/mcp.json']);
+    c.clearWrittenConfigs();
+    expect(c.getWrittenConfigs()).toEqual({});
+  });
+
+  it('a second record updates the hash and keeps the FIRST write\'s created flag (both directions)', () => {
+    const c = createConfigStore();
+    c.recordWrittenConfig('/a.json', { created: true, sha256: '1' });
+    c.recordWrittenConfig('/a.json', { created: false, sha256: '2' });
+    expect(c.getWrittenConfigs()['/a.json']).toEqual({ created: true, sha256: '2' });
+    c.recordWrittenConfig('/b.json', { created: false, sha256: '1' });
+    c.recordWrittenConfig('/b.json', { created: true, sha256: '2' });
+    expect(c.getWrittenConfigs()['/b.json']).toEqual({ created: false, sha256: '2' });
+  });
+
   it('returns default gateway URL for local', () => {
     expect(createConfigStore().getEnvironment('local').gatewayUrl).toBe('http://localhost:8080');
   });

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
+import { safeWriteJson } from './safe-config-write.js';
 
 // ALI-952: user-level advisory hooks for the hosts whose hook API lives in a file under the
 // user's home rather than in the project. Written by mcp-setup.ts next to the MCP entry for
@@ -125,27 +126,53 @@ function hooksOf(config: Record<string, unknown>, file: string): Record<string, 
   return hooks as Record<string, unknown>;
 }
 
+/**
+ * Codex and Cursor hook files go through the safe writer (C4): backup once, change
+ * detection, atomic rename, no writing through a symlink. Copilot's file is one of ours under
+ * its own hooks/ dir, so it stays on the plain writer.
+ */
+const SAFE_HOSTS: ReadonlySet<HookHost> = new Set(['codex', 'cursor']);
+
 export function writeUserHooks(target: UserHookTarget, env?: string, onForeign?: OnForeign): boolean {
   const spec = HOSTS[target.host];
   const command = advisoryHookCommand(target.host, env);
-  const config = readHooksFile(target.path) ?? {};
+  let foreign = false;
 
-  const hooks = hooksOf(config, target.path);
-  // The local wizard never replaces a hook that checks against a team env.
-  if (onForeign && env === 'local' && spec.events.some((event) =>
-    (Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []).some((e) => isOurs(spec, e) && !carriesLocalEnv(JSON.stringify(e))))) {
-    onForeign(target.path);
+  // Mutates and returns `config`; undefined means "leave the file alone".
+  const merge = (config: Record<string, unknown>): Record<string, unknown> | undefined => {
+    const hooks = hooksOf(config, target.path);
+    // The local wizard never replaces a hook that checks against a team env.
+    if (onForeign && env === 'local' && spec.events.some((event) =>
+      (Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []).some((e) => isOurs(spec, e) && !carriesLocalEnv(JSON.stringify(e))))) {
+      foreign = true;
+      return undefined;
+    }
+    for (const event of spec.events) {
+      const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
+      const preserved = existing.filter((e) => !isOurs(spec, e));
+      preserved.push(spec.entry(command));
+      hooks[event] = preserved;
+    }
+    config['hooks'] = hooks;
+    if (spec.version !== undefined && config['version'] === undefined) config['version'] = spec.version;
+    return config;
+  };
+
+  if (SAFE_HOSTS.has(target.host)) {
+    const status = safeWriteJson(target.path, merge, { trailingNewline: true });
+    if (foreign) {
+      onForeign!(target.path);
+      return false;
+    }
+    return status !== 'symlink';
+  }
+
+  const config = readHooksFile(target.path) ?? {};
+  merge(config);
+  if (foreign) {
+    onForeign!(target.path);
     return false;
   }
-  for (const event of spec.events) {
-    const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
-    const preserved = existing.filter((e) => !isOurs(spec, e));
-    preserved.push(spec.entry(command));
-    hooks[event] = preserved;
-  }
-  config['hooks'] = hooks;
-  if (spec.version !== undefined && config['version'] === undefined) config['version'] = spec.version;
-
   const dir = path.dirname(target.path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(target.path, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
