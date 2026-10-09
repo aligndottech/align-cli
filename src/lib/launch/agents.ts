@@ -1,4 +1,5 @@
 import type { AgentName } from '../sessions/types.js';
+import { AGENT_REGISTRY } from './registry/index.js';
 
 export interface LaunchAgent {
   name: AgentName;
@@ -11,14 +12,9 @@ export interface LaunchAgent {
   install: string;
 }
 
-export const LAUNCH_AGENTS: readonly LaunchAgent[] = [
-  { name: 'claude-code', label: 'Claude Code', bin: 'claude', injection: 'per-session', supported: true, install: 'npm i -g @anthropic-ai/claude-code' },
-  { name: 'codex', label: 'Codex', bin: 'codex', injection: 'per-session', supported: false, install: 'npm i -g @openai/codex' },
-  { name: 'cursor', label: 'Cursor', bin: 'cursor-agent', injection: 'written-once', supported: true, install: 'https://cursor.com/cli' },
-  { name: 'gemini-cli', label: 'Gemini CLI', bin: 'gemini', injection: 'per-session', supported: false, install: 'npm i -g @google/gemini-cli' },
-  { name: 'opencode', label: 'OpenCode', bin: 'opencode', injection: 'per-session', supported: true, install: 'npm i -g opencode-ai' },
-  { name: 'pi', label: 'pi', bin: 'pi', injection: 'written-once', supported: true, install: 'https://pi.dev' },
-];
+export const LAUNCH_AGENTS: readonly LaunchAgent[] = AGENT_REGISTRY.map(
+  ({ name, label, bin, injection, supported, install }) => ({ name, label, bin, injection, supported, install }),
+);
 
 export function agentByName(name: string | undefined): LaunchAgent | undefined {
   return LAUNCH_AGENTS.find((a) => a.name === name);

@@ -4,10 +4,7 @@ import { createConfigStore } from '../config.js';
 import { resolveEnv } from '../resolve-env.js';
 import type { AgentName } from '../sessions/types.js';
 import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
-import { buildClaudeLaunch, type LaunchSpec } from './adapters/claude-code.js';
-import { buildCursorLaunch } from './adapters/cursor.js';
-import { buildOpenCodeLaunch } from './adapters/opencode.js';
-import { buildPiLaunch } from './adapters/pi.js';
+import type { LaunchSpec } from './adapters/claude-code.js';
 import { applyConfigWrite, type ConfigWrite } from './config-writes.js';
 import { type CursorProjectState, readCursorState } from './cursor-state.js';
 import { findOnPath } from './detect.js';
@@ -15,6 +12,7 @@ import { launchCacheDir, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
 import { type PiProjectState, readPiState } from './pi-state.js';
 import { type ProjectState, readProjectState } from './project-state.js';
+import { specByName } from './registry/index.js';
 import { runAgent } from './run-agent.js';
 
 /*
@@ -113,18 +111,10 @@ function splitArgv(argv: string[]): { operands: string[]; passthrough: string[] 
   return { operands: before.filter((a) => !a.startsWith('-')), passthrough: sep < 0 ? [] : user.slice(sep + 1) };
 }
 
-interface BuildInput {
+export interface BuildInput {
   passthrough: string[];
   cachePath(name: string): string;
 }
-
-/** One adapter per launchable agent. Each reads the project state ITS agent would load. */
-const BUILDERS: Partial<Record<AgentName, (d: LaunchDeps, base: BuildInput) => LaunchSpec>> = {
-  'claude-code': (d, base) => buildClaudeLaunch({ ...base, ...d.readProjectState(d.cwd, d.home) }),
-  opencode: (d, base) => buildOpenCodeLaunch({ ...base, env: d.env, ...d.readOpenCodeState(d.cwd, d.home) }),
-  pi: (d, base) => buildPiLaunch({ ...base, ...d.readPiState(d.cwd, d.home, d.env) }),
-  cursor: (d, base) => buildCursorLaunch({ ...base, ...d.readCursorState(d.cwd, d.home) }),
-};
 
 /**
  * What bare `align` does once a local graph exists: open the user's coding agent with Align
@@ -181,7 +171,7 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     }
   }
 
-  const build = BUILDERS[agent!.name];
+  const build = specByName(agent!.name)?.build;
   if (!agent!.supported || !build) {
     d.err(`${agent!.label} launching is coming soon; showing your graph instead. Switch with \`align use\`.`);
     return { handled: false };
