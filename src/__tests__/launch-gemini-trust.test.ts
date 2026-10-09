@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { geminiFolderTrust } from '../lib/launch/gemini-trust.js';
+import { geminiFolderTrust, geminiSystemDefaultsPath } from '../lib/launch/gemini-trust.js';
 
 /*
  * Gemini CLI 0.58.0 turns off EVERY MCP server in a folder it does not trust. The rules, read
@@ -23,7 +23,10 @@ const dir = (...p: string[]) => {
   mkdirSync(d, { recursive: true });
   return d;
 };
-const trust = (cwd: string, env: Record<string, string | undefined> = {}, platform = 'linux') =>
+// The real filesystem paths below follow the HOST's path rules, so the default platform is the
+// host's. Hardcoding 'linux' made path.posix read Windows paths as one opaque segment on the
+// windows-launch job: exact matches held, nothing nested, and system-defaults.json was lost.
+const trust = (cwd: string, env: Record<string, string | undefined> = {}, platform: string = process.platform) =>
   geminiFolderTrust(cwd, home, { GEMINI_CLI_SYSTEM_SETTINGS_PATH: path.join(root, 'no-system.json'), ...env }, platform);
 
 beforeEach(() => {
@@ -155,5 +158,40 @@ describe('geminiFolderTrust: what overrides the file', () => {
     expect(trust(proj, env)).toBe('off');
     writeFileSync(path.join(gdir(), 'settings.json'), JSON.stringify({ security: { folderTrust: { enabled: true } } }));
     expect(trust(proj, env)).toBe('untrusted');
+  });
+});
+
+describe('geminiFolderTrust on win32, simulated on any host (synthetic paths, so realpath leaves them as written)', () => {
+  const WS = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\x\\ws';
+  const win = (cwd: string) => geminiFolderTrust(cwd, home, { GEMINI_CLI_SYSTEM_SETTINGS_PATH: path.join(root, 'no-system.json') }, 'win32');
+
+  it('a folder below a TRUST_FOLDER rule is trusted; a sibling sharing the prefix is not', () => {
+    rules({ [`${WS}\\proj`]: 'TRUST_FOLDER' });
+    expect(win(`${WS}\\proj`)).toBe('trusted');
+    expect(win(`${WS}\\proj\\src\\deep`)).toBe('trusted');
+    expect(win(`${WS}\\projx`)).toBe('untrusted');
+  });
+
+  it('drive letter and case fold the way Gemini\'s normalizePath does, and a forward-slash rule matches', () => {
+    rules({ 'C:/Users/RUNNER~1/AppData/Local/Temp/x/ws/proj': 'TRUST_FOLDER' });
+    expect(win('c:\\users\\runner~1\\appdata\\local\\temp\\x\\WS\\PROJ\\src')).toBe('trusted');
+  });
+
+  it('TRUST_PARENT trusts the rule\'s parent; the longest rule wins whatever the order', () => {
+    rules({ [`${WS}\\projA`]: 'TRUST_PARENT' });
+    expect(win(`${WS}\\projB`)).toBe('trusted');
+    rules({ [`${WS}\\secret`]: 'DO_NOT_TRUST', [WS]: 'TRUST_FOLDER' });
+    expect(win(`${WS}\\secret\\x`)).toBe('untrusted');
+    expect(win(`${WS}\\open`)).toBe('trusted');
+  });
+
+  it('system-defaults.json is found beside a Windows system settings path', () => {
+    expect(geminiSystemDefaultsPath('C:\\ProgramData\\gemini-cli\\settings.json', 'win32')).toBe('C:\\ProgramData\\gemini-cli\\system-defaults.json');
+    expect(geminiSystemDefaultsPath('/etc/gemini-cli/settings.json', 'linux')).toBe('/etc/gemini-cli/system-defaults.json');
+  });
+
+  it('control: the SAME Windows paths under posix rules nest nothing (the CI failure mode)', () => {
+    rules({ [`${WS}\\proj`]: 'TRUST_FOLDER' });
+    expect(geminiFolderTrust(`${WS}\\proj\\src`, home, { GEMINI_CLI_SYSTEM_SETTINGS_PATH: path.join(root, 'no-system.json') }, 'linux')).toBe('untrusted');
   });
 });
