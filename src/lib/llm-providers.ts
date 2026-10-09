@@ -15,15 +15,25 @@ export interface NamedProvider {
   /** The env var that overrides the model. */
   modelEnv: string;
   defaultModel: string;
-  /** Which request shape. 'openai' posts Chat Completions to `endpoint`. */
+  /** Which request shape. 'openai' posts Chat Completions to `endpoint`; 'anthropic' posts
+   *  Messages to `endpoint` (default Anthropic's own). */
   api: 'anthropic' | 'gemini' | 'openai';
-  /** Full Chat Completions URL, for api 'openai'. */
+  /** The full request URL. Required for 'openai'. */
   endpoint?: string;
+  /**
+   * A key read from one of these env vars goes to a different endpoint, with its own default
+   * model. Qwen: the token-plan key and a DashScope key are different products on different
+   * hosts, and a key sent to the wrong one is rejected.
+   */
+  keyRoutes?: Record<string, { endpoint: string; defaultModel: string }>;
   /** Where to get a key, shown beside the paste prompt. */
   keyUrl: string;
 }
 
-export type NamedProviderId = 'anthropic' | 'openai' | 'groq' | 'gemini' | 'mistral' | 'grok';
+export type NamedProviderId =
+  | 'anthropic' | 'openai' | 'groq' | 'gemini' | 'mistral' | 'grok'
+  | 'deepseek' | 'zai' | 'moonshotai' | 'cerebras' | 'fireworks' | 'together' | 'nvidia'
+  | 'huggingface' | 'baseten' | 'xiaomi' | 'qwen' | 'minimax' | 'kimi-coding' | 'vercel-ai-gateway';
 
 /**
  * In the fixed fallback order (ALI-1284: Groq ahead of Gemini, so the free pairing has a real
@@ -60,7 +70,78 @@ export const NAMED_PROVIDERS: readonly NamedProvider[] = [
     defaultModel: 'grok-2-latest', api: 'openai', endpoint: 'https://api.x.ai/v1/chat/completions',
     keyUrl: 'https://console.x.ai',
   },
+
+  // ---- Appended after the original six, so they only run when the user has their key. ----
+  // Source for every env var name, base URL, API shape and model id below, unless a comment
+  // says otherwise: @earendil-works/pi-ai 0.87.1 (MIT), dist/env-api-keys.js and
+  // dist/providers/data/<id>.json. Default models are the cheapest current id that table lists
+  // for the provider, preferring a non-reasoning model where one is cheap (a reasoning model
+  // spends align's 1,024-token answer budget thinking).
+  openAi('deepseek', 'DeepSeek', ['DEEPSEEK_API_KEY'], 'https://api.deepseek.com/chat/completions',
+    'deepseek-flash', 'https://platform.deepseek.com/api_keys'),
+  // pi-ai lists the GLM Coding Plan endpoint (/api/coding/paas/v4). This is Z.ai's GENERAL
+  // endpoint, for an ordinary pay-as-you-go key - https://docs.z.ai/api-reference/introduction
+  // says the coding endpoint is only for Coding Plan subscribers.
+  openAi('zai', 'Z.ai (GLM)', ['ZAI_API_KEY'], 'https://api.z.ai/api/paas/v4/chat/completions',
+    'glm-5.3-flash', 'https://z.ai/manage-apikey/apikey-list'),
+  openAi('moonshotai', 'Moonshot (Kimi)', ['MOONSHOT_API_KEY'], 'https://api.moonshot.ai/v1/chat/completions',
+    'kimi-k2.6', 'https://platform.moonshot.ai/console/api-keys'),
+  openAi('cerebras', 'Cerebras', ['CEREBRAS_API_KEY'], 'https://api.cerebras.ai/v1/chat/completions',
+    'gpt-oss-120b', 'https://cloud.cerebras.ai'),
+  openAi('fireworks', 'Fireworks AI', ['FIREWORKS_API_KEY'], 'https://api.fireworks.ai/inference/v1/chat/completions',
+    'accounts/fireworks/models/glm-5p3-flash', 'https://app.fireworks.ai/settings/users/api-keys'),
+  openAi('together', 'Together AI', ['TOGETHER_API_KEY'], 'https://api.together.ai/v1/chat/completions',
+    'Qwen/Qwen2.5-7B-Instruct-Turbo', 'https://api.together.ai/settings/api-keys'),
+  openAi('nvidia', 'NVIDIA', ['NVIDIA_API_KEY'], 'https://integrate.api.nvidia.com/v1/chat/completions',
+    'google/gemma-3-12b-it', 'https://build.nvidia.com'),
+  openAi('huggingface', 'Hugging Face', ['HF_TOKEN'], 'https://router.huggingface.co/v1/chat/completions',
+    'meta-llama/Llama-3.1-8B-Instruct', 'https://huggingface.co/settings/tokens'),
+  openAi('baseten', 'Baseten', ['BASETEN_API_KEY'], 'https://inference.baseten.co/v1/chat/completions',
+    'deepseek-ai/DeepSeek-V4-Flash-0731', 'https://app.baseten.co/settings/api_keys'),
+  openAi('xiaomi', 'Xiaomi MiMo', ['XIAOMI_API_KEY'], 'https://api.xiaomimimo.com/v1/chat/completions',
+    'mimo-v2.5', 'https://platform.xiaomimimo.com'),
+  {
+    // Alibaba Model Studio. QWEN_TOKEN_PLAN_API_KEY and its endpoint/model are pi-ai's (the
+    // Token Plan). DASHSCOPE_API_KEY is an ordinary Model Studio key, routed to the legacy
+    // international DashScope domain, which Alibaba documents as still valid -
+    // https://www.alibabacloud.com/help/en/model-studio/base-url - with qwen3.5-flash from
+    // https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions.
+    // A SAVED Qwen key uses the token-plan route, matching the env name listed first.
+    id: 'qwen', label: 'Qwen (Alibaba Model Studio)', keyEnv: ['QWEN_TOKEN_PLAN_API_KEY', 'DASHSCOPE_API_KEY'],
+    modelEnv: 'ALIGN_QWEN_MODEL', defaultModel: 'qwen3.6-flash', api: 'openai',
+    endpoint: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions',
+    keyRoutes: {
+      DASHSCOPE_API_KEY: {
+        endpoint: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
+        defaultModel: 'qwen3.5-flash',
+      },
+    },
+    keyUrl: 'https://modelstudio.console.alibabacloud.com',
+  },
+  // These three speak Anthropic Messages in pi-ai's table, so they reuse align's Anthropic
+  // adapter at their own base URL (x-api-key auth, POST <base>/v1/messages).
+  anthropicAt('minimax', 'MiniMax', ['MINIMAX_API_KEY'], 'https://api.minimax.io/anthropic/v1/messages',
+    'MiniMax-M2.7', 'https://platform.minimax.io'),
+  anthropicAt('kimi-coding', 'Kimi Coding Plan', ['KIMI_API_KEY'], 'https://api.kimi.com/coding/v1/messages',
+    'kimi-for-coding', 'https://www.kimi.com/code'),
+  anthropicAt('vercel-ai-gateway', 'Vercel AI Gateway', ['AI_GATEWAY_API_KEY'], 'https://ai-gateway.vercel.sh/v1/messages',
+    'openai/gpt-4o-mini', 'https://vercel.com/dashboard/ai-gateway'),
+  // Not included: cloudflare-workers-ai (needs CLOUDFLARE_ACCOUNT_ID in the URL) and Azure
+  // OpenAI (a per-resource endpoint, deployment name and api-version) - neither fits a fixed
+  // endpoint. Both work today through ALIGN_LLM_BASE_URL.
 ];
+
+function modelEnvFor(id: string): string {
+  return `ALIGN_${id.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_MODEL`;
+}
+
+function openAi(id: NamedProviderId, label: string, keyEnv: string[], endpoint: string, defaultModel: string, keyUrl: string): NamedProvider {
+  return { id, label, keyEnv, modelEnv: modelEnvFor(id), defaultModel, api: 'openai', endpoint, keyUrl };
+}
+
+function anthropicAt(id: NamedProviderId, label: string, keyEnv: string[], endpoint: string, defaultModel: string, keyUrl: string): NamedProvider {
+  return { id, label, keyEnv, modelEnv: modelEnvFor(id), defaultModel, api: 'anthropic', endpoint, keyUrl };
+}
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';

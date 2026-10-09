@@ -124,12 +124,14 @@ describe('the first-ask offer', () => {
 });
 
 describe('"Use a key I already have"', () => {
-  it('lists the seven providers a key can be saved for', async () => {
+  it('lists the original seven providers first, then the rest of the provider list', async () => {
     select.mockResolvedValueOnce('existing').mockResolvedValueOnce('anthropic');
     password.mockResolvedValueOnce('sk-ant-secret');
     await offerAskProviderKey(fakeConfig());
     const labels = (select.mock.calls[1]![0] as { options: Array<{ label: string }> }).options.map((o) => o.label);
-    expect(labels).toEqual(['Anthropic', 'OpenAI', 'OpenRouter', 'Gemini', 'Groq', 'Mistral', 'xAI']);
+    expect(labels.slice(0, 7)).toEqual(['Anthropic', 'OpenAI', 'OpenRouter', 'Gemini', 'Groq', 'Mistral', 'xAI']);
+    expect(labels).toContain('DeepSeek');
+    expect(labels).toContain('Qwen (Alibaba Model Studio)');
   });
 
   it.each([

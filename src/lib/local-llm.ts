@@ -431,13 +431,14 @@ async function tryAnthropic(
   user: string,
   key: string,
   model: string,
+  endpoint = 'https://api.anthropic.com/v1/messages',
   maxTokens = 256,
   temperature?: number,
 ): Promise<AdapterOutcome> {
-  const anthropicTimeoutMs = resolveLlmTimeoutMs('https://api.anthropic.com');
+  const anthropicTimeoutMs = resolveLlmTimeoutMs(endpoint);
   let res: Response;
   try {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
+    res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -896,25 +897,33 @@ function modelFor(id: LlmProviderId, modelEnv: string | null, fallback: string):
   return fallback;
 }
 
-/** The first non-empty env value among `names` (`||`, so an empty alias never shadows a real one). */
-function envKey(names: readonly string[]): string | undefined {
-  for (const n of names) if (process.env[n]) return process.env[n];
+/** The first non-empty env value among `names`, and its name (`||` semantics, so an empty
+ *  alias never shadows a real one). */
+function envKeyWithName(names: readonly string[]): { key: string; name: string } | undefined {
+  for (const n of names) if (process.env[n]) return { key: process.env[n]!, name: n };
   return undefined;
+}
+function envKey(names: readonly string[]): string | undefined {
+  return envKeyWithName(names)?.key;
 }
 
 function callNamed(
   p: NamedProvider,
   key: string,
+  keyVar: string | null,
   system: string,
   user: string,
   maxTokens?: number,
   temperature?: number,
 ): Promise<AdapterOutcome> {
-  const model = modelFor(p.id, p.modelEnv, p.defaultModel);
+  // A key from a routed env var (Qwen's DashScope key) goes to that route's endpoint and model.
+  const route = keyVar ? p.keyRoutes?.[keyVar] : undefined;
+  const endpoint = route?.endpoint ?? p.endpoint;
+  const model = modelFor(p.id, p.modelEnv, route?.defaultModel ?? p.defaultModel);
   switch (p.api) {
-    case 'anthropic': return tryAnthropic(system, user, key, model, maxTokens, temperature);
+    case 'anthropic': return tryAnthropic(system, user, key, model, endpoint, maxTokens, temperature);
     case 'gemini': return tryGemini(system, user, key, model, maxTokens, temperature);
-    case 'openai': return tryOpenAiCompatible(system, user, p.endpoint!, model, key, maxTokens, undefined, temperature);
+    case 'openai': return tryOpenAiCompatible(system, user, endpoint!, model, key, maxTokens, undefined, temperature);
   }
 }
 
@@ -975,8 +984,8 @@ function credentials(): Credential[] {
     });
   }
   for (const p of NAMED_PROVIDERS) {
-    const key = envKey(p.keyEnv);
-    if (key) out.push({ id: p.id, source: 'env', run: (sys, usr, mt, t) => callNamed(p, key, sys, usr, mt, t) });
+    const found = envKeyWithName(p.keyEnv);
+    if (found) out.push({ id: p.id, source: 'env', run: (sys, usr, mt, t) => callNamed(p, found.key, found.name, sys, usr, mt, t) });
   }
   const openrouter = s.keys.openrouter;
   if (openrouter && !baseUrl) {
@@ -990,7 +999,7 @@ function credentials(): Credential[] {
   }
   for (const p of NAMED_PROVIDERS) {
     const key = s.keys[p.id];
-    if (key && !envKey(p.keyEnv)) out.push({ id: p.id, source: 'saved', run: (sys, usr, mt, t) => callNamed(p, key, sys, usr, mt, t) });
+    if (key && !envKey(p.keyEnv)) out.push({ id: p.id, source: 'saved', run: (sys, usr, mt, t) => callNamed(p, key, null, sys, usr, mt, t) });
   }
   return out;
 }

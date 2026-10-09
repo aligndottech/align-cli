@@ -93,6 +93,30 @@ Gemini specifically so the free Groq + Gemini pairing above has a real primary.
 Each has an optional model override: `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`,
 `ALIGN_GROQ_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`.
 
+After those, and only when you have the key, any of these (OpenAI-compatible unless noted).
+Each has a model override `ALIGN_<ID>_MODEL` (e.g. `ALIGN_DEEPSEEK_MODEL`) and can be chosen
+with `align ai --provider <id>`:
+
+| id | Key variable | Default model |
+|---|---|---|
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-flash` |
+| `zai` | `ZAI_API_KEY` (general endpoint, not the Coding Plan one) | `glm-5.3-flash` |
+| `moonshotai` | `MOONSHOT_API_KEY` | `kimi-k2.6` |
+| `cerebras` | `CEREBRAS_API_KEY` | `gpt-oss-120b` |
+| `fireworks` | `FIREWORKS_API_KEY` | `accounts/fireworks/models/glm-5p3-flash` |
+| `together` | `TOGETHER_API_KEY` | `Qwen/Qwen2.5-7B-Instruct-Turbo` |
+| `nvidia` | `NVIDIA_API_KEY` | `google/gemma-3-12b-it` |
+| `huggingface` | `HF_TOKEN` | `meta-llama/Llama-3.1-8B-Instruct` |
+| `baseten` | `BASETEN_API_KEY` | `deepseek-ai/DeepSeek-V4-Flash-0731` |
+| `xiaomi` | `XIAOMI_API_KEY` | `mimo-v2.5` |
+| `qwen` | `QWEN_TOKEN_PLAN_API_KEY` (Token Plan), or `DASHSCOPE_API_KEY` (DashScope international) | `qwen3.6-flash` / `qwen3.5-flash` |
+| `minimax` | `MINIMAX_API_KEY` (Anthropic-style API) | `MiniMax-M2.7` |
+| `kimi-coding` | `KIMI_API_KEY` (Anthropic-style API) | `kimi-for-coding` |
+| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` (Anthropic-style API) | `openai/gpt-4o-mini` |
+
+Cloudflare Workers AI and Azure OpenAI need an account id or a per-resource endpoint, so they
+have no fixed entry: point `ALIGN_LLM_BASE_URL` at them instead.
+
 > **A real rate limit stops that one `align ask` call rather than falling through to the next
 > provider.** If you've set both a Groq and a Gemini key and Groq returns a rate-limit error
 > (its daily cap included), the error names Groq and that call returns no answer - it does not
