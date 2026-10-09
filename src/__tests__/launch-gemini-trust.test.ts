@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -99,6 +99,25 @@ describe('geminiFolderTrust: trustedFolders.json', () => {
     expect(trust(proj)).toBe('untrusted');
   });
 
+  it('reads a trustedFolders.json with comments, as Gemini does', () => {
+    const proj = dir('p');
+    writeFileSync(path.join(gdir(), 'trustedFolders.json'), `// mine\n{ ${JSON.stringify(proj)}: /* yes */ "TRUST_FOLDER" }`);
+    expect(trust(proj)).toBe('trusted');
+    expect(trust(dir('q'))).toBe('untrusted');
+  });
+
+  it('resolves symlinks on both sides: a linked cwd under a trusted real dir, and a linked rule over a real cwd', () => {
+    const real = dir('real', 'proj');
+    const link = path.join(root, 'link');
+    symlinkSync(path.join(root, 'real'), link);
+    rules({ [real]: 'TRUST_FOLDER' });
+    expect(trust(path.join(link, 'proj'))).toBe('trusted');
+    rules({ [path.join(link, 'proj')]: 'TRUST_FOLDER' });
+    expect(trust(real)).toBe('trusted');
+    rules({ [path.join(link, 'other')]: 'TRUST_FOLDER' });
+    expect(trust(real)).toBe('untrusted');
+  });
+
   it('never writes trustedFolders.json: absent stays absent, present stays byte-identical', () => {
     const file = path.join(gdir(), 'trustedFolders.json');
     trust(dir('p'));
@@ -119,9 +138,9 @@ describe('geminiFolderTrust: what overrides the file', () => {
     expect(trust(dir('q'), { GEMINI_CLI_TRUST_WORKSPACE: 'true' })).toBe('trusted');
   });
 
-  it('folder trust turned off in user settings is off; the system file overrides the user', () => {
+  it('folder trust turned off in user settings (JSONC) is off; the system file overrides the user', () => {
     const proj = dir('p');
-    writeFileSync(path.join(gdir(), 'settings.json'), JSON.stringify({ security: { folderTrust: { enabled: false } } }));
+    writeFileSync(path.join(gdir(), 'settings.json'), '// mine\n{ "security": { "folderTrust": { "enabled": false /* off */ } } }');
     expect(trust(proj)).toBe('off');
     const sys = path.join(root, 'system.json');
     writeFileSync(sys, JSON.stringify({ security: { folderTrust: { enabled: true } } }));

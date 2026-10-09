@@ -1,41 +1,62 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { isLocalAlignServer } from './project-state.js';
+import { type AlignLocalState, foldLayers, type Layer, parseJsonc } from './strict-entry.js';
 
-export interface CopilotProjectState {
-  /** Copilot would already start a local align server: our align-local, or the user's align at --env local. */
-  projectHasMcp: boolean;
-}
+export type CopilotProjectState = AlignLocalState;
 
-type Json = Record<string, unknown>;
-
-function servers(file: string): Json | undefined {
+function layer(file: string): Layer {
+  let text: string | null = null;
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Json | null;
-    return (parsed?.['mcpServers'] ?? undefined) as Json | undefined;
+    text = readFileSync(file, 'utf8');
   } catch {
-    return undefined;
+    // missing or unreadable: no servers
   }
+  return { file, servers: parseJsonc(text)?.['mcpServers'] };
 }
 
-/** The cwd and each directory above it, up to and including the git root (or the filesystem root). */
-function projectDirs(cwd: string): string[] {
+/** cwd up to and including the git root; with no .git anywhere above, cwd alone. Never past the root. */
+function workspaceDirs(cwd: string): string[] {
   const dirs: string[] = [];
   for (let dir = cwd; ; dir = path.dirname(dir)) {
     dirs.push(dir);
-    if (existsSync(path.join(dir, '.git')) || path.dirname(dir) === dir) return dirs;
+    if (existsSync(path.join(dir, '.git'))) return dirs;
+    if (path.dirname(dir) === dir) return [cwd];
   }
 }
 
 /**
- * What Copilot CLI would already load here (`copilot mcp --help`: user ~/.copilot/mcp-config.json,
- * workspace .mcp.json or .github/mcp.json), so the per-session flag never doubles it. The user
- * file follows a user-set COPILOT_HOME; align reads it and never sets it. Unreadable is absent.
+ * What Copilot CLI (1.0.95) would already load for align. User: $COPILOT_HOME (or ~/.copilot)
+ * /mcp-config.json. Workspace: .mcp.json and .github/mcp.json from cwd up to the git root.
+ *
+ * Copilot loads the workspace files only in a trusted folder, but that verdict comes from its
+ * native runtime and several sources (its own store, IDE workspace folders, settings), none of
+ * which align can read reliably; only COPILOT_ALLOW_ALL=true is certain. And whether
+ * --additional-mcp-config replaces a same-named server whole is also native. So, both ways safe:
+ *  - a workspace entry counts as "already present" only under COPILOT_ALLOW_ALL=true
+ *    (otherwise inject: the worst case is a duplicate server, never a missing graph);
+ *  - a non-canonical align-local in ANY of these files is a conflict (no injection), because
+ *    a merged, repo-shaped align-local must never be launched.
  */
-export function readCopilotState(cwd: string, home: string, opts: { localIsDefault: boolean }, env: Record<string, string | undefined> = {}): CopilotProjectState {
-  const copilotHome = env['COPILOT_HOME'] ? env['COPILOT_HOME'] : path.join(home, '.copilot');
-  const files = [path.join(copilotHome, 'mcp-config.json'), ...projectDirs(cwd).flatMap((d) => [path.join(d, '.mcp.json'), path.join(d, '.github', 'mcp.json')])];
+export function readCopilotState(
+  cwd: string,
+  home: string,
+  opts: { localIsDefault: boolean },
+  env: Record<string, string | undefined>,
+  platform: string,
+): CopilotProjectState {
+  const o = { ...opts, platform, host: 'copilot' as const };
+  const userFile = path.join(env['COPILOT_HOME'] ? env['COPILOT_HOME'] : path.join(home, '.copilot'), 'mcp-config.json');
+  const never = (): boolean => false;
+  const user = foldLayers([layer(userFile)], o, never);
+  const workspace = foldLayers(
+    workspaceDirs(cwd).reverse().flatMap((d) => [layer(path.join(d, '.mcp.json')), layer(path.join(d, '.github', 'mcp.json'))]),
+    o,
+    never,
+  );
+  const conflict = user.conflict ?? workspace.conflict;
   return {
-    projectHasMcp: files.map(servers).some((s) => s?.['align-local'] !== undefined || isLocalAlignServer(s?.['align'], opts.localIsDefault)),
+    present: user.present || (env['COPILOT_ALLOW_ALL'] === 'true' && workspace.present),
+    overridden: [],
+    ...(conflict ? { conflict } : {}),
   };
 }

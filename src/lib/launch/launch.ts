@@ -2,7 +2,7 @@ import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { createConfigStore } from '../config.js';
 import { resolveEnv } from '../resolve-env.js';
-import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
+import { agentByName, byPriority, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
 import type { LaunchSpec } from './adapters/claude-code.js';
 import { applyConfigWrite, type ConfigWrite } from './config-writes.js';
 import { type CodexProjectState, readCodexState } from './codex-state.js';
@@ -10,7 +10,7 @@ import { type CopilotProjectState, readCopilotState } from './copilot-state.js';
 import { type CursorProjectState, readCursorState } from './cursor-state.js';
 import { findOnPath } from './detect.js';
 import { type GeminiProjectState, readGeminiState } from './gemini-state.js';
-import { launchCacheDir, writeIfChanged } from './launch-files.js';
+import { launchCacheDir, removeLaunchFile, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
 import { type PiProjectState, readPiState } from './pi-state.js';
 import { type ProjectState, readProjectState } from './project-state.js';
@@ -42,15 +42,17 @@ export interface LaunchDeps {
   /** What Cursor would already read. */
   readCursorState(cwd: string, home: string): CursorProjectState;
   /** What Codex would already load ($CODEX_HOME or ~/.codex, and the project's .codex/). */
-  readCodexState(cwd: string, home: string, env: Record<string, string | undefined>): CodexProjectState;
+  readCodexState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): CodexProjectState;
   /** What Gemini CLI would already load, the system settings file it reads, and folder trust. */
   readGeminiState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): GeminiProjectState;
   /** What Copilot CLI would already load ($COPILOT_HOME or ~/.copilot, and the workspace). */
-  readCopilotState(cwd: string, home: string, env: Record<string, string | undefined>): CopilotProjectState;
+  readCopilotState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): CopilotProjectState;
   /** Add to a file in the user's own agent config, once (C4). Lines go to `note`. */
   applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
-  writeIfChanged(dir: string, name: string, content: string): boolean;
+  writeIfChanged(dir: string, name: string, content: string, opts?: { mode?: number }): boolean;
+  /** Delete a launch file an earlier launch wrote and this one must not leave behind. */
+  removeLaunchFile(dir: string, name: string): void;
   runAgent(spec: LaunchSpec): Promise<number>;
   /** Fire and forget: the caller never awaits what this returns. */
   record(agent: LaunchAgentId): void;
@@ -88,12 +90,13 @@ function defaultDeps(): LaunchDeps {
     readOpenCodeState: (cwd, home) => readOpenCodeState(cwd, home, { localIsDefault: isLocalDefault() }, process.env),
     readPiState: (cwd, home, env) => readPiState(cwd, home, { localIsDefault: isLocalDefault() }, env),
     readCursorState: (cwd, home) => readCursorState(cwd, home, { localIsDefault: isLocalDefault() }),
-    readCodexState: (cwd, home, env) => readCodexState(cwd, home, { localIsDefault: isLocalDefault() }, env),
+    readCodexState: (cwd, home, env, platform) => readCodexState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
     readGeminiState: (cwd, home, env, platform) => readGeminiState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
-    readCopilotState: (cwd, home, env) => readCopilotState(cwd, home, { localIsDefault: isLocalDefault() }, env),
+    readCopilotState: (cwd, home, env, platform) => readCopilotState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
     applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
     cacheDir: launchCacheDir,
     writeIfChanged,
+    removeLaunchFile,
     runAgent: (spec) => runAgent(spec),
     record: (agent) => {
       // Dynamic and un-awaited: telemetry consent rules live in recordFunnelStage, and none of
@@ -176,10 +179,10 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
       agent = installed.find((a) => a.name === choice);
       if (!agent) return { handled: true, code: 1 };
     } else {
-      d.err(`More than one coding agent is installed (${installed.map((a) => a.label).join(', ')}) and there is no terminal to ask in.`);
-      d.err(`Choose one: align use <agent>   (${installed.map((a) => a.name).join(' | ')})`);
-      d.err('Then run `align` again.');
-      return { handled: true, code: 2 };
+      // An explicit `align -- ...` with no terminal (a script's first run). Take the old order, so
+      // what a script opened before wave A it still opens, and say which one.
+      agent = byPriority(installed)[0];
+      announce = `Opening ${agent!.label}: more than one coding agent is installed and there is no terminal to ask. Change it with: align use <agent>`;
     }
   }
 
@@ -204,7 +207,11 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   // The adapter names the agent's usual binary; run whichever name is actually installed.
   const spec: LaunchSpec = resolved && resolved.bin !== built.bin ? { ...built, bin: resolved.bin } : built;
   try {
-    for (const f of spec.files) d.writeIfChanged(dir, f.name, f.content);
+    for (const f of spec.files) {
+      if (f.mode === undefined) d.writeIfChanged(dir, f.name, f.content);
+      else d.writeIfChanged(dir, f.name, f.content, { mode: f.mode });
+    }
+    for (const n of spec.remove ?? []) d.removeLaunchFile(dir, n);
   } catch (e) {
     d.err(`Could not write launch files (${(e as Error).message}). Showing your graph instead.`);
     return { handled: false };

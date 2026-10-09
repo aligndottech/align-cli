@@ -1,10 +1,8 @@
 import { alignServerEntry } from '../../mcp-setup.js';
+import type { AlignLocalState } from '../strict-entry.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
-export interface CopilotLaunchContext extends Pick<LaunchContext, 'passthrough' | 'cachePath'> {
-  /** Copilot would already start a local align server (align-local, or align at --env local). */
-  projectHasMcp: boolean;
-}
+export interface CopilotLaunchContext extends Pick<LaunchContext, 'passthrough' | 'cachePath'>, AlignLocalState {}
 
 /** Same reason as the Claude adapter: never shadow a user's own `align` server. */
 const INJECTED_SERVER_NAME = 'align-local';
@@ -24,9 +22,12 @@ const MCP_FILE = 'copilot-mcp.json';
 export function buildCopilotLaunch(c: CopilotLaunchContext): LaunchSpec {
   const injected: string[] = [];
   const files: LaunchSpec['files'] = [];
-  if (!c.projectHasMcp) {
+  const notes: string[] = [];
+  if (c.conflict) {
+    notes.push(`${c.conflict} redefines the align-local MCP server, so Align's graph is off for this Copilot session. Remove that entry to use the graph here.`);
+  } else if (!c.present) {
     files.push({ name: MCP_FILE, content: `${JSON.stringify({ mcpServers: { [INJECTED_SERVER_NAME]: alignServerEntry('copilot', 'local') } }, null, 2)}\n` });
     injected.push('--additional-mcp-config', `@${c.cachePath(MCP_FILE)}`);
   }
-  return { bin: 'copilot', args: [...injected, ...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files };
+  return { bin: 'copilot', args: [...injected, ...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files, ...(notes.length > 0 ? { notes } : {}) };
 }

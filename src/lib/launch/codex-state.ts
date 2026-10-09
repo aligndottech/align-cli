@@ -1,66 +1,76 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { isLocalAlignServer } from './project-state.js';
+import { parse } from 'smol-toml';
+import { type AlignLocalState, foldLayers, type Layer } from './strict-entry.js';
 
-export interface CodexProjectState {
-  /** Codex would already start a local align server: our align-local, or the user's align at --env local. */
-  projectHasMcp: boolean;
-}
+export type CodexProjectState = AlignLocalState;
 
-function readText(file: string): string | null {
+type Json = Record<string, unknown>;
+const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * A config.toml as an object. Missing or unparseable reads as empty: Codex itself refuses to
+ * start on a config.toml it cannot parse and names the error, so no entry in it can run
+ * either, and injecting as if it were absent changes nothing about what the user sees.
+ */
+function readToml(file: string): Json {
   try {
-    return readFileSync(file, 'utf8');
+    const parsed: unknown = parse(readFileSync(file, 'utf8'));
+    return isObject(parsed) ? parsed : {};
   } catch {
-    return null;
+    return {};
   }
 }
 
-/** The cwd and each directory above it, up to and including the git root (or the filesystem root). */
-function projectDirs(cwd: string): string[] {
+/** The git root above cwd (cwd included), or null with no .git anywhere above. */
+function gitRoot(cwd: string): string | null {
+  for (let dir = cwd; ; dir = path.dirname(dir)) {
+    if (existsSync(path.join(dir, '.git'))) return dir;
+    if (path.dirname(dir) === dir) return null;
+  }
+}
+
+/** Project dirs Codex reads .codex/config.toml from, outermost first: git root down to cwd, or cwd alone. */
+function projectDirs(cwd: string, root: string | null): string[] {
+  if (root === null) return [cwd];
   const dirs: string[] = [];
   for (let dir = cwd; ; dir = path.dirname(dir)) {
-    dirs.push(dir);
-    if (existsSync(path.join(dir, '.git')) || path.dirname(dir) === dir) return dirs;
+    dirs.unshift(dir);
+    if (dir === root || path.dirname(dir) === dir) return dirs;
   }
 }
 
-/**
- * The body of one `[mcp_servers.<name>]` table (bare or quoted key), up to the next table
- * header, or null when the file has no such table. Not a TOML parser: enough to read the
- * shapes `align setup` and `codex mcp add` write, and anything else reads as absent.
- */
-function tableBody(text: string, name: string): string | null {
-  const header = new RegExp(`^\\s*\\[mcp_servers\\.(?:${name}|"${name}")\\]\\s*$`, 'm');
-  const m = header.exec(text);
-  if (!m) return null;
-  const rest = text.slice(m.index + m[0].length);
-  const next = /^\s*\[/m.exec(rest);
-  return next ? rest.slice(0, next.index) : rest;
+/** Codex loads project config only for a trusted project: `[projects."<git root or cwd>"] trust_level = "trusted"`. */
+function trusted(user: Json, cwd: string, root: string | null): boolean {
+  const projects = isObject(user['projects']) ? user['projects'] : {};
+  return [root ?? cwd, cwd].some((k) => (projects[k] as Json | undefined)?.['trust_level'] === 'trusted');
 }
 
-/** The `command` and `args` strings of a table body, as one token list. */
-function bodyTokens(body: string): string[] {
-  const line = (key: string) => new RegExp(`^\\s*${key}\\s*=\\s*(.*)$`, 'm').exec(body)?.[1] ?? '';
-  return [...`${line('command')} ${line('args')}`.matchAll(/"([^"]*)"|'([^']*)'/g)].map((x) => x[1] ?? x[2] ?? '');
-}
-
-function hasLocalServer(text: string | null, localIsDefault: boolean): boolean {
-  if (text === null) return false;
-  if (tableBody(text, 'align-local') !== null) return true;
-  const align = tableBody(text, 'align');
-  if (align === null || /^\s*enabled\s*=\s*false\b/m.test(align)) return false;
-  const tokens = bodyTokens(align);
-  const [command, ...args] = tokens;
-  return isLocalAlignServer({ command, args }, localIsDefault);
-}
+/** Every key -c overrides when it replaces align-local: command, args, and enabled=true. */
+const REPLACEABLE = new Set(['command', 'args', 'enabled']);
 
 /**
- * What Codex would already load for this directory, so the per-session `-c` never doubles it:
- * $CODEX_HOME/config.toml (default ~/.codex) and each .codex/config.toml from cwd to the git
- * root. Unreadable counts as absent: a wrong "absent" is a duplicate, a throw is no session.
+ * What Codex would already load for align, read with a TOML parser (sub-tables, dotted keys and
+ * inline tables all land on the same object). Layers in Codex's merge order: $CODEX_HOME (or
+ * ~/.codex)/config.toml, then each .codex/config.toml from the git root down to cwd, and those
+ * only when Codex trusts the project (verified on 0.153.0: an untrusted repo's file is ignored).
  */
-export function readCodexState(cwd: string, home: string, opts: { localIsDefault: boolean }, env: Record<string, string | undefined> = {}): CodexProjectState {
-  const codexHome = env['CODEX_HOME'] ? env['CODEX_HOME'] : path.join(home, '.codex');
-  const files = [path.join(codexHome, 'config.toml'), ...projectDirs(cwd).map((d) => path.join(d, '.codex', 'config.toml'))];
-  return { projectHasMcp: files.some((f) => hasLocalServer(readText(f), opts.localIsDefault)) };
+export function readCodexState(
+  cwd: string,
+  home: string,
+  opts: { localIsDefault: boolean },
+  env: Record<string, string | undefined>,
+  platform: string,
+): CodexProjectState {
+  const userFile = path.join(env['CODEX_HOME'] ? env['CODEX_HOME'] : path.join(home, '.codex'), 'config.toml');
+  const user = readToml(userFile);
+  const root = gitRoot(cwd);
+  const layers: Layer[] = [{ file: userFile, servers: user['mcp_servers'] }];
+  if (trusted(user, cwd, root)) {
+    for (const dir of projectDirs(cwd, root)) {
+      const file = path.join(dir, '.codex', 'config.toml');
+      layers.push({ file, servers: readToml(file)['mcp_servers'] });
+    }
+  }
+  return foldLayers(layers, { ...opts, platform, host: 'codex' }, (e) => isObject(e) && Object.keys(e).every((k) => REPLACEABLE.has(k)));
 }

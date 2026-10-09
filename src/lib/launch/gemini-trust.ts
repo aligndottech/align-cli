@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { parseJsonc } from './strict-entry.js';
 
 /**
  * Whether Gemini CLI will run MCP servers in this folder. Gemini turns off EVERY MCP server,
@@ -11,13 +12,12 @@ import path from 'node:path';
 export type GeminiTrust = 'trusted' | 'untrusted' | 'off' | 'unknown';
 
 type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const LEVELS = new Set(['TRUST_FOLDER', 'TRUST_PARENT', 'DO_NOT_TRUST']);
 
+/** Gemini reads these files through strip-json-comments, so comments are allowed. */
 function readJson(file: string): Json | null {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
-    return isObject(parsed) ? parsed : null;
+    return parseJsonc(readFileSync(file, 'utf8'));
   } catch {
     return null;
   }

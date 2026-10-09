@@ -46,7 +46,8 @@
     "eventsource": "^3.0.2",
     "execa": "^9.5.2",
     "open": "^10.1.0",
-    "ora": "^8.1.1"
+    "ora": "^8.1.1",
+    "smol-toml": "^1.9.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

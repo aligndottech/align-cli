@@ -1,10 +1,8 @@
 import { alignServerEntry } from '../../mcp-setup.js';
+import type { AlignLocalState } from '../strict-entry.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
-export interface CodexLaunchContext extends Pick<LaunchContext, 'passthrough'> {
-  /** Codex would already start a local align server (align-local, or align at --env local). */
-  projectHasMcp: boolean;
-}
+export interface CodexLaunchContext extends Pick<LaunchContext, 'passthrough'>, AlignLocalState {}
 
 /** Same reason as the Claude adapter: never shadow a user's own `align` server. */
 const INJECTED_SERVER_NAME = 'align-local';
@@ -32,10 +30,19 @@ function tomlLiteral(value: string): string {
  */
 export function buildCodexLaunch(c: CodexLaunchContext): LaunchSpec {
   const injected: string[] = [];
-  if (!c.projectHasMcp) {
+  const notes: string[] = [];
+  if (c.conflict) {
+    // -c can set keys but never remove one: injecting would launch a merged, repo-shaped server.
+    notes.push(`${c.conflict} redefines the align-local MCP server, so Align's graph is off for this Codex session. Remove that entry to use the graph here.`);
+  } else if (c.overridden.length > 0 || !c.present) {
     const { command, args } = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };
     const key = `mcp_servers.${INJECTED_SERVER_NAME}`;
     injected.push('-c', `${key}.command=${tomlLiteral(command)}`, '-c', `${key}.args=[${args.map(tomlLiteral).join(',')}]`);
+    if (c.overridden.length > 0) {
+      // The table holds only command/args/enabled, so these three overrides replace all of it.
+      injected.push('-c', `${key}.enabled=true`);
+      notes.push(`Replaced the align-local MCP server in ${c.overridden.join(', ')} with Align's own for this Codex session.`);
+    }
   }
-  return { bin: 'codex', args: [...injected, ...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [] };
+  return { bin: 'codex', args: [...injected, ...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [], ...(notes.length > 0 ? { notes } : {}) };
 }

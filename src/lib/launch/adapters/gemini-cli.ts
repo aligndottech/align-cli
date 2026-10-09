@@ -1,6 +1,7 @@
 import { alignServerEntry } from '../../mcp-setup.js';
-import type { GeminiProjectState } from '../gemini-state.js';
+import { geminiCopyName, type GeminiProjectState } from '../gemini-state.js';
 import { geminiSystemDefaultsPath } from '../gemini-trust.js';
+import { parseJsonc } from '../strict-entry.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
 export interface GeminiLaunchContext extends Pick<LaunchContext, 'passthrough' | 'cachePath'>, GeminiProjectState {
@@ -11,24 +12,19 @@ export interface GeminiLaunchContext extends Pick<LaunchContext, 'passthrough' |
 
 /** Same reason as the Claude adapter: never shadow a user's own `align` server. */
 const INJECTED_SERVER_NAME = 'align-local';
-const SETTINGS_FILE = 'gemini-system-settings.json';
 
-export const GEMINI_TRUST_NOTE = "Gemini turns off MCP servers, Align's included, in folders you haven't trusted - trust this folder when Gemini asks.";
+export const GEMINI_TRUST_NOTE = "Gemini turns off MCP servers, Align's included, in folders you haven't trusted. Trust this folder in Gemini to use the graph here.";
 
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** The system settings as an object we can add to, or null when we must not touch them. */
+/** The system settings (JSONC, as Gemini reads them) as an object we can add to, or null when we must not touch them. */
 function parseTheirs(text: string | null): Json | null {
   if (text === null) return {};
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (!isObject(parsed)) return null;
-    if (parsed['mcpServers'] !== undefined && !isObject(parsed['mcpServers'])) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+  const parsed = parseJsonc(text);
+  if (!parsed) return null;
+  if (parsed['mcpServers'] !== undefined && !isObject(parsed['mcpServers'])) return null;
+  return parsed;
 }
 
 /**
@@ -50,21 +46,33 @@ export function buildGeminiLaunch(c: GeminiLaunchContext): LaunchSpec {
   const env: Record<string, string> = { ALIGN_WRAPPED: '1' };
   const files: LaunchSpec['files'] = [];
   const notes: string[] = [];
+  const copy = geminiCopyName(c.systemSettings.path);
+  let injected = false;
 
-  if (!c.projectHasMcp) {
+  if (c.overridden.length > 0 || !c.present) {
     const theirs = c.systemSettings.unreadable ? null : parseTheirs(c.systemSettings.text);
     if (!theirs) {
       notes.push(`Gemini's system settings file ${c.systemSettings.path} is not readable JSON with an object "mcpServers", so Align's graph tools were not added to this session. Fix the file, or point GEMINI_CLI_SYSTEM_SETTINGS_PATH at one that is.`);
     } else {
-      const servers = (theirs['mcpServers'] as Json | undefined) ?? {};
-      if (servers[INJECTED_SERVER_NAME] === undefined) {
-        const merged = { ...theirs, mcpServers: { ...servers, [INJECTED_SERVER_NAME]: alignServerEntry('mcpServers', 'local') } };
-        files.push({ name: SETTINGS_FILE, content: `${JSON.stringify(merged, null, 2)}\n` });
-        env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'] = c.cachePath(SETTINGS_FILE);
-        if (!c.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH']) env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'] = geminiSystemDefaultsPath(c.systemSettings.path, c.platform);
-      }
+      // Set unconditionally: a canonical align-local here would have made `present` true with
+      // nothing overridden, so whatever is under this name now is replaced by ours.
+      const merged = { ...theirs, mcpServers: { ...((theirs['mcpServers'] as Json | undefined) ?? {}), [INJECTED_SERVER_NAME]: alignServerEntry('mcpServers', 'local') } };
+      // 0600: the copy carries whatever the admin's system file holds.
+      files.push({ name: copy, content: `${JSON.stringify(merged, null, 2)}\n`, mode: 0o600 });
+      env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'] = c.cachePath(copy);
+      if (!c.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH']) env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'] = geminiSystemDefaultsPath(c.systemSettings.path, c.platform);
+      if (c.overridden.length > 0) notes.push(`Gemini will use Align's own align-local MCP server this session, not the one in ${c.overridden.join(', ')}.`);
+      injected = true;
     }
   }
   if (c.trust === 'untrusted' || c.trust === 'unknown') notes.push(GEMINI_TRUST_NOTE);
-  return { bin: 'gemini', args: [...c.passthrough], env, files, ...(notes.length > 0 ? { notes } : {}) };
+  return {
+    bin: 'gemini',
+    args: [...c.passthrough],
+    env,
+    files,
+    // Not injecting: a copy from an earlier launch must not linger with the admin's settings in it.
+    ...(injected ? {} : { remove: [copy] }),
+    ...(notes.length > 0 ? { notes } : {}),
+  };
 }

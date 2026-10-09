@@ -1,5 +1,5 @@
 import type { LaunchAgentId } from './registry/types.js';
-import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
+import { agentByName, byPriority, type LaunchAgent, PRE_WAVE_A, resolveAgentBin, supportedAgents } from './agents.js';
 import { findOnPath } from './detect.js';
 
 /**
@@ -67,9 +67,17 @@ export async function pickAgent(
     return null;
   }
 
+  // Without a terminal and without --approve, only the agents launchable before wave A are
+  // weighed when any is installed: a machine with Claude Code plus Codex picks Claude Code, as it
+  // did before Codex could be launched, and two older agents still are not guessed between.
+  const preWaveA = installed.filter((a) => PRE_WAVE_A.has(a.name));
+  const unattended = !opts.interactive && !opts.approve && preWaveA.length > 0 ? preWaveA : installed;
+
   let chosen: LaunchAgent | undefined;
-  if (installed.length === 1 || opts.approve) {
-    chosen = installed[0];
+  if (opts.approve) {
+    chosen = byPriority(installed)[0];
+  } else if (unattended.length === 1) {
+    chosen = unattended[0];
   } else if (opts.interactive) {
     const name = await d.select(installed);
     if (name === null) return PICK_CANCELLED;
@@ -84,6 +92,6 @@ export async function pickAgent(
   const wasOff = config.isLaunchOff?.() === true;
   config.setAgent(chosen.name);
   if (wasOff) d.say('Launching is on again: `align use --undo` had turned it off.');
-  if (installed.length === 1) d.say(`Using ${chosen.label}. Switch any time with \`align use\`.`);
+  if (installed.length === 1 || unattended.length === 1) d.say(`Using ${chosen.label}. Switch any time with \`align use\`.`);
   return chosen.name;
 }

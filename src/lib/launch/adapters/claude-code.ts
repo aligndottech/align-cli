@@ -5,6 +5,8 @@ import type { ConfigWrite } from '../config-writes.js';
 export interface LaunchFile {
   name: string;
   content: string;
+  /** File mode, for a file that copies something of the user's (Gemini's system settings). */
+  mode?: number;
 }
 
 /** What to run: pure data, so the builder is testable without spawning anything. */
@@ -15,6 +17,8 @@ export interface LaunchSpec {
   env: Record<string, string>;
   /** Launch files the args point at. Commands and text only, never secrets. */
   files: LaunchFile[];
+  /** Launch files from an earlier launch that must not survive this one (by name, in the cache dir). */
+  remove?: string[];
   /** Lines align prints to stderr before launching (why an injection was skipped). */
   notes?: string[];
   /** Files in the user's own agent config to add to ONCE (C4). Applied after the dry-run exit, never before. */

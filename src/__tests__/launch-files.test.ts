@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { launchCacheDir, writeIfChanged } from '../lib/launch/launch-files.js';
+import { launchCacheDir, removeLaunchFile, writeIfChanged } from '../lib/launch/launch-files.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(os.tmpdir(), 'align-lf-')); });
@@ -67,6 +67,49 @@ describe('writeIfChanged', () => {
   });
   it.skipIf(process.platform === 'win32')('accepts a dir owned by the current user', () => {
     expect(writeIfChanged(dir, 'a.json', '{}', { uid: process.getuid?.() })).toBe(true);
+  });
+});
+
+describe('writeIfChanged: a file with a mode (review F3: the Gemini system copy is 0600)', () => {
+  it.skipIf(process.platform === 'win32')('writes it with that mode, whatever the umask', () => {
+    const old = process.umask(0o022);
+    try {
+      writeIfChanged(dir, 'copy.json', '{}', { mode: 0o600 });
+      expect(statSync(path.join(dir, 'copy.json')).mode & 0o777).toBe(0o600);
+      writeIfChanged(dir, 'copy.json', '{"b":2}', { mode: 0o600 });
+      expect(statSync(path.join(dir, 'copy.json')).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(old);
+    }
+  });
+  it.skipIf(process.platform === 'win32')('tightens an existing looser file even when the content is unchanged', () => {
+    writeFileSync(path.join(dir, 'copy.json'), '{}', { mode: 0o644 });
+    chmodSync(path.join(dir, 'copy.json'), 0o644);
+    expect(writeIfChanged(dir, 'copy.json', '{}', { mode: 0o600 })).toBe(false);
+    expect(statSync(path.join(dir, 'copy.json')).mode & 0o777).toBe(0o600);
+  });
+  it.skipIf(process.platform === 'win32')('a temp file left by a crashed launch does not block the write', () => {
+    writeFileSync(path.join(dir, `.copy.json.${process.pid}.tmp`), 'stale');
+    expect(writeIfChanged(dir, 'copy.json', '{"a":1}', { mode: 0o600 })).toBe(true);
+    expect(readFileSync(path.join(dir, 'copy.json'), 'utf8')).toBe('{"a":1}');
+    expect(readdirSync(dir)).toEqual(['copy.json']);
+  });
+  it.skipIf(process.platform === 'win32')('tightens an existing launch dir the user owns to 0700', () => {
+    const loose = path.join(dir, 'loose');
+    mkdirSync(loose, { mode: 0o755 });
+    chmodSync(loose, 0o755);
+    writeIfChanged(loose, 'a.json', '{}');
+    expect(statSync(loose).mode & 0o777).toBe(0o700);
+  });
+});
+
+describe('removeLaunchFile', () => {
+  it('removes a stale launch file, and a missing one is fine', () => {
+    writeIfChanged(dir, 'old.json', '{}');
+    removeLaunchFile(dir, 'old.json');
+    expect(readdirSync(dir)).toEqual([]);
+    expect(() => removeLaunchFile(dir, 'old.json')).not.toThrow();
+    expect(() => removeLaunchFile(path.join(dir, 'nope'), 'x.json')).not.toThrow();
   });
 });
 

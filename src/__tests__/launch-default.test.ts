@@ -26,9 +26,10 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     readOpenCodeState: () => ({ projectHasPlugin: false, projectHasMcp: false, projectHasBlock: false }),
     readPiState: () => ({ projectHasExtension: false, projectHasMcp: false, projectHasBlock: false, mcpAdapterInstalled: true, mcpFile: '/home/u/.pi/agent/mcp.json' }),
     readCursorState: () => ({ projectHasMcp: false, mcpFile: '/home/u/.cursor/mcp.json' }),
-    readCodexState: () => ({ projectHasMcp: false }),
-    readGeminiState: () => ({ projectHasMcp: false, systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'untrusted' }),
-    readCopilotState: () => ({ projectHasMcp: false }),
+    readCodexState: () => ({ present: false, overridden: [] }),
+    readGeminiState: () => ({ present: false, overridden: [], systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'untrusted' }),
+    readCopilotState: () => ({ present: false, overridden: [] }),
+    removeLaunchFile: vi.fn(),
     applyConfigWrite: vi.fn(),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content) => { written.push([name, content]); return true; },
@@ -177,14 +178,12 @@ describe('launchIfChosen: more than one supported agent installed', () => {
     expect(h.setAgent).toHaveBeenCalledWith('opencode');
     expect(h.runAgent.mock.calls[0]![0].bin).toBe('opencode');
   });
-  it('does not guess without a TTY: 3-line hint on stderr, exit 2, nothing stored or launched', async () => {
+  it('without a TTY it picks by priority (Claude Code first), says so in one stderr line, and asks nothing', async () => {
     const h = two({ isTTY: false, argv: ['node', 'align', '--', 'x'] });
-    const r = await launchIfChosen(h.deps);
-    expect(r).toEqual({ handled: true, code: 2 });
-    expect(h.err).toHaveLength(3);
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
     expect(h.pick).not.toHaveBeenCalled();
-    expect(h.setAgent).not.toHaveBeenCalled();
-    expect(h.runAgent).not.toHaveBeenCalled();
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('claude');
+    expect(h.err).toEqual(['Opening Claude Code: more than one coding agent is installed and there is no terminal to ask. Change it with: align use <agent>']);
   });
 });
 
