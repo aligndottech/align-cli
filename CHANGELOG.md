@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.47.0](https://github.com/aligndottech/align-cli/compare/cli-v0.46.1...cli-v0.47.0) (2026-10-09)
+
+
+### Features
+
+* **launch:** bare `align` opens your coding agent with the local graph injected, Claude Code first (ALI-1473) ([#340](https://github.com/aligndottech/align-cli/issues/340)) ([b92dad6](https://github.com/aligndottech/align-cli/commit/b92dad6fa320b70f6a552c87d02136de5b6856ac))
+* **launch:** OpenCode as a launch target with the local graph injected per session (ALI-1474) ([#341](https://github.com/aligndottech/align-cli/issues/341)) ([4a62f03](https://github.com/aligndottech/align-cli/commit/4a62f034036567bd3ba7870ace0dd46dff9d8e47))
+* **launch:** pi and Cursor CLI launch targets; safe config writer with exact undo (ALI-1477) ([#343](https://github.com/aligndottech/align-cli/issues/343)) ([cc0fcb4](https://github.com/aligndottech/align-cli/commit/cc0fcb4337c08a374be549f569677bb576c4403a))
+* **mcp:** send created_before to drift-check under --created-before (ALI-1438) ([#331](https://github.com/aligndottech/align-cli/issues/331)) ([dc4b7a2](https://github.com/aligndottech/align-cli/commit/dc4b7a2991b6c251b52c21a29281d5753a049759))
+* **setup:** bare align runs a local-first wizard; team logins keep the team graph (ALI-1475) ([#342](https://github.com/aligndottech/align-cli/issues/342)) ([fe38425](https://github.com/aligndottech/align-cli/commit/fe384258b5c345f56f1dc447458e92ad1aecbea1))
+
 ## [0.46.1](https://github.com/aligndottech/align-cli/compare/cli-v0.46.0...cli-v0.46.1) (2026-10-08)
 
 
