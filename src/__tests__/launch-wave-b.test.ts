@@ -11,6 +11,7 @@ import { applyConfigWrite } from '../lib/launch/config-writes.js';
 import { findOnPath } from '../lib/launch/detect.js';
 import { readGrokState } from '../lib/launch/grok-state.js';
 import { readKiroState } from '../lib/launch/kiro-state.js';
+import { readQwenState } from '../lib/launch/qwen-state.js';
 import { writeIfChanged } from '../lib/launch/launch-files.js';
 import { type LaunchDeps, launchIfChosen } from '../lib/launch/launch.js';
 import { AGENT_REGISTRY } from '../lib/launch/registry/index.js';
@@ -282,6 +283,49 @@ describe('written once, against FAKE kiro-cli and grok binaries (real pipeline)'
     expect(undoWrittenConfigs(manifest).restored).toEqual([f]);
     expect(sha(readFileSync(f, 'utf8'))).toBe(sha(original));
     expect(existsSync(`${f}.align-backup`)).toBe(false);
+  });
+});
+
+describe('wave B: a key align saved never reaches the new agents (#351 provider-env reset)', () => {
+  let bin: string, record: string;
+  beforeEach(() => {
+    bin = path.join(root, 'bin');
+    mkdirSync(bin);
+    record = path.join(root, 'env.json');
+    const body = '{anthropic: env.ANTHROPIC_API_KEY ?? null, openai: env.OPENAI_API_KEY ?? null, wrapped: env.ALIGN_WRAPPED ?? null}';
+    writeFakeAgent(bin, 'qwen', { record, recordBody: body, exitCode: 0 });
+    mkdirSync(path.join(home, '.grok', 'bin'), { recursive: true });
+    writeFakeAgent(path.join(home, '.grok', 'bin'), 'grok', { record, recordBody: body, exitCode: 0 });
+    for (const k of ['ALIGN_WRAPPED', 'ALIGN_NO_LAUNCH', 'ALIGN_LAUNCH_DRY_RUN', 'GROK_HOME']) vi.stubEnv(k, undefined);
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('QWEN_CODE_SYSTEM_SETTINGS_PATH', path.join(root, 'qwen-sys.json'));
+    vi.stubEnv('PATH', prependPath(bin, prependPath(path.join(home, '.grok', 'bin'), process.env['PATH'])));
+    // As if align had put saved keys into its own environment.
+    vi.stubEnv('ANTHROPIC_API_KEY', 'saved-by-align');
+    vi.stubEnv('OPENAI_API_KEY', 'saved-by-align');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+  const run = (agent: string, startupEnv: Record<string, string>) => launchIfChosen({
+    env: { ...process.env }, argv: ['node', 'align', '--'], cwd, home, platform: process.platform, isTTY: true,
+    config: { getAgent: () => agent, setAgent: () => {} },
+    findOnPath,
+    readQwenState: (c, h, e, p) => readQwenState(c, h, { localIsDefault: true }, e, p),
+    readGrokState: (c, h, e, p, pt) => readGrokState(c, h, { localIsDefault: true }, e, p, pt),
+    applyConfigWrite: () => {},
+    cacheDir: () => path.join(root, 'cache'), writeIfChanged, pruneLaunchFiles: () => {},
+    runAgent: (spec) => runAgent(spec, { startupEnv }),
+    record: () => {}, pick: async () => null, err: () => {}, now: () => 0,
+  });
+  const env = () => JSON.parse(readFileSync(record, 'utf8')) as { anthropic: string | null; openai: string | null; wrapped: string | null };
+
+  it.each(['qwen', 'grok-build'])('%s: a saved ANTHROPIC/OPENAI key is absent from the child env', async (agent) => {
+    expect(await run(agent, {})).toEqual({ handled: true, code: 0 });
+    expect(env()).toEqual({ anthropic: null, openai: null, wrapped: '1' });
+  });
+
+  it.each(['qwen', 'grok-build'])('%s control: keys the user exported in their shell do reach it', async (agent) => {
+    await run(agent, { ANTHROPIC_API_KEY: 'users-own', OPENAI_API_KEY: 'users-own' });
+    expect(env()).toEqual({ anthropic: 'users-own', openai: 'users-own', wrapped: '1' });
   });
 });
 
