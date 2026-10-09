@@ -49,6 +49,12 @@ export interface IngestResult {
  * insertDecision stores, so no hash column is needed), same platform, no repo or date the
  * row lacks or holds differently, and an embedding from the current model. Anything else
  * falls through to the full path, so a late-arriving date or a model swap still lands.
+ *
+ * Known gap, left for L2: a current-model embedding does not prove the row's similarity
+ * pass finished. setEmbedding runs before findSimilar and the link writes, so an ingest that
+ * died between them leaves a row this predicate calls unchanged forever, and its links are
+ * never written. L2's schema bump adds an `enriched_at` marker, set after the link pass, and
+ * the skip must require it. No column is added here: L2 owns the schema change.
  */
 export function isUnchanged(
   stored: Pick<DecisionRow, 'summary' | 'platform' | 'repo' | 'decidedAt'> | null,

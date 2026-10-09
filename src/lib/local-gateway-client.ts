@@ -333,10 +333,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // never the item: the summary is the thing the user came for.
     const decidedAt = normaliseDecidedAt(opts.createdAt);
 
-    // L1: unchanged-skip (see isUnchanged). Still resolve citations INTO the row: a citer
-    // that arrived since the last ingest is linked only there (resolveRefs, below).
-    if (existingId !== null && isUnchanged(db.getDecisionById(existingId),
+    // L1: unchanged-skip, connector imports (classify:false) only - capture re-ranks every time.
+    // Refs stay current, and citations INTO the row resolve: both are local (see isUnchanged).
+    if (opts.classify === false && existingId !== null && isUnchanged(db.getDecisionById(existingId),
       { summary, platform, repo, decidedAt }, db.getEmbeddingModel(existingId), EMBEDDING_MODEL_ID)) {
+      db.replaceRefs(existingId, refs);
       db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
       return { id: existingId, title, summary, sourceUrl, platform, related: [], created: false, changed: false };
     }

@@ -79,6 +79,18 @@ describe('ingestBatch classify option', () => {
     expect(calls.count).toBe(0);
   });
 
+  it('re-capturing an unchanged URL by hand still classifies, as before L1', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'x'.repeat(40));
+    const calls = countingProvider();
+    await client.ingestBatch(items(2), { classify: false });
+    await client.captureDecision('https://github.com/o/r/pull/77', 'cli');
+    const before = calls.count;
+
+    await client.captureDecision('https://github.com/o/r/pull/77', 'cli');
+
+    expect(calls.count).toBeGreaterThan(before);
+  });
+
   it('still classifies when asked: classify:true with the same key and items makes calls', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'x'.repeat(40));
     const calls = countingProvider();

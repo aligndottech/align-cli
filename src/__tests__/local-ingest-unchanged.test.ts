@@ -147,6 +147,69 @@ describe('ingestBatch unchanged-skip', () => {
     expect(getEmbedding).toHaveBeenCalledTimes(1);
   });
 
+  it('a re-import with NO repo for a row that has one stays unchanged (the stored repo is kept)', async () => {
+    const commit = { source_url: 'file:///work/def456', platform: 'git', title: 'Drop node 20', raw_text: 'Drop node 20 support.' };
+    vi.mocked(currentRepoIdentity).mockResolvedValue('o/r');
+    await client.ingestBatch([commit], { classify: false });
+    client.close();
+    vi.mocked(currentRepoIdentity).mockResolvedValue(null);
+    client = createLocalGatewayClient(dbPath);
+    vi.mocked(getEmbedding).mockClear();
+
+    const { snapshots } = await client.ingestBatch([commit], { classify: false });
+
+    expect(snapshots[0]).toMatchObject({ created: false, changed: false });
+    expect(getEmbedding).not.toHaveBeenCalled();
+  });
+
+  it('a re-import with NO date for a row that has one stays unchanged (the stored date is kept)', async () => {
+    await client.ingestBatch([{ ...A, created_at: '2026-09-01T10:00:00Z' }], { classify: false });
+    vi.mocked(getEmbedding).mockClear();
+
+    const { snapshots } = await client.ingestBatch([A], { classify: false });
+
+    expect(snapshots[0]).toMatchObject({ created: false, changed: false });
+    expect(getEmbedding).not.toHaveBeenCalled();
+  });
+
+  it('an unchanged re-import still re-extracts refs, so a better extractor backfills them', async () => {
+    const citing = { ...B, raw_text: `Queue retries cap at 5, per ${A.source_url}` };
+    const first = await client.ingestBatch([citing], { classify: false });
+    const id = first.snapshots[0].id;
+    // Stand-in for a row written by an older extractor that found nothing.
+    let db = createLocalDb(dbPath);
+    try { db.replaceRefs(id, []); } finally { db.close(); }
+
+    const { snapshots } = await client.ingestBatch([citing], { classify: false });
+
+    expect(snapshots[0]).toMatchObject({ created: false, changed: false });
+    db = createLocalDb(dbPath);
+    try { expect(db.getRefs(id)).toEqual([{ ref: A.source_url, platform: 'github' }]); } finally { db.close(); }
+  });
+
+  // The skip is for connector imports only. Human and agent capture re-rank on every capture,
+  // because what is similar to a decision changes as the graph grows.
+  it('ingestBatch without classify:false re-ingests an unchanged item in full', async () => {
+    await client.ingestBatch([A, B]);
+    vi.mocked(getEmbedding).mockClear();
+
+    const { snapshots } = await client.ingestBatch([A]);
+
+    expect(snapshots[0]).toMatchObject({ created: false, changed: true });
+    expect(getEmbedding).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-capturing an unchanged URL with captureDecision re-embeds and returns related decisions', async () => {
+    await client.ingestBatch([B], { classify: false });
+    await client.captureDecision('https://github.com/o/r/pull/77', 'cli');
+    vi.mocked(getEmbedding).mockClear();
+
+    const again = await client.captureDecision('https://github.com/o/r/pull/77', 'cli');
+
+    expect(getEmbedding).toHaveBeenCalledTimes(1);
+    expect(again.related.length).toBeGreaterThan(0);
+  });
+
   it('the same date again is not a change', async () => {
     const dated = { ...A, created_at: '2026-09-01T10:00:00Z' };
     await client.ingestBatch([dated], { classify: false });
