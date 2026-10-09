@@ -46,14 +46,26 @@ function advisoryCommand(env?: string): string {
   return env && env !== 'prod' ? `align check --advisory --env ${env}` : 'align check --advisory';
 }
 
-function isAlignHookGroup(group: unknown): boolean {
+export function isAlignHookGroup(group: unknown): boolean {
   const hooks = (group as { hooks?: Array<{ command?: unknown }> })?.hooks;
   return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes('align check --advisory'));
 }
 
-function isAlignSessionHookGroup(group: unknown): boolean {
+export function isAlignSessionHookGroup(group: unknown): boolean {
   const hooks = (group as { hooks?: Array<{ command?: unknown }> })?.hooks;
   return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes(SESSION_INJECT_COMMAND));
+}
+
+/**
+ * The Pre/PostToolUse hook groups Claude Code gets, as one shape for both writers: the
+ * committed project file (writeClaudeCodeHook) and the per-session launch file (C1).
+ */
+export function alignClaudeHooks(env?: string): Record<'PreToolUse' | 'PostToolUse', unknown[]> {
+  const group = () => ({
+    matcher: 'Write|Edit',
+    hooks: [{ type: 'command', command: advisoryCommand(env), timeout: HOOK_TIMEOUT_SECONDS }],
+  });
+  return { PreToolUse: [group()], PostToolUse: [group()] };
 }
 
 // Merge a PostToolUse (Write|Edit) hook into the project .claude/settings.json. The
@@ -77,13 +89,11 @@ export function writeClaudeCodeHook(cwd: string, env?: string): void {
   // hook payload on stdin. PreToolUse catches a conflict before the edit is written
   // (ALI-122); PostToolUse is the backstop on the landed change (ALI-121). Strip any
   // prior align-managed group from each so re-runs stay idempotent and pick up env changes.
+  const alignGroups = alignClaudeHooks(env);
   for (const event of ['PreToolUse', 'PostToolUse'] as const) {
     const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
     const preserved = existing.filter((g) => !isAlignHookGroup(g));
-    preserved.push({
-      matcher: 'Write|Edit',
-      hooks: [{ type: 'command', command: advisoryCommand(env), timeout: HOOK_TIMEOUT_SECONDS }],
-    });
+    preserved.push(...alignGroups[event]);
     hooks[event] = preserved;
   }
   settings['hooks'] = hooks;
@@ -126,6 +136,11 @@ export function writeClaudeCodeSessionHook(cwd: string): void {
 
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+}
+
+/** The managed CLAUDE.md block as text, for per-session injection (C1). */
+export function alignNudgeBody(): string {
+  return managedNudgeBlock({ claudeHooks: true });
 }
 
 // The nudge body. `claudeHooks` adds the Claude-Code-specific line about the

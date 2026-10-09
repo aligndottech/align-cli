@@ -25,6 +25,11 @@ vi.mock('../lib/mcp-setup.js', () => ({ detectWiredEditors, projectMcpAgents }))
 const readValueRollup = vi.hoisted(() => vi.fn().mockRejectedValue(new Error('no readout')));
 vi.mock('../lib/read-value-rollup.js', () => ({ readValueRollup }));
 
+// C1: the launcher would open a real agent on any machine that has one. Mocked at its module
+// boundary so these card tests stay about the card; launch behaviour has its own suites.
+const launchIfChosen = vi.hoisted(() => vi.fn().mockResolvedValue({ handled: false }));
+vi.mock('../lib/launch/launch.js', () => ({ launchIfChosen }));
+
 const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { output.push(a.join(' ')); });
 
@@ -266,5 +271,36 @@ describe('bare `align`', () => {
 
     expect(runSetup).not.toHaveBeenCalled();
     expect(printBanner).toHaveBeenCalledTimes(1);
+  });
+
+  describe('C1: launching the agent', () => {
+    const localOnly = () => getEnvironment.mockImplementation((n: string) =>
+      n === 'local' ? { mode: 'local-embedded', localDbPath: '/tmp/local.db' } : { mode: 'cloud' });
+    const cloudOnly = () => getEnvironment.mockImplementation((n: string) =>
+      n === 'local' ? { mode: 'demo' } : { mode: 'auth', authToken: 'tok' });
+
+    it('exits with the launcher\'s code and never draws the card when it handled the run', async () => {
+      localOnly();
+      launchIfChosen.mockResolvedValueOnce({ handled: true, code: 3 });
+      const exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
+      try {
+        await expect(bare()).rejects.toThrow('exit');
+        expect(exit).toHaveBeenCalledWith(3);
+        expect(printBanner).not.toHaveBeenCalled();
+      } finally { exit.mockRestore(); }
+    });
+
+    it('shows the card as before when the launcher hands back', async () => {
+      localOnly();
+      launchIfChosen.mockResolvedValueOnce({ handled: false });
+      expect(await bare()).toContain('Local graph');
+    });
+
+    it('does not consult the launcher for a cloud-only user', async () => {
+      cloudOnly();
+      launchIfChosen.mockClear();
+      await bare();
+      expect(launchIfChosen).not.toHaveBeenCalled();
+    });
   });
 });

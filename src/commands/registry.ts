@@ -23,6 +23,7 @@ import { registerAskCommand } from './why.js';
 import { registerSetupCommand } from './setup.js';
 import { registerExportCommand } from './export.js';
 import { registerInviteCommand } from './invite.js';
+import { registerUseCommand } from './use.js';
 
 /**
  * ALI-951: the one list of top-level commands. `align --help` shows the `visible` ones and
@@ -57,6 +58,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   // Auth + onboarding
   { names: ['login', 'logout', 'whoami'], visible: false, summary: 'Cloud account sign-in', register: registerLoginCommands },
   { names: ['setup'], visible: false, summary: 'Guided onboarding (bare `align` runs it)', register: registerSetupCommand },
+  { names: ['use'], visible: false, summary: 'Choose the coding agent bare `align` opens', register: registerUseCommand },
   { names: ['invite'], visible: false, summary: 'Invite a teammate to your graph', register: registerInviteCommand },
 
   // Customer: ask, then connect - the order `align --help` shows them in.
