@@ -5,6 +5,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAgents } from '../commands/agents.js';
 import { runUse } from '../commands/use.js';
+import { supportedAgents } from '../lib/launch/agents.js';
+import { pickAgent } from '../lib/launch/pick-agent.js';
 import { applyConfigWrite } from '../lib/launch/config-writes.js';
 import { findOnPath } from '../lib/launch/detect.js';
 import { readGrokState } from '../lib/launch/grok-state.js';
@@ -267,5 +269,25 @@ describe('written once, against FAKE kiro-cli and grok binaries (real pipeline)'
     expect(undoWrittenConfigs(manifest).restored).toEqual([f]);
     expect(sha(readFileSync(f, 'utf8'))).toBe(sha(original));
     expect(existsSync(`${f}.align-backup`)).toBe(false);
+  });
+});
+
+describe('wave B: the wizard without a terminal keeps its old answers', () => {
+  const run = (onPath: string[], opts: { approve?: boolean } = {}) => {
+    let stored: string | undefined;
+    const say: string[] = [];
+    const config = { getAgent: () => stored, setAgent: (a: string) => { stored = a; } };
+    return pickAgent(config, { interactive: false, ...opts }, { agents: supportedAgents(), env: {}, platform: 'linux', findOnPath: (b) => (onPath.includes(b) ? `/b/${b}` : null), select: vi.fn(), say: (l) => say.push(l) }).then((r) => ({ r, say }));
+  };
+  it('Codex plus a wave B agent picks Codex, as before wave B (two examples)', async () => {
+    expect((await run(['codex', 'qwen'])).r).toBe('codex');
+    expect((await run(['gemini', 'amp', 'droid'])).r).toBe('gemini-cli');
+  });
+  it('two pre-wave-B agents still do not guess; a wave B agent alone is still picked', async () => {
+    expect((await run(['codex', 'gemini', 'qwen'])).r).toBeNull();
+    expect((await run(['qwen'])).r).toBe('qwen');
+  });
+  it('only wave B agents, two of them: no guess', async () => {
+    expect((await run(['qwen', 'amp'])).r).toBeNull();
   });
 });

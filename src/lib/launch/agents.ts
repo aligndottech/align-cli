@@ -32,6 +32,8 @@ export const supportedAgents = (): LaunchAgent[] => LAUNCH_AGENTS.filter((a) => 
 export const PICK_PRIORITY: readonly LaunchAgentId[] = ['claude-code', 'cursor', 'opencode', 'pi', 'codex', 'copilot', 'gemini-cli', 'amp', 'droid', 'grok-build', 'kiro', 'qwen'];
 /** The agents launchable before wave A. */
 export const PRE_WAVE_A: ReadonlySet<LaunchAgentId> = new Set(['claude-code', 'cursor', 'opencode', 'pi']);
+/** The agents launchable before wave B (wave A included). */
+export const PRE_WAVE_B: ReadonlySet<LaunchAgentId> = new Set([...PRE_WAVE_A, 'codex', 'copilot', 'gemini-cli']);
 
 export function byPriority(agents: LaunchAgent[]): LaunchAgent[] {
   const rank = (a: LaunchAgent): number => {
