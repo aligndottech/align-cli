@@ -92,7 +92,7 @@ align whoami                  Show current authenticated user and tenant
 
 # Guided onboarding (bare `align` runs it)
 
-align setup                   Guided onboarding: connect your tools and configure MCP in one command
+align setup                   Guided onboarding: pick your coding agent, connect your tools, build your local graph
                               flags: --env --approve --local --reset
 
 # Choose the coding agent bare `align` opens

@@ -75,8 +75,11 @@ describe('bare `align`', () => {
       const out = await bare();
       expect(runSetup).not.toHaveBeenCalled();
       expect(out).toContain('align setup');
-      // The non-interactive escape hatch, so a scripted first run has an answer too.
-      expect(out).toContain('align setup --local --approve');
+      // The non-interactive escape hatch, so a scripted first run has an answer too. Local
+      // is the only graph a solo run builds now (C5), so the hint names no cloud and needs
+      // no --local.
+      expect(out).toContain('align setup --approve');
+      expect(out).not.toMatch(/--local|cloud|account/i);
     } finally {
       Object.defineProperty(process.stdin, 'isTTY', { value: inTty, configurable: true });
       Object.defineProperty(process.stdout, 'isTTY', { value: outTty, configurable: true });
@@ -271,6 +274,74 @@ describe('bare `align`', () => {
 
     expect(runSetup).not.toHaveBeenCalled();
     expect(printBanner).toHaveBeenCalledTimes(1);
+  });
+
+  describe('C5: the first run is the local wizard, then the agent', () => {
+    const withTty = async (fn: () => Promise<void>): Promise<void> => {
+      const inTty = process.stdin.isTTY, outTty = process.stdout.isTTY;
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      try { await fn(); } finally {
+        Object.defineProperty(process.stdin, 'isTTY', { value: inTty, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: outTty, configurable: true });
+      }
+    };
+    /** Nothing set up; a successful wizard run leaves a local graph behind, as the real one does. */
+    const wizardBuildsLocal = () => {
+      let localReady = false;
+      getEnvironment.mockImplementation((n: string) =>
+        n === 'local' ? (localReady ? { mode: 'local-embedded' } : { mode: 'demo' }) : { mode: 'auth' });
+      runSetup.mockImplementationOnce(async () => { localReady = true; });
+    };
+    const exitSpy = () => vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
+
+    it('hands off to the agent when the wizard finishes: exits with the launcher\'s code', async () => {
+      wizardBuildsLocal();
+      launchIfChosen.mockClear().mockResolvedValueOnce({ handled: true, code: 4 });
+      const exit = exitSpy();
+      try {
+        await withTty(async () => { await expect(bare()).rejects.toThrow('exit'); });
+        expect(runSetup).toHaveBeenCalledTimes(1);
+        expect(launchIfChosen).toHaveBeenCalledTimes(1);
+        expect(exit).toHaveBeenCalledWith(4);
+      } finally { exit.mockRestore(); }
+    });
+
+    it('returns quietly when the launcher declines (no agent installed, ALIGN_NO_LAUNCH)', async () => {
+      wizardBuildsLocal();
+      launchIfChosen.mockClear().mockResolvedValueOnce({ handled: false });
+      const exit = exitSpy();
+      try {
+        await withTty(async () => { await bare(); });
+        expect(launchIfChosen).toHaveBeenCalledTimes(1);
+        expect(exit).not.toHaveBeenCalled();
+      } finally { exit.mockRestore(); }
+    });
+
+    it('does not launch when the wizard ended without a local graph (cancelled)', async () => {
+      getEnvironment.mockImplementation(() => ({ mode: 'demo' }));
+      launchIfChosen.mockClear();
+      await withTty(async () => { await bare(); });
+      expect(runSetup).toHaveBeenCalledTimes(1);
+      expect(launchIfChosen).not.toHaveBeenCalled();
+    });
+
+    it('a team login with no local graph, on a terminal, gets the same wizard (not the cloud card)', async () => {
+      getEnvironment.mockImplementation((n: string) =>
+        n === 'local' ? { mode: 'demo' } : { mode: 'auth', authToken: 'tok' });
+      listDecisions.mockClear();
+      await withTty(async () => { await bare(); });
+      expect(runSetup).toHaveBeenCalledTimes(1);
+      expect(listDecisions).not.toHaveBeenCalled();
+    });
+
+    it('a team login with no local graph and no terminal still gets the card, as before', async () => {
+      getEnvironment.mockImplementation((n: string) =>
+        n === 'local' ? { mode: 'demo' } : { mode: 'auth', authToken: 'tok' });
+      const out = await bare();
+      expect(runSetup).not.toHaveBeenCalled();
+      expect(out).toContain('Signed in');
+    });
   });
 
   describe('C1: launching the agent', () => {
