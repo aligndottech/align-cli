@@ -51,7 +51,9 @@ describe('offerInstall: an npm installer', () => {
       const { d } = deps();
       expect(await offerInstall(spec, d)).toBe('installed');
       const argv = (spec.install as { argv: string[] }).argv;
-      expect(d.spawn).toHaveBeenCalledExactlyOnceWith(argv[0], argv.slice(1), expect.objectContaining({ shell: false, stdio: 'inherit' }));
+      // The npm that was found on PATH, by its absolute path: the one the question named.
+      expect(d.spawn).toHaveBeenCalledExactlyOnceWith('/usr/bin/npm', argv.slice(1), expect.objectContaining({ shell: false, stdio: 'inherit' }));
+      expect(d.onPath).toHaveBeenCalledWith(argv[0]);
     }
   });
   it('on Windows, npm.cmd runs through the quoted cmd.exe line the launcher uses, still with shell: false', async () => {
@@ -67,6 +69,24 @@ describe('offerInstall: an npm installer', () => {
     const { d } = deps();
     await offerInstall(codex, d);
     expect((d.spawn as ReturnType<typeof vi.fn>).mock.calls[0]![2]).not.toHaveProperty('windowsVerbatimArguments');
+  });
+  it('runs whichever npm the PATH scan resolved, not the bare name (two paths)', async () => {
+    for (const npm of ['/opt/node/bin/npm', '/home/u/.nvm/versions/node/v22/bin/npm']) {
+      const { d } = deps({ onPath: vi.fn(() => npm) });
+      await offerInstall(codex, d);
+      expect((d.spawn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toBe(npm);
+    }
+  });
+  it('Ctrl-C at the question (confirm resolves null) reports cancelled and spawns nothing', async () => {
+    const { d } = deps({ confirm: vi.fn(async () => null) });
+    expect(await offerInstall(codex, d)).toBe('cancelled');
+    expect(d.spawn).not.toHaveBeenCalled();
+  });
+  it('a Windows npm path holding a cmd.exe metacharacter fails cleanly after yes: no throw, no spawn, one clear line', async () => {
+    const { d, said } = deps({ platform: 'win32', onPath: vi.fn(() => 'C:\\Tools & Co\\npm.cmd') });
+    expect(await offerInstall(codex, d)).toBe('failed');
+    expect(d.spawn).not.toHaveBeenCalled();
+    expect(said.join('\n')).toMatch(/Could not run npm i -g @openai\/codex .*shell character &.*Codex is not installed\./);
   });
   it('on no, spawns nothing and reports declined', async () => {
     const { d } = deps({ confirm: vi.fn(async () => false) });

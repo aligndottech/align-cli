@@ -4,6 +4,7 @@ import { agentByName, byPriority, type LaunchAgent, PRE_WAVE_A, resolveAgentBin,
 import { findOnPath } from './detect.js';
 import { type InstallOfferDeps, offerInstall } from './install.js';
 import { chooseAgent, type PickerOption } from './picker-options.js';
+import { confirmDefaultNo, selectAgent } from './prompts.js';
 import { specByName } from './registry/index.js';
 
 /**
@@ -17,10 +18,10 @@ export interface PickAgentDeps {
   platform: string;
   agents: readonly LaunchAgent[];
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
-  /** Resolves null when the user cancels. Only called on a terminal. */
-  select(options: PickerOption[]): Promise<LaunchAgentId | null>;
-  /** A yes/no question whose default is No (install-on-pick). */
-  confirm(message: string): Promise<boolean>;
+  /** Resolves null when the user cancels. Only called on a terminal. `initial` is preselected. */
+  select(options: PickerOption[], initial?: LaunchAgentId): Promise<LaunchAgentId | null>;
+  /** Default-No question: true on yes, false on no, null on Ctrl-C (install-on-pick). */
+  confirm(message: string): Promise<boolean | null>;
   /** Runs an install argv the user approved. */
   spawn: InstallOfferDeps['spawn'];
   say(line: string): void;
@@ -35,25 +36,14 @@ export interface AgentConfig {
   isLaunchOff?(): boolean;
 }
 
-async function clackSelect(options: PickerOption[]): Promise<LaunchAgentId | null> {
-  const clack = await import('@clack/prompts');
-  const answer = await clack.select({ message: 'Which coding agent should `align` open?', options });
-  return clack.isCancel(answer) ? null : (answer as LaunchAgentId);
-}
-
-async function clackConfirm(message: string): Promise<boolean> {
-  const clack = await import('@clack/prompts');
-  return (await clack.confirm({ message, initialValue: false })) === true;
-}
-
 function defaultDeps(): PickAgentDeps {
   return {
     env: process.env,
     platform: process.platform,
     agents: supportedAgents(),
     findOnPath,
-    select: clackSelect,
-    confirm: clackConfirm,
+    select: (options, initial) => selectAgent(options, initial),
+    confirm: (message) => confirmDefaultNo(message),
     spawn: (command, args, options) => nodeSpawn(command, args, options),
     say: (l) => console.log(l),
   };
@@ -90,12 +80,11 @@ export async function pickAgent(
   let chosen: LaunchAgent | null | undefined;
   if (opts.approve) {
     chosen = byPriority(installed)[0];
-  } else if (unattended.length === 1) {
-    chosen = unattended[0];
   } else if (opts.interactive) {
+    // Always asked on a terminal: with one installed it is preselected, so Enter keeps it.
     chosen = await chooseAgent(d.agents, {
       isInstalled,
-      select: (options) => d.select(options),
+      select: (options, initial) => d.select(options, initial),
       offer: (a) => offerInstall(specByName(a.name)!, {
         isTTY: true,
         platform: d.platform,
@@ -115,6 +104,8 @@ export async function pickAgent(
       }
       return PICK_CANCELLED;
     }
+  } else if (unattended.length === 1) {
+    chosen = unattended[0];
   } else {
     d.say(`More than one coding agent is installed (${installed.map((a) => a.label).join(', ')}) and there is no terminal to ask in.`);
     d.say(`Choose one: align use <agent>   (${installed.map((a) => a.name).join(' | ')})`);

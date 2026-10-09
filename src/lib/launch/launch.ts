@@ -12,6 +12,7 @@ import { type CursorProjectState, readCursorState } from './cursor-state.js';
 import { findOnPath } from './detect.js';
 import { type InstallOfferDeps, offerInstall } from './install.js';
 import { chooseAgent, type PickerOption } from './picker-options.js';
+import { confirmDefaultNo, selectAgent } from './prompts.js';
 import { type GeminiProjectState, readGeminiState } from './gemini-state.js';
 import { launchCacheDir, pruneLaunchFiles, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
@@ -59,10 +60,10 @@ export interface LaunchDeps {
   runAgent(spec: LaunchSpec): Promise<number>;
   /** Fire and forget: the caller never awaits what this returns. */
   record(agent: LaunchAgentId): void;
-  /** Ask which agent. Only called on a TTY, when no single installed agent is the obvious pick. */
-  pick(options: PickerOption[]): Promise<LaunchAgentId | null>;
-  /** A yes/no question whose default is No. Only asked on a TTY (install-on-pick, Decision 4). */
-  confirm(message: string): Promise<boolean>;
+  /** Ask which agent. Only called on a TTY with no stored agent. `initial` is preselected. */
+  pick(options: PickerOption[], initial?: LaunchAgentId): Promise<LaunchAgentId | null>;
+  /** Default-No question: true on yes, false on no, null on Ctrl-C. Only asked on a TTY (Decision 4). */
+  confirm(message: string): Promise<boolean | null>;
   /** Runs an install argv the user approved. Never reached without a TTY and a yes. */
   spawnInstall: InstallOfferDeps['spawn'];
   /** Every line align itself writes on this path. stderr only: stdout belongs to the agent (`align -- -p ... | jq`). */
@@ -112,16 +113,8 @@ function defaultDeps(): LaunchDeps {
         .then((m) => m.recordFunnelStage(config.getEnvironment('local'), 'agent_launched', 'align', { agent }))
         .catch(() => undefined);
     },
-    pick: async (options) => {
-      const clack = await import('@clack/prompts');
-      const answer = await clack.select({ message: 'Which coding agent should `align` open?', options, output: process.stderr });
-      return clack.isCancel(answer) ? null : (answer as LaunchAgentId);
-    },
-    confirm: async (message) => {
-      const clack = await import('@clack/prompts');
-      const answer = await clack.confirm({ message, initialValue: false, output: process.stderr });
-      return answer === true;
-    },
+    pick: (options, initial) => selectAgent(options, initial, process.stderr),
+    confirm: (message) => confirmDefaultNo(message, process.stderr),
     spawnInstall: (command, args, options) => nodeSpawn(command, args, options),
     err: (l) => console.error(l),
     now: () => performance.now(),
@@ -176,14 +169,12 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     const works = supportedAgents();
     const isInstalled = (a: LaunchAgent): boolean => resolveAgentBin(a, d.findOnPath, d.env, d.platform) !== null;
     const installed = works.filter(isInstalled);
-    if (installed.length === 1) {
-      agent = installed[0];
-      announce = `Opening ${agent!.label}. Switch any time with \`align use\`.`;
-    } else if (d.isTTY) {
-      // Every agent Align supports, installed ones first; a missing one can be installed from here.
+    if (d.isTTY) {
+      // Every agent Align supports, installed ones first; a missing one can be installed from
+      // here. Always asked on a terminal: with one installed it is preselected, so Enter keeps it.
       const chosen = await chooseAgent(works, {
         isInstalled,
-        select: (options) => d.pick(options),
+        select: (options, initial) => d.pick(options, initial),
         offer: (a) => offerInstall(specByName(a.name)!, {
           isTTY: d.isTTY,
           platform: d.platform,
@@ -201,6 +192,9 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
       for (const a of works) d.err(`Install ${a.label}: ${a.install}`);
       d.err('Then run `align` again. `align agents` lists them all.');
       return { handled: true, code: 1 };
+    } else if (installed.length === 1) {
+      agent = installed[0];
+      announce = `Opening ${agent!.label}. Switch any time with \`align use\`.`;
     } else {
       // An explicit `align -- ...` with no terminal (a script's first run). Take the old order, so
       // what a script opened before wave A it still opens, and say which one.

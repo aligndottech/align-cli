@@ -8,13 +8,14 @@ import { winShimCommand } from './run-agent.js';
  * shell is the user's decision, so Align only ever prints it.
  */
 export type AgentInstall = { kind: 'npm'; argv: readonly string[] } | { kind: 'docs'; url: string; text?: string };
-export type InstallOutcome = 'installed' | 'declined' | 'manual' | 'failed';
+/** `cancelled`: Ctrl-C at the question, which leaves the picker; `declined`: a plain No. */
+export type InstallOutcome = 'installed' | 'declined' | 'cancelled' | 'manual' | 'failed';
 
 export interface InstallOfferDeps {
   isTTY: boolean;
   platform: string;
-  /** Resolves true only on an explicit yes. The prompt's default must be No. */
-  confirm(message: string): Promise<boolean>;
+  /** true only on an explicit yes, false on No (the default), null on Ctrl-C. */
+  confirm(message: string): Promise<boolean | null>;
   spawn(command: string, args: string[], options: SpawnOptions): ChildProcess;
   onPath(bin: string): string | null;
   say(line: string): void;
@@ -35,17 +36,20 @@ export async function offerInstall(spec: Pick<AgentSpec, 'label' | 'install'>, d
     d.say(`${spec.label} is not installed. Install it with: ${text}`);
     return 'manual';
   }
-  if (!(await d.confirm(`Install ${spec.label} now? (runs: ${text})`))) return 'declined';
+  const answer = await d.confirm(`Install ${spec.label} now? (runs: ${text})`);
+  if (answer === null) return 'cancelled';
+  if (answer !== true) return 'declined';
 
-  const [bin, ...args] = spec.install.argv as [string, ...string[]];
-  // npm on Windows is npm.cmd, which cannot be spawned without a shell: go through the same
-  // quoted cmd.exe line the agent launch uses, rather than handing the argv to a shell.
-  const shim = d.platform === 'win32' && /\.(cmd|bat)$/i.test(manager);
-  const cmd = shim ? winShimCommand({ bin: manager, args }) : { command: bin, args };
-  const options: SpawnOptions = { shell: false, stdio: 'inherit' };
-  if (shim) options.windowsVerbatimArguments = true;
+  const args = spec.install.argv.slice(1);
   let code: number;
   try {
+    // Run the npm the PATH scan found, by its path: the one the question just named. npm on
+    // Windows is npm.cmd, which cannot be spawned without a shell, so it goes through the same
+    // quoted cmd.exe line the agent launch uses (which refuses a path cmd.exe would reinterpret).
+    const shim = d.platform === 'win32' && /\.(cmd|bat)$/i.test(manager);
+    const cmd = shim ? winShimCommand({ bin: manager, args }) : { command: manager, args };
+    const options: SpawnOptions = { shell: false, stdio: 'inherit' };
+    if (shim) options.windowsVerbatimArguments = true;
     code = await new Promise<number>((resolve, reject) => {
       const child = d.spawn(cmd.command, cmd.args, options);
       child.on('error', reject);
@@ -56,7 +60,7 @@ export async function offerInstall(spec: Pick<AgentSpec, 'label' | 'install'>, d
     return 'failed';
   }
   if (code !== 0) {
-    d.say(`${bin} exited ${code}. ${spec.label} is not installed.`);
+    d.say(`${spec.install.argv[0]} exited ${code}. ${spec.label} is not installed.`);
     return 'failed';
   }
   return 'installed';

@@ -12,7 +12,7 @@ const installedSet = (...bins: string[]) => (a: LaunchAgent) => bins.includes(a.
 describe('pickerOptions: order', () => {
   it('puts the installed agents first, sorted by label, then every other agent sorted by label', () => {
     const opts = pickerOptions(LAUNCH_AGENTS, installedSet('opencode', 'claude'));
-    expect(opts.map((o) => o.label)).toEqual(['Claude Code', 'OpenCode', 'Codex', 'Cursor', 'Gemini CLI', 'GitHub Copilot CLI', 'pi']);
+    expect(opts.map((o) => o.value)).toEqual(['claude-code', 'opencode', 'codex', 'cursor', 'gemini-cli', 'copilot', 'pi']);
   });
   it('a different installed set reorders (two examples): pi and Codex installed come first', () => {
     const opts = pickerOptions(LAUNCH_AGENTS, installedSet('pi', 'codex'));
@@ -21,20 +21,23 @@ describe('pickerOptions: order', () => {
   it('lists every agent it is given, so a new registry spec appears without editing the picker', () => {
     const fake: LaunchAgent = { name: 'codex', label: 'Aardvark Agent', bin: 'aardvark', injection: 'per-session', supported: true, install: 'npm i -g aardvark' };
     const opts = pickerOptions([...LAUNCH_AGENTS, fake], installedSet());
-    expect(opts.map((o) => o.label)).toContain('Aardvark Agent');
+    expect(opts.map((o) => o.label)).toContain('Aardvark Agent (not installed)');
     expect(opts).toHaveLength(LAUNCH_AGENTS.length + 1);
   });
 });
 
-describe('pickerOptions: hints', () => {
-  it('a not-installed agent says so, with its install text (npm and a docs URL, both kinds)', () => {
+describe('pickerOptions: the not-installed marker', () => {
+  // clack's select draws `hint` on the ACTIVE row only, so the marker must be in the label to be
+  // seen on every row; the hint carries the install command for the row the cursor is on.
+  it('a not-installed agent is marked in its LABEL, with its install text as the hint (npm and a docs URL)', () => {
     const opts = pickerOptions(LAUNCH_AGENTS, installedSet('claude'));
-    expect(opts.find((o) => o.value === 'codex')!.hint).toBe('not installed: npm i -g @openai/codex');
-    expect(opts.find((o) => o.value === 'cursor')!.hint).toBe('not installed: https://cursor.com/cli');
+    expect(opts.find((o) => o.value === 'codex')).toEqual({ value: 'codex', label: 'Codex (not installed)', hint: 'install: npm i -g @openai/codex' });
+    expect(opts.find((o) => o.value === 'cursor')).toEqual({ value: 'cursor', label: 'Cursor (not installed)', hint: 'install: https://cursor.com/cli' });
   });
-  it('an installed agent carries no "not installed" hint (two examples)', () => {
+  it('an installed agent has its plain label and no hint (two examples)', () => {
     const opts = pickerOptions(LAUNCH_AGENTS, installedSet('claude', 'cursor-agent'));
-    for (const id of ['claude-code', 'cursor']) expect(opts.find((o) => o.value === id)!.hint ?? '').not.toContain('not installed');
+    expect(opts.find((o) => o.value === 'claude-code')).toEqual({ value: 'claude-code', label: 'Claude Code' });
+    expect(opts.find((o) => o.value === 'cursor')).toEqual({ value: 'cursor', label: 'Cursor' });
   });
 });
 
@@ -82,5 +85,33 @@ describe('chooseAgent: the loop behind the picker', () => {
       expect(await chooseAgent(LAUNCH_AGENTS, d)).toBeNull();
       expect(d.select).toHaveBeenCalledTimes(2);
     }
+  });
+  it('with exactly one agent installed, that agent is preselected so Enter keeps it (two examples)', async () => {
+    for (const bin of ['claude', 'opencode']) {
+      const d = deps({ isInstalled: installedSet(bin) });
+      d.select.mockResolvedValueOnce(null);
+      await chooseAgent(LAUNCH_AGENTS, d);
+      expect(d.select.mock.calls[0]![1]).toBe(LAUNCH_AGENTS.find((a) => a.bin === bin)!.name);
+    }
+  });
+  it('with none or several installed, nothing is preselected', async () => {
+    for (const bins of [[], ['claude', 'opencode']]) {
+      const d = deps({ isInstalled: installedSet(...bins) });
+      d.select.mockResolvedValueOnce(null);
+      await chooseAgent(LAUNCH_AGENTS, d);
+      expect(d.select.mock.calls[0]![1]).toBeUndefined();
+    }
+  });
+  it('Ctrl-C at the install confirm leaves the picker as a cancel; a plain No returns to it', async () => {
+    const cancelled = deps();
+    cancelled.select.mockResolvedValueOnce('codex').mockResolvedValueOnce('claude-code');
+    cancelled.offer.mockResolvedValueOnce('cancelled');
+    expect(await chooseAgent(LAUNCH_AGENTS, cancelled)).toBeNull();
+    expect(cancelled.select).toHaveBeenCalledTimes(1);
+    const no = deps();
+    no.select.mockResolvedValueOnce('codex').mockResolvedValueOnce('claude-code');
+    no.offer.mockResolvedValueOnce('declined');
+    expect((await chooseAgent(LAUNCH_AGENTS, no))?.name).toBe('claude-code');
+    expect(no.select).toHaveBeenCalledTimes(2);
   });
 });

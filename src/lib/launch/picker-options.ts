@@ -21,14 +21,14 @@ export function pickerOptions(agents: readonly LaunchAgent[], isInstalled: (a: L
   const missing = agents.filter((a) => !isInstalled(a)).sort(byLabel);
   return [
     ...installed.map((a) => ({ value: a.name, label: a.label })),
-    ...missing.map((a) => ({ value: a.name, label: a.label, hint: `not installed: ${a.install}` })),
+    ...missing.map((a) => ({ value: a.name, label: `${a.label} (not installed)`, hint: `install: ${a.install}` })),
   ];
 }
 
 export interface ChooseDeps {
   isInstalled(a: LaunchAgent): boolean;
-  /** Resolves null when the user cancels. */
-  select(options: PickerOption[]): Promise<LaunchAgentId | null>;
+  /** Resolves null when the user cancels. `initial` is the row the cursor starts on. */
+  select(options: PickerOption[], initial?: LaunchAgentId): Promise<LaunchAgentId | null>;
   /** Decision 4: offer to install a picked agent that is missing (install.ts). */
   offer(a: LaunchAgent): Promise<InstallOutcome>;
   say(line: string): void;
@@ -36,15 +36,21 @@ export interface ChooseDeps {
 
 /**
  * Show the picker until the user picks an installed agent (or one that installs and is then
- * found on PATH) or cancels. Any other outcome returns to the picker.
+ * found on PATH) or cancels, at the picker or at the install question. A plain No, a printed
+ * installer or a failed install returns to the picker. With exactly one agent installed the
+ * cursor starts on it, so Enter keeps what bare `align` used to pick without asking.
  */
 export async function chooseAgent(agents: readonly LaunchAgent[], d: ChooseDeps): Promise<LaunchAgent | null> {
   for (;;) {
-    const name = await d.select(pickerOptions(agents, d.isInstalled));
+    const installed = agents.filter(d.isInstalled);
+    const initial = installed.length === 1 ? installed[0]!.name : undefined;
+    const name = await d.select(pickerOptions(agents, d.isInstalled), initial);
     const chosen = agents.find((a) => a.name === name);
     if (!chosen) return null;
     if (d.isInstalled(chosen)) return chosen;
-    if ((await d.offer(chosen)) === 'installed') {
+    const outcome = await d.offer(chosen);
+    if (outcome === 'cancelled') return null;
+    if (outcome === 'installed') {
       if (d.isInstalled(chosen)) return chosen;
       d.say(`${chosen.label} installed, but ${chosen.bin} is still not on your PATH. Open a new terminal, or pick another.`);
     }
