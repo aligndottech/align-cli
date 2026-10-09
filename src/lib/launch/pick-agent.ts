@@ -1,5 +1,5 @@
-import type { AgentName } from '../sessions/types.js';
-import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
+import type { LaunchAgentId } from './registry/types.js';
+import { agentByName, byPriority, type LaunchAgent, PRE_WAVE_A, resolveAgentBin, supportedAgents } from './agents.js';
 import { findOnPath } from './detect.js';
 
 /**
@@ -13,7 +13,7 @@ export interface PickAgentDeps {
   agents: readonly LaunchAgent[];
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
   /** Resolves null when the user cancels. Only called on a terminal with several candidates. */
-  select(candidates: LaunchAgent[]): Promise<AgentName | null>;
+  select(candidates: LaunchAgent[]): Promise<LaunchAgentId | null>;
   say(line: string): void;
 }
 
@@ -26,13 +26,13 @@ export interface AgentConfig {
   isLaunchOff?(): boolean;
 }
 
-async function clackSelect(candidates: LaunchAgent[]): Promise<AgentName | null> {
+async function clackSelect(candidates: LaunchAgent[]): Promise<LaunchAgentId | null> {
   const clack = await import('@clack/prompts');
   const answer = await clack.select({
     message: 'Which coding agent should `align` open?',
     options: candidates.map((a) => ({ value: a.name, label: a.label })),
   });
-  return clack.isCancel(answer) ? null : (answer as AgentName);
+  return clack.isCancel(answer) ? null : (answer as LaunchAgentId);
 }
 
 function defaultDeps(): PickAgentDeps {
@@ -50,7 +50,7 @@ export async function pickAgent(
   config: AgentConfig,
   opts: { interactive: boolean; approve?: boolean },
   overrides: Partial<PickAgentDeps> = {},
-): Promise<AgentName | null | typeof PICK_CANCELLED> {
+): Promise<LaunchAgentId | null | typeof PICK_CANCELLED> {
   const d = { ...defaultDeps(), ...overrides };
 
   const installed = d.agents.filter((a) => resolveAgentBin(a, d.findOnPath, d.env, d.platform) !== null);
@@ -67,9 +67,17 @@ export async function pickAgent(
     return null;
   }
 
+  // Without a terminal and without --approve, only the agents launchable before wave A are
+  // weighed when any is installed: a machine with Claude Code plus Codex picks Claude Code, as it
+  // did before Codex could be launched, and two older agents still are not guessed between.
+  const preWaveA = installed.filter((a) => PRE_WAVE_A.has(a.name));
+  const unattended = !opts.interactive && !opts.approve && preWaveA.length > 0 ? preWaveA : installed;
+
   let chosen: LaunchAgent | undefined;
-  if (installed.length === 1 || opts.approve) {
-    chosen = installed[0];
+  if (opts.approve) {
+    chosen = byPriority(installed)[0];
+  } else if (unattended.length === 1) {
+    chosen = unattended[0];
   } else if (opts.interactive) {
     const name = await d.select(installed);
     if (name === null) return PICK_CANCELLED;
@@ -84,6 +92,6 @@ export async function pickAgent(
   const wasOff = config.isLaunchOff?.() === true;
   config.setAgent(chosen.name);
   if (wasOff) d.say('Launching is on again: `align use --undo` had turned it off.');
-  if (installed.length === 1) d.say(`Using ${chosen.label}. Switch any time with \`align use\`.`);
+  if (installed.length === 1 || unattended.length === 1) d.say(`Using ${chosen.label}. Switch any time with \`align use\`.`);
   return chosen.name;
 }

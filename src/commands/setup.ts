@@ -37,7 +37,7 @@ import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
 import { InvalidEnvError, routeSetup } from '../lib/setup-route.js';
 import { agentByName } from '../lib/launch/agents.js';
-import type { AgentName } from '../lib/sessions/types.js';
+import type { LaunchAgentId } from '../lib/launch/registry/types.js';
 import { firstDecision } from '../lib/first-decision.js';
 import { hasConfiguredProvider } from '../lib/local-llm.js';
 
@@ -637,7 +637,7 @@ interface LocalValuePhaseResult {
   /** ALI-950: the first decision the wizard found (git, else docs), for the outro's question. */
   firstFoundTitle: string | undefined;
   /** C5: the coding agent `align` opens next, or null when none is installed or chosen. */
-  agent: AgentName | null;
+  agent: LaunchAgentId | null;
 }
 
 /**
@@ -646,7 +646,7 @@ interface LocalValuePhaseResult {
  * second and then be false, so it is dropped. With no agent the install hints were already
  * printed once by the pick, and are not repeated here.
  */
-function nextStepLine(agent: AgentName | null, launchNext: boolean): string | null {
+function nextStepLine(agent: LaunchAgentId | null, launchNext: boolean): string | null {
   const label = agent ? agentByName(agent)?.label : undefined;
   if (label) return launchNext ? null : `Run ${chalk.bold('align')} to open ${label} with your graph.`;
   return `Run ${chalk.bold('align')} once a coding agent is installed.`;

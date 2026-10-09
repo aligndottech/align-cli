@@ -2,17 +2,20 @@ import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { createConfigStore } from '../config.js';
 import { resolveEnv } from '../resolve-env.js';
-import type { AgentName } from '../sessions/types.js';
-import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
+import { agentByName, byPriority, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
 import type { LaunchSpec } from './adapters/claude-code.js';
 import { applyConfigWrite, type ConfigWrite } from './config-writes.js';
+import { type CodexProjectState, readCodexState } from './codex-state.js';
+import { type CopilotProjectState, readCopilotState } from './copilot-state.js';
 import { type CursorProjectState, readCursorState } from './cursor-state.js';
 import { findOnPath } from './detect.js';
-import { launchCacheDir, writeIfChanged } from './launch-files.js';
+import { type GeminiProjectState, readGeminiState } from './gemini-state.js';
+import { launchCacheDir, pruneLaunchFiles, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
 import { type PiProjectState, readPiState } from './pi-state.js';
 import { type ProjectState, readProjectState } from './project-state.js';
 import { specByName } from './registry/index.js';
+import type { LaunchAgentId } from './registry/types.js';
 import { runAgent } from './run-agent.js';
 
 /*
@@ -38,15 +41,23 @@ export interface LaunchDeps {
   readPiState(cwd: string, home: string, env: Record<string, string | undefined>): PiProjectState;
   /** What Cursor would already read. */
   readCursorState(cwd: string, home: string): CursorProjectState;
+  /** What Codex would already load (/etc/codex, $CODEX_HOME or ~/.codex, a -p profile in the user's args, every ancestor .codex/). */
+  readCodexState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): CodexProjectState;
+  /** What Gemini CLI would already load, the system settings file it reads, and folder trust. */
+  readGeminiState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): GeminiProjectState;
+  /** What Copilot CLI would already load ($COPILOT_HOME or ~/.copilot, and the workspace). */
+  readCopilotState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): CopilotProjectState;
   /** Add to a file in the user's own agent config, once (C4). Lines go to `note`. */
   applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
-  writeIfChanged(dir: string, name: string, content: string): boolean;
+  writeIfChanged(dir: string, name: string, content: string, opts?: { mode?: number }): boolean;
+  /** Tidy launch files from earlier launches without removing one a concurrent session uses. */
+  pruneLaunchFiles(dir: string, prefix: string, opts: { keep?: string; remove?: string }): void;
   runAgent(spec: LaunchSpec): Promise<number>;
   /** Fire and forget: the caller never awaits what this returns. */
-  record(agent: AgentName): void;
+  record(agent: LaunchAgentId): void;
   /** Ask which agent. Only called on a TTY with more than one supported agent installed. */
-  pick(candidates: LaunchAgent[]): Promise<AgentName | null>;
+  pick(candidates: LaunchAgent[]): Promise<LaunchAgentId | null>;
   /** Every line align itself writes on this path. stderr only: stdout belongs to the agent (`align -- -p ... | jq`). */
   err(line: string): void;
   now(): number;
@@ -79,9 +90,13 @@ function defaultDeps(): LaunchDeps {
     readOpenCodeState: (cwd, home) => readOpenCodeState(cwd, home, { localIsDefault: isLocalDefault() }, process.env),
     readPiState: (cwd, home, env) => readPiState(cwd, home, { localIsDefault: isLocalDefault() }, env),
     readCursorState: (cwd, home) => readCursorState(cwd, home, { localIsDefault: isLocalDefault() }),
+    readCodexState: (cwd, home, env, platform, passthrough) => readCodexState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
+    readGeminiState: (cwd, home, env, platform) => readGeminiState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
+    readCopilotState: (cwd, home, env, platform) => readCopilotState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
     applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
     cacheDir: launchCacheDir,
     writeIfChanged,
+    pruneLaunchFiles,
     runAgent: (spec) => runAgent(spec),
     record: (agent) => {
       // Dynamic and un-awaited: telemetry consent rules live in recordFunnelStage, and none of
@@ -96,7 +111,7 @@ function defaultDeps(): LaunchDeps {
         message: 'Which coding agent should `align` open?',
         options: candidates.map((a) => ({ value: a.name, label: a.label })),
       });
-      return clack.isCancel(answer) ? null : (answer as AgentName);
+      return clack.isCancel(answer) ? null : (answer as LaunchAgentId);
     },
     err: (l) => console.error(l),
     now: () => performance.now(),
@@ -164,10 +179,10 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
       agent = installed.find((a) => a.name === choice);
       if (!agent) return { handled: true, code: 1 };
     } else {
-      d.err(`More than one coding agent is installed (${installed.map((a) => a.label).join(', ')}) and there is no terminal to ask in.`);
-      d.err(`Choose one: align use <agent>   (${installed.map((a) => a.name).join(' | ')})`);
-      d.err('Then run `align` again.');
-      return { handled: true, code: 2 };
+      // An explicit `align -- ...` with no terminal (a script's first run). Take the old order, so
+      // what a script opened before wave A it still opens, and say which one.
+      agent = byPriority(installed)[0];
+      announce = `Opening ${agent!.label}: more than one coding agent is installed and there is no terminal to ask. Change it with: align use <agent>`;
     }
   }
 
@@ -188,11 +203,23 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   }
 
   const dir = d.cacheDir(d.env);
-  const built = build(d, { passthrough, cachePath: (name) => `${dir}/${name}` });
+  let built: LaunchSpec;
+  try {
+    built = build(d, { passthrough, cachePath: (name) => `${dir}/${name}` });
+  } catch (e) {
+    // Reading the user's or a repo's config is reading untrusted input. Whatever it does to the
+    // reader, the user still gets their agent, without Align, and one line instead of a trace.
+    d.err(`Could not prepare Align for ${agent!.label} (${(e as Error).message}). Opening it without Align's graph.`);
+    built = { bin: agent!.bin, args: [...passthrough], env: { ALIGN_WRAPPED: '1' }, files: [] };
+  }
   // The adapter names the agent's usual binary; run whichever name is actually installed.
   const spec: LaunchSpec = resolved && resolved.bin !== built.bin ? { ...built, bin: resolved.bin } : built;
   try {
-    for (const f of spec.files) d.writeIfChanged(dir, f.name, f.content);
+    for (const f of spec.files) {
+      if (f.mode === undefined) d.writeIfChanged(dir, f.name, f.content);
+      else d.writeIfChanged(dir, f.name, f.content, { mode: f.mode });
+    }
+    if (spec.prune) d.pruneLaunchFiles(dir, spec.prune.prefix, { keep: spec.prune.keep, remove: spec.prune.remove });
   } catch (e) {
     d.err(`Could not write launch files (${(e as Error).message}). Showing your graph instead.`);
     return { handled: false };

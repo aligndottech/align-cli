@@ -140,7 +140,8 @@ jobs:
   # NOT a required context, and branch protection is not touched: it is advisory like every
   # job here but `test`. Windows bills 2x, and a diff outside these paths pays only the
   # checkout. The patterns below are a hand-kept list: a new launch-adjacent file outside them
-  # is not covered here, and the post-merge cross-platform job still catches it.
+  # is not covered here, and the post-merge cross-platform job still catches it. It runs only
+  # the launch and config-writing test files, not the whole suite: see the Test step.
   windows-launch:
     if: github.event_name == 'pull_request'
     runs-on: windows-latest
@@ -184,9 +185,44 @@ jobs:
       - if: steps.scope.outputs.touched == 'true'
         run: npm ci
 
-      - name: Test
+      # Only the launch and config-writing suites, not `npm test`: the whole suite on a Windows
+      # runner hits 5s timeouts in unrelated SQLite suites (local-db-*) under load, which reads
+      # as a red launch PR. The file list comes from git, per prefix of the scope pattern above,
+      # and fails loudly when a prefix matches no test file (a stale list) or when vitest runs a
+      # different number of files than were listed (vitest drops a filter that matches nothing
+      # without a word). default-action.ts has no test file named after it; bare-align.test.ts
+      # is the suite that drives it.
+      - name: Test (launch and config-writing suites)
         if: steps.scope.outputs.touched == 'true'
-        run: npm test
+        shell: bash
+        run: |
+          set -uo pipefail
+          : > files.txt
+          for p in launch safe-config mcp-setup local-wiring use- user-hooks; do
+            git ls-files "src/__tests__/${p}*.test.ts" > hits.txt
+            if [ ! -s hits.txt ]; then
+              echo "::error::no test file matches src/__tests__/${p}*.test.ts; the list in this step is stale"
+              exit 1
+            fi
+            cat hits.txt >> files.txt
+          done
+          git ls-files --error-unmatch src/__tests__/bare-align.test.ts >> files.txt || exit 1
+          want=$(wc -l < files.txt | tr -d ' ')
+          echo "Running $want test files:"; cat files.txt
+          npx vitest run $(cat files.txt) > vitest.log 2>&1
+          status=$?
+          sed 's/\x1b\[[0-9;]*m//g' vitest.log > vitest.plain.log
+          cat vitest.plain.log
+          if grep -q "No test files found" vitest.plain.log; then
+            echo "::error::vitest found no test files for the listed paths"
+            exit 1
+          fi
+          got=$(grep -E '^ *Test Files ' vitest.plain.log | grep -oE '\(([0-9]+)\)' | tr -d '()' | tail -1)
+          if [ "${got:-0}" != "$want" ]; then
+            echo "::error::vitest ran ${got:-no} test files, expected $want; a listed path matched nothing"
+            exit 1
+          fi
+          exit $status
 
   # Same gate on the newest Node (not a required context). 22.16 is the floor and the
   # required `test` job covers it, so the value here is the OTHER end of the range.

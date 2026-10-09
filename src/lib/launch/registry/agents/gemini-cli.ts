@@ -1,3 +1,4 @@
+import { buildGeminiLaunch } from '../../adapters/gemini-cli.js';
 import type { AgentSpec } from '../types.js';
 
 export const geminiCli: AgentSpec = {
@@ -5,6 +6,7 @@ export const geminiCli: AgentSpec = {
   label: 'Gemini CLI',
   bin: 'gemini',
   injection: 'per-session',
-  supported: false,
+  supported: true,
   install: 'npm i -g @google/gemini-cli',
+  build: (d, base) => buildGeminiLaunch({ ...base, env: d.env, platform: d.platform, ...d.readGeminiState(d.cwd, d.home, d.env, d.platform) }),
 };

@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { launchCacheDir, writeIfChanged } from '../lib/launch/launch-files.js';
+import { launchCacheDir, pruneLaunchFiles, writeIfChanged } from '../lib/launch/launch-files.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(os.tmpdir(), 'align-lf-')); });
@@ -70,19 +70,102 @@ describe('writeIfChanged', () => {
   });
 });
 
-describe('writeIfChanged: nested names (C2: OPENCODE_CONFIG_DIR needs plugins/align.js under a cached dir)', () => {
-  it('creates the sub-directories and writes the file', () => {
-    expect(writeIfChanged(dir, 'opencode-config/plugins/align.js', 'x')).toBe(true);
-    expect(readFileSync(path.join(dir, 'opencode-config', 'plugins', 'align.js'), 'utf8')).toBe('x');
+describe('writeIfChanged: a file with a mode (review F3: the Gemini system copy is 0600)', () => {
+  it.skipIf(process.platform === 'win32')('writes it with that mode, whatever the umask', () => {
+    const old = process.umask(0o022);
+    try {
+      writeIfChanged(dir, 'copy.json', '{}', { mode: 0o600 });
+      expect(statSync(path.join(dir, 'copy.json')).mode & 0o777).toBe(0o600);
+      writeIfChanged(dir, 'copy.json', '{"b":2}', { mode: 0o600 });
+      expect(statSync(path.join(dir, 'copy.json')).mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(old);
+    }
   });
-  it('does not rewrite identical nested content, and rewrites changed content', () => {
-    writeIfChanged(dir, 'a/b.js', 'x');
-    expect(writeIfChanged(dir, 'a/b.js', 'x')).toBe(false);
-    expect(writeIfChanged(dir, 'a/b.js', 'y')).toBe(true);
-    expect(readFileSync(path.join(dir, 'a', 'b.js'), 'utf8')).toBe('y');
+  it.skipIf(process.platform === 'win32')('tightens an existing looser file even when the content is unchanged', () => {
+    writeFileSync(path.join(dir, 'copy.json'), '{}', { mode: 0o644 });
+    chmodSync(path.join(dir, 'copy.json'), 0o644);
+    expect(writeIfChanged(dir, 'copy.json', '{}', { mode: 0o600 })).toBe(false);
+    expect(statSync(path.join(dir, 'copy.json')).mode & 0o777).toBe(0o600);
   });
-  it('leaves no temp file beside the nested target', () => {
-    writeIfChanged(dir, 'a/b.js', 'x');
-    expect(readdirSync(path.join(dir, 'a'))).toEqual(['b.js']);
+  it.skipIf(process.platform === 'win32')('a temp file left by a crashed launch does not block the write', () => {
+    writeFileSync(path.join(dir, `.copy.json.${process.pid}.tmp`), 'stale');
+    expect(writeIfChanged(dir, 'copy.json', '{"a":1}', { mode: 0o600 })).toBe(true);
+    expect(readFileSync(path.join(dir, 'copy.json'), 'utf8')).toBe('{"a":1}');
+    expect(readdirSync(dir)).toEqual(['copy.json']);
+  });
+  it.skipIf(process.platform === 'win32')('tightens an existing launch dir the user owns to 0700', () => {
+    const loose = path.join(dir, 'loose');
+    mkdirSync(loose, { mode: 0o755 });
+    chmodSync(loose, 0o755);
+    writeIfChanged(loose, 'a.json', '{}');
+    expect(statSync(loose).mode & 0o777).toBe(0o700);
+  });
+});
+
+describe('writeIfChanged: never writes through a link someone planted (review: prove wx, not just the mode)', () => {
+  let victimDir: string;
+  beforeEach(() => { victimDir = mkdtempSync(path.join(os.tmpdir(), 'align-victim-')); });
+  afterEach(() => { rmSync(victimDir, { recursive: true, force: true }); });
+  const victim = () => path.join(victimDir, 'victim.txt');
+
+  it.skipIf(process.platform === 'win32').each([['with a mode', { mode: 0o600 }], ['without a mode', {}]] as const)(
+    'a symlink at the temp path (%s) is not followed: the victim is untouched and the file is a regular file',
+    (_l, opts) => {
+      writeFileSync(victim(), 'secret');
+      symlinkSync(victim(), path.join(dir, `.copy.json.${process.pid}.tmp`));
+      expect(writeIfChanged(dir, 'copy.json', '{"a":1}', opts)).toBe(true);
+      expect(readFileSync(victim(), 'utf8')).toBe('secret');
+      expect(lstatSync(path.join(dir, 'copy.json')).isSymbolicLink()).toBe(false);
+      expect(readFileSync(path.join(dir, 'copy.json'), 'utf8')).toBe('{"a":1}');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('a symlink at the target name is replaced by a real file, even when the victim already holds our content', () => {
+    writeFileSync(victim(), '{"a":1}');
+    symlinkSync(victim(), path.join(dir, 'copy.json'));
+    expect(writeIfChanged(dir, 'copy.json', '{"a":1}', { mode: 0o600 })).toBe(true);
+    expect(lstatSync(path.join(dir, 'copy.json')).isSymbolicLink()).toBe(false);
+    expect(statSync(path.join(dir, 'copy.json')).mode & 0o777).toBe(0o600);
+    expect(readFileSync(victim(), 'utf8')).toBe('{"a":1}');
+  });
+});
+
+describe('pruneLaunchFiles (a concurrent session\'s live copy survives)', () => {
+  const HOUR = 3600_000;
+  const now = Date.now();
+  const age = (n: string, ms: number) => utimesSync(path.join(dir, n), new Date(now - ms), new Date(now - ms));
+  const names = () => readdirSync(dir).sort();
+
+  it('a launch for B leaves a fresh copy A alone (another session may be reading it)', () => {
+    for (const n of ['g-A.json', 'g-B.json']) writeIfChanged(dir, n, '{}');
+    pruneLaunchFiles(dir, 'g-', { keep: 'g-B.json', now });
+    expect(names()).toEqual(['g-A.json', 'g-B.json']);
+  });
+  it('a copy older than 24 hours is removed; one just under 24 hours is not', () => {
+    for (const n of ['g-A.json', 'g-B.json', 'g-C.json']) writeIfChanged(dir, n, '{}');
+    age('g-A.json', 25 * HOUR);
+    age('g-C.json', 23 * HOUR);
+    pruneLaunchFiles(dir, 'g-', { keep: 'g-B.json', now });
+    expect(names()).toEqual(['g-B.json', 'g-C.json']);
+  });
+  it('a launch for B that does not inject removes B, and a fresh A survives', () => {
+    for (const n of ['g-A.json', 'g-B.json']) writeIfChanged(dir, n, '{}');
+    pruneLaunchFiles(dir, 'g-', { remove: 'g-B.json', now });
+    expect(names()).toEqual(['g-A.json']);
+  });
+  it('the copy in use has its mtime refreshed, so an old but live copy is not aged out later', () => {
+    writeIfChanged(dir, 'g-B.json', '{}');
+    age('g-B.json', 30 * HOUR);
+    pruneLaunchFiles(dir, 'g-', { keep: 'g-B.json', now });
+    expect(names()).toEqual(['g-B.json']);
+    expect(Math.abs(statSync(path.join(dir, 'g-B.json')).mtimeMs - now)).toBeLessThan(2000);
+  });
+  it('files without the prefix are never touched, however old; a missing dir is fine', () => {
+    writeIfChanged(dir, 'claude-mcp.json', '{}');
+    age('claude-mcp.json', 100 * HOUR);
+    pruneLaunchFiles(dir, 'g-', { now });
+    expect(names()).toEqual(['claude-mcp.json']);
+    expect(() => pruneLaunchFiles(path.join(dir, 'nope'), 'g-', { now })).not.toThrow();
   });
 });
