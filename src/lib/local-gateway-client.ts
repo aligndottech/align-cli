@@ -8,6 +8,7 @@ import { repositoryOf } from './decision-links.js';
 import { localCitationFor } from './commit-cite.js';
 import { extractRefs, refIdentityFor } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
+import { type IngestOptions, type IngestResult, isUnchanged, type LocalBatchItem, type LocalBatchOptions, selectForClassification } from './local-ingest.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
 // (ask/search/check) work identically in local mode.
@@ -86,18 +87,7 @@ export const RETRIEVAL_RELATES_THRESHOLD = 0.3;
 export const RELATED_TOP_K = 3;
 export const RELATED_FLOOR = RELATES_THRESHOLD;
 
-/**
- * ALI-1065: the capture-time classification budget. Only the high-confidence tier
- * (score >= SIMILARITY_THRESHOLD) is ever classified - the lower related-only tier stays
- * a plain cosine `relates` edge, because typing a merely-related pair is exactly the
- * manufactured-detection failure ALI-503 removed from the conflict counters.
- *
- * Capped at 3 regardless of how many candidates clear the high-confidence bar, and skipped
- * entirely (0 calls) with no provider configured - see ingestOne. Worst case: 3 classifier
- * calls per capture, each a single LLM round trip. Typical capture (0-1 near-duplicates)
- * costs 0-1 calls.
- */
-export const CAPTURE_CLASSIFY_TOP_K = 3;
+export { CAPTURE_CLASSIFY_TOP_K } from './local-ingest.js';
 
 // Below this similarity between a decision and new content, the content is
 // considered to have drifted from the decision.
@@ -296,15 +286,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   async function ingestOne(
     input: string,
     platform: string,
-    opts: {
-      titleOverride?: string; sourceUrlOverride?: string | null; createdAt?: string;
-      /** L1: false skips the capture-time classifier even with a provider key set, so a
-       *  connector import or background sync never spends the user's money. Omitted keeps
-       *  today's behaviour (classify when a provider is configured), which explicit human
-       *  capture relies on. */
-      classify?: boolean;
-    } = {},
-  ): Promise<{ id: string; title: string; summary: string; sourceUrl: string | null; platform: string; related: Array<{ decisionId: string; score: number }>; created: boolean; changed: boolean }> {
+    opts: IngestOptions = {},
+  ): Promise<IngestResult> {
     let title = input.slice(0, 80);
     let summary = input;
     let sourceUrl: string | null = opts.sourceUrlOverride ?? null;
@@ -350,27 +333,12 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // never the item: the summary is the thing the user came for.
     const decidedAt = normaliseDecidedAt(opts.createdAt);
 
-    // L1: unchanged-skip. A sync window overlaps the last run, so known items arrive again,
-    // and re-embedding and re-linking each one is the whole cost of a refresh. Skip only when
-    // the upsert below would write nothing new: same summary (the column holds exactly what
-    // insertDecision stores, so no hash column is needed), same platform, no repo or date the
-    // row lacks or holds differently, and an embedding from the current model. Anything else
-    // falls through to the full path, so a late-arriving date or a model swap still lands.
-    if (existingId !== null) {
-      const stored = db.getDecisionById(existingId);
-      if (
-        stored
-        && stored.summary === summary
-        && stored.platform === platform
-        && (repo === null || stored.repo === repo)
-        && (decidedAt === null || stored.decidedAt === decidedAt)
-        && db.getEmbeddingModel(existingId) === EMBEDDING_MODEL_ID
-      ) {
-        // Still resolve citations INTO this row: a citer that arrived since the last ingest
-        // is linked only here (see resolveRefs below). A few indexed reads, no embed.
-        db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
-        return { id: existingId, title, summary, sourceUrl, platform, related: [], created: false, changed: false };
-      }
+    // L1: unchanged-skip (see isUnchanged). Still resolve citations INTO the row: a citer
+    // that arrived since the last ingest is linked only there (resolveRefs, below).
+    if (existingId !== null && isUnchanged(db.getDecisionById(existingId),
+      { summary, platform, repo, decidedAt }, db.getEmbeddingModel(existingId), EMBEDDING_MODEL_ID)) {
+      db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
+      return { id: existingId, title, summary, sourceUrl, platform, related: [], created: false, changed: false };
     }
     // ALI-831: origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
@@ -397,14 +365,12 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       (c, i) => c.score >= SIMILARITY_THRESHOLD || (i < RELATED_TOP_K && c.score >= RELATED_FLOOR),
     );
 
-    // ALI-1065: classify only the high-confidence tier, capped, and only with a provider
-    // configured - hasConfiguredProvider is an env-only check, so this costs nothing when
-    // no key exists (the common case for a fresh clone). chainStopped mirrors
-    // checkAlignment's own short-circuit: once one candidate's classification fails with a
-    // stopped provider, further calls in THIS capture are skipped rather than repeated.
-    const toClassify = opts.classify !== false && hasConfiguredProvider()
-      ? candidates.filter(c => c.score >= SIMILARITY_THRESHOLD).slice(0, CAPTURE_CLASSIFY_TOP_K)
-      : [];
+    // Which candidates the paid classifier sees: see selectForClassification. chainStopped
+    // mirrors checkAlignment's own short-circuit: once one candidate's classification fails
+    // with a stopped provider, further calls in THIS capture are skipped rather than repeated.
+    const toClassify = selectForClassification(candidates, {
+      classify: opts.classify, threshold: SIMILARITY_THRESHOLD, hasProvider: hasConfiguredProvider,
+    });
     const classifyIds = new Set(toClassify.map(c => c.decisionId));
     const newDecision = { title, summary };
     let chainStopped = false;
@@ -464,12 +430,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       };
     },
 
-    /** `opts.classify`: see ingestOne. `deferEnrichment` is the cloud gateway's option and is
-     *  accepted here only so one call site serves both clients; local ingest ignores it. */
-    async ingestBatch(
-      items: Array<{ source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string }>,
-      opts: { classify?: boolean; deferEnrichment?: boolean } = {},
-    ) {
+    async ingestBatch(items: LocalBatchItem[], opts: LocalBatchOptions = {}) {
       const snapshots = [];
       for (const item of items) {
         const r = await ingestOne(item.raw_text, item.platform ?? 'cli', {
