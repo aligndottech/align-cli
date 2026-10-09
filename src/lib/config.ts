@@ -2,7 +2,7 @@ import Conf from 'conf';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { WrittenConfig } from './safe-config-write.js';
+import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -137,6 +137,7 @@ export function createConfigStore() {
     telemetryConsent?: TelemetryConsent;
     agent?: string;
     launchOff?: boolean;
+    refusedWrites?: string[];
     writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
@@ -316,13 +317,27 @@ export function createConfigStore() {
     getWrittenConfigs(): Record<string, WrittenConfig> {
       return store.get('writtenConfigs') ?? {};
     },
+    // `entry` is what ONE write added; mergeWrittenConfig folds it into what is already here
+    // (the first write's `created` and backup stay, owned entries accumulate).
     recordWrittenConfig(file: string, entry: WrittenConfig) {
       const all = store.get('writtenConfigs') ?? {};
-      // `created` is a fact about the FIRST write; a later rewrite must not flip it.
-      store.set('writtenConfigs', { ...all, [file]: { created: all[file]?.created ?? entry.created, sha256: entry.sha256 } });
+      store.set('writtenConfigs', { ...all, [file]: mergeWrittenConfig(all[file], entry) });
     },
-    clearWrittenConfigs() {
-      store.delete('writtenConfigs');
+    /** Forget only the files whose undo finished; a skipped file keeps its record. */
+    dropWrittenConfigs(files: string[]) {
+      const all = { ...(store.get('writtenConfigs') ?? {}) };
+      for (const f of files) delete all[f];
+      if (Object.keys(all).length === 0) store.delete('writtenConfigs');
+      else store.set('writtenConfigs', all);
+    },
+    // Refused writes (a symlinked agent config): remembered so the one-line notice is printed
+    // once, not on every launch.
+    wasWriteRefused(file: string): boolean {
+      return (store.get('refusedWrites') ?? []).includes(file);
+    },
+    markWriteRefused(file: string) {
+      const all = store.get('refusedWrites') ?? [];
+      if (!all.includes(file)) store.set('refusedWrites', [...all, file]);
     },
     getTelemetryConsent(): TelemetryConsent | undefined {
       return store.get('telemetryConsent');

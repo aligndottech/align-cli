@@ -159,7 +159,7 @@ export function writeUserHooks(target: UserHookTarget, env?: string, onForeign?:
   };
 
   if (SAFE_HOSTS.has(target.host)) {
-    const status = safeWriteJson(target.path, merge, { trailingNewline: true });
+    const status = safeWriteJson(target.path, merge, { trailingNewline: true, invalidJsonAdvice: ' before running align mcp --setup' });
     if (foreign) {
       onForeign!(target.path);
       return false;

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { runUse, type UseDeps } from '../commands/use.js';
-import { safeWriteJson, setWriteRecorder, type WrittenConfig } from '../lib/safe-config-write.js';
+import { mergeWrittenConfig, safeWriteJson, setWriteRecorder, type WrittenConfig } from '../lib/safe-config-write.js';
 
 function harness(stored?: string, onPath: Record<string, string> = { claude: '/usr/bin/claude' }, manifest: Record<string, WrittenConfig> = {}) {
   let current = stored;
@@ -15,7 +15,7 @@ function harness(stored?: string, onPath: Record<string, string> = { claude: '/u
   const setLaunchOff = vi.fn();
   const deps: UseDeps = {
     config: { getAgent: () => current, setAgent, clearAgent, setLaunchOff },
-    writtenConfigs: { get: () => written, clear: () => { written = {}; } },
+    writtenConfigs: { get: () => written, drop: (files: string[]) => { written = Object.fromEntries(Object.entries(written).filter(([f]) => !files.includes(f))); } },
     findOnPath: (bin) => onPath[bin] ?? null,
     env: {},
     platform: 'linux',
@@ -100,7 +100,7 @@ describe('align use --undo (C4)', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'align-undo-'));
     try {
       const manifest: Record<string, WrittenConfig> = {};
-      setWriteRecorder((f, e) => { manifest[f] = e; });
+      setWriteRecorder((f, e) => { manifest[f] = mergeWrittenConfig(manifest[f], e); });
       const a = path.join(dir, 'a.json');
       const b = path.join(dir, 'b.json');
       writeFileSync(a, '{ "a":1 }');
@@ -133,16 +133,32 @@ describe('align use --undo (C4)', () => {
     expect(h.err).toEqual([]);
   });
 
-  it('reports a file it could not restore, exits 1, and still clears the manifest', async () => {
-    const h = harness(undefined, {}, { '/nope/missing.json': { created: false, sha256: 'x' } });
-    expect(await runUse(undefined, h.deps, { undo: true })).toBe(1);
-    expect(h.err.join('\n')).toContain('/nope/missing.json: no backup found');
-    expect(h.manifest()).toEqual({});
-    expect(h.setLaunchOff).toHaveBeenCalledExactlyOnceWith(true);
+  it('a file it cannot take align out of is named, exits 1, KEEPS its manifest entry, and launching is still off', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'align-undo-'));
+    try {
+      const stuck = path.join(dir, 'stuck.json');
+      writeFileSync(stuck, '{"a":1}');
+      const entry: WrittenConfig = { created: false, sha256: 'x', firstSha256: 'x', backup: 'made' };
+      const h = harness(undefined, {}, { [stuck]: entry, '/nope/gone.json': { created: true, sha256: 'y', firstSha256: 'y', backup: 'none' } });
+      expect(await runUse(undefined, h.deps, { undo: true })).toBe(1);
+      expect(h.err.join('\n')).toContain(`${stuck}: align has no record of what it added`);
+      expect(Object.keys(h.manifest())).toEqual([stuck]); // the finished one is forgotten, the stuck one is kept
+      expect(h.setLaunchOff).toHaveBeenCalledExactlyOnceWith(true);
+      expect(h.out).toContain('Restored 1 file. align will not open an agent until you run `align use <agent>`.');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('`--none` also turns launching back on, so its message is true', async () => {
+    const h = harness('claude-code');
+    expect(await runUse(undefined, h.deps, { none: true })).toBe(0);
+    expect(h.setLaunchOff).toHaveBeenCalledExactlyOnceWith(false);
+    expect(h.out.join('\n')).toContain('pick an agent again');
   });
 
   it.each([['pi', {}], [undefined, { none: true }]])('refuses to combine with an agent name or --none (%s)', async (name, extra) => {
-    const h = harness(undefined, {}, { '/x.json': { created: true, sha256: 'x' } });
+    const h = harness(undefined, {}, { '/x.json': { created: true, sha256: 'x', firstSha256: 'x', backup: 'none' as const } });
     expect(await runUse(name, h.deps, { undo: true, ...extra })).toBe(2);
     expect(h.manifest()).not.toEqual({});
     expect(h.setLaunchOff).not.toHaveBeenCalled();

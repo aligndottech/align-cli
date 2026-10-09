@@ -99,7 +99,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   program.hook('preAction', () => {
     try {
       const config = createConfigStore();
-      setWriteRecorder((file, entry) => config.recordWrittenConfig(file, entry));
+      setWriteRecorder((file, entry) => config.recordWrittenConfig(file, entry), (file) => config.getWrittenConfigs()[file]);
     } catch (e) {
       if (process.env['ALIGN_DEBUG']) console.error('align: written-config recorder failed (non-fatal):', e);
     }

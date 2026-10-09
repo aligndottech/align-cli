@@ -23,8 +23,8 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     findOnPath: (bin) => onPath[bin] ?? null,
     readProjectState: () => ({ projectHasPreHook: false, projectHasPostHook: false, projectHasMcp: false, projectHasBlock: false }),
     readOpenCodeState: () => ({ projectHasPlugin: false, projectHasMcp: false, projectHasBlock: false }),
-    readPiState: () => ({ projectHasExtension: false, projectHasMcp: false, projectHasBlock: false, mcpFile: '/home/u/.pi/agent/mcp.json' }),
-    readCursorState: () => ({ projectHasMcp: false, hooksPresent: false, mcpFile: '/home/u/.cursor/mcp.json', hooksFile: '/home/u/.cursor/hooks.json' }),
+    readPiState: () => ({ projectHasExtension: false, projectHasMcp: false, projectHasBlock: false, mcpAdapterInstalled: true, mcpFile: '/home/u/.pi/agent/mcp.json' }),
+    readCursorState: () => ({ projectHasMcp: false, mcpFile: '/home/u/.cursor/mcp.json' }),
     applyConfigWrite: vi.fn(),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content) => { written.push([name, content]); return true; },
@@ -312,18 +312,18 @@ describe('launchIfChosen: written-once agents (C4)', () => {
     expect(spec.bin).toBe('pi');
     expect(spec.args).toEqual(['-e', '/cache/pi-align.ts', '--append-system-prompt', '/cache/align-instructions.md']);
     expect(applyConfigWrite).toHaveBeenCalledOnce();
-    expect(applyConfigWrite.mock.calls[0]![0]).toMatchObject({ kind: 'mcp-entry', name: 'align-local' });
+    expect(applyConfigWrite.mock.calls[0]![0]).toMatchObject({ kind: 'mcp-entry', name: 'align-local', root: '/home/u' });
     // lines go to stderr, never stdout
     applyConfigWrite.mock.calls[0]![1]('hello');
     expect(h.err).toContain('hello');
   });
 
-  it('launches cursor-agent with only the user\'s args and applies both writes', async () => {
+  it('launches cursor-agent with only the user\'s args and applies the one MCP write', async () => {
     const applyConfigWrite = vi.fn();
     const h = harness({ stored: 'cursor', onPath: { 'cursor-agent': CURSOR }, applyConfigWrite, argv: ['node', 'align', '--', 'fix it'] });
     await launchIfChosen(h.deps);
     expect(h.runAgent.mock.calls[0]![0].args).toEqual(['fix it']);
-    expect(applyConfigWrite.mock.calls.map((c) => c[0].kind)).toEqual(['mcp-entry', 'cursor-hooks']);
+    expect(applyConfigWrite.mock.calls.map((c) => c[0].kind)).toEqual(['mcp-entry']);
   });
 
   it('a dry run (and the trace) changes nothing in the user\'s config', async () => {
@@ -338,7 +338,7 @@ describe('launchIfChosen: written-once agents (C4)', () => {
     const applyConfigWrite = vi.fn();
     const h = harness({
       stored: 'pi', onPath: { pi: PI }, applyConfigWrite,
-      readPiState: () => ({ projectHasExtension: true, projectHasMcp: true, projectHasBlock: true, mcpFile: '/x' }),
+      readPiState: () => ({ projectHasExtension: true, projectHasMcp: true, projectHasBlock: true, mcpAdapterInstalled: true, mcpFile: '/x' }),
     });
     await launchIfChosen(h.deps);
     expect(applyConfigWrite).not.toHaveBeenCalled();
@@ -392,15 +392,36 @@ describe('launchIfChosen: after align use --undo (C4)', () => {
     expect(h.err.join('\n')).toContain('align use <agent>');
   });
 
-  it('an explicit `align -- ...` is also not launched while off', async () => {
+  it('an explicit `align -- ...` is not launched while off, and does not silently drop its arguments: it exits 1', async () => {
     const h = harness({ onPath: { pi: '/usr/bin/pi' }, argv: ['node', 'align', '--', 'hi'], config: { getAgent: () => undefined, setAgent: vi.fn(), isLaunchOff: () => true } });
-    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 1 });
     expect(h.runAgent).not.toHaveBeenCalled();
+    expect(h.err.join('\n')).toContain('align use <agent>');
   });
 
   it('with launching on (not off) the same machine auto-picks and launches', async () => {
     const h = harness({ onPath: { pi: '/usr/bin/pi' }, config: { getAgent: () => undefined, setAgent: vi.fn(), isLaunchOff: () => false } });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
     expect(h.runAgent).toHaveBeenCalledOnce();
+  });
+});
+
+describe('launchIfChosen: Cursor\'s binary name (C4)', () => {
+  it('runs `agent` when that is the name installed, `cursor-agent` when both are, and reports neither as not installed', async () => {
+    const onlyAgent = harness({ stored: 'cursor', onPath: { agent: '/usr/bin/agent' } });
+    await launchIfChosen(onlyAgent.deps);
+    expect(onlyAgent.runAgent.mock.calls[0]![0].bin).toBe('agent');
+    const both = harness({ stored: 'cursor', onPath: { agent: '/usr/bin/agent', 'cursor-agent': '/usr/bin/cursor-agent' } });
+    await launchIfChosen(both.deps);
+    expect(both.runAgent.mock.calls[0]![0].bin).toBe('cursor-agent');
+    const none = harness({ stored: 'cursor', onPath: {}, argv: ['node', 'align', '--', 'x'] });
+    expect(await launchIfChosen(none.deps)).toEqual({ handled: true, code: 127 });
+  });
+
+  it('offers Cursor in the picker when only `agent` is installed', async () => {
+    const h = harness({ onPath: { agent: '/usr/bin/agent', claude: CLAUDE } });
+    h.pick.mockResolvedValue(null);
+    await launchIfChosen(h.deps);
+    expect(h.pick.mock.calls[0]![0].map((a: { name: string }) => a.name)).toEqual(['claude-code', 'cursor']);
   });
 });

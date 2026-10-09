@@ -3,8 +3,8 @@ import { buildCursorLaunch, type CursorLaunchContext } from '../lib/launch/adapt
 
 /*
  * C4 Test List (Cursor adapter, pure builder; cursor-agent is NOT installed on the dev machine):
- *  1. nothing present: an align-local MCP write and a hooks write, and no flags
- *  2. each write is skipped on its own flag, both sides (mcp / hooks)
+ *  1. nothing present: one align-local MCP write with an approval hint, and no flags
+ *  2. the write is skipped when a local server is present; hooks are never written
  *  3. --approve-mcps is never passed (it approves every unapproved server, the user's own included)
  *  4. pass-through args are the whole of the args
  *  5. ALIGN_WRAPPED carried, no launch files
@@ -12,23 +12,28 @@ import { buildCursorLaunch, type CursorLaunchContext } from '../lib/launch/adapt
 const BASE: CursorLaunchContext = {
   passthrough: [],
   projectHasMcp: false,
-  hooksPresent: false,
   mcpFile: '/home/u/.cursor/mcp.json',
-  hooksFile: '/home/u/.cursor/hooks.json',
 };
 const ctx = (over: Partial<CursorLaunchContext> = {}): CursorLaunchContext => ({ ...BASE, ...over });
 
 describe('buildCursorLaunch', () => {
-  it('asks for both writes and no flags when nothing is present', () => {
+  it('asks for the one MCP write and no flags when nothing is present', () => {
     const spec = buildCursorLaunch(ctx());
     expect(spec.bin).toBe('cursor-agent');
     expect(spec.args).toEqual([]);
-    expect(spec.writes).toEqual([
-      expect.objectContaining({ kind: 'mcp-entry', file: '/home/u/.cursor/mcp.json', topKey: 'mcpServers', name: 'align-local' }),
-      { kind: 'cursor-hooks', file: '/home/u/.cursor/hooks.json' },
-    ]);
+    expect(spec.writes).toEqual([expect.objectContaining({ kind: 'mcp-entry', file: '/home/u/.cursor/mcp.json', topKey: 'mcpServers', name: 'align-local' })]);
     expect(spec.files).toEqual([]);
     expect(spec.env).toEqual({ ALIGN_WRAPPED: '1' });
+  });
+
+  it('tells the user how to approve the new server (Cursor docs: agent mcp enable <name>)', () => {
+    expect((buildCursorLaunch(ctx()).writes![0] as { hint: string }).hint).toContain('agent mcp enable align-local');
+  });
+
+  it('never writes CLI hooks: Cursor documents only workspaceOpen for the CLI (two contexts)', () => {
+    for (const over of [{}, { projectHasMcp: true }]) {
+      expect(JSON.stringify(buildCursorLaunch(ctx(over)).writes ?? [])).not.toMatch(/hooks/);
+    }
   });
 
   it('the MCP entry targets the local graph and is never named align', () => {
@@ -37,13 +42,8 @@ describe('buildCursorLaunch', () => {
     expect(w.entry.args).toEqual(['mcp', '--env', 'local']);
   });
 
-  it('hooksPresent drops only the hooks write; projectHasMcp drops only the MCP write', () => {
-    expect(buildCursorLaunch(ctx({ hooksPresent: true })).writes!.map((w) => w.kind)).toEqual(['mcp-entry']);
-    expect(buildCursorLaunch(ctx({ projectHasMcp: true })).writes!.map((w) => w.kind)).toEqual(['cursor-hooks']);
-  });
-
-  it('with everything present it writes nothing', () => {
-    expect(buildCursorLaunch(ctx({ projectHasMcp: true, hooksPresent: true })).writes).toBeUndefined();
+  it('projectHasMcp drops the write, and with it everything', () => {
+    expect(buildCursorLaunch(ctx({ projectHasMcp: true })).writes).toBeUndefined();
   });
 
   it.each([

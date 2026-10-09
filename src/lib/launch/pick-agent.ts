@@ -1,5 +1,5 @@
 import type { AgentName } from '../sessions/types.js';
-import { agentByName, type LaunchAgent, supportedAgents } from './agents.js';
+import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
 import { findOnPath } from './detect.js';
 
 /**
@@ -23,6 +23,7 @@ export const PICK_CANCELLED = 'cancelled' as const;
 export interface AgentConfig {
   getAgent(): string | undefined;
   setAgent(agent: string): void;
+  isLaunchOff?(): boolean;
 }
 
 async function clackSelect(candidates: LaunchAgent[]): Promise<AgentName | null> {
@@ -52,7 +53,7 @@ export async function pickAgent(
 ): Promise<AgentName | null | typeof PICK_CANCELLED> {
   const d = { ...defaultDeps(), ...overrides };
 
-  const installed = d.agents.filter((a) => d.findOnPath(a.bin, d.env, d.platform) !== null);
+  const installed = d.agents.filter((a) => resolveAgentBin(a, d.findOnPath, d.env, d.platform) !== null);
 
   // A re-run keeps the choice, provided it can still be launched; `align use` changes it. A
   // stored agent that has left PATH is treated as no choice at all.
@@ -80,7 +81,9 @@ export async function pickAgent(
   }
   if (!chosen) return null;
 
+  const wasOff = config.isLaunchOff?.() === true;
   config.setAgent(chosen.name);
+  if (wasOff) d.say('Launching is on again: `align use --undo` had turned it off.');
   if (installed.length === 1) d.say(`Using ${chosen.label}. Switch any time with \`align use\`.`);
   return chosen.name;
 }

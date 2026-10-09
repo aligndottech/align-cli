@@ -16,6 +16,7 @@ const BASE: PiLaunchContext = {
   projectHasExtension: false,
   projectHasMcp: false,
   projectHasBlock: false,
+  mcpAdapterInstalled: true,
   mcpFile: '/home/u/.pi/agent/mcp.json',
   cachePath: (n) => `/cache/${n}`,
 };
@@ -50,6 +51,12 @@ describe('buildPiLaunch', () => {
     const spec = buildPiLaunch(ctx({ [flag]: true }));
     for (const d of dropped) expect(spec.args).not.toContain(d);
     expect(spec.args.length).toBe(2);
+  });
+
+  it('writes the MCP entry only when pi-mcp-adapter is installed (both sides)', () => {
+    expect(buildPiLaunch(ctx({ mcpAdapterInstalled: false })).writes).toBeUndefined();
+    expect(buildPiLaunch(ctx({ mcpAdapterInstalled: false })).args).toContain('-e');
+    expect(buildPiLaunch(ctx({ mcpAdapterInstalled: true })).writes).toHaveLength(1);
   });
 
   it('projectHasMcp drops only the write; the flags stay', () => {

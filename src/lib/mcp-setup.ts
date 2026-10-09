@@ -286,7 +286,7 @@ function writeCodexConfig(configPath: string, env?: string, onForeign?: OnForeig
       return `${existing.slice(0, start)}${block}${existing.slice(end + CODEX_BLOCK_END.length)}`;
     }
     return existing.trim() ? `${existing.replace(/\s*$/, '')}\n\n${block}\n` : `${block}\n`;
-  });
+  }, { markers: { start: CODEX_BLOCK_START, end: CODEX_BLOCK_END } });
   if (foreign) {
     onForeign!(configPath);
     return false;
@@ -339,7 +339,7 @@ function writeJsonConfig(target: EditorTarget, env?: string, onForeign?: OnForei
   };
 
   if (usesSafeWriter(target)) {
-    const status = safeWriteJson(target.configPath, merge);
+    const status = safeWriteJson(target.configPath, merge, { invalidJsonAdvice: ' before running align mcp --setup' });
     if (status === 'declined') {
       onForeign!(target.configPath);
       return false;

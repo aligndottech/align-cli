@@ -40,24 +40,37 @@ describe('config store', () => {
     expect(c.getAgent()).toBeUndefined();
   });
 
-  it('records written configs by path (dots in the path are not key separators) and clears them', () => {
+  const entry = (over = {}) => ({ created: false, sha256: 'a', firstSha256: 'a', backup: 'made' as const, ...over });
+
+  it('records written configs by path (dots in the path are not key separators) and drops only the finished ones', () => {
     const c = createConfigStore();
     expect(c.getWrittenConfigs()).toEqual({});
-    c.recordWrittenConfig('/home/u/.cursor/mcp.json', { created: false, sha256: 'a' });
-    c.recordWrittenConfig('/home/u/.pi/agent/mcp.json', { created: true, sha256: 'b' });
+    c.recordWrittenConfig('/home/u/.cursor/mcp.json', entry());
+    c.recordWrittenConfig('/home/u/.pi/agent/mcp.json', entry({ created: true }));
     expect(Object.keys(c.getWrittenConfigs()).sort()).toEqual(['/home/u/.cursor/mcp.json', '/home/u/.pi/agent/mcp.json']);
-    c.clearWrittenConfigs();
+    c.dropWrittenConfigs(['/home/u/.cursor/mcp.json']);
+    expect(Object.keys(c.getWrittenConfigs())).toEqual(['/home/u/.pi/agent/mcp.json']);
+    c.dropWrittenConfigs(['/home/u/.pi/agent/mcp.json']);
     expect(c.getWrittenConfigs()).toEqual({});
   });
 
-  it('a second record updates the hash and keeps the FIRST write\'s created flag (both directions)', () => {
+  it('a second record keeps the FIRST write\'s created flag, backup and first hash, and takes the new last hash (both directions)', () => {
     const c = createConfigStore();
-    c.recordWrittenConfig('/a.json', { created: true, sha256: '1' });
-    c.recordWrittenConfig('/a.json', { created: false, sha256: '2' });
-    expect(c.getWrittenConfigs()['/a.json']).toEqual({ created: true, sha256: '2' });
-    c.recordWrittenConfig('/b.json', { created: false, sha256: '1' });
-    c.recordWrittenConfig('/b.json', { created: true, sha256: '2' });
-    expect(c.getWrittenConfigs()['/b.json']).toEqual({ created: false, sha256: '2' });
+    c.recordWrittenConfig('/a.json', entry({ created: true, backup: 'none', sha256: '1', firstSha256: '1' }));
+    c.recordWrittenConfig('/a.json', entry({ created: false, backup: 'made', sha256: '2', firstSha256: '2' }));
+    expect(c.getWrittenConfigs()['/a.json']).toMatchObject({ created: true, backup: 'none', sha256: '2', firstSha256: '1' });
+    c.recordWrittenConfig('/b.json', entry({ created: false, backup: 'made', sha256: '1', firstSha256: '1' }));
+    c.recordWrittenConfig('/b.json', entry({ created: true, backup: 'none', sha256: '2', firstSha256: '2' }));
+    expect(c.getWrittenConfigs()['/b.json']).toMatchObject({ created: false, backup: 'made', sha256: '2', firstSha256: '1' });
+  });
+
+  it('remembers a refused write once (two files)', () => {
+    const c = createConfigStore();
+    expect(c.wasWriteRefused('/x/mcp.json')).toBe(false);
+    c.markWriteRefused('/x/mcp.json');
+    c.markWriteRefused('/x/mcp.json');
+    expect(c.wasWriteRefused('/x/mcp.json')).toBe(true);
+    expect(c.wasWriteRefused('/y/mcp.json')).toBe(false);
   });
 
   it('launch-off is set by undo and cleared by choosing an agent (both directions)', () => {

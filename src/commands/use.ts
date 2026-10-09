@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { agentByName, LAUNCH_AGENTS } from '../lib/launch/agents.js';
+import { agentByName, LAUNCH_AGENTS, resolveAgentBin } from '../lib/launch/agents.js';
 import { findOnPath } from '../lib/launch/detect.js';
 import { undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
 
@@ -7,7 +7,7 @@ export interface UseDeps {
   config: { getAgent(): string | undefined; setAgent(agent: string): void; clearAgent(): void; setLaunchOff(off: boolean): void };
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
   /** Every file align wrote into another product's config (C4). */
-  writtenConfigs: { get(): Record<string, WrittenConfig>; clear(): void };
+  writtenConfigs: { get(): Record<string, WrittenConfig>; drop(files: string[]): void };
   env: Record<string, string | undefined>;
   platform: string;
   log(line: string): void;
@@ -33,13 +33,15 @@ export async function runUse(name: string | undefined, d: UseDeps, opts: { none?
     const report = undoWrittenConfigs(manifest);
     for (const f of report.restored) d.log(`Restored ${f} from its backup.`);
     for (const f of report.removed) d.log(`Removed ${f} (align created it).`);
+    for (const f of report.cleaned) d.log(`Took align's own entries out of ${f}; the rest of the file is as you left it.`);
     for (const line of report.skipped) d.err(`Left alone: ${line}`);
-    d.writtenConfigs.clear();
+    // Only the finished files are forgotten: a skipped one keeps its record (and its backup).
+    d.writtenConfigs.drop(report.done);
     // Without this, the next bare `align` would auto-pick the one installed agent and write
     // the same entries back.
     d.config.clearAgent();
     d.config.setLaunchOff(true);
-    const n = report.restored.length + report.removed.length;
+    const n = report.done.length;
     d.log(`Restored ${n} ${n === 1 ? 'file' : 'files'}. align will not open an agent until you run \`align use <agent>\`.`);
     return report.skipped.length > 0 ? 1 : 0;
   }
@@ -49,6 +51,7 @@ export async function runUse(name: string | undefined, d: UseDeps, opts: { none?
       return 2;
     }
     d.config.clearAgent();
+    d.config.setLaunchOff(false); // `--none` means "pick again", which launching being off would contradict
     d.log('Choice cleared. Bare `align` will pick an agent again.');
     return 0;
   }
@@ -66,7 +69,7 @@ export async function runUse(name: string | undefined, d: UseDeps, opts: { none?
     d.err(`${agent.label} launching is coming soon. Nothing changed.`);
     return 1;
   }
-  if (!d.findOnPath(agent.bin, d.env, d.platform)) {
+  if (!resolveAgentBin(agent, d.findOnPath, d.env, d.platform)) {
     d.err(`${agent.bin} is not on your PATH. Install it (${agent.install}), then run this again. Nothing changed.`);
     return 1;
   }
@@ -86,7 +89,7 @@ export function registerUseCommand(program: Command): void {
       const config = createConfigStore();
       const code = await runUse(agent, {
         config,
-        writtenConfigs: { get: () => config.getWrittenConfigs(), clear: () => config.clearWrittenConfigs() },
+        writtenConfigs: { get: () => config.getWrittenConfigs(), drop: (files) => config.dropWrittenConfigs(files) },
         findOnPath,
         env: process.env,
         platform: process.platform,

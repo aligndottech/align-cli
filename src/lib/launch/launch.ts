@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { createConfigStore } from '../config.js';
 import { resolveEnv } from '../resolve-env.js';
 import type { AgentName } from '../sessions/types.js';
-import { agentByName, type LaunchAgent, supportedAgents } from './agents.js';
+import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
 import { buildClaudeLaunch, type LaunchSpec } from './adapters/claude-code.js';
 import { buildCursorLaunch } from './adapters/cursor.js';
 import { buildOpenCodeLaunch } from './adapters/opencode.js';
@@ -81,7 +81,7 @@ function defaultDeps(): LaunchDeps {
     readOpenCodeState: (cwd, home) => readOpenCodeState(cwd, home, { localIsDefault: isLocalDefault() }, process.env),
     readPiState: (cwd, home, env) => readPiState(cwd, home, { localIsDefault: isLocalDefault() }, env),
     readCursorState: (cwd, home) => readCursorState(cwd, home, { localIsDefault: isLocalDefault() }),
-    applyConfigWrite,
+    applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f) }),
     cacheDir: launchCacheDir,
     writeIfChanged,
     runAgent: (spec) => runAgent(spec),
@@ -151,12 +151,14 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   // `align use --undo` turned launching off: no auto-pick, no config writes, until `align use <agent>`.
   if (!agent && d.config.isLaunchOff?.()) {
     d.err('Launching is off after `align use --undo`. Run `align use <agent>` to turn it back on.');
-    return { handled: false };
+    // Bare `align` shows the card; an explicit `align -- ...` asked for a session, so dropping
+    // its arguments silently would be wrong (same rule as an agent that is not installed).
+    return explicit ? { handled: true, code: 1 } : { handled: false };
   }
   const stored = agent !== undefined;
   let announce: string | undefined;
   if (!agent) {
-    const installed = supportedAgents().filter((a) => d.findOnPath(a.bin, d.env, d.platform) !== null);
+    const installed = supportedAgents().filter((a) => resolveAgentBin(a, d.findOnPath, d.env, d.platform) !== null);
     if (installed.length === 0) {
       const works = supportedAgents();
       d.err(`No coding agent that Align can open was found on your PATH. Align works with: ${works.map((a) => a.label).join(', ')}.`);
@@ -185,7 +187,8 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     return { handled: false };
   }
 
-  const found = d.findOnPath(agent!.bin, d.env, d.platform);
+  const resolved = resolveAgentBin(agent!, d.findOnPath, d.env, d.platform);
+  const found = resolved?.path ?? null;
   if (!found) {
     // Reachable only for a stored choice (a fresh pick came from the installed list).
     d.err(`${agent!.label} is not installed any more. Run \`align use\` to pick another, or reinstall it.`);
@@ -195,7 +198,9 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   }
 
   const dir = d.cacheDir(d.env);
-  const spec = build(d, { passthrough, cachePath: (name) => `${dir}/${name}` });
+  const built = build(d, { passthrough, cachePath: (name) => `${dir}/${name}` });
+  // The adapter names the agent's usual binary; run whichever name is actually installed.
+  const spec: LaunchSpec = resolved && resolved.bin !== built.bin ? { ...built, bin: resolved.bin } : built;
   try {
     for (const f of spec.files) d.writeIfChanged(dir, f.name, f.content);
   } catch (e) {
@@ -215,7 +220,7 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   // fatal: the session still opens, just without that piece.
   for (const w of spec.writes ?? []) {
     try {
-      d.applyConfigWrite(w, d.err);
+      d.applyConfigWrite({ ...w, root: d.home }, d.err);
     } catch (e) {
       d.err(`Could not update ${w.file} (${(e as Error).message}). Opening ${agent!.label} without it.`);
     }

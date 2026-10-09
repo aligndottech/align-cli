@@ -1,9 +1,10 @@
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BACKUP_SUFFIX,
+  mergeWrittenConfig,
   type SafeFs,
   SafeWriteConflictError,
   safeWriteJson,
@@ -32,6 +33,13 @@ let dir: string;
 let notes: string[];
 const note = (l: string) => notes.push(l);
 const file = () => path.join(dir, 'mcp.json');
+/** A manifest kept the way the config store keeps it: merged per file. */
+function track(): Record<string, WrittenConfig> {
+  const m: Record<string, WrittenConfig> = {};
+  setWriteRecorder((f, e) => { m[f] = mergeWrittenConfig(m[f], e); }, (f) => m[f]);
+  return m;
+}
+const noTemps = () => readdirSync(dir).filter((f) => f.includes('align-tmp'));
 
 beforeEach(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'align-safe-'));
@@ -187,10 +195,9 @@ describe('safeWriteText', () => {
   });
 });
 
-describe('undoWrittenConfigs', () => {
+describe('undoWrittenConfigs: untouched files go back whole', () => {
   it('restores byte-identical content and removes the backup (two files)', () => {
-    const manifest: Record<string, WrittenConfig> = {};
-    setWriteRecorder((f, e) => { manifest[f] = e; });
+    const manifest = track();
     const a = path.join(dir, 'a.json');
     const b = path.join(dir, 'b.json');
     writeFileSync(a, '{ "x":   1 }\n');
@@ -199,35 +206,252 @@ describe('undoWrittenConfigs', () => {
     safeWriteJson(b, (c) => ({ ...c, add: 1 }), { note });
     const report = undoWrittenConfigs(manifest);
     expect(report.restored.sort()).toEqual([a, b]);
+    expect(report.done.sort()).toEqual([a, b]);
     expect(readFileSync(a, 'utf8')).toBe('{ "x":   1 }\n');
     expect(readFileSync(b, 'utf8')).toBe('{"y":2}');
     expect(() => readFileSync(a + BACKUP_SUFFIX)).toThrow();
   });
 
-  it('removes a file align created, but only while it still holds what align wrote', () => {
-    const manifest: Record<string, WrittenConfig> = {};
-    setWriteRecorder((f, e) => { manifest[f] = e; });
-    const untouched = path.join(dir, 'u.json');
-    const edited = path.join(dir, 'e.json');
-    safeWriteJson(untouched, () => ({ a: 1 }), { note });
-    safeWriteJson(edited, () => ({ a: 1 }), { note });
-    writeFileSync(edited, '{"a":1,"user":"edit"}');
+  it('removes a file align created while it is exactly what align wrote (two files)', () => {
+    const manifest = track();
+    const one = path.join(dir, 'one.json');
+    const two = path.join(dir, 'two.json');
+    safeWriteJson(one, () => ({ a: 1 }), { note });
+    safeWriteJson(two, () => ({ b: 1 }), { note });
     const report = undoWrittenConfigs(manifest);
-    expect(report.removed).toEqual([untouched]);
-    expect(report.skipped.join('\n')).toContain('edited since align created it');
-    expect(readFileSync(edited, 'utf8')).toContain('user');
+    expect(report.removed.sort()).toEqual([one, two]);
+    expect(() => readFileSync(one)).toThrow();
+  });
+});
+
+describe('undoWrittenConfigs: a file the user touched since keeps their work (HIGH 1, 2)', () => {
+  it('align adds align-local, the user adds github: undo keeps github and removes only align-local', () => {
+    const manifest = track();
+    writeFileSync(file(), '{"mcpServers":{"a":{}}}');
+    safeWriteJson(file(), (c) => ({ ...c, mcpServers: { ...(c['mcpServers'] as object), 'align-local': { command: 'align' } } }), { note });
+    const cur = JSON.parse(readFileSync(file(), 'utf8'));
+    cur.mcpServers.github = { token: 'user-added-later' };
+    writeFileSync(file(), JSON.stringify(cur));
+    const report = undoWrittenConfigs(manifest);
+    expect(report.cleaned).toEqual([file()]);
+    expect(report.restored).toEqual([]);
+    expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({ mcpServers: { a: {}, github: { token: 'user-added-later' } } });
   });
 
-  it('skips a symlink and a missing backup, with a reason each', () => {
+  it('a second example: the user adds a top-level key', () => {
+    const manifest = track();
+    writeFileSync(file(), '{"keep":1}');
+    safeWriteJson(file(), (c) => ({ ...c, mcpServers: { 'align-local': {} } }), { note });
+    writeFileSync(file(), JSON.stringify({ ...JSON.parse(readFileSync(file(), 'utf8')), theirs: true }));
+    undoWrittenConfigs(manifest);
+    expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({ keep: 1, theirs: true });
+  });
+
+  it('created file, the user adds a server, align rewrites its entry, undo: the file and the user\'s server survive', () => {
+    const manifest = track();
+    safeWriteJson(file(), () => ({ mcpServers: { align: { env: 'local' } } }), { note });
+    const cur = JSON.parse(readFileSync(file(), 'utf8'));
+    cur.mcpServers.github = { token: 'user' };
+    writeFileSync(file(), JSON.stringify(cur));
+    safeWriteJson(file(), (c) => ({ ...c, mcpServers: { ...(c['mcpServers'] as object), align: { env: 'prod' } } }), { note });
+    const report = undoWrittenConfigs(manifest);
+    expect(report.removed).toEqual([]);
+    expect(report.cleaned).toEqual([file()]);
+    expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({ mcpServers: { github: { token: 'user' } } });
+  });
+
+  it('an entry the user edited is left and named; the manifest keeps the file', () => {
+    const manifest = track();
+    writeFileSync(file(), '{}');
+    safeWriteJson(file(), () => ({ mcpServers: { 'align-local': { command: 'align' } } }), { note });
+    writeFileSync(file(), JSON.stringify({ mcpServers: { 'align-local': { command: 'my-own' } }, extra: 1 }));
+    const report = undoWrittenConfigs(manifest);
+    expect(report.done).toEqual([]);
+    expect(report.skipped.join('\n')).toContain('mcpServers.align-local.command was edited since align wrote it');
+    expect(JSON.parse(readFileSync(file(), 'utf8')).mcpServers['align-local'].command).toBe('my-own');
+    expect(readFileSync(file() + BACKUP_SUFFIX, 'utf8')).toBe('{}');
+  });
+
+  it('an entry align overwrote cannot be put back by hand-waving: it is named and the backup kept', () => {
+    const manifest = track();
+    writeFileSync(file(), '{"mcpServers":{"align":{"env":"team"}}}');
+    safeWriteJson(file(), () => ({ mcpServers: { align: { env: 'local' } }, other: 1 }), { note });
+    writeFileSync(file(), JSON.stringify({ ...JSON.parse(readFileSync(file(), 'utf8')), more: 1 }));
+    const report = undoWrittenConfigs(manifest);
+    expect(report.skipped.join('\n')).toContain('mcpServers.align.env was replaced by align');
+    expect(report.skipped.join('\n')).toContain(file() + BACKUP_SUFFIX);
+    expect(JSON.parse(readFileSync(file(), 'utf8')).more).toBe(1);
+  });
+
+  it('a file that no longer parses is skipped with what to remove by hand, and the backup stays', () => {
+    const manifest = track();
+    writeFileSync(file(), '{}');
+    safeWriteJson(file(), () => ({ mcpServers: { 'align-local': {} } }), { note });
+    writeFileSync(file(), '{ broken');
+    const report = undoWrittenConfigs(manifest);
+    expect(report.done).toEqual([]);
+    expect(report.skipped.join('\n')).toContain(file());
+    expect(report.skipped.join('\n')).toContain('mcpServers.align-local');
+    expect(readFileSync(file(), 'utf8')).toBe('{ broken');
+    expect(readFileSync(file() + BACKUP_SUFFIX, 'utf8')).toBe('{}');
+  });
+
+  it('text files: only the managed block comes out, and an edited block is left (two cases)', () => {
+    const manifest = track();
+    const f = path.join(dir, 'config.toml');
+    const markers = { start: '# >>> align >>>', end: '# <<< align <<<' };
+    writeFileSync(f, 'model = "x"\n');
+    safeWriteText(f, (cur) => `${cur}\n${markers.start}\n[mcp_servers.align]\n${markers.end}\n`, { note, markers });
+    writeFileSync(f, `${readFileSync(f, 'utf8')}user = 1\n`);
+    expect(undoWrittenConfigs(manifest).cleaned).toEqual([f]);
+    expect(readFileSync(f, 'utf8')).toBe('model = "x"\n\nuser = 1\n');
+
+    const g = path.join(dir, 'other.toml');
+    safeWriteText(g, () => `${markers.start}\n[mcp_servers.align]\n${markers.end}\n`, { note, markers });
+    writeFileSync(g, `${markers.start}\n[mcp_servers.align]\ncommand = "mine"\n${markers.end}\n`);
+    const report = undoWrittenConfigs(manifest);
+    expect(report.skipped.join('\n')).toContain('block align manages was edited');
+    expect(readFileSync(g, 'utf8')).toContain('command = "mine"');
+  });
+});
+
+describe('undoWrittenConfigs: backups are only trusted when align made them (HIGH 3)', () => {
+  it('a backup path that already existed as a symlink is never followed, and never overwritten', () => {
+    const manifest = track();
+    writeFileSync(file(), '{"orig":1}');
+    const elsewhere = path.join(dir, 'elsewhere');
+    writeFileSync(elsewhere, '{"stale":"something else"}');
+    symlinkSync(elsewhere, file() + BACKUP_SUFFIX);
+    safeWriteJson(file(), (c) => ({ ...c, add: 1 }), { note });
+    expect(readFileSync(elsewhere, 'utf8')).toBe('{"stale":"something else"}');
+    expect(manifest[file()]!.backup).toBe('foreign');
+    const report = undoWrittenConfigs(manifest);
+    expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({ orig: 1 }); // surgical: add removed, nothing stale restored
+    expect(report.cleaned).toEqual([file()]);
+    expect(readFileSync(elsewhere, 'utf8')).toBe('{"stale":"something else"}');
+  });
+
+  it('a regular backup that existed before align is not trusted either', () => {
+    const manifest = track();
+    writeFileSync(file(), '{"orig":1}');
+    writeFileSync(file() + BACKUP_SUFFIX, '{"someone":"elses"}');
+    safeWriteJson(file(), (c) => ({ ...c, add: 1 }), { note });
+    undoWrittenConfigs(manifest);
+    expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({ orig: 1 });
+    expect(readFileSync(file() + BACKUP_SUFFIX, 'utf8')).toBe('{"someone":"elses"}');
+  });
+
+  it('a backup of ours that was swapped for different bytes is not restored', () => {
+    const manifest = track();
+    writeFileSync(file(), '{"orig":1}');
+    safeWriteJson(file(), (c) => ({ ...c, add: 1 }), { note });
+    writeFileSync(file() + BACKUP_SUFFIX, '{"tampered":1}');
+    const report = undoWrittenConfigs(manifest);
+    expect(report.restored).toEqual([]);
+    expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({ orig: 1 });
+  });
+
+  it('skips a symlinked file and leaves it in the manifest (done is empty)', () => {
     const real = path.join(dir, 'real.json');
     writeFileSync(real, '{}');
     symlinkSync(real, file());
-    const lost = path.join(dir, 'lost.json');
-    writeFileSync(lost, '{}');
-    const report = undoWrittenConfigs({ [file()]: { created: false, sha256: 'x' }, [lost]: { created: false, sha256: 'x' } });
-    expect(report.restored).toEqual([]);
+    const report = undoWrittenConfigs({ [file()]: { created: false, sha256: 'x', backup: 'made', backupSha256: 'y' } });
     expect(report.skipped.join('\n')).toContain('symlink');
-    expect(report.skipped.join('\n')).toContain('no backup found');
-    expect(mkdirSync(dir, { recursive: true }) ?? true).toBe(true);
+    expect(report.done).toEqual([]);
+  });
+
+  it('an entry with no record of what was added is skipped, not guessed at', () => {
+    writeFileSync(file(), '{"a":1}');
+    const report = undoWrittenConfigs({ [file()]: { created: false, sha256: 'x', backup: 'none' } });
+    expect(report.skipped.join('\n')).toContain('no record of what it added');
+    expect(report.done).toEqual([]);
+  });
+});
+
+describe('symlinked directories (MEDIUM 4)', () => {
+  it('refuses to write into a linked agent dir, naming the link, and writes nothing there', () => {
+    mkdirSync(path.join(dir, 'clank'));
+    writeFileSync(path.join(dir, 'clank', 'mcp.json'), '{"mcpServers":{"clank":{}}}');
+    symlinkSync(path.join(dir, 'clank'), path.join(dir, 'piagent'));
+    const f = path.join(dir, 'piagent', 'mcp.json');
+    expect(safeWriteJson(f, (c) => ({ ...c, mcpServers: { 'align-local': {} } }), { note, root: dir })).toBe('symlink');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain(path.join(dir, 'piagent'));
+    expect(notes[0]).toContain(path.join(dir, 'clank'));
+    expect(readFileSync(path.join(dir, 'clank', 'mcp.json'), 'utf8')).toBe('{"mcpServers":{"clank":{}}}');
+    expect(readdirSync(path.join(dir, 'clank'))).toEqual(['mcp.json']);
+  });
+
+  it('a real nested dir under the same root is written', () => {
+    const f = path.join(dir, 'real', 'deeper', 'mcp.json');
+    expect(safeWriteJson(f, () => ({ a: 1 }), { note, root: dir })).toBe('written');
+    expect(notes).toEqual([]);
+  });
+
+  it('creates missing directories 0700', () => {
+    const f = path.join(dir, 'newagent', 'mcp.json');
+    safeWriteJson(f, () => ({ a: 1 }), { note, root: dir });
+    expect(statSync(path.dirname(f)).mode & 0o777).toBe(0o700);
+  });
+});
+
+describe('the staged temp file (MEDIUM 5)', () => {
+  it('is created exclusively, 0600 for a new file, and a stale one from a crash is swept', () => {
+    const stale = path.join(dir, '.mcp.json.deadbeef.align-tmp');
+    writeFileSync(stale, 'half written');
+    const old = new Date(Date.now() - 10 * 60_000);
+    utimesSync(stale, old, old);
+    const fresh = path.join(dir, '.mcp.json.cafe0000.align-tmp');
+    writeFileSync(fresh, 'another align, right now');
+    safeWriteJson(file(), () => ({ a: 1 }), { note });
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(fresh)).toBe(true); // too young to be a crash leftover
+    expect(statSync(file()).mode & 0o777).toBe(0o600);
+  });
+
+  it('picks another name when the first is taken (EEXIST), instead of writing through it', () => {
+    let calls = 0;
+    const fs: SafeFs = {
+      ...(realFs as unknown as SafeFs),
+      writeFileSync: ((f: string, data: unknown, o: unknown) => {
+        calls += 1;
+        if (calls === 1) throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+        return (realFs.writeFileSync as (...a: unknown[]) => void)(f, data, o);
+      }) as SafeFs['writeFileSync'],
+    };
+    expect(safeWriteJson(file(), () => ({ a: 1 }), { note, fs })).toBe('written');
+    expect(calls).toBe(2);
+    expect(noTemps()).toEqual([]);
+  });
+
+  it('writes the temp file with the exclusive flag', () => {
+    const flags: unknown[] = [];
+    const fs: SafeFs = {
+      ...(realFs as unknown as SafeFs),
+      writeFileSync: ((f: string, data: unknown, o: { flag?: string }) => {
+        flags.push(o.flag);
+        return (realFs.writeFileSync as (...a: unknown[]) => void)(f, data, o);
+      }) as SafeFs['writeFileSync'],
+    };
+    safeWriteJson(file(), () => ({ a: 1 }), { note, fs });
+    expect(flags).toEqual(['wx']);
+  });
+});
+
+describe('invalid JSON message', () => {
+  it('does not send a launch-path user to `align mcp --setup` by default, and does when the caller says so', () => {
+    writeFileSync(file(), '{ nope');
+    expect(() => safeWriteJson(file(), (c) => c, { note })).toThrow(/fix it manually, then run align again/);
+    expect(() => safeWriteJson(file(), (c) => c, { note })).not.toThrow(/mcp --setup/);
+    expect(() => safeWriteJson(file(), (c) => c, { note, invalidJsonAdvice: ' before running align mcp --setup' })).toThrow('before running align mcp --setup');
+  });
+});
+
+describe('the created-file backup', () => {
+  it('a file align created gets no backup on a later rewrite (there is no pre-Align state)', () => {
+    track();
+    safeWriteJson(file(), () => ({ a: 1 }), { note });
+    safeWriteJson(file(), (c) => ({ ...c, b: 2 }), { note });
+    expect(existsSync(file() + BACKUP_SUFFIX)).toBe(false);
   });
 });

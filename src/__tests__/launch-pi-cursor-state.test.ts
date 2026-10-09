@@ -25,21 +25,56 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 const server = (args: string[]) => JSON.stringify({ mcpServers: { align: { command: 'align', args } } });
 
+const trust = (agentDir: string, map: Record<string, boolean>) => put(path.join(agentDir, 'trust.json'), JSON.stringify(map));
+const agentDefault = () => path.join(home, '.pi', 'agent');
+
 describe('readPiState', () => {
   const read = (env: Record<string, string | undefined> = {}) => readPiState(cwd, home, { localIsDefault: false }, env);
+  const putExt = (body: string) => put(path.join(cwd, '.pi', 'extensions', 'align.ts'), body);
 
   it('reports nothing for a bare project, and where mcp.json would go', () => {
-    expect(read()).toEqual({ projectHasExtension: false, projectHasMcp: false, projectHasBlock: false, mcpFile: path.join(home, '.pi', 'agent', 'mcp.json') });
+    expect(read()).toEqual({ projectHasExtension: false, projectHasMcp: false, projectHasBlock: false, mcpAdapterInstalled: false, mcpFile: path.join(agentDefault(), 'mcp.json') });
   });
 
-  it('counts a project extension aimed at the local graph, not one aimed at prod', () => {
-    put(path.join(cwd, '.pi', 'extensions', 'align.ts'), piExtensionBody('local'));
+  it('a project extension counts only in a project pi trusts (README "Project Trust"); untrusted, explicitly distrusted or undecided it does not', () => {
+    putExt(piExtensionBody('local'));
+    expect(read().projectHasExtension).toBe(false); // no decision: pi asks, or ignores it when non-interactive
+    trust(agentDefault(), { [cwd]: true });
     expect(read().projectHasExtension).toBe(true);
-    put(path.join(cwd, '.pi', 'extensions', 'align.ts'), piExtensionBody());
+    trust(agentDefault(), { [cwd]: false });
     expect(read().projectHasExtension).toBe(false);
   });
 
-  it('finds the extension in the agent dir too, and PI_CODING_AGENT_DIR moves that dir and the mcp.json path', () => {
+  it('trust is the nearest saved decision, a parent folder included', () => {
+    putExt(piExtensionBody('local'));
+    trust(agentDefault(), { [root]: true });
+    expect(read().projectHasExtension).toBe(true);
+    trust(agentDefault(), { [root]: true, [cwd]: false });
+    expect(read().projectHasExtension).toBe(false);
+  });
+
+  it('defaultProjectTrust "always" trusts an undecided project; "ask" and "never" do not', () => {
+    putExt(piExtensionBody('local'));
+    put(path.join(agentDefault(), 'settings.json'), JSON.stringify({ defaultProjectTrust: 'always' }));
+    expect(read().projectHasExtension).toBe(true);
+    put(path.join(agentDefault(), 'settings.json'), JSON.stringify({ defaultProjectTrust: 'never' }));
+    expect(read().projectHasExtension).toBe(false);
+  });
+
+  it('an unreadable trust.json means untrusted, so the extension is injected', () => {
+    putExt(piExtensionBody('local'));
+    put(path.join(agentDefault(), 'trust.json'), '{ broken');
+    expect(read().projectHasExtension).toBe(false);
+  });
+
+  it('a trusted project extension aimed at prod does not count; a prod one counts when local is the default env', () => {
+    trust(agentDefault(), { [cwd]: true });
+    putExt(piExtensionBody());
+    expect(read().projectHasExtension).toBe(false);
+    expect(readPiState(cwd, home, { localIsDefault: true }, {}).projectHasExtension).toBe(true);
+  });
+
+  it('the extension in the agent dir needs no trust, and PI_CODING_AGENT_DIR moves that dir and the mcp.json path', () => {
     const dir = path.join(root, 'elsewhere');
     put(path.join(dir, 'extensions', 'align.ts'), piExtensionBody('local'));
     expect(read().projectHasExtension).toBe(false);
@@ -48,13 +83,8 @@ describe('readPiState', () => {
     expect(s.mcpFile).toBe(path.join(dir, 'mcp.json'));
   });
 
-  it('a prod extension counts as local when local is the default env', () => {
-    put(path.join(cwd, '.pi', 'extensions', 'align.ts'), piExtensionBody());
-    expect(readPiState(cwd, home, { localIsDefault: true }, {}).projectHasExtension).toBe(true);
-  });
-
   it('counts an align-local entry or a local align server, in either file; a prod align server does not count', () => {
-    put(path.join(home, '.pi', 'agent', 'mcp.json'), JSON.stringify({ mcpServers: { 'align-local': { command: 'x' } } }));
+    put(path.join(agentDefault(), 'mcp.json'), JSON.stringify({ mcpServers: { 'align-local': { command: 'x' } } }));
     expect(read().projectHasMcp).toBe(true);
     rmSync(path.join(home, '.pi'), { recursive: true });
     put(path.join(cwd, '.mcp.json'), server(['mcp', '--env', 'local']));
@@ -63,46 +93,52 @@ describe('readPiState', () => {
     expect(read().projectHasMcp).toBe(false);
   });
 
-  it('counts the managed block in an ancestor AGENTS.md or the agent dir\'s', () => {
-    put(path.join(cwd, 'AGENTS.md'), `x\n${ALIGN_NUDGE_START}\n`);
+  it('pi-mcp-adapter counts as installed from the user settings, as a string or a {source}, and not otherwise', () => {
+    put(path.join(agentDefault(), 'settings.json'), JSON.stringify({ packages: ['pi-skills', 'npm:pi-mcp-adapter@1.2.0'] }));
+    expect(read().mcpAdapterInstalled).toBe(true);
+    put(path.join(agentDefault(), 'settings.json'), JSON.stringify({ packages: [{ source: 'pi-mcp-adapter', skills: [] }] }));
+    expect(read().mcpAdapterInstalled).toBe(true);
+    put(path.join(agentDefault(), 'settings.json'), JSON.stringify({ packages: ['pi-skills'] }));
+    expect(read().mcpAdapterInstalled).toBe(false);
+  });
+
+  it('the managed block counts in the agent dir\'s AGENTS.md and in a parent ABOVE the git root', () => {
+    put(path.join(root, 'AGENTS.md'), `x\n${ALIGN_NUDGE_START}\n`); // root is the parent of the repo (which holds .git)
     expect(read().projectHasBlock).toBe(true);
-    rmSync(path.join(cwd, 'AGENTS.md'));
-    put(path.join(home, '.pi', 'agent', 'AGENTS.md'), ALIGN_NUDGE_START);
+    rmSync(path.join(root, 'AGENTS.md'));
+    put(path.join(agentDefault(), 'AGENTS.md'), ALIGN_NUDGE_START);
     expect(read().projectHasBlock).toBe(true);
     rmSync(path.join(home, '.pi'), { recursive: true });
     expect(read().projectHasBlock).toBe(false);
+  });
+
+  it('AGENTS.override.md replaces AGENTS.md and CLAUDE.md in its directory (README "Context Files")', () => {
+    put(path.join(cwd, 'AGENTS.md'), ALIGN_NUDGE_START);
+    put(path.join(cwd, 'AGENTS.override.md'), 'only this is loaded');
+    expect(read().projectHasBlock).toBe(false);
+    put(path.join(cwd, 'AGENTS.override.md'), ALIGN_NUDGE_START);
+    expect(read().projectHasBlock).toBe(true);
   });
 });
 
 describe('readCursorState', () => {
   const read = () => readCursorState(cwd, home, { localIsDefault: false });
-  const hooks = (pre: string, post: string) => JSON.stringify({ version: 1, hooks: { preToolUse: [{ command: pre }], postToolUse: [{ command: post }] } });
 
-  it('reports nothing for a bare machine, and the global files it would add to', () => {
-    expect(read()).toEqual({ projectHasMcp: false, hooksPresent: false, mcpFile: path.join(home, '.cursor', 'mcp.json'), hooksFile: path.join(home, '.cursor', 'hooks.json') });
+  it('reports nothing for a bare machine, and the global file it would add to', () => {
+    expect(read()).toEqual({ projectHasMcp: false, mcpFile: path.join(home, '.cursor', 'mcp.json') });
   });
 
-  it('an align-local key and a user\'s local align server both count as present', () => {
+  it('an align-local key and a user\'s local align server both count as present; a prod one does not', () => {
     put(path.join(home, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { 'align-local': { command: 'align' } } }));
-    expect(read()).toMatchObject({ projectHasMcp: true });
+    expect(read().projectHasMcp).toBe(true);
     put(path.join(home, '.cursor', 'mcp.json'), server(['mcp', '--env', 'local']));
-    expect(read()).toMatchObject({ projectHasMcp: true });
+    expect(read().projectHasMcp).toBe(true);
     put(path.join(home, '.cursor', 'mcp.json'), server(['mcp']));
-    expect(read()).toMatchObject({ projectHasMcp: false });
+    expect(read().projectHasMcp).toBe(false);
   });
 
   it('reads the project .cursor/mcp.json as well', () => {
     put(path.join(cwd, '.cursor', 'mcp.json'), server(['mcp', '--env', 'local']));
     expect(read().projectHasMcp).toBe(true);
-  });
-
-  it('hooks count only when both events carry a local check', () => {
-    const local = 'align check --advisory --format cursor --env local';
-    put(path.join(home, '.cursor', 'hooks.json'), hooks(local, local));
-    expect(read().hooksPresent).toBe(true);
-    put(path.join(home, '.cursor', 'hooks.json'), hooks(local, 'other'));
-    expect(read().hooksPresent).toBe(false);
-    put(path.join(home, '.cursor', 'hooks.json'), hooks('align check --advisory --format cursor', 'align check --advisory --format cursor'));
-    expect(read().hooksPresent).toBe(false);
   });
 });

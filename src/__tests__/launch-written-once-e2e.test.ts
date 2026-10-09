@@ -12,7 +12,7 @@ import { readOpenCodeState } from '../lib/launch/opencode-state.js';
 import { readPiState } from '../lib/launch/pi-state.js';
 import { readProjectState } from '../lib/launch/project-state.js';
 import { runAgent } from '../lib/launch/run-agent.js';
-import { BACKUP_SUFFIX, setWriteRecorder, undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
+import { BACKUP_SUFFIX, mergeWrittenConfig, setWriteRecorder, undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
 
 /*
  * The real pipeline (state readers, builders, launch-file writer, safe config writer, spawn)
@@ -37,8 +37,10 @@ beforeEach(() => {
   agentDir = path.join(root, 'pi-agent'); record = path.join(root, 'record.json');
   mkdirSync(bin); mkdirSync(path.join(cwd, '.git'), { recursive: true }); mkdirSync(home); mkdirSync(agentDir);
   fake('pi'); fake('cursor-agent');
+  // pi-mcp-adapter is installed unless a test says otherwise: without it no MCP entry is written.
+  writeFileSync(path.join(agentDir, 'settings.json'), JSON.stringify({ packages: ['npm:pi-mcp-adapter'] }));
   lines = []; manifest = {};
-  setWriteRecorder((f, e) => { manifest[f] = e; });
+  setWriteRecorder((f, e) => { manifest[f] = mergeWrittenConfig(manifest[f], e); }, (f) => manifest[f]);
   for (const k of ['ALIGN_WRAPPED', 'ALIGN_NO_LAUNCH', 'PI_CODING_AGENT_DIR', 'ALIGN_LAUNCH_DRY_RUN', 'ALIGN_LAUNCH_TRACE']) vi.stubEnv(k, undefined);
   vi.stubEnv('PATH', `${bin}:${process.env['PATH']}`);
 });
@@ -85,9 +87,46 @@ describe('pi against a fake binary', () => {
   it('skips -e when the project already has the local extension', async () => {
     mkdirSync(path.join(cwd, '.pi', 'extensions'), { recursive: true });
     writeFileSync(path.join(cwd, '.pi', 'extensions', 'align.ts'), piExtensionBody('local'));
+    writeFileSync(path.join(agentDir, 'trust.json'), JSON.stringify({ [cwd]: true }));
     await run('pi', undefined, { PI_CODING_AGENT_DIR: agentDir });
     expect(recorded().argv).not.toContain('-e');
     expect(existsSync(path.join(cache, 'pi-align.ts'))).toBe(false);
+  });
+
+  it('still passes -e when the project is not trusted: pi would not load that extension', async () => {
+    mkdirSync(path.join(cwd, '.pi', 'extensions'), { recursive: true });
+    writeFileSync(path.join(cwd, '.pi', 'extensions', 'align.ts'), piExtensionBody('local'));
+    await run('pi', undefined, { PI_CODING_AGENT_DIR: agentDir });
+    expect(recorded().argv).toContain('-e');
+  });
+
+  it('without pi-mcp-adapter it writes no MCP entry (pi would not read it), but still injects the extension', async () => {
+    writeFileSync(path.join(agentDir, 'settings.json'), JSON.stringify({ packages: ['pi-skills'] }));
+    await run('pi', undefined, { PI_CODING_AGENT_DIR: agentDir });
+    expect(existsSync(path.join(agentDir, 'mcp.json'))).toBe(false);
+    expect(recorded().argv).toContain('-e');
+  });
+
+  it('an UNSET PI_CODING_AGENT_DIR stays unset for the child (the default dir is under HOME)', async () => {
+    const defaultDir = path.join(home, '.pi', 'agent');
+    mkdirSync(defaultDir, { recursive: true });
+    writeFileSync(path.join(defaultDir, 'settings.json'), JSON.stringify({ packages: ['pi-mcp-adapter'] }));
+    await run('pi');
+    expect(recorded().agentDir).toBeNull();
+    expect(Object.keys(JSON.parse(readFileSync(path.join(defaultDir, 'mcp.json'), 'utf8')).mcpServers)).toEqual(['align-local']);
+  });
+
+  it('a linked default agent dir (~/.pi/agent -> another tool\'s dir) is not written through, the notice is printed once per launch, and pi still opens', async () => {
+    const other = path.join(root, 'clank-agent');
+    mkdirSync(other);
+    writeFileSync(path.join(other, 'settings.json'), JSON.stringify({ packages: ['pi-mcp-adapter'] }));
+    writeFileSync(path.join(other, 'mcp.json'), '{"mcpServers":{"clank":{}}}');
+    mkdirSync(path.join(home, '.pi'));
+    symlinkSync(other, path.join(home, '.pi', 'agent'));
+    expect(await run('pi')).toEqual({ handled: true, code: 5 });
+    expect(readFileSync(path.join(other, 'mcp.json'), 'utf8')).toBe('{"mcpServers":{"clank":{}}}');
+    expect(lines.filter((l) => l.includes('is a symlink to'))).toHaveLength(1);
+    expect(recorded().argv).toContain('-e');
   });
 
   it('with mcp.json a symlink (this machine\'s ~/.pi/agent/mcp.json -> clank) it skips with one line and pi still opens', async () => {
@@ -115,28 +154,39 @@ describe('pi against a fake binary', () => {
 });
 
 describe('cursor-agent against a fake binary', () => {
-  it('runs it without --approve-mcps and writes the MCP entry and hooks into ~/.cursor once', async () => {
+  it('runs it with only the user\'s args (no --approve-mcps), writes the MCP entry once, writes NO hooks, and says how to approve it', async () => {
     expect(await run('cursor', ['node', 'align', '--', 'fix it'])).toEqual({ handled: true, code: 5 });
     expect(recorded().argv).toEqual(['fix it']);
     const mcp = JSON.parse(readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8'));
     expect(Object.keys(mcp.mcpServers)).toEqual(['align-local']);
-    const hooks = JSON.parse(readFileSync(path.join(home, '.cursor', 'hooks.json'), 'utf8')).hooks;
-    expect(Object.keys(hooks).sort()).toEqual(['postToolUse', 'preToolUse']);
-    const before = [readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8'), readFileSync(path.join(home, '.cursor', 'hooks.json'), 'utf8')];
+    expect(existsSync(path.join(home, '.cursor', 'hooks.json'))).toBe(false);
+    expect(lines.some((l) => l.includes('agent mcp enable align-local'))).toBe(true);
+    const before = readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8');
     lines.length = 0;
     await run('cursor');
-    expect([readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8'), readFileSync(path.join(home, '.cursor', 'hooks.json'), 'utf8')]).toEqual(before);
-    expect(lines.filter((l) => l.includes('Added'))).toEqual([]);
+    expect(readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8')).toBe(before);
+    expect(lines.filter((l) => l.includes('Added') || l.includes('agent mcp enable'))).toEqual([]);
   });
 
-  it('--undo restores the pre-Align files and removes the ones align created', async () => {
+  it('--undo restores the pre-Align file byte for byte', async () => {
     mkdirSync(path.join(home, '.cursor'));
     const original = '{"mcpServers":{"mine":{"command":"x"}}}\n';
     writeFileSync(path.join(home, '.cursor', 'mcp.json'), original);
     await run('cursor');
     const report = undoWrittenConfigs(manifest);
+    expect(report.restored).toEqual([path.join(home, '.cursor', 'mcp.json')]);
     expect(readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8')).toBe(original);
-    expect(report.removed).toEqual([path.join(home, '.cursor', 'hooks.json')]);
-    expect(existsSync(path.join(home, '.cursor', 'hooks.json'))).toBe(false);
+  });
+
+  it('--undo after the user added a server keeps theirs and takes only align-local out', async () => {
+    mkdirSync(path.join(home, '.cursor'));
+    writeFileSync(path.join(home, '.cursor', 'mcp.json'), '{"mcpServers":{"mine":{"command":"x"}}}');
+    await run('cursor');
+    const f = path.join(home, '.cursor', 'mcp.json');
+    const cur = JSON.parse(readFileSync(f, 'utf8'));
+    cur.mcpServers.github = { token: 'later' };
+    writeFileSync(f, JSON.stringify(cur));
+    expect(undoWrittenConfigs(manifest).cleaned).toEqual([f]);
+    expect(Object.keys(JSON.parse(readFileSync(f, 'utf8')).mcpServers).sort()).toEqual(['github', 'mine']);
   });
 });
