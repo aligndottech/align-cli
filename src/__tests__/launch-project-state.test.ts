@@ -129,9 +129,12 @@ describe('readProjectState: the managed CLAUDE.md block', () => {
     mkdirSync(start, { recursive: true });
     expect(readProjectState(start, home, localDefault).projectHasBlock).toBe(true);
   });
-  it('does not count a block above the repo root', () => {
+  // https://code.claude.com/docs/en/memory ("How CLAUDE.md files load"): Claude Code loads
+  // CLAUDE.md and CLAUDE.local.md "from your current working directory and every directory
+  // above it". Nothing there stops at a git root, so neither do we.
+  it('counts a block above the repo root, because Claude Code loads every directory above the cwd', () => {
     put(path.join(root, 'CLAUDE.md'), BLOCK);
-    expect(readProjectState(cwd, home, localDefault).projectHasBlock).toBe(false);
+    expect(readProjectState(cwd, home, localDefault).projectHasBlock).toBe(true);
   });
   it('a CLAUDE.md without the marker does not count', () => {
     put(path.join(cwd, 'CLAUDE.md'), '# mine\n');

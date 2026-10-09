@@ -100,6 +100,12 @@ describe('launchIfChosen: when it does not', () => {
     expect(h.runAgent).not.toHaveBeenCalled();
     expect(h.setAgent).not.toHaveBeenCalled();
   });
+  it('explicit `align -- <args>` with the stored agent gone: exit 127 with the message, not a silent card', async () => {
+    const h = harness({ stored: 'claude-code', onPath: {}, argv: ['node', 'align', '--', '-p', 'hi'] });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 127 });
+    expect(h.err).toEqual(['Claude Code is not installed any more. Run `align use` to pick another, or reinstall it.']);
+    expect(h.runAgent).not.toHaveBeenCalled();
+  });
   it('exits 127 when the OS refuses to start it (ENOENT), and 2 for a refused Windows arg', async () => {
     const h = harness({ stored: 'claude-code' });
     h.runAgent.mockRejectedValue(Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }));

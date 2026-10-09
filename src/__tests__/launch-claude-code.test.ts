@@ -61,9 +61,16 @@ describe('buildClaudeLaunch', () => {
     expect(new Set(names).size).toBe(3);
   });
 
+  // claude 2.1.291: a --mcp-config server with the SAME NAME as one the user configured
+  // replaces it for the session (verified: user `align`=A plus injected `align`=B starts only B).
+  it('names the injected server align-local, never align, so a user\'s own align server survives', () => {
+    const json = JSON.parse(fileNamed(buildClaudeLaunch(ctx()), 'claude-mcp.json')!.content);
+    expect(Object.keys(json.mcpServers)).toEqual(['align-local']);
+  });
+
   it('the MCP file points at the local graph and holds no secret-bearing field', () => {
     const json = JSON.parse(fileNamed(buildClaudeLaunch(ctx()), 'claude-mcp.json')!.content);
-    expect(json.mcpServers.align.args).toEqual(expect.arrayContaining(['mcp', '--env', 'local']));
+    expect(json.mcpServers['align-local'].args).toEqual(expect.arrayContaining(['mcp', '--env', 'local']));
     expect(JSON.stringify(json)).not.toMatch(/token|key|secret/i);
   });
 

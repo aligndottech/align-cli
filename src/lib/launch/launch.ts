@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { createConfigStore } from '../config.js';
+import { resolveEnv } from '../resolve-env.js';
 import type { AgentName } from '../sessions/types.js';
 import { agentByName, type LaunchAgent, supportedAgents } from './agents.js';
 import { buildClaudeLaunch, type LaunchContext, type LaunchSpec } from './adapters/claude-code.js';
@@ -42,6 +43,14 @@ export type LaunchResult = { handled: false } | { handled: true; code: number };
 
 const set = (v: string | undefined): boolean => v !== undefined && v !== '';
 
+/**
+ * Whether an align command with no --env reads the local graph: the CLI's own resolver, so
+ * ALIGN_ENV, the signed-in rule and the demo-mode rule all apply exactly as they do for `align ask`.
+ */
+export function isLocalDefault(): boolean {
+  return resolveEnv(undefined, { preferLocalEmbedded: true }) === 'local';
+}
+
 function defaultDeps(): LaunchDeps {
   const config = createConfigStore();
   return {
@@ -53,8 +62,7 @@ function defaultDeps(): LaunchDeps {
     isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     config,
     findOnPath,
-    // An align command with no --env reads the local graph unless the default env is signed in.
-    readProjectState: (cwd, home) => readProjectState(cwd, home, { localIsDefault: !config.getEnvironment(config.getDefaultEnv()).authToken }),
+    readProjectState: (cwd, home) => readProjectState(cwd, home, { localIsDefault: isLocalDefault() }),
     cacheDir: launchCacheDir,
     writeIfChanged,
     runAgent: (spec) => runAgent(spec),
@@ -147,7 +155,9 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   if (!found) {
     // Reachable only for a stored choice (a fresh pick came from the installed list).
     d.err(`${agent!.label} is not installed any more. Run \`align use\` to pick another, or reinstall it.`);
-    return { handled: false };
+    // Bare `align` falls back to the card; an explicit `align -- ...` asked for a session, so
+    // dropping its arguments silently would be wrong.
+    return explicit ? { handled: true, code: 127 } : { handled: false };
   }
 
   const dir = d.cacheDir(d.env);

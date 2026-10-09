@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ALIGN_NUDGE_START, isAlignHookGroup } from '../agent-rules.js';
 
@@ -65,12 +65,16 @@ function fileHasBlock(file: string): boolean {
   }
 }
 
-/** cwd and every parent up to the directory holding .git (or the filesystem root). */
-function ancestorsToRepoRoot(cwd: string): string[] {
+/**
+ * The cwd and every directory above it. Claude Code loads CLAUDE.md and CLAUDE.local.md "from
+ * your current working directory and every directory above it" (code.claude.com/docs/en/memory,
+ * "How CLAUDE.md files load"), with no stop at a git root.
+ */
+function ancestorsOf(cwd: string): string[] {
   const dirs: string[] = [];
   for (let dir = cwd; ; dir = path.dirname(dir)) {
     dirs.push(dir);
-    if (existsSync(path.join(dir, '.git')) || path.dirname(dir) === dir) return dirs;
+    if (path.dirname(dir) === dir) return dirs;
   }
 }
 
@@ -99,7 +103,7 @@ export function readProjectState(cwd: string, home: string, opts: ProjectStateOp
   const projectScopedMcp = (projectEntry?.['mcpServers'] as Json | undefined)?.['align'];
 
   const blockFiles = [
-    ...ancestorsToRepoRoot(cwd).flatMap((d) => [path.join(d, 'CLAUDE.md'), path.join(d, '.claude', 'CLAUDE.md'), path.join(d, 'CLAUDE.local.md')]),
+    ...ancestorsOf(cwd).flatMap((d) => [path.join(d, 'CLAUDE.md'), path.join(d, '.claude', 'CLAUDE.md'), path.join(d, 'CLAUDE.local.md')]),
     path.join(home, '.claude', 'CLAUDE.md'),
   ];
 

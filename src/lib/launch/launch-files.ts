@@ -8,8 +8,21 @@ import path from 'node:path';
  */
 export function launchCacheDir(env: Record<string, string | undefined>): string {
   const xdg = env['XDG_CACHE_HOME'];
-  const base = xdg && path.isAbsolute(xdg) ? path.join(xdg, 'align-cli') : envPaths('align-cli', { suffix: '' }).cache;
-  return path.join(base, 'launch');
+  return path.join(xdg && path.isAbsolute(xdg) ? path.join(xdg, 'align-cli') : defaultCacheDir(), 'launch');
+}
+
+/**
+ * env-paths reads process.env.XDG_CACHE_HOME itself and would hand a relative value straight
+ * back, so the variable is hidden from it for this one synchronous call.
+ */
+function defaultCacheDir(): string {
+  const saved = process.env['XDG_CACHE_HOME'];
+  delete process.env['XDG_CACHE_HOME'];
+  try {
+    return envPaths('align-cli', { suffix: '' }).cache;
+  } finally {
+    if (saved !== undefined) process.env['XDG_CACHE_HOME'] = saved;
+  }
 }
 
 /**

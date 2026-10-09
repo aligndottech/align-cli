@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { launchCacheDir, writeIfChanged } from '../lib/launch/launch-files.js';
 
 let dir: string;
@@ -16,6 +16,15 @@ describe('launchCacheDir', () => {
     const dflt = launchCacheDir({});
     expect(launchCacheDir({ XDG_CACHE_HOME: 'relative/cache' })).toBe(dflt);
     expect(launchCacheDir({ XDG_CACHE_HOME: '' })).toBe(dflt);
+  });
+  // env-paths reads process.env.XDG_CACHE_HOME itself, so the real environment must be the
+  // input here: a pure-parameter test passes while the fallback still returns the bad value.
+  it('never lands in a relative dir when the REAL process env holds a relative XDG_CACHE_HOME', () => {
+    vi.stubEnv('XDG_CACHE_HOME', 'relcache');
+    try {
+      expect(path.isAbsolute(launchCacheDir(process.env))).toBe(true);
+      expect(launchCacheDir(process.env)).not.toContain('relcache');
+    } finally { vi.unstubAllEnvs(); }
   });
   it('falls back to a per-user cache dir ending in align-cli/launch', () => {
     expect(launchCacheDir({})).toMatch(/align-cli[\\/]launch$/);
