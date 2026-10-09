@@ -73,6 +73,8 @@ export interface OwnedItem {
    */
   replaced?: boolean;
   beforeSha256?: string;
+  /** Which snapshot holds the user's value: 0 is `<file>.align-backup`, n is `<file>.align-backup.<n>`. */
+  snapshot?: number;
   /** align's write took this key (or this whole array) away; undo puts the user's original back when it is still gone. */
   removed?: boolean;
 }
@@ -93,8 +95,13 @@ export interface WrittenConfig {
   backup: 'made' | 'foreign' | 'none';
   backupSha256?: string;
   owned?: OwnedItem[];
+  /**
+   * Extra copies of the file taken just before a write that found it changed by someone else
+   * (`<file>.align-backup.<n>`, 0600). Hashes only: the manifest never holds config values.
+   */
+  snapshots?: Array<{ n: number; sha256: string }>;
   /** Text files: the managed block align wrote. */
-  block?: { start: string; end: string; sha256: string; /** a block was already there, and align's replaced it: the original is in the backup */ replaced?: boolean };
+  block?: { start: string; end: string; sha256: string; /** a block was already there, and align's replaced it: the original is in the backup */ replaced?: boolean; snapshot?: number };
 }
 
 /** Fold one write into what the manifest already holds for that file. */
@@ -110,8 +117,14 @@ export function mergeWrittenConfig(prev: WrittenConfig | undefined, next: Writte
       continue;
     }
     // The first write decides whether this was the user's value; later rewrites only move the hash.
-    const { replaced: _r, beforeSha256: _b, ...rest } = i;
-    owned.set(key(i), { ...rest, createdDepth: old.createdDepth, ...(old.replaced ? { replaced: true, beforeSha256: old.beforeSha256 } : {}) });
+    if (i.replaced) {
+      // The user put a value of their own there since align's last write and this write replaced it:
+      // that value (in the snapshot taken just now) is the one to give back.
+      owned.set(key(i), { ...i, createdDepth: old.createdDepth });
+      continue;
+    }
+    const { replaced: _r, beforeSha256: _b, snapshot: _s, ...rest } = i;
+    owned.set(key(i), { ...rest, createdDepth: old.createdDepth, ...(old.replaced ? { replaced: true, beforeSha256: old.beforeSha256, snapshot: old.snapshot } : {}) });
   }
   return {
     created: prev.created,
@@ -120,6 +133,7 @@ export function mergeWrittenConfig(prev: WrittenConfig | undefined, next: Writte
     backup: prev.backup,
     ...(prev.backupSha256 ? { backupSha256: prev.backupSha256 } : {}),
     ...(owned.size > 0 ? { owned: [...owned.values()] } : {}),
+    ...((prev.snapshots?.length || next.snapshots?.length) ? { snapshots: [...(prev.snapshots ?? []), ...(next.snapshots ?? [])] } : {}),
     ...(next.block
       ? { block: { ...next.block, ...(prev.block ? (prev.block.replaced ? { replaced: true } : {}) : next.block.replaced ? { replaced: true } : {}) } }
       : prev.block ? { block: prev.block } : {}),
@@ -227,6 +241,26 @@ function backupOnce(fs: SafeFs, file: string): { state: 'made' | 'foreign'; sha2
   return { state: 'made', sha256: sha(fs.readFileSync(backup)) };
 }
 
+/**
+ * A copy of the file as it is right now, for the case where someone changed it after align's
+ * last write: the backup from before align's first write cannot hold what they added since.
+ * `<file>.align-backup.<n>`, exclusive, 0600 (it may hold secrets), never overwritten.
+ */
+function takeSnapshot(fs: SafeFs, file: string, content: string, taken: number[]): { n: number; sha256: string } {
+  for (let n = Math.max(0, ...taken) + 1; n < 200; n++) {
+    const target = `${file}${BACKUP_SUFFIX}.${n}`;
+    if (linkAt(fs, target) !== 'missing') continue;
+    try {
+      fs.writeFileSync(target, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    } catch (err) {
+      if ((err as { code?: string }).code === 'EEXIST') continue;
+      throw err;
+    }
+    return { n, sha256: sha(content) };
+  }
+  throw new Error(`could not find a free name for a snapshot of ${file}`);
+}
+
 const STALE_TMP_MS = 60_000;
 /** A crash between staging and rename leaves `.<name>.<hex>.align-tmp`. Old ones are removed. */
 function sweepStaleTemps(fs: SafeFs, file: string): void {
@@ -288,7 +322,7 @@ function safeWrite(
   file: string,
   compute: (current: string | null) => string | undefined,
   opts: SafeWriteOptions,
-  describe?: () => Pick<WrittenConfig, 'owned'>,
+  describe?: (snapshot: number) => Pick<WrittenConfig, 'owned'>,
 ): SafeWriteStatus {
   const fs = opts.fs ?? realFs();
   const note = opts.note ?? ((l: string) => console.error(l));
@@ -302,6 +336,7 @@ function safeWrite(
   }
 
   let backup: { state: 'made' | 'foreign' | 'none'; sha256?: string } = { state: 'none' };
+  const snapshots: Array<{ n: number; sha256: string }> = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const before = readCurrent(fs, file);
     const next = compute(before);
@@ -311,8 +346,17 @@ function safeWrite(
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     sweepStaleTemps(fs, file);
     const mode = modeOf(fs, file);
-    // A file align created has no pre-Align state to keep.
-    if (before !== null && backup.state === 'none' && !lookup?.(file)?.created) backup = backupOnce(fs, file);
+    // The first time align writes a file that exists, the original is kept. After that, if the file
+    // is no longer what align last wrote (the user edited it, or added entries), a snapshot of it is
+    // taken first, so a value this write replaces is never held only by the file.
+    const prev = lookup?.(file);
+    if (before !== null) {
+      if (!prev) {
+        if (backup.state === 'none') backup = backupOnce(fs, file);
+      } else if (sha(before) !== prev.sha256 && !snapshots.some((x) => x.sha256 === sha(before))) {
+        snapshots.push(takeSnapshot(fs, file, before, [...(prev.snapshots ?? []).map((x) => x.n), ...snapshots.map((x) => x.n)]));
+      }
+    }
 
     if (!stageAndRename(fs, file, next, mode, () => readCurrent(fs, file) === before)) continue;
     try {
@@ -322,8 +366,9 @@ function safeWrite(
         firstSha256: sha(next),
         backup: backup.state,
         ...(backup.sha256 ? { backupSha256: backup.sha256 } : {}),
-        ...describe?.(),
-        ...(opts.markers && blockOf(before, next, opts.markers) ? { block: blockOf(before, next, opts.markers)! } : {}),
+        ...(snapshots.length > 0 ? { snapshots } : {}),
+        ...describe?.(snapshots.length > 0 ? snapshots[snapshots.length - 1]!.n : 0),
+        ...(opts.markers && blockOf(before, next, opts.markers) ? { block: { ...blockOf(before, next, opts.markers)!, ...(blockOf(before, next, opts.markers)!.replaced ? { snapshot: snapshots.length > 0 ? snapshots[snapshots.length - 1]!.n : 0 } : {}) } } : {}),
       });
     } catch {
       // The file is written. A manifest that cannot be updated costs the undo, not the write.
@@ -350,9 +395,10 @@ export function safeWriteText(file: string, compute: (current: string | null) =>
  * `prev` is what an earlier write already recorded, so align's own earlier output is never
  * mistaken for the user's.
  */
-export function ownedOf(before: Json, after: Json, prev: OwnedItem[] = []): OwnedItem[] {
+export function ownedOf(before: Json, after: Json, prev: OwnedItem[] = [], snapshot = 0): OwnedItem[] {
   const out: OwnedItem[] = [];
   const samePath = (a: string[], b: string[]) => a.length === b.length && a.every((x, n) => x === b[n]);
+  const ownsValue = (p: string[], h: string) => prev.some((i) => i.kind === 'value' && samePath(i.path, p) && i.sha256 === h);
   const ownsElement = (p: string[], h: string) => prev.some((i) => i.kind === 'array-item' && samePath(i.path, p) && i.sha256 === h);
   const addItems = (here: string[], bv: unknown[], av: unknown[], createdAt: number): void => {
     const remaining = new Map<string, number>();
@@ -382,6 +428,9 @@ export function ownedOf(before: Json, after: Json, prev: OwnedItem[] = []): Owne
       if (has && shaOf(av) === shaOf(bv)) continue;
       if (isObject(av) && Object.keys(av).length > 0 && here.length < 2 && (!has || isObject(bv))) {
         walk(has ? (bv as Json) : undefined, av, here, createdAt);
+      } else if (has && ownsValue(here, shaOf(bv))) {
+        // exactly what align wrote last time: the hash moves, and nothing here is the user's
+        out.push({ path: here, kind: 'value', sha256: shaOf(av), createdDepth: here.length });
       } else if (Array.isArray(av) && (!has || Array.isArray(bv)) && !(has && userElementsLost(here, bv as unknown[], av))) {
         // An array that already existed is not pruned when emptied (it was there before align).
         addItems(here, has ? (bv as unknown[]) : [], av, createdAt ?? here.length + 1);
@@ -390,13 +439,13 @@ export function ownedOf(before: Json, after: Json, prev: OwnedItem[] = []): Owne
       } else {
         // The user's value: without the elements align itself put in an array on an earlier write.
         const was = Array.isArray(bv) ? bv.filter((x) => !ownsElement(here, shaOf(x))) : bv;
-        out.push({ path: here, kind: 'value', sha256: shaOf(av), createdDepth: here.length, replaced: true, beforeSha256: shaOf(was) });
+        out.push({ path: here, kind: 'value', sha256: shaOf(av), createdDepth: here.length, replaced: true, beforeSha256: shaOf(was), snapshot });
       }
     }
     for (const k of Object.keys(b ?? {})) {
       const here = [...p, k];
       if (Object.prototype.hasOwnProperty.call(a, k) || prev.some((i) => samePath(i.path.slice(0, here.length), here))) continue;
-      out.push({ path: here, kind: 'value', sha256: '', createdDepth: here.length, replaced: true, removed: true, beforeSha256: shaOf(b![k]) });
+      out.push({ path: here, kind: 'value', sha256: '', createdDepth: here.length, replaced: true, removed: true, beforeSha256: shaOf(b![k]), snapshot });
     }
   };
   walk(before, after, [], null);
@@ -431,7 +480,7 @@ export function safeWriteJson(file: string, update: (current: Json) => Json | un
       return JSON.stringify(next, null, 2) + (opts.trailingNewline ? '\n' : '');
     },
     opts,
-    () => ({ owned: ownedOf(beforeObj, afterObj, lookup?.(file)?.owned) }),
+    (snapshot) => ({ owned: ownedOf(beforeObj, afterObj, lookup?.(file)?.owned, snapshot) }),
   );
 }
 
@@ -455,7 +504,7 @@ const pathText = (i: OwnedItem) => i.path.join('.');
  * overwrote (`original` is the parsed trusted backup, or null). Works on `cur` in place and
  * returns the lines for items it could not handle; the caller writes nothing if there are any.
  */
-function removeOwned(cur: Json, owned: OwnedItem[], original: Json | null, backupPath: string): string[] {
+function removeOwned(cur: Json, owned: OwnedItem[], originalOf: (snapshot: number) => Json | null, backupPath: string): string[] {
   const left: string[] = [];
   const walkTo = (root: Json, p: string[]): Json | undefined => {
     let node: unknown = root;
@@ -470,7 +519,7 @@ function removeOwned(cur: Json, owned: OwnedItem[], original: Json | null, backu
     const parent = walkTo(cur, i.path);
     const key = i.path[i.path.length - 1]!;
     if (i.removed) {
-      const was = original ? walkTo(original, i.path)?.[key] : undefined;
+      const was = walkTo(originalOf(i.snapshot ?? 0) ?? {}, i.path)?.[key];
       if (parent && key in parent) {
         if (shaOf(parent[key]) !== i.beforeSha256) left.push(`${pathText(i)} was yours, align removed it, and it is back with different content; check it by hand`);
       } else if (!parent || was === undefined || shaOf(was) !== i.beforeSha256) {
@@ -495,7 +544,7 @@ function removeOwned(cur: Json, owned: OwnedItem[], original: Json | null, backu
       delete parent[key];
       continue;
     }
-    const was = original ? walkTo(original, i.path)?.[key] : undefined;
+    const was = walkTo(originalOf(i.snapshot ?? 0) ?? {}, i.path)?.[key];
     if (was === undefined || shaOf(was) !== i.beforeSha256) {
       left.push(`${pathText(i)} was your own entry and align replaced it; align cannot restore it from ${backupPath} (missing or changed). Put the original back by hand`);
       continue;
@@ -542,15 +591,27 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       continue;
     }
 
-    const backupTrusted = (): boolean => {
-      if (entry.backup !== 'made' || !entry.backupSha256) return false;
+    // The first backup (0) and the snapshots (1..n): each is trusted only when it is a regular file
+    // whose hash is the one align recorded when it made it.
+    const snapPath = (n: number): string => (n === 0 ? backupPath : `${backupPath}.${n}`);
+    const snapText = (n: number): string | null => {
+      const want = n === 0 ? (entry.backup === 'made' ? entry.backupSha256 : undefined) : entry.snapshots?.find((x) => x.n === n)?.sha256;
+      if (!want) return null;
       try {
-        return fs.lstatSync(backupPath).isFile() && sha(fs.readFileSync(backupPath)) === entry.backupSha256;
+        if (!fs.lstatSync(snapPath(n)).isFile()) return null;
+        const bytes = fs.readFileSync(snapPath(n));
+        return sha(bytes) === want ? bytes.toString('utf8') : null;
       } catch {
-        return false;
+        return null;
       }
     };
-    const dropBackup = () => { try { if (entry.backup === 'made' && linkAt(fs, backupPath) === null) fs.unlinkSync(backupPath); } catch { /* gone */ } };
+    const backupTrusted = (): boolean => snapText(0) !== null;
+    /** Only after a fully clean undo, and only copies that are still align's own. */
+    const dropBackup = () => {
+      for (const n of [0, ...(entry.snapshots ?? []).map((x) => x.n)]) {
+        try { if (snapText(n) !== null) fs.unlinkSync(snapPath(n)); } catch { /* gone */ }
+      }
+    };
 
     // Whole-file only when align wrote this file exactly once and nobody has touched it since.
     if (sha(cur) === entry.sha256 && entry.firstSha256 === entry.sha256) {
@@ -564,7 +625,7 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
         const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${randomBytes(4).toString('hex')}.align-tmp`);
         fs.copyFileSync(backupPath, tmp, 1);
         fs.renameSync(tmp, file);
-        fs.unlinkSync(backupPath);
+        dropBackup();
         report.restored.push(file);
         report.done.push(file);
         continue;
@@ -573,10 +634,6 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
 
     // Surgical: only align's own entries, and the user's own values back where align overwrote them.
     const mention = entry.backup === 'foreign' ? `; ${backupPath} was not made by align, so it was not used` : '';
-    const backupText = (): string | null => {
-      if (!backupTrusted()) return null;
-      try { return fs.readFileSync(backupPath, 'utf8'); } catch { return null; }
-    };
     let next: string | undefined;
     const left: string[] = [];
     if (entry.block) {
@@ -589,7 +646,7 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
         const s0 = cur.indexOf(entry.block.start);
         let replacement = '';
         if (entry.block.replaced) {
-          const was = backupText();
+          const was = snapText(entry.block.snapshot ?? 0);
           const old = was === null ? null : regionOf(was, entry.block);
           if (old === null) left.push(`the block align replaced was yours and align cannot restore it from ${backupPath} (missing or changed). Put the original back by hand`);
           else replacement = old;
@@ -609,16 +666,21 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
         report.skipped.push(`${file}: it is not valid JSON now, so align cannot edit it. Remove by hand: ${entry.owned.map(pathText).join(', ')}${mention}`);
         continue;
       }
-      let original: Json | null = null;
-      if (entry.owned.some((i) => i.replaced)) {
-        try {
-          const o: unknown = JSON.parse(backupText() ?? 'null');
-          original = isObject(o) ? o : null;
-        } catch {
-          original = null;
+      const cache = new Map<number, Json | null>();
+      const originalOf = (n: number): Json | null => {
+        if (!cache.has(n)) {
+          let parsedCopy: Json | null = null;
+          try {
+            const o: unknown = JSON.parse(snapText(n) ?? 'null');
+            parsedCopy = isObject(o) ? o : null;
+          } catch {
+            parsedCopy = null;
+          }
+          cache.set(n, parsedCopy);
         }
-      }
-      left.push(...removeOwned(parsed, entry.owned, original, backupPath));
+        return cache.get(n) ?? null;
+      };
+      left.push(...removeOwned(parsed, entry.owned, originalOf, backupPath));
       next = JSON.stringify(parsed, null, 2) + (cur.endsWith('\n') ? '\n' : '');
     } else {
       report.skipped.push(`${file}: align has no record of what it added here. Remove its entries by hand${mention}`);
