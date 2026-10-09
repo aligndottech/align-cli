@@ -296,8 +296,15 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   async function ingestOne(
     input: string,
     platform: string,
-    opts: { titleOverride?: string; sourceUrlOverride?: string | null; createdAt?: string } = {},
-  ): Promise<{ id: string; title: string; summary: string; sourceUrl: string | null; platform: string; related: Array<{ decisionId: string; score: number }>; created: boolean }> {
+    opts: {
+      titleOverride?: string; sourceUrlOverride?: string | null; createdAt?: string;
+      /** L1: false skips the capture-time classifier even with a provider key set, so a
+       *  connector import or background sync never spends the user's money. Omitted keeps
+       *  today's behaviour (classify when a provider is configured), which explicit human
+       *  capture relies on. */
+      classify?: boolean;
+    } = {},
+  ): Promise<{ id: string; title: string; summary: string; sourceUrl: string | null; platform: string; related: Array<{ decisionId: string; score: number }>; created: boolean; changed: boolean }> {
     let title = input.slice(0, 80);
     let summary = input;
     let sourceUrl: string | null = opts.sourceUrlOverride ?? null;
@@ -334,13 +341,37 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // refreshed, so this is the only moment the difference is visible. Without it a
     // re-import reports every decision as imported while the graph does not move, which
     // reads as having imported twice (ALI-770).
-    const created = db.findIdBySource(sourceUrl, title) === null;
+    const existingId = db.findIdBySource(sourceUrl, title);
+    const created = existingId === null;
     // ALI-829: a Slack thread arriving under a real title replaces the tombstone-titled row
     // an older fetcher may have written for the same source_url (see local-db.ts).
     if (platform === 'slack') db.deleteSlackTombstoneTwin(sourceUrl);
     // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.
     const decidedAt = normaliseDecidedAt(opts.createdAt);
+
+    // L1: unchanged-skip. A sync window overlaps the last run, so known items arrive again,
+    // and re-embedding and re-linking each one is the whole cost of a refresh. Skip only when
+    // the upsert below would write nothing new: same summary (the column holds exactly what
+    // insertDecision stores, so no hash column is needed), same platform, no repo or date the
+    // row lacks or holds differently, and an embedding from the current model. Anything else
+    // falls through to the full path, so a late-arriving date or a model swap still lands.
+    if (existingId !== null) {
+      const stored = db.getDecisionById(existingId);
+      if (
+        stored
+        && stored.summary === summary
+        && stored.platform === platform
+        && (repo === null || stored.repo === repo)
+        && (decidedAt === null || stored.decidedAt === decidedAt)
+        && db.getEmbeddingModel(existingId) === EMBEDDING_MODEL_ID
+      ) {
+        // Still resolve citations INTO this row: a citer that arrived since the last ingest
+        // is linked only here (see resolveRefs below). A few indexed reads, no embed.
+        db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
+        return { id: existingId, title, summary, sourceUrl, platform, related: [], created: false, changed: false };
+      }
+    }
     // ALI-831: origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
     const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind });
@@ -371,7 +402,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // no key exists (the common case for a fresh clone). chainStopped mirrors
     // checkAlignment's own short-circuit: once one candidate's classification fails with a
     // stopped provider, further calls in THIS capture are skipped rather than repeated.
-    const toClassify = hasConfiguredProvider()
+    const toClassify = opts.classify !== false && hasConfiguredProvider()
       ? candidates.filter(c => c.score >= SIMILARITY_THRESHOLD).slice(0, CAPTURE_CLASSIFY_TOP_K)
       : [];
     const classifyIds = new Set(toClassify.map(c => c.decisionId));
@@ -407,7 +438,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // align_get_conflicts MCP tool report manufactured findings as detections.
       db.insertLink({ sourceId: id, targetId: c.decisionId, relation: 'relates', confidence: c.score });
     }
-    return { id, title, summary, sourceUrl, platform, related: candidates, created };
+    return { id, title, summary, sourceUrl, platform, related: candidates, created, changed: true };
   }
 
   return {
@@ -433,17 +464,24 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       };
     },
 
-    async ingestBatch(items: Array<{ source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string }>) {
+    /** `opts.classify`: see ingestOne. `deferEnrichment` is the cloud gateway's option and is
+     *  accepted here only so one call site serves both clients; local ingest ignores it. */
+    async ingestBatch(
+      items: Array<{ source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string }>,
+      opts: { classify?: boolean; deferEnrichment?: boolean } = {},
+    ) {
       const snapshots = [];
       for (const item of items) {
         const r = await ingestOne(item.raw_text, item.platform ?? 'cli', {
           titleOverride: item.title,
           sourceUrlOverride: item.source_url ?? null,
           createdAt: item.created_at,
+          classify: opts.classify,
         });
         snapshots.push({
           id: r.id,
           created: r.created,
+          changed: r.changed,
           title: r.title,
           summary: r.summary,
           analysis: {

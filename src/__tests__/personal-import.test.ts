@@ -159,7 +159,20 @@ describe('runPersonalImport', () => {
       const ingestBatch = vi.fn().mockResolvedValue({ snapshots: [] });
       const client = makeClient({ ingestBatch });
       await runPersonalImport(makeItems(3), client, { label: 'Linear', approve: true, appUrl: 'http://app', quiet: true, deferEnrichment: true });
-      expect(ingestBatch).toHaveBeenCalledWith(expect.any(Array), { deferEnrichment: true });
+      expect(ingestBatch).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ deferEnrichment: true }));
+    });
+  });
+
+  describe('connector imports never classify (L1)', () => {
+    // Every runPersonalImport caller is a connector import (git, github, jira, slack, ...).
+    // The local client classifies with any exported key unless told not to, which made an
+    // import of N items up to 3N paid LLM calls. Explicit human capture is a different path.
+    it('passes classify:false to every ingestBatch call', async () => {
+      const ingestBatch = vi.fn().mockResolvedValue({ snapshots: [] });
+      const client = makeClient({ ingestBatch });
+      await runPersonalImport(makeItems(45), client, { label: 'Jira', approve: true, appUrl: 'http://app', quiet: true });
+      expect(ingestBatch).toHaveBeenCalledTimes(3);
+      for (const call of ingestBatch.mock.calls) expect(call[1]).toMatchObject({ classify: false });
     });
   });
 
