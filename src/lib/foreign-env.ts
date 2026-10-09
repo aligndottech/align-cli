@@ -38,7 +38,7 @@ export function foreignNotice(file: string, scope: 'global' | 'project'): string
 export function keptConnectionNotice(agents: string[]): string | undefined {
   if (agents.length === 0) return undefined;
   const who = agents.length === 1 ? agents[0]! : `${agents.length} agents (${agents.join(', ')})`;
-  return `Kept your existing Align connection in ${who}. Running \`align\` opens the local graph alongside it.`;
+  return `Kept your existing Align connection in ${who}. Agents opened with \`align\` also get the local graph.`;
 }
 
 /**

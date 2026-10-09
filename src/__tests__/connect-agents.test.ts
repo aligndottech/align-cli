@@ -94,7 +94,7 @@ describe('connectDetectedAgents', () => {
       skipAll();
       await connectDetectedAgents('local');
       expect(keptLines()).toEqual([
-        'Kept your existing Align connection in 5 agents (Claude Code, VS Code, Codex, pi, Gemini CLI). Running `align` opens the local graph alongside it.',
+        'Kept your existing Align connection in 5 agents (Claude Code, VS Code, Codex, pi, Gemini CLI). Agents opened with `align` also get the local graph.',
       ]);
       expect(warnings).toEqual([]);
       expect(logged.join('\n')).not.toContain('/home/d/.cfg');
@@ -106,7 +106,7 @@ describe('connectDetectedAgents', () => {
       skipClaude();
       await connectDetectedAgents('local');
       expect(keptLines()).toEqual([
-        'Kept your existing Align connection in Claude Desktop. Running `align` opens the local graph alongside it.',
+        'Kept your existing Align connection in Claude Desktop. Agents opened with `align` also get the local graph.',
       ]);
       expect(warnings).toEqual([]);
     });
