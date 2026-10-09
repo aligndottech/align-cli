@@ -73,6 +73,8 @@ export interface OwnedItem {
    */
   replaced?: boolean;
   beforeSha256?: string;
+  /** align's write took this key (or this whole array) away; undo puts the user's original back when it is still gone. */
+  removed?: boolean;
 }
 
 /** One file align wrote, as the manifest remembers it. */
@@ -337,15 +339,21 @@ export function safeWriteText(file: string, compute: (current: string | null) =>
 }
 
 /**
- * What align added to a JSON config. Containers (the root and its direct children, such as
+ * What align changed in a JSON config. Containers (the root and its direct children, such as
  * `mcpServers` or `hooks`) are walked; a server entry one level further down is a unit:
  *  - new key: one `value` item (or, under a new container, one item per new entry);
  *  - existing key whose value changed: ONE `replaced` item holding the hash of the user's value,
  *    never a diff into it (a diff into `args` would "undo" half an entry);
- *  - existing array (a hooks event): the elements align added.
+ *  - existing array: if align only added elements, those elements; if it REMOVED or changed any
+ *    element it did not put there itself, the whole array is one `replaced` unit;
+ *  - an existing key align took away: a `removed` unit.
+ * `prev` is what an earlier write already recorded, so align's own earlier output is never
+ * mistaken for the user's.
  */
-export function ownedOf(before: Json, after: Json): OwnedItem[] {
+export function ownedOf(before: Json, after: Json, prev: OwnedItem[] = []): OwnedItem[] {
   const out: OwnedItem[] = [];
+  const samePath = (a: string[], b: string[]) => a.length === b.length && a.every((x, n) => x === b[n]);
+  const ownsElement = (p: string[], h: string) => prev.some((i) => i.kind === 'array-item' && samePath(i.path, p) && i.sha256 === h);
   const addItems = (here: string[], bv: unknown[], av: unknown[], createdAt: number): void => {
     const remaining = new Map<string, number>();
     for (const x of bv) remaining.set(shaOf(x), (remaining.get(shaOf(x)) ?? 0) + 1);
@@ -354,6 +362,16 @@ export function ownedOf(before: Json, after: Json): OwnedItem[] {
       if ((remaining.get(h) ?? 0) > 0) remaining.set(h, remaining.get(h)! - 1);
       else out.push({ path: here, kind: 'array-item', sha256: h, createdDepth: createdAt });
     }
+  };
+  /** Elements of `bv` that `av` no longer has and that align did not put there. */
+  const userElementsLost = (here: string[], bv: unknown[], av: unknown[]): boolean => {
+    const remaining = new Map<string, number>();
+    for (const x of av) remaining.set(shaOf(x), (remaining.get(shaOf(x)) ?? 0) + 1);
+    return bv.some((x) => {
+      const h = shaOf(x);
+      if ((remaining.get(h) ?? 0) > 0) { remaining.set(h, remaining.get(h)! - 1); return false; }
+      return !ownsElement(here, h);
+    });
   };
   const walk = (b: Json | undefined, a: Json, p: string[], created: number | null): void => {
     for (const [k, av] of Object.entries(a)) {
@@ -364,13 +382,21 @@ export function ownedOf(before: Json, after: Json): OwnedItem[] {
       if (has && shaOf(av) === shaOf(bv)) continue;
       if (isObject(av) && Object.keys(av).length > 0 && here.length < 2 && (!has || isObject(bv))) {
         walk(has ? (bv as Json) : undefined, av, here, createdAt);
-      } else if (Array.isArray(av) && (!has || Array.isArray(bv))) {
-        addItems(here, has ? (bv as unknown[]) : [], av, createdAt ?? here.length);
+      } else if (Array.isArray(av) && (!has || Array.isArray(bv)) && !(has && userElementsLost(here, bv as unknown[], av))) {
+        // An array that already existed is not pruned when emptied (it was there before align).
+        addItems(here, has ? (bv as unknown[]) : [], av, createdAt ?? here.length + 1);
       } else if (!has) {
         out.push({ path: here, kind: 'value', sha256: shaOf(av), createdDepth: createdAt ?? here.length });
       } else {
-        out.push({ path: here, kind: 'value', sha256: shaOf(av), createdDepth: here.length, replaced: true, beforeSha256: shaOf(bv) });
+        // The user's value: without the elements align itself put in an array on an earlier write.
+        const was = Array.isArray(bv) ? bv.filter((x) => !ownsElement(here, shaOf(x))) : bv;
+        out.push({ path: here, kind: 'value', sha256: shaOf(av), createdDepth: here.length, replaced: true, beforeSha256: shaOf(was) });
       }
+    }
+    for (const k of Object.keys(b ?? {})) {
+      const here = [...p, k];
+      if (Object.prototype.hasOwnProperty.call(a, k) || prev.some((i) => samePath(i.path.slice(0, here.length), here))) continue;
+      out.push({ path: here, kind: 'value', sha256: '', createdDepth: here.length, replaced: true, removed: true, beforeSha256: shaOf(b![k]) });
     }
   };
   walk(before, after, [], null);
@@ -405,7 +431,7 @@ export function safeWriteJson(file: string, update: (current: Json) => Json | un
       return JSON.stringify(next, null, 2) + (opts.trailingNewline ? '\n' : '');
     },
     opts,
-    () => ({ owned: ownedOf(beforeObj, afterObj) }),
+    () => ({ owned: ownedOf(beforeObj, afterObj, lookup?.(file)?.owned) }),
   );
 }
 
@@ -439,9 +465,21 @@ function removeOwned(cur: Json, owned: OwnedItem[], original: Json | null, backu
     }
     return isObject(node) ? node : undefined;
   };
-  for (const i of owned) {
+  // Units the user's value was taken from go first: their hash check needs the array as align left it.
+  for (const i of [...owned].sort((x, y) => Number(!!y.replaced) - Number(!!x.replaced))) {
     const parent = walkTo(cur, i.path);
     const key = i.path[i.path.length - 1]!;
+    if (i.removed) {
+      const was = original ? walkTo(original, i.path)?.[key] : undefined;
+      if (parent && key in parent) {
+        if (shaOf(parent[key]) !== i.beforeSha256) left.push(`${pathText(i)} was yours, align removed it, and it is back with different content; check it by hand`);
+      } else if (!parent || was === undefined || shaOf(was) !== i.beforeSha256) {
+        left.push(`${pathText(i)} was yours and align removed it; align cannot restore it from ${backupPath} (missing or changed). Put the original back by hand`);
+      } else {
+        parent[key] = JSON.parse(JSON.stringify(was)) as unknown;
+      }
+      continue;
+    }
     if (!parent || !(key in parent)) continue; // already gone
     if (i.kind === 'array-item') {
       const arr = parent[key];
