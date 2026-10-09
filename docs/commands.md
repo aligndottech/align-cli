@@ -93,7 +93,7 @@ align whoami                  Show current authenticated user and tenant
 # Guided onboarding (bare `align` runs it)
 
 align setup                   Guided onboarding: your local graph by default, your team graph when you are logged in
-                              flags: --env --approve --local --reset
+                              flags: --env --approve --local --reset --verbose
 
 # Choose the coding agent bare `align` opens
 

@@ -33,7 +33,7 @@ import { guardedPrompt } from '../lib/prompt-guard.js';
 import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
 import { agentAskLine, agentConnectedLine, orderAgents, projectAgentsFromWritten } from '../lib/next-step.js';
-import { foreignNotice } from '../lib/foreign-env.js';
+import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
 import { InvalidEnvError, routeSetup } from '../lib/setup-route.js';
 import { agentByName } from '../lib/launch/agents.js';
@@ -417,7 +417,10 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
  */
 function writeAgentAlignment(envName: EnvName): string[] {
   try {
-    const written = setupAgentAlignment({ cwd: process.cwd(), env: envName, onForeign: (file) => p.log.warn(foreignNotice(file, 'project')) });
+    const foreign: string[] = [];
+    const written = setupAgentAlignment({ cwd: process.cwd(), env: envName, onForeign: (file) => foreign.push(file) });
+    const foreignLine = projectForeignNotice(foreign);
+    if (foreignLine) p.log.info(foreignLine);
     p.log.success(`Auto-alignment configured: ${written.join(', ')}`);
     p.log.info(
       chalk.dim(
@@ -623,7 +626,7 @@ interface LocalValuePhaseResult {
   // ALI-1284 (Copilot review, PR #322): reset is only read by offerFreeProviderKey below, but
   // it travels through this same opts bag the rest of the local phase already threads, rather
   // than becoming a second parameter every caller has to remember to also pass.
-  opts: { approve?: boolean; reset?: boolean; launchNext?: boolean };
+  opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean };
   /** ALI-827: every source the value phase fetched, for the one report the connector
    *  phase prints at the end. */
   capture: ReturnType<typeof createCaptureCollector>;
@@ -652,7 +655,7 @@ function nextStepLine(agent: AgentName | null, launchNext: boolean): string | nu
 /** Thrown inside the docs block to leave it without starting a read; never surfaces. */
 class SkipDocs extends Error {}
 
-async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
+async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; funnel: SetupFunnel }): Promise<LocalValuePhaseResult> {
   // Without a TTY neither prompt below can work: a piped stdin hangs forever and a closed
   // stdin crashes clack's raw-mode init (uv_tty_init EINVAL) AFTER local setup has already
   // succeeded (align-cli#118). Computed once, up front, and reused by both prompts in this
@@ -822,7 +825,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // setup skipped this and cloud did not, which is backwards: local mode is the one whose
   // entire pitch is an agent on your own machine reading a graph that never leaves it.
   console.log('');
-  const localAgents = await connectDetectedAgents('local');
+  const localAgents = await connectDetectedAgents('local', { verbose: opts.verbose });
 
   // ALI-950: whenever ANY agent was wired - the project .mcp.json counts. This used to print
   // only when a GLOBAL config was written, so a Claude-Code-only user, wired through the
@@ -1192,7 +1195,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
 // Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
 // the two phases above unchanged - this is exactly what ran before the ALI-794 split, just
 // as two calls instead of one function body.
-async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; funnel: SetupFunnel }): Promise<void> {
+async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; funnel: SetupFunnel }): Promise<void> {
   const ctx = await runLocalValuePhase(opts);
   await runLocalConnectorPhase(ctx);
 }
@@ -1205,6 +1208,7 @@ export function registerSetupCommand(program: Command): void {
     .option('--approve', 'Skip confirmation prompts (for scripted use)')
     .option('--local', 'Same as --env local: build the local graph even if you are logged in to a team')
     .option('--reset', 'Clear cached OAuth tokens and saved AI provider keys, and redo their setup')
+    .option('--verbose', 'List every agent config file setup left as is, with the command to switch it')
     .action(runSetup);
 }
 
@@ -1218,7 +1222,7 @@ export function registerSetupCommand(program: Command): void {
  * which would fire the postAction telemetry hook twice for one invocation.
  */
 export async function runSetup(
-  opts: { env?: string; approve?: boolean; local?: boolean; reset?: boolean; launchNext?: boolean } = {},
+  opts: { env?: string; approve?: boolean; local?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean } = {},
 ): Promise<void> {
     const config = createConfigStore();
 
@@ -1270,7 +1274,7 @@ export async function runSetup(
     // here, where the mode is still unknown: each branch offers its own env at its top -
     // runLocalValuePhase and runCloudSetup - and again once consent / login makes a send
     // possible.
-    await runLocalSetup({ approve: opts.approve, reset: opts.reset, launchNext: opts.launchNext, funnel: createSetupFunnel() });
+    await runLocalSetup({ approve: opts.approve, reset: opts.reset, launchNext: opts.launchNext, verbose: opts.verbose, funnel: createSetupFunnel() });
 }
 
 // Cloud (team) onboarding: verify login, wire MCP, seed from git, then offer
@@ -1279,7 +1283,7 @@ export async function runSetup(
 // developer's graph is local, and the gateway no longer creates personal tenants).
 // Connectors bind per-user to the team tenant.
 async function runCloudSetup(ctx: {
-  opts: { approve?: boolean; reset?: boolean };
+  opts: { approve?: boolean; reset?: boolean; verbose?: boolean };
   config: ReturnType<typeof createConfigStore>;
   env: ReturnType<ReturnType<typeof createConfigStore>['getEnvironment']>;
   client: ReturnType<typeof createGatewayClient>;
@@ -1431,7 +1435,7 @@ async function runCloudSetup(ctx: {
   // `align mcp --remove` as the undo. This block used to write to a user-level config without
   // a word when exactly one editor was detected and prompt only at two or more, and that
   // multiselect was unguarded, so `align setup --approve` with two agents installed hung.
-  const globalAgents = await connectDetectedAgents(envName);
+  const globalAgents = await connectDetectedAgents(envName, { verbose: ctx.opts.verbose });
 
   // ---- Step 5b: Deterministic auto-alignment files (hook + nudges) ----
   const projectAgents = projectAgentsFromWritten(writeAgentAlignment(envName));
