@@ -1,4 +1,4 @@
-import type { AgentName } from '../sessions/types.js';
+import type { LaunchAgentId } from './registry/types.js';
 import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
 import { findOnPath } from './detect.js';
 
@@ -13,7 +13,7 @@ export interface PickAgentDeps {
   agents: readonly LaunchAgent[];
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
   /** Resolves null when the user cancels. Only called on a terminal with several candidates. */
-  select(candidates: LaunchAgent[]): Promise<AgentName | null>;
+  select(candidates: LaunchAgent[]): Promise<LaunchAgentId | null>;
   say(line: string): void;
 }
 
@@ -26,13 +26,13 @@ export interface AgentConfig {
   isLaunchOff?(): boolean;
 }
 
-async function clackSelect(candidates: LaunchAgent[]): Promise<AgentName | null> {
+async function clackSelect(candidates: LaunchAgent[]): Promise<LaunchAgentId | null> {
   const clack = await import('@clack/prompts');
   const answer = await clack.select({
     message: 'Which coding agent should `align` open?',
     options: candidates.map((a) => ({ value: a.name, label: a.label })),
   });
-  return clack.isCancel(answer) ? null : (answer as AgentName);
+  return clack.isCancel(answer) ? null : (answer as LaunchAgentId);
 }
 
 function defaultDeps(): PickAgentDeps {
@@ -50,7 +50,7 @@ export async function pickAgent(
   config: AgentConfig,
   opts: { interactive: boolean; approve?: boolean },
   overrides: Partial<PickAgentDeps> = {},
-): Promise<AgentName | null | typeof PICK_CANCELLED> {
+): Promise<LaunchAgentId | null | typeof PICK_CANCELLED> {
   const d = { ...defaultDeps(), ...overrides };
 
   const installed = d.agents.filter((a) => resolveAgentBin(a, d.findOnPath, d.env, d.platform) !== null);

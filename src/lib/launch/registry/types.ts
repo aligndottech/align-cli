@@ -3,11 +3,18 @@ import type { LaunchSpec } from '../adapters/claude-code.js';
 import type { BuildInput, LaunchDeps } from '../launch.js'; // type-only: no runtime cycle
 
 /**
+ * Every agent the launcher knows. Wider than the session parsers' AgentName: an agent can be a
+ * launch target before align reads its session history (Copilot), and widening AgentName would
+ * reach every parser's exhaustive switch for nothing.
+ */
+export type LaunchAgentId = AgentName | 'copilot';
+
+/**
  * One launchable (or planned) coding agent. R1 carries today's `LaunchAgent` fields plus the
  * adapter that builds its launch; later phases replace adapters with data.
  */
 export interface AgentSpec {
-  name: AgentName;
+  name: LaunchAgentId;
   label: string;
   bin: string;
   /** per-session: nothing written to the user's config. written-once: later phases. */

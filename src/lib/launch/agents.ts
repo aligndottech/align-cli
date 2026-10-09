@@ -1,8 +1,8 @@
-import type { AgentName } from '../sessions/types.js';
 import { AGENT_REGISTRY } from './registry/index.js';
+import type { LaunchAgentId } from './registry/types.js';
 
 export interface LaunchAgent {
-  name: AgentName;
+  name: LaunchAgentId;
   label: string;
   bin: string;
   /** per-session: nothing written to the user's config. written-once: later phases. */

@@ -26,6 +26,9 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     readOpenCodeState: () => ({ projectHasPlugin: false, projectHasMcp: false, projectHasBlock: false }),
     readPiState: () => ({ projectHasExtension: false, projectHasMcp: false, projectHasBlock: false, mcpAdapterInstalled: true, mcpFile: '/home/u/.pi/agent/mcp.json' }),
     readCursorState: () => ({ projectHasMcp: false, mcpFile: '/home/u/.cursor/mcp.json' }),
+    readCodexState: () => ({ projectHasMcp: false }),
+    readGeminiState: () => ({ projectHasMcp: false, systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'untrusted' }),
+    readCopilotState: () => ({ projectHasMcp: false }),
     applyConfigWrite: vi.fn(),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content) => { written.push([name, content]); return true; },
@@ -84,12 +87,6 @@ describe('launchIfChosen: when it does not', () => {
   it('treats ALIGN_NO_LAUNCH="" as not set', async () => {
     const h = harness({ stored: 'claude-code', env: { ALIGN_NO_LAUNCH: '' } });
     expect((await launchIfChosen(h.deps)).handled).toBe(true);
-  });
-  it('falls back to the card with one line when the chosen agent is not a launch target yet', async () => {
-    const h = harness({ stored: 'codex' });
-    expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
-    expect(h.out.join('\n')).toMatch(/Codex.*not.*yet|coming soon/i);
-    expect(h.runAgent).not.toHaveBeenCalled();
   });
   it('exits 2 on a positional arg without --, naming it, and spawns nothing', async () => {
     const h = harness({ stored: 'claude-code', argv: ['node', 'align', 'foo'] });
@@ -270,7 +267,7 @@ describe('launchIfChosen: align\'s own lines go to stderr, never stdout (MEDIUM 
   it.each([
     ['the auto-pick announcement', {}],
     ['the trace line', { stored: 'claude-code', env: { ALIGN_LAUNCH_TRACE: '1' } }],
-    ['the coming-soon note', { stored: 'codex' }],
+    ['a launch note (Gemini\'s folder-trust line)', { stored: 'gemini-cli', onPath: { gemini: '/usr/bin/gemini' } }],
   ] as const)('%s', async (_label, over) => {
     const h = harness({ ...over });
     await launchIfChosen(h.deps);

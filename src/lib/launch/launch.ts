@@ -2,17 +2,20 @@ import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { createConfigStore } from '../config.js';
 import { resolveEnv } from '../resolve-env.js';
-import type { AgentName } from '../sessions/types.js';
 import { agentByName, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
 import type { LaunchSpec } from './adapters/claude-code.js';
 import { applyConfigWrite, type ConfigWrite } from './config-writes.js';
+import { type CodexProjectState, readCodexState } from './codex-state.js';
+import { type CopilotProjectState, readCopilotState } from './copilot-state.js';
 import { type CursorProjectState, readCursorState } from './cursor-state.js';
 import { findOnPath } from './detect.js';
+import { type GeminiProjectState, readGeminiState } from './gemini-state.js';
 import { launchCacheDir, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
 import { type PiProjectState, readPiState } from './pi-state.js';
 import { type ProjectState, readProjectState } from './project-state.js';
 import { specByName } from './registry/index.js';
+import type { LaunchAgentId } from './registry/types.js';
 import { runAgent } from './run-agent.js';
 
 /*
@@ -38,15 +41,21 @@ export interface LaunchDeps {
   readPiState(cwd: string, home: string, env: Record<string, string | undefined>): PiProjectState;
   /** What Cursor would already read. */
   readCursorState(cwd: string, home: string): CursorProjectState;
+  /** What Codex would already load ($CODEX_HOME or ~/.codex, and the project's .codex/). */
+  readCodexState(cwd: string, home: string, env: Record<string, string | undefined>): CodexProjectState;
+  /** What Gemini CLI would already load, the system settings file it reads, and folder trust. */
+  readGeminiState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): GeminiProjectState;
+  /** What Copilot CLI would already load ($COPILOT_HOME or ~/.copilot, and the workspace). */
+  readCopilotState(cwd: string, home: string, env: Record<string, string | undefined>): CopilotProjectState;
   /** Add to a file in the user's own agent config, once (C4). Lines go to `note`. */
   applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
   writeIfChanged(dir: string, name: string, content: string): boolean;
   runAgent(spec: LaunchSpec): Promise<number>;
   /** Fire and forget: the caller never awaits what this returns. */
-  record(agent: AgentName): void;
+  record(agent: LaunchAgentId): void;
   /** Ask which agent. Only called on a TTY with more than one supported agent installed. */
-  pick(candidates: LaunchAgent[]): Promise<AgentName | null>;
+  pick(candidates: LaunchAgent[]): Promise<LaunchAgentId | null>;
   /** Every line align itself writes on this path. stderr only: stdout belongs to the agent (`align -- -p ... | jq`). */
   err(line: string): void;
   now(): number;
@@ -79,6 +88,9 @@ function defaultDeps(): LaunchDeps {
     readOpenCodeState: (cwd, home) => readOpenCodeState(cwd, home, { localIsDefault: isLocalDefault() }, process.env),
     readPiState: (cwd, home, env) => readPiState(cwd, home, { localIsDefault: isLocalDefault() }, env),
     readCursorState: (cwd, home) => readCursorState(cwd, home, { localIsDefault: isLocalDefault() }),
+    readCodexState: (cwd, home, env) => readCodexState(cwd, home, { localIsDefault: isLocalDefault() }, env),
+    readGeminiState: (cwd, home, env, platform) => readGeminiState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
+    readCopilotState: (cwd, home, env) => readCopilotState(cwd, home, { localIsDefault: isLocalDefault() }, env),
     applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
     cacheDir: launchCacheDir,
     writeIfChanged,
@@ -96,7 +108,7 @@ function defaultDeps(): LaunchDeps {
         message: 'Which coding agent should `align` open?',
         options: candidates.map((a) => ({ value: a.name, label: a.label })),
       });
-      return clack.isCancel(answer) ? null : (answer as AgentName);
+      return clack.isCancel(answer) ? null : (answer as LaunchAgentId);
     },
     err: (l) => console.error(l),
     now: () => performance.now(),
