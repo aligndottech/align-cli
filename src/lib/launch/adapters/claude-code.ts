@@ -14,6 +14,8 @@ export interface LaunchSpec {
   env: Record<string, string>;
   /** Launch files the args point at. Commands and text only, never secrets. */
   files: LaunchFile[];
+  /** Lines align prints to stderr before launching (why an injection was skipped). */
+  notes?: string[];
 }
 
 export interface LaunchContext {

@@ -95,6 +95,12 @@ describe('readOpenCodeState', () => {
       mkdirSync(sub);
       expect(readOpenCodeState(sub, home, cloudDefault).projectHasMcp).toBe(true);
     });
+    it('an align entry with enabled:false is not present (OpenCode will not start it), enabled:true is', () => {
+      put(path.join(cwd, 'opencode.json'), { mcp: { align: { type: 'local', command: ['align', 'mcp', '--env', 'local'], enabled: false } } });
+      expect(readOpenCodeState(cwd, home, localDefault).projectHasMcp).toBe(false);
+      put(path.join(cwd, 'opencode.json'), { mcp: { align: { type: 'local', command: ['align', 'mcp', '--env', 'local'], enabled: true } } });
+      expect(readOpenCodeState(cwd, home, localDefault).projectHasMcp).toBe(true);
+    });
     it('treats an unparseable config as absent and never throws', () => {
       put(path.join(cwd, 'opencode.json'), '{ "mcp": ');
       expect(readOpenCodeState(cwd, home, localDefault).projectHasMcp).toBe(false);
@@ -122,6 +128,31 @@ describe('readOpenCodeState', () => {
       rmSync(path.join(home, '.config'), { recursive: true });
       put(path.join(cwd, 'CLAUDE.md'), BLOCK);
       expect(readOpenCodeState(cwd, home, localDefault).projectHasBlock).toBe(true);
+    });
+    it('the FIRST filename found wins: AGENTS.md without the block hides a CLAUDE.md that has it', () => {
+      put(path.join(cwd, 'AGENTS.md'), '# notes\n');
+      put(path.join(cwd, 'CLAUDE.md'), BLOCK);
+      expect(readOpenCodeState(cwd, home, localDefault).projectHasBlock).toBe(false);
+    });
+    it('CLAUDE.md counts only when no AGENTS.md exists up the tree, and CONTEXT.md after both', () => {
+      put(path.join(cwd, 'CLAUDE.md'), BLOCK);
+      expect(readOpenCodeState(cwd, home, localDefault).projectHasBlock).toBe(true);
+      rmSync(path.join(cwd, 'CLAUDE.md'));
+      put(path.join(cwd, 'CONTEXT.md'), BLOCK);
+      expect(readOpenCodeState(cwd, home, localDefault).projectHasBlock).toBe(true);
+    });
+    it('CLAUDE.md is not read at all under OPENCODE_DISABLE_CLAUDE_CODE*', () => {
+      put(path.join(cwd, 'CLAUDE.md'), BLOCK);
+      expect(readOpenCodeState(cwd, home, localDefault, { OPENCODE_DISABLE_CLAUDE_CODE: '1' }).projectHasBlock).toBe(false);
+      expect(readOpenCodeState(cwd, home, localDefault, { OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: '1' }).projectHasBlock).toBe(false);
+      expect(readOpenCodeState(cwd, home, localDefault, { OPENCODE_DISABLE_CLAUDE_CODE: '' }).projectHasBlock).toBe(true);
+    });
+    it('global: ~/.claude/CLAUDE.md is the fallback only when the global AGENTS.md is absent', () => {
+      put(path.join(home, '.claude', 'CLAUDE.md'), BLOCK);
+      expect(readOpenCodeState(cwd, home, localDefault).projectHasBlock).toBe(true);
+      expect(readOpenCodeState(cwd, home, localDefault, { OPENCODE_DISABLE_CLAUDE_CODE: '1' }).projectHasBlock).toBe(false);
+      put(path.join(home, '.config', 'opencode', 'AGENTS.md'), '# mine\n');
+      expect(readOpenCodeState(cwd, home, localDefault).projectHasBlock).toBe(false);
     });
     it('does not count an AGENTS.md without the block', () => {
       put(path.join(cwd, 'AGENTS.md'), '# my notes\n');

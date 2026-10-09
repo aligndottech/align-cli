@@ -98,6 +98,22 @@ describe('buildOpenCodeLaunch: the user\'s own config survives', () => {
     expect(spec.env['OPENCODE_CONFIG_CONTENT']).toBeUndefined();
   });
 
+  it.each([
+    ['invalid JSON', '{not json'],
+    ['a non-object', '[1]'],
+    ['mcp of the wrong type', '{"mcp":[]}'],
+    ['instructions of the wrong type', '{"instructions":"x.md"}'],
+  ])('says why the graph tools were not added when OPENCODE_CONFIG_CONTENT is unusable (%s)', (_l, raw) => {
+    const spec = buildOpenCodeLaunch(ctx({ env: { OPENCODE_CONFIG_CONTENT: raw } }));
+    expect(spec.notes).toHaveLength(1);
+    expect(spec.notes![0]).toMatch(/OPENCODE_CONFIG_CONTENT/);
+    expect(spec.notes![0]).toMatch(/graph tools were not added/);
+  });
+  it('says nothing when the user content is usable, or when nothing needed adding', () => {
+    expect(buildOpenCodeLaunch(ctx({ env: { OPENCODE_CONFIG_CONTENT: '{"model":"a/b"}' } })).notes ?? []).toEqual([]);
+    const all = { projectHasPlugin: true, projectHasMcp: true, projectHasBlock: true };
+    expect(buildOpenCodeLaunch(ctx({ ...all, env: { OPENCODE_CONFIG_CONTENT: '{not json' } })).notes ?? []).toEqual([]);
+  });
   it('an empty OPENCODE_CONFIG_CONTENT counts as unset', () => {
     expect(content(buildOpenCodeLaunch(ctx({ env: { OPENCODE_CONFIG_CONTENT: '' } }))).mcp['align-local']).toBeDefined();
   });

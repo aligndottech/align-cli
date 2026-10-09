@@ -217,6 +217,11 @@ describe('launchIfChosen: OpenCode (C2)', () => {
     expect(h.runAgent.mock.calls[0]![0].env).toEqual({ ALIGN_WRAPPED: '1' });
     expect(h.written).toEqual([]);
   });
+  it('prints one stderr line when the user\'s OPENCODE_CONFIG_CONTENT is unusable, and still launches', async () => {
+    const h = harness({ stored: 'opencode', onPath: { opencode: OC }, env: { OPENCODE_CONFIG_CONTENT: '{nope' } });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+    expect(h.err.filter((l) => l.includes('OPENCODE_CONFIG_CONTENT'))).toHaveLength(1);
+  });
   it('passes args after -- through to opencode, untouched', async () => {
     const h = harness({ stored: 'opencode', onPath: { opencode: OC }, argv: ['node', 'align', '--', 'run', 'hi'] });
     await launchIfChosen(h.deps);

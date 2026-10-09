@@ -182,6 +182,7 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     return { handled: false };
   }
   // On win32 the resolved path is what tells runAgent it holds a .cmd shim.
+  for (const n of spec.notes ?? []) d.err(n);
   const toRun: LaunchSpec = d.platform === 'win32' ? { ...spec, bin: found } : spec;
 
   if (set(d.env['ALIGN_LAUNCH_TRACE'])) d.err(`align-overhead-ms=${Math.round(d.now())}`);

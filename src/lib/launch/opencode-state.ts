@@ -57,10 +57,33 @@ function pluginReadsLocal(text: string | null, localIsDefault: boolean): boolean
 }
 
 function isLocalAlignServer(entry: unknown, localIsDefault: boolean): boolean {
-  const e = entry as { type?: unknown; command?: unknown } | null;
+  const e = entry as { type?: unknown; command?: unknown; enabled?: unknown } | null;
+  // `enabled: false` means OpenCode will not start it, so it does not do our job: inject align-local.
+  if (e?.enabled === false) return false;
   if (e?.type !== 'local' || !Array.isArray(e.command)) return false;
   const tokens = e.command.filter((t): t is string => typeof t === 'string');
   return tokens.includes('mcp') && tokens.some((t) => /^align(\.cmd)?$/.test(path.basename(t))) && readsLocal(tokens, localIsDefault);
+}
+
+/**
+ * OpenCode 1.18.27 tries AGENTS.md, CLAUDE.md, CONTEXT.md in that order and the FIRST filename
+ * found anywhere up to the worktree wins; every match of that one name is read. CLAUDE.md is
+ * skipped under OPENCODE_DISABLE_CLAUDE_CODE*.
+ */
+function projectInstructionFiles(dirs: string[], claudeOff: boolean): string[] {
+  for (const name of ['AGENTS.md', 'CLAUDE.md', 'CONTEXT.md']) {
+    if (name === 'CLAUDE.md' && claudeOff) continue;
+    const found = dirs.map((d) => path.join(d, name)).filter((f) => existsSync(f));
+    if (found.length > 0) return found;
+  }
+  return [];
+}
+
+/** The global AGENTS.md, or ~/.claude/CLAUDE.md only when that is absent (and Claude Code files are not disabled). */
+function globalInstructionFiles(home: string, global: string, claudeOff: boolean): string[] {
+  const agents = path.join(global, 'AGENTS.md');
+  if (existsSync(agents)) return [agents];
+  return claudeOff ? [] : [path.join(home, '.claude', 'CLAUDE.md')];
 }
 
 /**
@@ -81,10 +104,8 @@ export function readOpenCodeState(
   const global = globalDir(home, env);
   const configDirs = [...dirs.map((d) => path.join(d, '.opencode')), global];
   const configFiles = [...dirs.map((d) => path.join(d, 'opencode.json')), ...configDirs.map((d) => path.join(d, 'opencode.json'))];
-  const instructionFiles = [
-    ...dirs.flatMap((d) => [path.join(d, 'AGENTS.md'), path.join(d, 'CLAUDE.md')]),
-    path.join(global, 'AGENTS.md'),
-  ];
+  const claudeOff = Object.entries(env).some(([k, v]) => k.startsWith('OPENCODE_DISABLE_CLAUDE_CODE') && v);
+  const instructionFiles = [...projectInstructionFiles(dirs, claudeOff), ...globalInstructionFiles(home, global, claudeOff)];
   return {
     projectHasPlugin: configDirs.some((d) => pluginReadsLocal(readText(path.join(d, 'plugins', 'align.js')), localIsDefault)),
     projectHasMcp: configFiles.some((f) => isLocalAlignServer((readJson(f)?.['mcp'] as Json | undefined)?.['align'], localIsDefault)),

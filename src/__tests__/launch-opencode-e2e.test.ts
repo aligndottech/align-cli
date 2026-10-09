@@ -26,6 +26,7 @@ node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({argv: proc
 exit 7
 `);
   chmodSync(script, 0o755);
+  for (const k of ['ALIGN_WRAPPED', 'ALIGN_NO_LAUNCH', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_CONFIG']) vi.stubEnv(k, undefined);
   vi.stubEnv('PATH', `${bin}:${process.env['PATH']}`);
 });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });

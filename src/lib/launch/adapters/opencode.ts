@@ -58,11 +58,15 @@ export function buildOpenCodeLaunch(c: OpenCodeLaunchContext): LaunchSpec {
   }
 
   const theirs = parseTheirs(c.env['OPENCODE_CONFIG_CONTENT']);
+  const notes: string[] = [];
+  if (!theirs && Object.keys(ours).length > 0) {
+    notes.push('OPENCODE_CONFIG_CONTENT is set but is not usable JSON with object "mcp" and array "instructions", so Align\'s graph tools were not added to this session. Fix or unset it.');
+  }
   if (theirs && Object.keys(ours).length > 0) {
     const merged: Json = { ...theirs };
     if (ours['mcp']) merged['mcp'] = { ...(theirs['mcp'] as Json | undefined), ...(ours['mcp'] as Json) };
     if (ours['instructions']) merged['instructions'] = [...((theirs['instructions'] as unknown[] | undefined) ?? []), ...(ours['instructions'] as string[])];
     env['OPENCODE_CONFIG_CONTENT'] = JSON.stringify(merged);
   }
-  return { bin: 'opencode', args: [...c.passthrough], env, files };
+  return { bin: 'opencode', args: [...c.passthrough], env, files, ...(notes.length > 0 ? { notes } : {}) };
 }

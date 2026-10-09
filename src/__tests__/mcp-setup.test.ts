@@ -448,12 +448,18 @@ describe('OpenCode (C2)', () => {
     expect(t?.configPath.replace(/\\/g, '/')).toMatch(/\/\.config\/opencode\/opencode\.json$/);
   });
 
-  it('honours an absolute $XDG_CONFIG_HOME, and ignores a relative one', () => {
+  it('honours an absolute $XDG_CONFIG_HOME', () => {
     process.env['XDG_CONFIG_HOME'] = '/xdg';
     mockExistsSync.mockImplementation((p: unknown) => typeof p === 'string' && p.replace(/\\/g, '/') === '/xdg/opencode');
     expect(detectEditors().find((e) => e.name === 'OpenCode')?.configPath.replace(/\\/g, '/')).toBe('/xdg/opencode/opencode.json');
+  });
+
+  it('ignores a relative $XDG_CONFIG_HOME and uses ~/.config/opencode', () => {
     process.env['XDG_CONFIG_HOME'] = 'relative';
-    expect(detectEditors().some((e) => e.name === 'OpenCode')).toBe(false);
+    mockExistsSync.mockImplementation((p: unknown) => typeof p === 'string' && p.replace(/\\/g, '/').endsWith('/.config/opencode'));
+    const t = detectEditors().find((e) => e.name === 'OpenCode');
+    expect(t?.configPath.replace(/\\/g, '/')).toMatch(/\/\.config\/opencode\/opencode\.json$/);
+    expect(t?.configPath).not.toMatch(/^relative/);
   });
 
   it('does not detect OpenCode when its config dir is absent', () => {
