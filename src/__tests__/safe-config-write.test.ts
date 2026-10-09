@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -267,20 +267,23 @@ describe('undoWrittenConfigs: a file the user touched since keeps their work (HI
     writeFileSync(file(), JSON.stringify({ mcpServers: { 'align-local': { command: 'my-own' } }, extra: 1 }));
     const report = undoWrittenConfigs(manifest);
     expect(report.done).toEqual([]);
-    expect(report.skipped.join('\n')).toContain('mcpServers.align-local.command was edited since align wrote it');
+    expect(report.skipped.join('\n')).toContain('mcpServers.align-local was edited since align wrote it');
     expect(JSON.parse(readFileSync(file(), 'utf8')).mcpServers['align-local'].command).toBe('my-own');
     expect(readFileSync(file() + BACKUP_SUFFIX, 'utf8')).toBe('{}');
   });
 
-  it('an entry align overwrote cannot be put back by hand-waving: it is named and the backup kept', () => {
+  it('an entry the user edited leaves the whole file untouched: not even the entries that could be removed (all or nothing)', () => {
     const manifest = track();
-    writeFileSync(file(), '{"mcpServers":{"align":{"env":"team"}}}');
-    safeWriteJson(file(), () => ({ mcpServers: { align: { env: 'local' } }, other: 1 }), { note });
-    writeFileSync(file(), JSON.stringify({ ...JSON.parse(readFileSync(file(), 'utf8')), more: 1 }));
+    writeFileSync(file(), '{"mcpServers":{"a":{}}}');
+    safeWriteJson(file(), (c) => ({ ...c, mcpServers: { ...(c['mcpServers'] as object), 'align-local': { command: 'align' } }, extra: 1 }), { note });
+    writeFileSync(file(), JSON.stringify({ mcpServers: { a: {}, 'align-local': { command: 'mine' } }, extra: 1 }));
+    const bytes = readFileSync(file(), 'utf8');
+    const before = statSync(file()).ino;
     const report = undoWrittenConfigs(manifest);
-    expect(report.skipped.join('\n')).toContain('mcpServers.align.env was replaced by align');
-    expect(report.skipped.join('\n')).toContain(file() + BACKUP_SUFFIX);
-    expect(JSON.parse(readFileSync(file(), 'utf8')).more).toBe(1);
+    expect(report.done).toEqual([]);
+    expect(readFileSync(file(), 'utf8')).toBe(bytes); // `extra` was removable and was NOT removed
+    expect(statSync(file()).ino).toBe(before); // never even re-staged
+    expect(readFileSync(file() + BACKUP_SUFFIX, 'utf8')).toBe('{"mcpServers":{"a":{}}}');
   });
 
   it('a file that no longer parses is skipped with what to remove by hand, and the backup stays', () => {
@@ -453,5 +456,122 @@ describe('the created-file backup', () => {
     safeWriteJson(file(), () => ({ a: 1 }), { note });
     safeWriteJson(file(), (c) => ({ ...c, b: 2 }), { note });
     expect(existsSync(file() + BACKUP_SUFFIX)).toBe(false);
+  });
+});
+
+describe('undoWrittenConfigs: an entry align overwrote comes back from the backup (HIGH, second review)', () => {
+  const userAlign = { command: 'align', args: ['mcp', '--env', 'prod'] };
+  const setup = (align: unknown, original: unknown) => {
+    const manifest = track();
+    writeFileSync(file(), JSON.stringify({ mcpServers: { align: original } }));
+    safeWriteJson(file(), (c) => ({ ...c, mcpServers: { ...(c['mcpServers'] as object), align } }), { note });
+    return manifest;
+  };
+
+  it('records ONE replaced item at mcpServers.align and does not diff into its args', () => {
+    const manifest = setup({ command: 'align', args: ['mcp', '--env', 'local'] }, userAlign);
+    expect(manifest[file()]!.owned!.map((o) => [o.path.join('.'), o.kind, o.replaced === true])).toEqual([['mcpServers.align', 'value', true]]);
+  });
+
+  it('(b) after an unrelated user edit, undo puts the user\'s own array-valued entry back exactly and keeps the edit', () => {
+    const manifest = setup({ command: 'align', args: ['mcp', '--env', 'local'] }, userAlign);
+    const cur = JSON.parse(readFileSync(file(), 'utf8'));
+    cur.mcpServers.other = { command: 'x' };
+    writeFileSync(file(), JSON.stringify(cur));
+    const report = undoWrittenConfigs(manifest);
+    expect(report.cleaned).toEqual([file()]);
+    expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({ mcpServers: { align: userAlign, other: { command: 'x' } } });
+    expect(JSON.parse(readFileSync(file(), 'utf8')).mcpServers.align.args).toEqual(['mcp', '--env', 'prod']);
+  });
+
+  it('(b2) a different command shape comes back too (second example)', () => {
+    const npx = { command: 'npx', args: ['-y', '@aligndottech/cli', 'mcp'] };
+    const manifest = setup({ command: 'align', args: ['mcp', '--env', 'local'] }, npx);
+    const cur = JSON.parse(readFileSync(file(), 'utf8'));
+    cur.mcpServers.other = {};
+    writeFileSync(file(), JSON.stringify(cur));
+    undoWrittenConfigs(manifest);
+    expect(JSON.parse(readFileSync(file(), 'utf8')).mcpServers.align).toEqual(npx);
+  });
+
+  it('(b2) when the user also edited the overwritten entry, the file is left byte for byte, named, and the backup is kept', () => {
+    const manifest = setup({ command: 'align', args: ['mcp', '--env', 'local'] }, userAlign);
+    const cur = JSON.parse(readFileSync(file(), 'utf8'));
+    cur.mcpServers.align.args.push('--verbose');
+    cur.mcpServers.other = {};
+    writeFileSync(file(), JSON.stringify(cur));
+    const bytes = readFileSync(file(), 'utf8');
+    const report = undoWrittenConfigs(manifest);
+    expect(report.done).toEqual([]);
+    expect(report.cleaned).toEqual([]);
+    expect(report.skipped.join('\n')).toContain('mcpServers.align was edited since align wrote it');
+    expect(readFileSync(file(), 'utf8')).toBe(bytes);
+    expect(existsSync(file() + BACKUP_SUFFIX)).toBe(true);
+  });
+
+  it('with the backup gone or swapped it is left and named, never half-restored, and nothing is rewritten', () => {
+    const manifest = setup({ command: 'align', args: ['mcp', '--env', 'local'] }, userAlign);
+    const cur = JSON.parse(readFileSync(file(), 'utf8'));
+    cur.mcpServers.other = {};
+    writeFileSync(file(), JSON.stringify(cur));
+    const bytes = readFileSync(file(), 'utf8');
+    writeFileSync(file() + BACKUP_SUFFIX, '{"tampered":1}');
+    const report = undoWrittenConfigs(manifest);
+    expect(report.skipped.join('\n')).toContain('align cannot restore it');
+    expect(readFileSync(file(), 'utf8')).toBe(bytes);
+    expect(readFileSync(file() + BACKUP_SUFFIX, 'utf8')).toBe('{"tampered":1}');
+  });
+
+  it('an array-valued hooks event only loses the elements align added', () => {
+    const manifest = track();
+    writeFileSync(file(), JSON.stringify({ hooks: { preToolUse: [{ command: 'mine' }] } }));
+    safeWriteJson(file(), (c) => ({ ...c, hooks: { preToolUse: [...((c['hooks'] as { preToolUse: unknown[] }).preToolUse), { command: 'align check' }] } }), { note });
+    writeFileSync(file(), JSON.stringify({ ...JSON.parse(readFileSync(file(), 'utf8')), theirs: 1 }));
+    undoWrittenConfigs(manifest);
+    expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({ hooks: { preToolUse: [{ command: 'mine' }] }, theirs: 1 });
+  });
+
+  it('a Codex block that replaced an existing block comes back from the backup; the user\'s later edit survives', () => {
+    const manifest = track();
+    const f = path.join(dir, 'config.toml');
+    const markers = { start: '# >>> align', end: '# <<< align' };
+    const teamBlock = `${markers.start}\n[mcp_servers.align]\nargs = ["mcp", "--env", "prod"]\n${markers.end}`;
+    writeFileSync(f, `model = "x"\n\n${teamBlock}\n`);
+    safeWriteText(f, (cur) => cur!.replace(/# >>> align[\s\S]*# <<< align/, `${markers.start}\n[mcp_servers.align]\nargs = ["mcp", "--env", "local"]\n${markers.end}`), { note, markers });
+    writeFileSync(f, `${readFileSync(f, 'utf8')}\n[other]\nk = 1\n`);
+    const report = undoWrittenConfigs(manifest);
+    expect(report.cleaned).toEqual([f]);
+    expect(readFileSync(f, 'utf8')).toBe(`model = "x"\n\n${teamBlock}\n\n[other]\nk = 1\n`);
+  });
+
+  it('a replaced Codex block with no usable backup is left, named, and the file untouched', () => {
+    const manifest = track();
+    const f = path.join(dir, 'config.toml');
+    const markers = { start: '# >>> align', end: '# <<< align' };
+    writeFileSync(f, `${markers.start}\nold\n${markers.end}\n`);
+    safeWriteText(f, () => `${markers.start}\nnew\n${markers.end}\n`, { note, markers });
+    writeFileSync(f, `${readFileSync(f, 'utf8')}extra = 1\n`);
+    unlinkSync(f + BACKUP_SUFFIX);
+    const bytes = readFileSync(f, 'utf8');
+    const report = undoWrittenConfigs(manifest);
+    expect(report.skipped.join('\n')).toContain('cannot restore it');
+    expect(readFileSync(f, 'utf8')).toBe(bytes);
+  });
+});
+
+describe('a symlinked directory OUTSIDE the home dir (MEDIUM, second review)', () => {
+  it('is refused even with no root given (a PI_CODING_AGENT_DIR that is a link)', () => {
+    mkdirSync(path.join(dir, 'clank'));
+    writeFileSync(path.join(dir, 'clank', 'mcp.json'), '{"mcpServers":{"clank":{}}}');
+    symlinkSync(path.join(dir, 'clank'), path.join(dir, 'piagent'));
+    const f = path.join(dir, 'piagent', 'mcp.json');
+    expect(safeWriteJson(f, (c) => ({ ...c, a: 1 }), { note })).toBe('symlink');
+    expect(notes[0]).toContain(path.join(dir, 'piagent'));
+    expect(readFileSync(path.join(dir, 'clank', 'mcp.json'), 'utf8')).toBe('{"mcpServers":{"clank":{}}}');
+  });
+
+  it('a real directory outside the home dir is written', () => {
+    mkdirSync(path.join(dir, 'real'));
+    expect(safeWriteJson(path.join(dir, 'real', 'mcp.json'), () => ({ a: 1 }), { note })).toBe('written');
   });
 });

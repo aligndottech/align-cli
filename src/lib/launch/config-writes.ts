@@ -21,10 +21,15 @@ export interface ConfigWrite {
   hint?: string;
 }
 
-/** Remembers a refused write, so its notice is printed once rather than on every launch. */
+/**
+ * Remembers a refused write, so its notice is printed once rather than on every launch. It is
+ * not a permanent no: the path is looked at again each launch, and a file that stops being
+ * refused is written and forgotten.
+ */
 export interface RefusedMemo {
   has(file: string): boolean;
   add(file: string): void;
+  remove(file: string): void;
 }
 
 type Json = Record<string, unknown>;
@@ -36,7 +41,7 @@ const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null 
  * the caller reports it and launches anyway.
  */
 export function applyConfigWrite(w: ConfigWrite, note: (line: string) => void, memo?: RefusedMemo): void {
-  if (memo?.has(w.file)) return;
+  const quiet = memo?.has(w.file) === true;
   const status = safeWriteJson(
     w.file,
     (cur) => {
@@ -44,9 +49,10 @@ export function applyConfigWrite(w: ConfigWrite, note: (line: string) => void, m
       if (w.name in servers) return undefined;
       return { ...cur, [w.topKey]: { ...servers, [w.name]: w.entry } };
     },
-    { note, trailingNewline: true, ...(w.root ? { root: w.root } : {}) },
+    { note: quiet ? () => undefined : note, trailingNewline: true, ...(w.root ? { root: w.root } : {}) },
   );
   if (status === 'symlink') memo?.add(w.file);
+  else if (quiet) memo?.remove(w.file);
   if (status === 'written') {
     note(`Added the ${w.name} MCP server to ${w.file} (original kept at ${w.file}${BACKUP_SUFFIX}). Undo: align use --undo`);
     if (w.hint) note(w.hint);

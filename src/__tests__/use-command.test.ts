@@ -13,8 +13,9 @@ function harness(stored?: string, onPath: Record<string, string> = { claude: '/u
   const clearAgent = vi.fn(() => { current = undefined; });
   const setAgent = vi.fn((a: string) => { current = a; });
   const setLaunchOff = vi.fn();
+  const clearRefusedWrites = vi.fn();
   const deps: UseDeps = {
-    config: { getAgent: () => current, setAgent, clearAgent, setLaunchOff },
+    config: { getAgent: () => current, setAgent, clearAgent, setLaunchOff, clearRefusedWrites },
     writtenConfigs: { get: () => written, drop: (files: string[]) => { written = Object.fromEntries(Object.entries(written).filter(([f]) => !files.includes(f))); } },
     findOnPath: (bin) => onPath[bin] ?? null,
     env: {},
@@ -22,7 +23,7 @@ function harness(stored?: string, onPath: Record<string, string> = { claude: '/u
     log: (l) => out.push(l),
     err: (l) => err.push(l),
   };
-  return { deps, out, err, setAgent, clearAgent, setLaunchOff, current: () => current, manifest: () => written };
+  return { deps, out, err, setAgent, clearAgent, setLaunchOff, clearRefusedWrites, current: () => current, manifest: () => written };
 }
 
 describe('align use', () => {
@@ -117,6 +118,7 @@ describe('align use --undo (C4)', () => {
       expect(h.out).toContain('Restored 2 files. align will not open an agent until you run `align use <agent>`.');
       expect(h.clearAgent).toHaveBeenCalledOnce();
       expect(h.setLaunchOff).toHaveBeenCalledExactlyOnceWith(true);
+      expect(h.clearRefusedWrites).toHaveBeenCalledOnce(); // a fixed symlink must not stay remembered as refused
       expect(h.current()).toBeUndefined();
     } finally {
       rmSync(dir, { recursive: true, force: true });

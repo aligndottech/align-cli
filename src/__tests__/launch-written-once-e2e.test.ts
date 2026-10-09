@@ -160,12 +160,12 @@ describe('cursor-agent against a fake binary', () => {
     const mcp = JSON.parse(readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8'));
     expect(Object.keys(mcp.mcpServers)).toEqual(['align-local']);
     expect(existsSync(path.join(home, '.cursor', 'hooks.json'))).toBe(false);
-    expect(lines.some((l) => l.includes('agent mcp enable align-local'))).toBe(true);
+    expect(lines.some((l) => l.includes('cursor-agent mcp enable align-local'))).toBe(true);
     const before = readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8');
     lines.length = 0;
     await run('cursor');
     expect(readFileSync(path.join(home, '.cursor', 'mcp.json'), 'utf8')).toBe(before);
-    expect(lines.filter((l) => l.includes('Added') || l.includes('agent mcp enable'))).toEqual([]);
+    expect(lines.filter((l) => l.includes('Added') || l.includes('mcp enable'))).toEqual([]);
   });
 
   it('--undo restores the pre-Align file byte for byte', async () => {

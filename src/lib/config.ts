@@ -335,6 +335,13 @@ export function createConfigStore() {
     wasWriteRefused(file: string): boolean {
       return (store.get('refusedWrites') ?? []).includes(file);
     },
+    unmarkWriteRefused(file: string) {
+      const all = store.get('refusedWrites') ?? [];
+      store.set('refusedWrites', all.filter((f) => f !== file));
+    },
+    clearRefusedWrites() {
+      store.delete('refusedWrites');
+    },
     markWriteRefused(file: string) {
       const all = store.get('refusedWrites') ?? [];
       if (!all.includes(file)) store.set('refusedWrites', [...all, file]);

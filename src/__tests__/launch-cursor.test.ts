@@ -26,8 +26,8 @@ describe('buildCursorLaunch', () => {
     expect(spec.env).toEqual({ ALIGN_WRAPPED: '1' });
   });
 
-  it('tells the user how to approve the new server (Cursor docs: agent mcp enable <name>)', () => {
-    expect((buildCursorLaunch(ctx()).writes![0] as { hint: string }).hint).toContain('agent mcp enable align-local');
+  it('tells the user how to approve the new server (Cursor docs: `<cli> mcp enable <name>`, printed with the binary we run)', () => {
+    expect((buildCursorLaunch(ctx()).writes![0] as { hint: string }).hint).toContain('cursor-agent mcp enable align-local');
   });
 
   it('never writes CLI hooks: Cursor documents only workspaceOpen for the CLI (two contexts)', () => {

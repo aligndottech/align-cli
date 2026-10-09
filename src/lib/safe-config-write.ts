@@ -67,8 +67,12 @@ export interface OwnedItem {
   sha256: string;
   /** Prune ancestors back to this path length if they end up empty (the parents align created). */
   createdDepth: number;
-  /** align overwrote a value that was already there: undo cannot put the old one back by itself. */
+  /**
+   * The key existed before align's first write and align overwrote it. `beforeSha256` is the
+   * hash of the user's value; the value itself comes back from align's backup.
+   */
   replaced?: boolean;
+  beforeSha256?: string;
 }
 
 /** One file align wrote, as the manifest remembers it. */
@@ -88,7 +92,7 @@ export interface WrittenConfig {
   backupSha256?: string;
   owned?: OwnedItem[];
   /** Text files: the managed block align wrote. */
-  block?: { start: string; end: string; sha256: string };
+  block?: { start: string; end: string; sha256: string; /** a block was already there, and align's replaced it: the original is in the backup */ replaced?: boolean };
 }
 
 /** Fold one write into what the manifest already holds for that file. */
@@ -103,8 +107,9 @@ export function mergeWrittenConfig(prev: WrittenConfig | undefined, next: Writte
       owned.set(key(i), i);
       continue;
     }
-    const { replaced: _again, ...rest } = i;
-    owned.set(key(i), { ...rest, createdDepth: old.createdDepth, ...(old.replaced ? { replaced: true } : {}) });
+    // The first write decides whether this was the user's value; later rewrites only move the hash.
+    const { replaced: _r, beforeSha256: _b, ...rest } = i;
+    owned.set(key(i), { ...rest, createdDepth: old.createdDepth, ...(old.replaced ? { replaced: true, beforeSha256: old.beforeSha256 } : {}) });
   }
   return {
     created: prev.created,
@@ -113,7 +118,9 @@ export function mergeWrittenConfig(prev: WrittenConfig | undefined, next: Writte
     backup: prev.backup,
     ...(prev.backupSha256 ? { backupSha256: prev.backupSha256 } : {}),
     ...(owned.size > 0 ? { owned: [...owned.values()] } : {}),
-    ...((next.block ?? prev.block) ? { block: (next.block ?? prev.block)! } : {}),
+    ...(next.block
+      ? { block: { ...next.block, ...(prev.block ? (prev.block.replaced ? { replaced: true } : {}) : next.block.replaced ? { replaced: true } : {}) } }
+      : prev.block ? { block: prev.block } : {}),
   };
 }
 
@@ -171,10 +178,15 @@ function linkAt(fs: SafeFs, p: string): { path: string; target: string } | null 
   }
 }
 
+/**
+ * Directories at or above the root are the user's own and are not checked. A file under neither
+ * the given root nor the home dir is checked from `/`, so a PI_CODING_AGENT_DIR that is itself a
+ * link is caught too.
+ */
 function effectiveRoot(file: string, root: string | undefined): string {
   const home = os.homedir();
   for (const r of [root, home]) if (r && file.startsWith(r + path.sep)) return r;
-  return path.dirname(file);
+  return path.parse(file).root;
 }
 
 /** The first symlink on the way from the root down to (and including) the file, if any. */
@@ -185,7 +197,8 @@ function symlinkOnPath(fs: SafeFs, file: string, root: string | undefined): { pa
     cur = path.join(cur, seg);
     const hit = linkAt(fs, cur);
     if (hit === 'missing') break;
-    if (hit) return hit;
+    // A top-level link such as /tmp or /var (macOS) is the system's, not a redirected config dir.
+    if (hit && path.dirname(cur) !== path.parse(cur).root) return hit;
   }
   const hit = linkAt(fs, file);
   return hit && hit !== 'missing' ? hit : null;
@@ -256,11 +269,17 @@ function stageAndRename(fs: SafeFs, file: string, text: string, mode: number | n
   }
 }
 
-function blockOf(next: string, markers: { start: string; end: string }): WrittenConfig['block'] {
-  const s = next.indexOf(markers.start);
-  const e = next.indexOf(markers.end);
-  if (s === -1 || e === -1 || e < s) return undefined;
-  return { start: markers.start, end: markers.end, sha256: sha(next.slice(s, e + markers.end.length)) };
+function regionOf(text: string, markers: { start: string; end: string }): string | null {
+  const s = text.indexOf(markers.start);
+  const e = text.indexOf(markers.end);
+  return s === -1 || e === -1 || e < s ? null : text.slice(s, e + markers.end.length);
+}
+
+function blockOf(before: string | null, next: string, markers: { start: string; end: string }): WrittenConfig['block'] {
+  const region = regionOf(next, markers);
+  if (region === null) return undefined;
+  const old = before === null ? null : regionOf(before, markers);
+  return { start: markers.start, end: markers.end, sha256: sha(region), ...(old !== null && old !== region ? { replaced: true } : {}) };
 }
 
 function safeWrite(
@@ -302,7 +321,7 @@ function safeWrite(
         backup: backup.state,
         ...(backup.sha256 ? { backupSha256: backup.sha256 } : {}),
         ...describe?.(),
-        ...(opts.markers && blockOf(next, opts.markers) ? { block: blockOf(next, opts.markers)! } : {}),
+        ...(opts.markers && blockOf(before, next, opts.markers) ? { block: blockOf(before, next, opts.markers)! } : {}),
       });
     } catch {
       // The file is written. A manifest that cannot be updated costs the undo, not the write.
@@ -317,27 +336,40 @@ export function safeWriteText(file: string, compute: (current: string | null) =>
   return safeWrite(file, compute, opts);
 }
 
-/** Every value or array element in `after` that `before` did not have. */
+/**
+ * What align added to a JSON config. Containers (the root and its direct children, such as
+ * `mcpServers` or `hooks`) are walked; a server entry one level further down is a unit:
+ *  - new key: one `value` item (or, under a new container, one item per new entry);
+ *  - existing key whose value changed: ONE `replaced` item holding the hash of the user's value,
+ *    never a diff into it (a diff into `args` would "undo" half an entry);
+ *  - existing array (a hooks event): the elements align added.
+ */
 export function ownedOf(before: Json, after: Json): OwnedItem[] {
   const out: OwnedItem[] = [];
+  const addItems = (here: string[], bv: unknown[], av: unknown[], createdAt: number): void => {
+    const remaining = new Map<string, number>();
+    for (const x of bv) remaining.set(shaOf(x), (remaining.get(shaOf(x)) ?? 0) + 1);
+    for (const x of av) {
+      const h = shaOf(x);
+      if ((remaining.get(h) ?? 0) > 0) remaining.set(h, remaining.get(h)! - 1);
+      else out.push({ path: here, kind: 'array-item', sha256: h, createdDepth: createdAt });
+    }
+  };
   const walk = (b: Json | undefined, a: Json, p: string[], created: number | null): void => {
     for (const [k, av] of Object.entries(a)) {
       const here = [...p, k];
       const has = b !== undefined && Object.prototype.hasOwnProperty.call(b, k);
       const bv = has ? b![k] : undefined;
       const createdAt = created ?? (has ? null : here.length);
-      if (isObject(av) && Object.keys(av).length > 0 && (!has || isObject(bv))) {
+      if (has && shaOf(av) === shaOf(bv)) continue;
+      if (isObject(av) && Object.keys(av).length > 0 && here.length < 2 && (!has || isObject(bv))) {
         walk(has ? (bv as Json) : undefined, av, here, createdAt);
       } else if (Array.isArray(av) && (!has || Array.isArray(bv))) {
-        const remaining = new Map<string, number>();
-        for (const x of has ? (bv as unknown[]) : []) remaining.set(shaOf(x), (remaining.get(shaOf(x)) ?? 0) + 1);
-        for (const x of av) {
-          const h = shaOf(x);
-          if ((remaining.get(h) ?? 0) > 0) remaining.set(h, remaining.get(h)! - 1);
-          else out.push({ path: here, kind: 'array-item', sha256: h, createdDepth: createdAt ?? here.length });
-        }
-      } else if (!has || shaOf(av) !== shaOf(bv)) {
-        out.push({ path: here, kind: 'value', sha256: shaOf(av), createdDepth: createdAt ?? here.length, ...(has ? { replaced: true } : {}) });
+        addItems(here, has ? (bv as unknown[]) : [], av, createdAt ?? here.length);
+      } else if (!has) {
+        out.push({ path: here, kind: 'value', sha256: shaOf(av), createdDepth: createdAt ?? here.length });
+      } else {
+        out.push({ path: here, kind: 'value', sha256: shaOf(av), createdDepth: here.length, replaced: true, beforeSha256: shaOf(bv) });
       }
     }
   };
@@ -392,11 +424,15 @@ export interface UndoReport {
 
 const pathText = (i: OwnedItem) => i.path.join('.');
 
-/** Remove align's own items from parsed JSON. Returns the lines for items that could not be taken out. */
-function removeOwned(cur: Json, owned: OwnedItem[], backupNote: string): string[] {
+/**
+ * Remove align's own items from parsed JSON, and put back the user's value for each key align
+ * overwrote (`original` is the parsed trusted backup, or null). Works on `cur` in place and
+ * returns the lines for items it could not handle; the caller writes nothing if there are any.
+ */
+function removeOwned(cur: Json, owned: OwnedItem[], original: Json | null, backupPath: string): string[] {
   const left: string[] = [];
-  const parentOf = (p: string[]): Json | undefined => {
-    let node: unknown = cur;
+  const walkTo = (root: Json, p: string[]): Json | undefined => {
+    let node: unknown = root;
     for (const seg of p.slice(0, -1)) {
       if (!isObject(node)) return undefined;
       node = node[seg];
@@ -404,32 +440,40 @@ function removeOwned(cur: Json, owned: OwnedItem[], backupNote: string): string[
     return isObject(node) ? node : undefined;
   };
   for (const i of owned) {
-    if (i.replaced) {
-      left.push(`${pathText(i)} was replaced by align; put the original back by hand${backupNote}`);
-      continue;
-    }
-    const parent = parentOf(i.path);
+    const parent = walkTo(cur, i.path);
     const key = i.path[i.path.length - 1]!;
     if (!parent || !(key in parent)) continue; // already gone
-    if (i.kind === 'value') {
-      if (shaOf(parent[key]) === i.sha256) delete parent[key];
-      else left.push(`${pathText(i)} was edited since align wrote it; remove it by hand if you want it gone`);
-    } else {
+    if (i.kind === 'array-item') {
       const arr = parent[key];
       const at = Array.isArray(arr) ? arr.findIndex((x) => shaOf(x) === i.sha256) : -1;
       if (at >= 0) (arr as unknown[]).splice(at, 1);
+      continue;
     }
+    if (shaOf(parent[key]) !== i.sha256) {
+      left.push(`${pathText(i)} was edited since align wrote it; change it by hand if you want it gone`);
+      continue;
+    }
+    if (!i.replaced) {
+      delete parent[key];
+      continue;
+    }
+    const was = original ? walkTo(original, i.path)?.[key] : undefined;
+    if (was === undefined || shaOf(was) !== i.beforeSha256) {
+      left.push(`${pathText(i)} was your own entry and align replaced it; align cannot restore it from ${backupPath} (missing or changed). Put the original back by hand`);
+      continue;
+    }
+    parent[key] = JSON.parse(JSON.stringify(was)) as unknown;
   }
   // Parents align created go too, once empty.
   for (const i of owned) {
+    if (i.replaced) continue;
     // An array-item's own array is a candidate too: it was created with the entry that held it.
     for (let depth = i.path.length - (i.kind === 'array-item' ? 0 : 1); depth >= i.createdDepth; depth--) {
       const nodePath = i.path.slice(0, depth);
-      const parent = parentOf(nodePath);
-      const key = nodePath[depth - 1]!;
-      const node = parent?.[key];
+      const parent = walkTo(cur, nodePath);
+      const node = parent?.[nodePath[depth - 1]!];
       const empty = Array.isArray(node) ? node.length === 0 : isObject(node) && Object.keys(node).length === 0;
-      if (parent && empty) delete parent[key];
+      if (parent && empty) delete parent[nodePath[depth - 1]!];
       else break;
     }
   }
@@ -489,20 +533,32 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       }
     }
 
-    // Surgical: only align's own entries.
-    const backupNote = entry.backup === 'made' && backupTrusted() ? ` (the original is in ${backupPath})` : '';
+    // Surgical: only align's own entries, and the user's own values back where align overwrote them.
     const mention = entry.backup === 'foreign' ? `; ${backupPath} was not made by align, so it was not used` : '';
+    const backupText = (): string | null => {
+      if (!backupTrusted()) return null;
+      try { return fs.readFileSync(backupPath, 'utf8'); } catch { return null; }
+    };
     let next: string | undefined;
     const left: string[] = [];
     if (entry.block) {
-      const s = cur.indexOf(entry.block.start);
-      const e = cur.indexOf(entry.block.end);
-      if (s === -1 || e === -1 || e < s) next = cur;
-      else if (sha(cur.slice(s, e + entry.block.end.length)) === entry.block.sha256) {
-        next = `${cur.slice(0, s)}${cur.slice(e + entry.block.end.length)}`.replace(/\n{3,}/g, '\n\n').replace(/^\s+/, '');
-      } else {
+      const region = regionOf(cur, entry.block);
+      if (region === null) next = cur;
+      else if (sha(region) !== entry.block.sha256) {
         next = cur;
         left.push('the block align manages was edited since align wrote it; remove it by hand');
+      } else {
+        const s0 = cur.indexOf(entry.block.start);
+        let replacement = '';
+        if (entry.block.replaced) {
+          const was = backupText();
+          const old = was === null ? null : regionOf(was, entry.block);
+          if (old === null) left.push(`the block align replaced was yours and align cannot restore it from ${backupPath} (missing or changed). Put the original back by hand`);
+          else replacement = old;
+        }
+        next = replacement
+          ? `${cur.slice(0, s0)}${replacement}${cur.slice(s0 + region.length)}`
+          : `${cur.slice(0, s0)}${cur.slice(s0 + region.length)}`.replace(/\n{3,}/g, '\n\n').replace(/^\s+/, '');
       }
     } else if (entry.owned && entry.owned.length > 0) {
       let parsed: unknown;
@@ -515,17 +571,27 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
         report.skipped.push(`${file}: it is not valid JSON now, so align cannot edit it. Remove by hand: ${entry.owned.map(pathText).join(', ')}${mention}`);
         continue;
       }
-      left.push(...removeOwned(parsed, entry.owned, backupNote));
+      let original: Json | null = null;
+      if (entry.owned.some((i) => i.replaced)) {
+        try {
+          const o: unknown = JSON.parse(backupText() ?? 'null');
+          original = isObject(o) ? o : null;
+        } catch {
+          original = null;
+        }
+      }
+      left.push(...removeOwned(parsed, entry.owned, original, backupPath));
       next = JSON.stringify(parsed, null, 2) + (cur.endsWith('\n') ? '\n' : '');
     } else {
       report.skipped.push(`${file}: align has no record of what it added here. Remove its entries by hand${mention}`);
       continue;
     }
-    if (next !== cur) stageAndRename(fs, file, next, modeOf(fs, file));
+    // All or nothing: a file with anything left in it is not touched at all.
     if (left.length > 0) {
       for (const l of left) report.skipped.push(`${file}: ${l}${mention}`);
       continue;
     }
+    if (next !== cur) stageAndRename(fs, file, next, modeOf(fs, file));
     dropBackup();
     report.cleaned.push(file);
     report.done.push(file);

@@ -103,7 +103,7 @@ describe('applyConfigWrite: hint, symlinked dirs, remembered refusals', () => {
     const link = path.join(dir, 'mcp.json');
     symlinkSync(real, link);
     const seen = new Set<string>();
-    const memo = { has: (f: string) => seen.has(f), add: (f: string) => { seen.add(f); } };
+    const memo = { has: (f: string) => seen.has(f), add: (f: string) => { seen.add(f); }, remove: (f: string) => { seen.delete(f); } };
     applyConfigWrite(entryWrite(link), note, memo);
     applyConfigWrite(entryWrite(link), note, memo);
     applyConfigWrite(entryWrite(link), note, memo);
@@ -111,9 +111,24 @@ describe('applyConfigWrite: hint, symlinked dirs, remembered refusals', () => {
     expect(seen.has(link)).toBe(true);
   });
 
+  it('a remembered refusal is not permanent: once the symlink is gone the write happens, and the memo is cleared (then a new link warns again)', () => {
+    const real = path.join(dir, 'other.json');
+    put(real, '{}');
+    const link = path.join(dir, 'mcp.json');
+    symlinkSync(real, link);
+    const seen = new Set<string>();
+    const memo = { has: (f: string) => seen.has(f), add: (f: string) => { seen.add(f); }, remove: (f: string) => { seen.delete(f); } };
+    applyConfigWrite(entryWrite(link), note, memo);
+    rmSync(link);
+    applyConfigWrite(entryWrite(link), note, memo);
+    expect(JSON.parse(readFileSync(link, 'utf8')).mcpServers['align-local']).toBeDefined();
+    expect(seen.has(link)).toBe(false);
+    expect(lines.filter((l) => l.startsWith('Added'))).toHaveLength(1);
+  });
+
   it('a write that was NOT refused is not remembered', () => {
     const seen = new Set<string>();
-    applyConfigWrite(entryWrite(path.join(dir, 'ok.json')), note, { has: () => false, add: (f) => { seen.add(f); } });
+    applyConfigWrite(entryWrite(path.join(dir, 'ok.json')), note, { has: () => false, add: (f) => { seen.add(f); }, remove: () => {} });
     expect(seen.size).toBe(0);
   });
 

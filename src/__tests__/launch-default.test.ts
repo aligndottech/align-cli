@@ -407,21 +407,19 @@ describe('launchIfChosen: after align use --undo (C4)', () => {
 });
 
 describe('launchIfChosen: Cursor\'s binary name (C4)', () => {
-  it('runs `agent` when that is the name installed, `cursor-agent` when both are, and reports neither as not installed', async () => {
-    const onlyAgent = harness({ stored: 'cursor', onPath: { agent: '/usr/bin/agent' } });
-    await launchIfChosen(onlyAgent.deps);
-    expect(onlyAgent.runAgent.mock.calls[0]![0].bin).toBe('agent');
-    const both = harness({ stored: 'cursor', onPath: { agent: '/usr/bin/agent', 'cursor-agent': '/usr/bin/cursor-agent' } });
-    await launchIfChosen(both.deps);
-    expect(both.runAgent.mock.calls[0]![0].bin).toBe('cursor-agent');
-    const none = harness({ stored: 'cursor', onPath: {}, argv: ['node', 'align', '--', 'x'] });
-    expect(await launchIfChosen(none.deps)).toEqual({ handled: true, code: 127 });
+  it('runs cursor-agent; a bare `agent` on PATH is NOT Cursor (never run an unknown binary)', async () => {
+    const ok = harness({ stored: 'cursor', onPath: { 'cursor-agent': '/usr/bin/cursor-agent' } });
+    await launchIfChosen(ok.deps);
+    expect(ok.runAgent.mock.calls[0]![0].bin).toBe('cursor-agent');
+    const onlyAgent = harness({ stored: 'cursor', onPath: { agent: '/usr/bin/agent' }, argv: ['node', 'align', '--', 'x'] });
+    expect(await launchIfChosen(onlyAgent.deps)).toEqual({ handled: true, code: 127 });
+    expect(onlyAgent.runAgent).not.toHaveBeenCalled();
   });
 
-  it('offers Cursor in the picker when only `agent` is installed', async () => {
-    const h = harness({ onPath: { agent: '/usr/bin/agent', claude: CLAUDE } });
-    h.pick.mockResolvedValue(null);
-    await launchIfChosen(h.deps);
-    expect(h.pick.mock.calls[0]![0].map((a: { name: string }) => a.name)).toEqual(['claude-code', 'cursor']);
+  it('does not count a bare `agent` as installed Cursor (claude is auto-picked, no picker)', async () => {
+    const no = harness({ onPath: { agent: '/usr/bin/agent', claude: CLAUDE } });
+    await launchIfChosen(no.deps);
+    expect(no.pick).not.toHaveBeenCalled(); // claude is the only candidate, so it is auto-picked
+    expect(no.setAgent).toHaveBeenCalledWith('claude-code');
   });
 });

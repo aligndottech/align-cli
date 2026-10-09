@@ -11,7 +11,7 @@ export interface CursorLaunchContext extends Pick<LaunchContext, 'passthrough'> 
 const INJECTED_SERVER_NAME = 'align-local';
 
 /**
- * Cursor CLI (`agent`, also installed as `cursor-agent`) has no per-session input for MCP
+ * Cursor CLI (`cursor-agent`; the docs call the command `agent`, which is not run on a guess) has no per-session input for MCP
  * servers, so the `align-local` entry is written ONCE into the user's global ~/.cursor/mcp.json
  * by the safe writer, only when absent.
  *
@@ -29,7 +29,7 @@ export function buildCursorLaunch(c: CursorLaunchContext): LaunchSpec {
       topKey: 'mcpServers',
       name: INJECTED_SERVER_NAME,
       entry: alignServerEntry('mcpServers', 'local'),
-      hint: 'Cursor asks before it loads a new MCP server. Approve it once: agent mcp enable align-local',
+      hint: 'Cursor asks before it loads a new MCP server. Approve it once: cursor-agent mcp enable align-local',
     });
   }
   return { bin: 'cursor-agent', args: [...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [], ...(writes.length > 0 ? { writes } : {}) };
