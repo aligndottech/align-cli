@@ -36,6 +36,8 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     runAgent,
     record,
     pick,
+    confirm: vi.fn(async () => false),
+    spawnInstall: vi.fn(),
     err: (l) => err.push(l),
     now: () => 42,
     ...over,
@@ -150,14 +152,15 @@ describe('launchIfChosen: no agent chosen (nobody has to run `align use` first)'
     expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
     expect(h.runAgent).not.toHaveBeenCalled();
   });
-  it('does not auto-pick when none is installed: lists what works, how to install, exits non-zero', async () => {
-    const h = harness({ onPath: {} });
+  it('no TTY, explicit `--`, none installed: no picker, lists what works, how to install, names `align agents`, exits non-zero', async () => {
+    const h = harness({ onPath: {}, isTTY: false, argv: ['node', 'align', '--', 'x'] });
     const r = await launchIfChosen(h.deps);
     expect(r).toEqual({ handled: true, code: 1 });
     expect(h.setAgent).not.toHaveBeenCalled();
     expect(h.runAgent).not.toHaveBeenCalled();
     expect(h.err.join('\n')).toContain('Claude Code');
-    expect(h.err.join('\n')).toContain('npm i -g @anthropic-ai/claude-code');
+    expect(h.err.join('\n')).toContain('npm i -g @anthropic-ai/claude-code');    expect(h.err.join('\n')).toContain('align agents');
+    expect(h.pick).not.toHaveBeenCalled();
   });
   it('a stored value that is not in the closed list is treated as no choice', async () => {
     const h = harness({ stored: 'emacs' });
@@ -174,7 +177,7 @@ describe('launchIfChosen: more than one supported agent installed', () => {
     h.pick.mockResolvedValue('opencode');
     await launchIfChosen(h.deps);
     expect(h.pick).toHaveBeenCalledTimes(1);
-    expect(h.pick.mock.calls[0]![0].map((a: { name: string }) => a.name)).toEqual(['claude-code', 'opencode']);
+    expect(h.pick.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { value: string }) => o.value)).toEqual(['claude-code', 'opencode']);
     expect(h.setAgent).toHaveBeenCalledWith('opencode');
     expect(h.runAgent.mock.calls[0]![0].bin).toBe('opencode');
   });
@@ -367,14 +370,14 @@ describe('launchIfChosen: written-once agents (C4)', () => {
     const both = harness({ onPath: { pi: PI, claude: CLAUDE } });
     both.pick.mockResolvedValue('pi');
     await launchIfChosen(both.deps);
-    expect(both.pick.mock.calls[0]![0].map((a: { name: string }) => a.name)).toEqual(['claude-code', 'pi']);
+    expect(both.pick.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { value: string }) => o.value)).toEqual(['claude-code', 'pi']);
   });
 
   it('offers cursor when cursor-agent is installed', async () => {
     const h = harness({ onPath: { 'cursor-agent': CURSOR, claude: CLAUDE } });
     h.pick.mockResolvedValue(null);
     await launchIfChosen(h.deps);
-    expect(h.pick.mock.calls[0]![0].map((a: { name: string }) => a.name)).toEqual(['claude-code', 'cursor']);
+    expect(h.pick.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { value: string }) => o.value)).toEqual(['claude-code', 'cursor']);
   });
 });
 
@@ -418,5 +421,64 @@ describe('launchIfChosen: Cursor\'s binary name (C4)', () => {
     await launchIfChosen(no.deps);
     expect(no.pick).not.toHaveBeenCalled(); // claude is the only candidate, so it is auto-picked
     expect(no.setAgent).toHaveBeenCalledWith('claude-code');
+  });
+});
+
+describe('launchIfChosen: the picker lists every agent (phase P)', () => {
+  const ALL = ['claude-code', 'codex', 'copilot', 'cursor', 'gemini-cli', 'opencode', 'pi'];
+  const values = (opts: Array<{ value: string }>) => opts.map((o) => o.value).sort();
+
+  it('on a TTY with none installed, opens the picker with every supported agent, each marked not installed', async () => {
+    const h = harness({ onPath: {} });
+    h.pick.mockResolvedValue(null);
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 1 });
+    const opts = h.pick.mock.calls[0]![0] as Array<{ value: string; hint?: string }>;
+    expect(values(opts)).toEqual(ALL);
+    expect(opts.every((o) => o.hint?.startsWith('not installed: '))).toBe(true);
+    expect(h.setAgent).not.toHaveBeenCalled();
+  });
+  it('on a TTY with two installed, lists those two first and every other agent after them', async () => {
+    const h = harness({ onPath: { claude: CLAUDE, opencode: '/usr/bin/opencode' } });
+    h.pick.mockResolvedValue('opencode');
+    await launchIfChosen(h.deps);
+    const opts = h.pick.mock.calls[0]![0] as Array<{ value: string }>;
+    expect(opts.slice(0, 2).map((o) => o.value)).toEqual(['claude-code', 'opencode']);
+    expect(values(opts)).toEqual(ALL);
+  });
+  it('picking a missing npm agent asks first; on yes it runs that argv with no shell, re-detects and opens it', async () => {
+    const onPath: Record<string, string> = { npm: '/usr/bin/npm' };
+    const spawnInstall = vi.fn(() => {
+      onPath['codex'] = '/usr/bin/codex';
+      const child = { on: (ev: string, cb: (c: number) => void) => { if (ev === 'exit') queueMicrotask(() => cb(0)); return child; } };
+      return child as never;
+    });
+    const confirm = vi.fn(async () => true);
+    const h = harness({ onPath, confirm, spawnInstall });
+    h.pick.mockResolvedValueOnce('codex');
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+    expect(confirm).toHaveBeenCalledExactlyOnceWith('Install Codex now? (runs: npm i -g @openai/codex)');
+    expect(spawnInstall).toHaveBeenCalledExactlyOnceWith('npm', ['i', '-g', '@openai/codex'], expect.objectContaining({ shell: false, stdio: 'inherit' }));
+    expect(h.setAgent).toHaveBeenCalledWith('codex');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('codex');
+  });
+  it('on no, installs nothing and returns to the picker', async () => {
+    const spawnInstall = vi.fn();
+    const confirm = vi.fn(async () => false);
+    const h = harness({ onPath: { npm: '/usr/bin/npm' }, confirm, spawnInstall });
+    h.pick.mockResolvedValueOnce('gemini-cli').mockResolvedValueOnce(null);
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 1 });
+    expect(spawnInstall).not.toHaveBeenCalled();
+    expect(h.pick).toHaveBeenCalledTimes(2);
+  });
+  it('picking a missing script-installed agent prints its docs on stderr and returns to the picker, never asking', async () => {
+    const spawnInstall = vi.fn();
+    const confirm = vi.fn();
+    const h = harness({ onPath: { npm: '/usr/bin/npm' }, confirm, spawnInstall });
+    h.pick.mockResolvedValueOnce('cursor').mockResolvedValueOnce(null);
+    await launchIfChosen(h.deps);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(spawnInstall).not.toHaveBeenCalled();
+    expect(h.err.join('\n')).toContain('https://cursor.com/cli');
+    expect(h.logSpy).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
 import type { AgentName } from '../../sessions/types.js';
 import type { LaunchSpec } from '../adapters/claude-code.js';
+import type { AgentInstall } from '../install.js';
 import type { BuildInput, LaunchDeps } from '../launch.js'; // type-only: no runtime cycle
 
 /**
@@ -21,7 +22,11 @@ export interface AgentSpec {
   injection: 'per-session' | 'written-once';
   /** A launch target today. Later phases flip more entries to true; nothing else changes. */
   supported: boolean;
-  install: string;
+  /**
+   * How a user installs it. `npm`: one argv the picker may offer to run after an explicit yes.
+   * `docs`: a script or URL installer, which Align only ever prints (plan Decision 4).
+   */
+  install: AgentInstall;
   /** The adapter. Absent for agents that are not launch targets yet. */
   build?: (d: LaunchDeps, base: BuildInput) => LaunchSpec;
 }

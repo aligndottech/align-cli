@@ -7,6 +7,6 @@ export const copilot: AgentSpec = {
   bin: 'copilot',
   injection: 'per-session',
   supported: true,
-  install: 'npm i -g @github/copilot',
+  install: { kind: 'npm', argv: ['npm', 'i', '-g', '@github/copilot'] },
   build: (d, base) => buildCopilotLaunch({ ...base, ...d.readCopilotState(d.cwd, d.home, d.env, d.platform) }),
 };

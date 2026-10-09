@@ -7,6 +7,6 @@ export const codex: AgentSpec = {
   bin: 'codex',
   injection: 'per-session',
   supported: true,
-  install: 'npm i -g @openai/codex',
+  install: { kind: 'npm', argv: ['npm', 'i', '-g', '@openai/codex'] },
   build: (d, base) => buildCodexLaunch({ ...base, ...d.readCodexState(d.cwd, d.home, d.env, d.platform, base.passthrough) }),
 };

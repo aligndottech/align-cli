@@ -7,6 +7,6 @@ export const cursor: AgentSpec = {
   bin: 'cursor-agent',
   injection: 'written-once',
   supported: true,
-  install: 'https://cursor.com/cli',
+  install: { kind: 'docs', url: 'https://cursor.com/cli' },
   build: (d, base) => buildCursorLaunch({ ...base, ...d.readCursorState(d.cwd, d.home) }),
 };

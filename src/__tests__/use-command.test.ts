@@ -38,6 +38,12 @@ describe('align use', () => {
     expect(await runUse('claude-code', h.deps)).toBe(1);
     expect(h.setAgent).not.toHaveBeenCalled();
     expect(h.err.join('\n')).toContain('npm i -g @anthropic-ai/claude-code');
+    expect(h.err.join('\n')).toContain('align agents');
+  });
+  it('a not-installed docs-installed agent points at its install page (cursor)', async () => {
+    const h = harness('claude-code', {});
+    expect(await runUse('cursor', h.deps)).toBe(1);
+    expect(h.err.join('\n')).toContain('https://cursor.com/cli');
   });
   it('stores opencode when it is on PATH, and refuses it when it is not (C2)', async () => {
     const on = harness('claude-code', { opencode: '/bin/opencode', claude: '/bin/claude' });

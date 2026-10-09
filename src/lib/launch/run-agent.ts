@@ -16,7 +16,7 @@ const WIN_SHELL_CHARS = /[&|<>^%"]/;
 /** One CRT-quoted argument: trailing backslashes are doubled so they cannot escape the closing quote. */
 const winQuote = (a: string): string => `"${a.replace(/(\\+)$/, '$1$1')}"`;
 
-function winShimCommand(spec: LaunchSpec): { command: string; args: string[] } {
+export function winShimCommand(spec: Pick<LaunchSpec, 'bin' | 'args'>): { command: string; args: string[] } {
   const binHit = WIN_SHELL_CHARS.exec(spec.bin);
   if (binHit) throw new Error(`the path to ${path.win32.basename(spec.bin)} (${spec.bin}) holds the shell character ${binHit[0]}, which cmd.exe would interpret. Move or reinstall the agent to a path without it.`);
   spec.args.forEach((arg, i) => {

@@ -7,6 +7,6 @@ export const pi: AgentSpec = {
   bin: 'pi',
   injection: 'written-once',
   supported: true,
-  install: 'https://pi.dev',
+  install: { kind: 'docs', url: 'https://pi.dev' },
   build: (d, base) => buildPiLaunch({ ...base, ...d.readPiState(d.cwd, d.home, d.env) }),
 };

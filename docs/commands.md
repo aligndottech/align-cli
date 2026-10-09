@@ -58,6 +58,9 @@ align review                  same as align check
 
 align mcp                     Run Align as an MCP server for any MCP-capable agent (Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini, ...)
                               flags: --env --setup --install --remove --created-before
+
+align agents                  List the coding agents Align works with: installed or not, how Align connects, how to install
+                              flags: --json
 ```
 
 ## Everything else

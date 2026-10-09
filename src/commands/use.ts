@@ -71,7 +71,7 @@ export async function runUse(name: string | undefined, d: UseDeps, opts: { none?
     return 1;
   }
   if (!resolveAgentBin(agent, d.findOnPath, d.env, d.platform)) {
-    d.err(`${agent.bin} is not on your PATH. Install it (${agent.install}), then run this again. Nothing changed.`);
+    d.err(`${agent.bin} is not on your PATH. Install it (${agent.install}), then run this again. Nothing changed. \`align agents\` lists every agent.`);
     return 1;
   }
   d.config.setAgent(agent.name);

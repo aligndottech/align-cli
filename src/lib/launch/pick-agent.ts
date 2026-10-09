@@ -1,19 +1,28 @@
+import { spawn as nodeSpawn } from 'node:child_process';
 import type { LaunchAgentId } from './registry/types.js';
 import { agentByName, byPriority, type LaunchAgent, PRE_WAVE_A, resolveAgentBin, supportedAgents } from './agents.js';
 import { findOnPath } from './detect.js';
+import { type InstallOfferDeps, offerInstall } from './install.js';
+import { chooseAgent, type PickerOption } from './picker-options.js';
+import { specByName } from './registry/index.js';
 
 /**
  * The wizard's "which coding agent?" step (C5). It reads the same table and the same PATH scan
  * the launcher does and stores through the same config key, so what the wizard picks is exactly
- * what bare `align` opens afterwards. Only supported agents that are installed are ever offered.
+ * what bare `align` opens afterwards. On a terminal the picker lists every supported agent,
+ * installed ones first; picking a missing one offers its install (plan Decision 4).
  */
 export interface PickAgentDeps {
   env: Record<string, string | undefined>;
   platform: string;
   agents: readonly LaunchAgent[];
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
-  /** Resolves null when the user cancels. Only called on a terminal with several candidates. */
-  select(candidates: LaunchAgent[]): Promise<LaunchAgentId | null>;
+  /** Resolves null when the user cancels. Only called on a terminal. */
+  select(options: PickerOption[]): Promise<LaunchAgentId | null>;
+  /** A yes/no question whose default is No (install-on-pick). */
+  confirm(message: string): Promise<boolean>;
+  /** Runs an install argv the user approved. */
+  spawn: InstallOfferDeps['spawn'];
   say(line: string): void;
 }
 
@@ -26,13 +35,15 @@ export interface AgentConfig {
   isLaunchOff?(): boolean;
 }
 
-async function clackSelect(candidates: LaunchAgent[]): Promise<LaunchAgentId | null> {
+async function clackSelect(options: PickerOption[]): Promise<LaunchAgentId | null> {
   const clack = await import('@clack/prompts');
-  const answer = await clack.select({
-    message: 'Which coding agent should `align` open?',
-    options: candidates.map((a) => ({ value: a.name, label: a.label })),
-  });
+  const answer = await clack.select({ message: 'Which coding agent should `align` open?', options });
   return clack.isCancel(answer) ? null : (answer as LaunchAgentId);
+}
+
+async function clackConfirm(message: string): Promise<boolean> {
+  const clack = await import('@clack/prompts');
+  return (await clack.confirm({ message, initialValue: false })) === true;
 }
 
 function defaultDeps(): PickAgentDeps {
@@ -42,6 +53,8 @@ function defaultDeps(): PickAgentDeps {
     agents: supportedAgents(),
     findOnPath,
     select: clackSelect,
+    confirm: clackConfirm,
+    spawn: (command, args, options) => nodeSpawn(command, args, options),
     say: (l) => console.log(l),
   };
 }
@@ -53,17 +66,18 @@ export async function pickAgent(
 ): Promise<LaunchAgentId | null | typeof PICK_CANCELLED> {
   const d = { ...defaultDeps(), ...overrides };
 
-  const installed = d.agents.filter((a) => resolveAgentBin(a, d.findOnPath, d.env, d.platform) !== null);
+  const isInstalled = (a: LaunchAgent): boolean => resolveAgentBin(a, d.findOnPath, d.env, d.platform) !== null;
+  const installed = d.agents.filter(isInstalled);
 
   // A re-run keeps the choice, provided it can still be launched; `align use` changes it. A
   // stored agent that has left PATH is treated as no choice at all.
   const stored = agentByName(config.getAgent());
   if (stored && installed.some((a) => a.name === stored.name)) return stored.name;
 
-  if (installed.length === 0) {
+  if (installed.length === 0 && (!opts.interactive || opts.approve)) {
     d.say('No coding agent that Align can open was found on your PATH. Align works with:');
     for (const a of d.agents) d.say(`  ${a.label}: ${a.install}`);
-    d.say('Install one, then run `align` again.');
+    d.say('Install one, then run `align` again. `align agents` lists them all.');
     return null;
   }
 
@@ -73,15 +87,34 @@ export async function pickAgent(
   const preWaveA = installed.filter((a) => PRE_WAVE_A.has(a.name));
   const unattended = !opts.interactive && !opts.approve && preWaveA.length > 0 ? preWaveA : installed;
 
-  let chosen: LaunchAgent | undefined;
+  let chosen: LaunchAgent | null | undefined;
   if (opts.approve) {
     chosen = byPriority(installed)[0];
   } else if (unattended.length === 1) {
     chosen = unattended[0];
   } else if (opts.interactive) {
-    const name = await d.select(installed);
-    if (name === null) return PICK_CANCELLED;
-    chosen = installed.find((a) => a.name === name);
+    chosen = await chooseAgent(d.agents, {
+      isInstalled,
+      select: (options) => d.select(options),
+      offer: (a) => offerInstall(specByName(a.name)!, {
+        isTTY: true,
+        platform: d.platform,
+        confirm: (m) => d.confirm(m),
+        spawn: d.spawn,
+        onPath: (bin) => d.findOnPath(bin, d.env, d.platform),
+        say: d.say,
+      }),
+      say: d.say,
+    });
+    if (chosen === null) {
+      // With nothing installed, leaving the picker is not cancelling setup: it carries on with no
+      // agent chosen, as it did before the picker listed missing agents.
+      if (installed.length === 0) {
+        d.say('No agent chosen. Install one, then run `align` again. `align agents` lists them all.');
+        return null;
+      }
+      return PICK_CANCELLED;
+    }
   } else {
     d.say(`More than one coding agent is installed (${installed.map((a) => a.label).join(', ')}) and there is no terminal to ask in.`);
     d.say(`Choose one: align use <agent>   (${installed.map((a) => a.name).join(' | ')})`);

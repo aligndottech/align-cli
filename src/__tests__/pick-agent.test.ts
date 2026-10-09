@@ -20,6 +20,8 @@ function harness(over: Partial<PickAgentDeps> & { stored?: string; onPath?: stri
     findOnPath: (bin) => (onPath.includes(bin) ? `/bin/${bin}` : null),
     select,
     say: (l) => say.push(l),
+    confirm: vi.fn(async () => false),
+    spawn: vi.fn(),
     ...over,
   };
   const config = { getAgent: () => stored, setAgent };
@@ -43,7 +45,7 @@ describe('pickAgent: how many agents are installed', () => {
     const h = harness({ onPath: ['claude', 'opencode'], agents: [CLAUDE, OPENCODE, CODEX] });
     h.select.mockResolvedValue('opencode');
     const r = await pickAgent(h.config, { interactive: true }, h.deps);
-    expect(h.select.mock.calls[0]![0].map((a) => a.name)).toEqual(['claude-code', 'opencode']);
+    expect(h.select.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { value: string }) => o.value)).toEqual(['claude-code', 'opencode']);
     expect(r).toBe('opencode');
     expect(h.stored()).toBe('opencode');
   });
@@ -53,9 +55,11 @@ describe('pickAgent: how many agents are installed', () => {
     expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBe(PICK_CANCELLED);
     expect(h.setAgent).not.toHaveBeenCalled();
   });
-  it('with none installed, names the supported agents with install hints and leaves agent unset', async () => {
+  it('with none installed and no terminal, names the supported agents with install hints and `align agents`, and leaves agent unset', async () => {
     const h = harness({ onPath: [] });
-    expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBeNull();
+    expect(await pickAgent(h.config, { interactive: false }, h.deps)).toBeNull();
+    expect(h.select).not.toHaveBeenCalled();
+    expect(h.say.join('\n')).toContain('align agents');
     expect(h.setAgent).not.toHaveBeenCalled();
     const said = h.say.join('\n');
     expect(said).toContain('Claude Code');
@@ -101,7 +105,7 @@ describe('pickAgent: a re-run', () => {
   });
   it('a stored agent that is gone with nothing else installed prints the install hints once', async () => {
     const h = harness({ stored: 'claude-code', onPath: [] });
-    expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBeNull();
+    expect(await pickAgent(h.config, { interactive: false }, h.deps)).toBeNull();
     expect(h.say.filter((l) => l.includes(CLAUDE.install))).toHaveLength(1);
   });
   it('a stored name that is not a launch target any more is ignored', async () => {
@@ -118,5 +122,55 @@ describe('pickAgent: after `align use --undo` (C4)', () => {
     const quiet = harness({ onPath: ['claude'] });
     await pickAgent({ ...quiet.config, isLaunchOff: () => false }, { interactive: true }, quiet.deps);
     expect(quiet.say.join('\n')).not.toContain('Launching is on again');
+  });
+});
+
+describe('pickAgent: the picker lists every agent (phase P)', () => {
+  it('on a terminal with none installed, opens the picker with every agent, each marked not installed; leaving it carries on with no agent', async () => {
+    const h = harness({ onPath: [], agents: [CLAUDE, OPENCODE, CODEX] });
+    h.select.mockResolvedValue(null);
+    expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBeNull();
+    expect(h.setAgent).not.toHaveBeenCalled();
+    const opts = h.select.mock.calls[0]![0];
+    expect(opts.map((o) => o.value)).toEqual(['claude-code', 'codex', 'opencode']);
+    expect(opts.map((o) => o.hint)).toEqual(['not installed: npm i -g @anthropic-ai/claude-code', 'not installed: npm i -g @openai/codex', 'not installed: npm i -g opencode-ai']);
+  });
+  it('with two installed, those come first and the missing one after them, marked', async () => {
+    const h = harness({ onPath: ['claude', 'opencode'], agents: [CLAUDE, OPENCODE, CODEX] });
+    h.select.mockResolvedValue('claude-code');
+    await pickAgent(h.config, { interactive: true }, h.deps);
+    const opts = h.select.mock.calls[0]![0];
+    expect(opts.map((o) => o.value)).toEqual(['claude-code', 'opencode', 'codex']);
+    expect(opts[2]!.hint).toBe('not installed: npm i -g @openai/codex');
+  });
+  it('picking a missing npm agent: yes runs exactly its argv with no shell, then stores it once found', async () => {
+    const onPath = ['npm'];
+    const spawn = vi.fn(() => {
+      onPath.push('codex');
+      const child = { on: (ev: string, cb: (c: number) => void) => { if (ev === 'exit') queueMicrotask(() => cb(0)); return child; } };
+      return child as never;
+    });
+    const confirm = vi.fn(async () => true);
+    const h = harness({ onPath, agents: [CLAUDE, CODEX], confirm, spawn });
+    h.select.mockResolvedValueOnce('codex');
+    expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBe('codex');
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(spawn).toHaveBeenCalledExactlyOnceWith('npm', ['i', '-g', '@openai/codex'], expect.objectContaining({ shell: false, stdio: 'inherit' }));
+    expect(h.stored()).toBe('codex');
+  });
+  it('picking a missing npm agent: no spawns nothing and goes back to the picker', async () => {
+    const spawn = vi.fn();
+    const h = harness({ onPath: ['npm', 'claude', 'opencode'], agents: [CLAUDE, OPENCODE, CODEX], confirm: vi.fn(async () => false), spawn });
+    h.select.mockResolvedValueOnce('codex').mockResolvedValueOnce(null);
+    expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBe(PICK_CANCELLED);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(h.select).toHaveBeenCalledTimes(2);
+  });
+  it('--approve with none installed never opens the picker and never installs', async () => {
+    const spawn = vi.fn();
+    const h = harness({ onPath: ['npm'], confirm: vi.fn(async () => true), spawn });
+    expect(await pickAgent(h.config, { interactive: true, approve: true }, h.deps)).toBeNull();
+    expect(h.select).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
   });
 });

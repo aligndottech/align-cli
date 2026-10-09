@@ -46,6 +46,8 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
     runAgent,
     record: vi.fn(),
     pick,
+    confirm: vi.fn(async () => false),
+    spawnInstall: vi.fn(),
     err: (l) => err.push(l),
     now: () => 42,
     ...over,
@@ -62,7 +64,7 @@ describe('wave A: the registry', () => {
     }
   });
   it('Copilot runs `copilot` and installs from npm', () => {
-    expect(AGENT_REGISTRY.find((a) => a.name === 'copilot')).toMatchObject({ label: 'GitHub Copilot CLI', bin: 'copilot', install: 'npm i -g @github/copilot', injection: 'per-session' });
+    expect(AGENT_REGISTRY.find((a) => a.name === 'copilot')).toMatchObject({ label: 'GitHub Copilot CLI', bin: 'copilot', install: { kind: 'npm', argv: ['npm', 'i', '-g', '@github/copilot'] }, injection: 'per-session' });
   });
 });
 
@@ -71,7 +73,7 @@ describe('wave A: the picker offers them when installed, and not when absent', (
     const h = harness({ onPath: ['claude', 'codex', 'gemini', 'copilot'] });
     h.pick.mockResolvedValue('codex');
     await launchIfChosen(h.deps);
-    expect(h.pick.mock.calls[0]![0].map((a: { label: string }) => a.label)).toEqual(['Claude Code', 'Codex', 'GitHub Copilot CLI', 'Gemini CLI']);
+    expect(h.pick.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { label: string }) => o.label)).toEqual(['Claude Code', 'Codex', 'Gemini CLI', 'GitHub Copilot CLI']);
     expect(h.runAgent.mock.calls[0]![0].bin).toBe('codex');
   });
   it('bare `align` does not offer them when they are not on PATH (only Claude: no picker at all)', async () => {
@@ -86,7 +88,7 @@ describe('wave A: the picker offers them when installed, and not when absent', (
     const config = { getAgent: () => stored, setAgent: (a: string) => { stored = a; } };
     const onPath = ['gemini', 'codex'];
     const r = await pickAgent(config, { interactive: true }, { agents: supportedAgents(), env: {}, platform: 'linux', findOnPath: (b) => (onPath.includes(b) ? `/b/${b}` : null), select, say: () => {} });
-    expect(select.mock.calls[0]![0].map((a: { name: string }) => a.name)).toEqual(['codex', 'gemini-cli']);
+    expect(select.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { value: string }) => o.value)).toEqual(['codex', 'gemini-cli']);
     expect(r).toBe('gemini-cli');
   });
   it('the wizard does not offer one that is absent (only Copilot installed: picked without asking)', async () => {
