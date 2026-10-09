@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.48.0](https://github.com/aligndottech/align-cli/compare/cli-v0.47.1...cli-v0.48.0) (2026-10-09)
+
+
+### Features
+
+* **launch:** bare align opens Codex, Gemini CLI and Copilot CLI with the local graph (ALI-1500) ([#348](https://github.com/aligndottech/align-cli/issues/348)) ([b56c4a4](https://github.com/aligndottech/align-cli/commit/b56c4a4c085478483af99ad25578969883b81d56))
+* **launch:** the picker lists every supported agent, plus align agents (ALI-1501) ([#350](https://github.com/aligndottech/align-cli/issues/350)) ([e33f282](https://github.com/aligndottech/align-cli/commit/e33f282fe552101c214e7d8785e27f4299eba6a6))
+
 ## [0.47.1](https://github.com/aligndottech/align-cli/compare/cli-v0.47.0...cli-v0.47.1) (2026-10-09)
 
 
