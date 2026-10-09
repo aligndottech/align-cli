@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -114,13 +114,59 @@ describe('readDroidState (sandbox files)', () => {
     expect(state().ownSettings).toBeUndefined();
   });
 
-  it('the block in an AGENTS.md up the tree, or in ~/.factory/AGENTS.md, counts; a plain AGENTS.md does not', () => {
+  // Droid's own discovery (droid 0.237.0 agentsMdGuidelines): cwd up to the git root (only the
+  // cwd when there is none), each dir plus its .factory/.agents/.agent, plus ~/.factory, ~/.agents
+  // and ~/.agent; CLAUDE.md / AGENTS.md (and case variants); a file linking outside its dir is ignored.
+  const BLOCK = `# x\n${ALIGN_NUDGE_START}\n`;
+  it('the block in an AGENTS.md between the cwd and the git root counts; one above the git root does not', () => {
+    mkdirSync(path.join(root, 'repo', '.git'));
     writeFileSync(path.join(root, 'repo', 'AGENTS.md'), '# repo\n');
     expect(state().projectHasBlock).toBe(false);
-    writeFileSync(path.join(root, 'repo', 'AGENTS.md'), `# repo\n${ALIGN_NUDGE_START}\n`);
+    writeFileSync(path.join(root, 'repo', 'AGENTS.md'), BLOCK);
     expect(state().projectHasBlock).toBe(true);
     rmSync(path.join(root, 'repo', 'AGENTS.md'));
-    writeFileSync(path.join(home, '.factory', 'AGENTS.md'), `${ALIGN_NUDGE_START}\n`);
+    writeFileSync(path.join(root, 'AGENTS.md'), BLOCK);
+    expect(state().projectHasBlock).toBe(false);
+  });
+
+  it('with no git root only the cwd itself is read (two examples)', () => {
+    writeFileSync(path.join(root, 'repo', 'AGENTS.md'), BLOCK);
+    expect(state().projectHasBlock).toBe(false);
+    writeFileSync(path.join(proj, 'CLAUDE.md'), BLOCK);
     expect(state().projectHasBlock).toBe(true);
+  });
+
+  it('.factory/ and .agents/ in the cwd count, and the personal ~/.factory/AGENTS.md counts', () => {
+    mkdirSync(path.join(proj, '.agents'));
+    writeFileSync(path.join(proj, '.agents', 'AGENTS.md'), BLOCK);
+    expect(state().projectHasBlock).toBe(true);
+    rmSync(path.join(proj, '.agents'), { recursive: true });
+    writeFileSync(path.join(home, '.factory', 'AGENTS.md'), BLOCK);
+    expect(state().projectHasBlock).toBe(true);
+  });
+
+  it('a linked AGENTS.md does not count (Droid checks with lstat and skips links)', () => {
+    writeFileSync(path.join(root, 'elsewhere.md'), BLOCK);
+    symlinkSync(path.join(root, 'elsewhere.md'), path.join(proj, 'AGENTS.md'));
+    expect(state().projectHasBlock).toBe(false);
+  });
+
+  it('FACTORY_HOME_OVERRIDE moves the personal files and the user mcp.json', () => {
+    const alt = path.join(root, 'alt');
+    mkdirSync(path.join(alt, '.factory'), { recursive: true });
+    writeFileSync(path.join(alt, '.factory', 'mcp.json'), JSON.stringify({ mcpServers: { align: CANON } }));
+    writeFileSync(path.join(alt, '.factory', 'AGENTS.md'), BLOCK);
+    expect(state()).toMatchObject({ present: false, projectHasBlock: false });
+    expect(state({ env: { FACTORY_HOME_OVERRIDE: alt } })).toMatchObject({ present: true, projectHasBlock: true });
+  });
+
+  it('the user\'s --cwd moves the project Droid reads: its AGENTS.md and its .factory/mcp.json', () => {
+    const other = path.join(root, 'other');
+    mkdirSync(path.join(other, '.factory'), { recursive: true });
+    writeFileSync(path.join(other, 'AGENTS.md'), BLOCK);
+    project(other, { mcpServers: { 'align-local': { command: 'evil' } } });
+    expect(state()).toMatchObject({ projectHasBlock: false, overridden: [] });
+    expect(state({ passthrough: ['--cwd', other] })).toMatchObject({ projectHasBlock: true, overridden: [path.join(other, '.factory', 'mcp.json')] });
+    expect(state({ passthrough: ['--cwd=../../other'] }).projectHasBlock).toBe(true);
   });
 });
