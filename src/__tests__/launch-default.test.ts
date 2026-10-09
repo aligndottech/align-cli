@@ -51,7 +51,7 @@ describe('launchIfChosen: when it launches', () => {
     const h = harness({ stored: 'claude-code' });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
     const spec = h.runAgent.mock.calls[0]![0];
-    expect(spec.bin).toBe('claude');
+    expect(spec.bin).toBe('/usr/bin/claude');
     expect(spec.args).toEqual(expect.arrayContaining(['--mcp-config', '--settings', '--append-system-prompt-file']));
     expect(spec.args).toContain('/cache/claude-mcp.json');
     expect(h.written.map(([n]) => n).sort()).toEqual(['align-instructions.md', 'claude-mcp.json', 'claude-settings.json']);
@@ -193,13 +193,13 @@ describe('launchIfChosen: more than one supported agent installed', () => {
     expect(h.pick).toHaveBeenCalledTimes(1);
     expect(h.pick.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { value: string }) => o.value)).toEqual(['claude-code', 'opencode']);
     expect(h.setAgent).toHaveBeenCalledWith('opencode');
-    expect(h.runAgent.mock.calls[0]![0].bin).toBe('opencode');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/opencode');
   });
   it('without a TTY it picks by priority (Claude Code first), says so in one stderr line, and asks nothing', async () => {
     const h = two({ isTTY: false, argv: ['node', 'align', '--', 'x'] });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
     expect(h.pick).not.toHaveBeenCalled();
-    expect(h.runAgent.mock.calls[0]![0].bin).toBe('claude');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/claude');
     expect(h.err).toEqual(['Opening Claude Code: more than one coding agent is installed and there is no terminal to ask. Change it with: align use <agent>']);
   });
 });
@@ -210,7 +210,7 @@ describe('launchIfChosen: OpenCode (C2)', () => {
     const h = harness({ onPath: { opencode: OC } });
     await launchIfChosen(h.deps);
     expect(h.setAgent).toHaveBeenCalledWith('opencode');
-    expect(h.runAgent.mock.calls[0]![0].bin).toBe('opencode');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/opencode');
   });
   it('spawns opencode with OPENCODE_CONFIG_CONTENT and OPENCODE_CONFIG_DIR in the env, and writes the launch files', async () => {
     const h = harness({ stored: 'opencode', onPath: { opencode: OC } });
@@ -323,7 +323,7 @@ describe('launchIfChosen: written-once agents (C4)', () => {
     const h = harness({ stored: 'pi', onPath: { pi: PI }, applyConfigWrite });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
     const spec = h.runAgent.mock.calls[0]![0];
-    expect(spec.bin).toBe('pi');
+    expect(spec.bin).toBe('/usr/bin/pi');
     expect(spec.args).toEqual(['-e', '/cache/pi-align.ts', '--append-system-prompt', '/cache/align-instructions.md']);
     expect(applyConfigWrite).toHaveBeenCalledOnce();
     expect(applyConfigWrite.mock.calls[0]![0]).toMatchObject({ kind: 'mcp-entry', name: 'align-local', root: '/home/u' });
@@ -424,7 +424,7 @@ describe('launchIfChosen: Cursor\'s binary name (C4)', () => {
   it('runs cursor-agent; a bare `agent` on PATH is NOT Cursor (never run an unknown binary)', async () => {
     const ok = harness({ stored: 'cursor', onPath: { 'cursor-agent': '/usr/bin/cursor-agent' } });
     await launchIfChosen(ok.deps);
-    expect(ok.runAgent.mock.calls[0]![0].bin).toBe('cursor-agent');
+    expect(ok.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/cursor-agent');
     const onlyAgent = harness({ stored: 'cursor', onPath: { agent: '/usr/bin/agent' }, argv: ['node', 'align', '--', 'x'] });
     expect(await launchIfChosen(onlyAgent.deps)).toEqual({ handled: true, code: 127 });
     expect(onlyAgent.runAgent).not.toHaveBeenCalled();
@@ -475,7 +475,7 @@ describe('launchIfChosen: the picker lists every agent (phase P)', () => {
     expect(confirm).toHaveBeenCalledExactlyOnceWith('Install Codex now? (runs: npm i -g @openai/codex)');
     expect(spawnInstall).toHaveBeenCalledExactlyOnceWith('/usr/bin/npm', ['i', '-g', '@openai/codex'], expect.objectContaining({ shell: false, stdio: 'inherit' }));
     expect(h.setAgent).toHaveBeenCalledWith('codex');
-    expect(h.runAgent.mock.calls[0]![0].bin).toBe('codex');
+    expect(h.runAgent.mock.calls[0]![0].bin).toBe('/usr/bin/codex');
   });
   it('Ctrl-C at the install question exits with code 1: no install, no second picker', async () => {
     const spawnInstall = vi.fn();

@@ -79,7 +79,7 @@ describe('wave B: each launches with Align wired in', () => {
       const h = harness({ stored: name, bins: { [bin]: binPath(bin) } });
       expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
       const spec = h.runAgentMock.mock.calls[0]![0];
-      expect(spec.bin).toBe(bin);
+      expect(spec.bin).toBe(binPath(bin));
       expect(spec.env['ALIGN_WRAPPED']).toBe('1');
       expect(JSON.stringify({ spec, applied: h.applied })).toContain('align-local');
       expect(log).not.toHaveBeenCalled();
@@ -209,6 +209,22 @@ describe('written once, against FAKE kiro-cli and grok binaries (real pipeline)'
     record: () => {}, pick: async () => null, err: (l) => lines.push(l), now: () => 0,
   });
   const recorded = () => JSON.parse(readFileSync(record, 'utf8')) as { argv: string[]; wrapped: string | null };
+
+  it('spawns the RESOLVED binary: an empty PATH element never lets a ./grok in the repo run in its place', async () => {
+    // findOnPath skips an empty PATH element; a bare-name spawn would read it as the cwd.
+    const marker = path.join(root, 'hijacked');
+    writeFileSync(path.join(cwd, 'grok'), `#!/bin/sh\necho x > "${marker}"\n`, { mode: 0o755 });
+    vi.stubEnv('PATH', `:${path.join(home, '.grok', 'bin')}${path.delimiter}${process.env['PATH']}`);
+    const before = process.cwd();
+    process.chdir(cwd);
+    try {
+      expect(await run('grok-build')).toEqual({ handled: true, code: 0 });
+    } finally {
+      process.chdir(before);
+    }
+    expect(existsSync(marker)).toBe(false);
+    expect(recorded().wrapped).toBe('1');
+  });
 
   it('kiro: adds align-local to ~/.kiro/settings/mcp.json once, keeps the user\'s server, and --undo restores it byte for byte', async () => {
     const f = path.join(home, '.kiro', 'settings', 'mcp.json');

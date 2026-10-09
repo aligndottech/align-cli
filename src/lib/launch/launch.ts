@@ -290,9 +290,12 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     d.err(`Could not write launch files (${(e as Error).message}). Showing your graph instead.`);
     return { handled: false };
   }
-  // On win32 the resolved path is what tells runAgent it holds a .cmd shim.
   for (const n of spec.notes ?? []) d.err(n);
-  const toRun: LaunchSpec = d.platform === 'win32' ? { ...spec, bin: found } : spec;
+  // Spawn the path the PATH scan found, never the bare name, on every platform. findOnPath skips
+  // an empty PATH element, but a bare-name spawn reads one as the cwd: a `grok` in the repo would
+  // run in place of the binary that `acceptsBin` checked. On win32 the path is also what tells
+  // runAgent it holds a .cmd shim.
+  const toRun: LaunchSpec = { ...spec, bin: found };
 
   if (set(d.env['ALIGN_LAUNCH_TRACE'])) d.err(`align-overhead-ms=${Math.round(d.now())}`);
   // A dry run measures; it must not change the machine, so nothing is persisted before this.
