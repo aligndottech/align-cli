@@ -155,12 +155,13 @@ describe('runAgent never hands the agent a provider key align added', () => {
     ['ANTHROPIC_API_KEY', 'Claude Code'],
     ['OPENAI_API_KEY', 'Codex'],
     ['GEMINI_API_KEY', 'Gemini CLI'],
+    ['OPENROUTER_API_KEY', 'any agent that reads it'],
   ])('drops %s when align added it (it would reach %s)', async (name) => {
     const env = await childEnv({ [name]: 'saved-by-align' }, {});
     expect(env[name]).toBeUndefined();
   });
 
-  it.each(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'])('keeps %s the user exported', async (name) => {
+  it.each(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY'])('keeps %s the user exported', async (name) => {
     const env = await childEnv({ [name]: 'users-own' }, { [name]: 'users-own' });
     expect(env[name]).toBe('users-own');
   });

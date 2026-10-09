@@ -113,6 +113,7 @@ with `align ai --provider <id>`:
 | `minimax` | `MINIMAX_API_KEY` (Anthropic-style API) | `MiniMax-M2.7` |
 | `kimi-coding` | `KIMI_API_KEY` (Anthropic-style API) | `kimi-for-coding` |
 | `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` (Anthropic-style API) | `openai/gpt-4o-mini` |
+| `openrouter` | `OPENROUTER_API_KEY` (model: `ALIGN_OPENROUTER_MODEL`) | `openai/gpt-4o-mini` |
 
 Cloudflare Workers AI and Azure OpenAI need an account id or a per-resource endpoint, so they
 have no fixed entry: point `ALIGN_LLM_BASE_URL` at them instead.

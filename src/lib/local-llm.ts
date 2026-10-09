@@ -6,6 +6,8 @@ import {
   type NamedProvider,
   OPENROUTER_BASE_URL,
   OPENROUTER_DEFAULT_MODEL,
+  OPENROUTER_KEY_ENV,
+  OPENROUTER_MODEL_ENV,
   parseProviderId,
   type StoredProviderId,
 } from './llm-providers.js';
@@ -964,6 +966,7 @@ interface Credential {
  * Every configured credential, in the order the chain tries them with no preference:
  *   1. EXPORTED: ALIGN_LLM_BASE_URL (any OpenAI-compatible endpoint), then each named
  *      provider's env key in table order
+ *      (the later providers after the original six), then OPENROUTER_API_KEY
  *   2. SAVED: an OpenRouter key, then each named provider's saved key in table order
  * Anything the user exported beats anything align saved (M2). A saved key for a provider the
  * shell already has a key for is not listed - the exported one wins. A saved OpenRouter key is
@@ -987,16 +990,17 @@ function credentials(): Credential[] {
     const found = envKeyWithName(p.keyEnv);
     if (found) out.push({ id: p.id, source: 'env', run: (sys, usr, mt, t) => callNamed(p, found.key, found.name, sys, usr, mt, t) });
   }
+  // OpenRouter: an exported OPENROUTER_API_KEY is an exported key like the named ones (after
+  // the original six, with the other later providers), and beats a saved OpenRouter key. Both
+  // go to OpenRouter's own base URL and are ignored when the shell exports its own
+  // ALIGN_LLM_BASE_URL (M1). ALIGN_OPENROUTER_MODEL, then the saved model, then the default.
+  const openrouterEnv = process.env[OPENROUTER_KEY_ENV];
+  const openrouterRun = (key: string): Credential['run'] => (sys, usr, mt, t) => tryOpenAiCompatible(
+    sys, usr, chatCompletionsUrl(OPENROUTER_BASE_URL), modelFor('openrouter', OPENROUTER_MODEL_ENV, OPENROUTER_DEFAULT_MODEL),
+    key, mt, undefined, t);
+  if (openrouterEnv && !baseUrl) out.push({ id: 'openrouter', source: 'env', run: openrouterRun(openrouterEnv) });
   const openrouter = s.keys.openrouter;
-  if (openrouter && !baseUrl) {
-    out.push({
-      id: 'openrouter',
-      source: 'saved',
-      run: (sys, usr, mt, t) => tryOpenAiCompatible(
-        sys, usr, chatCompletionsUrl(OPENROUTER_BASE_URL), modelFor('openrouter', null, OPENROUTER_DEFAULT_MODEL),
-        openrouter, mt, undefined, t),
-    });
-  }
+  if (openrouter && !baseUrl && !openrouterEnv) out.push({ id: 'openrouter', source: 'saved', run: openrouterRun(openrouter) });
   for (const p of NAMED_PROVIDERS) {
     const key = s.keys[p.id];
     if (key && !envKey(p.keyEnv)) out.push({ id: p.id, source: 'saved', run: (sys, usr, mt, t) => callNamed(p, key, null, sys, usr, mt, t) });

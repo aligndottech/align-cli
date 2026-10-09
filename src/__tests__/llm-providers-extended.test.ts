@@ -5,7 +5,7 @@
  * the default order, so it only runs when the user has its key.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callChatDetailed, setSavedLlmSource } from '../lib/local-llm.js';
+import { callChatDetailed, listConfiguredCredentials, setSavedLlmSource } from '../lib/local-llm.js';
 import { NAMED_PROVIDERS, PROVIDER_ENV_VARS, STORABLE_PROVIDERS } from '../lib/llm-providers.js';
 
 const mockFetch = vi.fn();
@@ -126,5 +126,76 @@ describe('the provider list', () => {
   it('every new key variable is one the launcher resets before starting an agent', () => {
     for (const [, envVar] of NEW) expect(PROVIDER_ENV_VARS).toContain(envVar);
     expect(PROVIDER_ENV_VARS).toContain('DASHSCOPE_API_KEY');
+  });
+});
+
+describe('OpenRouter from an exported OPENROUTER_API_KEY', () => {
+  const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+  it('answers at OpenRouter with the default model', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    mockFetch.mockResolvedValue(ok('openai', 'from openrouter'));
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from openrouter' });
+    expect(call()[0]).toBe(OR_URL);
+    expect(JSON.parse(call()[1].body).model).toBe('openai/gpt-4o-mini');
+    expect(call()[1].headers['Authorization']).toBe('Bearer sk-or-env');
+  });
+
+  it('ALIGN_OPENROUTER_MODEL overrides the model', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    vi.stubEnv('ALIGN_OPENROUTER_MODEL', 'anthropic/claude-haiku-4.5');
+    mockFetch.mockResolvedValue(ok('openai', 'x'));
+    await callChatDetailed('s', 'u');
+    expect(JSON.parse(call()[1].body).model).toBe('anthropic/claude-haiku-4.5');
+  });
+
+  it('is an exported key: it beats a SAVED OpenRouter key', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    setSavedLlmSource(() => ({ keys: { openrouter: 'sk-or-saved' } }));
+    mockFetch.mockResolvedValue(ok('openai', 'x'));
+    await callChatDetailed('s', 'u');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(call()[1].headers['Authorization']).toBe('Bearer sk-or-env');
+  });
+
+  it('is an exported key: it beats a saved Anthropic key', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    setSavedLlmSource(() => ({ keys: { anthropic: 'sk-ant-saved' } }));
+    mockFetch.mockImplementation(async (u: string) => (u === OR_URL ? ok('openai', 'from openrouter') : ok('anthropic', 'from anthropic')));
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from openrouter' });
+  });
+
+  it('runs after the original six: an exported Anthropic key answers first', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant');
+    mockFetch.mockImplementation(async (u: string) => (u === OR_URL ? ok('openai', 'from openrouter') : ok('anthropic', 'from anthropic')));
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from anthropic' });
+  });
+
+  it('can be preferred over that exported Anthropic key', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant');
+    vi.stubEnv('ALIGN_LLM_PROVIDER', 'openrouter');
+    mockFetch.mockImplementation(async (u: string) => (u === OR_URL ? ok('openai', 'from openrouter') : ok('anthropic', 'from anthropic')));
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from openrouter' });
+  });
+
+  it('a user\'s own ALIGN_LLM_BASE_URL still wins, and OpenRouter is not tried', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    vi.stubEnv('ALIGN_LLM_BASE_URL', 'http://localhost:8080/v1');
+    mockFetch.mockResolvedValue(ok('openai', 'local'));
+    await callChatDetailed('s', 'u');
+    expect(mockFetch.mock.calls.map((c) => c[0])).toEqual(['http://localhost:8080/v1/chat/completions']);
+    expect(listConfiguredCredentials().map((c) => c.id)).toEqual(['custom']);
+  });
+
+  it('is listed as an exported credential', () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    expect(listConfiguredCredentials()).toEqual([{ id: 'openrouter', source: 'env' }]);
+  });
+
+  it('is one of the variables the launcher resets to the shell\'s own value', () => {
+    expect(PROVIDER_ENV_VARS).toContain('OPENROUTER_API_KEY');
+    expect(PROVIDER_ENV_VARS).toContain('ALIGN_OPENROUTER_MODEL');
   });
 });

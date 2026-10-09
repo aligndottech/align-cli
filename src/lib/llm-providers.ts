@@ -145,6 +145,9 @@ function anthropicAt(id: NamedProviderId, label: string, keyEnv: string[], endpo
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
+/** OpenRouter's own key variable (pi-ai's name) and align's model override for it. */
+export const OPENROUTER_KEY_ENV = 'OPENROUTER_API_KEY';
+export const OPENROUTER_MODEL_ENV = 'ALIGN_OPENROUTER_MODEL';
 
 /** Every id `ALIGN_LLM_PROVIDER` / `align ai --provider` accepts. */
 export const LLM_PROVIDER_IDS = [
@@ -188,6 +191,7 @@ export const PROVIDER_KEY_URL: Record<StoredProviderId, string> = {
 export const PROVIDER_ENV_VARS: readonly string[] = [
   ...NAMED_PROVIDERS.flatMap((p) => [...p.keyEnv, p.modelEnv]),
   'ALIGN_LLM_BASE_URL', 'ALIGN_LLM_API_KEY', 'ALIGN_LLM_MODEL', 'ALIGN_LLM_PROVIDER', 'ALIGN_OLLAMA_MODEL',
+  OPENROUTER_KEY_ENV, OPENROUTER_MODEL_ENV,
 ];
 
 const ALIASES: Record<string, LlmProviderId> = { xai: 'grok' };
