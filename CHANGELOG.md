@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.49.0](https://github.com/aligndottech/align-cli/compare/cli-v0.48.0...cli-v0.49.0) (2026-10-09)
+
+
+### Features
+
+* **ask:** no AI-key step in first run; choose the provider; 14 more providers; saved keys never reach the agent (ALI-1502) ([#351](https://github.com/aligndottech/align-cli/issues/351)) ([3e859e0](https://github.com/aligndottech/align-cli/commit/3e859e0ff88f43af336bb2ae972152c248b65733))
+* **launch:** bare align opens Qwen Code, Factory Droid, Amp, Kiro CLI and Grok Build (ALI-1503) ([#353](https://github.com/aligndottech/align-cli/issues/353)) ([739796c](https://github.com/aligndottech/align-cli/commit/739796c61f8fa963eaff913560ea6127efe372f7))
+
 ## [0.48.0](https://github.com/aligndottech/align-cli/compare/cli-v0.47.1...cli-v0.48.0) (2026-10-09)
 
 
