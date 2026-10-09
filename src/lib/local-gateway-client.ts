@@ -8,6 +8,7 @@ import { repositoryOf } from './decision-links.js';
 import { localCitationFor } from './commit-cite.js';
 import { extractRefs, refIdentityFor } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
+import { type IngestOptions, type IngestResult, isUnchanged, type LocalBatchItem, type LocalBatchOptions, selectForClassification } from './local-ingest.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
 // (ask/search/check) work identically in local mode.
@@ -86,18 +87,7 @@ export const RETRIEVAL_RELATES_THRESHOLD = 0.3;
 export const RELATED_TOP_K = 3;
 export const RELATED_FLOOR = RELATES_THRESHOLD;
 
-/**
- * ALI-1065: the capture-time classification budget. Only the high-confidence tier
- * (score >= SIMILARITY_THRESHOLD) is ever classified - the lower related-only tier stays
- * a plain cosine `relates` edge, because typing a merely-related pair is exactly the
- * manufactured-detection failure ALI-503 removed from the conflict counters.
- *
- * Capped at 3 regardless of how many candidates clear the high-confidence bar, and skipped
- * entirely (0 calls) with no provider configured - see ingestOne. Worst case: 3 classifier
- * calls per capture, each a single LLM round trip. Typical capture (0-1 near-duplicates)
- * costs 0-1 calls.
- */
-export const CAPTURE_CLASSIFY_TOP_K = 3;
+export { CAPTURE_CLASSIFY_TOP_K } from './local-ingest.js';
 
 // Below this similarity between a decision and new content, the content is
 // considered to have drifted from the decision.
@@ -296,8 +286,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   async function ingestOne(
     input: string,
     platform: string,
-    opts: { titleOverride?: string; sourceUrlOverride?: string | null; createdAt?: string } = {},
-  ): Promise<{ id: string; title: string; summary: string; sourceUrl: string | null; platform: string; related: Array<{ decisionId: string; score: number }>; created: boolean }> {
+    opts: IngestOptions = {},
+  ): Promise<IngestResult> {
     let title = input.slice(0, 80);
     let summary = input;
     let sourceUrl: string | null = opts.sourceUrlOverride ?? null;
@@ -334,13 +324,23 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // refreshed, so this is the only moment the difference is visible. Without it a
     // re-import reports every decision as imported while the graph does not move, which
     // reads as having imported twice (ALI-770).
-    const created = db.findIdBySource(sourceUrl, title) === null;
+    const existingId = db.findIdBySource(sourceUrl, title);
+    const created = existingId === null;
     // ALI-829: a Slack thread arriving under a real title replaces the tombstone-titled row
     // an older fetcher may have written for the same source_url (see local-db.ts).
     if (platform === 'slack') db.deleteSlackTombstoneTwin(sourceUrl);
     // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.
     const decidedAt = normaliseDecidedAt(opts.createdAt);
+
+    // L1: unchanged-skip, connector imports (classify:false) only - capture re-ranks every time.
+    // Refs stay current, and citations INTO the row resolve: both are local (see isUnchanged).
+    if (opts.classify === false && existingId !== null && isUnchanged(db.getDecisionById(existingId),
+      { summary, platform, repo, decidedAt }, db.getEmbeddingModel(existingId), EMBEDDING_MODEL_ID)) {
+      db.replaceRefs(existingId, refs);
+      db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
+      return { id: existingId, title, summary, sourceUrl, platform, related: [], created: false, changed: false };
+    }
     // ALI-831: origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
     const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind });
@@ -366,14 +366,12 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       (c, i) => c.score >= SIMILARITY_THRESHOLD || (i < RELATED_TOP_K && c.score >= RELATED_FLOOR),
     );
 
-    // ALI-1065: classify only the high-confidence tier, capped, and only with a provider
-    // configured - hasConfiguredProvider is an env-only check, so this costs nothing when
-    // no key exists (the common case for a fresh clone). chainStopped mirrors
-    // checkAlignment's own short-circuit: once one candidate's classification fails with a
-    // stopped provider, further calls in THIS capture are skipped rather than repeated.
-    const toClassify = hasConfiguredProvider()
-      ? candidates.filter(c => c.score >= SIMILARITY_THRESHOLD).slice(0, CAPTURE_CLASSIFY_TOP_K)
-      : [];
+    // Which candidates the paid classifier sees: see selectForClassification. chainStopped
+    // mirrors checkAlignment's own short-circuit: once one candidate's classification fails
+    // with a stopped provider, further calls in THIS capture are skipped rather than repeated.
+    const toClassify = selectForClassification(candidates, {
+      classify: opts.classify, threshold: SIMILARITY_THRESHOLD, hasProvider: hasConfiguredProvider,
+    });
     const classifyIds = new Set(toClassify.map(c => c.decisionId));
     const newDecision = { title, summary };
     let chainStopped = false;
@@ -407,7 +405,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // align_get_conflicts MCP tool report manufactured findings as detections.
       db.insertLink({ sourceId: id, targetId: c.decisionId, relation: 'relates', confidence: c.score });
     }
-    return { id, title, summary, sourceUrl, platform, related: candidates, created };
+    return { id, title, summary, sourceUrl, platform, related: candidates, created, changed: true };
   }
 
   return {
@@ -433,17 +431,19 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       };
     },
 
-    async ingestBatch(items: Array<{ source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string }>) {
+    async ingestBatch(items: LocalBatchItem[], opts: LocalBatchOptions = {}) {
       const snapshots = [];
       for (const item of items) {
         const r = await ingestOne(item.raw_text, item.platform ?? 'cli', {
           titleOverride: item.title,
           sourceUrlOverride: item.source_url ?? null,
           createdAt: item.created_at,
+          classify: opts.classify,
         });
         snapshots.push({
           id: r.id,
           created: r.created,
+          changed: r.changed,
           title: r.title,
           summary: r.summary,
           analysis: {

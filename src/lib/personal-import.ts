@@ -137,10 +137,14 @@ export async function runPersonalImport(
   const spinner = opts.quiet ? null : ora(`Importing 0/${batches.length} batches...`).start();
 
   type BatchResult = Awaited<ReturnType<typeof client.ingestBatch>>;
+  // L1: classify:false on every batch. Every caller of this function is a connector import,
+  // and the local client otherwise runs the paid classifier on up to 3 candidates per item
+  // whenever a provider key is exported. Explicit human capture (captureDecision) keeps it.
+  // The cloud client ignores the option.
   const results = await runWithConcurrency<BatchResult>(
     batches.map((batch) => async () => {
       try {
-        return await ingestBatchResilient(() => client.ingestBatch(batch, { deferEnrichment: opts.deferEnrichment }));
+        return await ingestBatchResilient(() => client.ingestBatch(batch, { deferEnrichment: opts.deferEnrichment, classify: false }));
       } finally {
         done++;
         if (spinner) spinner.text = `Importing ${done}/${batches.length} batches...`;
