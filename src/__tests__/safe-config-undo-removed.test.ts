@@ -101,6 +101,35 @@ describe('an existing array align removed an element from', () => {
   });
 });
 
+describe('a structural key align added (`version`)', () => {
+  const create = () => writeUserHooks({ host: 'cursor', path: file() }, 'local');
+
+  it('stays when any user content remains: a hooks file the user populated keeps `version` (and their hooks) after undo', () => {
+    create();
+    touch((c) => { c.hooks.preToolUse.push({ command: 'mine' }); });
+    const report = undoWrittenConfigs(manifest);
+    expect(report.cleaned).toEqual([file()]);
+    expect(read()).toEqual({ version: 1, hooks: { preToolUse: [{ command: 'mine' }] } });
+  });
+
+  it('a second example: the user\'s unrelated key keeps it too', () => {
+    create();
+    touch((c) => { c.theirs = 1; });
+    undoWrittenConfigs(manifest);
+    expect(read().version).toBe(1);
+    expect(read().theirs).toBe(1);
+    expect(read().hooks).toBeUndefined();
+  });
+
+  it('goes with everything else when nothing of the user\'s is left: an align-only created file is removed whole, even after a reformat', () => {
+    create();
+    writeFileSync(file(), JSON.stringify(read())); // the user\'s editor reformatted it: not byte-equal any more
+    const report = undoWrittenConfigs(manifest);
+    expect(report.removed).toEqual([file()]);
+    expect(existsSync(file())).toBe(false);
+  });
+});
+
 describe('an array align added to and later removed a user element from', () => {
   it('the original comes back whole: the units are undone in the right order', () => {
     writeFileSync(file(), JSON.stringify({ hooks: { preToolUse: [userLint] } }));
@@ -321,8 +350,7 @@ describe('property: nothing that was there before is ever lost', () => {
       expect(read().mcpServers?.['align-local']).toBeUndefined();
     }
     // what the user populated (their `align`, their other servers, their hooks) is in the file or a kept copy
-    // (`version` is left out: align and the user both wrote it, so nothing of the user's is in it.)
-    const { version: _v, ...mine } = populated;
+    const mine = populated;
     neverLost(mine, `seed ${seed}`, edited);
   });
 });

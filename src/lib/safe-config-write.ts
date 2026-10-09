@@ -536,6 +536,7 @@ function removeOwned(cur: Json, owned: OwnedItem[], originalOf: (snapshot: numbe
       if (at >= 0) (arr as unknown[]).splice(at, 1);
       continue;
     }
+    if (i.path.length === 1 && i.path[0] === 'version' && !i.replaced && !isObject(parent[key]) && !Array.isArray(parent[key])) continue; // structural: decided below
     if (shaOf(parent[key]) !== i.sha256) {
       left.push(`${pathText(i)} was edited since align wrote it; change it by hand if you want it gone`);
       continue;
@@ -562,6 +563,16 @@ function removeOwned(cur: Json, owned: OwnedItem[], originalOf: (snapshot: numbe
       const empty = Array.isArray(node) ? node.length === 0 : isObject(node) && Object.keys(node).length === 0;
       if (parent && empty) delete parent[nodePath[depth - 1]!];
       else break;
+    }
+  }
+  // A structural key align added (`version` in a hooks file) goes only when nothing of the user's
+  // is left beside it: on its own it is what a hooks reader needs to accept their entries.
+  const structural = owned.filter((i) => i.path.length === 1 && i.path[0] === 'version' && i.kind === 'value' && !i.replaced && !i.removed && !isObject(cur[i.path[0]!]) && !Array.isArray(cur[i.path[0]!]));
+  const keys = new Set(structural.map((i) => i.path[0]!));
+  if (structural.length > 0 && Object.keys(cur).every((k) => keys.has(k))) {
+    for (const i of structural) {
+      if (shaOf(cur[i.path[0]!]) === i.sha256) delete cur[i.path[0]!];
+      else left.push(`${pathText(i)} was edited since align wrote it; change it by hand if you want it gone`);
     }
   }
   return left;
@@ -689,6 +700,15 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
     // All or nothing: a file with anything left in it is not touched at all.
     if (left.length > 0) {
       for (const l of left) report.skipped.push(`${file}: ${l}${mention}`);
+      continue;
+    }
+    // A file align created that holds nothing but align's own content once that is out: remove it, as
+    // an untouched one is.
+    if (entry.created && entry.owned && !entry.block && next.trim() === '{}') {
+      fs.unlinkSync(file);
+      dropBackup();
+      report.removed.push(file);
+      report.done.push(file);
       continue;
     }
     if (next !== cur) stageAndRename(fs, file, next, modeOf(fs, file));
