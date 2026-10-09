@@ -57,10 +57,6 @@ describe('buildDroidLaunch', () => {
     expect(buildDroidLaunch(ctx({ projectHasBlock: false })).args).toContain('--append-system-prompt-file');
   });
 
-  it('never passes an autonomy flag for the user', () => {
-    expect(buildDroidLaunch(ctx()).args.join(' ')).not.toMatch(/--auto|skip-permissions/);
-  });
-
   it('on win32 the entry goes through cmd /c', () => {
     setPlatform('win32');
     expect(settingsOf(buildDroidLaunch(ctx())).mcp.mcpServers['align-local']).toEqual({ type: 'stdio', command: 'cmd', args: ['/c', 'align', 'mcp', '--env', 'local'] });

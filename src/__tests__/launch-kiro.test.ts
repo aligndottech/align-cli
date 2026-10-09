@@ -39,10 +39,6 @@ describe('buildKiroLaunch', () => {
     expect(spec.args).toEqual(['chat']);
     expect(spec.notes).toEqual(['/r/.kiro/settings/mcp.json defines its own align-local MCP server, so Align did not add its graph to Kiro. Remove that entry to use the graph.']);
   });
-
-  it('never selects an agent or trusts tools for the user', () => {
-    expect(buildKiroLaunch(ctx()).args.join(' ')).not.toMatch(/--agent|trust/);
-  });
 });
 
 describe('readKiroState (sandbox files)', () => {

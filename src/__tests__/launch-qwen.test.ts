@@ -86,11 +86,9 @@ describe('buildQwenLaunch', () => {
     expect(buildQwenLaunch(ctx({ trust })).notes ?? []).toEqual([]);
   });
 
-  it('never trusts or approves for the user, and passes the user\'s args through unchanged and alone', () => {
+  it('adds no argument of its own in any trust state (so no trust or approval flag): args are exactly the user\'s', () => {
     for (const trust of ['trusted', 'untrusted', 'unknown', 'off'] as const) {
-      const spec = buildQwenLaunch(ctx({ trust, passthrough: ['-i', 'hi'] }));
-      expect(spec.args).toEqual(['-i', 'hi']);
-      expect(spec.args.join(' ')).not.toMatch(/yolo|approval-mode|-y\b/);
+      expect(buildQwenLaunch(ctx({ trust, passthrough: ['-i', 'hi'] })).args).toEqual(['-i', 'hi']);
     }
     expect(buildQwenLaunch(ctx({ passthrough: ['--yolo', '--', 'x'] })).args).toEqual(['--yolo', '--', 'x']);
   });
