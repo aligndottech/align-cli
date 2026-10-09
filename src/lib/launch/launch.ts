@@ -76,6 +76,15 @@ export type LaunchResult = { handled: false } | { handled: true; code: number };
 const set = (v: string | undefined): boolean => v !== undefined && v !== '';
 
 /**
+ * ALIGN_WRAPPED (we are already inside a launched agent) or ALIGN_NO_LAUNCH turns launching
+ * off. One writer, read by launchIfChosen and by the wizard's outro, which must not say an
+ * agent is opening when this says it will not.
+ */
+export function launchSuppressed(env: Record<string, string | undefined> = process.env): boolean {
+  return set(env['ALIGN_WRAPPED']) || set(env['ALIGN_NO_LAUNCH']);
+}
+
+/**
  * Whether an align command with no --env reads the local graph: the CLI's own resolver, so
  * ALIGN_ENV, the signed-in rule and the demo-mode rule all apply exactly as they do for `align ask`.
  */
@@ -141,7 +150,7 @@ export interface BuildInput {
  */
 export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promise<LaunchResult> {
   const d = { ...defaultDeps(), ...overrides };
-  if (set(d.env['ALIGN_WRAPPED']) || set(d.env['ALIGN_NO_LAUNCH'])) return { handled: false };
+  if (launchSuppressed(d.env)) return { handled: false };
 
   const { operands, passthrough } = splitArgv(d.argv);
   if (operands.length > 0) {

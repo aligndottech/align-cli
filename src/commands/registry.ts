@@ -25,6 +25,7 @@ import { registerExportCommand } from './export.js';
 import { registerInviteCommand } from './invite.js';
 import { registerUseCommand } from './use.js';
 import { registerAgentsCommand } from './agents.js';
+import { registerAiCommand } from './ai.js';
 
 /**
  * ALI-951: the one list of top-level commands. `align --help` shows the `visible` ones and
@@ -64,6 +65,9 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
 
   // Customer: ask, then connect - the order `align --help` shows them in.
   { names: ['ask'], visible: true, summary: 'Ask your decision graph, with sources', register: registerAskCommand },
+  // Which AI model `align ask` writes terminal answers with, or add a key. Hidden: the first
+  // `align ask` with nothing configured offers it, and names this command.
+  { names: ['ai'], visible: false, summary: 'Choose the AI model align ask uses in the terminal', register: registerAiCommand },
   { names: ['capture'], visible: false, summary: 'Capture one decision from a URL', register: registerCaptureCommand },
   {
     names: ['connect'],

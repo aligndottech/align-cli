@@ -107,11 +107,12 @@ That is the whole of `align --help`. Every other command (`search`, `decisions`,
 `ratify`, `push`, `context`, `local`, ...) still works and is listed in
 [docs/commands.md](docs/commands.md).
 
-`align ask` needs an AI provider to write prose. Without one it returns the matching decisions
-as a ranked list, which needs no key. `align setup` offers a free Groq key (no card, ever) as
-the guided default, with Gemini as a backup for when Groq's daily limit is hit - or bring your
-own: Anthropic, OpenAI, Gemini, Groq, Mistral, Grok, any OpenAI-compatible endpoint, or a local
-Ollama. [Setting one up](docs/configuration.md#ai-provider).
+Inside your coding agent, the agent writes the answers - align needs no AI key for that. Only
+`align ask` in the terminal writes prose itself, and without a provider it returns the matching
+decisions as a ranked list. The first time that happens on a terminal, `align ask` offers to add
+a key you already have (Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, xAI) or a free Groq
+key (no card, ever). A local Ollama or any OpenAI-compatible endpoint works too, and `align ai`
+picks which one is used when you have several. [Setting one up](docs/configuration.md#ai-provider).
 
 ## Docs
 

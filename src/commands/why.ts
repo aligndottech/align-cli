@@ -272,6 +272,30 @@ export function registerAskCommand(program: Command): void {
           answer = synth.ok ? synth.text : null;
           if (!synth.ok) synthFailure = synth.failure;
 
+          // Nothing at all to write prose with: no env key, no saved key, no Ollama (the chain
+          // already probed it - `no_provider` is its verdict, so this adds no probe). On a
+          // terminal, offer a key HERE rather than in the first-run wizard, where a key asked
+          // for just before align opens the agent reads as something the agent needs (it is
+          // not). Once: "Not now" is remembered. Never under --json (returned above) or
+          // without a terminal, where the ranked list prints exactly as before.
+          if (
+            synthFailure?.kind === 'no_provider'
+            && process.stdin.isTTY && process.stdout.isTTY
+            && !config.isAskKeyOfferDismissed()
+          ) {
+            spinner.stop();
+            const { offerAskProviderKey } = await import('../lib/ask-key-offer.js');
+            if (await offerAskProviderKey(config) === 'configured') {
+              spinner.start();
+              const retry = await synthesiseDetailed(
+                query,
+                results.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
+              );
+              answer = retry.ok ? retry.text : null;
+              synthFailure = retry.ok ? undefined : retry.failure;
+            }
+          }
+
           // Auto-widen, stage 2: the scoped search DID return candidates, and the model
           // read them and abstained (the mandated sentinel makes that detectable). Weak
           // same-repo lookalikes with the real answer in another repo is exactly the

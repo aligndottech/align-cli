@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
+import { KEY_ENV_VARS, MODEL_ENV_VAR, OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL, parseProviderId, type StoredProviderId } from './llm-providers.js';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -73,42 +74,33 @@ export function migrateConfigDirectory(oldDir: string, newDir: string): void {
 }
 
 /**
- * The two free-tier providers `align setup` guides a user through (ALI-1284). Not the
- * full `AiProvider` union from local-llm.ts: this is specifically the pair the guided
- * setup step offers and persists, not a general secret store for every provider local-llm
- * already resolves from a plain env var.
+ * The providers a key can be saved for (ALI-1284 started with Groq and Gemini; the first-ask
+ * prompt and `align ai` save any of them). The name is kept for the callers that predate the
+ * widening.
  */
-export type GuidedProviderKey = 'groq' | 'gemini';
+export type GuidedProviderKey = StoredProviderId;
 
-const PROVIDER_ENV_VAR: Record<GuidedProviderKey, string> = {
-  groq: 'GROQ_API_KEY',
-  gemini: 'GEMINI_API_KEY',
-};
+/** The stored `align ask` provider preference (`align ai`). Both fields optional. */
+export interface LlmPreference { provider?: string; model?: string }
 
 /**
- * Every real env var `local-llm.ts`'s `keyForProvider` accepts for this provider - not just
- * the primary name hydration writes to. Gemini has a second, equally real alias
- * (`GOOGLE_API_KEY`), checked there with `||` ahead of a stored value. Missing this (Copilot
- * review, PR #322) meant a user who exported only `GOOGLE_API_KEY` still got the STORED
- * Gemini key hydrated into `GEMINI_API_KEY`, which then won `keyForProvider`'s own `||` -
- * silently shadowing a real, deliberately-set credential with a possibly-stale stored one.
- */
-const PROVIDER_ENV_ALIASES: Record<GuidedProviderKey, readonly string[]> = {
-  groq: ['GROQ_API_KEY'],
-  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
-};
-
-/**
- * ALI-1284: fills `process.env` from a previously-saved provider key, so `align ask`
- * keeps working on every invocation after the one where `align setup` collected it -
+ * ALI-1284: fills `process.env` from saved provider keys and the saved provider preference,
+ * so `align ask` keeps working on every invocation after the one that collected them -
  * without local-llm.ts (which resolves providers from plain env vars, and stays a
  * dependency-free pure module on purpose) ever knowing a config store exists.
  *
  * A real env var always wins and is never overwritten: this is a convenience default,
  * not a second source of truth, the same precedence `getEnvironment` already gives
- * ALIGN_TOKEN/ALIGN_TENANT_ID/ALIGN_GATEWAY_URL above. Checks every alias `keyForProvider`
- * itself accepts (not just the primary name), or hydrating the primary name from storage
- * would outrank a real credential the user set under an alias - see PROVIDER_ENV_ALIASES.
+ * ALIGN_TOKEN/ALIGN_TENANT_ID/ALIGN_GATEWAY_URL above. That gives the preference its order:
+ * an exported ALIGN_LLM_PROVIDER (or model variable) beats the saved one, which beats none.
+ * Checks every alias `keyForProvider` itself accepts (not just the primary name), or
+ * hydrating the primary name from storage would outrank a real credential the user set under
+ * an alias - see KEY_ENV_VARS.
+ *
+ * A saved OpenRouter key rides the generic OpenAI-compatible slot (ALIGN_LLM_BASE_URL +
+ * ALIGN_LLM_API_KEY + ALIGN_LLM_MODEL), and only when the shell has not pointed that slot
+ * somewhere else.
+ *
  * Called from the `preAction` Commander hook in cli.ts, before a command's own action runs
  * - never from module scope in index.ts, or a Conf store would be constructed (and its
  * defaults written to disk) for `align --version`, which startup-migration.test.ts pins as
@@ -118,13 +110,33 @@ const PROVIDER_ENV_ALIASES: Record<GuidedProviderKey, readonly string[]> = {
  * merely constructs a store.
  */
 export function hydrateProviderKeyEnv(
-  config: { getProviderKey(provider: GuidedProviderKey): string | null },
+  config: { getProviderKey(provider: GuidedProviderKey): string | null; getLlmPreference?(): LlmPreference },
   env: Record<string, string | undefined> = process.env,
 ): void {
-  for (const [provider, varName] of Object.entries(PROVIDER_ENV_VAR) as Array<[GuidedProviderKey, string]>) {
-    if (PROVIDER_ENV_ALIASES[provider].some((alias) => env[alias])) continue;
+  // 1. The preference, then its model - only when the preference in force IS the stored one,
+  //    so a stored Groq model never lands on a run the shell pointed at OpenAI.
+  const pref = config.getLlmPreference?.() ?? {};
+  const prefId = pref.provider ? parseProviderId(pref.provider) : null;
+  if (prefId && !env['ALIGN_LLM_PROVIDER']) env['ALIGN_LLM_PROVIDER'] = prefId;
+  const inForce = env['ALIGN_LLM_PROVIDER'] ? parseProviderId(env['ALIGN_LLM_PROVIDER']) : null;
+  if (prefId && pref.model && inForce === prefId) {
+    const modelVar = MODEL_ENV_VAR[prefId];
+    if (!env[modelVar]) env[modelVar] = pref.model;
+  }
+
+  // 2. Every saved key, never over a real one.
+  for (const [provider, vars] of Object.entries(KEY_ENV_VARS) as Array<[GuidedProviderKey, readonly string[]]>) {
+    if (vars.some((v) => env[v])) continue;
     const stored = config.getProviderKey(provider);
-    if (stored) env[varName] = stored;
+    if (stored) env[vars[0]!] = stored;
+  }
+
+  // 3. OpenRouter, through the generic endpoint slot.
+  const openrouter = config.getProviderKey('openrouter');
+  if (openrouter && !env['ALIGN_LLM_BASE_URL']) {
+    env['ALIGN_LLM_BASE_URL'] = OPENROUTER_BASE_URL;
+    env['ALIGN_LLM_API_KEY'] = openrouter;
+    if (!env['ALIGN_LLM_MODEL']) env['ALIGN_LLM_MODEL'] = OPENROUTER_DEFAULT_MODEL;
   }
 }
 
@@ -141,6 +153,8 @@ export function createConfigStore() {
     writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
+    llm?: LlmPreference;
+    askKeyOfferDismissed?: boolean;
   }>({
     projectName: 'align-cli',
     // conf's own default is 'nodejs' (node_modules/conf/dist/source/index.js), which
@@ -371,6 +385,26 @@ export function createConfigStore() {
       const existing = store.get('providerKeys') ?? {};
       const { [provider]: _removed, ...rest } = existing;
       store.set('providerKeys', rest);
+    },
+    // `align ai`: which provider (and optionally model) `align ask` tries first. Hydrated into
+    // ALIGN_LLM_PROVIDER by hydrateProviderKeyEnv, where an exported value wins.
+    getLlmPreference(): LlmPreference {
+      return store.get('llm') ?? {};
+    },
+    setLlmPreference(pref: LlmPreference) {
+      store.set('llm', pref);
+    },
+    clearLlmPreference() {
+      store.delete('llm');
+    },
+    // The first-ask key offer's "Not now", remembered so `align ask` does not ask every run.
+    // `align setup --reset` clears it; `align ai` is the way back in without a reset.
+    isAskKeyOfferDismissed(): boolean {
+      return store.get('askKeyOfferDismissed') === true;
+    },
+    setAskKeyOfferDismissed(dismissed: boolean) {
+      if (dismissed) store.set('askKeyOfferDismissed', true);
+      else store.delete('askKeyOfferDismissed');
     },
     // ALI-795: which one-shot funnel stages this install has already emitted. Per-install
     // like installId (a funnel counts an install once); the emitter consults it so the

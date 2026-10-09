@@ -7,31 +7,53 @@ provider** - there is no Align-managed fallback, in either cloud or local mode. 
 required: without one, `align ask` prints a ranked list of matching decisions instead of a
 synthesised paragraph.
 
-`align setup` offers a guided path to a free key rather than leaving you to find one: a Groq
-key (no card, ever - the fastest free tier) as the primary, with Gemini offered as a second key
-for when Groq's daily request cap is hit. Say yes to both and Groq is the one actually tried
-first - see the priority order below. Declining costs nothing; `align ask` still works without
-either, just without prose. Skip the prompt and set a key yourself any time.
+**Inside a coding agent you don't need a key at all** - the agent writes the answers from what
+the MCP tools return. A provider only matters for `align ask` in the terminal. Setup does not
+ask for one.
 
-A plain re-run of `align setup` does **not** re-offer either key once one is saved - it would
-otherwise nag on every run. If you saved Groq but skipped the Gemini backup and want to add it
-later (or remove either key), use `align setup --reset`, which re-asks both questions - **but
-only if you accept the re-offered Groq key.** Declining it clears the stored Groq key and
-returns without ever reaching the Gemini question, since declining under `--reset` means
-"forget this key," not "skip past it." If you only want to add Gemini and keep Groq as-is,
-accept the Groq re-offer (paste the same key again) to reach the Gemini question.
+The first time `align ask` has no provider at all (no env key, no saved key, no running Ollama)
+on a terminal, it offers one before answering:
 
-**Interactive `--reset`** only re-offers when nothing ELSE is configured: if you have a
-different provider set via env (`ANTHROPIC_API_KEY`, say) alongside a stale stored
-Groq/Gemini key, `--reset` leaves the stale stored key in place rather than re-asking or
-clearing it - that other provider already means "nothing to fix" as far as this wizard is
-concerned. **`--reset --approve` does not share that exception** - being non-interactive, it
-clears both stored keys unconditionally, even with another provider configured, so a
-scripted `--reset --approve` run is the one path that always removes them regardless.
+- **Use a key I already have** - Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral or xAI.
+  The key is pasted into a masked prompt, saved in the CLI's config file (mode 0600, beside your
+  connector tokens) and never printed. An OpenRouter key is used through the OpenAI-compatible
+  slot below, with `https://openrouter.ai/api/v1` and `openai/gpt-4o-mini` as the defaults.
+- **Get a free Groq key** - no card, ever. Optionally a Gemini key as backup.
+- **Not now - just show matching decisions** (the default). Remembered, so it does not ask
+  again. Without a terminal, or with `--json`, it never asks.
 
-It resolves a provider in this order - named providers are tried in the order listed under (2)
-below, so with both GROQ_API_KEY and GEMINI_API_KEY set, Groq answers and Gemini is only reached
-if Groq's response is itself unusable (not on a plain rate limit - see the warning under (2)).
+To add a key or change your mind later, run `align ai`. `align setup --reset` clears every
+saved key and turns the offer back on.
+
+### Choosing a provider when you have several
+
+`align ai` lists every provider it can find - exported keys (`env`), keys align saved
+(`saved`), a running Ollama (`local`) and a custom endpoint - and stores the one you pick.
+Without a terminal, set it directly:
+
+```bash
+align ai --provider openai                 # try OpenAI first
+align ai --provider groq --model llama-3.3-70b-versatile
+align ai --provider auto                   # back to the default order
+```
+
+Precedence, highest first:
+
+1. `ALIGN_LLM_PROVIDER` exported in your shell
+2. the provider saved by `align ai`
+3. the default order below
+
+The model works the same way: a provider's own model variable (`ALIGN_OPENAI_MODEL`, ...) beats
+the model saved by `align ai`. A preferred provider that is not available (no key, Ollama not
+running) is skipped, and the default order runs as if there were no preference. A preference
+only changes which provider is asked first: a provider that answers badly still stops the call
+(see the warning under (2)).
+
+### The default order
+
+Named providers are tried in the order listed under (2) below, so with both GROQ_API_KEY and
+GEMINI_API_KEY set, Groq answers and Gemini is only reached if Groq is unavailable (a bad key,
+say - not on a plain rate limit, see the warning under (2)).
 
 ### 1. Any OpenAI-compatible endpoint
 
@@ -49,7 +71,7 @@ export ALIGN_LLM_MODEL=deepseek-chat
 
 Tried in this order: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`
 (or `GOOGLE_API_KEY`), `MISTRAL_API_KEY`, `GROK_API_KEY` (or `XAI_API_KEY`) - Groq ahead of
-Gemini specifically so the guided setup pairing above has a real primary.
+Gemini specifically so the free Groq + Gemini pairing above has a real primary.
 
 Each has an optional model override: `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`,
 `ALIGN_GROQ_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`.
@@ -61,11 +83,10 @@ Each has an optional model override: `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODE
 > through to a different, weaker model would misattribute whose answer you are reading. The
 > next `align ask` call tries Groq again, since nothing here remembers the failure.
 >
-> A key the guided `align setup` step stored is re-applied on every invocation, so **unsetting
-> `GROQ_API_KEY` in your shell does not work** as a way to prefer Gemini for the rest of the
-> day - the stored value comes straight back. Run `align setup --reset` and decline the
-> re-offered Groq key: that clears the stored key (not just skips re-asking for it), so a
-> previously-stored Gemini key, or none at all, takes over on the next `align ask`.
+> A saved key is re-applied on every invocation, so **unsetting `GROQ_API_KEY` in your shell
+> does not work** as a way to prefer Gemini for the rest of the day - the stored value comes
+> straight back. Run `align ai --provider gemini` instead, or `align setup --reset` to clear
+> every saved key.
 
 ### 3. Ollama
 
@@ -127,6 +148,7 @@ align search "auth" --env local   # one-off override on any command
 | `ALIGN_LLM_BASE_URL` | Any OpenAI-compatible endpoint. Outranks the named keys above |
 | `ALIGN_LLM_API_KEY` | Bearer token for `ALIGN_LLM_BASE_URL` |
 | `ALIGN_LLM_MODEL` | Model name for `ALIGN_LLM_BASE_URL` (default `gpt-4o-mini`) |
+| `ALIGN_LLM_PROVIDER` | The provider `align ask` tries first: `anthropic`, `openai`, `openrouter`, `gemini`, `groq`, `mistral`, `grok`, `custom` or `ollama`. Beats the one saved by `align ai` |
 | `ALIGN_LLM_TIMEOUT_MS` | How long to wait for a model. Defaults to 15s for a hosted API and 5 minutes for one on your own machine or network, because a large quantised model on CPU takes minutes and there is no cost pressure to give up early on hardware you own. Set it if even that is not enough |
 | `OLLAMA_HOST` | Ollama host (default `http://localhost:11434`). Your own machine by default; point it at a shared box and local relationship typing goes there instead |
 | `ALIGN_OLLAMA_MODEL` | Use this Ollama model, whatever family it's from |

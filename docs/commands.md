@@ -108,6 +108,11 @@ align use [agent]             Choose the coding agent bare `align` opens (no arg
 align invite <email>          Invite a teammate to your shared Align decision graph
                               flags: --env
 
+# Choose the AI model align ask uses in the terminal
+
+align ai                      Choose the AI model `align ask` writes terminal answers with, or add a key
+                              flags: --provider --model
+
 # Capture one decision from a URL
 
 align capture <url>           Capture a decision from a URL (Slack/Jira/GitHub/Confluence/etc.)

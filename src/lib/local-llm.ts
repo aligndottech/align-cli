@@ -1,4 +1,5 @@
 import { charsForTokens, estimateTokens } from './token-estimate.js';
+import { LLM_PROVIDER_IDS, parseProviderId } from './llm-providers.js';
 
 export type AiProvider = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'mistral' | 'grok';
 
@@ -775,38 +776,63 @@ export async function resolveOllamaWindow(host: string, model: string): Promise<
   return { tokens, source };
 }
 
+function ollamaHost(): string {
+  // `||`, not `??`: OLLAMA_HOST='' (a stock .env template, an unset compose variable)
+  // would otherwise make every probe a relative URL that fetch cannot parse.
+  return process.env['OLLAMA_HOST'] || 'http://localhost:11434';
+}
+
+/**
+ * The /api/tags probe is discovery, not a model answering: every way it can fail (not
+ * running, no models, nothing recognised) means "no usable model here".
+ */
+async function discoverOllamaModel(host: string): Promise<{ ok: true; model: string } | { ok: false; outcome: AdapterOutcome }> {
+  try {
+    const tagsRes = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(2000) });
+    if (!tagsRes.ok) return { ok: false, outcome: { kind: 'unavailable', detail: 'tags probe failed' } };
+    const tags = await tagsRes.json() as { models?: Array<{ name: string }> };
+    const models = (tags.models ?? []).map(m => m.name);
+    if (!models.length) return { ok: false, outcome: { kind: 'unavailable', detail: 'no models installed' } };
+    const choice = resolveOllamaModel(models, process.env['ALIGN_OLLAMA_MODEL']);
+    if (!choice.ok) {
+      // The models travel WITH the outcome, so the caller that asked gets them - see
+      // LlmFailure. A module variable here could be cleared by a concurrent call.
+      return {
+        ok: false,
+        outcome: choice.reason === 'no_recognised_model'
+          ? { kind: 'unavailable', detail: choice.reason, unrecognisedModels: models }
+          : { kind: 'unavailable', detail: choice.reason },
+      };
+    }
+    return { ok: true, model: choice.model };
+  } catch (err) {
+    return { ok: false, outcome: { kind: 'unavailable', detail: String(err) } };
+  }
+}
+
+/**
+ * The model a running local Ollama would answer with, or null. The same 2s /api/tags probe
+ * `align ask` already runs on its way down the chain - `align ai` uses it to list Ollama
+ * beside the keys, and adds no slower check.
+ */
+export async function probeOllama(): Promise<string | null> {
+  const d = await discoverOllamaModel(ollamaHost());
+  return d.ok ? d.model : null;
+}
+
 async function tryOllama(
   system: string,
   user: string | ((windowTokens: number) => string),
   temperature?: number,
   maxTokens = 256,
 ): Promise<AdapterOutcome> {
-  // `||`, not `??`: OLLAMA_HOST='' (a stock .env template, an unset compose variable)
-  // would otherwise make every probe a relative URL that fetch cannot parse, so a
-  // healthy local Ollama is never asked and the user is told to configure a key.
-  const host = process.env['OLLAMA_HOST'] || 'http://localhost:11434';
+  // ollamaHost: OLLAMA_HOST='' must not make every probe a relative URL, or a healthy local
+  // Ollama is never asked and the user is told to configure a key.
+  const host = ollamaHost();
 
-  // The /api/tags probe is discovery, not a model answering: every way it can fail
-  // (not running, no models, nothing recognised) means "no usable model here".
-  let model: string;
-  try {
-    const tagsRes = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(2000) });
-    if (!tagsRes.ok) return { kind: 'unavailable', detail: 'tags probe failed' };
-    const tags = await tagsRes.json() as { models?: Array<{ name: string }> };
-    const models = (tags.models ?? []).map(m => m.name);
-    if (!models.length) return { kind: 'unavailable', detail: 'no models installed' };
-    const choice = resolveOllamaModel(models, process.env['ALIGN_OLLAMA_MODEL']);
-    if (!choice.ok) {
-      // The models travel WITH the outcome, so the caller that asked gets them - see
-      // LlmFailure. A module variable here could be cleared by a concurrent call.
-      return choice.reason === 'no_recognised_model'
-        ? { kind: 'unavailable', detail: choice.reason, unrecognisedModels: models }
-        : { kind: 'unavailable', detail: choice.reason };
-    }
-    model = choice.model;
-  } catch (err) {
-    return { kind: 'unavailable', detail: String(err) };
-  }
+  const discovered = await discoverOllamaModel(host);
+  if (!discovered.ok) return discovered.outcome;
+  const model = discovered.model;
 
   // Only the CHOSEN model's window matters, and it is not known until here - this is the
   // "code that knows the window" from the design decision: `user` is resolved with the real
@@ -911,6 +937,38 @@ async function callProvider(
 const ALL_PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'groq', 'gemini', 'mistral', 'grok'];
 
 /**
+ * The provider `align ask` tries FIRST, or undefined for the fixed chain. Precedence, in one
+ * place:
+ *
+ *   1. ALIGN_LLM_PROVIDER exported in the shell
+ *   2. the saved preference (`align ai`), which hydrateProviderKeyEnv copies into
+ *      ALIGN_LLM_PROVIDER only when the shell set none - so this reads one variable
+ *   3. nothing: the fixed chain below (custom endpoint, Anthropic, OpenAI, Groq, Gemini,
+ *      Mistral, xAI, Ollama)
+ *
+ * The model follows the same rule: a provider's own model variable (ALIGN_OPENAI_MODEL,
+ * ALIGN_LLM_MODEL for the custom endpoint, ...) beats the saved model.
+ *
+ * A preferred provider that is not available (no key, Ollama not running) is skipped and the
+ * chain runs as if there were no preference. `openrouter` names the custom-endpoint slot,
+ * which is where a saved OpenRouter key is hydrated. An unknown value warns and is ignored:
+ * a typo must not stop `align ask` answering.
+ */
+export function preferredProvider(): 'custom' | AiProvider | 'ollama' | undefined {
+  const raw = process.env['ALIGN_LLM_PROVIDER'];
+  if (!raw) return undefined;
+  const id = parseProviderId(raw);
+  if (!id) {
+    console.error(
+      `align: ignoring ALIGN_LLM_PROVIDER=${JSON.stringify(raw)} - it must be one of ` +
+      `${LLM_PROVIDER_IDS.join(', ')}.`,
+    );
+    return undefined;
+  }
+  return id === 'openrouter' ? 'custom' : id;
+}
+
+/**
  * Is any LLM provider configured by environment? (ALI-414)
  *
  * `callChat` returns null for a missing key and for a provider that answered unusably
@@ -1009,36 +1067,45 @@ export async function callChatDetailed(
   // documentation, which is exactly how it got into the README twice. If a future path
   // needs explicit provider injection, add it WITH its caller.
 
-  // 1. generic OpenAI-compatible escape hatch - covers any provider
-  const baseUrl = process.env['ALIGN_LLM_BASE_URL'];
-  if (baseUrl) {
-    const key = process.env['ALIGN_LLM_API_KEY'] ?? '';
-    const model = process.env['ALIGN_LLM_MODEL'] || 'gpt-4o-mini';
-    const settled = settle(
-      await tryOpenAiCompatible(system, getHostedUser(), chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
-      'custom',
-      true,
-    );
-    if (settled) return settled;
-  }
+  // The fixed chain: the generic endpoint, the named providers by env key, then local Ollama.
+  // A preferred provider (preferredProvider) moves to the front and is otherwise walked
+  // exactly like every other slot - same settle, same ALI-692 advance rules - so a
+  // preference changes only WHICH provider is asked first, never what a failure means.
+  type Slot = 'custom' | AiProvider | 'ollama';
+  const preferred = preferredProvider();
+  const chain: Slot[] = ['custom', ...ALL_PROVIDERS, 'ollama'];
+  const order = preferred ? [preferred, ...chain.filter((s) => s !== preferred)] : chain;
 
-  // 2. named providers via env keys, in priority order
-  for (const provider of ALL_PROVIDERS) {
-    const key = keyForProvider(provider);
-    if (key) {
+  for (const slot of order) {
+    if (slot === 'custom') {
+      // 1. generic OpenAI-compatible escape hatch - covers any provider
+      const baseUrl = process.env['ALIGN_LLM_BASE_URL'];
+      if (!baseUrl) continue;
+      const key = process.env['ALIGN_LLM_API_KEY'] ?? '';
+      const model = process.env['ALIGN_LLM_MODEL'] || 'gpt-4o-mini';
       const settled = settle(
-        await callProvider(provider, key, system, getHostedUser(), maxTokens, temperature),
-        provider,
+        await tryOpenAiCompatible(system, getHostedUser(), chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
+        'custom',
+        true,
+      );
+      if (settled) return settled;
+    } else if (slot === 'ollama') {
+      // 3. local Ollama as last resort. configured=false unless the user PREFERRED it: the
+      // probe runs whether or not anyone asked for Ollama.
+      const settled = settle(await tryOllama(system, user, temperature, maxTokens), 'ollama', preferred === 'ollama');
+      if (settled) return settled;
+    } else {
+      // 2. named providers via env keys, in priority order
+      const key = keyForProvider(slot);
+      if (!key) continue;
+      const settled = settle(
+        await callProvider(slot, key, system, getHostedUser(), maxTokens, temperature),
+        slot,
         true,
       );
       if (settled) return settled;
     }
   }
-
-  // 3. local Ollama as last resort
-  // configured=false: the probe runs whether or not anyone asked for Ollama.
-  const settled = settle(await tryOllama(system, user, temperature, maxTokens), 'ollama', false);
-  if (settled) return settled;
 
   // Nothing answered. An unrecognised local model is the more specific diagnosis and
   // its remedy is the opposite of "configure a provider", so it wins (ALI-420).
