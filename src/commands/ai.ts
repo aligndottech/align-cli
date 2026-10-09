@@ -81,7 +81,7 @@ export function registerAiCommand(program: Command): void {
         return;
       }
 
-      const options: Array<{ value: LlmProviderId | 'add' | 'auto'; label: string; hint?: string }> = found.map((d) => ({
+      const options: Array<{ value: string; label: string; hint?: string }> = found.map((d) => ({
         value: d.id,
         label: PROVIDER_LABEL[d.id],
         hint: `${sourceHint(d)}${d.id === current ? ' - current' : ''}`,
@@ -89,7 +89,7 @@ export function registerAiCommand(program: Command): void {
       options.push({ value: 'add', label: 'Add another key...' });
       if (current) options.push({ value: 'auto', label: 'Automatic', hint: 'first available, in the default order' });
 
-      const choice = await guardedPrompt('AI provider', () => p.select({
+      const choice = await guardedPrompt('AI provider', () => p.select<string>({
         message: `Which AI model should ${chalk.bold('align ask')} write terminal answers with?`,
         options,
         initialValue: current && found.some((d) => d.id === current) ? current : options[0]!.value,
@@ -109,7 +109,8 @@ export function registerAiCommand(program: Command): void {
         config.setAskKeyOfferDismissed(false);
         return;
       }
-      config.setLlmPreference({ provider: choice });
-      p.log.success(`${chalk.bold('align ask')} now tries ${PROVIDER_LABEL[choice]} first.`);
+      const picked = choice as LlmProviderId;
+      config.setLlmPreference({ provider: picked });
+      p.log.success(`${chalk.bold('align ask')} now tries ${PROVIDER_LABEL[picked]} first.`);
     });
 }

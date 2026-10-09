@@ -22,7 +22,8 @@ const NEW: Row[] = [
   ['huggingface', 'HF_TOKEN', 'https://router.huggingface.co/v1/chat/completions', 'meta-llama/Llama-3.1-8B-Instruct', 'openai'],
   ['baseten', 'BASETEN_API_KEY', 'https://inference.baseten.co/v1/chat/completions', 'deepseek-ai/DeepSeek-V4-Flash-0731', 'openai'],
   ['xiaomi', 'XIAOMI_API_KEY', 'https://api.xiaomimimo.com/v1/chat/completions', 'mimo-v2.5', 'openai'],
-  ['qwen', 'QWEN_TOKEN_PLAN_API_KEY', 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions', 'qwen3.6-flash', 'openai'],
+  ['qwen', 'DASHSCOPE_API_KEY', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions', 'qwen3.5-flash', 'openai'],
+  ['qwen-token-plan', 'QWEN_TOKEN_PLAN_API_KEY', 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions', 'qwen3.6-flash', 'openai'],
   ['minimax', 'MINIMAX_API_KEY', 'https://api.minimax.io/anthropic/v1/messages', 'MiniMax-M2.7', 'anthropic'],
   ['kimi-coding', 'KIMI_API_KEY', 'https://api.kimi.com/coding/v1/messages', 'kimi-for-coding', 'anthropic'],
   ['vercel-ai-gateway', 'AI_GATEWAY_API_KEY', 'https://ai-gateway.vercel.sh/v1/messages', 'openai/gpt-4o-mini', 'anthropic'],
@@ -50,8 +51,11 @@ afterEach(() => {
 });
 
 describe.each(NEW)('%s', (id, envVar, url, model, shape) => {
-  it(`answers from ${envVar} at the exact endpoint, with its default model`, async () => {
+  // An exported key alone is only AVAILABLE for these (llm-env-only-providers.test.ts), so each
+  // test that exercises the exported key also chooses the provider.
+  it(`answers from ${envVar} at the exact endpoint, with its default model, once chosen`, async () => {
     vi.stubEnv(envVar, `key-${id}`);
+    vi.stubEnv('ALIGN_LLM_PROVIDER', id);
     mockFetch.mockResolvedValue(ok(shape, `from ${id}`));
     expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: `from ${id}` });
     expect(call()[0]).toBe(url);
@@ -87,29 +91,11 @@ describe.each(NEW)('%s', (id, envVar, url, model, shape) => {
   it('its model variable overrides the default', async () => {
     const p = NAMED_PROVIDERS.find((n) => n.id === id)!;
     vi.stubEnv(envVar, 'k');
+    vi.stubEnv('ALIGN_LLM_PROVIDER', id);
     vi.stubEnv(p.modelEnv, 'custom-model-x');
     mockFetch.mockResolvedValue(ok(shape, 'x'));
     await callChatDetailed('s', 'u');
     expect(JSON.parse(call()[1].body).model).toBe('custom-model-x');
-  });
-});
-
-describe('Qwen with a DashScope key', () => {
-  it('DASHSCOPE_API_KEY goes to the DashScope international endpoint with a DashScope model', async () => {
-    vi.stubEnv('DASHSCOPE_API_KEY', 'sk-ds');
-    mockFetch.mockResolvedValue(ok('openai', 'x'));
-    await callChatDetailed('s', 'u');
-    expect(call()[0]).toBe('https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions');
-    expect(JSON.parse(call()[1].body).model).toBe('qwen3.5-flash');
-    expect(call()[1].headers['Authorization']).toBe('Bearer sk-ds');
-  });
-
-  it('a token-plan key still goes to the token-plan endpoint when both are set (the table\'s own name first)', async () => {
-    vi.stubEnv('QWEN_TOKEN_PLAN_API_KEY', 'tp');
-    vi.stubEnv('DASHSCOPE_API_KEY', 'sk-ds');
-    mockFetch.mockResolvedValue(ok('openai', 'x'));
-    await callChatDetailed('s', 'u');
-    expect(call()[0]).toBe('https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions');
   });
 });
 
@@ -125,15 +111,15 @@ describe('the provider list', () => {
 
   it('every new key variable is one the launcher resets before starting an agent', () => {
     for (const [, envVar] of NEW) expect(PROVIDER_ENV_VARS).toContain(envVar);
-    expect(PROVIDER_ENV_VARS).toContain('DASHSCOPE_API_KEY');
   });
 });
 
 describe('OpenRouter from an exported OPENROUTER_API_KEY', () => {
   const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-  it('answers at OpenRouter with the default model', async () => {
+  it('answers at OpenRouter with the default model, once chosen', async () => {
     vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    vi.stubEnv('ALIGN_LLM_PROVIDER', 'openrouter');
     mockFetch.mockResolvedValue(ok('openai', 'from openrouter'));
     expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from openrouter' });
     expect(call()[0]).toBe(OR_URL);
@@ -143,13 +129,14 @@ describe('OpenRouter from an exported OPENROUTER_API_KEY', () => {
 
   it('ALIGN_OPENROUTER_MODEL overrides the model', async () => {
     vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
+    vi.stubEnv('ALIGN_LLM_PROVIDER', 'openrouter');
     vi.stubEnv('ALIGN_OPENROUTER_MODEL', 'anthropic/claude-haiku-4.5');
     mockFetch.mockResolvedValue(ok('openai', 'x'));
     await callChatDetailed('s', 'u');
     expect(JSON.parse(call()[1].body).model).toBe('anthropic/claude-haiku-4.5');
   });
 
-  it('is an exported key: it beats a SAVED OpenRouter key', async () => {
+  it('with a saved OpenRouter key too, the exported key is the one sent', async () => {
     vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
     setSavedLlmSource(() => ({ keys: { openrouter: 'sk-or-saved' } }));
     mockFetch.mockResolvedValue(ok('openai', 'x'));
@@ -158,11 +145,12 @@ describe('OpenRouter from an exported OPENROUTER_API_KEY', () => {
     expect(call()[1].headers['Authorization']).toBe('Bearer sk-or-env');
   });
 
-  it('is an exported key: it beats a saved Anthropic key', async () => {
+  it('exported alone is only available: a saved Anthropic key answers, OpenRouter is not called', async () => {
     vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-env');
     setSavedLlmSource(() => ({ keys: { anthropic: 'sk-ant-saved' } }));
     mockFetch.mockImplementation(async (u: string) => (u === OR_URL ? ok('openai', 'from openrouter') : ok('anthropic', 'from anthropic')));
-    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from openrouter' });
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from anthropic' });
+    expect(mockFetch.mock.calls.map((c) => c[0])).not.toContain(OR_URL);
   });
 
   it('runs after the original six: an exported Anthropic key answers first', async () => {

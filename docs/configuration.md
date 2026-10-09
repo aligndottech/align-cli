@@ -93,9 +93,15 @@ Gemini specifically so the free Groq + Gemini pairing above has a real primary.
 Each has an optional model override: `ALIGN_ANTHROPIC_MODEL`, `ALIGN_OPENAI_MODEL`,
 `ALIGN_GROQ_MODEL`, `ALIGN_GEMINI_MODEL`, `ALIGN_MISTRAL_MODEL`, `ALIGN_GROK_MODEL`.
 
-After those, and only when you have the key, any of these (OpenAI-compatible unless noted).
-Each has a model override `ALIGN_<ID>_MODEL` (e.g. `ALIGN_DEEPSEEK_MODEL`) and can be chosen
-with `align ai --provider <id>`:
+After those, any of these (OpenAI-compatible unless noted). Each has a model override
+`ALIGN_<ID>_MODEL` (e.g. `ALIGN_DEEPSEEK_MODEL`).
+
+**Exporting one of these keys is not enough on its own.** Their variables are often exported
+for other tools (`HF_TOKEN` for model downloads, `NVIDIA_API_KEY` for NGC), so align lists the
+provider as available but sends nothing to it until you either save a key for it or choose it
+with `align ai` (or `ALIGN_LLM_PROVIDER`). Choosing one whose key is already in your shell
+saves only the choice, never a copy of the key. The six above are used from an exported key
+straight away, as before.
 
 | id | Key variable | Default model |
 |---|---|---|
@@ -109,10 +115,14 @@ with `align ai --provider <id>`:
 | `huggingface` | `HF_TOKEN` | `meta-llama/Llama-3.1-8B-Instruct` |
 | `baseten` | `BASETEN_API_KEY` | `deepseek-ai/DeepSeek-V4-Flash-0731` |
 | `xiaomi` | `XIAOMI_API_KEY` | `mimo-v2.5` |
-| `qwen` | `QWEN_TOKEN_PLAN_API_KEY` (Token Plan), or `DASHSCOPE_API_KEY` (DashScope international) | `qwen3.6-flash` / `qwen3.5-flash` |
+| `qwen` | `DASHSCOPE_API_KEY` (Alibaba Model Studio, international DashScope endpoint) | `qwen3.5-flash` |
+| `qwen-token-plan` | `QWEN_TOKEN_PLAN_API_KEY` (Alibaba Token Plan host) | `qwen3.6-flash` |
 | `minimax` | `MINIMAX_API_KEY` (Anthropic-style API) | `MiniMax-M2.7` |
 | `kimi-coding` | `KIMI_API_KEY` (Anthropic-style API) | `kimi-for-coding` |
 | `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` (Anthropic-style API) | `openai/gpt-4o-mini` |
+
+The three Anthropic-style entries send the key as Anthropic's `x-api-key` header. That each of
+them accepts it has not been checked against a live endpoint.
 | `openrouter` | `OPENROUTER_API_KEY` (model: `ALIGN_OPENROUTER_MODEL`) | `openai/gpt-4o-mini` |
 
 Cloudflare Workers AI and Azure OpenAI need an account id or a per-resource endpoint, so they

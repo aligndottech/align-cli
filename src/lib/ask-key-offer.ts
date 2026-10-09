@@ -17,7 +17,7 @@
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import type { LlmPreference } from './config.js';
-import { listConfiguredCredentials } from './local-llm.js';
+import { listConfiguredCredentials, unusedExportedKeys } from './local-llm.js';
 import {
   type LlmProviderId,
   PROVIDER_KEY_URL,
@@ -32,6 +32,7 @@ export interface KeyStore {
   getProviderKey(provider: StoredProviderId): string | null;
   setProviderKey(provider: StoredProviderId, key: string): void;
   getLlmPreference?(): LlmPreference;
+  setLlmPreference(pref: LlmPreference): void;
 }
 
 export interface OfferStore extends KeyStore {
@@ -55,11 +56,25 @@ async function pasteKey(id: StoredProviderId): Promise<string | null | symbol> {
  * null when the user backed out or pasted nothing.
  */
 export async function promptForProviderKey(config: KeyStore): Promise<StoredProviderId | null> {
-  const id = await guardedPrompt('Provider', () => p.select<StoredProviderId>({
+  // Keys already exported for a provider align does not use on its own (HF_TOKEN for model
+  // downloads, say) come first: picking one saves only the CHOICE, so the key stays in the
+  // user's shell and is never copied into align's config.
+  const exported = unusedExportedKeys().filter((k) => k.id !== 'custom' && k.id !== 'ollama');
+  const choice = await guardedPrompt('Provider', () => p.select<string>({
     message: 'Which provider is the key for?',
-    options: STORABLE_PROVIDERS.map((value) => ({ value, label: PROVIDER_LABEL[value] })),
+    options: [
+      ...exported.map((k) => ({ value: `env:${k.id}`, label: `${PROVIDER_LABEL[k.id]} (found ${k.envVar} in your shell)` })),
+      ...STORABLE_PROVIDERS.map((value) => ({ value, label: PROVIDER_LABEL[value] })),
+    ],
   }));
-  if (id === null || p.isCancel(id)) return null;
+  if (choice === null || p.isCancel(choice) || typeof choice !== 'string') return null;
+  if (choice.startsWith('env:')) {
+    const id = choice.slice(4) as StoredProviderId;
+    config.setLlmPreference({ provider: id });
+    p.log.success(`${chalk.bold('align ask')} now uses ${PROVIDER_LABEL[id]} with the key in your shell.`);
+    return id;
+  }
+  const id = choice as StoredProviderId;
   const key = await pasteKey(id);
   if (key === null || typeof key !== 'string') {
     if (key === null) p.log.warn('No key entered - nothing saved.');

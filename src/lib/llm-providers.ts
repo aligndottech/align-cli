@@ -21,11 +21,13 @@ export interface NamedProvider {
   /** The full request URL. Required for 'openai'. */
   endpoint?: string;
   /**
-   * A key read from one of these env vars goes to a different endpoint, with its own default
-   * model. Qwen: the token-plan key and a DashScope key are different products on different
-   * hosts, and a key sent to the wrong one is rejected.
+   * Use a key exported under keyEnv with no further say-so. True for the original six only.
+   * Every later provider's variables are commonly exported for OTHER tools (HF_TOKEN for model
+   * downloads, NVIDIA_API_KEY for NGC), so an exported key alone only makes the provider
+   * AVAILABLE: align uses it once the user saves a key for it or chooses it (`align ai`,
+   * ALIGN_LLM_PROVIDER). Otherwise their decision text would go to a provider they never picked.
    */
-  keyRoutes?: Record<string, { endpoint: string; defaultModel: string }>;
+  autoFromEnv?: true;
   /** Where to get a key, shown beside the paste prompt. */
   keyUrl: string;
 }
@@ -33,7 +35,7 @@ export interface NamedProvider {
 export type NamedProviderId =
   | 'anthropic' | 'openai' | 'groq' | 'gemini' | 'mistral' | 'grok'
   | 'deepseek' | 'zai' | 'moonshotai' | 'cerebras' | 'fireworks' | 'together' | 'nvidia'
-  | 'huggingface' | 'baseten' | 'xiaomi' | 'qwen' | 'minimax' | 'kimi-coding' | 'vercel-ai-gateway';
+  | 'huggingface' | 'baseten' | 'xiaomi' | 'qwen' | 'qwen-token-plan' | 'minimax' | 'kimi-coding' | 'vercel-ai-gateway';
 
 /**
  * In the fixed fallback order (ALI-1284: Groq ahead of Gemini, so the free pairing has a real
@@ -41,15 +43,18 @@ export type NamedProviderId =
  */
 export const NAMED_PROVIDERS: readonly NamedProvider[] = [
   {
+    autoFromEnv: true,
     id: 'anthropic', label: 'Anthropic', keyEnv: ['ANTHROPIC_API_KEY'], modelEnv: 'ALIGN_ANTHROPIC_MODEL',
     defaultModel: 'claude-haiku-4-5-20251001', api: 'anthropic', keyUrl: 'https://console.anthropic.com/settings/keys',
   },
   {
+    autoFromEnv: true,
     id: 'openai', label: 'OpenAI', keyEnv: ['OPENAI_API_KEY'], modelEnv: 'ALIGN_OPENAI_MODEL',
     defaultModel: 'gpt-4o-mini', api: 'openai', endpoint: 'https://api.openai.com/v1/chat/completions',
     keyUrl: 'https://platform.openai.com/api-keys',
   },
   {
+    autoFromEnv: true,
     id: 'groq', label: 'Groq', keyEnv: ['GROQ_API_KEY'], modelEnv: 'ALIGN_GROQ_MODEL',
     defaultModel: 'llama-3.1-8b-instant', api: 'openai', endpoint: 'https://api.groq.com/openai/v1/chat/completions',
     keyUrl: 'https://console.groq.com/keys',
@@ -57,15 +62,18 @@ export const NAMED_PROVIDERS: readonly NamedProvider[] = [
   {
     // ALI-1284: a Flash-Lite model, which is what the free pairing is sold as. Override with
     // ALIGN_GEMINI_MODEL if Google retires it.
+    autoFromEnv: true,
     id: 'gemini', label: 'Gemini', keyEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], modelEnv: 'ALIGN_GEMINI_MODEL',
     defaultModel: 'gemini-2.5-flash-lite', api: 'gemini', keyUrl: 'https://aistudio.google.com/apikey',
   },
   {
+    autoFromEnv: true,
     id: 'mistral', label: 'Mistral', keyEnv: ['MISTRAL_API_KEY'], modelEnv: 'ALIGN_MISTRAL_MODEL',
     defaultModel: 'mistral-small-latest', api: 'openai', endpoint: 'https://api.mistral.ai/v1/chat/completions',
     keyUrl: 'https://console.mistral.ai/api-keys',
   },
   {
+    autoFromEnv: true,
     id: 'grok', label: 'xAI', keyEnv: ['GROK_API_KEY', 'XAI_API_KEY'], modelEnv: 'ALIGN_GROK_MODEL',
     defaultModel: 'grok-2-latest', api: 'openai', endpoint: 'https://api.x.ai/v1/chat/completions',
     keyUrl: 'https://console.x.ai',
@@ -101,25 +109,23 @@ export const NAMED_PROVIDERS: readonly NamedProvider[] = [
   openAi('xiaomi', 'Xiaomi MiMo', ['XIAOMI_API_KEY'], 'https://api.xiaomimimo.com/v1/chat/completions',
     'mimo-v2.5', 'https://platform.xiaomimimo.com'),
   {
-    // Alibaba Model Studio. QWEN_TOKEN_PLAN_API_KEY and its endpoint/model are pi-ai's (the
-    // Token Plan). DASHSCOPE_API_KEY is an ordinary Model Studio key, routed to the legacy
-    // international DashScope domain, which Alibaba documents as still valid -
-    // https://www.alibabacloud.com/help/en/model-studio/base-url - with qwen3.5-flash from
-    // https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions.
-    // A SAVED Qwen key uses the token-plan route, matching the env name listed first.
-    id: 'qwen', label: 'Qwen (Alibaba Model Studio)', keyEnv: ['QWEN_TOKEN_PLAN_API_KEY', 'DASHSCOPE_API_KEY'],
-    modelEnv: 'ALIGN_QWEN_MODEL', defaultModel: 'qwen3.6-flash', api: 'openai',
-    endpoint: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions',
-    keyRoutes: {
-      DASHSCOPE_API_KEY: {
-        endpoint: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
-        defaultModel: 'qwen3.5-flash',
-      },
-    },
+    // Alibaba Model Studio: an ordinary Model Studio key (what the paste prompt's console link
+    // issues), at the international DashScope compatible-mode domain Alibaba documents as
+    // still valid - https://www.alibabacloud.com/help/en/model-studio/base-url - with
+    // qwen3.5-flash from https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions.
+    id: 'qwen', label: 'Qwen (Alibaba Model Studio)', keyEnv: ['DASHSCOPE_API_KEY'], modelEnv: 'ALIGN_QWEN_MODEL',
+    defaultModel: 'qwen3.5-flash', api: 'openai',
+    endpoint: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
     keyUrl: 'https://modelstudio.console.alibabacloud.com',
   },
+  // The Alibaba Token Plan: a different product on a different host; a key for one is
+  // rejected by the other. Env name, endpoint and model from pi-ai.
+  openAi('qwen-token-plan', 'Qwen Token Plan', ['QWEN_TOKEN_PLAN_API_KEY'],
+    'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions',
+    'qwen3.6-flash', 'https://modelstudio.console.alibabacloud.com'),
   // These three speak Anthropic Messages in pi-ai's table, so they reuse align's Anthropic
-  // adapter at their own base URL (x-api-key auth, POST <base>/v1/messages).
+  // adapter at their own base URL (POST <base>/v1/messages). UNVERIFIED: that each accepts the
+  // Anthropic-style `x-api-key` header rather than only a Bearer token - no live call was made.
   anthropicAt('minimax', 'MiniMax', ['MINIMAX_API_KEY'], 'https://api.minimax.io/anthropic/v1/messages',
     'MiniMax-M2.7', 'https://platform.minimax.io'),
   anthropicAt('kimi-coding', 'Kimi Coding Plan', ['KIMI_API_KEY'], 'https://api.kimi.com/coding/v1/messages',

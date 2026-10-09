@@ -888,14 +888,27 @@ function chatCompletionsUrl(base: string): string {
   return trimmed.endsWith('/chat/completions') ? trimmed : `${trimmed}/chat/completions`;
 }
 
+/**
+ * What one LLM call resolves against: the saved config, read ONCE, and the preference in
+ * force. Every step of the call reads this snapshot, so the source is not re-read per
+ * provider tried, and a call cannot see two different configs half-way through.
+ */
+interface Resolution {
+  saved: SavedLlmConfig;
+  preferred: LlmProviderId | undefined;
+}
+function resolution(): Resolution {
+  const saved = savedConfig();
+  return { saved, preferred: preferredProvider(saved) };
+}
+
 /** The model for a provider: its env variable, else the saved model when the saved preference
  *  names this provider and is the one in force, else the default. */
-function modelFor(id: LlmProviderId, modelEnv: string | null, fallback: string): string {
+function modelFor(r: Resolution, id: LlmProviderId, modelEnv: string | null, fallback: string): string {
   const fromEnv = modelEnv ? process.env[modelEnv] : undefined;
   if (fromEnv) return fromEnv;
-  const s = savedConfig();
-  const savedPref = s.provider ? parseProviderId(s.provider) : null;
-  if (s.model && savedPref === id && preferredProvider() === id) return s.model;
+  const savedPref = r.saved.provider ? parseProviderId(r.saved.provider) : null;
+  if (r.saved.model && savedPref === id && r.preferred === id) return r.saved.model;
   return fallback;
 }
 
@@ -905,27 +918,21 @@ function envKeyWithName(names: readonly string[]): { key: string; name: string }
   for (const n of names) if (process.env[n]) return { key: process.env[n]!, name: n };
   return undefined;
 }
-function envKey(names: readonly string[]): string | undefined {
-  return envKeyWithName(names)?.key;
-}
 
 function callNamed(
+  r: Resolution,
   p: NamedProvider,
   key: string,
-  keyVar: string | null,
   system: string,
   user: string,
   maxTokens?: number,
   temperature?: number,
 ): Promise<AdapterOutcome> {
-  // A key from a routed env var (Qwen's DashScope key) goes to that route's endpoint and model.
-  const route = keyVar ? p.keyRoutes?.[keyVar] : undefined;
-  const endpoint = route?.endpoint ?? p.endpoint;
-  const model = modelFor(p.id, p.modelEnv, route?.defaultModel ?? p.defaultModel);
+  const model = modelFor(r, p.id, p.modelEnv, p.defaultModel);
   switch (p.api) {
-    case 'anthropic': return tryAnthropic(system, user, key, model, endpoint, maxTokens, temperature);
+    case 'anthropic': return tryAnthropic(system, user, key, model, p.endpoint, maxTokens, temperature);
     case 'gemini': return tryGemini(system, user, key, model, maxTokens, temperature);
-    case 'openai': return tryOpenAiCompatible(system, user, endpoint!, model, key, maxTokens, undefined, temperature);
+    case 'openai': return tryOpenAiCompatible(system, user, p.endpoint!, model, key, maxTokens, undefined, temperature);
   }
 }
 
@@ -935,7 +942,7 @@ function callNamed(
  * NEVER through process.env (H1): a value in process.env is inherited by every child, including
  * the coding agent bare `align` opens - where a saved ANTHROPIC_API_KEY switches Claude Code from
  * a Max subscription to API billing. So saved credentials stay data, used only by align's own
- * calls here. The source is read on every call, so a key saved mid-run is live at once.
+ * calls here. The source is read once per call, so a key saved mid-run is live on the next.
  */
 export interface SavedLlmConfig {
   keys: Partial<Record<StoredProviderId, string>>;
@@ -959,59 +966,100 @@ function savedConfig(): SavedLlmConfig {
 interface Credential {
   id: LlmProviderId;
   source: 'env' | 'saved';
+  /** The env variable an exported key came from. */
+  envVar?: string;
+  /**
+   * Whether align may use it. False for an exported key of a provider beyond the original six
+   * (OpenRouter included) that the user has neither saved a key for nor chosen: the variable is
+   * often exported for another tool (HF_TOKEN, NVIDIA_API_KEY), so it is only AVAILABLE.
+   */
+  usable: boolean;
   run: (system: string, user: string, maxTokens?: number, temperature?: number) => Promise<AdapterOutcome>;
 }
 
 /**
  * Every configured credential, in the order the chain tries them with no preference:
  *   1. EXPORTED: ALIGN_LLM_BASE_URL (any OpenAI-compatible endpoint), then each named
- *      provider's env key in table order
- *      (the later providers after the original six), then OPENROUTER_API_KEY
+ *      provider's env key in table order (the later providers after the original six), then
+ *      OPENROUTER_API_KEY
  *   2. SAVED: an OpenRouter key, then each named provider's saved key in table order
  * Anything the user exported beats anything align saved (M2). A saved key for a provider the
  * shell already has a key for is not listed - the exported one wins. A saved OpenRouter key is
  * self-contained (its own base URL, key and model) and is ignored entirely when the shell
  * exports its own ALIGN_LLM_BASE_URL (M1).
+ *
+ * An exported key for a provider beyond the original six is only usable when the user saved a
+ * key for that provider too, or it is the preference in force - see Credential.usable.
  */
-function credentials(): Credential[] {
+function credentials(r: Resolution): Credential[] {
   const out: Credential[] = [];
-  const s = savedConfig();
+  const s = r.saved;
+  const usableFromEnv = (id: LlmProviderId, auto: boolean): boolean =>
+    auto || r.preferred === id || Boolean(s.keys[id as StoredProviderId]);
   const baseUrl = process.env['ALIGN_LLM_BASE_URL'];
   if (baseUrl) {
     out.push({
       id: 'custom',
       source: 'env',
+      envVar: 'ALIGN_LLM_BASE_URL',
+      usable: true,
       run: (sys, usr, mt, t) => tryOpenAiCompatible(
-        sys, usr, chatCompletionsUrl(baseUrl), modelFor('custom', 'ALIGN_LLM_MODEL', 'gpt-4o-mini'),
+        sys, usr, chatCompletionsUrl(baseUrl), modelFor(r, 'custom', 'ALIGN_LLM_MODEL', 'gpt-4o-mini'),
         process.env['ALIGN_LLM_API_KEY'] ?? '', mt, undefined, t),
     });
   }
   for (const p of NAMED_PROVIDERS) {
     const found = envKeyWithName(p.keyEnv);
-    if (found) out.push({ id: p.id, source: 'env', run: (sys, usr, mt, t) => callNamed(p, found.key, found.name, sys, usr, mt, t) });
+    if (found) {
+      out.push({
+        id: p.id, source: 'env', envVar: found.name, usable: usableFromEnv(p.id, Boolean(p.autoFromEnv)),
+        run: (sys, usr, mt, t) => callNamed(r, p, found.key, sys, usr, mt, t),
+      });
+    }
   }
-  // OpenRouter: an exported OPENROUTER_API_KEY is an exported key like the named ones (after
-  // the original six, with the other later providers), and beats a saved OpenRouter key. Both
-  // go to OpenRouter's own base URL and are ignored when the shell exports its own
-  // ALIGN_LLM_BASE_URL (M1). ALIGN_OPENROUTER_MODEL, then the saved model, then the default.
+  // OpenRouter: both an exported OPENROUTER_API_KEY and a saved key go to OpenRouter's own base
+  // URL, and both are ignored when the shell exports its own ALIGN_LLM_BASE_URL (M1).
+  // ALIGN_OPENROUTER_MODEL, then the saved model, then the default.
   const openrouterEnv = process.env[OPENROUTER_KEY_ENV];
   const openrouterRun = (key: string): Credential['run'] => (sys, usr, mt, t) => tryOpenAiCompatible(
-    sys, usr, chatCompletionsUrl(OPENROUTER_BASE_URL), modelFor('openrouter', OPENROUTER_MODEL_ENV, OPENROUTER_DEFAULT_MODEL),
+    sys, usr, chatCompletionsUrl(OPENROUTER_BASE_URL), modelFor(r, 'openrouter', OPENROUTER_MODEL_ENV, OPENROUTER_DEFAULT_MODEL),
     key, mt, undefined, t);
-  if (openrouterEnv && !baseUrl) out.push({ id: 'openrouter', source: 'env', run: openrouterRun(openrouterEnv) });
+  if (openrouterEnv && !baseUrl) {
+    out.push({
+      id: 'openrouter', source: 'env', envVar: OPENROUTER_KEY_ENV, usable: usableFromEnv('openrouter', false),
+      run: openrouterRun(openrouterEnv),
+    });
+  }
   const openrouter = s.keys.openrouter;
-  if (openrouter && !baseUrl && !openrouterEnv) out.push({ id: 'openrouter', source: 'saved', run: openrouterRun(openrouter) });
+  if (openrouter && !baseUrl && !openrouterEnv) out.push({ id: 'openrouter', source: 'saved', usable: true, run: openrouterRun(openrouter) });
   for (const p of NAMED_PROVIDERS) {
     const key = s.keys[p.id];
-    if (key && !envKey(p.keyEnv)) out.push({ id: p.id, source: 'saved', run: (sys, usr, mt, t) => callNamed(p, key, null, sys, usr, mt, t) });
+    if (key && !envKeyWithName(p.keyEnv)) {
+      out.push({ id: p.id, source: 'saved', usable: true, run: (sys, usr, mt, t) => callNamed(r, p, key, sys, usr, mt, t) });
+    }
   }
   return out;
 }
 
-/** Every configured credential and where it came from (env or saved) - Ollama not included. */
+/**
+ * Every configured credential and where it came from (env or saved) - Ollama not included.
+ * Includes exported keys align will not use until chosen: this is what is AVAILABLE.
+ */
 export function listConfiguredCredentials(): Array<{ id: LlmProviderId; source: 'env' | 'saved' }> {
-  return credentials().map(({ id, source }) => ({ id, source }));
+  return credentials(resolution()).map(({ id, source }) => ({ id, source }));
 }
+
+/**
+ * Exported keys align found but will not use until the user picks them (Credential.usable),
+ * with the variable each came from - what the key menu offers as "found X in your shell".
+ */
+export function unusedExportedKeys(): Array<{ id: LlmProviderId; envVar: string }> {
+  return credentials(resolution())
+    .filter((c) => !c.usable && c.envVar)
+    .map((c) => ({ id: c.id, envVar: c.envVar! }));
+}
+
+const warnedUnknownProvider = new Set<string>();
 
 /**
  * The provider `align ask` tries FIRST, or undefined for the default order. Precedence, in one
@@ -1027,18 +1075,21 @@ export function listConfiguredCredentials(): Array<{ id: LlmProviderId; source: 
  * applies only while the saved preference is the one in force.
  *
  * A preferred provider that is not available (no key, Ollama not running) is skipped and the
- * default order runs as if there were no preference. An unknown value warns and is ignored:
- * a typo must not stop `align ask` answering.
+ * default order runs as if there were no preference. An unknown value warns (once per process
+ * per value) and is ignored: a typo must not stop `align ask` answering.
  */
-export function preferredProvider(): LlmProviderId | undefined {
-  const raw = process.env['ALIGN_LLM_PROVIDER'] || savedConfig().provider;
+export function preferredProvider(saved: SavedLlmConfig = savedConfig()): LlmProviderId | undefined {
+  const raw = process.env['ALIGN_LLM_PROVIDER'] || saved.provider;
   if (!raw) return undefined;
   const id = parseProviderId(raw);
   if (!id) {
-    console.error(
-      `align: ignoring ALIGN_LLM_PROVIDER=${JSON.stringify(raw)} - it must be one of ` +
-      `${LLM_PROVIDER_IDS.join(', ')}.`,
-    );
+    if (!warnedUnknownProvider.has(raw)) {
+      warnedUnknownProvider.add(raw);
+      console.error(
+        `align: ignoring ALIGN_LLM_PROVIDER=${JSON.stringify(raw)} - it must be one of ` +
+        `${LLM_PROVIDER_IDS.join(', ')}.`,
+      );
+    }
     return undefined;
   }
   return id;
@@ -1059,7 +1110,8 @@ export function preferredProvider(): LlmProviderId | undefined {
  * excludable: it is not one of the named providers.
  */
 export function hasConfiguredProvider(excluding: readonly LlmProviderId[] = []): boolean {
-  return credentials().some((c) => c.id === 'custom' || !excluding.includes(c.id));
+  // Usable credentials only: an exported HF_TOKEN that align will not use is not "configured".
+  return credentials(resolution()).some((c) => c.usable && (c.id === 'custom' || !excluding.includes(c.id)));
 }
 
 /**
@@ -1142,8 +1194,9 @@ export async function callChatDetailed(
   // the front and is otherwise walked exactly like every other slot - same settle, same ALI-692
   // advance rules - so a preference changes only WHICH provider is asked first, never what a
   // failure means.
-  const preferred = preferredProvider();
-  const creds = credentials();
+  const r = resolution();
+  const preferred = r.preferred;
+  const creds = credentials(r).filter((c) => c.usable);
   const ordered = preferred
     ? [...creds.filter((c) => c.id === preferred), ...creds.filter((c) => c.id !== preferred)]
     : creds;
