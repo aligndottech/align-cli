@@ -95,6 +95,10 @@ align whoami                  Show current authenticated user and tenant
 align setup                   Guided onboarding: connect your tools and configure MCP in one command
                               flags: --env --approve --local --reset
 
+# Choose the coding agent bare `align` opens
+
+align use [agent]             Choose the coding agent bare `align` opens (no argument shows the current one)
+
 # Invite a teammate to your graph
 
 align invite <email>          Invite a teammate to your shared Align decision graph

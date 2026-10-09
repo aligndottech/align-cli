@@ -154,6 +154,7 @@ export function createConfigStore() {
     connectorTokens: Record<string, string>;
     installId?: string;
     telemetryConsent?: TelemetryConsent;
+    agent?: string;
     funnelStagesRecorded?: string[];
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
   }>({
@@ -303,6 +304,14 @@ export function createConfigStore() {
       const id = randomUUID();
       store.set('installId', id);
       return id;
+    },
+    // C1: the coding agent bare `align` launches. Stored as a plain string; the launcher
+    // validates it against its closed list, so a stale value from a newer CLI is ignored.
+    getAgent(): string | undefined {
+      return store.get('agent');
+    },
+    setAgent(agent: string) {
+      store.set('agent', agent);
     },
     getTelemetryConsent(): TelemetryConsent | undefined {
       return store.get('telemetryConsent');

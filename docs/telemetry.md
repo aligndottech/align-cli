@@ -85,7 +85,11 @@ One per command you run.
 Milestone pings, one of `setup_started`, `import_completed`, `mcp_wired`,
 `first_useful_decision` (once per install, the first non-empty answer, from `align ask` or
 from an agent over MCP), `teammate_requested`, and the four session-import stages:
-`sessions_scanned`, `candidates_found`, `candidates_confirmed` and `decisions_ratified`.
+`sessions_scanned`, `candidates_found`, `candidates_confirmed` and `decisions_ratified`, and
+`agent_launched` (bare `align` opened your coding agent).
+
+`agent_launched` carries one extra field, the `agent` name (for example `claude-code`), and no
+count. It is sent without waiting for it: starting your agent never depends on the network.
 
 The session-import stages are the only ones that may carry a measurement, and it is exactly
 two extra fields: a `count` and the `agent` name (one of the six coding agents the CLI can read

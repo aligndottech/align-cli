@@ -1,13 +1,10 @@
 import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
-import { createGatewayClient } from '../lib/gateway-client.js';
-import { runSetup } from './setup.js';
 import pkg from '../../package.json' with { type: 'json' };
 import { printBanner } from '../lib/brand.js';
-import { firstDecision } from '../lib/first-decision.js';
 import { detectWiredEditors, projectMcpAgents } from '../lib/mcp-setup.js';
 import { cardLabel, type CardValue, orderAgents, renderSecondRunCard } from '../lib/next-step.js';
-import { readValueRollup } from '../lib/read-value-rollup.js';
+import { launchIfChosen } from '../lib/launch/launch.js';
 
 /**
  * What `align` does with no arguments (ALI-773).
@@ -57,8 +54,19 @@ export async function runDefaultAction(): Promise<void> {
     // No banner here: runSetup prints its own opening lockup, and printing one first
     // stacked two full banners on a fresh user's very first command (found live
     // 2026-09-02). The banner belongs to whichever flow owns the screen.
+    const { runSetup } = await import('./setup.js');
     await runSetup();
     return;
+  }
+
+  // C1: a set-up local graph and a coding agent means `align` IS the agent. Decided before
+  // anything heavy loads (setup, the gateway client, the readout below are all dynamic
+  // imports on the card path only), so the launch costs one config read and a PATH scan.
+  // process.exit rather than return: the child's exit code is the command's, and Commander's
+  // postAction telemetry must not run after a whole agent session.
+  if (hasLocal) {
+    const launch = await launchIfChosen();
+    if (launch.handled) process.exit(launch.code);
   }
 
   // Typing the bare tool name is the other first-contact moment, so it gets the
@@ -77,6 +85,9 @@ export async function runDefaultAction(): Promise<void> {
   // recent decision is the question to hand the agent - one read gives both, and a failure
   // (an expired cloud token) falls back to the import suggestion rather than erroring: the
   // command's job is to orient someone.
+  const { createGatewayClient } = await import('../lib/gateway-client.js');
+  const { firstDecision } = await import('../lib/first-decision.js');
+  const { readValueRollup } = await import('../lib/read-value-rollup.js');
   const { hasDecisions, firstTitle } = await firstDecision(createGatewayClient(config.getEnvironment(envName)));
 
   // ALI-950: the ALI-215 readout `align status` prints, read for a 7-day window so the card

@@ -215,6 +215,8 @@ export const FUNNEL_STAGES = [
   // The gateway's own FUNNEL_STAGES must list these too or every ping 400s; that half
   // shipped first, deliberately (align-stack #2237, the ALI-790 lesson).
   ...SESSION_IMPORT_STAGES,
+  // C1: bare `align` handed the terminal to a coding agent. Carries the agent name only.
+  'agent_launched',
 ] as const;
 
 /**
@@ -224,6 +226,10 @@ export const FUNNEL_STAGES = [
  */
 export interface FunnelMeasurement {
   count: number;
+  agent: string;
+}
+/** What `agent_launched` reports: the agent's name, and nothing else (no count). */
+export interface AgentMeasurement {
   agent: string;
 }
 export type FunnelStage = (typeof FUNNEL_STAGES)[number];
@@ -260,7 +266,7 @@ export async function recordFunnelStage(
   env: EnvironmentConfig,
   stage: FunnelStage,
   command: string,
-  measurement?: FunnelMeasurement,
+  measurement?: FunnelMeasurement | AgentMeasurement,
 ): Promise<boolean> {
   // The whole body is guarded: telemetry must never fail or delay a command (the same
   // invariant postWithTimeout enforces for the network half, extended to the config
@@ -303,9 +309,11 @@ export async function recordFunnelStage(
     // 400 the whole ping - and the catch below swallows that, so the stage would go silently
     // missing rather than fail loudly. Dropping the two fields keeps the stage itself.
     const measured: Record<string, string | number> =
-      measurement && (SESSION_IMPORT_STAGES as readonly string[]).includes(stage)
+      measurement && 'count' in measurement && (SESSION_IMPORT_STAGES as readonly string[]).includes(stage)
         ? { count: measurement.count, agent: measurement.agent }
-        : {};
+        : measurement && stage === 'agent_launched'
+          ? { agent: measurement.agent }
+          : {};
 
     if (isLocal) {
       await postAnonymous({
