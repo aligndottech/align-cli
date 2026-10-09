@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './lib/startup-env.js'; // FIRST: snapshot the shell's env before any module can change it
 import envPaths from 'env-paths';
 import { migrateConfigDirectory } from './lib/config.js';
 import { legacyLocalDbDir, migrateLocalDb } from './lib/local-mode.js';

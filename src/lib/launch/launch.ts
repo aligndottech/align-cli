@@ -76,6 +76,31 @@ export type LaunchResult = { handled: false } | { handled: true; code: number };
 const set = (v: string | undefined): boolean => v !== undefined && v !== '';
 
 /**
+ * ALIGN_WRAPPED (we are already inside a launched agent) or ALIGN_NO_LAUNCH turns launching
+ * off. One writer, read by launchIfChosen and by the wizard's outro, which must not say an
+ * agent is opening when this says it will not.
+ */
+export function launchSuppressed(env: Record<string, string | undefined> = process.env): boolean {
+  return set(env['ALIGN_WRAPPED']) || set(env['ALIGN_NO_LAUNCH']);
+}
+
+/**
+ * Whether bare `align` opens the agent once the first-run wizard ends. default-action.ts gates
+ * its post-wizard launch on this, and setup.ts's outro reads it to choose between "Opening
+ * <Agent>. Ask it: ..." and the run-align instruction - one predicate, so the outro says
+ * "Opening" exactly when the launch happens. The terminal and suppression checks mirror the
+ * ones launchIfChosen applies itself.
+ */
+export function launchesAfterWizard(o: {
+  localGraph: boolean;
+  agent: string | null | undefined;
+  env?: Record<string, string | undefined>;
+  isTTY: boolean;
+}): boolean {
+  return o.localGraph && Boolean(o.agent) && !launchSuppressed(o.env ?? process.env) && o.isTTY;
+}
+
+/**
  * Whether an align command with no --env reads the local graph: the CLI's own resolver, so
  * ALIGN_ENV, the signed-in rule and the demo-mode rule all apply exactly as they do for `align ask`.
  */
@@ -141,7 +166,7 @@ export interface BuildInput {
  */
 export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promise<LaunchResult> {
   const d = { ...defaultDeps(), ...overrides };
-  if (set(d.env['ALIGN_WRAPPED']) || set(d.env['ALIGN_NO_LAUNCH'])) return { handled: false };
+  if (launchSuppressed(d.env)) return { handled: false };
 
   const { operands, passthrough } = splitArgv(d.argv);
   if (operands.length > 0) {

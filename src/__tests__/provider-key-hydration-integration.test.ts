@@ -43,6 +43,7 @@ const TSX = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 // rejects outright - the generated import below would fail before the test's own
 // assertion ever ran.
 const CLI_TS_URL = pathToFileURL(join(ROOT, 'src', 'cli.ts')).href;
+const LOCAL_LLM_URL = pathToFileURL(join(ROOT, 'src', 'lib', 'local-llm.ts')).href;
 
 /**
  * A throwaway Commander command whose action prints the ONE thing this test cares about -
@@ -53,9 +54,10 @@ const CLI_TS_URL = pathToFileURL(join(ROOT, 'src', 'cli.ts')).href;
 function probeScript(): string {
   return [
     `import { buildProgram } from ${JSON.stringify(CLI_TS_URL)};`,
+    `import { listConfiguredCredentials } from ${JSON.stringify(LOCAL_LLM_URL)};`,
     `const program = buildProgram({ exitOverride: true });`,
     `program.command('__hydration-probe').action(() => {`,
-    `  process.stdout.write(JSON.stringify({ groq: process.env.GROQ_API_KEY ?? null }));`,
+    `  process.stdout.write(JSON.stringify({ groq: process.env.GROQ_API_KEY ?? null, seen: listConfiguredCredentials() }));`,
     `});`,
     `await program.parseAsync(['node', 'align', '__hydration-probe']);`,
   ].join('\n');
@@ -97,8 +99,11 @@ function makeIsolatedHome() {
   };
 }
 
-describe('startup provider-key hydration actually fires end to end', () => {
-  it('a Groq key saved in a previous run reaches process.env before a real command action runs', async () => {
+// H1: saved keys used to be hydrated into process.env here, and every child process inherited
+// them - including the coding agent bare `align` opens. They are now read inside local-llm
+// through the source cli.ts installs, and process.env is never written.
+describe('a saved key reaches align\'s own LLM calls end to end, and never process.env', () => {
+  it('a Groq key saved in a previous run is visible to local-llm, while process.env stays clean', async () => {
     const { home, env } = makeIsolatedHome();
     try {
       // Written exactly where Conf itself would write it on THIS platform, suffix-free,
@@ -114,7 +119,7 @@ describe('startup provider-key hydration actually fires end to end', () => {
 
       const { stdout } = await exec(process.execPath, [TSX, probePath], { env, timeout: 30_000 });
 
-      expect(JSON.parse(stdout)).toEqual({ groq: 'gsk_from_a_previous_run' });
+      expect(JSON.parse(stdout)).toEqual({ groq: null, seen: [{ id: 'groq', source: 'saved' }] });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -135,7 +140,7 @@ describe('startup provider-key hydration actually fires end to end', () => {
 
       const { stdout } = await exec(process.execPath, [TSX, probePath], { env, timeout: 30_000 });
 
-      expect(JSON.parse(stdout)).toEqual({ groq: 'gsk_the_real_one_i_just_exported' });
+      expect(JSON.parse(stdout)).toEqual({ groq: 'gsk_the_real_one_i_just_exported', seen: [{ id: 'groq', source: 'env' }] });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

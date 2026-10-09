@@ -30,7 +30,10 @@ vi.mock('../lib/read-value-rollup.js', () => ({ readValueRollup }));
 // C1: the launcher would open a real agent on any machine that has one. Mocked at its module
 // boundary so these card tests stay about the card; launch behaviour has its own suites.
 const launchIfChosen = vi.hoisted(() => vi.fn().mockResolvedValue({ handled: false }));
-vi.mock('../lib/launch/launch.js', () => ({ launchIfChosen }));
+vi.mock('../lib/launch/launch.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  launchIfChosen,
+}));
 
 const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { output.push(a.join(' ')); });
@@ -320,6 +323,18 @@ describe('bare `align`', () => {
         expect(launchIfChosen).toHaveBeenCalledTimes(1);
         expect(exit).not.toHaveBeenCalled();
       } finally { exit.mockRestore(); }
+    });
+
+    // L2: the gate is launchesAfterWizard, the same predicate the wizard's outro reads to
+    // decide whether to say "Opening <Agent>" - so the two cannot disagree.
+    it('does not call the launcher under ALIGN_NO_LAUNCH, the case the outro does not say "Opening" for', async () => {
+      wizardBuildsLocal();
+      launchIfChosen.mockClear();
+      vi.stubEnv('ALIGN_NO_LAUNCH', '1');
+      try {
+        await withTty(async () => { await bare(); });
+      } finally { vi.unstubAllEnvs(); }
+      expect(launchIfChosen).not.toHaveBeenCalled();
     });
 
     it('does not launch when the wizard ended without a local graph (cancelled)', async () => {

@@ -4,7 +4,7 @@ import pkg from '../../package.json' with { type: 'json' };
 import { printBanner } from '../lib/brand.js';
 import { detectWiredEditors, projectMcpAgents } from '../lib/mcp-setup.js';
 import { cardLabel, type CardValue, orderAgents, renderSecondRunCard } from '../lib/next-step.js';
-import { launchIfChosen } from '../lib/launch/launch.js';
+import { launchesAfterWizard, launchIfChosen } from '../lib/launch/launch.js';
 
 /**
  * What `align` does with no arguments (ALI-773).
@@ -68,7 +68,7 @@ export async function runDefaultAction(): Promise<void> {
     // exit 1, which would turn a finished wizard into a failed command. The wizard already
     // said what to install, so a clean exit 0 is the right end.
     const after = createConfigStore();
-    if (after.getEnvironment('local').mode === 'local-embedded' && after.getAgent()) {
+    if (launchesAfterWizard({ localGraph: after.getEnvironment('local').mode === 'local-embedded', agent: after.getAgent(), isTTY: tty })) {
       const launch = await launchIfChosen();
       if (launch.handled) process.exit(launch.code);
     }

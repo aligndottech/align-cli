@@ -1,0 +1,123 @@
+import type { Command } from 'commander';
+import * as p from '@clack/prompts';
+import chalk from 'chalk';
+import { createConfigStore } from '../lib/config.js';
+import { listConfiguredCredentials, probeOllama, unusedExportedKeys } from '../lib/local-llm.js';
+import { LLM_PROVIDER_IDS, type LlmProviderId, parseProviderId, PROVIDER_LABEL } from '../lib/llm-providers.js';
+import { type DetectedProvider, detectProviders, promptForProviderKey } from '../lib/ask-key-offer.js';
+import { guardedPrompt } from '../lib/prompt-guard.js';
+
+/** `--provider auto`: forget the choice and use the default order again. */
+const AUTO = 'auto';
+
+/** What an exported key for a provider align does not use on its own looks like in a listing. */
+const NOT_USED_YET = 'found in your shell - not used until you choose it';
+
+function sourceHint(d: DetectedProvider, unused: ReadonlySet<string>): string {
+  if (d.source === 'env' && unused.has(d.id)) return NOT_USED_YET;
+  return d.source === 'env' ? 'env' : d.source === 'saved' ? 'saved' : 'local';
+}
+
+/**
+ * `align ai`: which AI provider `align ask` writes its terminal answers with. Only matters
+ * when more than one is available, or to add a key: with exactly one, `align ask` already
+ * uses it, and inside a coding agent none of this is used at all.
+ *
+ * The choice is stored (config `llm`) and read by local-llm (preferredProvider), where an exported
+ * value wins - see preferredProvider in local-llm.ts for the full precedence.
+ */
+export function registerAiCommand(program: Command): void {
+  program
+    .command('ai')
+    .description('Choose the AI model `align ask` writes terminal answers with, or add a key')
+    .option('--provider <id>', `Use this provider first: ${[...LLM_PROVIDER_IDS, AUTO].join(', ')}`)
+    .option('--model <model>', 'With --provider: the model to ask for')
+    .action(async (opts: { provider?: string; model?: string }) => {
+      const config = createConfigStore();
+
+      if (opts.provider !== undefined) {
+        if (opts.provider.trim().toLowerCase() === AUTO) {
+          config.clearLlmPreference();
+          console.log(`  ${chalk.bold('align ask')} now uses the first available provider, in the default order.`);
+          return;
+        }
+        const id = parseProviderId(opts.provider);
+        if (!id) {
+          console.error(`Unknown provider "${opts.provider}". Use one of: ${[...LLM_PROVIDER_IDS, AUTO].join(', ')}.`);
+          process.exit(1);
+        }
+        config.setLlmPreference(opts.model ? { provider: id, model: opts.model } : { provider: id });
+        console.log(`  ${chalk.bold('align ask')} now tries ${PROVIDER_LABEL[id]}${opts.model ? ` (${opts.model})` : ''} first.`);
+        // L4: saved either way, but say when it cannot take effect yet - until then the
+        // default order answers, which would otherwise look like the choice was ignored.
+        const available = id === 'ollama'
+          ? Boolean(await probeOllama())
+          : listConfiguredCredentials().some((c) => c.id === id);
+        if (!available) {
+          if (id === 'ollama') console.log('  Ollama is not running here yet - until it is, align ask uses the next available provider.');
+          else if (id === 'custom') console.log(`  ALIGN_LLM_BASE_URL is not set yet - export it to point align ask at your endpoint.`);
+          else console.log(`  No ${PROVIDER_LABEL[id]} key found yet - add one with: ${chalk.bold('align ai')}`);
+        }
+        return;
+      }
+      if (opts.model !== undefined) {
+        console.error('--model needs --provider, so it is clear which provider the model is for.');
+        process.exit(1);
+      }
+
+      const found = await detectProviders(probeOllama);
+      // Exported keys align will not use until chosen (HF_TOKEN exported for model downloads,
+      // say) - marked so "found" is never read as "in use".
+      const unused = new Set<string>(unusedExportedKeys().map((k) => k.id));
+      const current = parseProviderId(config.getLlmPreference().provider ?? '');
+      const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+      if (!interactive) {
+        console.log('');
+        if (!found.length) {
+          console.log('  No AI provider found. `align ask` lists matching decisions without one.');
+        } else {
+          console.log('  AI providers align found:');
+          for (const d of found) {
+            console.log(`    ${d.id.padEnd(11)} ${PROVIDER_LABEL[d.id]} (${sourceHint(d, unused)})${d.id === current ? '  - current' : ''}`);
+          }
+        }
+        console.log('');
+        console.log(`  Choose one: ${chalk.bold('align ai --provider <id>')}`);
+        console.log('');
+        return;
+      }
+
+      const options: Array<{ value: string; label: string; hint?: string }> = found.map((d) => ({
+        value: d.id,
+        label: PROVIDER_LABEL[d.id],
+        hint: `${sourceHint(d, unused)}${d.id === current ? ' - current' : ''}`,
+      }));
+      options.push({ value: 'add', label: 'Add another key...' });
+      if (current) options.push({ value: 'auto', label: 'Automatic', hint: 'first available, in the default order' });
+
+      const choice = await guardedPrompt('AI provider', () => p.select<string>({
+        message: `Which AI model should ${chalk.bold('align ask')} write terminal answers with?`,
+        options,
+        initialValue: current && found.some((d) => d.id === current) ? current : options[0]!.value,
+      }));
+      if (choice === null || p.isCancel(choice)) return;
+
+      if (choice === 'auto') {
+        config.clearLlmPreference();
+        p.log.success('Back to the default order.');
+        return;
+      }
+      if (choice === 'add') {
+        const added = await promptForProviderKey(config);
+        if (!added) return;
+        config.setLlmPreference({ provider: added });
+        // A key now exists, so the first-ask offer's remembered "Not now" has nothing left to guard.
+        config.setAskKeyOfferDismissed(false);
+        return;
+      }
+      const picked = choice as LlmProviderId;
+      config.setLlmPreference({ provider: picked });
+      p.log.success(`${chalk.bold('align ask')} now tries ${PROVIDER_LABEL[picked]} first.`);
+    });
+}

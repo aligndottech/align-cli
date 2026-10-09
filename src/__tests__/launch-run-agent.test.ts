@@ -130,3 +130,55 @@ describe('runAgent with a real fake binary on disk', () => {
     expect(readFileSync(out, 'utf8')).toBe('--resume\nabc\nWRAPPED=1\n');
   });
 });
+
+/**
+ * H1: a provider key align put into process.env must never reach the agent. A saved
+ * ANTHROPIC_API_KEY inherited by Claude Code switches a Max subscription to API billing;
+ * OPENAI_API_KEY does the same to Codex, GEMINI_API_KEY to Gemini CLI. The rule is
+ * restore-to-startup: every provider variable goes to the child exactly as the user's shell
+ * had it when align started - a key the user exported is kept, one align added is dropped.
+ */
+describe('runAgent never hands the agent a provider key align added', () => {
+  const childEnv = async (parentEnv: Record<string, string>, startupEnv: Record<string, string>) => {
+    const f = exiting(0);
+    const saved = { ...process.env };
+    try {
+      for (const [k, v] of Object.entries(parentEnv)) process.env[k] = v;
+      await runAgent(spec, deps({ spawn: f.spawn, startupEnv }));
+    } finally {
+      for (const k of Object.keys(parentEnv)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+    }
+    return (f.spawnMock.mock.calls[0] as unknown as [string, string[], { env: Record<string, string | undefined> }])[2].env;
+  };
+
+  it.each([
+    ['ANTHROPIC_API_KEY', 'Claude Code'],
+    ['OPENAI_API_KEY', 'Codex'],
+    ['GEMINI_API_KEY', 'Gemini CLI'],
+    ['OPENROUTER_API_KEY', 'any agent that reads it'],
+  ])('drops %s when align added it (it would reach %s)', async (name) => {
+    const env = await childEnv({ [name]: 'saved-by-align' }, {});
+    expect(env[name]).toBeUndefined();
+  });
+
+  it.each(['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY'])('keeps %s the user exported', async (name) => {
+    const env = await childEnv({ [name]: 'users-own' }, { [name]: 'users-own' });
+    expect(env[name]).toBe('users-own');
+  });
+
+  it('restores the user\'s own value when align overwrote it', async () => {
+    const env = await childEnv({ OPENAI_API_KEY: 'align-wrote-this' }, { OPENAI_API_KEY: 'users-own' });
+    expect(env.OPENAI_API_KEY).toBe('users-own');
+  });
+
+  it('drops align-added endpoint and preference variables too, and leaves unrelated ones alone', async () => {
+    const env = await childEnv(
+      { ALIGN_LLM_BASE_URL: 'https://openrouter.ai/api/v1', ALIGN_LLM_PROVIDER: 'groq', SOME_OTHER_VAR: 'x' },
+      {},
+    );
+    expect(env.ALIGN_LLM_BASE_URL).toBeUndefined();
+    expect(env.ALIGN_LLM_PROVIDER).toBeUndefined();
+    expect(env.SOME_OTHER_VAR).toBe('x');
+    expect(env.ALIGN_WRAPPED).toBe('1'); // the spec's own env still lands on top
+  });
+});
