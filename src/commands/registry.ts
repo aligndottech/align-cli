@@ -24,6 +24,7 @@ import { registerSetupCommand } from './setup.js';
 import { registerExportCommand } from './export.js';
 import { registerInviteCommand } from './invite.js';
 import { registerUseCommand } from './use.js';
+import { registerAgentsCommand } from './agents.js';
 
 /**
  * ALI-951: the one list of top-level commands. `align --help` shows the `visible` ones and
@@ -108,6 +109,8 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
 
   // Customer: MCP server
   { names: ['mcp'], visible: true, summary: 'Serve the graph to your agent (--setup wires it)', register: registerMcpCommand },
+  // Phase P: every coding agent Align works with, installed or not, and how to install each.
+  { names: ['agents'], visible: true, summary: 'The coding agents Align opens, and how to install them', register: registerAgentsCommand },
 
   // Customer: local-first mode (no cloud account required)
   { names: ['local'], visible: false, summary: 'The local graph: start, status, reset, forget', register: registerLocalCommand },

@@ -22,7 +22,8 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
   const modes: Record<string, number | undefined> = {};
   const pruned: Array<{ prefix: string; keep?: string; remove?: string }> = [];
   const runAgent = vi.fn().mockResolvedValue(0);
-  const pick = vi.fn();
+  // Pressing Enter: the preselected row (the one installed agent), else nothing.
+  const pick = vi.fn(async (_o: unknown, initial?: string) => initial ?? null);
   const deps: LaunchDeps = {
     env: {},
     argv: ['node', 'align'],
@@ -46,6 +47,8 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
     runAgent,
     record: vi.fn(),
     pick,
+    confirm: vi.fn(async () => false),
+    spawnInstall: vi.fn(),
     err: (l) => err.push(l),
     now: () => 42,
     ...over,
@@ -62,7 +65,7 @@ describe('wave A: the registry', () => {
     }
   });
   it('Copilot runs `copilot` and installs from npm', () => {
-    expect(AGENT_REGISTRY.find((a) => a.name === 'copilot')).toMatchObject({ label: 'GitHub Copilot CLI', bin: 'copilot', install: 'npm i -g @github/copilot', injection: 'per-session' });
+    expect(AGENT_REGISTRY.find((a) => a.name === 'copilot')).toMatchObject({ label: 'GitHub Copilot CLI', bin: 'copilot', install: { kind: 'npm', argv: ['npm', 'i', '-g', '@github/copilot'] }, injection: 'per-session' });
   });
 });
 
@@ -71,13 +74,15 @@ describe('wave A: the picker offers them when installed, and not when absent', (
     const h = harness({ onPath: ['claude', 'codex', 'gemini', 'copilot'] });
     h.pick.mockResolvedValue('codex');
     await launchIfChosen(h.deps);
-    expect(h.pick.mock.calls[0]![0].map((a: { label: string }) => a.label)).toEqual(['Claude Code', 'Codex', 'GitHub Copilot CLI', 'Gemini CLI']);
+    expect(h.pick.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { label: string }) => o.label)).toEqual(['Claude Code', 'Codex', 'Gemini CLI', 'GitHub Copilot CLI']);
     expect(h.runAgent.mock.calls[0]![0].bin).toBe('codex');
   });
-  it('bare `align` does not offer them when they are not on PATH (only Claude: no picker at all)', async () => {
+  it('bare `align` marks them not installed when they are not on PATH (only Claude: preselected, Enter opens it)', async () => {
     const h = harness({ onPath: ['claude'] });
     await launchIfChosen(h.deps);
-    expect(h.pick).not.toHaveBeenCalled();
+    const opts = h.pick.mock.calls[0]![0] as Array<{ value: string; label: string }>;
+    for (const id of WAVE_A) expect(opts.find((o) => o.value === id)!.label).toMatch(/ \(not installed\)$/);
+    expect(h.pick.mock.calls[0]![1]).toBe('claude-code');
     expect(h.runAgent.mock.calls[0]![0].bin).toBe('claude');
   });
   it('the wizard offers the installed ones from the same table', async () => {
@@ -86,15 +91,16 @@ describe('wave A: the picker offers them when installed, and not when absent', (
     const config = { getAgent: () => stored, setAgent: (a: string) => { stored = a; } };
     const onPath = ['gemini', 'codex'];
     const r = await pickAgent(config, { interactive: true }, { agents: supportedAgents(), env: {}, platform: 'linux', findOnPath: (b) => (onPath.includes(b) ? `/b/${b}` : null), select, say: () => {} });
-    expect(select.mock.calls[0]![0].map((a: { name: string }) => a.name)).toEqual(['codex', 'gemini-cli']);
+    expect(select.mock.calls[0]![0].filter((o: { hint?: string }) => !o.hint).map((o: { value: string }) => o.value)).toEqual(['codex', 'gemini-cli']);
     expect(r).toBe('gemini-cli');
   });
-  it('the wizard does not offer one that is absent (only Copilot installed: picked without asking)', async () => {
-    const select = vi.fn();
+  it('the wizard marks the absent ones not installed (only Copilot installed: preselected, Enter keeps it)', async () => {
+    const select = vi.fn(async (_o: unknown, initial?: string) => initial ?? null);
     let stored: string | undefined;
     const config = { getAgent: () => stored, setAgent: (a: string) => { stored = a; } };
     const r = await pickAgent(config, { interactive: true }, { agents: supportedAgents(), env: {}, platform: 'linux', findOnPath: (b) => (b === 'copilot' ? '/b/copilot' : null), select, say: () => {} });
-    expect(select).not.toHaveBeenCalled();
+    expect(select.mock.calls[0]![1]).toBe('copilot');
+    expect((select.mock.calls[0]![0] as Array<{ value: string; label: string }>).find((o) => o.value === 'codex')!.label).toBe('Codex (not installed)');
     expect(r).toBe('copilot');
   });
 });

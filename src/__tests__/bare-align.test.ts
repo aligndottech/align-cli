@@ -354,13 +354,23 @@ describe('bare `align`', () => {
     it('the REAL launcher with no agent on PATH reports exit 1 (so it must not be called)', async () => {
       const { launchIfChosen: real } = await vi.importActual<typeof LaunchModule>('../lib/launch/launch.js');
       const lines: string[] = [];
+      // On a terminal it opens the every-agent picker (phase P); leaving it without picking is exit 1.
       const r = await real({
         env: {}, argv: ['node', 'align'], isTTY: true, platform: 'linux',
         config: { getAgent: () => undefined, setAgent: () => undefined },
         findOnPath: () => null,
+        pick: async () => null,
         err: (l) => lines.push(l),
       });
       expect(r).toEqual({ handled: true, code: 1 });
+      // Without a terminal (a script's explicit `align -- ...`) it says why, and is still exit 1.
+      const scripted = await real({
+        env: {}, argv: ['node', 'align', '--', 'x'], isTTY: false, platform: 'linux',
+        config: { getAgent: () => undefined, setAgent: () => undefined },
+        findOnPath: () => null,
+        err: (l) => lines.push(l),
+      });
+      expect(scripted).toEqual({ handled: true, code: 1 });
       expect(lines.join('\n')).toMatch(/No coding agent/);
     });
 

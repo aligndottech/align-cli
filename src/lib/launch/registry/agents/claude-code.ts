@@ -7,6 +7,6 @@ export const claudeCode: AgentSpec = {
   bin: 'claude',
   injection: 'per-session',
   supported: true,
-  install: 'npm i -g @anthropic-ai/claude-code',
+  install: { kind: 'npm', argv: ['npm', 'i', '-g', '@anthropic-ai/claude-code'] },
   build: (d, base) => buildClaudeLaunch({ ...base, ...d.readProjectState(d.cwd, d.home) }),
 };

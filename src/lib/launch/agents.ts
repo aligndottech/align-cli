@@ -1,3 +1,4 @@
+import { installText } from './install.js';
 import { AGENT_REGISTRY } from './registry/index.js';
 import type { LaunchAgentId } from './registry/types.js';
 
@@ -9,11 +10,12 @@ export interface LaunchAgent {
   injection: 'per-session' | 'written-once';
   /** A launch target today. Later phases flip more entries to true; nothing else changes. */
   supported: boolean;
+  /** The install command or URL, as text. The structured form is on the registry spec. */
   install: string;
 }
 
 export const LAUNCH_AGENTS: readonly LaunchAgent[] = AGENT_REGISTRY.map(
-  ({ name, label, bin, injection, supported, install }) => ({ name, label, bin, injection, supported, install }),
+  ({ name, label, bin, injection, supported, install }) => ({ name, label, bin, injection, supported, install: installText(install) }),
 );
 
 export function agentByName(name: string | undefined): LaunchAgent | undefined {

@@ -58,9 +58,9 @@ describe('`align --help` (ALI-951)', () => {
     expect(lines.length, help).toBeLessThanOrEqual(14);
   });
 
-  it('lists exactly align, ask, connect, check, mcp - in that order', async () => {
+  it('lists exactly align, ask, connect, check, mcp, agents - in that order', async () => {
     const help = await helpOutput(['--help']);
-    expect(listedEntries(help)).toEqual(['align', 'ask', 'connect', 'check', 'mcp']);
+    expect(listedEntries(help)).toEqual(['align', 'ask', 'connect', 'check', 'mcp', 'agents']);
   });
 
   it('hides import from --help, and the doc (the pinned full reference) still carries it', async () => {
@@ -81,7 +81,7 @@ describe('every registered command still parses and runs, hidden or not', () => 
 
   it('the registry is the real command set (positive control for the per-command cases)', () => {
     expect(names.length).toBeGreaterThanOrEqual(24);
-    expect(visibleEntries().map((e) => e.names).flat()).toEqual(['ask', 'connect', 'check', 'mcp']);
+    expect(visibleEntries().map((e) => e.names).flat()).toEqual(['ask', 'connect', 'check', 'mcp', 'agents']);
   });
 
   it.each(names)('`align %s --help` parses and prints that command\'s own usage', async (name) => {

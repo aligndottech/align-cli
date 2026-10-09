@@ -25,7 +25,7 @@ describe('an agent the registry lists but cannot launch yet', () => {
       env: {}, argv: ['node', 'align'], cwd: '/proj', home: '/home/u', platform: 'linux', isTTY: true,
       config: { getAgent: () => 'planned', setAgent: vi.fn() },
       findOnPath: (b: string) => `/usr/bin/${b}`,
-      runAgent, record: vi.fn(), pick: vi.fn(), err: (l: string) => err.push(l), now: () => 1,
+      runAgent, record: vi.fn(), pick: vi.fn(), confirm: vi.fn(async () => false), spawnInstall: vi.fn(), err: (l: string) => err.push(l), now: () => 1,
     } as unknown as Partial<LaunchDeps>;
     expect(await launchIfChosen(deps)).toEqual({ handled: false });
     expect(err).toEqual(['Planned Agent launching is coming soon; showing your graph instead. Switch with `align use`.']);
