@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parse as parseToml } from 'smol-toml';
 
 /*
  * The one way align writes to a config file that belongs to someone else (an agent's MCP
@@ -101,7 +102,19 @@ export interface WrittenConfig {
    */
   snapshots?: Array<{ n: number; sha256: string }>;
   /** Text files: the managed block align wrote. */
-  block?: { start: string; end: string; sha256: string; /** a block was already there, and align's replaced it: the original is in the backup */ replaced?: boolean; snapshot?: number };
+  block?: {
+    start: string;
+    end: string;
+    sha256: string;
+    /** a block was already there, and align's replaced it: the original is in the backup */
+    replaced?: boolean;
+    snapshot?: number;
+    /**
+     * TOML only: the one table the block holds, and the hash of its parsed value. Lets undo take
+     * that table out when another program re-serialised the file and dropped the markers.
+     */
+    table?: { path: string[]; sha256: string };
+  };
 }
 
 /** Fold one write into what the manifest already holds for that file. */
@@ -163,6 +176,8 @@ export interface SafeWriteOptions {
   root?: string;
   /** Text only: the markers of the block align manages, so undo can take just that block out. */
   markers?: { start: string; end: string };
+  /** TOML only: the table (e.g. ['mcp_servers', 'align-local']) the managed block holds. */
+  tomlTable?: string[];
   /** The tail of the invalid-JSON message: what to do about it. */
   invalidJsonAdvice?: string;
 }
@@ -318,17 +333,99 @@ function stageAndRename(fs: SafeFs, file: string, text: string, mode: number | n
   }
 }
 
+/**
+ * The managed block: the start marker and the NEXT end marker after it. null when it is missing,
+ * and also when it is ambiguous (a second start, or an end before the start): a region guessed
+ * across someone else's lines would take them out with it.
+ */
 function regionOf(text: string, markers: { start: string; end: string }): string | null {
   const s = text.indexOf(markers.start);
-  const e = text.indexOf(markers.end);
-  return s === -1 || e === -1 || e < s ? null : text.slice(s, e + markers.end.length);
+  if (s === -1) return null;
+  const e = text.indexOf(markers.end, s + markers.start.length);
+  if (e === -1) return null;
+  if (text.indexOf(markers.start, s + 1) !== -1) return null;
+  const firstEnd = text.indexOf(markers.end);
+  if (firstEnd !== -1 && firstEnd < s) return null;
+  return text.slice(s, e + markers.end.length);
 }
 
-function blockOf(before: string | null, next: string, markers: { start: string; end: string }): WrittenConfig['block'] {
+function getAt(root: unknown, p: string[]): unknown {
+  let node = root;
+  for (const k of p) {
+    if (!isObject(node) || !Object.hasOwn(node, k)) return undefined;
+    node = node[k];
+  }
+  return node;
+}
+
+/** A TOML table header for exactly `path` (bare, "quoted" or 'quoted' keys, spaces around dots). */
+function tomlHeader(p: string[]): RegExp {
+  const esc = (k: string) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const key = (k: string) => `(?:${esc(k)}|"${esc(k)}"|'${esc(k)}')`;
+  return new RegExp(`^[ \\t]*\\[[ \\t]*${p.map(key).join('[ \\t]*\\.[ \\t]*')}[ \\t]*\\][ \\t]*(?:#.*)?$`, 'gm');
+}
+
+/**
+ * Take one table align added out of a TOML file whose markers another program removed (Grok
+ * Build re-serialises config.toml on `grok mcp add`). Only when the table is exactly what align
+ * wrote, appears once as a header, and taking its lines out changes nothing else in the parsed
+ * file. Returns the new text, or a line saying what to remove by hand.
+ */
+function removeTomlTable(cur: string, table: { path: string[]; sha256: string }): { text: string } | { why: string } {
+  const name = `[${table.path.join('.')}]`;
+  let before: unknown;
+  try {
+    before = parseToml(cur);
+  } catch {
+    return { why: `align's marked block is gone and the file is not valid TOML now; remove the ${name} table by hand` };
+  }
+  const value = getAt(before, table.path);
+  if (value === undefined) return { text: cur };
+  if (shaOf(value) !== table.sha256) return { why: `align's marked block is gone and ${name} was changed since align added it; remove the ${name} table by hand` };
+  const headers = [...cur.matchAll(tomlHeader(table.path))];
+  if (headers.length !== 1) return { why: `align's marked block is gone and align cannot find exactly one ${name} header; remove the ${name} table by hand` };
+  const from = headers[0]!.index!;
+  const rest = cur.slice(from + headers[0]![0].length);
+  const nextHeader = /^[ \t]*\[/m.exec(rest);
+  const to = nextHeader ? from + headers[0]![0].length + nextHeader.index : cur.length;
+  const next = `${cur.slice(0, from)}${cur.slice(to)}`.replace(/\n{3,}/g, '\n\n');
+  const expected = JSON.parse(JSON.stringify(before)) as Json;
+  const parent = getAt(expected, table.path.slice(0, -1));
+  if (isObject(parent)) delete parent[table.path[table.path.length - 1]!];
+  let after: unknown;
+  try {
+    after = parseToml(next);
+  } catch {
+    after = undefined;
+  }
+  // An emptied parent table may or may not survive in the text: compare with it gone on both sides.
+  const prune = (o: unknown): unknown => {
+    const pp = table.path.slice(0, -1);
+    const node = getAt(o, pp);
+    const holder = getAt(o, pp.slice(0, -1));
+    if (pp.length > 0 && isObject(node) && Object.keys(node).length === 0 && isObject(holder)) delete holder[pp[pp.length - 1]!];
+    return o;
+  };
+  if (after === undefined || shaOf(prune(after)) !== shaOf(prune(expected))) {
+    return { why: `align's marked block is gone and align cannot take ${name} out without touching your other settings; remove it by hand` };
+  }
+  return { text: next };
+}
+
+function blockOf(before: string | null, next: string, markers: { start: string; end: string }, tomlTable?: string[]): WrittenConfig['block'] {
   const region = regionOf(next, markers);
   if (region === null) return undefined;
   const old = before === null ? null : regionOf(before, markers);
-  return { start: markers.start, end: markers.end, sha256: sha(region), ...(old !== null && old !== region ? { replaced: true } : {}) };
+  let table: { path: string[]; sha256: string } | undefined;
+  if (tomlTable) {
+    try {
+      const value = getAt(parseToml(region.slice(markers.start.length)), tomlTable);
+      if (value !== undefined) table = { path: tomlTable, sha256: shaOf(value) };
+    } catch {
+      // No table record: a lost block is then skipped by undo, never guessed at.
+    }
+  }
+  return { start: markers.start, end: markers.end, sha256: sha(region), ...(old !== null && old !== region ? { replaced: true } : {}), ...(table ? { table } : {}) };
 }
 
 function safeWrite(
@@ -386,7 +483,7 @@ function safeWrite(
     let block: WrittenConfig['block'];
     try {
       owned = describe?.(lastSnap) ?? {};
-      const b = opts.markers ? blockOf(before, next, opts.markers) : undefined;
+      const b = opts.markers ? blockOf(before, next, opts.markers, opts.tomlTable) : undefined;
       block = b ? { ...b, ...(b.replaced ? { snapshot: lastSnap } : {}) } : undefined;
     } catch {
       // Not knowing what we changed costs the undo, never the write.
@@ -689,8 +786,17 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
     const left: string[] = [];
     if (entry.block) {
       const region = regionOf(cur, entry.block);
-      if (region === null) next = cur;
-      else if (sha(region) !== entry.block.sha256) {
+      if (region === null) {
+        // The block is gone or ambiguous: another program rewrote the file, or the user edited it.
+        // Never "cleaned" on a guess: take out a recorded TOML table only when it is provably
+        // align's, otherwise keep the record and the backup and say what to remove.
+        const r = entry.block.table ? removeTomlTable(cur, entry.block.table) : { why: `align's marked block (${entry.block.start} ... ${entry.block.end}) is no longer intact in the file, so align cannot tell what to take out. Remove what align added there by hand` };
+        if ('text' in r) next = r.text;
+        else {
+          next = cur;
+          left.push(r.why);
+        }
+      } else if (sha(region) !== entry.block.sha256) {
         next = cur;
         left.push('the block align manages was edited since align wrote it; remove it by hand');
       } else {

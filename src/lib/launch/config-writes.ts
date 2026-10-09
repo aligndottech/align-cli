@@ -46,7 +46,7 @@ export function applyConfigWrite(w: ConfigWrite, note: (line: string) => void, m
   const quiet = memo?.has(w.file) === true;
   const opts = { note: quiet ? () => undefined : note, ...(w.root ? { root: w.root } : {}) };
   const status = w.kind === 'toml-mcp-entry'
-    ? safeWriteText(w.file, (cur) => appendTomlServer(w, cur), { ...opts, markers: tomlMarkers(w.name) })
+    ? safeWriteText(w.file, (cur) => appendTomlServer(w, cur), { ...opts, markers: tomlMarkers(w.name), tomlTable: [w.topKey, w.name] })
     : safeWriteJson(
     w.file,
     (cur) => {
@@ -84,6 +84,7 @@ const tomlString = (v: unknown): string => {
  */
 function appendTomlServer(w: ConfigWrite, current: string | null): string | undefined {
   const before = current ?? '';
+  const { start, end } = tomlMarkers(w.name);
   let parsed: Record<string, unknown>;
   try {
     parsed = parse(before) as Record<string, unknown>;
@@ -92,7 +93,11 @@ function appendTomlServer(w: ConfigWrite, current: string | null): string | unde
   }
   const servers = parsed['mcp_servers'];
   if (isObject(servers) && w.name in servers) return undefined;
-  const { start, end } = tomlMarkers(w.name);
+  // A marker already in the file (a stale one from a write that was cut short, or pasted text)
+  // would pair with ours, and undo would take out whatever sits between them.
+  if (before.includes(start) || before.includes(end)) {
+    throw new Error(`${w.file} already holds an align marker line ("${before.includes(start) ? start : end}"), so align left it alone. Remove that marker line by hand, then run align again`);
+  }
   const body = Object.entries(w.entry).map(([k, v]) => `${k} = ${Array.isArray(v) ? `[${v.map(tomlString).join(', ')}]` : tomlString(v)}`);
   const sep = before === '' ? '' : before.endsWith('\n') ? '\n' : '\n\n';
   const next = `${before}${sep}${start}\n[mcp_servers.${w.name}]\n${body.join('\n')}\n${end}\n`;

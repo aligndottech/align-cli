@@ -181,6 +181,68 @@ describe('readGrokState and the TOML write (sandbox files)', () => {
     }
   });
 
+  // What `grok mcp add later -- echo` (grok 1.0.50) leaves after align's write: it re-serialises
+  // config.toml, dropping every comment, align's markers included, and reflowing arrays.
+  const grokRewrite = (alignArgs = '[\n    "mcp",\n    "--env",\n    "local",\n]') =>
+    `[mcp_servers.user_own]\ncommand = "echo"\n\n[mcp_servers.align-local]\ncommand = "align"\nargs = ${alignArgs}\n\n[mcp_servers.later]\ncommand = "echo"\nargs = []\nenabled = true\n`;
+
+  it('undo after Grok rewrote the file (markers gone, table still canonical): takes out only that table', () => {
+    writeFileSync(cfg, '# my comment\n[mcp_servers.user_own]\ncommand = "echo"\n');
+    write();
+    writeFileSync(cfg, grokRewrite());
+    const report = undoWrittenConfigs(manifest);
+    expect(report).toMatchObject({ cleaned: [cfg], skipped: [] });
+    expect(readFileSync(cfg, 'utf8')).toBe('[mcp_servers.user_own]\ncommand = "echo"\n\n[mcp_servers.later]\ncommand = "echo"\nargs = []\nenabled = true\n');
+    expect(existsSync(`${cfg}.align-backup`)).toBe(false);
+  });
+
+  it('undo after Grok rewrote the file AND align-local was changed: skipped, record and backup kept, says what to remove', () => {
+    writeFileSync(cfg, '# my comment\n[mcp_servers.user_own]\ncommand = "echo"\n');
+    write();
+    const changed = grokRewrite('["mcp", "--env", "prod"]');
+    writeFileSync(cfg, changed);
+    const report = undoWrittenConfigs(manifest);
+    expect(report.cleaned).toEqual([]);
+    expect(report.done).toEqual([]);
+    expect(report.skipped.join('\n')).toContain('[mcp_servers.align-local]');
+    expect(readFileSync(cfg, 'utf8')).toBe(changed);
+    expect(existsSync(`${cfg}.align-backup`)).toBe(true);
+  });
+
+  it('a marked block that is gone from a file with no table record is skipped, never reported cleaned', () => {
+    writeFileSync(cfg, 'model = "a"\n');
+    write();
+    delete manifest[cfg]!.block!.table;
+    writeFileSync(cfg, grokRewrite());
+    const report = undoWrittenConfigs(manifest);
+    expect(report.cleaned).toEqual([]);
+    expect(report.skipped).toHaveLength(1);
+    expect(report.skipped[0]).toContain('# >>> align-local');
+    expect(existsSync(`${cfg}.align-backup`)).toBe(true);
+  });
+
+  it('refuses to write (one line, no write, no record) into a file already holding an align marker', () => {
+    for (const stale of ['# >>> align-local: added by align (undo: align use --undo)\n', '# <<< align-local\n']) {
+      const text = `[mcp_servers.user_own]\ncommand = "echo"\n\n${stale}[mcp_servers.other]\ncommand = "keepme"\n`;
+      writeFileSync(cfg, text);
+      expect(() => write()).toThrow(/marker/);
+      expect(readFileSync(cfg, 'utf8')).toBe(text);
+      expect(manifest[cfg]).toBeUndefined();
+    }
+  });
+
+  it('a block whose start marker appears twice is ambiguous: undo never pairs across it, the user\'s table between them survives', () => {
+    writeFileSync(cfg, 'model = "a"\n');
+    write();
+    const { start } = { start: '# >>> align-local: added by align (undo: align use --undo)' };
+    const text = `${start}\n[mcp_servers.other]\ncommand = "keepme"\n\n${readFileSync(cfg, 'utf8')}`;
+    writeFileSync(cfg, text);
+    undoWrittenConfigs(manifest);
+    const left = readFileSync(cfg, 'utf8');
+    expect(left).toContain('[mcp_servers.other]\ncommand = "keepme"');
+    expect(left).toContain('model = "a"');
+  });
+
   it('never writes through a symlinked config.toml', () => {
     const target = path.join(root, 'elsewhere.toml');
     writeFileSync(target, 'model = "x"\n');
