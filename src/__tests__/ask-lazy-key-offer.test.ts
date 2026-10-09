@@ -121,6 +121,26 @@ describe('no offer', () => {
     expect(out).toContain('No answer written: no LLM configured.');
   });
 
+  it('L1: inside a launched agent (ALIGN_WRAPPED), where a prompt would block the agent\'s shell', async () => {
+    setTTY(true);
+    vi.stubEnv('ALIGN_WRAPPED', '1');
+    synthesiseDetailed.mockResolvedValue(NO_PROVIDER);
+    const out = await ask();
+    vi.unstubAllEnvs();
+    expect(offerAskProviderKey).not.toHaveBeenCalled();
+    expect(out).toContain('Chose Postgres');
+  });
+
+  it('L1 control: the same terminal without ALIGN_WRAPPED does offer', async () => {
+    setTTY(true);
+    vi.stubEnv('ALIGN_WRAPPED', '');
+    synthesiseDetailed.mockResolvedValue(NO_PROVIDER);
+    offerAskProviderKey.mockResolvedValue('dismissed');
+    await ask();
+    vi.unstubAllEnvs();
+    expect(offerAskProviderKey).toHaveBeenCalledTimes(1);
+  });
+
   it('under --json, even on a terminal', async () => {
     setTTY(true);
     await ask('--json');

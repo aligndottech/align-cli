@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createConfigStore, hydrateProviderKeyEnv } from '../lib/config.js';
+import { createConfigStore, savedLlmConfig } from '../lib/config.js';
 
 vi.mock('conf', () => {
   let store: Record<string, unknown> = {};
@@ -165,7 +165,7 @@ describe('config store', () => {
   // NEXT invocation of `align ask`, which only reads `process.env` (local-llm.ts stays a pure
   // env-reader on purpose, so it is testable without filesystem I/O). So the key is persisted
   // here, the same way a local connector's read-only token already is, and hydrated back into
-  // process.env at CLI startup - see hydrateProviderKeyEnv below.
+  // local-llm at CLI startup - see savedLlmConfig below.
   describe('provider keys (ALI-1284)', () => {
     it('returns null for a provider with no stored key', () => {
       expect(createConfigStore().getProviderKey('groq')).toBeNull();
@@ -235,52 +235,22 @@ describe('config store', () => {
     });
   });
 
-  // ALI-1284: run at real process startup (src/index.ts), before any command runs - a pure
-  // function over an env object rather than mutating process.env itself, so it stays testable
-  // the way migrateConfigDirectory does (no hidden global state in the function under test).
-  describe('hydrateProviderKeyEnv', () => {
-    const fakeConfig = (keys: Partial<Record<'groq' | 'gemini', string>>) => ({
-      getProviderKey: (p: 'groq' | 'gemini') => keys[p] ?? null,
+  // H1: saved keys are handed to local-llm as data (setSavedLlmSource), never written into
+  // process.env, where the coding agent bare `align` opens would inherit them.
+  describe('savedLlmConfig', () => {
+    it('collects every saved key and the saved preference', () => {
+      const c = createConfigStore();
+      c.setProviderKey('anthropic', 'sk-ant');
+      c.setProviderKey('openrouter', 'sk-or');
+      c.setLlmPreference({ provider: 'openrouter', model: 'm' });
+      expect(savedLlmConfig(c)).toEqual({ keys: { anthropic: 'sk-ant', openrouter: 'sk-or' }, provider: 'openrouter', model: 'm' });
     });
 
-    it('sets GROQ_API_KEY from a stored key when the env var is unset', () => {
-      const env: Record<string, string | undefined> = {};
-      hydrateProviderKeyEnv(fakeConfig({ groq: 'gsk_stored' }), env);
-      expect(env['GROQ_API_KEY']).toBe('gsk_stored');
-    });
-
-    it('sets GEMINI_API_KEY from a stored key when the env var is unset', () => {
-      const env: Record<string, string | undefined> = {};
-      hydrateProviderKeyEnv(fakeConfig({ gemini: 'gem_stored' }), env);
-      expect(env['GEMINI_API_KEY']).toBe('gem_stored');
-    });
-
-    // The second example for the same rule: a real env var must win, never be overwritten by
-    // a stored convenience default - otherwise a user who deliberately rotates their own
-    // GROQ_API_KEY for one shell session would silently get the stale stored one instead.
-    it('never overwrites a real env var already set, even with a different stored value', () => {
-      const env: Record<string, string | undefined> = { GROQ_API_KEY: 'from-the-shell' };
-      hydrateProviderKeyEnv(fakeConfig({ groq: 'gsk_stored' }), env);
-      expect(env['GROQ_API_KEY']).toBe('from-the-shell');
-    });
-
-    it('leaves the env untouched when nothing is stored', () => {
-      const env: Record<string, string | undefined> = {};
-      hydrateProviderKeyEnv(fakeConfig({}), env);
-      expect(env['GROQ_API_KEY']).toBeUndefined();
-      expect(env['GEMINI_API_KEY']).toBeUndefined();
-    });
-
-    // Copilot review, PR #322: keyForProvider('gemini') in local-llm.ts accepts
-    // GOOGLE_API_KEY as a real alias for GEMINI_API_KEY. Hydrating a stored key into
-    // GEMINI_API_KEY while the user has deliberately set GOOGLE_API_KEY would make the
-    // stored (possibly stale) value win keyForProvider's own `||`, silently shadowing a
-    // real credential the user just set.
-    it('does not hydrate a stored Gemini key over a real GOOGLE_API_KEY alias', () => {
-      const env: Record<string, string | undefined> = { GOOGLE_API_KEY: 'real-google-key' };
-      hydrateProviderKeyEnv(fakeConfig({ gemini: 'stale-stored-key' }), env);
-      expect(env['GEMINI_API_KEY']).toBeUndefined();
-      expect(env['GOOGLE_API_KEY']).toBe('real-google-key');
+    it('is empty when nothing is saved', () => {
+      const c = createConfigStore();
+      for (const p of ['anthropic', 'openrouter', 'groq', 'gemini'] as const) c.clearProviderKey(p);
+      c.clearLlmPreference();
+      expect(savedLlmConfig(c)).toEqual({ keys: {} });
     });
   });
 });

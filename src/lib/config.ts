@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
-import { KEY_ENV_VARS, MODEL_ENV_VAR, OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL, parseProviderId, type StoredProviderId } from './llm-providers.js';
+import { STORABLE_PROVIDERS, type StoredProviderId } from './llm-providers.js';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -84,60 +84,20 @@ export type GuidedProviderKey = StoredProviderId;
 export interface LlmPreference { provider?: string; model?: string }
 
 /**
- * ALI-1284: fills `process.env` from saved provider keys and the saved provider preference,
- * so `align ask` keeps working on every invocation after the one that collected them -
- * without local-llm.ts (which resolves providers from plain env vars, and stays a
- * dependency-free pure module on purpose) ever knowing a config store exists.
- *
- * A real env var always wins and is never overwritten: this is a convenience default,
- * not a second source of truth, the same precedence `getEnvironment` already gives
- * ALIGN_TOKEN/ALIGN_TENANT_ID/ALIGN_GATEWAY_URL above. That gives the preference its order:
- * an exported ALIGN_LLM_PROVIDER (or model variable) beats the saved one, which beats none.
- * Checks every alias `keyForProvider` itself accepts (not just the primary name), or
- * hydrating the primary name from storage would outrank a real credential the user set under
- * an alias - see KEY_ENV_VARS.
- *
- * A saved OpenRouter key rides the generic OpenAI-compatible slot (ALIGN_LLM_BASE_URL +
- * ALIGN_LLM_API_KEY + ALIGN_LLM_MODEL), and only when the shell has not pointed that slot
- * somewhere else.
- *
- * Called from the `preAction` Commander hook in cli.ts, before a command's own action runs
- * - never from module scope in index.ts, or a Conf store would be constructed (and its
- * defaults written to disk) for `align --version`, which startup-migration.test.ts pins as
- * untouched on a fresh machine. Never from inside createConfigStore() itself either, for the
- * same reason migrateConfigDirectory is split out (Copilot review, PR #231): a pure
- * constructor stays mockable without needing to stub `process.env` in every test that
- * merely constructs a store.
+ * Saved provider keys and the saved preference, as data for local-llm's setSavedLlmSource.
+ * cli.ts installs it; local-llm reads it on every call. Never written to process.env (H1):
+ * every child process inherits process.env, including the coding agent bare `align` opens.
  */
-export function hydrateProviderKeyEnv(
-  config: { getProviderKey(provider: GuidedProviderKey): string | null; getLlmPreference?(): LlmPreference },
-  env: Record<string, string | undefined> = process.env,
-): void {
-  // 1. The preference, then its model - only when the preference in force IS the stored one,
-  //    so a stored Groq model never lands on a run the shell pointed at OpenAI.
-  const pref = config.getLlmPreference?.() ?? {};
-  const prefId = pref.provider ? parseProviderId(pref.provider) : null;
-  if (prefId && !env['ALIGN_LLM_PROVIDER']) env['ALIGN_LLM_PROVIDER'] = prefId;
-  const inForce = env['ALIGN_LLM_PROVIDER'] ? parseProviderId(env['ALIGN_LLM_PROVIDER']) : null;
-  if (prefId && pref.model && inForce === prefId) {
-    const modelVar = MODEL_ENV_VAR[prefId];
-    if (!env[modelVar]) env[modelVar] = pref.model;
+export function savedLlmConfig(config: {
+  getProviderKey(provider: GuidedProviderKey): string | null;
+  getLlmPreference(): LlmPreference;
+}): { keys: Partial<Record<GuidedProviderKey, string>>; provider?: string; model?: string } {
+  const keys: Partial<Record<GuidedProviderKey, string>> = {};
+  for (const p of STORABLE_PROVIDERS) {
+    const k = config.getProviderKey(p);
+    if (k) keys[p] = k;
   }
-
-  // 2. Every saved key, never over a real one.
-  for (const [provider, vars] of Object.entries(KEY_ENV_VARS) as Array<[GuidedProviderKey, readonly string[]]>) {
-    if (vars.some((v) => env[v])) continue;
-    const stored = config.getProviderKey(provider);
-    if (stored) env[vars[0]!] = stored;
-  }
-
-  // 3. OpenRouter, through the generic endpoint slot.
-  const openrouter = config.getProviderKey('openrouter');
-  if (openrouter && !env['ALIGN_LLM_BASE_URL']) {
-    env['ALIGN_LLM_BASE_URL'] = OPENROUTER_BASE_URL;
-    env['ALIGN_LLM_API_KEY'] = openrouter;
-    if (!env['ALIGN_LLM_MODEL']) env['ALIGN_LLM_MODEL'] = OPENROUTER_DEFAULT_MODEL;
-  }
+  return { keys, ...config.getLlmPreference() };
 }
 
 export function createConfigStore() {
@@ -368,8 +328,8 @@ export function createConfigStore() {
     },
     // ALI-1284: the key `align setup`'s guided free-tier path collected, persisted the same
     // way a local connector's read-only token already is (saveConnectorFields above) - one
-    // paste, reused on every later invocation. hydrateProviderKeyEnv is what reads this back
-    // into process.env at startup; local-llm.ts itself stays a pure env-reader.
+    // paste, reused on every later invocation. savedLlmConfig hands it to local-llm as data;
+    // it is never written into process.env.
     getProviderKey(provider: GuidedProviderKey): string | null {
       return store.get('providerKeys')?.[provider] ?? null;
     },
@@ -378,16 +338,15 @@ export function createConfigStore() {
       store.set('providerKeys', { ...existing, [provider]: key });
     },
     // ALI-1284 (Copilot review, PR #322): `align setup --reset` needs a real way to stop a
-    // previously-stored key from coming back - hydrateProviderKeyEnv re-applies whatever is
-    // stored on every invocation, so declining a re-offered key has to clear it, not just
-    // skip re-asking for it.
+    // previously-stored key from coming back - local-llm reads whatever is stored on every
+    // call, so clearing is the only way to stop a saved key being used.
     clearProviderKey(provider: GuidedProviderKey) {
       const existing = store.get('providerKeys') ?? {};
       const { [provider]: _removed, ...rest } = existing;
       store.set('providerKeys', rest);
     },
-    // `align ai`: which provider (and optionally model) `align ask` tries first. Hydrated into
-    // ALIGN_LLM_PROVIDER by hydrateProviderKeyEnv, where an exported value wins.
+    // `align ai`: which provider (and optionally model) `align ask` tries first. An exported
+    // ALIGN_LLM_PROVIDER wins (preferredProvider in local-llm.ts).
     getLlmPreference(): LlmPreference {
       return store.get('llm') ?? {};
     },

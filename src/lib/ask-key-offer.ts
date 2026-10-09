@@ -9,24 +9,23 @@
  * wizard no longer asks, and this module asks lazily, with the reason stated first.
  *
  * Secrets: a key is read through a masked password prompt, stored in the 0600 config file
- * (config.setProviderKey, the same store as every other saved credential), applied to this
- * run's env, and never printed - not in a log line, not in a confirmation.
+ * (config.setProviderKey, the same store as every other saved credential) and never printed -
+ * not in a log line, not in a confirmation. It is never written to process.env either (H1):
+ * local-llm reads saved keys as data on every call, so it is live at once, and a child process
+ * (the coding agent bare `align` opens) cannot inherit it.
  */
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
-import { hydrateProviderKeyEnv, type LlmPreference } from './config.js';
+import type { LlmPreference } from './config.js';
+import { listConfiguredCredentials } from './local-llm.js';
 import {
-  KEY_ENV_VARS,
   type LlmProviderId,
-  OPENROUTER_BASE_URL,
   PROVIDER_KEY_URL,
   PROVIDER_LABEL,
   STORABLE_PROVIDERS,
   type StoredProviderId,
 } from './llm-providers.js';
 import { guardedPrompt } from './prompt-guard.js';
-
-type Env = Record<string, string | undefined>;
 
 /** The slice of the config store this module needs. */
 export interface KeyStore {
@@ -42,16 +41,6 @@ export interface OfferStore extends KeyStore {
 /** The command that re-opens this choice later. */
 export const CHOOSE_PROVIDER_COMMAND = 'align ai';
 
-/**
- * Save a key and make it usable for the rest of THIS run. Applied through the same
- * hydration every later invocation uses, so this run and the next agree, and a real
- * exported key still wins over the one just saved.
- */
-function storeKey(config: KeyStore, id: StoredProviderId, key: string, env: Env): void {
-  config.setProviderKey(id, key);
-  hydrateProviderKeyEnv({ getProviderKey: (pid) => (pid === id ? key : null) }, env);
-}
-
 /** Masked paste for one provider. null when nothing usable was entered (or the prompt crashed). */
 async function pasteKey(id: StoredProviderId): Promise<string | null | symbol> {
   p.log.info(`Get one: ${chalk.bold(PROVIDER_KEY_URL[id])}`);
@@ -65,7 +54,7 @@ async function pasteKey(id: StoredProviderId): Promise<string | null | symbol> {
  * "Use a key I already have": pick the provider, paste, save. Returns the provider saved, or
  * null when the user backed out or pasted nothing.
  */
-export async function promptForProviderKey(config: KeyStore, env: Env = process.env): Promise<StoredProviderId | null> {
+export async function promptForProviderKey(config: KeyStore): Promise<StoredProviderId | null> {
   const id = await guardedPrompt('Provider', () => p.select<StoredProviderId>({
     message: 'Which provider is the key for?',
     options: STORABLE_PROVIDERS.map((value) => ({ value, label: PROVIDER_LABEL[value] })),
@@ -76,20 +65,20 @@ export async function promptForProviderKey(config: KeyStore, env: Env = process.
     if (key === null) p.log.warn('No key entered - nothing saved.');
     return null;
   }
-  storeKey(config, id, key, env);
+  config.setProviderKey(id, key);
   p.log.success(`Saved your ${PROVIDER_LABEL[id]} key - ${chalk.bold('align ask')} uses it from now on.`);
   return id;
 }
 
 /** "Get a free Groq key": today's guided path, Gemini backup included. */
-async function freeGroqKey(config: KeyStore, env: Env): Promise<boolean> {
+async function freeGroqKey(config: KeyStore): Promise<boolean> {
   p.log.info(`Groq's free tier needs no card, ever.`);
   const groq = await pasteKey('groq');
   if (typeof groq !== 'string') {
     if (groq === null) p.log.warn('No key entered - nothing saved.');
     return false;
   }
-  storeKey(config, 'groq', groq, env);
+  config.setProviderKey('groq', groq);
   p.log.success(`Saved - ${chalk.bold('align ask')} will use it on this machine from now on.`);
 
   const wantGemini = await p.confirm({
@@ -99,7 +88,7 @@ async function freeGroqKey(config: KeyStore, env: Env): Promise<boolean> {
   if (p.isCancel(wantGemini) || !wantGemini) return true;
   const gemini = await pasteKey('gemini');
   if (typeof gemini === 'string') {
-    storeKey(config, 'gemini', gemini, env);
+    config.setProviderKey('gemini', gemini);
     p.log.success('Saved as backup.');
   } else if (gemini === null) {
     p.log.warn('No key entered - skipping the backup.');
@@ -110,11 +99,11 @@ async function freeGroqKey(config: KeyStore, env: Env): Promise<boolean> {
 export type OfferResult = 'configured' | 'dismissed' | 'cancelled';
 
 /**
- * The first-ask choice. 'configured': a key was saved and is live in `env` - ask again.
+ * The first-ask choice. 'configured': a key was saved and is live for the next call - ask again.
  * 'dismissed': "Not now", remembered so `align ask` stops asking. 'cancelled': backed out
  * (Ctrl-C, empty paste) - nothing saved, nothing remembered, the list prints as usual.
  */
-export async function offerAskProviderKey(config: OfferStore, env: Env = process.env): Promise<OfferResult> {
+export async function offerAskProviderKey(config: OfferStore): Promise<OfferResult> {
   p.log.info(
     `${chalk.bold('align ask')} writes answers with an AI model. Inside your coding agent you don't need this - the agent writes them.`,
   );
@@ -132,7 +121,7 @@ export async function offerAskProviderKey(config: OfferStore, env: Env = process
     config.setAskKeyOfferDismissed(true);
     return 'dismissed';
   }
-  const saved = choice === 'groq' ? await freeGroqKey(config, env) : (await promptForProviderKey(config, env)) !== null;
+  const saved = choice === 'groq' ? await freeGroqKey(config) : (await promptForProviderKey(config)) !== null;
   return saved ? 'configured' : 'cancelled';
 }
 
@@ -143,32 +132,12 @@ export interface DetectedProvider {
 }
 
 /**
- * Every provider `align ask` could use right now, in the chain's own order (the custom
- * endpoint first, Ollama last). Read AFTER hydration, so a saved key shows up - and is told
- * apart from an exported one by comparing against what is stored. The Ollama check is the
- * same 2s /api/tags probe the ask path runs, injected so tests never touch the network.
+ * Every provider `align ask` could use right now, in the default order (exported credentials,
+ * then saved ones, then Ollama). The Ollama check is the same 2s /api/tags probe the ask path
+ * runs, injected so tests never touch the network.
  */
-export async function detectProviders(
-  config: Pick<KeyStore, 'getProviderKey'>,
-  env: Env,
-  probeOllama: () => Promise<string | null>,
-): Promise<DetectedProvider[]> {
-  const found: DetectedProvider[] = [];
-  const baseUrl = env['ALIGN_LLM_BASE_URL'];
-  if (baseUrl) {
-    const openrouterSaved = config.getProviderKey('openrouter');
-    if (baseUrl.replace(/\/+$/, '') === OPENROUTER_BASE_URL) {
-      const saved = openrouterSaved !== null && env['ALIGN_LLM_API_KEY'] === openrouterSaved;
-      found.push({ id: 'openrouter', source: saved ? 'saved' : 'env' });
-    } else {
-      found.push({ id: 'custom', source: 'env' });
-    }
-  }
-  for (const [id, vars] of Object.entries(KEY_ENV_VARS) as Array<[Exclude<StoredProviderId, 'openrouter'>, readonly string[]]>) {
-    if (!vars.some((v) => env[v])) continue;
-    const stored = config.getProviderKey(id);
-    found.push({ id, source: stored !== null && vars.some((v) => env[v] === stored) ? 'saved' : 'env' });
-  }
+export async function detectProviders(probeOllama: () => Promise<string | null>): Promise<DetectedProvider[]> {
+  const found: DetectedProvider[] = listConfiguredCredentials();
   if (await probeOllama()) found.push({ id: 'ollama', source: 'local' });
   return found;
 }

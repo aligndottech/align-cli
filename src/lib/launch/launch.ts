@@ -85,6 +85,22 @@ export function launchSuppressed(env: Record<string, string | undefined> = proce
 }
 
 /**
+ * Whether bare `align` opens the agent once the first-run wizard ends. default-action.ts gates
+ * its post-wizard launch on this, and setup.ts's outro reads it to choose between "Opening
+ * <Agent>. Ask it: ..." and the run-align instruction - one predicate, so the outro says
+ * "Opening" exactly when the launch happens. The terminal and suppression checks mirror the
+ * ones launchIfChosen applies itself.
+ */
+export function launchesAfterWizard(o: {
+  localGraph: boolean;
+  agent: string | null | undefined;
+  env?: Record<string, string | undefined>;
+  isTTY: boolean;
+}): boolean {
+  return o.localGraph && Boolean(o.agent) && !launchSuppressed(o.env ?? process.env) && o.isTTY;
+}
+
+/**
  * Whether an align command with no --env reads the local graph: the CLI's own resolver, so
  * ALIGN_ENV, the signed-in rule and the demo-mode rule all apply exactly as they do for `align ask`.
  */

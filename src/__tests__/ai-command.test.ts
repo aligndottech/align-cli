@@ -14,7 +14,10 @@ vi.mock('@clack/prompts', () => ({
 }));
 
 const probeOllama = vi.hoisted(() => vi.fn().mockResolvedValue(null));
-vi.mock('../lib/local-llm.js', () => ({ probeOllama }));
+vi.mock('../lib/local-llm.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  probeOllama,
+}));
 
 const store = vi.hoisted(() => ({
   keys: {} as Record<string, string>,
@@ -34,6 +37,7 @@ vi.mock('../lib/config.js', async (importOriginal) => ({
 }));
 
 import { registerAiCommand } from '../commands/ai.js';
+import { setSavedLlmSource } from '../lib/local-llm.js';
 
 const out: string[] = [];
 const errs: string[] = [];
@@ -63,6 +67,8 @@ beforeEach(() => {
   password.mockReset();
   probeOllama.mockResolvedValue(null);
   for (const k of KEYS) vi.stubEnv(k, undefined);
+  // What cli.ts's preAction installs in a real run.
+  setSavedLlmSource(() => ({ keys: store.keys, ...store.llm }));
   vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { out.push(a.join(' ')); });
   vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errs.push(a.join(' ')); });
   vi.spyOn(process, 'exit').mockImplementation(((code?: number) => { throw new Error(`exit ${code}`); }) as never);
@@ -102,6 +108,27 @@ describe('align ai --provider <id> (any terminal)', () => {
     expect(store.llm).toEqual({});
   });
 
+  it('L4: a provider with no key is still saved, with a note on how to add one', async () => {
+    setTTY(false);
+    const text = await ai('--provider', 'openai');
+    expect(store.llm).toEqual({ provider: 'openai' });
+    expect(text).toContain('No OpenAI key found yet - add one with: align ai');
+  });
+
+  it('L4: a provider WITH a key gets no such note', async () => {
+    setTTY(false);
+    store.keys = { openai: 'sk-o' };
+    const text = await ai('--provider', 'openai');
+    expect(text).not.toContain('No OpenAI key');
+  });
+
+  it('L4: preferring Ollama when it is not running says so', async () => {
+    setTTY(false);
+    const text = await ai('--provider', 'ollama');
+    expect(store.llm).toEqual({ provider: 'ollama' });
+    expect(text).toMatch(/Ollama is not running here/);
+  });
+
   it('--model without --provider is refused rather than guessed', async () => {
     await expect(ai('--model', 'gpt-4.1')).rejects.toThrow('exit 1');
     expect(store.llm).toEqual({});
@@ -112,7 +139,6 @@ describe('align ai on a terminal lists what it detects', () => {
   it('offers each available provider marked with where it came from, plus "Add another key..."', async () => {
     setTTY(true);
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-real');
-    vi.stubEnv('GROQ_API_KEY', 'gsk_saved');
     store.keys = { groq: 'gsk_saved' };
     probeOllama.mockResolvedValue('llama3.2:3b');
     select.mockResolvedValueOnce('groq');

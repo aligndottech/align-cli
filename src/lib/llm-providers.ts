@@ -1,74 +1,113 @@
 /**
  * The providers `align ask` can write answers with, as data: their ids, labels, the env vars
- * that carry their keys and models, and which ones a user can save a key for. Shared by the
- * config store (hydration), local-llm.ts (preference) and the `align ai` / first-ask prompts,
- * so there is one list rather than three that drift. Dependency-free on purpose: config.ts
- * imports it on every command.
+ * that carry their keys and models, endpoints and default models, and which ones a user can
+ * save a key for. Shared by local-llm.ts (resolution and preference), the config store, the
+ * launcher (which must not leak these variables to an agent) and the `align ai` / first-ask
+ * prompts, so there is one list rather than several that drift. Dependency-free on purpose.
  */
+
+/** A provider reached with its own key from an env variable or a saved key. */
+export interface NamedProvider {
+  id: NamedProviderId;
+  label: string;
+  /** Every env var holding a key, read in order; a real value under ANY of them beats a saved key. */
+  keyEnv: readonly string[];
+  /** The env var that overrides the model. */
+  modelEnv: string;
+  defaultModel: string;
+  /** Which request shape. 'openai' posts Chat Completions to `endpoint`. */
+  api: 'anthropic' | 'gemini' | 'openai';
+  /** Full Chat Completions URL, for api 'openai'. */
+  endpoint?: string;
+  /** Where to get a key, shown beside the paste prompt. */
+  keyUrl: string;
+}
+
+export type NamedProviderId = 'anthropic' | 'openai' | 'groq' | 'gemini' | 'mistral' | 'grok';
+
+/**
+ * In the fixed fallback order (ALI-1284: Groq ahead of Gemini, so the free pairing has a real
+ * primary). A provider is only ever tried when the user has a key for it.
+ */
+export const NAMED_PROVIDERS: readonly NamedProvider[] = [
+  {
+    id: 'anthropic', label: 'Anthropic', keyEnv: ['ANTHROPIC_API_KEY'], modelEnv: 'ALIGN_ANTHROPIC_MODEL',
+    defaultModel: 'claude-haiku-4-5-20251001', api: 'anthropic', keyUrl: 'https://console.anthropic.com/settings/keys',
+  },
+  {
+    id: 'openai', label: 'OpenAI', keyEnv: ['OPENAI_API_KEY'], modelEnv: 'ALIGN_OPENAI_MODEL',
+    defaultModel: 'gpt-4o-mini', api: 'openai', endpoint: 'https://api.openai.com/v1/chat/completions',
+    keyUrl: 'https://platform.openai.com/api-keys',
+  },
+  {
+    id: 'groq', label: 'Groq', keyEnv: ['GROQ_API_KEY'], modelEnv: 'ALIGN_GROQ_MODEL',
+    defaultModel: 'llama-3.1-8b-instant', api: 'openai', endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    keyUrl: 'https://console.groq.com/keys',
+  },
+  {
+    // ALI-1284: a Flash-Lite model, which is what the free pairing is sold as. Override with
+    // ALIGN_GEMINI_MODEL if Google retires it.
+    id: 'gemini', label: 'Gemini', keyEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], modelEnv: 'ALIGN_GEMINI_MODEL',
+    defaultModel: 'gemini-2.5-flash-lite', api: 'gemini', keyUrl: 'https://aistudio.google.com/apikey',
+  },
+  {
+    id: 'mistral', label: 'Mistral', keyEnv: ['MISTRAL_API_KEY'], modelEnv: 'ALIGN_MISTRAL_MODEL',
+    defaultModel: 'mistral-small-latest', api: 'openai', endpoint: 'https://api.mistral.ai/v1/chat/completions',
+    keyUrl: 'https://console.mistral.ai/api-keys',
+  },
+  {
+    id: 'grok', label: 'xAI', keyEnv: ['GROK_API_KEY', 'XAI_API_KEY'], modelEnv: 'ALIGN_GROK_MODEL',
+    defaultModel: 'grok-2-latest', api: 'openai', endpoint: 'https://api.x.ai/v1/chat/completions',
+    keyUrl: 'https://console.x.ai',
+  },
+];
+
+export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+export const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
 
 /** Every id `ALIGN_LLM_PROVIDER` / `align ai --provider` accepts. */
 export const LLM_PROVIDER_IDS = [
-  'anthropic', 'openai', 'openrouter', 'gemini', 'groq', 'mistral', 'grok', 'custom', 'ollama',
-] as const;
-export type LlmProviderId = (typeof LLM_PROVIDER_IDS)[number];
+  ...NAMED_PROVIDERS.map((p) => p.id), 'openrouter', 'custom', 'ollama',
+] as readonly LlmProviderId[];
+export type LlmProviderId = NamedProviderId | 'openrouter' | 'custom' | 'ollama';
 
-/** The providers a key can be saved for, in the order the key prompt lists them. */
-export const STORABLE_PROVIDERS = ['anthropic', 'openai', 'openrouter', 'gemini', 'groq', 'mistral', 'grok'] as const;
-export type StoredProviderId = (typeof STORABLE_PROVIDERS)[number];
+/**
+ * The providers a key can be saved for, in the order the key prompt lists them: the original
+ * seven first (OpenRouter third, as it always was), then the rest in table order.
+ */
+export const STORABLE_PROVIDERS: readonly StoredProviderId[] = [
+  'anthropic', 'openai', 'openrouter', 'gemini', 'groq', 'mistral', 'grok',
+  ...NAMED_PROVIDERS.map((p) => p.id).filter((id) => !['anthropic', 'openai', 'gemini', 'groq', 'mistral', 'grok'].includes(id)),
+];
+export type StoredProviderId = NamedProviderId | 'openrouter';
+
+export function namedProvider(id: string): NamedProvider | undefined {
+  return NAMED_PROVIDERS.find((p) => p.id === id);
+}
 
 export const PROVIDER_LABEL: Record<LlmProviderId, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
+  ...Object.fromEntries(NAMED_PROVIDERS.map((p) => [p.id, p.label])) as Record<NamedProviderId, string>,
   openrouter: 'OpenRouter',
-  gemini: 'Gemini',
-  groq: 'Groq',
-  mistral: 'Mistral',
-  grok: 'xAI',
   custom: 'Custom endpoint',
   ollama: 'Ollama',
 };
 
 /** Where to get a key, shown beside the paste prompt. */
 export const PROVIDER_KEY_URL: Record<StoredProviderId, string> = {
-  anthropic: 'https://console.anthropic.com/settings/keys',
-  openai: 'https://platform.openai.com/api-keys',
+  ...Object.fromEntries(NAMED_PROVIDERS.map((p) => [p.id, p.keyUrl])) as Record<NamedProviderId, string>,
   openrouter: 'https://openrouter.ai/keys',
-  gemini: 'https://aistudio.google.com/apikey',
-  groq: 'https://console.groq.com/keys',
-  mistral: 'https://console.mistral.ai/api-keys',
-  grok: 'https://console.x.ai',
 };
-
-export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-export const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
 
 /**
- * For each named provider: the env var a saved key is hydrated into (the first entry), and
- * every alias local-llm.ts's keyForProvider also reads. A real value under ANY alias wins
- * over a saved key. OpenRouter has none here: it rides the ALIGN_LLM_BASE_URL slot.
- * In the chain's own order (Groq before Gemini), so a listing reads the way the chain runs.
+ * Every env variable that carries an align LLM credential, endpoint, model or preference. The
+ * launcher resets each one to the value the user's shell had when align started, so nothing
+ * align put into its own environment reaches a coding agent (a saved ANTHROPIC_API_KEY would
+ * switch Claude Code from a Max subscription to API billing).
  */
-export const KEY_ENV_VARS: Record<Exclude<StoredProviderId, 'openrouter'>, readonly string[]> = {
-  anthropic: ['ANTHROPIC_API_KEY'],
-  openai: ['OPENAI_API_KEY'],
-  groq: ['GROQ_API_KEY'],
-  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
-  mistral: ['MISTRAL_API_KEY'],
-  grok: ['XAI_API_KEY', 'GROK_API_KEY'],
-};
-
-/** The env var each provider's model override is read from (see local-llm.ts). */
-export const MODEL_ENV_VAR: Record<LlmProviderId, string> = {
-  anthropic: 'ALIGN_ANTHROPIC_MODEL',
-  openai: 'ALIGN_OPENAI_MODEL',
-  openrouter: 'ALIGN_LLM_MODEL',
-  gemini: 'ALIGN_GEMINI_MODEL',
-  groq: 'ALIGN_GROQ_MODEL',
-  mistral: 'ALIGN_MISTRAL_MODEL',
-  grok: 'ALIGN_GROK_MODEL',
-  custom: 'ALIGN_LLM_MODEL',
-  ollama: 'ALIGN_OLLAMA_MODEL',
-};
+export const PROVIDER_ENV_VARS: readonly string[] = [
+  ...NAMED_PROVIDERS.flatMap((p) => [...p.keyEnv, p.modelEnv]),
+  'ALIGN_LLM_BASE_URL', 'ALIGN_LLM_API_KEY', 'ALIGN_LLM_MODEL', 'ALIGN_LLM_PROVIDER', 'ALIGN_OLLAMA_MODEL',
+];
 
 const ALIASES: Record<string, LlmProviderId> = { xai: 'grok' };
 

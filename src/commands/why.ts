@@ -281,6 +281,9 @@ export function registerAskCommand(program: Command): void {
           if (
             synthFailure?.kind === 'no_provider'
             && process.stdin.isTTY && process.stdout.isTTY
+            // Inside a launched agent its shell has a PTY, but nobody is there to answer -
+            // a prompt would block the agent's command (L1).
+            && !process.env['ALIGN_WRAPPED']
             && !config.isAskKeyOfferDismissed()
           ) {
             spinner.stop();

@@ -2,12 +2,37 @@ import { type ChildProcess, spawn as nodeSpawn, type SpawnOptions } from 'node:c
 import os from 'node:os';
 import path from 'node:path';
 import type { LaunchSpec } from './adapters/claude-code.js';
+import { PROVIDER_ENV_VARS } from '../llm-providers.js';
+import { STARTUP_ENV } from '../startup-env.js';
 
 export interface RunDeps {
   spawn: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
   platform: string;
   /** The process whose signals are forwarded. A parameter so tests need not signal themselves. */
   proc: Pick<typeof process, 'on' | 'off'>;
+  /** The env as the user's shell started align with. A parameter so tests can name it. */
+  startupEnv: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * The child's environment: align's own, with every LLM provider variable reset to what the
+ * user's shell had at startup, then the spec's env on top. Defence in depth for H1 - align
+ * keeps saved keys out of process.env by design (local-llm reads them as data), and this
+ * guarantees that even a future regression writing one cannot hand a saved ANTHROPIC_API_KEY
+ * to Claude Code (API billing over a Max subscription), OPENAI_API_KEY to Codex or
+ * GEMINI_API_KEY to Gemini CLI. A variable the user exported is restored, never stripped.
+ */
+export function childEnv(
+  parent: Record<string, string | undefined>,
+  startup: Readonly<Record<string, string | undefined>>,
+  specEnv: Record<string, string> | undefined,
+): Record<string, string | undefined> {
+  const env = { ...parent };
+  for (const name of PROVIDER_ENV_VARS) {
+    if (startup[name] === undefined) delete env[name];
+    else env[name] = startup[name];
+  }
+  return { ...env, ...specEnv };
 }
 
 // cmd.exe re-parses the whole line, so these would run a second command or expand a variable.
@@ -46,7 +71,8 @@ export async function runAgent(spec: LaunchSpec, deps: Partial<RunDeps> = {}): P
   const proc = deps.proc ?? process;
   const isShim = platform === 'win32' && /\.(cmd|bat)$/i.test(spec.bin);
   const { command, args } = isShim ? winShimCommand(spec) : { command: spec.bin, args: spec.args };
-  const options: SpawnOptions = { stdio: 'inherit', env: { ...process.env, ...spec.env } };
+  const startupEnv = deps.startupEnv ?? STARTUP_ENV;
+  const options: SpawnOptions = { stdio: 'inherit', env: childEnv(process.env, startupEnv, spec.env) };
   if (isShim) options.windowsVerbatimArguments = true;
 
   const child = spawn(command, args, options);

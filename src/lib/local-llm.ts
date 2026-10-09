@@ -1,5 +1,14 @@
 import { charsForTokens, estimateTokens } from './token-estimate.js';
-import { LLM_PROVIDER_IDS, parseProviderId } from './llm-providers.js';
+import {
+  LLM_PROVIDER_IDS,
+  type LlmProviderId,
+  NAMED_PROVIDERS,
+  type NamedProvider,
+  OPENROUTER_BASE_URL,
+  OPENROUTER_DEFAULT_MODEL,
+  parseProviderId,
+  type StoredProviderId,
+} from './llm-providers.js';
 
 export type AiProvider = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'mistral' | 'grok';
 
@@ -421,10 +430,10 @@ async function tryAnthropic(
   system: string,
   user: string,
   key: string,
+  model: string,
   maxTokens = 256,
   temperature?: number,
 ): Promise<AdapterOutcome> {
-  const model = process.env['ALIGN_ANTHROPIC_MODEL'] || 'claude-haiku-4-5-20251001';
   const anthropicTimeoutMs = resolveLlmTimeoutMs('https://api.anthropic.com');
   let res: Response;
   try {
@@ -462,17 +471,10 @@ async function tryGemini(
   system: string,
   user: string,
   key: string,
+  geminiModel: string,
   maxTokens = 256,
   temperature?: number,
 ): Promise<AdapterOutcome> {
-  // ALI-1284 (Copilot review, PR #322): the guided setup offer sells this as "Gemini
-  // Flash-Lite" by name (docs/configuration.md, the decided ticket text), so the default
-  // actually called has to be a Flash-Lite model, not plain Flash - gemini-1.5-flash is
-  // also long past its intro date. Verified against Google's model docs at the time of
-  // writing (two independent fetches agreed `gemini-2.5-flash-lite` is a current, stable
-  // model id); not confirmed by a live API call, so if Google retires it, override with
-  // ALIGN_GEMINI_MODEL rather than assuming this default still resolves.
-  const geminiModel = process.env['ALIGN_GEMINI_MODEL'] || 'gemini-2.5-flash-lite';
   const geminiTimeoutMs = resolveLlmTimeoutMs('https://generativelanguage.googleapis.com');
   let res: Response;
   try {
@@ -883,79 +885,140 @@ function chatCompletionsUrl(base: string): string {
   return trimmed.endsWith('/chat/completions') ? trimmed : `${trimmed}/chat/completions`;
 }
 
-function keyForProvider(provider: AiProvider): string | undefined {
-  switch (provider) {
-    case 'anthropic': return process.env['ANTHROPIC_API_KEY'];
-    case 'openai':    return process.env['OPENAI_API_KEY'];
-    // `||` on the aliases: an empty GEMINI_API_KEY must not shadow a real GOOGLE_API_KEY
-    // (a stock .env template ships both names), which `??` would do silently.
-    case 'gemini':    return process.env['GEMINI_API_KEY'] || process.env['GOOGLE_API_KEY'];
-    case 'groq':      return process.env['GROQ_API_KEY'];
-    case 'mistral':   return process.env['MISTRAL_API_KEY'];
-    case 'grok':      return process.env['GROK_API_KEY'] || process.env['XAI_API_KEY'];
-  }
+/** The model for a provider: its env variable, else the saved model when the saved preference
+ *  names this provider and is the one in force, else the default. */
+function modelFor(id: LlmProviderId, modelEnv: string | null, fallback: string): string {
+  const fromEnv = modelEnv ? process.env[modelEnv] : undefined;
+  if (fromEnv) return fromEnv;
+  const s = savedConfig();
+  const savedPref = s.provider ? parseProviderId(s.provider) : null;
+  if (s.model && savedPref === id && preferredProvider() === id) return s.model;
+  return fallback;
 }
 
-async function callProvider(
-  provider: AiProvider,
+/** The first non-empty env value among `names` (`||`, so an empty alias never shadows a real one). */
+function envKey(names: readonly string[]): string | undefined {
+  for (const n of names) if (process.env[n]) return process.env[n];
+  return undefined;
+}
+
+function callNamed(
+  p: NamedProvider,
   key: string,
   system: string,
   user: string,
   maxTokens?: number,
   temperature?: number,
 ): Promise<AdapterOutcome> {
-  switch (provider) {
-    case 'anthropic':
-      return tryAnthropic(system, user, key, maxTokens, temperature);
-    case 'openai':
-      return tryOpenAiCompatible(system, user, 'https://api.openai.com/v1/chat/completions', process.env['ALIGN_OPENAI_MODEL'] || 'gpt-4o-mini', key, maxTokens, undefined, temperature);
-    case 'gemini':
-      return tryGemini(system, user, key, maxTokens, temperature);
-    case 'groq':
-      return tryOpenAiCompatible(system, user, 'https://api.groq.com/openai/v1/chat/completions', process.env['ALIGN_GROQ_MODEL'] || 'llama-3.1-8b-instant', key, maxTokens, undefined, temperature);
-    case 'mistral':
-      return tryOpenAiCompatible(system, user, 'https://api.mistral.ai/v1/chat/completions', process.env['ALIGN_MISTRAL_MODEL'] || 'mistral-small-latest', key, maxTokens, undefined, temperature);
-    case 'grok':
-      return tryOpenAiCompatible(system, user, 'https://api.x.ai/v1/chat/completions', process.env['ALIGN_GROK_MODEL'] || 'grok-2-latest', key, maxTokens, undefined, temperature);
+  const model = modelFor(p.id, p.modelEnv, p.defaultModel);
+  switch (p.api) {
+    case 'anthropic': return tryAnthropic(system, user, key, model, maxTokens, temperature);
+    case 'gemini': return tryGemini(system, user, key, model, maxTokens, temperature);
+    case 'openai': return tryOpenAiCompatible(system, user, p.endpoint!, model, key, maxTokens, undefined, temperature);
   }
 }
 
-// groq comes before gemini (ALI-1284): `align setup`'s guided free-tier path offers Groq
-// as the primary key and Gemini Flash-Lite as the backup for when Groq's daily cap is hit,
-// so when both are configured Groq has to actually be the one tried first. No test pinned
-// the old gemini-before-groq position - it was incidental ordering from the original
-// bootstrap, not a decision.
-//
-// This reorder does NOT make Gemini an automatic in-call fallback on a Groq rate limit: a
-// 429 from a chosen provider stops the chain rather than advancing (ALI-692, deliberately -
-// see isAvailabilityFailure), and Groq's exact rate-limit error body is undocumented, so a
-// pattern match against it would be an unverified guess sitting in a security-adjacent
-// code path. Today, hitting Groq's cap fails that one `align ask` call and names Groq in
-// the error; a configured Gemini key answers the NEXT call once the day's events differ
-// (e.g. GROQ_API_KEY unset, or a future availability-pattern addition for a verified Groq
-// daily-limit body). See the ALI-1284 PR description for this trade-off.
-const ALL_PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'groq', 'gemini', 'mistral', 'grok'];
+/**
+ * Saved keys and the saved provider preference, read through a source cli.ts installs.
+ *
+ * NEVER through process.env (H1): a value in process.env is inherited by every child, including
+ * the coding agent bare `align` opens - where a saved ANTHROPIC_API_KEY switches Claude Code from
+ * a Max subscription to API billing. So saved credentials stay data, used only by align's own
+ * calls here. The source is read on every call, so a key saved mid-run is live at once.
+ */
+export interface SavedLlmConfig {
+  keys: Partial<Record<StoredProviderId, string>>;
+  provider?: string;
+  model?: string;
+}
+let savedSource: () => SavedLlmConfig = () => ({ keys: {} });
+export function setSavedLlmSource(source: () => SavedLlmConfig): void {
+  savedSource = source;
+}
+function savedConfig(): SavedLlmConfig {
+  try {
+    return savedSource() ?? { keys: {} };
+  } catch {
+    // An unreadable config must never stop `align ask` answering from what IS available.
+    return { keys: {} };
+  }
+}
+
+/** One credential the chain can try, and where it came from. */
+interface Credential {
+  id: LlmProviderId;
+  source: 'env' | 'saved';
+  run: (system: string, user: string, maxTokens?: number, temperature?: number) => Promise<AdapterOutcome>;
+}
 
 /**
- * The provider `align ask` tries FIRST, or undefined for the fixed chain. Precedence, in one
+ * Every configured credential, in the order the chain tries them with no preference:
+ *   1. EXPORTED: ALIGN_LLM_BASE_URL (any OpenAI-compatible endpoint), then each named
+ *      provider's env key in table order
+ *   2. SAVED: an OpenRouter key, then each named provider's saved key in table order
+ * Anything the user exported beats anything align saved (M2). A saved key for a provider the
+ * shell already has a key for is not listed - the exported one wins. A saved OpenRouter key is
+ * self-contained (its own base URL, key and model) and is ignored entirely when the shell
+ * exports its own ALIGN_LLM_BASE_URL (M1).
+ */
+function credentials(): Credential[] {
+  const out: Credential[] = [];
+  const s = savedConfig();
+  const baseUrl = process.env['ALIGN_LLM_BASE_URL'];
+  if (baseUrl) {
+    out.push({
+      id: 'custom',
+      source: 'env',
+      run: (sys, usr, mt, t) => tryOpenAiCompatible(
+        sys, usr, chatCompletionsUrl(baseUrl), modelFor('custom', 'ALIGN_LLM_MODEL', 'gpt-4o-mini'),
+        process.env['ALIGN_LLM_API_KEY'] ?? '', mt, undefined, t),
+    });
+  }
+  for (const p of NAMED_PROVIDERS) {
+    const key = envKey(p.keyEnv);
+    if (key) out.push({ id: p.id, source: 'env', run: (sys, usr, mt, t) => callNamed(p, key, sys, usr, mt, t) });
+  }
+  const openrouter = s.keys.openrouter;
+  if (openrouter && !baseUrl) {
+    out.push({
+      id: 'openrouter',
+      source: 'saved',
+      run: (sys, usr, mt, t) => tryOpenAiCompatible(
+        sys, usr, chatCompletionsUrl(OPENROUTER_BASE_URL), modelFor('openrouter', null, OPENROUTER_DEFAULT_MODEL),
+        openrouter, mt, undefined, t),
+    });
+  }
+  for (const p of NAMED_PROVIDERS) {
+    const key = s.keys[p.id];
+    if (key && !envKey(p.keyEnv)) out.push({ id: p.id, source: 'saved', run: (sys, usr, mt, t) => callNamed(p, key, sys, usr, mt, t) });
+  }
+  return out;
+}
+
+/** Every configured credential and where it came from (env or saved) - Ollama not included. */
+export function listConfiguredCredentials(): Array<{ id: LlmProviderId; source: 'env' | 'saved' }> {
+  return credentials().map(({ id, source }) => ({ id, source }));
+}
+
+/**
+ * The provider `align ask` tries FIRST, or undefined for the default order. Precedence, in one
  * place:
  *
  *   1. ALIGN_LLM_PROVIDER exported in the shell
- *   2. the saved preference (`align ai`), which hydrateProviderKeyEnv copies into
- *      ALIGN_LLM_PROVIDER only when the shell set none - so this reads one variable
- *   3. nothing: the fixed chain below (custom endpoint, Anthropic, OpenAI, Groq, Gemini,
- *      Mistral, xAI, Ollama)
+ *   2. the saved preference (`align ai`)
+ *   3. nothing: the default order (exported credentials, then saved ones, then Ollama - see
+ *      credentials())
  *
  * The model follows the same rule: a provider's own model variable (ALIGN_OPENAI_MODEL,
- * ALIGN_LLM_MODEL for the custom endpoint, ...) beats the saved model.
+ * ALIGN_LLM_MODEL for the custom endpoint, ...) beats the saved model, and the saved model
+ * applies only while the saved preference is the one in force.
  *
  * A preferred provider that is not available (no key, Ollama not running) is skipped and the
- * chain runs as if there were no preference. `openrouter` names the custom-endpoint slot,
- * which is where a saved OpenRouter key is hydrated. An unknown value warns and is ignored:
+ * default order runs as if there were no preference. An unknown value warns and is ignored:
  * a typo must not stop `align ask` answering.
  */
-export function preferredProvider(): 'custom' | AiProvider | 'ollama' | undefined {
-  const raw = process.env['ALIGN_LLM_PROVIDER'];
+export function preferredProvider(): LlmProviderId | undefined {
+  const raw = process.env['ALIGN_LLM_PROVIDER'] || savedConfig().provider;
   if (!raw) return undefined;
   const id = parseProviderId(raw);
   if (!id) {
@@ -965,30 +1028,25 @@ export function preferredProvider(): 'custom' | AiProvider | 'ollama' | undefine
     );
     return undefined;
   }
-  return id === 'openrouter' ? 'custom' : id;
+  return id;
 }
 
 /**
- * Is any LLM provider configured by environment? (ALI-414)
+ * Is any LLM provider configured - exported or saved? (ALI-414)
  *
  * `callChat` returns null for a missing key and for a provider that answered unusably
  * alike, so a caller that needs to tell "never configured" from "configured but
  * failed" has to ask - this, then the failure `callChatDetailed` returned for the
- * second case, which is the one this function cannot see. Deliberately synchronous and
- * env-only: it does NOT probe Ollama, so a
- * machine whose only provider is a broken local Ollama reads as unconfigured. The
- * remedy that points at - configure a provider - is still the right one.
+ * second case, which is the one this function cannot see. Deliberately synchronous:
+ * it does NOT probe Ollama, so a machine whose only provider is a broken local Ollama
+ * reads as unconfigured. The remedy that points at - configure a provider - is still
+ * the right one.
  *
- * `excluding` (ALI-1284, Copilot review PR #322): lets a caller ask "is anything ELSE
- * configured" - `align setup --reset` re-offers a stored Groq/Gemini key, and needs to
- * know whether some OTHER provider is genuinely configured (which should still block the
- * offer) without the Groq/Gemini pair itself, which --reset exists to let the user redo,
- * counting against it. `ALIGN_LLM_BASE_URL` is never excludable: it is not one of the
- * named providers this list manages, so it always means "configured" regardless.
+ * `excluding` lets a caller ask "is anything ELSE configured". The custom endpoint is never
+ * excludable: it is not one of the named providers.
  */
-export function hasConfiguredProvider(excluding: readonly AiProvider[] = []): boolean {
-  if (process.env['ALIGN_LLM_BASE_URL']) return true;
-  return ALL_PROVIDERS.some(p => !excluding.includes(p) && Boolean(keyForProvider(p)));
+export function hasConfiguredProvider(excluding: readonly LlmProviderId[] = []): boolean {
+  return credentials().some((c) => c.id === 'custom' || !excluding.includes(c.id));
 }
 
 /**
@@ -1067,44 +1125,30 @@ export async function callChatDetailed(
   // documentation, which is exactly how it got into the README twice. If a future path
   // needs explicit provider injection, add it WITH its caller.
 
-  // The fixed chain: the generic endpoint, the named providers by env key, then local Ollama.
-  // A preferred provider (preferredProvider) moves to the front and is otherwise walked
-  // exactly like every other slot - same settle, same ALI-692 advance rules - so a
-  // preference changes only WHICH provider is asked first, never what a failure means.
-  type Slot = 'custom' | AiProvider | 'ollama';
+  // The default order (see credentials()), then local Ollama. A preferred provider moves to
+  // the front and is otherwise walked exactly like every other slot - same settle, same ALI-692
+  // advance rules - so a preference changes only WHICH provider is asked first, never what a
+  // failure means.
   const preferred = preferredProvider();
-  const chain: Slot[] = ['custom', ...ALL_PROVIDERS, 'ollama'];
-  const order = preferred ? [preferred, ...chain.filter((s) => s !== preferred)] : chain;
-
-  for (const slot of order) {
-    if (slot === 'custom') {
-      // 1. generic OpenAI-compatible escape hatch - covers any provider
-      const baseUrl = process.env['ALIGN_LLM_BASE_URL'];
-      if (!baseUrl) continue;
-      const key = process.env['ALIGN_LLM_API_KEY'] ?? '';
-      const model = process.env['ALIGN_LLM_MODEL'] || 'gpt-4o-mini';
-      const settled = settle(
-        await tryOpenAiCompatible(system, getHostedUser(), chatCompletionsUrl(baseUrl), model, key, maxTokens, undefined, temperature),
-        'custom',
-        true,
-      );
-      if (settled) return settled;
-    } else if (slot === 'ollama') {
-      // 3. local Ollama as last resort. configured=false unless the user PREFERRED it: the
-      // probe runs whether or not anyone asked for Ollama.
-      const settled = settle(await tryOllama(system, user, temperature, maxTokens), 'ollama', preferred === 'ollama');
-      if (settled) return settled;
-    } else {
-      // 2. named providers via env keys, in priority order
-      const key = keyForProvider(slot);
-      if (!key) continue;
-      const settled = settle(
-        await callProvider(slot, key, system, getHostedUser(), maxTokens, temperature),
-        slot,
-        true,
-      );
-      if (settled) return settled;
-    }
+  const creds = credentials();
+  const ordered = preferred
+    ? [...creds.filter((c) => c.id === preferred), ...creds.filter((c) => c.id !== preferred)]
+    : creds;
+  if (preferred === 'ollama') {
+    // configured=true: the user asked for it, so its absence is a failure to name (L3), not
+    // "nothing configured".
+    const settled = settle(await tryOllama(system, user, temperature, maxTokens), 'ollama', true);
+    if (settled) return settled;
+  }
+  for (const c of ordered) {
+    const settled = settle(await c.run(system, getHostedUser(), maxTokens, temperature), c.id, true);
+    if (settled) return settled;
+  }
+  if (preferred !== 'ollama') {
+    // local Ollama as last resort. configured=false: the probe runs whether or not anyone
+    // asked for Ollama.
+    const settled = settle(await tryOllama(system, user, temperature, maxTokens), 'ollama', false);
+    if (settled) return settled;
   }
 
   // Nothing answered. An unrecognised local model is the more specific diagnosis and

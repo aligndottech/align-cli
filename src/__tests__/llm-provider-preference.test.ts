@@ -8,8 +8,7 @@
  *   ALIGN_LLM_PROVIDER env  >  config `llm.provider`  >  no preference (the fixed chain)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callChatDetailed, preferredProvider } from '../lib/local-llm.js';
-import { hydrateProviderKeyEnv } from '../lib/config.js';
+import { callChatDetailed, hasConfiguredProvider, listConfiguredCredentials, preferredProvider, setSavedLlmSource } from '../lib/local-llm.js';
 import { OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL, parseProviderId } from '../lib/llm-providers.js';
 
 const mockFetch = vi.fn();
@@ -122,9 +121,9 @@ describe('a preferred provider is tried first, and the chain is otherwise unchan
     expect(calledUrls().some((u) => u.includes('anthropic'))).toBe(false);
   });
 
-  it('openrouter is an alias for the custom endpoint slot', () => {
+  it('openrouter is its own preference, distinct from a custom endpoint', () => {
     vi.stubEnv('ALIGN_LLM_PROVIDER', 'openrouter');
-    expect(preferredProvider()).toBe('custom');
+    expect(preferredProvider()).toBe('openrouter');
   });
 
   it('an unknown ALIGN_LLM_PROVIDER warns once and is ignored, rather than failing the call', () => {
@@ -151,69 +150,181 @@ describe('parseProviderId', () => {
   });
 });
 
-describe('hydrateProviderKeyEnv carries the stored preference and every stored key into env', () => {
-  const store = (keys: Record<string, string>, llm?: { provider?: string; model?: string }) => ({
-    getProviderKey: (p: string) => keys[p] ?? null,
-    getLlmPreference: () => llm ?? {},
+/**
+ * Saved keys and the saved preference are read INSIDE local-llm (setSavedLlmSource) and never
+ * written to process.env: a key in process.env is inherited by the coding agent bare `align`
+ * opens, where a saved ANTHROPIC_API_KEY overrides a Claude Max subscription with API billing.
+ */
+describe('saved keys are resolved inside local-llm, never through process.env', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
+    for (const k of ALL_KEYS) vi.stubEnv(k, undefined);
+  });
+  afterEach(() => {
+    setSavedLlmSource(() => ({ keys: {} }));
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
-  it('a stored preference becomes ALIGN_LLM_PROVIDER when the shell set none', () => {
-    const env: Record<string, string | undefined> = {};
-    hydrateProviderKeyEnv(store({}, { provider: 'groq' }), env);
-    expect(env['ALIGN_LLM_PROVIDER']).toBe('groq');
+  it('a saved Anthropic key answers `align ask`, and process.env never gains it', async () => {
+    setSavedLlmSource(() => ({ keys: { anthropic: 'sk-ant-saved' } }));
+    mockFetch.mockResolvedValue(anthropicResponse('from saved anthropic'));
+    const r = await callChatDetailed('s', 'u');
+    expect(r).toEqual({ ok: true, text: 'from saved anthropic' });
+    expect((mockFetch.mock.calls[0]![1] as { headers: Record<string, string> }).headers['x-api-key']).toBe('sk-ant-saved');
+    expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
   });
 
-  it('an exported ALIGN_LLM_PROVIDER beats the stored preference', () => {
-    const env: Record<string, string | undefined> = { ALIGN_LLM_PROVIDER: 'openai' };
-    hydrateProviderKeyEnv(store({}, { provider: 'groq', model: 'llama-3.3-70b-versatile' }), env);
-    expect(env['ALIGN_LLM_PROVIDER']).toBe('openai');
-    // the stored model was for groq, and groq is not the preference this run
-    expect(env['ALIGN_GROQ_MODEL']).toBeUndefined();
+  it('a saved Groq key answers too (second example), and process.env never gains it', async () => {
+    setSavedLlmSource(() => ({ keys: { groq: 'gsk_saved' } }));
+    mockFetch.mockResolvedValue(openAiResponse('from saved groq'));
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from saved groq' });
+    expect(calledUrls()[0]).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(process.env['GROQ_API_KEY']).toBeUndefined();
   });
 
-  it('a stored model lands in the preferred provider\'s own model variable', () => {
-    const env: Record<string, string | undefined> = {};
-    hydrateProviderKeyEnv(store({}, { provider: 'openai', model: 'gpt-4.1' }), env);
-    expect(env['ALIGN_OPENAI_MODEL']).toBe('gpt-4.1');
+  it('an exported key for the same provider beats the saved one', async () => {
+    vi.stubEnv('GROQ_API_KEY', 'gsk_exported');
+    setSavedLlmSource(() => ({ keys: { groq: 'gsk_saved' } }));
+    mockFetch.mockResolvedValue(openAiResponse('x'));
+    await callChatDetailed('s', 'u');
+    const auth = (mockFetch.mock.calls[0]![1] as { headers: Record<string, string> }).headers['Authorization'];
+    expect(auth).toBe('Bearer gsk_exported');
   });
 
-  it('an exported model variable beats the stored model', () => {
-    const env: Record<string, string | undefined> = { ALIGN_OPENAI_MODEL: 'gpt-4o' };
-    hydrateProviderKeyEnv(store({}, { provider: 'openai', model: 'gpt-4.1' }), env);
-    expect(env['ALIGN_OPENAI_MODEL']).toBe('gpt-4o');
+  it('M2: any exported credential beats any saved one - saved OpenRouter + exported Anthropic -> Anthropic', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-real');
+    setSavedLlmSource(() => ({ keys: { openrouter: 'sk-or-saved' } }));
+    mockFetch.mockImplementation(async (url: string) =>
+      String(url).includes('anthropic') ? anthropicResponse('from anthropic') : openAiResponse('from openrouter'));
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from anthropic' });
   });
 
-  it('hydrates stored keys for providers beyond the Groq/Gemini pair', () => {
-    const env: Record<string, string | undefined> = {};
-    hydrateProviderKeyEnv(store({ anthropic: 'sk-ant-x', grok: 'xai-y' }), env);
-    expect(env['ANTHROPIC_API_KEY']).toBe('sk-ant-x');
-    expect(env['XAI_API_KEY']).toBe('xai-y');
+  it('M2, second example: saved Anthropic + exported Mistral -> Mistral, though Anthropic is earlier in the order', async () => {
+    vi.stubEnv('MISTRAL_API_KEY', 'mis-real');
+    setSavedLlmSource(() => ({ keys: { anthropic: 'sk-ant-saved' } }));
+    mockFetch.mockImplementation(async (url: string) =>
+      String(url).includes('anthropic') ? anthropicResponse('from anthropic') : openAiResponse('from mistral'));
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from mistral' });
   });
 
-  it('never shadows a real key exported under an alias (GROK_API_KEY for xAI)', () => {
-    const env: Record<string, string | undefined> = { GROK_API_KEY: 'real' };
-    hydrateProviderKeyEnv(store({ grok: 'stored' }), env);
-    expect(env['XAI_API_KEY']).toBeUndefined();
+  it('...unless a preference says otherwise: saved preference anthropic beats the exported Mistral', async () => {
+    vi.stubEnv('MISTRAL_API_KEY', 'mis-real');
+    setSavedLlmSource(() => ({ keys: { anthropic: 'sk-ant-saved' }, provider: 'anthropic' }));
+    mockFetch.mockImplementation(async (url: string) =>
+      String(url).includes('anthropic') ? anthropicResponse('from anthropic') : openAiResponse('from mistral'));
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: true, text: 'from anthropic' });
   });
 
-  it('a stored OpenRouter key becomes the custom endpoint with its base URL and a default model', () => {
-    const env: Record<string, string | undefined> = {};
-    hydrateProviderKeyEnv(store({ openrouter: 'sk-or-z' }), env);
-    expect(env['ALIGN_LLM_BASE_URL']).toBe(OPENROUTER_BASE_URL);
-    expect(env['ALIGN_LLM_API_KEY']).toBe('sk-or-z');
-    expect(env['ALIGN_LLM_MODEL']).toBe(OPENROUTER_DEFAULT_MODEL);
+  it('a saved OpenRouter key calls OpenRouter with its own base URL and default model', async () => {
+    setSavedLlmSource(() => ({ keys: { openrouter: 'sk-or-saved' } }));
+    mockFetch.mockResolvedValue(openAiResponse('from openrouter'));
+    await callChatDetailed('s', 'u');
+    expect(calledUrls()[0]).toBe(`${OPENROUTER_BASE_URL}/chat/completions`);
+    const body = JSON.parse(String((mockFetch.mock.calls[0]![1] as { body: string }).body));
+    expect(body.model).toBe(OPENROUTER_DEFAULT_MODEL);
   });
 
-  it('a stored OpenRouter key never replaces a custom endpoint the shell exported', () => {
-    const env: Record<string, string | undefined> = { ALIGN_LLM_BASE_URL: 'http://localhost:8080/v1' };
-    hydrateProviderKeyEnv(store({ openrouter: 'sk-or-z' }), env);
-    expect(env['ALIGN_LLM_BASE_URL']).toBe('http://localhost:8080/v1');
-    expect(env['ALIGN_LLM_API_KEY']).toBeUndefined();
+  it('M1: an exported ALIGN_LLM_BASE_URL takes none of the saved OpenRouter values (model included)', async () => {
+    vi.stubEnv('ALIGN_LLM_BASE_URL', 'http://localhost:8080/v1');
+    setSavedLlmSource(() => ({ keys: { openrouter: 'sk-or-saved' }, provider: 'openrouter', model: 'anthropic/claude-haiku-4.5' }));
+    mockFetch.mockResolvedValue(openAiResponse('local'));
+    await callChatDetailed('s', 'u');
+    expect(calledUrls()).toEqual(['http://localhost:8080/v1/chat/completions']);
+    const init = mockFetch.mock.calls[0]![1] as { body: string; headers: Record<string, string> };
+    expect(JSON.parse(init.body).model).toBe('gpt-4o-mini');
+    expect(init.headers['Authorization']).toBe('Bearer ');
   });
 
-  it('an OpenRouter preference with a stored model uses that model over the default', () => {
-    const env: Record<string, string | undefined> = {};
-    hydrateProviderKeyEnv(store({ openrouter: 'sk-or-z' }, { provider: 'openrouter', model: 'anthropic/claude-haiku-4.5' }), env);
-    expect(env['ALIGN_LLM_MODEL']).toBe('anthropic/claude-haiku-4.5');
+  it('M1, second example: a saved OpenRouter model never lands on the user\'s own endpoint even with ALIGN_LLM_PROVIDER=custom', async () => {
+    vi.stubEnv('ALIGN_LLM_BASE_URL', 'https://api.deepseek.com');
+    vi.stubEnv('ALIGN_LLM_PROVIDER', 'custom');
+    setSavedLlmSource(() => ({ keys: { openrouter: 'sk-or-saved' }, provider: 'openrouter', model: 'anthropic/claude-haiku-4.5' }));
+    mockFetch.mockResolvedValue(openAiResponse('ds'));
+    await callChatDetailed('s', 'u');
+    expect(JSON.parse((mockFetch.mock.calls[0]![1] as { body: string }).body).model).toBe('gpt-4o-mini');
+  });
+
+  it('a saved OpenRouter preference with a saved model uses that model', async () => {
+    setSavedLlmSource(() => ({ keys: { openrouter: 'sk-or-saved' }, provider: 'openrouter', model: 'anthropic/claude-haiku-4.5' }));
+    mockFetch.mockResolvedValue(openAiResponse('x'));
+    await callChatDetailed('s', 'u');
+    expect(JSON.parse((mockFetch.mock.calls[0]![1] as { body: string }).body).model).toBe('anthropic/claude-haiku-4.5');
+  });
+
+  it('the saved preference is used when ALIGN_LLM_PROVIDER is unset', () => {
+    setSavedLlmSource(() => ({ keys: {}, provider: 'groq' }));
+    expect(preferredProvider()).toBe('groq');
+  });
+
+  it('an exported ALIGN_LLM_PROVIDER beats the saved preference', () => {
+    vi.stubEnv('ALIGN_LLM_PROVIDER', 'openai');
+    setSavedLlmSource(() => ({ keys: {}, provider: 'groq' }));
+    expect(preferredProvider()).toBe('openai');
+  });
+
+  it('a saved model applies to the preferred provider only', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'o');
+    setSavedLlmSource(() => ({ keys: {}, provider: 'openai', model: 'gpt-4.1' }));
+    mockFetch.mockResolvedValue(openAiResponse('x'));
+    await callChatDetailed('s', 'u');
+    expect(JSON.parse((mockFetch.mock.calls[0]![1] as { body: string }).body).model).toBe('gpt-4.1');
+  });
+
+  it('an exported model variable beats the saved model', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'o');
+    vi.stubEnv('ALIGN_OPENAI_MODEL', 'gpt-4o');
+    setSavedLlmSource(() => ({ keys: {}, provider: 'openai', model: 'gpt-4.1' }));
+    mockFetch.mockResolvedValue(openAiResponse('x'));
+    await callChatDetailed('s', 'u');
+    expect(JSON.parse((mockFetch.mock.calls[0]![1] as { body: string }).body).model).toBe('gpt-4o');
+  });
+
+  it('a saved model for groq does not apply when the shell prefers openai', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'o');
+    vi.stubEnv('ALIGN_LLM_PROVIDER', 'openai');
+    setSavedLlmSource(() => ({ keys: {}, provider: 'groq', model: 'llama-3.3-70b-versatile' }));
+    mockFetch.mockResolvedValue(openAiResponse('x'));
+    await callChatDetailed('s', 'u');
+    expect(JSON.parse((mockFetch.mock.calls[0]![1] as { body: string }).body).model).toBe('gpt-4o-mini');
+  });
+
+  it('hasConfiguredProvider counts a saved key', () => {
+    expect(hasConfiguredProvider()).toBe(false);
+    setSavedLlmSource(() => ({ keys: { mistral: 'm' } }));
+    expect(hasConfiguredProvider()).toBe(true);
+  });
+
+  it('a source that throws reads as nothing saved, never as a crash', async () => {
+    setSavedLlmSource(() => { throw new Error('config unreadable'); });
+    mockFetch.mockRejectedValue(new Error('no ollama'));
+    const r = await callChatDetailed('s', 'u');
+    expect(r).toEqual({ ok: false, failure: { kind: 'no_provider' } });
+  });
+
+  it('L3: ALIGN_LLM_PROVIDER=ollama with Ollama down names Ollama as tried - not "no provider", so no key offer', async () => {
+    vi.stubEnv('ALIGN_LLM_PROVIDER', 'ollama');
+    mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+    const r = await callChatDetailed('s', 'u');
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.failure.kind).toBe('providers_unavailable');
+      if (r.failure.kind === 'providers_unavailable') expect(r.failure.tried.map((t) => t.provider)).toEqual(['ollama']);
+    }
+  });
+
+  it('L3 control: with no preference, Ollama down and nothing else is "no provider"', async () => {
+    mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+    expect(await callChatDetailed('s', 'u')).toEqual({ ok: false, failure: { kind: 'no_provider' } });
+  });
+
+  it('listConfiguredCredentials names each credential and where it came from, exported first', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'o');
+    setSavedLlmSource(() => ({ keys: { anthropic: 'a', openai: 'stale' } }));
+    expect(listConfiguredCredentials()).toEqual([
+      { id: 'openai', source: 'env' },
+      { id: 'anthropic', source: 'saved' },
+    ]);
   });
 });

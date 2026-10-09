@@ -2,7 +2,8 @@ import { Command, Help } from 'commander';
 import pkg from '../package.json' with { type: 'json' };
 import { COMMAND_REGISTRY, ROOT_SUMMARY, visibleEntries } from './commands/registry.js';
 import { runDefaultAction } from './commands/default-action.js';
-import { createConfigStore, hydrateProviderKeyEnv } from './lib/config.js';
+import { createConfigStore, savedLlmConfig } from './lib/config.js';
+import { setSavedLlmSource } from './lib/local-llm.js';
 import { setWriteRecorder } from './lib/safe-config-write.js';
 
 const { version } = pkg;
@@ -75,22 +76,14 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
     void recordInstallBeacon(invocationCommandPath(actionCommand));
   });
 
-  // ALI-1284: a provider key `align setup`'s guided free-tier path collected on a
-  // previous run, read back into process.env before the command's own action runs so
-  // `align ask`/local relationship typing see it exactly as if the user had exported it
-  // themselves. `preAction` only, never module scope in index.ts: it fires for every real
-  // command but never for `--version`/`--help`, which Commander short-circuits without
-  // calling any hook - so a fresh-machine `align --version` still creates no config.json
-  // (startup-migration.test.ts pins exactly that for the module-scope migrations above
-  // it, and constructing a Conf store is not the pure operation those keep themselves to -
-  // see createConfigStore's own comment on migrateConfigDirectory for why that split
-  // exists). Non-fatal: an unreadable config must never stop the command the user asked for.
+  // Saved AI provider keys and the saved preference (`align ai`, the first-ask offer) reach
+  // align's own LLM calls through this source, read lazily on each call - and NEVER through
+  // process.env, which every child inherits: the coding agent bare `align` opens would get a
+  // saved ANTHROPIC_API_KEY and bill API usage instead of the user's subscription (H1). A
+  // preAction hook, not module scope, so `align --version` constructs no config store
+  // (startup-migration.test.ts). Non-fatal: local-llm treats a throwing source as "nothing saved".
   program.hook('preAction', () => {
-    try {
-      hydrateProviderKeyEnv(createConfigStore());
-    } catch (e) {
-      if (process.env['ALIGN_DEBUG']) console.error('align: provider key hydration failed (non-fatal):', e);
-    }
+    setSavedLlmSource(() => savedLlmConfig(createConfigStore()));
   });
 
   // C4: every file align writes into another product's config is remembered, so

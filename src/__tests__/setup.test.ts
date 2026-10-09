@@ -81,6 +81,8 @@ const mockGetProviderKey = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSetProviderKey = vi.hoisted(() => vi.fn());
 const mockClearProviderKey = vi.hoisted(() => vi.fn());
 const mockSetAskKeyOfferDismissed = vi.hoisted(() => vi.fn());
+const mockGetLlmPreference = vi.hoisted(() => vi.fn().mockReturnValue({}));
+const mockClearLlmPreference = vi.hoisted(() => vi.fn());
 
 // The suite's default store: logged in on every env (authToken 'tok'). A function so a
 // test that needs a different machine can swap it and put this one back.
@@ -107,6 +109,8 @@ const makeDefaultConfig = () => ({
     setProviderKey: mockSetProviderKey,
     clearProviderKey: mockClearProviderKey,
     setAskKeyOfferDismissed: mockSetAskKeyOfferDismissed,
+    getLlmPreference: mockGetLlmPreference,
+    clearLlmPreference: mockClearLlmPreference,
   });
 
 vi.mock('../lib/config.js', async (importOriginal) => ({
@@ -1627,9 +1631,17 @@ describe('align setup', () => {
         // Nothing configured anywhere: exactly the state the old offer fired in.
         for (const k of PROVIDER_ENV_KEYS) vi.stubEnv(k, undefined);
         mockGetProviderKey.mockReturnValue(null);
+        mockGetLlmPreference.mockReturnValue({});
         mockConfirm.mockResolvedValue(true); // would have accepted the old offer
       });
       afterEach(() => vi.unstubAllEnvs());
+
+      // A wizard that died before its last step would also "never ask" - so each test also
+      // proves the run got to the end.
+      const outroReached = async (): Promise<boolean> => {
+        const { outro } = await import('@clack/prompts');
+        return vi.mocked(outro).mock.calls.length === 1;
+      };
 
       const keyPromptShown = async (): Promise<boolean> => {
         const { password, select, log } = await import('@clack/prompts');
@@ -1638,7 +1650,9 @@ describe('align setup', () => {
           ...vi.mocked(password).mock.calls,
           ...vi.mocked(select).mock.calls,
           ...vi.mocked(log.info).mock.calls,
-        ].map((c) => JSON.stringify(c[0]));
+        ].map((c) => JSON.stringify(c[0]))
+          // --reset's own report of what it cleared names providers and is not a prompt.
+          .filter((m) => !m.startsWith('"Cleared '));
         // "Gemini" alone is not enough: the MCP hint legitimately names Gemini CLI, an agent.
         return asked.some((m) => /groq|gemini key|api key|provider key|AI model/i.test(m));
       };
@@ -1646,12 +1660,14 @@ describe('align setup', () => {
       it('interactive cloud setup never asks for a provider key', async () => {
         await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
         expect(await keyPromptShown()).toBe(false);
+        expect(await outroReached()).toBe(true);
         expect(mockSetProviderKey).not.toHaveBeenCalled();
       });
 
       it('interactive local setup never asks for a provider key', async () => {
         await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
         expect(await keyPromptShown()).toBe(false);
+        expect(await outroReached()).toBe(true);
         expect(mockSetProviderKey).not.toHaveBeenCalled();
       });
 
@@ -1659,12 +1675,14 @@ describe('align setup', () => {
         const { runSetup } = await import('../commands/setup.js');
         await runSetup({ launchNext: true, local: true });
         expect(await keyPromptShown()).toBe(false);
+        expect(await outroReached()).toBe(true);
         expect(mockSetProviderKey).not.toHaveBeenCalled();
       });
 
       it('--approve never asks for one either', async () => {
         await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
         expect(await keyPromptShown()).toBe(false);
+        expect(await outroReached()).toBe(true);
       });
 
       describe('--reset still clears saved provider keys', () => {
@@ -1674,9 +1692,39 @@ describe('align setup', () => {
           await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
 
           expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
-          expect(mockClearProviderKey).toHaveBeenCalledWith('gemini');
           expect(mockClearProviderKey).toHaveBeenCalledWith('anthropic');
+          expect(mockClearProviderKey).not.toHaveBeenCalledWith('gemini'); // nothing saved there
           expect(await keyPromptShown()).toBe(false);
+        });
+
+        it('M3: --reset names each key it clears, one line per saved key', async () => {
+          mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' || p === 'anthropic' ? 'already-stored' : null));
+          const { log } = await import('@clack/prompts');
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
+          const lines = vi.mocked(log.info).mock.calls.map((c) => String(c[0]));
+          expect(lines).toContain('Cleared the saved Anthropic key.');
+          expect(lines).toContain('Cleared the saved Groq key.');
+          expect(lines.filter((l) => l.startsWith('Cleared the saved'))).toHaveLength(2);
+        });
+
+        it('M3: --reset with nothing saved prints no "Cleared" line', async () => {
+          const { log } = await import('@clack/prompts');
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
+          expect(vi.mocked(log.info).mock.calls.map((c) => String(c[0])).some((l) => l.startsWith('Cleared the saved'))).toBe(false);
+        });
+
+        it('M3: --reset also clears the saved provider choice, and says so', async () => {
+          mockGetLlmPreference.mockReturnValue({ provider: 'openai' });
+          const { log } = await import('@clack/prompts');
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--reset']);
+          expect(mockClearLlmPreference).toHaveBeenCalled();
+          expect(vi.mocked(log.info).mock.calls.map((c) => String(c[0]))).toContain('Cleared your saved AI provider choice (openai).');
+        });
+
+        it('M3: a plain run leaves the saved provider choice alone', async () => {
+          mockGetLlmPreference.mockReturnValue({ provider: 'openai' });
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+          expect(mockClearLlmPreference).not.toHaveBeenCalled();
         });
 
         it('--reset re-arms the first-ask offer that "Not now" turned off', async () => {

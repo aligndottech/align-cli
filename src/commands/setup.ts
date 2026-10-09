@@ -37,8 +37,8 @@ import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
 import { InvalidEnvError, routeSetup } from '../lib/setup-route.js';
 import { agentByName } from '../lib/launch/agents.js';
-import { launchSuppressed } from '../lib/launch/launch.js';
-import { STORABLE_PROVIDERS } from '../lib/llm-providers.js';
+import { launchesAfterWizard } from '../lib/launch/launch.js';
+import { PROVIDER_LABEL, STORABLE_PROVIDERS } from '../lib/llm-providers.js';
 import type { LaunchAgentId } from '../lib/launch/registry/types.js';
 import { firstDecision } from '../lib/first-decision.js';
 
@@ -448,20 +448,26 @@ function writeAgentAlignment(envName: EnvName): string[] {
  * prose from the MCP results. `align ask` now offers a key itself, lazily, the first time it
  * has nothing to write prose with (lib/ask-key-offer.ts), and `align ai` chooses or adds one.
  *
- * What --reset keeps doing: clear every saved key, so hydrateProviderKeyEnv has nothing left
- * to re-apply on the next invocation, and re-arm the first-ask offer a "Not now" turned off,
+ * What --reset keeps doing: clear every saved key and the saved provider choice, so local-llm
+ * has nothing saved to use on the next invocation, and re-arm the first-ask offer a "Not now" turned off,
  * so the next `align ask` on a terminal offers again ("redo their setup", lazily). Called
  * early in runSetup, before any auth/TTY-gated exit can skip it (Copilot review, PR #323).
  */
 function clearStoredProviderKeys(config: ReturnType<typeof createConfigStore>): void {
   // Clears the STORED (on-disk) value only, and never touches process.env (Copilot review,
-  // PR #323, "previously missed"). hydrateProviderKeyEnv never overwrites a real
-  // shell-exported value, so a shell that happens to export the SAME string the stored value
-  // holds is indistinguishable from "hydration injected it" by equality alone. Clearing the
-  // stored value is what matters: it is what future invocations hydrate from. The cost is
-  // that THIS run may still see the old value in its own process.env - a stale-for-one-run
-  // concession, not a destroyed credential.
-  for (const provider of STORABLE_PROVIDERS) config.clearProviderKey(provider);
+  // PR #323, "previously missed"): a key the shell exported is the user's, whatever its value.
+  // One line per key actually cleared (M3) - deleting a credential silently is the wrong
+  // default for a command people run to fix something else.
+  for (const provider of STORABLE_PROVIDERS) {
+    if (!config.getProviderKey(provider)) continue;
+    config.clearProviderKey(provider);
+    p.log.info(`Cleared the saved ${PROVIDER_LABEL[provider]} key.`);
+  }
+  const pref = config.getLlmPreference().provider;
+  if (pref) {
+    config.clearLlmPreference();
+    p.log.info(`Cleared your saved AI provider choice (${pref}).`);
+  }
   config.setAskKeyOfferDismissed(false);
 }
 
@@ -503,8 +509,8 @@ interface LocalValuePhaseResult {
  * outro never says "Opening" for a run where nothing opens.
  */
 function willLaunchAgent(agent: LaunchAgentId | null, launchNext: boolean): boolean {
-  if (!launchNext || !agent || launchSuppressed()) return false;
-  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  // localGraph: true - the outro runs only once the local phase has built it.
+  return launchNext && launchesAfterWizard({ localGraph: true, agent, isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY) });
 }
 
 /**
@@ -1075,7 +1081,7 @@ export function registerSetupCommand(program: Command): void {
     .option('--env <env>', 'local, preview or prod. Logged in to a team? Setup uses it; --env local builds the local graph instead')
     .option('--approve', 'Skip confirmation prompts (for scripted use)')
     .option('--local', 'Same as --env local: build the local graph even if you are logged in to a team')
-    .option('--reset', 'Clear cached OAuth tokens and saved AI provider keys, and redo their setup')
+    .option('--reset', 'Clear cached OAuth tokens, saved AI provider keys and the saved AI provider choice, and redo their setup')
     .option('--verbose', 'List every agent config file setup left as is, with the command to switch it')
     .action(runSetup);
 }

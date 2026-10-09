@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
-import { probeOllama } from '../lib/local-llm.js';
+import { listConfiguredCredentials, probeOllama } from '../lib/local-llm.js';
 import { LLM_PROVIDER_IDS, type LlmProviderId, parseProviderId, PROVIDER_LABEL } from '../lib/llm-providers.js';
 import { type DetectedProvider, detectProviders, promptForProviderKey } from '../lib/ask-key-offer.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
@@ -19,7 +19,7 @@ function sourceHint(d: DetectedProvider): string {
  * when more than one is available, or to add a key: with exactly one, `align ask` already
  * uses it, and inside a coding agent none of this is used at all.
  *
- * The choice is stored (config `llm`) and hydrated into ALIGN_LLM_PROVIDER, where an exported
+ * The choice is stored (config `llm`) and read by local-llm (preferredProvider), where an exported
  * value wins - see preferredProvider in local-llm.ts for the full precedence.
  */
 export function registerAiCommand(program: Command): void {
@@ -44,6 +44,16 @@ export function registerAiCommand(program: Command): void {
         }
         config.setLlmPreference(opts.model ? { provider: id, model: opts.model } : { provider: id });
         console.log(`  ${chalk.bold('align ask')} now tries ${PROVIDER_LABEL[id]}${opts.model ? ` (${opts.model})` : ''} first.`);
+        // L4: saved either way, but say when it cannot take effect yet - until then the
+        // default order answers, which would otherwise look like the choice was ignored.
+        const available = id === 'ollama'
+          ? Boolean(await probeOllama())
+          : listConfiguredCredentials().some((c) => c.id === id);
+        if (!available) {
+          if (id === 'ollama') console.log('  Ollama is not running here yet - until it is, align ask uses the next available provider.');
+          else if (id === 'custom') console.log(`  ALIGN_LLM_BASE_URL is not set yet - export it to point align ask at your endpoint.`);
+          else console.log(`  No ${PROVIDER_LABEL[id]} key found yet - add one with: ${chalk.bold('align ai')}`);
+        }
         return;
       }
       if (opts.model !== undefined) {
@@ -51,7 +61,7 @@ export function registerAiCommand(program: Command): void {
         process.exit(1);
       }
 
-      const found = await detectProviders(config, process.env, probeOllama);
+      const found = await detectProviders(probeOllama);
       const current = parseProviderId(config.getLlmPreference().provider ?? '');
       const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 

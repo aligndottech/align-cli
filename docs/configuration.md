@@ -23,7 +23,18 @@ on a terminal, it offers one before answering:
   again. Without a terminal, or with `--json`, it never asks.
 
 To add a key or change your mind later, run `align ai`. `align setup --reset` clears every
-saved key and turns the offer back on.
+saved key and your saved provider choice (it prints one line per key it clears) and turns the
+offer back on.
+
+**A saved key is only ever used by align itself.** It is never put into align's environment, so
+the coding agent bare `align` opens never inherits it - a saved `ANTHROPIC_API_KEY` reaching
+Claude Code would bill the API instead of your Claude subscription. A key you export in your
+shell is yours, and the agent gets it exactly as you set it.
+
+**Any key you export beats any key align saved.** With an exported `MISTRAL_API_KEY` and a
+saved Anthropic key, Mistral answers - unless you chose a provider (below). A saved OpenRouter
+key brings its own base URL and model and is ignored entirely when you export your own
+`ALIGN_LLM_BASE_URL`.
 
 ### Choosing a provider when you have several
 
@@ -49,9 +60,15 @@ running) is skipped, and the default order runs as if there were no preference. 
 only changes which provider is asked first: a provider that answers badly still stops the call
 (see the warning under (2)).
 
+Choosing `ollama` while Ollama is not running does not fall back silently or offer a key:
+`align ask` lists the matching decisions and says Ollama did not answer, so the reason is on
+screen. `align ai --provider <id>` also warns when the chosen provider has no key yet.
+
 ### The default order
 
-Named providers are tried in the order listed under (2) below, so with both GROQ_API_KEY and
+Exported credentials first (an `ALIGN_LLM_BASE_URL` endpoint, then the named keys in the order
+under (2)), then saved ones in the same order, then Ollama. Named providers are tried in the
+order listed under (2) below, so with both GROQ_API_KEY and
 GEMINI_API_KEY set, Groq answers and Gemini is only reached if Groq is unavailable (a bad key,
 say - not on a plain rate limit, see the warning under (2)).
 
