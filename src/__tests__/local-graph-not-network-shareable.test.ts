@@ -16,7 +16,7 @@ const FORBIDDEN_TRANSPORTS = new Set(['StreamableHTTPServerTransport', 'SSEServe
 // path -> reason. Add an entry only with a ticket-named reason.
 const LISTEN_ALLOWLIST: Record<string, string> = {
   'src/lib/cli-oauth.ts':
-    'align login callback: nonce-gated, serves no graph data, but calls s.listen(port, cb) with NO host, so it binds every interface. Binding 127.0.0.1 may break browsers resolving localhost to ::1, so the fix is its own behaviour change. Follow-up: separate ticket (L0.2 of 2026-10-10-local-capture-time-window-sync).',
+    'align login callback: nonce-gated, serves no graph data, but calls s.listen(port, cb) with NO host, so it binds every interface. Binding 127.0.0.1 may break browsers resolving localhost to ::1, so the fix is its own behaviour change. Follow-up: ALI-1504.',
 };
 
 function listSrcFiles(dir = SRC): string[] {
