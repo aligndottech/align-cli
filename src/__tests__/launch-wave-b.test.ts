@@ -94,18 +94,18 @@ describe('wave B: each launches with Align wired in', () => {
     for (const [name, bin] of Object.entries(WAVE_B)) {
       const h = harness({ stored: name, bins: { [bin]: binPath(bin) } });
       await launchIfChosen(h.deps);
-      expect(h.applied, name).toHaveLength(name === 'kiro' || name === 'grok-build' ? 1 : 0);
+      expect(h.applied, name).toHaveLength(['kiro', 'grok-build', 'amp'].includes(name) ? 1 : 0);
     }
   });
 
-  it('win32: the resolved .cmd shim is what runs, with the injected flags kept (qwen env, amp args)', async () => {
+  it('win32: the resolved .cmd shim is what runs, with the injected flags kept (qwen env, droid args)', async () => {
     const q = harness({ stored: 'qwen', platform: 'win32', bins: { qwen: 'C:\\npm\\qwen.cmd' } });
     await launchIfChosen(q.deps);
     expect(q.runAgentMock.mock.calls[0]![0].bin).toBe('C:\\npm\\qwen.cmd');
     expect(q.runAgentMock.mock.calls[0]![0].env['QWEN_CODE_SYSTEM_SETTINGS_PATH']).toBeDefined();
-    const a = harness({ stored: 'amp', platform: 'win32', bins: { amp: 'C:\\npm\\amp.cmd' } });
+    const a = harness({ stored: 'droid', platform: 'win32', bins: { droid: 'C:\\npm\\droid.cmd' } });
     await launchIfChosen(a.deps);
-    expect(a.runAgentMock.mock.calls[0]![0]).toMatchObject({ bin: 'C:\\npm\\amp.cmd', args: ['--mcp-config', expect.stringContaining('amp-mcp.json')] });
+    expect(a.runAgentMock.mock.calls[0]![0]).toMatchObject({ bin: 'C:\\npm\\droid.cmd', args: ['--settings', expect.stringContaining('droid-settings.json'), '--append-system-prompt-file', expect.stringContaining('align-instructions.md')] });
   });
 
   it('an ALIGN_WRAPPED session never launches another (nested align)', async () => {
@@ -174,7 +174,7 @@ describe('the picker and `align agents` list wave B with how to install', () => 
     expect(row('grok-build')).toMatchObject({ label: 'Grok Build', bin: 'grok', installed: false, connects: 'written-once' });
     expect(row('kiro')).toMatchObject({ label: 'Kiro CLI', bin: 'kiro-cli', installed: false, connects: 'written-once', install: { kind: 'docs' } });
     expect(row('droid')).toMatchObject({ connects: 'per-session', install: { kind: 'docs' } });
-    expect(row('amp')).toMatchObject({ connects: 'per-session', install: { kind: 'docs' } });
+    expect(row('amp')).toMatchObject({ connects: 'written-once', install: { kind: 'docs' } });
   });
 });
 

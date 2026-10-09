@@ -12,7 +12,7 @@ const PRE_MOVE = [
   { name: 'opencode', label: 'OpenCode', bin: 'opencode', injection: 'per-session', supported: true, install: 'npm i -g opencode-ai' },
   { name: 'pi', label: 'pi', bin: 'pi', injection: 'written-once', supported: true, install: 'https://pi.dev' },
   // wave B
-  { name: 'amp', label: 'Amp', bin: 'amp', injection: 'per-session', supported: true, install: 'curl -fsSL https://ampcode.com/install.sh | bash' },
+  { name: 'amp', label: 'Amp', bin: 'amp', injection: 'written-once', supported: true, install: 'curl -fsSL https://ampcode.com/install.sh | bash' },
   { name: 'droid', label: 'Factory Droid', bin: 'droid', injection: 'per-session', supported: true, install: 'curl -fsSL https://app.factory.ai/cli | sh' },
   { name: 'grok-build', label: 'Grok Build', bin: 'grok', injection: 'written-once', supported: true, install: 'curl -fsSL https://x.ai/cli/install.sh | bash' },
   { name: 'kiro', label: 'Kiro CLI', bin: 'kiro-cli', injection: 'written-once', supported: true, install: 'curl -fsSL https://cli.kiro.dev/install | bash' },
