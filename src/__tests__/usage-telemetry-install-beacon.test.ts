@@ -22,9 +22,12 @@ const getEnvironment = vi.fn();
 const INSTALL_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
 
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     getTelemetryConsent,
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId,
     wasFunnelStageRecorded,
     markFunnelStageRecorded,
@@ -52,6 +55,12 @@ function sentTo(): { url: string; body: Record<string, unknown> } {
 
 describe('recordInstallBeacon', () => {
   beforeEach(() => {
+    // C6: the beacon follows the one-time notice (cli.ts prints it first), so this suite's
+    // default is "the notice has printed"; the one test about the notice's absence unsets it.
+    noticeShownAt = '2026-10-10T00:00:00.000Z';
+    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
+    // are cleared here rather than inherited, with the two env switches.
+    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     getTelemetryConsent.mockReset().mockReturnValue(undefined);
@@ -59,13 +68,30 @@ describe('recordInstallBeacon', () => {
     wasFunnelStageRecorded.mockReset().mockReturnValue(false);
     markFunnelStageRecorded.mockReset();
     getEnvironment.mockReset().mockReturnValue(freshEnv);
-    vi.stubEnv('ALIGN_TELEMETRY', undefined);
-    vi.stubEnv('DO_NOT_TRACK', undefined);
   });
 
   afterEach(() => vi.unstubAllEnvs());
 
-  it('first ever run, no env vars, no consent yet: exactly one beacon, and the install is marked', async () => {
+  it('C6: no notice and no stored decision: no beacon (the notice is the disclosure it waits on)', async () => {
+    noticeShownAt = undefined;
+    await expect(recordInstallBeacon('align')).resolves.toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('C6: an existing install that answered the old prompt (declined) still sends with no notice', async () => {
+    noticeShownAt = undefined;
+    getTelemetryConsent.mockReturnValue('declined');
+    await expect(recordInstallBeacon('align')).resolves.toBe(true);
+  });
+
+  it('C6: in CI the first run is not consumed - no beacon, and the install is NOT marked', async () => {
+    vi.stubEnv('CI', 'true');
+    await expect(recordInstallBeacon('align')).resolves.toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(markFunnelStageRecorded).not.toHaveBeenCalled();
+  });
+
+  it('first ever run after the notice, no env vars, no consent yet: exactly one beacon, and the install is marked', async () => {
     await expect(recordInstallBeacon('align')).resolves.toBe(true);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);

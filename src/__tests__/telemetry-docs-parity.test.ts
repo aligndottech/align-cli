@@ -25,9 +25,12 @@ const getEnvironment = vi.fn();
 const INSTALL_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
 
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     getTelemetryConsent,
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId,
     wasFunnelStageRecorded,
     markFunnelStageRecorded,
@@ -37,6 +40,7 @@ vi.mock('../lib/config.js', () => ({
 }));
 vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('prod') }));
 
+import { TELEMETRY_NOTICE } from '../lib/telemetry-consent.js';
 import {
   BEACON_STAGES,
   FUNNEL_STAGES,
@@ -82,6 +86,11 @@ function sentFields(): string[] {
 
 describe('docs/telemetry.md matches what the CLI sends', () => {
   beforeEach(() => {
+    // C6: the page documents what sends once the one-time notice has printed.
+    noticeShownAt = '2026-10-10T00:00:00.000Z';
+    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
+    // are cleared here rather than inherited, with the two env switches.
+    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     getTelemetryConsent.mockReset().mockReturnValue(undefined);
@@ -89,8 +98,6 @@ describe('docs/telemetry.md matches what the CLI sends', () => {
     wasFunnelStageRecorded.mockReset().mockReturnValue(false);
     markFunnelStageRecorded.mockReset();
     getEnvironment.mockReset().mockReturnValue({ ...cloudEnv, authToken: null, tenantId: null });
-    vi.stubEnv('ALIGN_TELEMETRY', undefined);
-    vi.stubEnv('DO_NOT_TRACK', undefined);
   });
 
   afterEach(() => vi.unstubAllEnvs());
@@ -129,11 +136,11 @@ describe('docs/telemetry.md matches what the CLI sends', () => {
 
   // The stage NAMES are part of the promise too: every stage the CLI can send is named on
   // the page, on the tier it belongs to.
-  it('names every beacon stage under the beacons heading and every consented stage under consent', () => {
+  it('names every beacon stage under the always heading and every other stage under the after-the-notice heading', () => {
     const [, beaconsHalf = '', consentHalf = ''] = DOC.split(/^## /m).reduce<string[]>(
       (acc, s) => {
-        if (s.startsWith('Sent by default')) acc[1] = s;
-        if (s.startsWith('Sent only with your consent')) acc[2] = s;
+        if (s.startsWith('Sent always, unless turned off')) acc[1] = s;
+        if (s.startsWith('Sent after the notice')) acc[2] = s;
         return acc;
       },
       ['', '', ''],
@@ -144,5 +151,12 @@ describe('docs/telemetry.md matches what the CLI sends', () => {
     expect(consented.length).toBeGreaterThan(0); // positive control for the filter
     for (const stage of BEACON_STAGES) expect(beaconsHalf).toContain(`\`${stage}\``);
     for (const stage of consented) expect(consentHalf).toContain(`\`${stage}\``);
+  });
+
+  // C6: the page quotes the one-time notice, and the quote is the notice, word for word.
+  it('quotes the one-time notice exactly as the CLI prints it', () => {
+    expect(TELEMETRY_NOTICE.length).toBeGreaterThan(0);
+    const quoted = TELEMETRY_NOTICE.split('\n').map((l) => `  ${l}`).join('\n');
+    expect(DOC).toContain(quoted);
   });
 });

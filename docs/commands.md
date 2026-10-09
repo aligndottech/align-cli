@@ -77,7 +77,7 @@ align env get                 Show the current default environment
 
 # Usage telemetry on, off, status
 
-align telemetry               Manage anonymous telemetry in local-only mode (two counts by default, usage only with consent)
+align telemetry               Manage anonymous telemetry in local-only mode (on after a one-time notice; off in CI)
 align telemetry on            Send anonymous usage pings in local-only mode (command names, never content)
 align telemetry off           Stop all telemetry in local-only mode, the two default anonymous counts included
 align telemetry status        Show the effective telemetry state and why

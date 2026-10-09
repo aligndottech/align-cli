@@ -31,12 +31,15 @@ const cloudEnv: EnvironmentConfig = {
 const recorded = vi.hoisted(() => new Set<string>());
 
 vi.mock('node:fs', () => ({ existsSync: vi.fn().mockReturnValue(false) }));
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn().mockReturnValue(cloudEnv),
     getDefaultEnv: vi.fn().mockReturnValue('prod'),
     getConnectorFields: vi.fn().mockReturnValue(null),
     getTelemetryConsent: vi.fn().mockReturnValue(undefined),
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId: vi.fn().mockReturnValue('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
     wasFunnelStageRecorded: (stage: string) => recorded.has(stage),
     markFunnelStageRecorded: (stage: string) => { recorded.add(stage); },
@@ -83,9 +86,12 @@ async function agentAsk(): Promise<void> {
 
 describe('first_useful_decision is once per install across `align ask` and the MCP server', () => {
   beforeEach(() => {
+    noticeShownAt = undefined;
+    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
+    // are cleared here rather than inherited, with the two env switches.
+    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
     recorded.clear();
     mockFetch.mockReset().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
-    vi.stubEnv('ALIGN_TELEMETRY', '');
   });
   afterEach(() => vi.unstubAllEnvs());
 

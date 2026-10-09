@@ -1,56 +1,70 @@
-import * as p from '@clack/prompts';
 import { telemetryDisabledByEnv } from './telemetry-env.js';
+import { inCi } from './telemetry-ci.js';
+import type { TelemetryConsent } from './config.js';
 
 /**
  * Narrow interface rather than the whole config store, so this module (and its tests) does not
  * carry every unrelated accessor `createConfigStore()` exposes.
  */
-export interface TelemetryConsentStore {
-  getTelemetryConsent(): 'granted' | 'declined' | 'off' | undefined;
-  setTelemetryConsent(value: 'granted' | 'declined' | 'off'): void;
+export interface TelemetryNoticeStore {
+  getTelemetryConsent(): TelemetryConsent | undefined;
+  getTelemetryNoticeShownAt(): string | undefined;
+  markTelemetryNoticeShown(): void;
 }
 
 /**
- * ALI-618 D3: the one-time local-mode consent prompt, shown from `runLocalSetup()`.
- *
- * Never asks twice - a decision already on disk (granted, declined, or `align telemetry off`)
- * is left alone. Never prompts without a TTY on both streams: a piped `setup --local` run
- * hangs on a prompt it cannot answer, and a closed stdin crashes clack's raw-mode init AFTER
- * the real setup work has already succeeded (the align-cli#118 lesson,
- * `setup-local-non-tty.test.ts`). A non-interactive run leaves consent UNSET rather than
- * implicitly declined - a scripted first run may be a CI smoke test, not a real user's choice,
- * and it can still be asked on a later interactive run.
- *
- * ALI-954: an env var that already turns everything off (`DO_NOT_TRACK=1`, `ALIGN_TELEMETRY=0`)
- * skips the question with a one-line note - asking would imply the answer matters - and
- * leaves the decision unset for the same reason as the non-interactive case.
- *
- * The question is about USAGE (which commands you run). The two anonymous counts the docs
- * describe (install, setup completed) are not what is being asked about here and send either
- * way; `align telemetry off` is what stops those (docs/telemetry.md).
- *
- * Default is No: anything other than an explicit yes - the default answer, or Ctrl-C - leaves
- * telemetry off (D3).
+ * C6: the disclosure. Local-mode telemetry is opt-out, and this notice is what makes it so: it
+ * prints once, to stderr, before anything is sent, and nothing that depends on it sends until
+ * it has printed (usage-telemetry.ts's localTierAllows). The founder-approved wording - change
+ * it only with the privacy page (align.tech/privacy#cli) and docs/telemetry.md in the same PR.
  */
-export async function maybeRequestTelemetryConsent(
-  config: TelemetryConsentStore,
-  interactive: boolean,
-): Promise<void> {
-  if (config.getTelemetryConsent() !== undefined) return;
-  if (!interactive) return;
+export const TELEMETRY_NOTICE =
+  'Align sends anonymous usage counts: which commands and coding agent you use,\n' +
+  'which tools you connect and how many items, the CLI version, and your OS.\n' +
+  'Never code, decision text, or file, repo or org names.\n' +
+  'Turn it off: align telemetry off (or DO_NOT_TRACK=1). Details: align.tech/privacy#cli';
 
-  const envSwitch = telemetryDisabledByEnv();
-  if (envSwitch !== undefined) {
-    p.log.info(`Telemetry is off (${envSwitch} is set), so nothing is sent and you won't be asked.`);
-    return;
+export interface NoticeContext {
+  /** The invocation's command path ("ask", "telemetry off", "align" for the bare command). */
+  command: string;
+  /** Running as an agent hook (`check --hook` / `--advisory`): nobody is reading stderr. */
+  hook: boolean;
+  /** A cloud login token is in hand: cloud mode has its own, authenticated events. */
+  cloudSignedIn: boolean;
+}
+
+const isSet = (v: string | undefined): boolean => v !== undefined && v !== '';
+
+/**
+ * Shows the notice and marks it shown, or does neither. Skipped, and NOT marked, wherever
+ * nobody is reading it or it would be moot: CI, an agent hook, `align mcp` (an agent's stdio
+ * server), a run inside a launched agent (ALIGN_WRAPPED), `align telemetry ...` (the off switch
+ * must not be raced by what it switches off), an env switch that already turns everything off,
+ * and any stored decision (granted, declined or off - that user was already asked or chose).
+ * Because it is not marked, nothing that waits on it sends from those runs either.
+ *
+ * Returns whether it printed. Never throws: a broken config store costs the notice, which means
+ * nothing sends - the safe direction.
+ */
+export function maybeShowTelemetryNotice(
+  config: TelemetryNoticeStore,
+  ctx: NoticeContext,
+  write: (text: string) => void = (text) => {
+    process.stderr.write(text);
+  },
+): boolean {
+  try {
+    const top = ctx.command.split(' ')[0];
+    if (top === 'mcp' || top === 'telemetry') return false;
+    if (ctx.hook || ctx.cloudSignedIn) return false;
+    if (isSet(process.env['ALIGN_WRAPPED'])) return false;
+    if (telemetryDisabledByEnv() !== undefined || inCi()) return false;
+    if (config.getTelemetryConsent() !== undefined) return false;
+    if (config.getTelemetryNoticeShownAt() !== undefined) return false;
+    write(`${TELEMETRY_NOTICE}\n\n`);
+    config.markTelemetryNoticeShown();
+    return true;
+  } catch {
+    return false;
   }
-
-  const answer = await p.confirm({
-    message:
-      'Help improve Align? Send an anonymous count of which commands you run - no code, no ' +
-      'decisions, no file names, ever. You can change this any time with `align telemetry off`.',
-    initialValue: false,
-  });
-
-  config.setTelemetryConsent(!p.isCancel(answer) && answer ? 'granted' : 'declined');
 }

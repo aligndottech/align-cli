@@ -11,11 +11,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // postAnonymous reads to build the target. Replacing the whole module made every send throw
 // inside the emitter's own catch, which returns false - so the guard test failed for a reason
 // that had nothing to do with the guard, and looked exactly like the guard working.
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   createConfigStore: () => ({
     getInstallId: () => '11111111-1111-4111-8111-111111111111',
     getTelemetryConsent: () => 'granted',
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     wasFunnelStageRecorded: () => false,
     markFunnelStageRecorded: () => {},
   }),
@@ -109,6 +112,14 @@ describe('recordFunnelStage refuses to send from a hook', () => {
   const fetchMock = vi.fn().mockResolvedValue({ ok: true });
 
   beforeEach(() => {
+
+    noticeShownAt = undefined;
+
+    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
+
+    // are cleared here rather than inherited, with the two env switches.
+
+    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
     resetHookContextForTests();
     fetchMock.mockClear();
     vi.stubGlobal('fetch', fetchMock);

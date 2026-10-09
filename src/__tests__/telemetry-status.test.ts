@@ -11,7 +11,10 @@ import { getTelemetryStatus } from '../lib/usage-telemetry.js';
 
 // The environment is an input (tdd.md): a DO_NOT_TRACK exported by whoever runs the suite
 // must not decide these tests, so it is cleared here and set only by the tests about it.
-beforeEach(() => vi.stubEnv('DO_NOT_TRACK', undefined));
+// C6: so are CI and GITHUB_ACTIONS, which the CI runner exports and which now turn telemetry off.
+beforeEach(() => {
+  for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
+});
 afterEach(() => vi.unstubAllEnvs());
 
 const cloudEnv: EnvironmentConfig = {
@@ -53,11 +56,25 @@ describe('getTelemetryStatus', () => {
     });
   });
 
-  it('local mode, never asked: off, and says so distinctly from a decline', () => {
-    vi.stubEnv('ALIGN_TELEMETRY', '');
-    const status = getTelemetryStatus(localEnv, undefined);
+  // C6: opt-out. Before the one-time notice nothing has been sent; after it, usage is on.
+  it('local mode, notice not yet shown: off, nothing sent yet, distinct from a decline', () => {
+    const status = getTelemetryStatus(localEnv, undefined, false);
     expect(status.enabled).toBe(false);
+    expect(status.reason).toContain('nothing has been sent');
     expect(status.reason).not.toContain('declined');
+  });
+
+  it('local mode, notice shown, no decision: on (opt-out), and says how to turn it off', () => {
+    const status = getTelemetryStatus(localEnv, undefined, true);
+    expect(status.enabled).toBe(true);
+    expect(status.reason).toContain('opt-out');
+    expect(status.reason).toContain('align telemetry off');
+  });
+
+  it.each([['CI', 'true'], ['GITHUB_ACTIONS', 'true']])('under %s=%s: off, and says it is CI', (k, v) => {
+    vi.stubEnv(k, v);
+    expect(getTelemetryStatus(localEnv, 'granted', true)).toEqual({ enabled: false, reason: expect.stringContaining('CI') });
+    expect(getTelemetryStatus(cloudEnv, undefined).enabled).toBe(false);
   });
 
   it('ALIGN_TELEMETRY=0: off, and wins over a granted local consent', () => {
@@ -98,10 +115,6 @@ describe('getTelemetryStatus', () => {
       expect(status.reason).toContain('align telemetry off');
     });
 
-    it('local mode, never asked: says the two counts still send', () => {
-      vi.stubEnv('ALIGN_TELEMETRY', '');
-      expect(getTelemetryStatus(localEnv, undefined).reason).toContain('two anonymous counts');
-    });
 
     it('local mode, `align telemetry off`: off, and nothing sends - distinct from a decline', () => {
       vi.stubEnv('ALIGN_TELEMETRY', '');

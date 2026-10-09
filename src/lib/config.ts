@@ -107,6 +107,7 @@ export function createConfigStore() {
     connectorTokens: Record<string, string>;
     installId?: string;
     telemetryConsent?: TelemetryConsent;
+    telemetryNoticeShownAt?: string;
     agent?: string;
     launchOff?: boolean;
     refusedWrites?: string[];
@@ -325,6 +326,14 @@ export function createConfigStore() {
     },
     setTelemetryConsent(value: TelemetryConsent) {
       store.set('telemetryConsent', value);
+    },
+    // C6: when the one-time telemetry notice printed (telemetry-consent.ts). Its presence is the
+    // disclosure local-mode sends wait on; the timestamp says when, for `align telemetry status`.
+    getTelemetryNoticeShownAt(): string | undefined {
+      return store.get('telemetryNoticeShownAt');
+    },
+    markTelemetryNoticeShown(): void {
+      if (!store.get('telemetryNoticeShownAt')) store.set('telemetryNoticeShownAt', new Date().toISOString());
     },
     // ALI-1284: the key `align setup`'s guided free-tier path collected, persisted the same
     // way a local connector's read-only token already is (saveConnectorFields above) - one

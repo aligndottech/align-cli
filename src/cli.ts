@@ -71,9 +71,16 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // timeout aborts it, so the wizard never waits on a blackholed network. Skips itself under
   // DO_NOT_TRACK / ALIGN_TELEMETRY, after `align telemetry off`, when a cloud token is already
   // in hand, and when the first command IS `align telemetry ...` (see recordInstallBeacon).
+  //
+  // C6: the one-time telemetry notice prints first, to stderr, and is awaited - it is the
+  // disclosure local-mode sends wait on, so it must land before the command's output and before
+  // the beacon. `check --hook` / `--advisory` are agent hooks: no notice there, and nothing sent.
   program.hook('preAction', async (_thisCommand, actionCommand) => {
-    const { invocationCommandPath, recordInstallBeacon } = await import('./lib/usage-telemetry.js');
-    void recordInstallBeacon(invocationCommandPath(actionCommand));
+    const { beginInvocationTelemetry, invocationCommandPath } = await import('./lib/usage-telemetry.js');
+    const opts = actionCommand.opts();
+    const hook = actionCommand.name() === 'check' && (opts['hook'] === true || opts['advisory'] === true);
+    const { beaconSent } = await beginInvocationTelemetry(invocationCommandPath(actionCommand), { hook });
+    void beaconSent;
   });
 
   // Saved AI provider keys and the saved preference (`align ai`, the first-ask offer) reach
@@ -100,8 +107,8 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
 
   // ALI-403/ALI-618/ALI-954: one usage event per invocation, so CLI activation and weekly
   // retention are countable in both cloud mode (opt-out) and local-embedded mode (with the
-  // stored consent - a no-op until the setup prompt or `align telemetry on` grants it). No-op
-  // under ALIGN_TELEMETRY=0 / DO_NOT_TRACK=1 in either mode. Runs after the command's own work,
+  // one-time notice shown, or `align telemetry on` - C6). No-op under ALIGN_TELEMETRY=0 /
+  // DO_NOT_TRACK=1 and in CI, in either mode. Runs after the command's own work,
   // so a slow or blackholed gateway cannot delay the output the user came for.
   program.hook('postAction', async (_thisCommand, actionCommand) => {
     const { envFlagOf, invocationCommandPath, recordInvocationUsage } = await import('./lib/usage-telemetry.js');

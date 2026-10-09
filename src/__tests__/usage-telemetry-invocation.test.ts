@@ -32,6 +32,8 @@ const FIXTURE_ENVS = vi.hoisted(() => ({
   },
 }));
 
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     getDefaultEnv: () => 'prod',
@@ -41,6 +43,7 @@ vi.mock('../lib/config.js', () => ({
     // recorded here - these tests are about WHICH env gets addressed, not about the anonymous
     // ping itself (that's usage-telemetry-anonymous.test.ts), so nothing should ever send.
     getTelemetryConsent: () => undefined,
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId: () => 'test-install-id',
   }),
 }));
@@ -52,10 +55,13 @@ vi.stubGlobal('fetch', mockFetch);
 
 describe('recordInvocationUsage', () => {
   beforeEach(() => {
+    noticeShownAt = undefined;
+    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
+    // are cleared here rather than inherited, with the two env switches.
+    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     // Preconditions stated, not inherited from the runner's shell.
-    vi.stubEnv('ALIGN_TELEMETRY', '');
     vi.stubEnv('ALIGN_ENV', '');
   });
 

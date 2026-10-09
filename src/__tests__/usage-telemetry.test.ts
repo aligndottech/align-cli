@@ -16,10 +16,13 @@ import type { EnvironmentConfig } from '../lib/config.js';
 // nothing mocks it, so they passed or failed with whatever consent the machine running the
 // suite had stored - green in CI, red on a laptop that had said yes (found on ALI-954). The
 // precondition those tests assert is "no consent recorded"; state it (tdd.md).
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   createConfigStore: () => ({
     getTelemetryConsent: () => undefined,
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   }),
 }));
@@ -54,10 +57,13 @@ function sentBody(): Record<string, unknown> {
 
 describe('recordCommandUsage', () => {
   beforeEach(() => {
+    noticeShownAt = undefined;
+    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
+    // are cleared here rather than inherited, with the two env switches.
+    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     // The precondition is "not opted out". State it - do not inherit it from the shell.
-    vi.stubEnv('ALIGN_TELEMETRY', '');
   });
 
   afterEach(() => vi.unstubAllEnvs());

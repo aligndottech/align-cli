@@ -3,15 +3,18 @@
  * a stronger decision than declining the consent prompt (that only declines usage). So the
  * command stores 'off', not 'declined', and `on` clears it back to 'granted'.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 
 const setTelemetryConsent = vi.fn();
 const getTelemetryConsent = vi.fn();
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     setTelemetryConsent,
     getTelemetryConsent,
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getEnvironment: () => ({ gatewayUrl: 'http://localhost:8080', authToken: null, tenantId: null, mode: 'local-embedded' }),
   }),
 }));
@@ -26,7 +29,12 @@ function program(): Command {
 }
 
 describe('align telemetry', () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
+    noticeShownAt = undefined;
+    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
+    // are cleared here rather than inherited, with the two env switches.
+    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
     setTelemetryConsent.mockReset();
     getTelemetryConsent.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});

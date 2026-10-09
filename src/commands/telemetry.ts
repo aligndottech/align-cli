@@ -9,13 +9,13 @@ import { getTelemetryStatus } from '../lib/usage-telemetry.js';
  * which model applies (see usage-telemetry.ts's getTelemetryStatus).
  *
  * ALI-954: `off` stores 'off', which stops BOTH tiers - the usage pings and the two anonymous
- * counts that send by default (install, setup completed). That is a stronger decision than
- * answering No at the consent prompt, which only declines usage, and the message says so.
+ * counts (install, setup completed). That is a stronger decision than the pre-C6 consent
+ * prompt's No ('declined'), which only declined usage and still stands where it was given.
  */
 export function registerTelemetryCommand(program: Command): void {
   const telemetry = program
     .command('telemetry')
-    .description('Manage anonymous telemetry in local-only mode (two counts by default, usage only with consent)');
+    .description('Manage anonymous telemetry in local-only mode (on after a one-time notice; off in CI)');
 
   telemetry
     .command('on')
@@ -46,7 +46,7 @@ export function registerTelemetryCommand(program: Command): void {
       // actual local consent - the exact honesty gap this command exists to close. A
       // fresh-context review caught this.
       const env = config.getEnvironment(resolveEnv(undefined, { preferLocalEmbedded: true }));
-      const status = getTelemetryStatus(env, config.getTelemetryConsent());
+      const status = getTelemetryStatus(env, config.getTelemetryConsent(), config.getTelemetryNoticeShownAt() !== undefined);
       console.log(status.reason);
     });
 }
