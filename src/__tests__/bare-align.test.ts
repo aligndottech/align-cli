@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as LaunchModule from '../lib/launch/launch.js';
 
 const runSetup = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('../commands/setup.js', () => ({ runSetup, registerSetupCommand: vi.fn() }));
@@ -8,8 +9,9 @@ vi.mock('../lib/brand.js', () => ({ printBanner }));
 
 const getEnvironment = vi.hoisted(() => vi.fn());
 const getDefaultEnv = vi.hoisted(() => vi.fn().mockReturnValue('prod'));
+const getAgent = vi.hoisted(() => vi.fn().mockReturnValue(undefined));
 vi.mock('../lib/config.js', () => ({
-  createConfigStore: vi.fn(() => ({ getEnvironment, getDefaultEnv })),
+  createConfigStore: vi.fn(() => ({ getEnvironment, getDefaultEnv, getAgent })),
 }));
 
 const listDecisions = vi.hoisted(() => vi.fn().mockResolvedValue([]));
@@ -53,6 +55,7 @@ describe('bare `align`', () => {
   beforeEach(() => {
     runSetup.mockClear();
     printBanner.mockClear();
+    getAgent.mockReset().mockReturnValue(undefined);
     listDecisions.mockReset().mockResolvedValue([]);
     getEnvironment.mockReset();
     getDefaultEnv.mockReturnValue('prod');
@@ -287,7 +290,8 @@ describe('bare `align`', () => {
       }
     };
     /** Nothing set up; a successful wizard run leaves a local graph behind, as the real one does. */
-    const wizardBuildsLocal = () => {
+    const wizardBuildsLocal = (agent: string | null = 'claude-code') => {
+      getAgent.mockReturnValue(agent ?? undefined);
       let localReady = false;
       getEnvironment.mockImplementation((n: string) =>
         n === 'local' ? (localReady ? { mode: 'local-embedded' } : { mode: 'demo' }) : { mode: 'auth' });
@@ -326,16 +330,51 @@ describe('bare `align`', () => {
       expect(launchIfChosen).not.toHaveBeenCalled();
     });
 
-    it('a team login with no local graph, on a terminal, gets the same wizard (not the cloud card)', async () => {
+    it('tells the wizard the agent opens next, so its outro drops the "run align" line', async () => {
+      wizardBuildsLocal();
+      launchIfChosen.mockClear().mockResolvedValueOnce({ handled: false });
+      await withTty(async () => { await bare(); });
+      expect(runSetup).toHaveBeenCalledWith({ launchNext: true });
+    });
+
+    it('with no agent chosen the wizard is the whole command: no launcher call, and no exit', async () => {
+      wizardBuildsLocal(null);
+      launchIfChosen.mockClear();
+      const exit = exitSpy();
+      try {
+        await withTty(async () => { await bare(); });
+        expect(launchIfChosen).not.toHaveBeenCalled();
+        expect(exit).not.toHaveBeenCalled();
+      } finally { exit.mockRestore(); }
+    });
+
+    // Why the guard above exists. The mock above returns what we choose; THIS is what the real
+    // launcher returns when no supported agent is on PATH: handled, exit 1. Calling it after a
+    // wizard that installed nothing would make a finished setup exit 1.
+    it('the REAL launcher with no agent on PATH reports exit 1 (so it must not be called)', async () => {
+      const { launchIfChosen: real } = await vi.importActual<typeof LaunchModule>('../lib/launch/launch.js');
+      const lines: string[] = [];
+      const r = await real({
+        env: {}, argv: ['node', 'align'], isTTY: true, platform: 'linux',
+        config: { getAgent: () => undefined, setAgent: () => undefined },
+        findOnPath: () => null,
+        err: (l) => lines.push(l),
+      });
+      expect(r).toEqual({ handled: true, code: 1 });
+      expect(lines.join('\n')).toMatch(/No coding agent/);
+    });
+
+    it('a team login with no local graph keeps the "Signed in" card, on a terminal too: no wizard', async () => {
       getEnvironment.mockImplementation((n: string) =>
         n === 'local' ? { mode: 'demo' } : { mode: 'auth', authToken: 'tok' });
       listDecisions.mockClear();
-      await withTty(async () => { await bare(); });
-      expect(runSetup).toHaveBeenCalledTimes(1);
-      expect(listDecisions).not.toHaveBeenCalled();
+      let out = '';
+      await withTty(async () => { out = await bare(); });
+      expect(runSetup).not.toHaveBeenCalled();
+      expect(out).toContain('Signed in');
     });
 
-    it('a team login with no local graph and no terminal still gets the card, as before', async () => {
+    it('a team login with no local graph and no terminal gets the same card', async () => {
       getEnvironment.mockImplementation((n: string) =>
         n === 'local' ? { mode: 'demo' } : { mode: 'auth', authToken: 'tok' });
       const out = await bare();

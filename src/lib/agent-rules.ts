@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 import { alignServerEntry } from './mcp-setup.js';
 
 // ALI-121: the deterministic auto-alignment layer. ALI-120 gave the MCP server
@@ -71,7 +72,7 @@ export function alignClaudeHooks(env?: string): Record<'PreToolUse' | 'PostToolU
 // Merge a PostToolUse (Write|Edit) hook into the project .claude/settings.json. The
 // file is committed so the whole team gets it; Claude Code shows a one-time "approve
 // hooks" prompt the first time it loads a committed hook (documented in setup output).
-export function writeClaudeCodeHook(cwd: string, env?: string): void {
+export function writeClaudeCodeHook(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const dir = path.join(cwd, '.claude');
   const file = path.join(dir, 'settings.json');
 
@@ -85,6 +86,12 @@ export function writeClaudeCodeHook(cwd: string, env?: string): void {
   }
 
   const hooks = (settings['hooks'] ?? {}) as Record<string, unknown>;
+  // The local wizard never replaces a hook that checks against a team env.
+  if (env === 'local' && (['PreToolUse', 'PostToolUse'] as const).some((event) =>
+    (Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []).some((g) => isAlignHookGroup(g) && !carriesLocalEnv(JSON.stringify(g))))) {
+    onForeign?.('.claude/settings.json');
+    return false;
+  }
   // The same advisory command goes in both events; it self-detects Pre vs Post from the
   // hook payload on stdin. PreToolUse catches a conflict before the edit is written
   // (ALI-122); PostToolUse is the backstop on the landed change (ALI-121). Strip any
@@ -100,6 +107,7 @@ export function writeClaudeCodeHook(cwd: string, env?: string): void {
 
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  return true;
 }
 
 // Merge a SessionStart hook into the project .claude/settings.json (ALI-933) - the
@@ -236,7 +244,7 @@ export function writeCursorRule(cwd: string): void {
 // pi-mcp-adapter), so does Claude Code, and it is committed, so one write covers the
 // whole team rather than each person's per-host config. Deliberately host-NEUTRAL: pi's
 // `directTools` goes in the Pi-owned override that mcp-setup.ts writes, never here.
-export function writeProjectMcpConfig(cwd: string, env?: string): void {
+export function writeProjectMcpConfig(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const file = path.join(cwd, '.mcp.json');
 
   let raw = '';
@@ -256,6 +264,11 @@ export function writeProjectMcpConfig(cwd: string, env?: string): void {
   }
 
   const servers = (config['mcpServers'] ?? {}) as Record<string, unknown>;
+  // A committed entry that targets a team env is the team's, not ours to replace.
+  if (env === 'local' && servers['align'] !== undefined && !carriesLocalEnv(JSON.stringify(servers['align']))) {
+    onForeign?.('.mcp.json');
+    return false;
+  }
   // `committed: true` keeps the Windows `cmd /c` wrapper OUT of this file (ALI-1135). It is
   // the one MCP config that travels: a wrapper written here by a Windows machine would be
   // committed and then fail to spawn for every teammate on macOS or Linux. Windows readers
@@ -264,6 +277,7 @@ export function writeProjectMcpConfig(cwd: string, env?: string): void {
   config['mcpServers'] = servers;
 
   writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -371,10 +385,25 @@ export default function (pi: { on: (e: string, h: (ev: PiEvent) => unknown) => v
 }
 
 // pi extension. Fully managed - overwritten each run.
-export function writePiExtension(cwd: string, env?: string): void {
+export function writePiExtension(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const dir = path.join(cwd, '.pi', 'extensions');
+  const file = path.join(dir, 'align.ts');
+  if (env === 'local' && isForeignPlugin(file)) {
+    onForeign?.('.pi/extensions/align.ts');
+    return false;
+  }
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, 'align.ts'), piExtensionBody(env), 'utf8');
+  writeFileSync(file, piExtensionBody(env), 'utf8');
+  return true;
+}
+
+/** A generated plugin that already exists and is not pointed at the local graph. */
+function isForeignPlugin(file: string): boolean {
+  try {
+    return !carriesLocalEnv(readFileSync(file, 'utf8'));
+  } catch {
+    return false;
+  }
 }
 
 // Gemini CLI hooks. BeforeTool can only deny (no additionalContext channel), so the
@@ -401,7 +430,7 @@ function isAlignGeminiHook(group: unknown): boolean {
   return Array.isArray(hooks) && hooks.some((h) => String(h?.command ?? '').includes('align check --advisory'));
 }
 
-export function writeGeminiHooks(cwd: string, env?: string): void {
+export function writeGeminiHooks(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const dir = path.join(cwd, '.gemini');
   const file = path.join(dir, 'settings.json');
 
@@ -422,6 +451,11 @@ export function writeGeminiHooks(cwd: string, env?: string): void {
   }
 
   const hooks = (settings['hooks'] ?? {}) as Record<string, unknown>;
+  if (env === 'local' && (['BeforeTool', 'AfterTool'] as const).some((event) =>
+    (Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []).some((g) => isAlignGeminiHook(g) && !carriesLocalEnv(JSON.stringify(g))))) {
+    onForeign?.('.gemini/settings.json');
+    return false;
+  }
   // Strip any prior align-managed group from each event first, so a re-run replaces
   // it (and picks up an env change) instead of stacking a second one.
   for (const event of ['BeforeTool', 'AfterTool'] as const) {
@@ -434,6 +468,7 @@ export function writeGeminiHooks(cwd: string, env?: string): void {
 
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  return true;
 }
 
 // OpenCode discovers project plugins at .opencode/plugins/*.{js,ts} and loads them at
@@ -510,27 +545,36 @@ export const AlignPlugin = async () => ({
 }
 
 // OpenCode plugin. Fully managed - overwritten each run.
-export function writeOpenCodePlugin(cwd: string, env?: string): void {
+export function writeOpenCodePlugin(cwd: string, env?: string, onForeign?: OnForeign): boolean {
   const dir = path.join(cwd, '.opencode', 'plugins');
+  const file = path.join(dir, 'align.js');
+  if (env === 'local' && isForeignPlugin(file)) {
+    onForeign?.('.opencode/plugins/align.js');
+    return false;
+  }
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, 'align.js'), openCodePluginBody(env), 'utf8');
+  writeFileSync(file, openCodePluginBody(env), 'utf8');
+  return true;
 }
 
 // Write every deterministic-alignment artifact into the project. Returns the
 // repo-relative paths written, for the caller to report.
-export function setupAgentAlignment(opts: { cwd: string; env?: string }): string[] {
-  writeClaudeCodeHook(opts.cwd, opts.env);
-  writeClaudeCodeSessionHook(opts.cwd);
+export function setupAgentAlignment(opts: { cwd: string; env?: string; onForeign?: OnForeign }): string[] {
+  const skipped = new Set<string>();
+  const onForeign: OnForeign = (f) => { skipped.add(f); opts.onForeign?.(f); };
+  // When the project's hooks belong to a team env the whole file is left as found, so the
+  // session hook (which lives in the same file) is not added either.
+  if (writeClaudeCodeHook(opts.cwd, opts.env, onForeign)) writeClaudeCodeSessionHook(opts.cwd);
   writeManagedNudge(opts.cwd);
   writeAgentsNudge(opts.cwd);
   writeCursorRule(opts.cwd);
   // prod is the default env, so leave it off to keep the committed file portable -
   // the same rule advisoryCommand() applies to the hook.
   const env = opts.env === 'prod' ? undefined : opts.env;
-  writeProjectMcpConfig(opts.cwd, env);
-  writePiExtension(opts.cwd, env);
-  writeGeminiHooks(opts.cwd, env);
-  writeOpenCodePlugin(opts.cwd, env);
+  writeProjectMcpConfig(opts.cwd, env, onForeign);
+  writePiExtension(opts.cwd, env, onForeign);
+  writeGeminiHooks(opts.cwd, env, onForeign);
+  writeOpenCodePlugin(opts.cwd, env, onForeign);
   return [
     '.claude/settings.json',
     'CLAUDE.md',
@@ -540,5 +584,5 @@ export function setupAgentAlignment(opts: { cwd: string; env?: string }): string
     '.pi/extensions/align.ts',
     '.gemini/settings.json',
     '.opencode/plugins/align.js',
-  ];
+  ].filter((f) => !skipped.has(f));
 }

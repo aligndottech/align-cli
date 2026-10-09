@@ -61,13 +61,43 @@ describe('connectDetectedAgents', () => {
   it('threads the env, or a local user\'s agent reads the cloud graph', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
     await connectDetectedAgents('local');
-    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, 'local');
+    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, 'local', expect.any(Function));
   });
 
   it('passes undefined for prod, so the agent gets the default env', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
     await connectDetectedAgents('prod');
-    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, undefined);
+    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, undefined, expect.any(Function));
+  });
+
+  describe('a team entry is never overwritten by the local wiring', () => {
+    it('prints one stderr line naming each file the writer left alone, and does not claim it', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+      // The writer reports a skip through the callback it was given and writes nothing for CLAUDE.
+      writeMcpConfig.mockImplementation((t: { configPath: string }, _env: string, onForeign: (f: string) => void) => {
+        if (t === CLAUDE) { onForeign(t.configPath); return []; }
+        return [t.configPath];
+      });
+      const r = await connectDetectedAgents('local');
+      const lines = err.mock.calls.map((c) => String(c[0]));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain(CLAUDE.configPath);
+      expect(lines[0]).toMatch(/untouched/);
+      expect(lines.join('\n')).not.toContain(CURSOR.configPath);
+      // Disclosure lists only what was written.
+      expect(logged.join('\n')).toContain(CURSOR.configPath);
+      expect(logged.join('\n')).not.toContain(CLAUDE.configPath);
+      expect(r.connected).toBe(1);
+      err.mockRestore();
+    });
+    it('prints nothing when nothing was skipped', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      detectEditors.mockReturnValue([CURSOR]);
+      await connectDetectedAgents('local');
+      expect(err).not.toHaveBeenCalled();
+      err.mockRestore();
+    });
   });
 
   /**

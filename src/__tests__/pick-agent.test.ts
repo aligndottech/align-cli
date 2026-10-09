@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { pickAgent, type PickAgentDeps } from '../lib/launch/pick-agent.js';
+import { PICK_CANCELLED, pickAgent, type PickAgentDeps } from '../lib/launch/pick-agent.js';
 import { LAUNCH_AGENTS, type LaunchAgent } from '../lib/launch/agents.js';
 
 // Two supported agents, so the several-installed branches are reachable today (C1 ships one).
@@ -47,10 +47,10 @@ describe('pickAgent: how many agents are installed', () => {
     expect(r).toBe('opencode');
     expect(h.stored()).toBe('opencode');
   });
-  it('a cancelled picker stores nothing', async () => {
+  it('a cancelled picker reports the cancel, so the wizard can stop, and stores nothing', async () => {
     const h = harness({ onPath: ['claude', 'opencode'] });
     h.select.mockResolvedValue(null);
-    expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBeNull();
+    expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBe(PICK_CANCELLED);
     expect(h.setAgent).not.toHaveBeenCalled();
   });
   it('with none installed, names the supported agents with install hints and leaves agent unset', async () => {
@@ -93,6 +93,16 @@ describe('pickAgent: a re-run', () => {
     expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBe('opencode');
     expect(h.select).not.toHaveBeenCalled();
     expect(h.setAgent).not.toHaveBeenCalled();
+  });
+  it('a stored agent that is no longer on PATH is re-picked, as if none were stored', async () => {
+    const h = harness({ stored: 'opencode', onPath: ['claude'] });
+    expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBe('claude-code');
+    expect(h.setAgent).toHaveBeenCalledExactlyOnceWith('claude-code');
+  });
+  it('a stored agent that is gone with nothing else installed prints the install hints once', async () => {
+    const h = harness({ stored: 'claude-code', onPath: [] });
+    expect(await pickAgent(h.config, { interactive: true }, h.deps)).toBeNull();
+    expect(h.say.filter((l) => l.includes(CLAUDE.install))).toHaveLength(1);
   });
   it('a stored name that is not a launch target any more is ignored', async () => {
     const h = harness({ stored: 'nonsense', onPath: ['claude'] });

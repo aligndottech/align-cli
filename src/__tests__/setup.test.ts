@@ -171,7 +171,10 @@ vi.mock('../lib/local-db.js', () => ({ createLocalDb: mockCreateLocalDb }));
 // C5: the wizard's agent pick has its own suite (pick-agent.test.ts). Here it is a spy, so the
 // wizard tests can say WHEN it runs and with what, and no test reads the developer's real PATH.
 const mockPickAgent = vi.hoisted(() => vi.fn().mockResolvedValue('claude-code'));
-vi.mock('../lib/launch/pick-agent.js', () => ({ pickAgent: mockPickAgent }));
+vi.mock('../lib/launch/pick-agent.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  pickAgent: mockPickAgent,
+}));
 
 const mockLoginInteractive = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock('../lib/login-flow.js', () => ({
@@ -1349,106 +1352,200 @@ describe('align setup', () => {
         vi.mocked(createConfigStore).mockImplementation(() => makeDefaultConfig() as never);
       });
 
-      it('a fresh machine on a TTY builds the local graph and is never asked a cloud question', async () => {
-        await mockNoLogin();
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        expect(mockInitLocalMode).toHaveBeenCalled();
-        expect(mockWhoami).not.toHaveBeenCalled();
-        expect(askedMessages().filter((m) => cloudQuestion.test(m))).toEqual([]);
-        expect(mockLoginInteractive).not.toHaveBeenCalled();
-      });
-
-      it('a machine holding a cloud token but no local graph gets the same local wizard (no picker)', async () => {
-        // Suite default config: authToken 'tok' on every env, and no explicit --env.
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        expect(mockInitLocalMode).toHaveBeenCalled();
-        expect(mockWhoami).not.toHaveBeenCalled();
-        expect(askedMessages().filter((m) => cloudQuestion.test(m))).toEqual([]);
-      });
-
-      it('--env local is the local graph too, not a cloud setup against localhost', async () => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'local']);
-        expect(mockInitLocalMode).toHaveBeenCalled();
-        expect(mockWhoami).not.toHaveBeenCalled();
-      });
-
-      it('--approve builds the LOCAL graph, with no prompt and no auth check', async () => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-        expect(mockInitLocalMode).toHaveBeenCalled();
-        expect(mockWhoami).not.toHaveBeenCalled();
-        expect(mockSelect).not.toHaveBeenCalled();
-      });
-
-      it('--local --approve still builds the local graph (the flag is accepted)', async () => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
-        expect(mockInitLocalMode).toHaveBeenCalled();
-        expect(mockWhoami).not.toHaveBeenCalled();
-      });
-
-      it.each(['prod', 'preview'])('--env %s with a token still reaches the team (cloud) path', async (env) => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', env]);
-        expect(mockWhoami).toHaveBeenCalled();
-        expect(mockInitLocalMode).not.toHaveBeenCalled();
-        expect(mockPickAgent).not.toHaveBeenCalled();
-      });
-
-      it.each(['prod', 'preview'])('--env %s with no token says to run align login first and exits 1', async (env) => {
-        await mockNoLogin();
+      const infoLines = async (): Promise<string[]> => {
         const { log } = await import('@clack/prompts');
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-        await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', env])).rejects.toThrow('exit');
-        expect(exitSpy).toHaveBeenCalledWith(1);
-        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align login'));
-        expect(mockWhoami).not.toHaveBeenCalled();
-        expect(mockLoginInteractive).not.toHaveBeenCalled();
-        expect(mockInitLocalMode).not.toHaveBeenCalled();
-        exitSpy.mockRestore();
+        return vi.mocked(log.info).mock.calls.map((c) => String(c[0]));
+      };
+      const asNonTty = async (fn: () => Promise<void>): Promise<void> => {
+        const inTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+        Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+        try { await fn(); } finally { if (inTty) Object.defineProperty(process.stdin, 'isTTY', inTty); }
+      };
+
+      describe('solo: no login anywhere', () => {
+        it('a fresh machine on a TTY builds the local graph and is never asked a cloud question', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          expect(mockInitLocalMode).toHaveBeenCalled();
+          expect(mockWhoami).not.toHaveBeenCalled();
+          expect(askedMessages().filter((m) => cloudQuestion.test(m))).toEqual([]);
+          expect(mockLoginInteractive).not.toHaveBeenCalled();
+        });
+
+        it('--approve builds the LOCAL graph, with no prompt and no auth check', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+          expect(mockInitLocalMode).toHaveBeenCalled();
+          expect(mockWhoami).not.toHaveBeenCalled();
+          expect(mockSelect).not.toHaveBeenCalled();
+        });
+
+        it('--local --approve still builds the local graph (the flag is accepted)', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+          expect(mockInitLocalMode).toHaveBeenCalled();
+          expect(mockWhoami).not.toHaveBeenCalled();
+        });
+
+        it('prints no "team login is untouched" line when there is no team login', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          expect((await infoLines()).filter((l) => /team login/i.test(l))).toEqual([]);
+        });
       });
 
-      it('picks the coding agent first: before the graph is built or anything is imported', async () => {
-        await mockNoLogin();
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        const pickedAt = mockPickAgent.mock.invocationCallOrder[0];
-        const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
-        expect(pickedAt).toBeDefined();
-        expect(importedAt).toBeDefined();
-        expect(pickedAt).toBeLessThan(importedAt!);
-        expect(mockPickAgent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ interactive: true }));
+      describe('a team login means TEAM, never silently local', () => {
+        // The suite's default config holds a token on every env: a logged-in team user.
+        it.each([[['setup']], [['setup', '--approve']]])('`align %j` runs the team setup, not the local wizard', async (args) => {
+          await makeProgram().parseAsync(['node', 'align', ...args]);
+          expect(mockWhoami).toHaveBeenCalled();
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+          expect(mockPickAgent).not.toHaveBeenCalled();
+          expect(askedMessages().filter((m) => cloudQuestion.test(m))).toEqual([]);
+        });
+
+        it('ALIGN_ENV=prod with no stored token is team too: it offers the login instead of building local', async () => {
+          await mockNoLogin();
+          mockWhoami.mockRejectedValueOnce(new Error('401'));
+          vi.stubEnv('ALIGN_ENV', 'prod');
+          try {
+            const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+            await expect(makeProgram().parseAsync(['node', 'align', 'setup'])).rejects.toThrow('exit');
+            exitSpy.mockRestore();
+            expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
+            expect(mockInitLocalMode).not.toHaveBeenCalled();
+          } finally { vi.unstubAllEnvs(); }
+        });
+
+        it.each([['--env', 'local'], ['--local']])('%s on a logged-in machine builds local AND says the team login is untouched', async (...flags) => {
+          await makeProgram().parseAsync(['node', 'align', 'setup', ...flags.flat()]);
+          expect(mockInitLocalMode).toHaveBeenCalled();
+          expect(mockWhoami).not.toHaveBeenCalled();
+          const lines = (await infoLines()).filter((l) => /team login/i.test(l));
+          expect(lines).toHaveLength(1);
+          expect(lines[0]).toMatch(/untouched/i);
+          expect(lines[0]).toContain('prod');
+        });
+
+        it.each(['prod', 'preview'])('--env %s with a token reaches the team (cloud) path', async (env) => {
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', env]);
+          expect(mockWhoami).toHaveBeenCalled();
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+          expect(mockPickAgent).not.toHaveBeenCalled();
+        });
+
+        it.each(['prod', 'preview'])('--env %s with no token on a TTY offers the inline login', async (env) => {
+          await mockNoLogin();
+          mockWhoami.mockRejectedValueOnce(new Error('401'));
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', env])).rejects.toThrow('exit');
+          exitSpy.mockRestore();
+          expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+        });
+
+        it.each(['prod', 'preview'])('--env %s with no token and no TTY says to run align login first and exits 1', async (env) => {
+          await mockNoLogin();
+          const { log } = await import('@clack/prompts');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await asNonTty(async () => {
+            await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', env])).rejects.toThrow('exit');
+          });
+          expect(exitSpy).toHaveBeenCalledWith(1);
+          expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align login'));
+          expect(mockWhoami).not.toHaveBeenCalled();
+          expect(mockLoginInteractive).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+        });
+
+        it.each(['production', 'stage'])('an unrecognised --env %s exits 1 naming the valid ones, and runs nothing', async (bad) => {
+          const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', bad])).rejects.toThrow('exit');
+          expect(exitSpy).toHaveBeenCalledWith(1);
+          expect(err.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/local, preview, prod/);
+          expect(mockWhoami).not.toHaveBeenCalled();
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+          err.mockRestore();
+        });
+
+        it('the team login prompt (expired token) calls it a team graph, not a personal cloud graph', async () => {
+          mockWhoami.mockRejectedValueOnce(new Error('401'));
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod'])).rejects.toThrow('exit');
+          exitSpy.mockRestore();
+          expect(askedMessages().filter((m) => /personal/i.test(m))).toEqual([]);
+          expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
+        });
       });
 
-      it('--approve asks the pick to choose without a prompt', async () => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
-        expect(mockPickAgent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ approve: true }));
+      describe('the agent pick', () => {
+        it('happens before the local graph is created or anything is imported', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          const pickedAt = mockPickAgent.mock.invocationCallOrder[0];
+          const builtAt = mockInitLocalMode.mock.invocationCallOrder[0];
+          const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
+          expect(pickedAt).toBeDefined();
+          expect(pickedAt).toBeLessThan(builtAt!);
+          expect(pickedAt).toBeLessThan(importedAt!);
+          expect(mockPickAgent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ interactive: true }));
+        });
+
+        it('--approve asks the pick to choose without a prompt', async () => {
+          await mockNoLogin();
+          await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+          expect(mockPickAgent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ approve: true }));
+        });
+
+        it('a cancelled picker cancels the wizard: exit 0 and no local graph is created', async () => {
+          await mockNoLogin();
+          const { PICK_CANCELLED } = await import('../lib/launch/pick-agent.js');
+          mockPickAgent.mockResolvedValueOnce(PICK_CANCELLED);
+          const { cancel } = await import('@clack/prompts');
+          const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+          await expect(makeProgram().parseAsync(['node', 'align', 'setup'])).rejects.toThrow('exit');
+          expect(exitSpy).toHaveBeenCalledWith(0);
+          expect(cancel).toHaveBeenCalled();
+          expect(mockInitLocalMode).not.toHaveBeenCalled();
+          exitSpy.mockRestore();
+        });
       });
 
-      it('the outro names the agent to open and has no pricing link', async () => {
-        await mockNoLogin();
-        mockPickAgent.mockResolvedValueOnce('claude-code');
-        const { outro } = await import('@clack/prompts');
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        const text = String(vi.mocked(outro).mock.calls[0]?.[0]);
-        expect(text).toContain('Claude Code');
-        expect(text).toMatch(/align/);
-        expect(text).not.toMatch(/pricing|align\.tech/i);
-      });
+      describe('the outro', () => {
+        const outroText = async (): Promise<string> => {
+          const { outro } = await import('@clack/prompts');
+          // eslint-disable-next-line no-control-regex
+          return String(vi.mocked(outro).mock.calls[0]?.[0]).replace(/\x1b\[[0-9;]*m/g, '');
+        };
 
-      it('with no agent chosen the outro still says what to do next', async () => {
-        await mockNoLogin();
-        mockPickAgent.mockResolvedValueOnce(null);
-        const { outro } = await import('@clack/prompts');
-        await makeProgram().parseAsync(['node', 'align', 'setup']);
-        const text = String(vi.mocked(outro).mock.calls[0]?.[0]);
-        expect(text).toMatch(/install a coding agent/i);
-        expect(text).not.toMatch(/pricing/i);
-      });
+        it('with an agent chosen, `align setup` tells you to run align to open it', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce('claude-code');
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          const text = await outroText();
+          expect(text).toContain('Run align to open Claude Code with your graph.');
+          expect(text).not.toMatch(/pricing|align\.tech|https?:/i);
+        });
 
-      it('the team login prompt (expired token on a named team env) does not call it a personal cloud graph', async () => {
-        mockWhoami.mockRejectedValueOnce(new Error('401'));
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-        await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod'])).rejects.toThrow('exit');
-        exitSpy.mockRestore();
-        expect(askedMessages().filter((m) => /personal/i.test(m))).toEqual([]);
-        expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
+        it('when the agent opens right after (bare align), that line is dropped', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce('claude-code');
+          const { runSetup } = await import('../commands/setup.js');
+          await runSetup({ launchNext: true });
+          expect(await outroText()).not.toContain('to open Claude Code');
+        });
+
+        it('with no agent, the outro says what to do next without repeating the install hints', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce(null);
+          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          const text = await outroText();
+          expect(text).toContain('Run align once a coding agent is installed.');
+          expect(text).not.toMatch(/npm i|install claude|cursor\.com|pi\.dev/i);
+          expect(text).not.toMatch(/pricing/i);
+        });
       });
     });
 

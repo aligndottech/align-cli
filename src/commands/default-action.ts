@@ -34,11 +34,12 @@ export async function runDefaultAction(): Promise<void> {
   const hasLocal = local.mode === 'local-embedded';
   const hasCloud = Boolean(cloud.authToken);
 
-  // No local graph yet. On a terminal that is the wizard whatever a cloud login says (C5): a
-  // team user who has never built a local graph gets it too, and keeps their team login for
-  // `--env`. Off a terminal a logged-in user still gets the card below, exactly as before.
+  // Nothing set up. A team user (a token on the default env) is not here: they keep the
+  // "Signed in" card below exactly as before, and `align setup` routes them to team setup.
+  // What runs here is `runSetup`, which itself routes by login / ALIGN_ENV, so an
+  // ALIGN_ENV=prod machine with no token lands in the team login, not the local wizard.
   const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  if (!hasLocal && (!hasCloud || tty)) {
+  if (!hasLocal && !hasCloud) {
     // Onboarding asks questions. Without a TTY - a pipe, a CI step, a Dockerfile - those
     // prompts cannot be answered, and starting anyway leaves a half-drawn cancelled prompt
     // and no explanation. Say what to run instead.
@@ -59,12 +60,15 @@ export async function runDefaultAction(): Promise<void> {
     // stacked two full banners on a fresh user's very first command (found live
     // 2026-09-02). The banner belongs to whichever flow owns the screen.
     const { runSetup } = await import('./setup.js');
-    await runSetup();
+    await runSetup({ launchNext: true });
 
     // The wizard's last step is `align` itself: open the agent it just wired. Re-read the
-    // config (the wizard wrote it) and only launch when a local graph now exists, so a
-    // cancelled wizard ends here rather than launching an agent into an empty graph.
-    if (createConfigStore().getEnvironment('local').mode === 'local-embedded') {
+    // config (the wizard wrote it). Launch only when a local graph now exists AND an agent was
+    // chosen: with none installed the real launcher prints its own "no agent" error and returns
+    // exit 1, which would turn a finished wizard into a failed command. The wizard already
+    // said what to install, so a clean exit 0 is the right end.
+    const after = createConfigStore();
+    if (after.getEnvironment('local').mode === 'local-embedded' && after.getAgent()) {
       const launch = await launchIfChosen();
       if (launch.handled) process.exit(launch.code);
     }

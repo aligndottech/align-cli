@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import * as p from '@clack/prompts';
 import { alignServerEntry, detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import type { EnvName } from '../lib/config.js';
+import { reportForeign } from '../lib/foreign-env.js';
 
 /**
  * Connect the agents installed on this machine to Align (ALI-776).
@@ -74,7 +75,7 @@ export async function connectDetectedAgents(
     try {
       // The MCP entry, plus the user-level pre-edit hook on the hosts that have one
       // (ALI-952: Codex, Cursor, Copilot CLI) - the writer reports every file it wrote.
-      touched.push(...writeMcpConfig(target, envArg));
+      touched.push(...writeMcpConfig(target, envArg, reportForeign));
       wired.push(target.name);
       p.log.success(`${target.name}: align MCP connected${target.hooks ? ', pre-edit check hooked' : ''}`);
     } catch (err) {

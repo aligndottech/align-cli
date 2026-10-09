@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 import os from 'node:os';
 import { removeUserHooks, type UserHookTarget, writeUserHooks } from './user-hooks.js';
 
@@ -264,9 +265,14 @@ function ensureDir(configPath: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
-function writeCodexConfig(configPath: string, env?: string): void {
+function writeCodexConfig(configPath: string, env?: string, onForeign?: OnForeign): boolean {
   const existing = readConfig(configPath, 'codex');
   const block = codexBlock(env);
+
+  if (env === 'local' && codexAlignTargetsElsewhere(existing)) {
+    onForeign?.(configPath);
+    return false;
+  }
 
   let content: string;
   const start = existing.indexOf(CODEX_BLOCK_START);
@@ -281,9 +287,22 @@ function writeCodexConfig(configPath: string, env?: string): void {
 
   ensureDir(configPath);
   writeFileSync(configPath, content, 'utf8');
+  return true;
 }
 
-function writeJsonConfig(target: EditorTarget, env?: string): void {
+/**
+ * An `[mcp_servers.align]` table that is not our managed local block: hand-written, or our
+ * block written for a team env. The local wizard leaves both alone.
+ */
+function codexAlignTargetsElsewhere(existing: string): boolean {
+  if (!/^\s*\[mcp_servers\.align\]/m.test(existing)) return false;
+  const start = existing.indexOf(CODEX_BLOCK_START);
+  const end = existing.indexOf(CODEX_BLOCK_END);
+  if (start === -1 || end === -1 || end < start) return true;
+  return !carriesLocalEnv(existing.slice(start, end));
+}
+
+function writeJsonConfig(target: EditorTarget, env?: string, onForeign?: OnForeign): boolean {
   const raw = readConfig(target.configPath, target.format);
   let existing: Record<string, unknown> = {};
   if (raw.trim()) {
@@ -296,11 +315,16 @@ function writeJsonConfig(target: EditorTarget, env?: string): void {
 
   const key = jsonTopKey(target.format);
   const servers = (existing[key] ?? {}) as Record<string, unknown>;
+  if (env === 'local' && servers['align'] !== undefined && !carriesLocalEnv(JSON.stringify(servers['align']))) {
+    onForeign?.(target.configPath);
+    return false;
+  }
   servers['align'] = alignServerEntry(target.format, env);
   existing[key] = servers;
 
   ensureDir(target.configPath);
   writeFileSync(target.configPath, JSON.stringify(existing, null, 2), 'utf8');
+  return true;
 }
 
 /**
@@ -361,15 +385,14 @@ function removeMcpEntry(target: EditorTarget): boolean {
  * one (ALI-952). Returns every file it wrote, in order, for the caller to disclose - the
  * hook file is the one a user would not expect to have been touched.
  */
-export function writeMcpConfig(target: EditorTarget, env?: string): string[] {
-  if (target.format === 'codex') {
-    writeCodexConfig(target.configPath, env);
-  } else {
-    writeJsonConfig(target, env);
-  }
-  if (!target.hooks) return [target.configPath];
-  writeUserHooks(target.hooks, env);
-  return [target.configPath, target.hooks.path];
+export function writeMcpConfig(target: EditorTarget, env?: string, onForeign?: OnForeign): string[] {
+  const written: string[] = [];
+  const wroteMcp = target.format === 'codex'
+    ? writeCodexConfig(target.configPath, env, onForeign)
+    : writeJsonConfig(target, env, onForeign);
+  if (wroteMcp) written.push(target.configPath);
+  if (target.hooks && writeUserHooks(target.hooks, env, onForeign)) written.push(target.hooks.path);
+  return written;
 }
 
 /**
