@@ -38,7 +38,7 @@ describe('a fresh graph', () => {
     expect(SCHEMA_VERSION).toBe(10);
     expect(version()).toBe(10);
     expect(sql<{ name: string }>('PRAGMA table_info(promotions)').map((c) => c.name)).toEqual(
-      ['local_id', 'env', 'tenant_id', 'remote_id', 'content_hash', 'matched', 'shared_at', 'retracted_at'],
+      ['local_id', 'env', 'tenant_id', 'remote_id', 'content_hash', 'matched', 'client_key', 'sent', 'confirm_pending', 'shared_at', 'retracted_at'],
     );
     expect(sql('PRAGMA foreign_key_list(promotions)')).toHaveLength(0);
   });
@@ -87,7 +87,7 @@ describe('a graph from a newer CLI', () => {
 });
 
 describe('the ledger', () => {
-  const base = { localId: 'L1', env: 'prod', tenantId: 'T1', remoteId: 'R1', contentHash: 'h1', matched: false };
+  const base = { localId: 'L1', env: 'prod', tenantId: 'T1', remoteId: 'R1', contentHash: 'h1', matched: false, clientKey: 'k1', sent: [], confirmPending: false };
   beforeEach(() => { createLocalDb(dbPath).close(); });
 
   it('reads back a recorded share by (local id, env, tenant) and nothing for any other key', () => {
@@ -101,8 +101,8 @@ describe('the ledger', () => {
     recordPromotion(dbPath, base);
     markRetracted(dbPath, 'L1', 'prod', 'T1');
     expect(getPromotion(dbPath, 'L1', 'prod', 'T1')!.retractedAt).not.toBeNull();
-    recordPromotion(dbPath, { ...base, contentHash: 'h2', remoteId: 'R9', matched: true });
-    expect(getPromotion(dbPath, 'L1', 'prod', 'T1')).toMatchObject({ contentHash: 'h2', remoteId: 'R9', matched: true, retractedAt: null });
+    recordPromotion(dbPath, { ...base, contentHash: 'h2', remoteId: 'R9', matched: true, clientKey: 'k2', sent: ['a', 'a', 'b'], confirmPending: true });
+    expect(getPromotion(dbPath, 'L1', 'prod', 'T1')).toMatchObject({ contentHash: 'h2', remoteId: 'R9', matched: true, clientKey: 'k2', sent: ['a', 'b'], confirmPending: true, retractedAt: null });
     expect(sql('SELECT 1 FROM promotions')).toHaveLength(1);
   });
   it('markRetracted stamps only its own row', () => {

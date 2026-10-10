@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS promotions (
   remote_id    TEXT NOT NULL,
   content_hash TEXT NOT NULL,
   matched      INTEGER NOT NULL DEFAULT 0,
+  client_key   TEXT NOT NULL DEFAULT '',
+  sent         TEXT NOT NULL DEFAULT '[]',
+  confirm_pending INTEGER NOT NULL DEFAULT 0,
   shared_at    TEXT NOT NULL DEFAULT (datetime('now')),
   retracted_at TEXT,
   PRIMARY KEY (local_id, env, tenant_id)

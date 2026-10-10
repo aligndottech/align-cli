@@ -48,13 +48,13 @@ function seed(over: { id?: string; ratify?: string | null; summary?: string; tit
 const judge = { judgeId: 'inst-1', judgeLabel: ME };
 const note = (id: string, text: string) => upsertJudgement(dbPath, { kind: 'note', decisionId: id, note: text }, judge, { via: 'cli' });
 
-interface Fx { out: string[]; err: string[]; sent: Array<Array<Record<string, unknown>>>; archived: string[]; asks: string[]; deps: ShareDeps; reply: { current: BatchResponse | ((i: Array<Record<string, unknown>>, n: number) => BatchResponse) }; tty: { answer: boolean | null; queue: Array<boolean | null> }; shown: string[]; whoamiCalls: { n: number }; team: { title: string; summary: string } }
+interface Fx { out: string[]; err: string[]; sent: Array<Array<Record<string, unknown>>>; archived: string[]; asks: string[]; deps: ShareDeps; reply: { current: BatchResponse | ((i: Array<Record<string, unknown>>, n: number) => BatchResponse) }; tty: { answer: boolean | null; queue: Array<boolean | null> }; shown: string[]; whoamiCalls: { n: number }; team: Record<string, unknown> }
 function fixture(): Fx {
   const f = { out: [] as string[], err: [] as string[], sent: [] as Array<Array<Record<string, unknown>>>, archived: [] as string[], asks: [] as string[], shown: [] as string[], whoamiCalls: { n: 0 },
-    reply: { current: ((items: Array<Record<string, unknown>>) => ({ snapshots: items.map((_, i) => ({ id: `R${i}`, request_index: i, is_new: true })) })) as Fx['reply']['current'] },
-    tty: { answer: true as boolean | null, queue: [] as Array<boolean | null> }, team: { title: 'Team title', summary: 'Team summary' } };
+    reply: { current: ((items: Array<Record<string, unknown>>) => ({ snapshots: items.map((_, i) => ({ id: `R${i}`, request_index: i, is_new: true })), judgements: items.map((it, i) => ({ request_index: i, decision_id: `R${i}`, results: (it['judgements'] as unknown[]).map(() => ({ ok: true, stored: true })) })) })) as Fx['reply']['current'] },
+    tty: { answer: true as boolean | null, queue: [] as Array<boolean | null> }, team: { title: 'Team title', summary: 'Team summary', decision_json: { ai: { decisions: ['Team statement'], gherkin: 'Given team gherkin', acceptance_criteria: 'Team criteria' } } } as Record<string, unknown> };
   const deps: ShareDeps = {
-    cloudEnv: { mode: 'auth', gatewayUrl: 'https://x', authToken: 't', tenantId: 'T1' }, localDbPath: dbPath,
+    cloudEnv: { mode: 'auth', gatewayUrl: 'https://x', authToken: 't', tenantId: 'T1' }, localDbPath: dbPath, salt: 'salt-1', defaultGatewayUrl: 'https://x',
     client: () => ({
       whoami: async () => { f.whoamiCalls.n++; return { user: { email: ME }, tenant: TENANT }; },
       shareBatch: async (items) => { f.sent.push(items); const r = f.reply.current; return typeof r === 'function' ? r(items, f.sent.length) : r; },
@@ -165,21 +165,38 @@ describe('a share that matches a decision the team already holds', () => {
     const h = 'a'.repeat(64);
     f.reply.current = (items, n) => (n === 1 ? matchedReply(h) : { matched: [{ request_index: 0, existing_id: 'TEAM1', status: 'active', team_text_hash: h }], judgements: [{ request_index: 0, decision_id: 'TEAM1', results: [{ ok: true, stored: true }, { ok: true, stored: true }] }] });
     expect(await run(f, { ids: [id] })).toBe(0);
-    expect(text(f)).toContain('Team title'); expect(text(f)).toContain('Team summary');
+    // every field the server's team-text hash covers is in front of the person
+    for (const part of ['Team title', 'Team summary', 'Team statement', 'Given team gherkin', 'Team criteria']) expect(text(f)).toContain(part);
     expect(f.sent).toHaveLength(2);
+    // the re-post carries ONLY the ratify that waited: the note was stored the first time and is not posted again
     const second = f.sent[1]![0]!['judgements'] as Array<{ kind: string; confirm_team_text_hash?: string }>;
+    expect(second).toHaveLength(1);
     expect(second[0]).toMatchObject({ kind: 'ratify', confirm_team_text_hash: h });
-    expect(second[1]!.confirm_team_text_hash).toBeUndefined();
-    expect(getPromotion(dbPath, id, 'prod', 'T1')).toMatchObject({ remoteId: 'TEAM1', matched: true });
+    expect((f.sent[0]![0]!['judgements'] as unknown[]).length).toBe(2);
+    expect(getPromotion(dbPath, id, 'prod', 'T1')).toMatchObject({ remoteId: 'TEAM1', matched: true, confirmPending: false });
   });
-  it('does not re-send when the person declines, says the ratify waits, and does not record the share', async () => {
+  it('does not re-send when the person declines, says the ratify waits, and records the match with the confirmation still pending', async () => {
     const f = fixture(); const id = seed();
     f.reply.current = matchedReply('b'.repeat(64));
     f.tty.queue = [true, false]; // the share, then the team's text
     expect(await run(f, { ids: [id] })).toBe(0);
     expect(f.sent).toHaveLength(1);
     expect(text(f)).toContain('waits for you to confirm');
-    expect(getPromotion(dbPath, id, 'prod', 'T1')).toBeNull();
+    expect(getPromotion(dbPath, id, 'prod', 'T1')).toMatchObject({ matched: true, confirmPending: true });
+    // not "already shared": the ratify is offered again
+    const g = fixture(); g.reply.current = matchedReply('b'.repeat(64));
+    f.out.length = 0; f.tty.queue = [false];
+    await run(f, { ids: [id] });
+    expect(f.out.join('\n')).not.toContain('Already shared');
+  });
+  it('never confirms when the gateway cannot show the full team text', async () => {
+    const f = fixture(); const id = seed();
+    f.reply.current = matchedReply('d'.repeat(64));
+    f.team = { title: 'T', summary: 'S' }; // no decision_json: the AI fields the hash covers cannot be read
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.sent).toHaveLength(1);
+    expect(f.asks.some((q) => /stand behind/.test(q))).toBe(false);
+    expect(text(f)).toContain('could not be read');
   });
   it('a person who declines the team text leaves the ratify unconfirmed even though the share went', async () => {
     const f = fixture(); const id = seed();
@@ -242,8 +259,8 @@ describe('retract', () => {
 
 describe('--confirm <code>', () => {
   async function codeFor(f: Fx, id: string, envName = 'prod'): Promise<string> {
-    const prep = await prepare({ dbPath, envName, client: f.deps.client(), judge }, [id]);
-    return issueCode(prep.payloads, { agentId: 'claude-code', envName, preview: prep.preview })!;
+    const prep = await prepare({ dbPath, envName, client: f.deps.client(), judge, salt: 'salt-1', gatewayUrl: 'https://x', defaultGatewayUrl: 'https://x' }, [id]);
+    return issueCode(prep.payloads, { agentId: 'claude-code', envName, preview: prep.preview, to: { tenantId: prep.tenantId, gatewayUrl: prep.gatewayUrl } })!;
   }
   it('sends once for a valid code with a tty yes, and the code is then spent', async () => {
     const f = fixture(); const id = seed(); const code = await codeFor(f, id);
@@ -304,6 +321,139 @@ describe('choosing what to share', () => {
   it('naming nothing is a usage error', async () => {
     const f = fixture(); seed();
     expect(await run(f, {})).toBe(2);
+    expect(f.sent).toHaveLength(0);
+  });
+});
+
+/**
+ * L9 security review, items 3, 4, 5, 7, 8, 10 (client side):
+ * - a re-share sends ONLY judgements the workspace has not stored; a text-only edit sends none; a judgement the gateway did not store is offered again.
+ * - a gateway that reports no judgements: warned ("your ratify was not stored by this gateway"), nothing recorded as stored.
+ * - a first share the gateway answers as an existing row (no matching): recorded as matched, warned, and never retractable.
+ * - the client_key is minted once (opaque, not the local id) and reused even if the install salt changes.
+ * - the gateway host is shown whenever it is not the environment's default; a code is refused when the workspace (Acme -> Other Corp) or the gateway changed.
+ * - the summary is sent explicitly; platform, a secret-named URL parameter and a note's index among NOTES are scanned and named.
+ */
+describe('a re-share sends only what is new', () => {
+  const judgementsOf = (f: Fx, n: number) => (f.sent[n]![0]!['judgements'] as Array<{ kind: string; note?: string }>).map((j) => j.note ?? j.kind);
+  it('posts the new note and not the ratify or the old note again', async () => {
+    const f = fixture(); const id = seed(); note(id, 'first');
+    await run(f, { ids: [id] });
+    note(id, 'second');
+    f.reply.current = (items) => ({ snapshots: [{ id: 'R0', request_index: 0, is_new: false }], judgements: [{ request_index: 0, decision_id: 'R0', results: (items[0]!['judgements'] as unknown[]).map(() => ({ ok: true, stored: true })) }] });
+    await run(f, { ids: [id] });
+    expect(judgementsOf(f, 0)).toEqual(['ratify', 'first']);
+    expect(judgementsOf(f, 1)).toEqual(['second']);
+    expect(f.shown[1]).toContain('note: "second"');
+    expect(f.shown[1]).not.toContain('note: "first"'); // the second preview lists only what it will send
+    f.out.length = 0; f.shown.length = 0;
+    await run(f, { ids: [id] });
+    expect(text(f)).toContain('Already shared');
+    expect(f.sent).toHaveLength(2);
+  });
+  it('a text-only edit is an update with no judgements', async () => {
+    const f = fixture(); const id = seed();
+    await run(f, { ids: [id] });
+    const { DatabaseSync } = await import('node:sqlite'); const d = new DatabaseSync(dbPath); d.prepare('UPDATE decisions SET summary = ? WHERE id = ?').run('reworded', id); d.close();
+    f.reply.current = { snapshots: [{ id: 'R0', request_index: 0, is_new: false }] };
+    await run(f, { ids: [id] });
+    expect(f.sent).toHaveLength(2);
+    expect(f.sent[1]![0]!['judgements']).toEqual([]);
+    expect(f.sent[1]![0]!['summary']).toBe('reworded');
+  });
+  it('a judgement the gateway did not store is offered again on the next share', async () => {
+    const f = fixture(); const id = seed();
+    f.reply.current = { snapshots: [{ id: 'R0', request_index: 0 }], judgements: [{ request_index: 0, decision_id: 'R0', results: [{ ok: false, error: 'ratification_not_permitted' }] }] };
+    await run(f, { ids: [id] });
+    f.reply.current = { snapshots: [{ id: 'R0', request_index: 0, is_new: false }], judgements: [{ request_index: 0, decision_id: 'R0', results: [{ ok: true, stored: true }] }] };
+    await run(f, { ids: [id] });
+    expect(f.sent).toHaveLength(2);
+    expect(judgementsOf(f, 1)).toEqual(['ratify']);
+  });
+});
+
+describe('what an older gateway can hide', () => {
+  it('says so when no judgement report comes back, and does not count them as stored', async () => {
+    const f = fixture(); const id = seed();
+    f.reply.current = { snapshots: [{ id: 'R0', request_index: 0, is_new: true }] };
+    await run(f, { ids: [id] });
+    expect(text(f)).toContain('your ratify was not stored by this gateway');
+    expect(getPromotion(dbPath, id, 'prod', 'T1')!.sent).toEqual([]);
+  });
+  it('a FIRST share answered as an existing row is recorded as matched, warned, and refused by retract', async () => {
+    const f = fixture(); const id = seed();
+    f.reply.current = { snapshots: [{ id: 'THEIRS', request_index: 0, is_new: false }] };
+    await run(f, { ids: [id] });
+    expect(text(f)).toContain('not yours to retract');
+    expect(getPromotion(dbPath, id, 'prod', 'T1')).toMatchObject({ remoteId: 'THEIRS', matched: true });
+    expect(await run(f, { retract: id })).toBe(1);
+    expect(f.archived).toEqual([]);
+  });
+});
+
+describe('the client_key', () => {
+  it('is opaque, minted once, and reused even when the install salt changes', async () => {
+    const f = fixture(); const id = seed();
+    await run(f, { ids: [id] });
+    const key = f.sent[0]![0]!['client_key'];
+    expect(key).not.toBe(id);
+    expect(JSON.stringify(f.sent[0])).not.toContain(id);
+    f.deps.salt = 'a-different-salt';
+    note(id, 'later');
+    f.reply.current = { snapshots: [{ id: 'R0', request_index: 0, is_new: false }] };
+    await run(f, { ids: [id] });
+    expect(f.sent[1]![0]!['client_key']).toBe(key);
+    expect(getPromotion(dbPath, id, 'prod', 'T1')!.clientKey).toBe(key);
+  });
+});
+
+describe('where it goes', () => {
+  it('names the gateway when it is not the default for the environment, and not otherwise', async () => {
+    const f = fixture(); const id = seed();
+    await run(f, { ids: [id] });
+    expect(f.shown.join('\n')).not.toContain('via ');
+    const g = fixture(); const id2 = seed({ title: 'two' });
+    g.deps.defaultGatewayUrl = 'https://api.align.tech';
+    await run(g, { ids: [id2] });
+    expect(g.shown.join('\n')).toContain('via https://x (not the default for prod)');
+  });
+  it('refuses a code when the workspace changed (Acme -> Other Corp) or the gateway changed, and sends nothing', async () => {
+    const f = fixture(); const id = seed();
+    const prep = await prepare({ dbPath, envName: 'prod', client: f.deps.client(), judge, salt: 'salt-1', gatewayUrl: 'https://x', defaultGatewayUrl: 'https://x' }, [id]);
+    const code = issueCode(prep.payloads, { agentId: 'codex', envName: 'prod', preview: prep.preview, to: { tenantId: prep.tenantId, gatewayUrl: prep.gatewayUrl } })!;
+    const base = f.deps.client();
+    f.deps.client = () => ({ ...base, whoami: async () => ({ user: { email: ME }, tenant: { id: 'T2', name: 'Other Corp' } }) });
+    expect(await run(f, { confirm: code })).toBe(1);
+    expect(text(f)).toContain('workspace or the gateway');
+    f.deps.client = () => base;
+    f.deps.cloudEnv = { ...f.deps.cloudEnv, gatewayUrl: 'https://evil.example' };
+    expect(await run(f, { confirm: code })).toBe(1);
+    expect(f.sent).toHaveLength(0);
+    f.deps.cloudEnv = { ...f.deps.cloudEnv, gatewayUrl: 'https://x' };
+    expect(await run(f, { confirm: code })).toBe(0); // the control: the same code works against the destination it was issued for
+    expect(f.sent).toHaveLength(1);
+  });
+  it('refuses demo mode up front', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.cloudEnv = { mode: 'demo', gatewayUrl: 'http://localhost:8080', authToken: null, tenantId: null };
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(f.whoamiCalls.n).toBe(0);
+  });
+});
+
+describe('what is scanned', () => {
+  it('scans the platform, a secret-named URL parameter (by name, never value) and numbers notes among notes', async () => {
+    const f = fixture();
+    const db = createLocalDb(dbPath);
+    const id = db.insertDecision({ title: 'z', summary: 's', sourceUrl: 'https://zoom.us/rec/share/x?pwd=hunter2hunter2', platform: `ghp_${'q'.repeat(36)}` });
+    db.markRatified(id, ME); db.close();
+    note(id, 'clean note'); note(id, `leak ${`ghp_${  'z'.repeat(36)}`}`);
+    expect(await run(f, { ids: [id] })).toBe(1);
+    const t = text(f);
+    expect(t).toContain('platform looks like <GITHUB_TOKEN>');
+    expect(t).toContain('source_url (parameter pwd)');
+    expect(t).toContain('note 2 looks like <GITHUB_TOKEN>'); // the ratify is judgement 1 and the clean note is note 1
+    expect(t).not.toContain('hunter2');
     expect(f.sent).toHaveLength(0);
   });
 });

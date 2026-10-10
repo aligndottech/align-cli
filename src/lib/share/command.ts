@@ -12,7 +12,7 @@ import { visible } from './visible.js';
 import { type EnvironmentConfig } from '../config.js';
 import { teamCtaLine } from '../team-cta.js';
 import { combinedHash, consumeCode, lookupCode } from './pending.js';
-import { prepare, type Prepared, ratifiedRows, renderResults, retract, secretRefusal, send, type ShareClient, ShareError } from './run.js';
+import { prepare, type Prepared, ratifiedRows, renderResults, renderTeamText, retract, secretRefusal, send, type ShareClient, ShareError } from './run.js';
 import type { Judge } from '../curation/judgements-db.js';
 
 export interface ShareOptions {
@@ -27,6 +27,10 @@ export interface ShareOptions {
 
 export interface ShareDeps {
   cloudEnv: EnvironmentConfig;
+  /** This install's salt for the opaque client_key. */
+  salt: string;
+  /** The environment's default gateway URL: anything else is shown in the preview. */
+  defaultGatewayUrl: string;
   localDbPath: string | null;
   client: () => ShareClient;
   judge: () => Promise<Judge>;
@@ -55,7 +59,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     return 1;
   }
   const dbPath = deps.localDbPath;
-  const ctx = async () => ({ dbPath, envName: opts.envName, client: deps.client(), judge: await deps.judge() });
+  const ctx = async () => ({ dbPath, envName: opts.envName, client: deps.client(), judge: await deps.judge(), salt: deps.salt, gatewayUrl: deps.cloudEnv.gatewayUrl, defaultGatewayUrl: deps.defaultGatewayUrl });
 
   try {
     if (opts.retract !== undefined) {
@@ -96,8 +100,8 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     if (pendingCode !== undefined) {
       const found = lookupCode(pendingCode);
       if (!found.ok) { err('That confirmation code is no longer valid. Nothing was sent.'); return 1; }
-      if (found.pending.hash !== combinedHash(prep.payloads)) {
-        err('What would be shared has changed since your agent previewed it (a decision, a judgement or the destination). Nothing was sent. Ask your agent to start again.');
+      if (found.pending.hash !== combinedHash(prep.payloads, prep)) {
+        err('What would be shared, or where it would go (the workspace or the gateway), has changed since your agent previewed it. Nothing was sent. Ask your agent to start again.');
         return 1;
       }
       const yes = await deps.ttyConfirm(prep.preview, `Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${visible(prep.dest.workspace)}?`);
@@ -112,7 +116,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
 
     const results = await send(c, prep, {
       confirmTeamText: async (i) => {
-        const shown = `"${visible(i.title)}" is already on your team graph, as:\n  ${visible(i.teamTitle)}\n${visible(i.teamSummary, { keepNewline: true }).split('\n').map((l) => `  ${l}`).join('\n')}\nYour ratification would put your name on THAT text, not on yours.`;
+        const shown = `"${visible(i.title)}" is already on your team graph, as:\n${renderTeamText(i.team)}\nYour ratification would put your name on THAT text, not on yours.`;
         return (await deps.ttyConfirm(shown, 'Do you stand behind the team\'s text?')) === true;
       },
     });

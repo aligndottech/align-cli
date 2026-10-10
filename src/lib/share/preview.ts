@@ -16,6 +16,8 @@ export interface Destination {
   env: string;
   /** The signed-in account. */
   email: string;
+  /** The gateway URL, present only when it is not the environment's default (an ALIGN_GATEWAY_URL override). */
+  gateway?: string;
 }
 
 export interface PreviewOptions {
@@ -62,7 +64,8 @@ export function renderPreview(payloads: readonly SharePayload[], dest: Destinati
     lines.push(`${i + 1}. ${visible(p.item.title)}${opts.updates?.has(p.localId) ? '  (update: you shared this before)' : ''}`);
     lines.push(indent(p.item.raw_text, '   '));
     lines.push(`   Source: ${visible(p.item.source_url)} (${visible(p.item.platform)})`);
-    if (p.item.created_at) lines.push(`   Decided: ${day(p.item.created_at)}`);
+    if (!/^https?:\/\//i.test(p.item.source_url)) lines.push('   That source is a path or id on your machine, not a link your team can open.');
+    if (p.item.created_at) lines.push(`   Decided: ${visible(p.item.created_at)}`);
     if (opts.legacy?.has(p.localId)) {
       lines.push(`   This was pushed before Align tracked shares, so sharing again may create a second copy. Retract the old one: align share --retract ${  p.localId}`);
     }
@@ -81,6 +84,6 @@ export function renderPreview(payloads: readonly SharePayload[], dest: Destinati
     lines.push('');
   });
   // The destination is the LAST thing printed, directly above the question, so it is what is read last.
-  lines.push('Nothing is sent until you say yes.', `To: ${visible(dest.workspace)} (${visible(dest.env)}) as ${visible(dest.email)}`);
+  lines.push('Nothing is sent until you say yes.', `To: ${visible(dest.workspace)} (${visible(dest.env)}) as ${visible(dest.email)}${dest.gateway ? `, via ${visible(dest.gateway)} (not the default for ${visible(dest.env)})` : ''}`);
   return lines.join('\n');
 }

@@ -49,3 +49,18 @@ export function scanForSecrets(fields: Array<{ field: string; text: string | nul
   }
   return out;
 }
+
+/**
+ * Query parameters that carry a secret in the URL itself (a Zoom `pwd`, a signed link's signature, a token).
+ * The decision's URL is sent and shown, so one of these is refused like a token in the text, never stripped:
+ * stripping would change which item the URL names. The VALUE is never reported, only the parameter name.
+ */
+const SECRET_PARAMS = /^(?:token|access[_-]?token|id[_-]?token|refresh[_-]?token|api[_-]?key|apikey|secret|client[_-]?secret|password|passwd|pwd|passcode|sig|signature|x-amz-signature|x-amz-credential|auth|authorization)$/i;
+
+export function scanSourceUrl(url: string): SecretFinding[] {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return []; }
+  const names = new Set<string>();
+  for (const [k, v] of parsed.searchParams) if (v !== '' && SECRET_PARAMS.test(k)) names.add(k.toLowerCase());
+  return [...names].map((n) => ({ field: `source_url (parameter ${n})`, placeholder: '<URL_SECRET_PARAM>' }));
+}

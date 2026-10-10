@@ -41,8 +41,11 @@ function dirOf(): string | null {
   } catch { return null; }
 }
 
-export function combinedHash(payloads: readonly SharePayload[]): string {
-  return payloads.map((p) => p.hash).join('|');
+/** Where a share goes: the workspace AND the gateway, so a code cannot be used after either changed. */
+export interface Binding { tenantId: string; gatewayUrl: string }
+
+export function combinedHash(payloads: readonly SharePayload[], to: Binding): string {
+  return [`to:${to.tenantId}@${to.gatewayUrl}`, ...payloads.map((p) => p.hash)].join('|');
 }
 
 function read(file: string): PendingShare | null {
@@ -50,7 +53,7 @@ function read(file: string): PendingShare | null {
 }
 
 /** Issue a code; every earlier code that names any of the same decisions is invalidated. */
-export function issueCode(payloads: readonly SharePayload[], meta: { agentId: string; envName: string; preview: string }, now = new Date()): string | null {
+export function issueCode(payloads: readonly SharePayload[], meta: { agentId: string; envName: string; preview: string; to: Binding }, now = new Date()): string | null {
   const dir = dirOf();
   if (dir === null) return null;
   const ids = payloads.map((p) => p.localId);
@@ -62,7 +65,7 @@ export function issueCode(payloads: readonly SharePayload[], meta: { agentId: st
   const code = Array.from(randomBytes(10), (b) => alphabet[b % 32]).join('');
   const rec: PendingShare = {
     code, expiresAt: new Date(now.getTime() + PENDING_TTL_MS).toISOString(), agentId: meta.agentId, envName: meta.envName,
-    hash: combinedHash(payloads), localIds: ids, preview: meta.preview,
+    hash: combinedHash(payloads, meta.to), localIds: ids, preview: meta.preview,
   };
   fs.writeFileSync(path.join(dir, `${code}.json`), JSON.stringify(rec), { mode: 0o600 });
   return code;

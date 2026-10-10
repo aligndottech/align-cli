@@ -12,7 +12,7 @@
  * passed, and the destination is the user's own logged-in environment, never an argument.
  */
 import type { EnvironmentConfig } from '../config.js';
-import { createConfigStore } from '../config.js';
+import { createConfigStore, defaultGatewayUrlFor } from '../config.js';
 import { defaultJudge } from '../curation/judge.js';
 import type { Judge } from '../curation/judgements-db.js';
 import { createGatewayClient } from '../gateway-client.js';
@@ -47,7 +47,7 @@ export interface ShareToolContext {
   clientInfo?: { name?: unknown };
   judge?: () => Promise<Judge>;
   /** Test seam: the destination and the (read-only) client. Production resolves the user's default cloud env. */
-  share?: { cloudEnv: EnvironmentConfig; envName: string; client: ShareClient };
+  share?: { cloudEnv: EnvironmentConfig; envName: string; client: ShareClient; salt?: string };
 }
 
 export interface ShareToolResult { text: string; code?: string; [k: string]: unknown }
@@ -62,20 +62,20 @@ export async function runShareTool(args: Record<string, unknown> | undefined, en
     const config = createConfigStore();
     const envName = resolveEnv();
     const cloudEnv = config.getEnvironment(envName);
-    target = { cloudEnv, envName, client: createGatewayClient(cloudEnv) as unknown as ShareClient };
+    target = { cloudEnv, envName, client: createGatewayClient(cloudEnv) as unknown as ShareClient, salt: config.getInstallId() };
   }
   const { cloudEnv, envName, client } = target;
   if (cloudEnv.mode === 'local-embedded' || (!cloudEnv.authToken && cloudEnv.mode !== 'demo')) {
     return { text: `Sharing needs a team login, and none is set up. Ask the user to run: align login\n${teamCtaLine()}`, shared: false };
   }
   try {
-    const prep = await prepare({ dbPath: env.localDbPath, envName, client, judge: await (ctx.judge ?? defaultJudge)() }, [input['id'] as string]);
+    const prep = await prepare({ dbPath: env.localDbPath, envName, client, judge: await (ctx.judge ?? defaultJudge)(), salt: target.salt ?? createConfigStore().getInstallId(), gatewayUrl: cloudEnv.gatewayUrl, defaultGatewayUrl: defaultGatewayUrlFor(envName) }, [input['id'] as string]);
     if (prep.secrets.length) return { text: secretRefusal(prep.secrets), shared: false };
     if (prep.payloads.length === 0) {
       return { text: prep.already.map((a) => `Already shared as ${visible(a.remoteId)}: ${visible(a.title)}`).join('\n'), shared: false };
     }
     const agentId = agentIdFrom(ctx.clientInfo);
-    const code = issueCode(prep.payloads, { agentId, envName, preview: prep.preview });
+    const code = issueCode(prep.payloads, { agentId, envName, preview: prep.preview, to: { tenantId: prep.tenantId, gatewayUrl: prep.gatewayUrl } });
     if (code === null) return { text: 'Could not store a confirmation code safely on this machine, so nothing was prepared.', shared: false };
     return {
       shared: false,

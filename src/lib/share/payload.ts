@@ -8,7 +8,8 @@
  * - `judge_id` and `judge_label` (the git email): the server takes the person from the token, and a
  *   label is personal data nobody asked for (Decision 11).
  * - `context_key`, file paths, or a check verdict's scope: a check verdict goes as kind, value, time.
- * - the local id as such: `client_key` is a UUID derived from it, the idempotency key.
+ * - the local id as such: `client_key` is an OPAQUE key, a hash of this install's secret salt and the id (see
+ *   clientKeyFor), stored at the first share and reused, so the team graph cannot link a share back to a local id.
  * - a verdict whose other decision is not on the team graph (it stays local, and the preview says so).
  * - a tombstone (a verdict taken back, `value` NULL): the person withdrew it.
  *
@@ -40,6 +41,8 @@ export interface WireItem {
   source_url: string;
   platform: string;
   title: string;
+  /** Sent explicitly: the server keeps the caller's summary only when it is given (its extraction may rewrite the title). */
+  summary: string;
   raw_text: string;
   client_key: string;
   created_at?: string;
@@ -49,6 +52,8 @@ export interface WireItem {
 /** A judgement as the preview lists it: the wire form plus what a person needs to read it. */
 export interface ShownJudgement {
   wire: WireJudgement;
+  /** Identity of this judgement for "already sent" (never includes the confirmation hash). */
+  hash: string;
   via: 'cli' | 'mcp';
   agentId: string | null;
   counterpartTitle: string | null;
@@ -67,7 +72,10 @@ export interface SharePayload {
   leftLocal: LeftLocal[];
   /** Pair judgements whose counterpart is not on the team graph YET: sendable once it is. */
   deferredPairs: Array<{ row: JudgementRow; counterpartLocalId: string }>;
+  /** Hash of the item AS SENT (only judgements not already sent). Binds a confirmation code. */
   hash: string;
+  /** Hash of the item with EVERY judgement: what the ledger remembers, so an unchanged share is "already shared". */
+  fullHash: string;
 }
 
 export interface BuildInput {
@@ -77,14 +85,20 @@ export interface BuildInput {
   /** The team graph's id for a local decision this machine already shared, if any. */
   remoteIdOf: (localId: string) => string | undefined;
   titleOf: (localId: string) => string | null;
+  /** The opaque idempotency key: the one stored at the first share, else clientKeyFor(...). */
+  clientKey: string;
+  /** Hashes of judgements this workspace already stored; they are not sent (or shown) again. */
+  alreadySent: ReadonlySet<string>;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** The idempotency key the server wants: a UUID. A local id that is one is used as is. */
-export function clientKeyFor(localId: string): string {
-  if (UUID.test(localId)) return localId.toLowerCase();
-  const h = createHash('sha256').update(`align-local-decision\n${localId}`).digest('hex');
+/**
+ * The idempotency key the server wants (a UUID), as an opaque hash of this install's secret salt and the
+ * local id. The raw local id never leaves the machine and two installs cannot be linked by it. It is
+ * derived ONCE: the caller stores it in the ledger at the first share and reuses that value, so a later
+ * change of local id (a twin fold) cannot mint a second key and a second team decision.
+ */
+export function clientKeyFor(salt: string, localId: string): string {
+  const h = createHash('sha256').update(`align-share-key\n${salt}\n${localId}`).digest('hex');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
@@ -108,6 +122,12 @@ export function hashItem(item: WireItem): string {
   return createHash('sha256').update(canonical(item)).digest('hex');
 }
 
+/** A judgement's identity for "already sent": its wire form without the confirmation hash. */
+export function judgementHash(w: WireJudgement): string {
+  const { confirm_team_text_hash: _c, ...rest } = w;
+  return createHash('sha256').update(canonical(rest)).digest('hex');
+}
+
 function wireFor(r: JudgementRow, counterpart?: string): WireJudgement {
   const mcp = r.via === 'mcp';
   const agent = mcp && r.agent_id && r.agent_id !== 'unknown' ? r.agent_id : undefined;
@@ -122,6 +142,10 @@ function wireFor(r: JudgementRow, counterpart?: string): WireJudgement {
   };
 }
 
+function shownOf(wire: WireJudgement, via: 'cli' | 'mcp', agentId: string | null, counterpartTitle: string | null): ShownJudgement {
+  return { wire, hash: judgementHash(wire), via, agentId, counterpartTitle };
+}
+
 export function buildSharePayload(input: BuildInput): SharePayload {
   const { row } = input;
   const shown: ShownJudgement[] = [];
@@ -129,10 +153,7 @@ export function buildSharePayload(input: BuildInput): SharePayload {
   const deferredPairs: SharePayload['deferredPairs'] = [];
 
   if (row.ratifiedAt) {
-    shown.push({
-      wire: { kind: 'ratify', judged_at: row.ratifiedAt, origin: 'local_share' },
-      via: 'cli', agentId: null, counterpartTitle: null,
-    });
+    shown.push(shownOf({ kind: 'ratify', judged_at: row.ratifiedAt, origin: 'local_share' }, 'cli', null, null));
   }
   const rows = [...input.judgements].sort((a, b) => (a.judged_at < b.judged_at ? -1 : a.judged_at > b.judged_at ? 1 : a.id < b.id ? -1 : 1));
   for (const r of rows) {
@@ -150,26 +171,34 @@ export function buildSharePayload(input: BuildInput): SharePayload {
         deferredPairs.push({ row: r, counterpartLocalId: other });
         continue;
       }
-      shown.push({ wire: wireFor(r, remote), via: r.via, agentId: r.agent_id, counterpartTitle });
+      shown.push(shownOf(wireFor(r, remote), r.via, r.agent_id, counterpartTitle));
       continue;
     }
     if (r.decision_id !== row.id) continue;
-    shown.push({ wire: wireFor(r), via: r.via, agentId: r.agent_id, counterpartTitle: null });
+    shown.push(shownOf(wireFor(r), r.via, r.agent_id, null));
   }
+  // Everything the person has judged, whether or not it was sent before: the ledger's "unchanged" test reads this.
+  const everything = shown.map((x) => x.wire);
+  // What is SENT (and shown): only what this workspace has not stored yet, so a note is never posted twice.
+  const fresh = shown.filter((x) => !input.alreadySent.has(x.hash));
   // The gateway refuses a whole batch over the cap, so cut here: the ratification first, then the newest.
-  if (shown.length > MAX_SHARED_JUDGEMENTS) {
-    const keep = [shown[0]!, ...shown.slice(1).slice(-(MAX_SHARED_JUDGEMENTS - 1))];
-    for (const dropped of shown.filter((s) => !keep.includes(s))) leftLocal.push({ kind: dropped.wire.kind, why: 'over_limit', counterpartTitle: dropped.counterpartTitle });
-    shown.splice(0, shown.length, ...keep);
+  let sending = fresh;
+  if (fresh.length > MAX_SHARED_JUDGEMENTS) {
+    const ratify = fresh.filter((x) => x.wire.kind === 'ratify');
+    const rest = fresh.filter((x) => x.wire.kind !== 'ratify');
+    const keep = new Set([...ratify, ...rest.slice(-(MAX_SHARED_JUDGEMENTS - ratify.length))]);
+    for (const dropped of fresh.filter((x) => !keep.has(x))) leftLocal.push({ kind: dropped.wire.kind, why: 'over_limit', counterpartTitle: dropped.counterpartTitle });
+    sending = fresh.filter((x) => keep.has(x));
   }
-  const item: WireItem = {
+  const base = {
     source_url: shareSourceUrl(row),
     platform: row.platform,
     title: row.title,
+    summary: row.summary,
     raw_text: row.summary || row.title,
-    client_key: clientKeyFor(row.id),
+    client_key: input.clientKey,
     ...(row.decidedAt ? { created_at: row.decidedAt } : {}),
-    judgements: shown.map((s) => s.wire),
   };
-  return { localId: row.id, item, shown, leftLocal, deferredPairs, hash: hashItem(item) };
+  const item: WireItem = { ...base, judgements: sending.map((x) => x.wire) };
+  return { localId: row.id, item, shown: sending, leftLocal, deferredPairs, hash: hashItem(item), fullHash: hashItem({ ...base, judgements: everything }) };
 }

@@ -111,7 +111,7 @@ describe('no sequence of tool calls sends a share', () => {
   it('the positive control: the human path through runShare does call it', async () => {
     const r = await runShareTool({ id }, env, ctx());
     const out: string[] = [];
-    const deps: ShareDeps = { cloudEnv: cloud, localDbPath: dbPath, client: () => client, judge: async () => ({ judgeId: 'i', judgeLabel: null }), owner: async () => 'me@co.com', ttyConfirm: async () => true, out: (l) => out.push(l), err: (l) => out.push(l) };
+    const deps: ShareDeps = { cloudEnv: cloud, salt: 'salt-1', defaultGatewayUrl: 'https://x', localDbPath: dbPath, client: () => client, judge: async () => ({ judgeId: 'i', judgeLabel: null }), owner: async () => 'me@co.com', ttyConfirm: async () => true, out: (l) => out.push(l), err: (l) => out.push(l) };
     expect(await runShare({ ids: [], envName: 'prod', confirm: r.code as string }, deps)).toBe(0);
     expect(calls.shareBatch).toBe(1);
   });

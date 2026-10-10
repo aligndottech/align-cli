@@ -4,7 +4,7 @@
  */
 import type { Command } from 'commander';
 import chalk from 'chalk';
-import { createConfigStore, type EnvName } from '../lib/config.js';
+import { createConfigStore, defaultGatewayUrlFor, type EnvName } from '../lib/config.js';
 import { defaultJudge } from '../lib/curation/judge.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveLocalIdentity } from '../lib/git.js';
@@ -47,6 +47,8 @@ export function registerShareCommand(program: Command): void {
         sinceIso: opts.since === undefined ? undefined : sinceFromFlag(opts.since).since,
       }, {
         cloudEnv,
+        salt: config.getInstallId(),
+        defaultGatewayUrl: defaultGatewayUrlFor(envName),
         localDbPath: local.mode === 'local-embedded' ? local.localDbPath ?? null : null,
         client: () => createGatewayClient(cloudEnv) as unknown as ShareClient,
         judge: defaultJudge,

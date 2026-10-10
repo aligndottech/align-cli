@@ -17,6 +17,12 @@ export interface Promotion {
   contentHash: string;
   /** The share attached to a decision the team already held. Retracting it must NOT archive that decision. */
   matched: boolean;
+  /** The opaque idempotency key sent as `client_key` at the first share; reused for every later one. */
+  clientKey: string;
+  /** Hashes of judgements already stored in that workspace. */
+  sent: string[];
+  /** A matched share whose ratify/supersede still waits for the person to confirm the team's text. */
+  confirmPending: boolean;
   sharedAt: string;
   retractedAt: string | null;
 }
@@ -29,13 +35,23 @@ export interface PromotionWrite {
   remoteId: string;
   contentHash: string;
   matched: boolean;
+  clientKey: string;
+  sent: string[];
+  confirmPending: boolean;
 }
 
-interface Row { local_id: string; env: string; tenant_id: string; remote_id: string; content_hash: string; matched: number; shared_at: string; retracted_at: string | null }
+interface Row { local_id: string; env: string; tenant_id: string; remote_id: string; content_hash: string; matched: number; client_key: string; sent: string; confirm_pending: number; shared_at: string; retracted_at: string | null }
+
+function parseSent(raw: string): string[] {
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+}
 
 const fromRow = (r: Row): Promotion => ({
   localId: r.local_id, env: r.env, tenantId: r.tenant_id, remoteId: r.remote_id, contentHash: r.content_hash,
-  matched: r.matched === 1, sharedAt: r.shared_at, retractedAt: r.retracted_at,
+  matched: r.matched === 1, clientKey: r.client_key, sent: parseSent(r.sent), confirmPending: r.confirm_pending === 1, sharedAt: r.shared_at, retractedAt: r.retracted_at,
 });
 
 function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
@@ -77,11 +93,12 @@ export function getLegacyPromotion(dbPath: string, localId: string, env: string)
 export function recordPromotion(dbPath: string, p: PromotionWrite): void {
   withDb(dbPath, (db) => {
     db.prepare(
-      `INSERT INTO promotions (local_id, env, tenant_id, remote_id, content_hash, matched) VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO promotions (local_id, env, tenant_id, remote_id, content_hash, matched, client_key, sent, confirm_pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (local_id, env, tenant_id) DO UPDATE SET
          remote_id = excluded.remote_id, content_hash = excluded.content_hash, matched = excluded.matched,
+         client_key = excluded.client_key, sent = excluded.sent, confirm_pending = excluded.confirm_pending,
          shared_at = datetime('now'), retracted_at = NULL`,
-    ).run(p.localId, p.env, p.tenantId, p.remoteId, p.contentHash, p.matched ? 1 : 0);
+    ).run(p.localId, p.env, p.tenantId, p.remoteId, p.contentHash, p.matched ? 1 : 0, p.clientKey, JSON.stringify([...new Set(p.sent)]), p.confirmPending ? 1 : 0);
   });
 }
 

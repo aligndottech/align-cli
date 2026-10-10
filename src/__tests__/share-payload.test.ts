@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DecisionRow } from '../lib/local-db.js';
 import type { JudgementRow } from '../lib/curation/judgements-db.js';
-import { buildSharePayload, clientKeyFor, hashItem, MAX_SHARED_JUDGEMENTS, shareSourceUrl } from '../lib/share/payload.js';
+import { buildSharePayload, clientKeyFor, hashItem, judgementHash, MAX_SHARED_JUDGEMENTS, shareSourceUrl } from '../lib/share/payload.js';
 import { renderPreview } from '../lib/share/preview.js';
 import { scanForSecrets, secretsIn } from '../lib/share/secret-scan.js';
 
@@ -30,8 +30,8 @@ const j = (over: Partial<JudgementRow>): JudgementRow => ({
   id: `j${++n}`, decision_id: row().id, counterpart_id: null, context_key: null, kind: 'note', value: null, note: null,
   judge_id: 'inst-1', judge_label: 'tom@align.tech', via: 'cli', agent_id: null, judged_at: `2026-09-04T10:00:${String(n % 60).padStart(2, '0')}.000Z`, ...over,
 });
-const build = (judgements: JudgementRow[], remote: Record<string, string> = {}, r = row()) =>
-  buildSharePayload({ row: r, judgements, remoteIdOf: (id) => remote[id], titleOf: (id) => `title of ${id}` });
+const build = (judgements: JudgementRow[], remote: Record<string, string> = {}, r = row(), alreadySent: string[] = []) =>
+  buildSharePayload({ row: r, judgements, remoteIdOf: (id) => remote[id], titleOf: (id) => `title of ${id}`, clientKey: 'ck-1', alreadySent: new Set(alreadySent) });
 const OTHER = '22222222-2222-4222-8222-222222222222';
 const REMOTE = '33333333-3333-4333-8333-333333333333';
 
@@ -155,12 +155,43 @@ describe('the cap', () => {
 });
 
 describe('client_key', () => {
-  it('uses a UUID local id as it is and maps any other id to the same UUID every time', () => {
-    expect(clientKeyFor('AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA')).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
-    const k = clientKeyFor('legacy-id-7');
+  it('is an opaque UUID of the install salt and the id: stable, never the raw id, different per install and per decision', () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const k = clientKeyFor('salt-1', id);
     expect(k).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(clientKeyFor('legacy-id-7')).toBe(k);
-    expect(clientKeyFor('legacy-id-8')).not.toBe(k);
+    expect(k).not.toBe(id);
+    expect(clientKeyFor('salt-1', id)).toBe(k);
+    expect(clientKeyFor('salt-2', id)).not.toBe(k);
+    expect(clientKeyFor('salt-1', 'other')).not.toBe(k);
+  });
+  it('the payload carries the key it is given, and the local id appears nowhere in what is sent', () => {
+    const p = build([]);
+    expect(p.item.client_key).toBe('ck-1');
+    expect(JSON.stringify(p.item)).not.toContain(row().id);
+  });
+});
+
+describe('summary, and what was already sent', () => {
+  it('sends the summary explicitly as well as raw_text', () => {
+    const p = build([]);
+    expect(p.item.summary).toBe('Settled on sqlite because it ships with node.');
+    expect(p.item.raw_text).toBe(p.item.summary);
+  });
+  it('leaves out a judgement already stored in this workspace, from the item and the preview, and the full hash still covers it', () => {
+    const n = j({ kind: 'note', note: 'old note' });
+    const fresh = j({ kind: 'note', note: 'new note' });
+    const all = build([n, fresh]);
+    const sentHash = judgementHash(all.item.judgements.find((x) => x.note === 'old note')!);
+    const p = build([n, fresh], {}, row(), [sentHash]);
+    expect(p.item.judgements.map((x) => x.note ?? x.kind)).toEqual(['ratify', 'new note']);
+    expect(renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c' })).not.toContain('old note');
+    expect(p.fullHash).toBe(all.fullHash);
+    expect(p.hash).not.toBe(all.hash);
+  });
+  it('with everything already sent the item carries no judgements', () => {
+    const all = build([]);
+    const p = build([], {}, row(), all.item.judgements.map(judgementHash));
+    expect(p.item.judgements).toEqual([]);
   });
 });
 
