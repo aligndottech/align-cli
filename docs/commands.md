@@ -192,7 +192,7 @@ align ratify <id>             Stand behind an agent-made decision as a human: ma
 # Share ratified decisions, with your judgements, with your team (alias: push)
 
 align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
-                              flags: --env --all-ratified --since --yes --confirm --no-open --typed --retract
+                              flags: --env --all-ratified --since --yes --confirm --no-open --qr --no-qr --copy --open <request id> --typed --retract
 align push                    same as align share
 
 # The local graph: start, status, reset, forget
@@ -239,6 +239,14 @@ you a link and a short code. You approve it in your logged-in browser, and the a
 code and you finish it with `align share --confirm <code>` in your own terminal. Browser approval is not a
 lock: an agent that can read your mailbox or your browser's cookies can still get a session, and it stays
 that way until a passkey or other step-up credential exists (see SECURITY.md).
+
+Getting the approval link to a browser: at your own terminal on a machine with a browser, `align share` opens
+the link for you (`--no-open` turns that off). On a remote machine (SSH, a dev container, a box with no display), it prints a
+QR code of the whole link instead (`--qr` forces one, `--no-qr` never prints one). Scan it with your phone: approving on a
+phone with Face ID or a fingerprint is the strongest way. A QR code is never printed when output is not a terminal unless
+you pass `--qr`. If your agent staged the request, `align share --open <request id>` shows the link again on the machine that
+staged it (it needs the private file that machine holds). `--copy` asks your terminal to put the link on the clipboard
+(OSC 52: only terminals that support it; clipboard managers may keep it).
 
 `align use --undo` puts back a file Align wrote for a written-once agent (Auggie, Cline, Amp,
 Kiro, Grok Build, pi, Cursor). The restore is exact only while nobody else has touched the file.

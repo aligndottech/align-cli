@@ -77,6 +77,16 @@ the key; it already had the text it sealed, so that adds nothing, but the link i
 The code on the page is not a secret either: an agent that runs the CLI relays its own link and code, so only
 reading the content on the page defends against a request you did not mean to make.
 
+**Opening the link.** At an interactive terminal on a machine with a browser, `align share` opens the link for
+you. On a remote machine, scan the QR code it prints with your phone; approving on a phone with Face ID or a
+fingerprint is the strongest way. The link is not a secret from the agent that ran the command, and the QR code is
+the same link, so neither is a lock. Before the link reaches a browser launcher, the CLI checks the whole string
+against one exact shape (https, the configured app's host, `/share/approve/<id>`, a 43-character key in the
+fragment) and starts the launcher with an argument list, never a shell string. On Linux and macOS the launcher's command
+line holds the whole link, key included, while it runs, so another local user could read it with `ps`; the key alone
+cannot approve anything (that needs your signed-in session and, where enabled, your passkey). Use `--no-open` and the QR
+code if that matters on a shared machine.
+
 > **What else this does NOT stop.**
 > - **The control only holds once the gateway runs `required`.** In `available`, the browser flow exists but the
 >   other ways to complete a share still work: the typed answer on a pseudo-terminal an agent allocates itself
