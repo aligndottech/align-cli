@@ -1,3 +1,4 @@
+import { rmDir } from './helpers/rm-dir.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,7 +28,7 @@ describe('the two MCP-started children', () => {
       expect(call[5]).toEqual(syncChildEnv(process.env));
       expect(Object.keys(call[5] as object)).not.toContain('ANTHROPIC_API_KEY');
       expect(call[4]).toBe('mcp');
-    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    } finally { rmDir(dir); }
   });
 
   it('align_sync run (startSyncChild with its defaults) is the same policy: reduced env, caller mcp', async () => {

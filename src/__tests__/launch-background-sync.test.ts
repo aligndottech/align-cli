@@ -1,3 +1,4 @@
+import { rmDir } from './helpers/rm-dir.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -223,7 +224,7 @@ describe('launchIfChosen: a dry run changes nothing', () => {
 describe('the default reader (rooted at the launcher\'s own env and home)', () => {
   let dir: string;
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-hook-')); });
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => rmDir(dir));
 
   function real(files: Record<string, string>) {
     const state = path.join(dir, 'align-cli');
@@ -271,7 +272,7 @@ describe('the default reader (rooted at the launcher\'s own env and home)', () =
 describe('concurrent launches and the claim (the 15-minute rule across launches)', () => {
   let dir: string;
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-claim-')); fs.mkdirSync(path.join(dir, 'align-cli', 'backfill'), { recursive: true }); });
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => rmDir(dir));
   const state = (): string => path.join(dir, 'align-cli');
   const write = (s: SyncSummary): void => fs.writeFileSync(path.join(state(), 'sync-summary.json'), JSON.stringify(s));
   const launch = (start: (s: string[]) => unknown, extra: Record<string, unknown> = {}) => {
@@ -349,7 +350,7 @@ describe('concurrent launches and the claim (the 15-minute rule across launches)
 describe('a summary that is hostile or huge', () => {
   let dir: string;
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-big-')); fs.mkdirSync(path.join(dir, 'align-cli', 'backfill'), { recursive: true }); });
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => rmDir(dir));
   const run = async (sources: SummarySource[], start = vi.fn()) => {
     fs.writeFileSync(path.join(dir, 'align-cli', 'sync-summary.json'), JSON.stringify(summary(...sources)));
     const h = harness({ env: { XDG_STATE_HOME: dir }, over: { backgroundSyncIo: { start, nowMs: () => Date.now(), inCi: () => false } } });
@@ -420,7 +421,7 @@ describe('an unwritable config', () => {
 describe.skipIf(process.platform === 'win32')('a FIFO where a file is expected never hangs the launch', () => {
   let dir: string;
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-fifo-')); fs.mkdirSync(path.join(dir, 'align-cli', 'backfill'), { recursive: true }); });
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => rmDir(dir));
   const state = (): string => path.join(dir, 'align-cli');
   const hostFor = () => ({ env: { XDG_STATE_HOME: dir }, home: '/home/u', platform: 'linux', isTTY: true, config: {}, err: () => {} });
   const old = (): string => new Date(Date.now() - 3_600_000).toISOString();
@@ -465,6 +466,6 @@ describe('a summary written by the sync job: sources a person must act on', () =
       clearBlocked('confluence', d);
       refreshSummary(db, connected, new Date(), d);
       expect(readSummary(d)!.sources.find((x) => x.id === 'confluence')?.status).toBe('never');
-    } finally { fs.rmSync(d, { recursive: true, force: true }); }
+    } finally { rmDir(d); }
   }, 30_000);
 });

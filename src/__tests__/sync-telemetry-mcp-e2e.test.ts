@@ -8,6 +8,7 @@
  * loopback port, so the sync finishes with an `error` outcome, which is a reportable one.
  * Positive control: the same flow without DO_NOT_TRACK sends source_synced.
  */
+import { rmDir } from './helpers/rm-dir.js';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -86,7 +87,7 @@ beforeEach(async () => {
 afterEach(async () => {
   server.closeAllConnections();
   await new Promise((r) => server.close(r));
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmDir(dir);
 });
 
 function find(d: string, name: string): boolean {

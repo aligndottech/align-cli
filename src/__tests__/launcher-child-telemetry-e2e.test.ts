@@ -16,6 +16,7 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { rmDir, waitPidGone } from './helpers/rm-dir.js';
 import { startBackfillChild } from '../lib/backfill-state.js';
 import { syncChildEnv } from '../lib/sync/spawn-background.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,6 +38,7 @@ const ot = tls.connect; tls.connect = function (...a) { const h = hostOf(a); if 
 const ol = dns.lookup; dns.lookup = function (h, ...r) { if (!ok(h)) { const cb = r[r.length - 1]; return process.nextTick(() => cb(Object.assign(new Error('GUARD'), { code: 'ENOTFOUND' }))); } return ol.call(this, h, ...r); };
 `;
 
+const children: number[] = [];
 let dir: string;
 let server: http.Server;
 let bodies: Array<Record<string, unknown>>;
@@ -78,7 +80,11 @@ beforeEach(async () => {
 afterEach(async () => {
   server.closeAllConnections();
   await new Promise((r) => server.close(r));
-  fs.rmSync(dir, { recursive: true, force: true });
+  // The detached child may still be shutting down (it holds the graph file): wait for it, kill it if it will not go, then remove with retries.
+  for (const pid of children.splice(0)) {
+    if (!(await waitPidGone(pid, 15_000))) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } await waitPidGone(pid, 5_000); }
+  }
+  rmDir(dir);
 });
 
 function find(d: string, name: string): boolean {
@@ -101,6 +107,7 @@ async function launcherChild(launcherEnv: Record<string, string>): Promise<void>
     'launcher', childEnvFrom(launcherEnv), env['HOME'],
   );
   expect(r.ok).toBe(true);
+  if (r.pid !== undefined) children.push(r.pid);
   const until = Date.now() + 90_000;
   while (!find(env['XDG_STATE_HOME']!, 'sync-summary.json') && Date.now() < until) await new Promise((res) => setTimeout(res, 250));
   expect(find(env['XDG_STATE_HOME']!, 'sync-summary.json'), 'the background child never finished').toBe(true);

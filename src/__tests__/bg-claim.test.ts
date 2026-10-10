@@ -1,3 +1,4 @@
+import { rmDir } from './helpers/rm-dir.js';
 import { execFileSync, spawn } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
@@ -20,7 +21,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const NOW = 20 * I + 5 * 60_000; // five minutes into bucket 20
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-bgclaim-')); });
-afterEach(() => { try { fs.chmodSync(dir, 0o700); } catch { /* gone */ } fs.rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { try { fs.chmodSync(dir, 0o700); } catch { /* gone */ } rmDir(dir); });
 
 function race(n: number, now: number): Promise<number> {
   const barrier = Date.now() + 2500;
@@ -46,7 +47,7 @@ describe('takeClaim', () => {
   it.skipIf(process.platform === 'win32')('across a bucket boundary: launches a second either side start at most one child', async () => {
     const edge = 21 * I;
     const a = await race(10, edge - 1000);
-    fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir);
+    rmDir(dir); fs.mkdirSync(dir);
     expect(a).toBe(1);
     expect(takeClaim(dir, 'github', edge - 1000, I).ok).toBe(true);
     expect(takeClaim(dir, 'github', edge + 1000, I)).toEqual({ ok: false, why: 'held' });

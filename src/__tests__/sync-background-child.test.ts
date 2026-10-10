@@ -1,3 +1,4 @@
+import { rmDir } from './helpers/rm-dir.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -94,7 +95,7 @@ describe('syncChildEnv: the value rules are mcp-child-env.ts\'s', () => {
 describe.skipIf(process.platform === 'win32')('a real detached child', () => {
   let dir: string;
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-child-')); });
-  afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(dir, { recursive: true, force: true }); });
+  afterEach(() => { vi.unstubAllEnvs(); rmDir(dir); });
 
   const ps = (pid: number, col: string): string => {
     try { return execFileSync('ps', ['-o', `${col}=`, '-p', String(pid)], { encoding: 'utf8' }).trim(); } catch { return ''; }
