@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  describeScopeKey, disclosureText, fetchOptsFor, FIXED_SCOPES, normaliseScopeValues, SCOPED_SOURCES, scopeKeyOf, scopeLabel, ScopeValueError,
+  describeScopeKey, disclosureText, fetchOptsFor, FIXED_SCOPES, labelOfScopeKey, normaliseScopeValues, SCOPED_SOURCES, scopeKeyOf, scopeLabel, ScopeValueError,
 } from '../lib/scope-values.js';
 
 /**
@@ -98,6 +98,13 @@ describe('scopeKeyOf and scopeLabel', () => {
     expect(scopeLabel('linear', ['ENG'])).toBe('Linear team ENG');
     expect(scopeLabel('gitlab', ['g/p'])).toBe('the GitLab project g/p');
     expect(scopeLabel('confluence', ['ENG', 'OPS'])).toBe('Confluence spaces ENG, OPS');
+  });
+
+  it('labelOfScopeKey is the place alone, and an unknown shape is returned as it is', () => {
+    expect(labelOfScopeKey('github', 'repo:o/r')).toBe('o/r');
+    expect(labelOfScopeKey('confluence', 'confluence:ENG')).toBe('Confluence space ENG');
+    expect(labelOfScopeKey('jira', 'mystery:x')).toBe('mystery:x');
+    expect(labelOfScopeKey('jira', 'jira:')).toBe('jira:');
   });
 
   it('describeScopeKey turns a stored key back into words, and falls back to the key for an unknown shape', () => {

@@ -48,6 +48,14 @@ describe('collectStatus', () => {
     expect(r.sources.find((s) => s.id === 'slack')).toMatchObject({ status: 'not_connected', connected: false, next_step: 'Not connected. Ask the person to run: align connect slack' });
   });
 
+  it('L4: a Jira or Confluence team scope reads as the projects or spaces, not as its raw key (two sources)', () => {
+    beginRun(dbPath, { source: 'jira', scopeKey: 'jira:ALI,OPS', scope: 'team' }, null, '2026-10-10T11:00:00.000Z');
+    beginRun(dbPath, { source: 'confluence', scopeKey: 'confluence:ENG', scope: 'team' }, null, '2026-10-10T11:00:00.000Z');
+    const r = collectStatus(deps(['jira', 'confluence']));
+    expect(r.sources.find((s) => s.id === 'jira')!.scope).toBe("everyone's items in Jira projects ALI, OPS");
+    expect(r.sources.find((s) => s.id === 'confluence')!.scope).toBe("everyone's items in Confluence space ENG");
+  });
+
   it('a refused token carries the exact re-auth command', () => {
     markNeedsReauth(dbPath, { source: 'jira', scopeKey: 'yours', scope: 'yours' }, null, '2026-10-10T11:00:00.000Z');
     expect(collectStatus(deps(['jira'])).sources.find((s) => s.id === 'jira')).toMatchObject({ status: 'needs_reauth', next_step: 'The provider refused the saved token. Ask the person to run: align connect jira' });

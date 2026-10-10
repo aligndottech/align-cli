@@ -79,7 +79,9 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
   if (targets.length === 0 && !opts.background) d.out('No source is connected to sync. Run: align connect <source>');
 
   if (delay > 0) await d.sleep(delay * 1000);
-  const env = d.env(dbPath);
+  const base = d.env(dbPath);
+  // L4: a person at the terminal is told, before the first request, what a team scope reads. A background run has nobody to tell.
+  const env: SyncEnv = opts.background ? base : { ...base, announce: (_source, line) => d.out(line) };
   try {
     const trigger = opts.background ? 'background' as const : 'cli' as const;
     let result: Awaited<ReturnType<typeof runSync>>;

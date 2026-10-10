@@ -121,16 +121,20 @@ export function scopeLabel(source: ScopedSource, labels: string[]): string {
   }
 }
 
-/** A stored `source_sync` row in words, for status. An unknown key shape is shown as it is: never a guess. */
-export function describeScopeKey(source: string, scopeKey: string, scope: 'yours' | 'team'): string {
-  if (scope === 'yours') return 'your own items';
-  if (scopeKey.startsWith('repo:')) return `everyone's items in ${scopeKey.slice('repo:'.length)}`;
+/** The place a stored team-scope key names, in words: "o/r", "Jira projects ALI, OPS". An unknown key shape is shown as it is: never a guess. */
+export function labelOfScopeKey(source: string, scopeKey: string): string {
+  if (scopeKey.startsWith('repo:')) return scopeKey.slice('repo:'.length);
   const prefix = `${source}:`;
   if ((SCOPED_SOURCES as readonly string[]).includes(source) && source !== 'github' && scopeKey.startsWith(prefix)) {
     const labels = scopeKey.slice(prefix.length).split(',').filter((l) => l !== '');
-    if (labels.length > 0) return `everyone's items in ${scopeLabel(source as ScopedSource, labels)}`;
+    if (labels.length > 0) return scopeLabel(source as ScopedSource, labels);
   }
-  return `everyone's items in ${scopeKey}`;
+  return scopeKey;
+}
+
+/** A stored `source_sync` row in words, for status. */
+export function describeScopeKey(source: string, scopeKey: string, scope: 'yours' | 'team'): string {
+  return scope === 'yours' ? 'your own items' : `everyone's items in ${labelOfScopeKey(source, scopeKey)}`;
 }
 
 /** What to hand each fetcher for a team scope. GitHub's repo travels as `repo`, not here. */

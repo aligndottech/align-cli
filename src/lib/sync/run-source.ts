@@ -43,6 +43,8 @@ export interface SourceOutcome {
   skips: CaptureSkip[];
   drain?: DrainResult;
   scopeNote?: string;
+  /** L4: why this source is only yours, or how to widen it - one line, printed as it is. */
+  scopeLine?: string;
   message?: string;
   /** Set when this run's hole has now come back PERSISTENT_HOLE_RUNS times in a row. */
   persistentHole?: string;
@@ -52,7 +54,11 @@ export interface SyncEnv {
   dbPath: string;
   now(): Date;
   tokens(source: string): Record<string, string> | null;
-  scopeOf(source: string): Promise<SyncScope>;
+  scopeOf(source: string, o: { trigger: 'cli' | 'background' }): Promise<SyncScope>;
+  /** L4: print the one-time team-scope disclosure. Wired only for a foreground run; nobody is there to read it in the background. */
+  announce?(source: string, line: string): void;
+  /** L4: remember the disclosure was told. Called only after `announce`. */
+  markDisclosed?(source: string): void;
   fetch(source: string, tokens: Record<string, string>, win: SourceWindow, scope: SyncScope): Promise<CaptureFetchResult>;
   client: Pick<ReturnType<typeof createLocalGatewayClient>, 'ingestBatch' | 'relinkUnfinished'>;
   lock(name: string): Lock;
@@ -112,16 +118,22 @@ export async function syncSource(
   if (!lock.ok) return none(source, 'locked', `already syncing${lock.holder ? ` (started ${lock.holder.started_at.slice(0, 16).replace('T', ' ')} UTC)` : ''}`);
   try {
     if (env.backfillRunning(source)) return none(source, 'backfill_running', `a backfill of ${source} is running; it is reading the same history`);
-    return await run(source, tokens, env, lock);
+    return await run(source, tokens, env, lock, o);
   } finally {
     lock.release();
   }
 }
 
-async function run(source: string, tokens: Record<string, string>, env: SyncEnv, lock: Extract<Lock, { ok: true }>): Promise<SourceOutcome> {
+async function run(source: string, tokens: Record<string, string>, env: SyncEnv, lock: Extract<Lock, { ok: true }>, o: { trigger: 'cli' | 'background' }): Promise<SourceOutcome> {
   const now = env.now();
   const nowIso = now.toISOString();
-  const scope = await env.scopeOf(source);
+  const scope = await env.scopeOf(source, { trigger: o.trigger });
+  // A source that must not be read until the person acts (Confluence with no spaces): no request, no row, the command to run.
+  if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
+  if (scope.disclosure !== undefined && env.announce) {
+    env.announce(source, scope.disclosure);
+    env.markDisclosed?.(source);
+  }
   const key = { source, scopeKey: scope.scopeKey, scope: scope.scope };
   const rows = readRows(env.dbPath, source);
   // A new scope inherits the depth the person asked for on this source ("all" stays all).
@@ -229,6 +241,7 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
     ...(drain ? { drain } : {}),
     ...(persistent && holeSig !== null ? { persistentHole: holeSig } : {}),
     ...(report.scopeNote ? { scopeNote: report.scopeNote } : {}),
+    ...(scope.note !== undefined ? { scopeLine: scope.note } : {}),
   };
 }
 

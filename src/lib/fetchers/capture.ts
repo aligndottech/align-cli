@@ -55,7 +55,7 @@ export interface CaptureFetchReport {
 }
 
 /** L3: what every windowed fetch is given on top of its limit (see fetchWindow in since.ts). */
-export interface WindowedOpts {
+export type WindowedOpts = {
   /** ISO-8601 UTC lower bound. Absent means no bound: only the ceiling applies. */
   since?: string;
   /** Wall-clock budget for the whole read; running out is a `time_budget` skip. */
@@ -64,7 +64,12 @@ export interface WindowedOpts {
   until?: string;
   /** L5, Slack only: stored threads whose replies since `since` should be re-read (their items come back `partial`). */
   hotThreads?: Array<{ channel: string; ts: string }>;
-}
+  /** L4: a team scope's option for the fetchers that take one (Jira projects, Linear teams, GitLab projectId, Confluence spaces). */
+  projects?: string[];
+  teams?: string[];
+  projectId?: string;
+  spaces?: string[];
+};
 
 export interface CaptureFetchResult {
   items: PersonalImportItem[];

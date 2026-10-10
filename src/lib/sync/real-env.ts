@@ -10,6 +10,7 @@ import { createLocalGatewayClient } from '../local-gateway-client.js';
 import { getLocalDbPath } from '../local-mode.js';
 import { acquireLock, lockHolder } from './lock.js';
 import type { SyncEnv } from './run-source.js';
+import { realScopeDeps } from '../scope-real.js';
 import { fetchSource, fetchWhole, scopeOf } from './sources.js';
 import type { StatusDeps } from './status.js';
 
@@ -25,7 +26,8 @@ export function realSyncEnv(dbPath: string, config = createConfigStore()): SyncE
     dbPath,
     now: () => new Date(),
     tokens: (source) => config.getConnectorFields('local', source),
-    scopeOf,
+    scopeOf: (source, o) => scopeOf(source, o, realScopeDeps(dbPath, { config })),
+    markDisclosed: (source) => config.markTeamScopeDisclosed(source),
     fetch: fetchSource,
     fetchWhole,
     client: createLocalGatewayClient(dbPath),

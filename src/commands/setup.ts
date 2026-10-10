@@ -19,7 +19,7 @@ import { type CaptureSource, createCaptureCollector, toCaptureSource } from '../
 import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
 import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
-import { fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
+import { type FetchExtras, fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { afterSourceConnected } from '../lib/sync/after-connect.js';
 import { loginInteractive } from '../lib/login-flow.js';
@@ -79,7 +79,7 @@ export interface SetupSource {
   /** What one fetched item IS, for the capture report (ALI-827) - from CAPTURE_SOURCES. */
   unit: string;
   /** L3: `window` defaults to the plan's six months; `align connect --since` passes its own. */
-  fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: { team?: boolean; until?: string; hotThreads?: Array<{ channel: string; ts: string }> }) => Promise<CaptureFetchResult>;
+  fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: FetchExtras) => Promise<CaptureFetchResult>;
 }
 
 export function buildSources(gitAvailable: boolean): SetupSource[] {
@@ -120,14 +120,10 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
         '&contents=read&issues=read&pull_requests=read',
       fetch: async (t, w = parseSince(undefined), o = {}) => {
         const { fetchGitHubItems, resolveGitHubRepoScope } = await import('../lib/fetchers/github.js');
-        // ALI-917: this interactive source has no --repo/--all of its own, so it takes
-        // resolveGitHubRepoScope's auto-detect-only path (an empty opts object) - the
-        // same default `align connect github` uses. Without it, a token spanning several
-        // unrelated repos returns everything across all of them, undifferentiated.
-        const repo = await resolveGitHubRepoScope({});
-        // L3: items first, then discussion inline up to a request budget (fetchGitHubItems). Team scope
-        // (everyone's items in the repo) only when the caller says the graph is local; cloud setup keeps yours.
-        return fetchGitHubItems({ token: t['token']!, ...fetchWindow('github', w), ...(repo ? { repo, ...(o.team ? { scope: 'team' as const } : {}) } : {}) });
+        // L4: when the caller has resolved the scope (`resolved`), its `repo` is the whole answer and the folder is not consulted.
+        // Without it (cloud setup) this is ALI-917's auto-detect: the repo narrows the search, and team scope only when asked.
+        const repo = o.resolved ? o.repo : await resolveGitHubRepoScope({});
+        return fetchGitHubItems({ token: t['token']!, ...fetchWindow('github', w), ...(repo ? { repo, ...(o.team || o.resolved ? { scope: 'team' as const } : {}) } : {}) });
       },
     },
     {

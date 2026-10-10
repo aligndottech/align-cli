@@ -9,6 +9,7 @@
 import { CAPTURE_SOURCES } from '../capture-sources.js';
 import type { BackfillStatus } from '../backfill-state.js';
 import { BACKFILL_SOURCES } from '../mcp-backfill.js';
+import { describeScopeKey, labelOfScopeKey } from '../scope-values.js';
 import type { SyncRow, SyncStatus } from './sync-state.js';
 import { EMBEDDING_MODEL_ID } from '../local-embeddings.js';
 import { PERSISTENT_HOLE_RUNS } from './window.js';
@@ -59,11 +60,11 @@ const RANK: Record<SyncStatus, number> = { ok: 0, partial: 1, error: 2, needs_re
 function scopeText(rows: readonly SyncRow[]): string {
   const team = rows.filter((r) => r.scope === 'team');
   if (team.length === 0) return 'your own items';
-  return team.map((r) => `everyone's items in ${r.scope_key.replace(/^repo:/, '')}`).join('; ');
+  return team.map((r) => describeScopeKey(r.source_id, r.scope_key, r.scope)).join('; ');
 }
 
 function scopeLabelOf(r: SyncRow): string {
-  return r.scope === 'team' ? r.scope_key.replace(/^repo:/, '') : 'your own items';
+  return r.scope === 'team' ? labelOfScopeKey(r.source_id, r.scope_key) : 'your own items';
 }
 
 /** The skips that mean something was NOT read (everything but `shape`, which is a note), with which scope they hit. */
