@@ -8,7 +8,7 @@ const PRE_MOVE = [
   { name: 'codex', label: 'Codex', bin: 'codex', injection: 'per-session', supported: true, install: 'npm i -g @openai/codex' },
   { name: 'copilot', label: 'GitHub Copilot CLI', bin: 'copilot', injection: 'per-session', supported: true, install: 'npm i -g @github/copilot' },
   { name: 'cursor', label: 'Cursor', bin: 'cursor-agent', injection: 'written-once', supported: true, install: 'https://cursor.com/cli' },
-  { name: 'gemini-cli', label: 'Gemini CLI', bin: 'gemini', injection: 'per-session', supported: true, install: 'npm i -g @google/gemini-cli' },
+  { name: 'gemini-cli', label: 'Gemini CLI', bin: 'gemini', injection: 'written-once', supported: true, install: 'npm i -g @google/gemini-cli' },
   { name: 'opencode', label: 'OpenCode', bin: 'opencode', injection: 'per-session', supported: true, install: 'npm i -g opencode-ai' },
   { name: 'pi', label: 'pi', bin: 'pi', injection: 'written-once', supported: true, install: 'https://pi.dev' },
   // wave B

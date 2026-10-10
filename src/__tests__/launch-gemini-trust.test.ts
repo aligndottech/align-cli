@@ -26,8 +26,10 @@ const dir = (...p: string[]) => {
 // The real filesystem paths below follow the HOST's path rules, so the default platform is the
 // host's. Hardcoding 'linux' made path.posix read Windows paths as one opaque segment on the
 // windows-launch job: exact matches held, nothing nested, and system-defaults.json was lost.
+// These tests are about the trust RULES, so the ownership rule is out of the way (null = Gemini reads every file);
+// the last describe covers the ownership filter itself.
 const trust = (cwd: string, env: Record<string, string | undefined> = {}, platform: string = process.platform) =>
-  geminiFolderTrust(cwd, home, { GEMINI_CLI_SYSTEM_SETTINGS_PATH: path.join(root, 'no-system.json'), ...env }, platform);
+  geminiFolderTrust(cwd, home, { GEMINI_CLI_SYSTEM_SETTINGS_PATH: path.join(root, 'no-system.json'), ...env }, platform, () => null);
 
 beforeEach(() => {
   root = mkdtempSync(path.join(os.tmpdir(), 'align-gemini-trust-'));
@@ -193,5 +195,40 @@ describe('geminiFolderTrust on win32, simulated on any host (synthetic paths, so
   it('control: the SAME Windows paths under posix rules nest nothing (the CI failure mode)', () => {
     rules({ [`${WS}\\proj`]: 'TRUST_FOLDER' });
     expect(geminiFolderTrust(`${WS}\\proj\\src`, home, { GEMINI_CLI_SYSTEM_SETTINGS_PATH: path.join(root, 'no-system.json') }, 'linux')).toBe('untrusted');
+  });
+});
+
+describe('geminiFolderTrust: system files Gemini rejects do not decide the verdict', () => {
+  const disable = (file: string) => writeFileSync(file, JSON.stringify({ security: { folderTrust: { enabled: false } } }));
+  const enable = (file: string) => writeFileSync(file, JSON.stringify({ security: { folderTrust: { enabled: true } } }));
+  const rejectAll = () => 'not owned by root';
+  const rejectNone = () => null;
+  const sysPath = () => path.join(root, 'sys.json');
+  const t = (cwd: string, rejects: (f: string, p: string) => string | null) =>
+    geminiFolderTrust(cwd, home, { GEMINI_CLI_SYSTEM_SETTINGS_PATH: sysPath() }, process.platform, rejects);
+
+  it('misleading direction: a rejected system file saying enabled:false does NOT turn trust off', () => {
+    disable(sysPath());
+    const proj = dir('p');
+    expect(t(proj, rejectAll)).toBe('untrusted');
+    expect(t(proj, rejectNone)).toBe('off');
+  });
+
+  it('dangerous direction: a rejected system file saying enabled:true does not override the user\'s enabled:false', () => {
+    writeFileSync(path.join(gdir(), 'settings.json'), JSON.stringify({ security: { folderTrust: { enabled: false } } }));
+    enable(sysPath());
+    const proj = dir('p');
+    expect(t(proj, rejectAll)).toBe('off');
+    expect(t(proj, rejectNone)).toBe('untrusted');
+  });
+
+  it('the user file is never ownership-checked by Gemini, so it always counts', () => {
+    writeFileSync(path.join(gdir(), 'settings.json'), JSON.stringify({ security: { folderTrust: { enabled: false } } }));
+    expect(t(dir('p'), rejectAll)).toBe('off');
+  });
+
+  it('GEMINI_RESTRICTED_MODE=true beats GEMINI_CLI_TRUST_WORKSPACE=true', () => {
+    const env = { GEMINI_RESTRICTED_MODE: 'true', GEMINI_CLI_TRUST_WORKSPACE: 'true' };
+    expect(geminiFolderTrust(dir('p'), home, env, process.platform, rejectNone)).toBe('untrusted');
   });
 });

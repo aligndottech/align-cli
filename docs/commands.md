@@ -229,6 +229,34 @@ align mcp --setup            Auto-configure editors to use Align as MCP server
 align context sync           Write decisions to .align/decisions.md + CLAUDE.md import
 ```
 
+## Gemini CLI: how bare `align` wires it, and the known limits
+
+Bare `align` adds an `align-local` entry once to Gemini's user settings
+(`~/.gemini/settings.json`, or `$GEMINI_CLI_HOME/.gemini/settings.json`), keeps a backup, and
+`align use --undo` takes it out again. It does not use a system settings file: Gemini 0.63.0
+skips one unless the file and every folder above it is owned by root.
+
+Known limits:
+
+- **A plain `gemini` session started before Align's write can remove `align-local`.** Gemini
+  rewrites its settings file when it saves a setting, and that save can drop an entry added after
+  the session started. Align adds it again on the next `align` launch.
+- **Gemini extensions are not inspected.** An extension that defines its own server called
+  `align-local` is not detected. UNVERIFIED: not run.
+- **Windows.** Align cannot repeat Gemini's ACL check on a system settings file, so on Windows it
+  treats such a file as loaded. UNVERIFIED: not run on Windows.
+- **`~/.gemini/mcp-server-enablement.json` is not read.** Its format was not checked, so a server
+  disabled there is not reported. UNVERIFIED.
+- Align reports (one line, naming the file) when `mcp.excluded`, `mcp.allowed` or
+  `--allowed-mcp-server-names` would stop a live Gemini session loading `align-local`, using the
+  rules a real session applies (exact-case names, an empty allowlist allows all, the flag replaces
+  the allowlist and drops `excluded`). `admin.mcp.enabled` in user or workspace settings does NOT
+  block a live session (measured), so it is not reported. A system-tier `admin.mcp.enabled` is
+  UNVERIFIED and not read.
+- A repo `.gemini/settings.json` that defines an `align` server is reported once, because Gemini
+  runs it next to Align's.
+- A settings file with comments is left alone, with a line saying so.
+
 ## Local graph
 
 ```

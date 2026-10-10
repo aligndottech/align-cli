@@ -53,7 +53,7 @@ export interface LaunchDeps {
   /** What Codex would already load (/etc/codex, $CODEX_HOME or ~/.codex, a -p profile in the user's args, every ancestor .codex/). */
   readCodexState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): CodexProjectState;
   /** What Gemini CLI would already load, the system settings file it reads, and folder trust. */
-  readGeminiState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): GeminiProjectState;
+  readGeminiState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): GeminiProjectState;
   /** What Copilot CLI would already load ($COPILOT_HOME or ~/.copilot, and the workspace). */
   readCopilotState(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): CopilotProjectState;
   /*
@@ -143,7 +143,7 @@ function defaultDeps(): LaunchDeps {
     readPiState: (cwd, home, env) => readPiState(cwd, home, { localIsDefault: isLocalDefault() }, env),
     readCursorState: (cwd, home) => readCursorState(cwd, home, { localIsDefault: isLocalDefault() }),
     readCodexState: (cwd, home, env, platform, passthrough) => readCodexState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
-    readGeminiState: (cwd, home, env, platform) => readGeminiState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
+    readGeminiState: (cwd, home, env, platform, passthrough) => readGeminiState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, undefined, passthrough),
     readCopilotState: (cwd, home, env, platform) => readCopilotState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
     readQwenState: (cwd, home, env, platform) => readQwenState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
     readDroidState: (cwd, home, env, platform, passthrough) => readDroidState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
@@ -285,7 +285,6 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
       if (f.mode === undefined) d.writeIfChanged(dir, f.name, f.content);
       else d.writeIfChanged(dir, f.name, f.content, { mode: f.mode });
     }
-    if (spec.prune) d.pruneLaunchFiles(dir, spec.prune.prefix, { keep: spec.prune.keep, remove: spec.prune.remove });
   } catch (e) {
     d.err(`Could not write launch files (${(e as Error).message}). Showing your graph instead.`);
     return { handled: false };
@@ -300,6 +299,14 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   if (set(d.env['ALIGN_LAUNCH_TRACE'])) d.err(`align-overhead-ms=${Math.round(d.now())}`);
   // A dry run measures; it must not change the machine, so nothing is persisted before this.
   if (set(d.env['ALIGN_LAUNCH_DRY_RUN'])) return { handled: true, code: 0 };
+  // Tidying the cache changes the machine (it deletes and touches files), so it follows the dry run.
+  if (spec.prune) {
+    try {
+      d.pruneLaunchFiles(dir, spec.prune.prefix, { keep: spec.prune.keep, remove: spec.prune.remove });
+    } catch (e) {
+      d.err(`Could not tidy launch files (${(e as Error).message}).`);
+    }
+  }
 
   if (!stored) d.config.setAgent(agent!.name);
   // Written-once agents (pi, Cursor): the one place align adds to the user's own config. Not
