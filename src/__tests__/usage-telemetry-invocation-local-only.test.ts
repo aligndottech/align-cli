@@ -47,6 +47,8 @@ vi.mock('../lib/config.js', () => ({
     getTelemetryConsent,
     getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId,
+    hasTeamDestination: () => false,
+    listTeamDestinationNames: () => [],
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
 }));
@@ -76,6 +78,26 @@ describe('recordInvocationUsage - genuinely local-only user, bare command', () =
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0]?.[0]).toBe(`${HOSTED_URL}/telemetry/anonymous`);
+  });
+
+  // F4 (join review): a stale or mistyped ALIGN_ENV makes resolveEnv throw, and the postAction hook ran AFTER the command had
+  // already acted, so a command that worked (even `align telemetry off`) exited 2. Telemetry must never decide an exit code.
+  it('an unknown ALIGN_ENV is swallowed by the hook: nothing sent, nothing thrown', async () => {
+    vi.stubEnv('ALIGN_ENV', 'bogus');
+    await expect(recordInvocationUsage(undefined, 'search')).resolves.toBeUndefined();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('an unknown --env flag is swallowed the same way', async () => {
+    await expect(recordInvocationUsage('bogus', 'search')).resolves.toBeUndefined();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('a real error from the send path is NOT swallowed by that guard (only UnknownEnvError is)', async () => {
+    mockFetch.mockRejectedValue(new Error('boom'));
+    // sends are fire-and-forget inside recordCommandUsage; the point is the guard is narrow, so a known env still reaches it
+    await recordInvocationUsage(undefined, 'search');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('sends nothing when local consent has not been granted, same as before', async () => {
