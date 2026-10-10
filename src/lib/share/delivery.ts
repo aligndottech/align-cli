@@ -35,7 +35,13 @@ export interface DeliveryFlags {
   /** --no-qr: never print it. Wins over --qr. */
   noQr?: boolean;
 }
-export interface DeliveryPlan { open: boolean; qr: boolean; why: string }
+export interface DeliveryPlan {
+  open: boolean;
+  qr: boolean;
+  /** When the browser launch fails, a QR is still worth printing (a terminal, not CI, and not --no-qr). */
+  qrIfOpenFails: boolean;
+  why: string;
+}
 
 const set = (v: string | undefined): boolean => v !== undefined && v !== '';
 /** CI=false and CI=0 are how people turn it OFF; an empty value is unset. */
@@ -59,7 +65,7 @@ export function decideDelivery(e: DeliveryEnv, f: DeliveryFlags): DeliveryPlan {
   const open = noBrowser === null;
   // The QR goes where the link goes (stdout), so it needs a terminal there unless forced. CI never gets one unprompted.
   const qr = f.noQr ? false : f.qr ? true : !open && e.stdoutIsTTY && !ci;
-  return { open, qr, why: noBrowser ?? 'interactive terminal on a machine with a browser' };
+  return { open, qr, qrIfOpenFails: !f.noQr && e.stdoutIsTTY && !ci, why: noBrowser ?? 'interactive terminal on a machine with a browser' };
 }
 
 export function currentDeliveryEnv(): DeliveryEnv {
@@ -92,4 +98,62 @@ export async function openApprovalLink(url: string, appUrl: string, deps: OpenDe
     return child;
   };
   return tryOpenUrl(url, opener as never, deps.graceMs);
+}
+
+/** What the approval step needs to put the link in front of the person. */
+export interface PresentDeps {
+  appUrl: string;
+  plan: DeliveryPlan;
+  /** Absent: nothing is opened. */
+  openUrl?: (url: string) => Promise<boolean>;
+  /** Builds the QR lines for a link; absent: no QR. */
+  qr?: (url: string) => { lines: string[]; columns: number };
+  /** Terminal width when known: a QR wider than this is not printed (it would wrap and not scan). */
+  columns?: number;
+  /** Ordinary lines (cleaned of control characters by the caller). */
+  out: (line: string) => void;
+  /** QR lines only: they carry colour escapes, which the caller's cleaning would turn into visible junk. We built them from a link that passed the allowlist. */
+  raw: (line: string) => void;
+  /** --copy: ask the terminal to put the link on the clipboard. */
+  copy?: (url: string) => void;
+}
+
+const HOW_WITH_QR = 'To open it: scan the QR code with your phone (approving there with Face ID or a fingerprint is the strongest way), or open the link above on any device where you are signed in to Align.';
+const HOW_NO_QR = 'To open it: open the link above on any device where you are signed in to Align, a phone included.';
+
+export async function presentLink(url: string, d: PresentDeps): Promise<void> {
+  const check = checkApproveLink(url, d.appUrl);
+  if (!check.ok) {
+    d.out('This link does not have the shape of an Align approval link, so it was not opened and no QR code was made. Check it before you open it.');
+    return;
+  }
+  const showQr = (): boolean => {
+    if (!d.qr) return false;
+    const r = d.qr(url);
+    if (d.columns !== undefined && d.columns < r.columns) {
+      d.out(`Your terminal is ${d.columns} columns wide and the QR code needs ${r.columns}. Widen it and run the share again, or open the link above.`);
+      return false;
+    }
+    d.out('Scan this with your phone camera:');
+    for (const l of r.lines) d.raw(l);
+    return true;
+  };
+  let shownQr = false;
+  if (d.plan.qr) shownQr = showQr();
+  if (d.copy) { d.copy(url); d.out('Asked your terminal to copy the link. Not every terminal allows it, so check before you paste.'); }
+  if (d.plan.open && d.openUrl) {
+    if (await d.openUrl(url)) return;
+    d.out('Could not open a browser here. Open the link above yourself.');
+    if (!shownQr && d.plan.qrIfOpenFails) shownQr = showQr();
+  }
+  d.out(shownQr ? HOW_WITH_QR : HOW_NO_QR);
+}
+
+/** The OSC 52 "copy to clipboard" sequence for a link, or null when stdout is not a terminal (it would print as junk in a pipe). */
+export function osc52(url: string, stdoutIsTTY: boolean): string | null {
+  if (!stdoutIsTTY) return null;
+  let origin: string;
+  try { origin = new URL(url).origin; } catch { return null; }
+  if (!checkApproveLink(url, origin).ok) return null;
+  return `\u001b]52;c;${Buffer.from(url, 'utf8').toString('base64')}\u0007`;
 }
