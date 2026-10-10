@@ -40,10 +40,10 @@ export interface StagedRequest { id: string; userCode: string; expiresAt: string
 export interface ShareRequestStatus { state: RequestState; expiresAt: string | null }
 
 export interface ShareRequestsApi {
-  /** Null when the gateway has no such route (404): an older gateway, so the typed path applies. */
-  shareRequestsConfig(): Promise<ShareRequestsConfig | null>;
-  stageShareRequest(body: StageBody): Promise<StagedRequest>;
-  getShareRequest(id: string): Promise<ShareRequestStatus>;
+  /** Null when the gateway has no such route (404): an older gateway, so the typed path applies. `signal` aborts the call (Ctrl-C). */
+  shareRequestsConfig(signal?: AbortSignal): Promise<ShareRequestsConfig | null>;
+  stageShareRequest(body: StageBody, signal?: AbortSignal): Promise<StagedRequest>;
+  getShareRequest(id: string, signal?: AbortSignal): Promise<ShareRequestStatus>;
   cancelShareRequest(id: string): Promise<void>;
   completeShareRequest(id: string, payloadB64: string): Promise<BatchResponse>;
 }
@@ -51,7 +51,13 @@ export interface ShareRequestsApi {
 export const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const USER_CODE_RE = /^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/;
 
-type Requester = <T>(path: string, options?: Parameters<typeof fetch>[1]) => Promise<T>;
+type Requester = <T>(path: string, options?: Parameters<typeof fetch>[1] & { maxBytes?: number }) => Promise<T>;
+
+/** Every call has a deadline and a size cap: a gateway that hangs or answers without end cannot hold this process. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+export const COMPLETE_TIMEOUT_MS = 30_000;
+const SMALL_ANSWER_BYTES = 64 * 1024;
+const BATCH_ANSWER_BYTES = 2 * 1024 * 1024;
 
 const bad = (what: string): Error => new Error(`The gateway answered the share request with something this CLI does not recognise (${what}), so nothing was done.`);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -62,11 +68,14 @@ function idOf(id: string): string {
 }
 
 export function shareRequestMethods(request: Requester): ShareRequestsApi {
-  const call = <T>(path: string, init: { method?: string; body?: string } = {}): Promise<T> => request<T>(path, { redirect: 'error', ...init });
+  const call = <T>(path: string, init: { method?: string; body?: string } = {}, o: { signal?: AbortSignal; timeoutMs?: number; maxBytes?: number } = {}): Promise<T> => {
+    const deadline = AbortSignal.timeout(o.timeoutMs ?? REQUEST_TIMEOUT_MS);
+    return request<T>(path, { redirect: 'error', maxBytes: o.maxBytes ?? SMALL_ANSWER_BYTES, signal: o.signal ? AbortSignal.any([o.signal, deadline]) : deadline, ...init });
+  };
   return {
-    async shareRequestsConfig() {
+    async shareRequestsConfig(signal) {
       let raw: unknown;
-      try { raw = await call<unknown>('/share-requests/config'); } catch (e) {
+      try { raw = await call<unknown>('/share-requests/config', {}, { signal }); } catch (e) {
         if ((e as { statusCode?: number }).statusCode === 404) return null;
         throw e;
       }
@@ -74,8 +83,8 @@ export function shareRequestMethods(request: Requester): ShareRequestsApi {
       const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
       return { mode: raw['mode'] as ShareMode, pendingTtlS: num(raw['pending_ttl_s']), completeTtlS: num(raw['complete_ttl_s']) };
     },
-    async stageShareRequest(body) {
-      const raw = await call<unknown>('/share-requests', { method: 'POST', body: JSON.stringify(body) });
+    async stageShareRequest(body, signal) {
+      const raw = await call<unknown>('/share-requests', { method: 'POST', body: JSON.stringify(body) }, { signal });
       if (!isObj(raw) || typeof raw['id'] !== 'string' || typeof raw['user_code'] !== 'string' || typeof raw['expires_at'] !== 'string') throw bad('the staged request');
       // The row id is the server's. Every later route uses it, so it must be a well-formed UUID before it becomes a path.
       if (!REQUEST_ID_RE.test(raw['id'])) throw bad('the request id');
@@ -83,8 +92,8 @@ export function shareRequestMethods(request: Requester): ShareRequestsApi {
       if (Number.isNaN(Date.parse(raw['expires_at']))) throw bad('the expiry');
       return { id: raw['id'], userCode: raw['user_code'], expiresAt: raw['expires_at'] };
     },
-    async getShareRequest(id) {
-      const raw = await call<unknown>(`/share-requests/${idOf(id)}`);
+    async getShareRequest(id, signal) {
+      const raw = await call<unknown>(`/share-requests/${idOf(id)}`, {}, { signal });
       if (!isObj(raw) || typeof raw['state'] !== 'string' || !STATES.includes(raw['state'])) throw bad('the request state');
       const expires = typeof raw['expires_at'] === 'string' && !Number.isNaN(Date.parse(raw['expires_at'])) ? raw['expires_at'] : null;
       return { state: raw['state'] as RequestState, expiresAt: expires };
@@ -93,7 +102,7 @@ export function shareRequestMethods(request: Requester): ShareRequestsApi {
       await call(`/share-requests/${idOf(id)}/cancel`, { method: 'POST', body: '{}' });
     },
     async completeShareRequest(id, payloadB64) {
-      const raw = await call<unknown>(`/share-requests/${idOf(id)}/complete`, { method: 'POST', body: JSON.stringify({ payload_b64: payloadB64 }) });
+      const raw = await call<unknown>(`/share-requests/${idOf(id)}/complete`, { method: 'POST', body: JSON.stringify({ payload_b64: payloadB64 }) }, { timeoutMs: COMPLETE_TIMEOUT_MS, maxBytes: BATCH_ANSWER_BYTES });
       if (!isObj(raw)) throw bad('the completion');
       return raw as BatchResponse;
     },

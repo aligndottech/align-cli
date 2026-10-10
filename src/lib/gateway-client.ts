@@ -390,6 +390,22 @@ import type { BatchResponse as ShareBatchResponse } from './share/wire.js';
 import { toBatchDecisions } from './share/payload.js';
 import { shareRequestMethods } from './share/requests-client.js';
 
+/** Read a JSON body of at most `max` bytes: a hostile or broken gateway cannot make this process hold an unbounded answer. */
+async function readJsonCapped(res: Response, max: number): Promise<unknown> {
+  const reader = res.body?.getReader();
+  if (!reader) return JSON.parse('null');
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) { await reader.cancel().catch(() => undefined); throw new GatewayError(`The gateway's answer was larger than ${max} bytes, so it was not read.`, 0); }
+    chunks.push(value);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
 export class GatewayError extends Error {
   constructor(message: string, public readonly statusCode: number) {
     super(message);
@@ -474,17 +490,18 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     );
   }
 
-  async function request<T>(path: string, options: Parameters<typeof fetch>[1] = {}): Promise<T> {
+  async function request<T>(path: string, options: Parameters<typeof fetch>[1] & { maxBytes?: number } = {}): Promise<T> {
     assertAuthenticatedIdentity();
     assertLocalModeConfigured();
+    const { maxBytes, ...fetchOptions } = options;
     try {
       const res = await fetch(`${gatewayUrl}${path}`, {
-        ...options,
+        ...fetchOptions,
         // Identity is applied LAST so a caller passing its own `headers` cannot drop it. Every
         // other header stays caller-overridable, as before.
         headers: {
-          ...buildHeaders(options.body !== undefined && options.body !== null),
-          ...(options.headers as Record<string, string> ?? {}),
+          ...buildHeaders(fetchOptions.body !== undefined && fetchOptions.body !== null),
+          ...(fetchOptions.headers as Record<string, string> ?? {}),
           ...CLIENT_IDENTITY_HEADERS,
         },
       });
@@ -496,7 +513,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
           res.status,
         );
       }
-      return res.json() as Promise<T>;
+      return (maxBytes === undefined ? res.json() : readJsonCapped(res, maxBytes)) as Promise<T>;
     } catch (err) {
       if (err instanceof GatewayError) throw err;
       throw new GatewayError(`Cannot reach gateway at ${gatewayUrl}`, 0);

@@ -116,6 +116,8 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
       return 1;
     }
     if (!browser && deps.wrapped) { err(WRAPPED); return 1; }
+    // No silent downgrade: when the typed flow runs because the gateway has no browser approval, say so.
+    if (!browser && !opts.typed) out(cfg === null ? 'This gateway does not offer browser approval (it has no such route), so this uses the typed answer at your terminal.' : 'This gateway has browser approval turned off, so this uses the typed answer at your terminal.');
 
     let ids = opts.ids;
     let pendingCode: string | undefined;
@@ -149,7 +151,8 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     if (browser) {
       out(prep.preview);
       const { guard, ...rest } = deps.approval;
-      return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, signal, client: c.client, out, err }));
+      const maxWaitMs = ((cfg?.pendingTtlS ?? 900) + (cfg?.completeTtlS ?? 600)) * 1000;
+      return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, signal, maxWaitMs, client: c.client, out, err, ...(deps.wrapped ? { agent: 'wrapped' } : {}) }));
     }
 
     if (pendingCode !== undefined) {

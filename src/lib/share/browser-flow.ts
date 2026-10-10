@@ -10,7 +10,7 @@
  * refuses it on the approve route. That is why this path, unlike the typed one, is allowed when ALIGN_WRAPPED is set. It is
  * not a lock: SECURITY.md lists how an agent can still obtain a session.
  */
-import { approveUrl, completeRequest, type PollDeps, pollUntilDecided, stageRequest } from './approval.js';
+import { approveUrl, completeRequest, CompletionError, type PollDeps, pollUntilDecided, stageRequest } from './approval.js';
 import { buildPlaintext, MAX_PLAINTEXT_BYTES, type RequestKind } from './envelope.js';
 import type { SharePayload } from './payload.js';
 import { type Prepared, renderResults, send, type SendHooks, SHARE_BATCH_ITEMS, type ShareContext, ShareError } from './run.js';
@@ -33,10 +33,16 @@ export interface BrowserFlowDeps extends Omit<PollDeps, 'client'> {
 /** Split into requests of at most SHARE_BATCH_ITEMS decisions that each seal under the size cap. */
 export function groupForApproval(payloads: readonly SharePayload[], to: { tenantId: string; userId: string; gatewayUrl: string }): SharePayload[][] {
   const size = (g: readonly SharePayload[]): number => buildPlaintext({ kind: 'share', ...to, payloads: g }).length;
+  // A matched share is followed by a SECOND request (confirm_team_text) for the same item, which carries the `confirm` block and a
+  // 64-character hash on every judgement. Size an item by the larger of the two, so the second request cannot be too big after the first landed.
+  const confirmSize = (p: SharePayload): number => {
+    const withHash: SharePayload = { ...p, item: { ...p.item, judgements: p.item.judgements.map((j) => ({ ...j, confirm_team_text_hash: 'f'.repeat(64) })) } };
+    return buildPlaintext({ kind: 'confirm_team_text', ...to, payloads: [withHash], confirm: { remoteId: 'f'.repeat(64), teamTextHash: 'f'.repeat(64) } }).length;
+  };
   const groups: SharePayload[][] = [];
   let cur: SharePayload[] = [];
   for (const p of payloads) {
-    if (size([p]) > MAX_PLAINTEXT_BYTES) throw new ShareError(`"${visible(p.item.title)}" is too large to approve in one request (${size([p])} bytes sealed, the limit is ${MAX_PLAINTEXT_BYTES}). Nothing was sent. Shorten its text or its notes, then share again.`);
+    if (Math.max(size([p]), confirmSize(p)) > MAX_PLAINTEXT_BYTES) throw new ShareError(`"${visible(p.item.title)}" is too large to approve in one request (${Math.max(size([p]), confirmSize(p))} bytes sealed, the limit is ${MAX_PLAINTEXT_BYTES}). Nothing was sent. Shorten its text or its notes, then share again.`);
     if (cur.length > 0 && (cur.length >= SHARE_BATCH_ITEMS || size([...cur, p]) > MAX_PLAINTEXT_BYTES)) { groups.push(cur); cur = []; }
     cur.push(p);
   }
@@ -52,14 +58,17 @@ const minutesLeft = (expiresAt: string, now: number): number => Math.max(1, Math
 export async function approveOne(
   d: BrowserFlowDeps,
   to: { tenantId: string; userId: string; gatewayUrl: string },
-  spec: { kind: RequestKind; payloads: readonly SharePayload[]; confirm?: { remoteId: string; teamTextHash: string }; heading?: string },
+  spec: { kind: RequestKind; payloads: readonly SharePayload[]; confirm?: { remoteId: string; teamTextHash: string }; heading?: string; tail?: string },
 ): Promise<StepResult> {
+  // What may be said about this step: for the first request nothing has been sent; for a confirmation or a later request, something already was.
+  const tail = spec.tail ?? 'Nothing was sent.';
+  if (d.signal?.aborted) { d.err(`Cancelled before it was staged. ${tail}`); return { ok: false, exit: 130 }; }
   const plaintext = buildPlaintext({ kind: spec.kind, ...to, payloads: spec.payloads, ...(spec.confirm ? { confirm: spec.confirm } : {}) });
   const staged = await stageRequest(d.client, {
     kind: spec.kind, plaintext, tenantId: to.tenantId, userId: to.userId,
     itemCount: spec.payloads.length, judgementCount: spec.payloads.reduce((n, p) => n + p.item.judgements.length, 0),
     label: d.label, ...(d.agent ? { agent: d.agent } : {}),
-  });
+  }, undefined, d.signal);
   const url = approveUrl(d.appUrl, staged.id, staged.keyB64Url);
   if (spec.heading) d.out(spec.heading);
   d.out(`Approve in your browser: ${url}`);
@@ -71,14 +80,14 @@ export async function approveOne(
   const decision = await pollUntilDecided(staged.id, staged.expiresAt, d);
   switch (decision) {
     case 'approved': break;
-    case 'declined': d.out('Declined in your browser. Nothing was sent.'); return { ok: false, exit: 0 };
-    case 'expired': d.err('The request expired before it was approved. Nothing was sent. Run the share again to start a new one.'); return { ok: false, exit: 1 };
-    case 'cancelled': d.err('The request was cancelled. Nothing was sent.'); return { ok: false, exit: 1 };
-    case 'failed': d.err('The gateway marked the request as failed. Nothing was sent. Run the share again.'); return { ok: false, exit: 1 };
+    case 'declined': d.out(`Declined in your browser. ${tail}`); return { ok: false, exit: 0 };
+    case 'expired': d.err(`The request expired before it was approved. ${tail} Run the share again to start a new one.`); return { ok: false, exit: 1 };
+    case 'cancelled': d.err(`The request was cancelled. ${tail}`); return { ok: false, exit: 1 };
+    case 'failed': d.err(`The gateway marked the request as failed. ${tail} Run the share again.`); return { ok: false, exit: 1 };
     case 'aborted': {
       const cancelled = await d.client.cancelShareRequest(staged.id).then(() => true, () => false);
       d.err(cancelled
-        ? 'Cancelled the request. Nothing was sent.'
+        ? `Cancelled the request. ${tail}`
         : 'Could not reach the gateway to cancel. The request expires on its own, and nothing can be sent from it: this run is the only thing that holds the means to finish it, and it has stopped.');
       return { ok: false, exit: 130 };
     }
@@ -103,8 +112,17 @@ export function approvalHooks(d: BrowserFlowDeps, to: { tenantId: string; userId
         return firstResponse;
       }
       d.out('\nYour ratification would sit on the team\'s existing text, so that needs its own approval.');
-      const step = await approveOne(d, to, { kind: 'confirm_team_text', payloads: batch, ...(confirm ? { confirm } : {}) });
-      return step.ok ? step.response : null;
+      const tail = 'The share itself already went through; your ratify is not confirmed. Run the share again to retry.';
+      try {
+        const step = await approveOne(d, to, { kind: 'confirm_team_text', payloads: batch, tail, ...(confirm ? { confirm } : {}) });
+        return step.ok ? step.response : null;
+      } catch (e) {
+        // The first request already landed and is recorded: a failure here (the server's live-request cap, three failed reads, a
+        // completion with no verdict) must not turn the run into a report that nothing happened.
+        const why = e instanceof CompletionError ? (e.sent === 'maybe' ? 'the gateway did not say whether it finished; check your team graph' : 'the gateway refused it') : visible((e as Error).message);
+        d.err(`The confirmation of the team's text did not finish (${why}). ${tail}`);
+        return null;
+      }
     },
   };
 }
@@ -119,11 +137,26 @@ export async function runBrowserShare(ctx: ShareContext, prep: Prepared, d: Brow
   const to = { tenantId: prep.tenantId, userId: prep.userId, gatewayUrl: prep.gatewayUrl };
   const groups = groupForApproval(prep.payloads, to);
   let failed = false;
+  let landed = 0;
   for (const [i, group] of groups.entries()) {
     const heading = groups.length > 1 ? `\nRequest ${i + 1} of ${groups.length} (${group.length} decision${group.length === 1 ? '' : 's'}):` : undefined;
-    const step = await approveOne(d, to, { kind: 'share', payloads: group, ...(heading ? { heading } : {}) });
+    let step: StepResult;
+    try {
+      step = await approveOne(d, to, { kind: 'share', payloads: group, ...(heading ? { heading } : {}), ...(landed ? { tail: 'Nothing more was sent (the earlier requests in this run were).' } : {}) });
+    } catch (e) {
+      if (landed === 0) throw e;
+      // Earlier requests are on the team graph and printed above: say this one failed, not that the run sent nothing.
+      throw new ShareError(`${(e as Error).message} (That is about this request only: ${landed} earlier request${landed === 1 ? ' was' : 's were'} sent, see above.)`);
+    }
     if (!step.ok) return failed ? 1 : step.exit;
-    const rows = await send(ctx, { ...prep, payloads: group }, approvalHooks(d, to, step.response));
+    landed += 1;
+    let rows;
+    try {
+      rows = await send(ctx, { ...prep, payloads: group }, approvalHooks(d, to, step.response));
+    } catch (e) {
+      d.err(`The gateway completed this request, so it is on your team graph, but this run could not finish recording it (${visible((e as Error).message)}). \`align share --retract\` may not find it until you share the same decision again (that is safe: it will not make a second copy).`);
+      return 1;
+    }
     d.out(`\n${renderResults(rows)}`);
     if (rows.some((r) => r.outcome.kind === 'refused' || r.outcome.kind === 'unknown')) failed = true;
   }

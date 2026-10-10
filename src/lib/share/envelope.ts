@@ -45,7 +45,24 @@ export class InvalidTeamTextHashError extends Error {
 
 export interface Binding { envelopeId: string; tenantId: string; userId: string; kind: RequestKind }
 
+/**
+ * The AAD joins ids with `|`, so an id that contains one would make `v1|a|b|c|d` ambiguous (a tenant of `T|U` and a user of
+ * `V` would bind the same bytes as a tenant of `T` and a user of `U|V`). Real ids are UUIDs; this accepts any plain token with
+ * no separator, space or control character, and refuses everything else before anything is sealed.
+ */
+export const BINDING_PART_RE = /^[0-9A-Za-z][0-9A-Za-z_.:-]{0,127}$/;
+
+export class InvalidBindingError extends Error {
+  constructor(field: string) {
+    super(`The ${field} the gateway reported is not a plain identifier, so a request cannot be sealed to it. Nothing was staged.`);
+    this.name = 'InvalidBindingError';
+  }
+}
+
 export function aadFor(b: Binding): Buffer {
+  for (const [field, v] of [['envelope id', b.envelopeId], ['workspace id', b.tenantId], ['user id', b.userId]] as const) {
+    if (!BINDING_PART_RE.test(v)) throw new InvalidBindingError(field);
+  }
   return Buffer.from(`v1|${b.envelopeId}|${b.tenantId}|${b.userId}|${b.kind}`, 'utf8');
 }
 
