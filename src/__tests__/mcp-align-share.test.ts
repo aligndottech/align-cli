@@ -28,7 +28,7 @@ const client = {
   getDecision: async () => ({}), archiveDecision: async () => { calls.archive++; },
 };
 const cloud = { mode: 'auth', gatewayUrl: 'https://x', authToken: 't', tenantId: 'T1' } as EnvironmentConfig;
-const ctx = (over: Record<string, unknown> = {}) => ({ clientInfo: { name: 'claude-code' }, judge: async () => ({ judgeId: 'i', judgeLabel: null }), share: { cloudEnv: cloud, envName: 'prod', client }, ...over });
+const ctx = (over: Record<string, unknown> = {}) => ({ clientInfo: { name: 'claude-code' }, judge: async () => ({ judgeId: 'i', judgeLabel: null }), share: { cloudEnv: cloud, envName: 'prod', client, salt: 'salt-1' }, ...over });
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-share-mcp-'));
   vi.stubEnv('XDG_STATE_HOME', path.join(dir, 'state')); fs.mkdirSync(path.join(dir, 'state'));
