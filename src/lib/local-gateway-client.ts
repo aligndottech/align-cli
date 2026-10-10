@@ -332,6 +332,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // BEFORE the lookup: L2 finds a Slack thread by its source_key, which the tombstone shares.
     if (platform === 'slack') db.deleteSlackTombstoneTwin(sourceUrl);
     const existingId = db.findIdBySource(sourceUrl, title, platform, opts.keyed);
+    if (opts.keyed && existingId !== null) ({ title, summary } = db.keepProtectedText(existingId, title, summary));
     const created = existingId === null;
     // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.

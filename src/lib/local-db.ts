@@ -137,6 +137,9 @@ const DECISION_COLUMNS =
   'decider_kind as deciderKind, confirmed_by as confirmedBy, confirmed_at as confirmedAt, ' +
   'ratified_by as ratifiedBy, ratified_at as ratifiedAt';
 
+/** A person's ratification or confirmation covers the text they read (review finding 4). */
+const ATTESTED = 'decisions.ratified_at IS NOT NULL OR decisions.confirmed_at IS NOT NULL';
+
 export function createLocalDb(dbPath: string) {
   // SQLite creates the DB file but not its parent directory, so on a clean machine
   // (~/.config/align-cli absent) `align setup --local` crashed with "unable to open
@@ -161,7 +164,7 @@ export function createLocalDb(dbPath: string) {
     ).run(randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
   }
 
-  return {
+  const api = {
     /**
      * Insert, or refresh the decision that already carries this `source_url`, returning the id
      * that now holds it.
@@ -216,15 +219,17 @@ export function createLocalDb(dbPath: string) {
         const twin = db.prepare(`SELECT id FROM decisions WHERE source_url = ? AND title = ? AND source_key IS NULL`).get(sourceUrl, row.title) as { id: string } | undefined;
         const holder = twin ? db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined : undefined;
         if (twin && !holder) db.prepare(`UPDATE decisions SET source_key = ? WHERE id = ?`).run(key, twin.id);
-        else if (twin && holder) absorbLoser(db, twin.id, holder.id, new Set([twin.id, holder.id]), false);
+        else if (twin && holder) absorbLoser(db, twin.id, holder.id, new Set([twin.id, holder.id]));
       }
       const inserted = db.prepare(
         `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET
-           title = excluded.title, summary = excluded.summary, platform = excluded.platform,
+           title = CASE WHEN ${ATTESTED} THEN decisions.title ELSE excluded.title END,
+           summary = CASE WHEN ${ATTESTED} THEN decisions.summary ELSE excluded.summary END,
+           platform = excluded.platform,
            repo = COALESCE(excluded.repo, decisions.repo),
            decided_at = COALESCE(excluded.decided_at, decisions.decided_at),
-           enriched_at = NULL
+           enriched_at = CASE WHEN ${ATTESTED} THEN decisions.enriched_at ELSE NULL END
          ON CONFLICT(source_url, title) DO UPDATE SET
            summary = excluded.summary, platform = excluded.platform,
            repo = COALESCE(excluded.repo, decisions.repo),
@@ -287,6 +292,24 @@ export function createLocalDb(dbPath: string) {
       return row?.id ?? null;
     },
 
+    /**
+     * Review finding 4: what a keyed re-import may write over row `id`. A ratified or confirmed
+     * row keeps the text a person attested; the incoming text is recorded once as a
+     * `text_revision_pending` audit note and the stored text is returned. Any other row (or an
+     * unknown id) gets the incoming text back unchanged.
+     */
+    keepProtectedText(id: string, title: string, summary: string): { title: string; summary: string } {
+      const row = db.prepare(`SELECT title, summary, ratified_at, confirmed_at FROM decisions WHERE id = ?`).get(id) as
+        { title: string; summary: string; ratified_at: string | null; confirmed_at: string | null } | undefined;
+      if (!row || (row.ratified_at === null && row.confirmed_at === null)) return { title, summary };
+      if (row.title !== title || row.summary !== summary) {
+        const detail = JSON.stringify({ title, summary });
+        const seen = db.prepare(`SELECT 1 AS hit FROM decision_audit WHERE decision_id = ? AND action = 'text_revision_pending' AND detail = ?`).get(id, detail);
+        if (!seen) api.insertAudit({ decisionId: id, action: 'text_revision_pending', actor: null, detail });
+      }
+      return { title: row.title, summary: row.summary };
+    },
+
     /** The id of the connector-imported item `url` names, under any platform, or null. A capture
      *  of that URL must not rewrite the imported text (L2 review finding 1). */
     findKeyedIdByUrl(url: string): string | null {
@@ -302,9 +325,9 @@ export function createLocalDb(dbPath: string) {
 
     /** A capture of a URL a connector already imported: audit it, change nothing, return the row. */
     noteCaptureOfHeldItem(url: string): DecisionRow | null {
-      const id = this.findKeyedIdByUrl(url);
-      const row = id === null ? null : this.getDecisionById(id);
-      if (row) this.insertAudit({ decisionId: row.id, action: 'capture_seen', actor: null, detail: url });
+      const id = api.findKeyedIdByUrl(url);
+      const row = id === null ? null : api.getDecisionById(id);
+      if (row) api.insertAudit({ decisionId: row.id, action: 'capture_seen', actor: null, detail: url });
       return row;
     },
 
@@ -699,6 +722,7 @@ export function createLocalDb(dbPath: string) {
       db.close();
     },
   };
+  return api;
 }
 
 export type LocalDb = ReturnType<typeof createLocalDb>;

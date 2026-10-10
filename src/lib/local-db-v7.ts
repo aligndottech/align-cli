@@ -22,9 +22,10 @@
  *
  * Twin merge (Decision 3). v6 keyed rows on (source_url, title), so an edited PR or issue title
  * wrote a second row for the same item. Rows sharing a source_key are merged: the survivor is
- * the ratified row (the first ratified, if several), else the most recently inserted. It takes
- * the newest row's title, summary and embedding, because the newest text is the item as it
- * stands. Everything that named a loser is re-pointed; a link between two twins is dropped
+ * the first ratified row, else the first confirmed row, else the most recently inserted. An
+ * unattested survivor holds the newest text (it is the newest row). An attested survivor KEEPS
+ * its own text and vector, and the newer text is stored as a `text_revision_pending` audit note
+ * (mergeGroup). Everything that named a loser is re-pointed; a link between two twins is dropped
  * rather than turned into a self-link; a duplicate link keeps the higher confidence.
  *
  * Replay-safe: every CREATE is IF NOT EXISTS, every ALTER is guarded by table_info, keys are
@@ -124,10 +125,11 @@ function repointLinks(db: DatabaseSync, loser: string, survivor: string, group: 
 }
 
 /** Fold one twin into its survivor: back the row up, re-point everything that named it, delete
- *  it. `adoptVector`: the survivor takes the loser's embedding (the loser holds the text the
- *  survivor is about to carry) - otherwise the loser's vector is dropped. Also used by
- *  insertDecision to absorb a keyless row written by an older binary. */
-export function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, group: Set<string>, adoptVector: boolean): void {
+ *  it. The loser's vector is dropped: the survivor keeps its own text, so it keeps its own
+ *  vector (a survivor that takes newer text is the newest row, which already holds that
+ *  text's vector). Also used by insertDecision to absorb a keyless row written by an older
+ *  binary. */
+export function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, group: Set<string>): void {
   const hasJudgements = tableExists(db, 'local_judgements');
   const hasPromotions = tableExists(db, 'promotions');
   db.prepare('INSERT INTO decisions_merged_backup SELECT * FROM decisions WHERE id = ?').run(loserId);
@@ -141,39 +143,66 @@ export function absorbLoser(db: DatabaseSync, loserId: string, survivorId: strin
   if (hasPromotions) repoint(db, 'promotions', 'local_id', loserId, survivorId);
   // Refs the survivor already had stay as they are; the loser's leftovers are duplicates.
   db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(loserId);
-  if (adoptVector) {
-    // The survivor takes the newest text, so it takes the vector OF that text - or none, if the
-    // newest row never got one. Its own vector described text it no longer holds; with none,
-    // the next sync re-embeds it (ingestStep 'full').
-    db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(survivorId);
-    db.prepare('UPDATE decision_embeddings SET decision_id = ? WHERE decision_id = ?').run(survivorId, loserId);
-  }
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(loserId);
   db.prepare('DELETE FROM decisions WHERE id = ?').run(loserId);
   db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'merged', 'migration', ?)`)
     .run(survivorId, loserId);
 }
 
-interface TwinRow { id: string; rowid: number; ratified_at: string | null }
+interface TwinRow {
+  id: string; rowid: number; created_at: string; title: string; summary: string;
+  ratified_by: string | null; ratified_at: string | null; confirmed_by: string | null; confirmed_at: string | null;
+}
 
+/** Earliest first by the attestation time, ties by insertion order. */
+function earliestBy(twins: TwinRow[], at: 'ratified_at' | 'confirmed_at'): TwinRow[] {
+  return twins.filter(t => t[at] !== null)
+    .sort((a, b) => (a[at]! < b[at]! ? -1 : a[at]! > b[at]! ? 1 : a.rowid - b.rowid));
+}
+
+/**
+ * Survivor: the earliest ratified row, else the earliest confirmed row, else the newest. A row
+ * a person ratified or confirmed keeps ITS text and vector: the attestation covers text they
+ * read, so newer upstream text is recorded as a `text_revision_pending` audit note instead of
+ * replacing it. An unattested survivor (the newest row) holds the newest text already. Either
+ * way the survivor keeps the earliest created_at and carries any ratification or confirmation
+ * a loser held that it lacks.
+ */
 function mergeGroup(db: DatabaseSync, key: string): void {
-  const twins = db.prepare(`SELECT id, rowid, ratified_at FROM decisions WHERE source_key = ? ORDER BY rowid`)
-    .all(key) as unknown as TwinRow[];
-  const newest = twins[twins.length - 1];
-  const ratified = twins.filter(t => t.ratified_at !== null)
-    .sort((a, b) => (a.ratified_at! < b.ratified_at! ? -1 : a.ratified_at! > b.ratified_at! ? 1 : a.rowid - b.rowid));
-  const survivor = ratified[0] ?? newest;
-  const losers = twins.filter(t => t.id !== survivor.id);
+  const twins = db.prepare(
+    `SELECT id, rowid, created_at, title, summary, ratified_by, ratified_at, confirmed_by, confirmed_at
+     FROM decisions WHERE source_key = ? ORDER BY rowid`,
+  ).all(key) as unknown as TwinRow[];
+  const newest = twins[twins.length - 1]!;
+  const ratified = earliestBy(twins, 'ratified_at')[0];
+  const confirmed = earliestBy(twins, 'confirmed_at')[0];
+  const attested = ratified ?? confirmed;
+  const survivor = attested ?? newest;
   const group = new Set(twins.map(t => t.id));
-  // The newest text, read before the newest row can be deleted as a loser.
-  const latest = db.prepare('SELECT title, summary, source_url, repo, decided_at FROM decisions WHERE id = ?')
-    .get(newest.id) as { title: string; summary: string; source_url: string | null; repo: string | null; decided_at: string | null };
+  const earliestCreated = twins.map(t => t.created_at).sort()[0]!;
+  const latest = db.prepare('SELECT source_url, repo, decided_at FROM decisions WHERE id = ?')
+    .get(newest.id) as { source_url: string | null; repo: string | null; decided_at: string | null };
 
-  for (const loser of losers) absorbLoser(db, loser.id, survivor.id, group, loser.id === newest.id);
+  for (const loser of twins.filter(t => t.id !== survivor.id)) absorbLoser(db, loser.id, survivor.id, group);
+
+  if (attested === undefined) {
+    db.prepare('UPDATE decisions SET source_url = ?, repo = COALESCE(?, repo), decided_at = COALESCE(?, decided_at) WHERE id = ?')
+      .run(latest.source_url, latest.repo, latest.decided_at, survivor.id);
+  } else {
+    db.prepare('UPDATE decisions SET repo = COALESCE(?, repo), decided_at = COALESCE(?, decided_at) WHERE id = ?')
+      .run(latest.repo, latest.decided_at, survivor.id);
+    if (newest.id !== survivor.id && (newest.title !== survivor.title || newest.summary !== survivor.summary)) {
+      db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'text_revision_pending', 'migration', ?)`)
+        .run(survivor.id, JSON.stringify({ title: newest.title, summary: newest.summary }));
+    }
+  }
   db.prepare(
-    `UPDATE decisions SET title = ?, summary = ?, source_url = ?, repo = COALESCE(?, repo), decided_at = COALESCE(?, decided_at)
+    `UPDATE decisions SET created_at = ?,
+       ratified_by = COALESCE(ratified_by, ?), ratified_at = COALESCE(ratified_at, ?),
+       confirmed_by = COALESCE(confirmed_by, ?), confirmed_at = COALESCE(confirmed_at, ?)
      WHERE id = ?`,
-  ).run(latest.title, latest.summary, latest.source_url, latest.repo, latest.decided_at, survivor.id);
+  ).run(earliestCreated, ratified?.ratified_by ?? null, ratified?.ratified_at ?? null,
+    confirmed?.confirmed_by ?? null, confirmed?.confirmed_at ?? null, survivor.id);
 }
 
 export function migrateV7(db: DatabaseSync): void {

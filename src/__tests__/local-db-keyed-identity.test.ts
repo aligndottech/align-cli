@@ -146,3 +146,38 @@ describe('a keyless twin written by an older binary beside the keyed row (review
     } finally { db.close(); }
   });
 });
+
+describe('a ratified or confirmed row keeps its text through a re-import (review finding 4)', () => {
+  it.each([
+    ['ratified', `UPDATE decisions SET ratified_by = 'tom', ratified_at = '2026-01-01T00:00:00Z'`],
+    ['confirmed', `UPDATE decisions SET confirmed_by = 'tom', confirmed_at = '2026-01-01T00:00:00Z'`],
+  ])('%s: a retitled, rewritten upstream item leaves title and summary alone, refreshes the date, and notes the new text', async (_n, sql) => {
+    const client = createLocalGatewayClient(dbPath);
+    try {
+      const item = { source_url: PR, platform: 'github', title: 'Use Postgres', raw_text: 'attested text' };
+      await client.ingestBatch([item], { classify: false, keyed: true });
+      const raw = new DatabaseSync(dbPath);
+      raw.exec(sql);
+      raw.close();
+      await client.ingestBatch([{ ...item, title: 'Revert Postgres', raw_text: 'opposite text', created_at: '2026-05-05T00:00:00Z' }], { classify: false, keyed: true });
+      expect(rows('SELECT title, summary, decided_at FROM decisions')).toEqual([
+        { title: 'Use Postgres', summary: 'attested text', decided_at: '2026-05-05T00:00:00.000Z' },
+      ]);
+      const notes = rows(`SELECT detail FROM decision_audit WHERE action = 'text_revision_pending'`);
+      expect(notes.map(n => JSON.parse(n.detail as string))).toEqual([{ title: 'Revert Postgres', summary: 'opposite text' }]);
+      // A second sync of the same upstream text does not stack another note.
+      await client.ingestBatch([{ ...item, title: 'Revert Postgres', raw_text: 'opposite text' }], { classify: false, keyed: true });
+      expect(rows(`SELECT count(*) AS n FROM decision_audit WHERE action = 'text_revision_pending'`)).toEqual([{ n: 1 }]);
+    } finally { client.close(); }
+  });
+
+  it('an unratified row still takes the new text (control: the guard is not a blanket freeze)', async () => {
+    const client = createLocalGatewayClient(dbPath);
+    try {
+      const item = { source_url: PR, platform: 'github', title: 'Use Postgres', raw_text: 'v1' };
+      await client.ingestBatch([item], { classify: false, keyed: true });
+      await client.ingestBatch([{ ...item, title: 'Use Postgres, again', raw_text: 'v2' }], { classify: false, keyed: true });
+      expect(rows('SELECT title, summary FROM decisions')).toEqual([{ title: 'Use Postgres, again', summary: 'v2' }]);
+    } finally { client.close(); }
+  });
+});

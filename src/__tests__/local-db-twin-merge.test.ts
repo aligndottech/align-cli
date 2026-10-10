@@ -55,10 +55,10 @@ describe('twin merge', () => {
     expect(rows(`SELECT id, title FROM decisions_merged_backup`)).toEqual([{ id: 'old', title: 'Use Postgres' }]);
   });
 
-  it('a ratified OLDER twin survives and takes the newer title and body', () => {
+  it('a ratified OLDER twin survives keeping ITS text and vector; the newer text is kept as an audit note', () => {
     const v6 = createV6Graph(dbPath);
-    v6.insertDecision({ id: 'old', title: 'Use Postgres', summary: 'v1 body', sourceUrl: PR, platform: 'github' });
-    v6.insertDecision({ id: 'new', title: 'Use Postgres for the queue', summary: 'v2 body', sourceUrl: PR, platform: 'github' });
+    v6.insertDecision({ id: 'old', title: 'Use Postgres', summary: 'ratified text', sourceUrl: PR, platform: 'github' });
+    v6.insertDecision({ id: 'new', title: 'Revert: do not use Postgres', summary: 'opposite text', sourceUrl: PR, platform: 'github' });
     v6.markRatified('old', 'tom@align.tech');
     v6.setEmbedding('old', 0.1);
     v6.setEmbedding('new', 0.2);
@@ -66,28 +66,42 @@ describe('twin merge', () => {
 
     createLocalDb(dbPath).close();
 
+    // Ratification attests the text Tom read: the survivor must not carry text he never saw.
     expect(rows(`SELECT id, title, summary, ratified_by AS r FROM decisions`)).toEqual([
-      { id: 'old', title: 'Use Postgres for the queue', summary: 'v2 body', r: 'tom@align.tech' },
+      { id: 'old', title: 'Use Postgres', summary: 'ratified text', r: 'tom@align.tech' },
     ]);
     expect(rows(`SELECT id FROM decisions_merged_backup`)).toEqual([{ id: 'new' }]);
-    // The survivor now carries the newer text, so it carries the vector OF that text.
     const db = createLocalDb(dbPath);
-    try { expect(Array.from(db.getEmbedding('old') ?? [])[0]).toBeCloseTo(0.2); } finally { db.close(); }
-    expect(count(dbPath, 'SELECT count(*) AS n FROM decision_embeddings')).toBe(1);
+    try { expect(Array.from(db.getEmbedding('old') ?? [])[0]).toBeCloseTo(0.1); } finally { db.close(); }
+    const note = rows(`SELECT detail FROM decision_audit WHERE decision_id = 'old' AND action = 'text_revision_pending'`);
+    expect(note).toHaveLength(1);
+    expect(JSON.parse(note[0]!.detail as string)).toEqual({ title: 'Revert: do not use Postgres', summary: 'opposite text' });
   });
 
-  it('a ratified older survivor drops its own vector when the newest twin has none: its text changed', () => {
+  it('a confirmed (not ratified) older twin also keeps its text', () => {
     const v6 = createV6Graph(dbPath);
-    v6.insertDecision({ id: 'old', title: 'Use Postgres', summary: 'v1 body', sourceUrl: PR, platform: 'github' });
-    v6.insertDecision({ id: 'new', title: 'Use Postgres for the queue', summary: 'v2 body', sourceUrl: PR, platform: 'github' });
-    v6.markRatified('old', 'tom@align.tech');
-    v6.setEmbedding('old', 0.1); // the vector of 'v1 body', which the survivor no longer holds
+    v6.insertDecision({ id: 'old', title: 'Use Postgres', summary: 'confirmed text', sourceUrl: PR, platform: 'github' });
+    v6.insertDecision({ id: 'new', title: 'Use SQLite', summary: 'other text', sourceUrl: PR, platform: 'github' });
+    v6.raw.prepare(`UPDATE decisions SET confirmed_by = 'tom', confirmed_at = '2026-01-01T00:00:00Z' WHERE id = 'old'`).run();
     v6.close();
-
     createLocalDb(dbPath).close();
+    expect(rows(`SELECT id, summary, confirmed_by AS c FROM decisions`)).toEqual([{ id: 'old', summary: 'confirmed text', c: 'tom' }]);
+  });
 
-    expect(rows(`SELECT id, summary FROM decisions`)).toEqual([{ id: 'old', summary: 'v2 body' }]);
-    expect(count(dbPath, 'SELECT count(*) AS n FROM decision_embeddings')).toBe(0);
+  it('the survivor carries the union of attestation: ratified_* from a loser when the survivor lacks them, and the earliest created_at', () => {
+    const v6 = createV6Graph(dbPath);
+    v6.insertDecision({ id: 'a', title: 'T1', summary: '1', sourceUrl: PR, platform: 'github' });
+    v6.insertDecision({ id: 'b', title: 'T2', summary: '2', sourceUrl: PR, platform: 'github' });
+    v6.raw.prepare(`UPDATE decisions SET created_at = '2026-01-01 00:00:00' WHERE id = 'a'`).run();
+    v6.raw.prepare(`UPDATE decisions SET created_at = '2026-03-01 00:00:00' WHERE id = 'b'`).run();
+    // a is confirmed only; b is ratified. Ratified outranks confirmed, so b survives with b's text.
+    v6.raw.prepare(`UPDATE decisions SET confirmed_by = 'tom', confirmed_at = '2026-02-01T00:00:00Z' WHERE id = 'a'`).run();
+    v6.raw.prepare(`UPDATE decisions SET ratified_by = 'tom', ratified_at = '2026-04-01T00:00:00Z' WHERE id = 'b'`).run();
+    v6.close();
+    createLocalDb(dbPath).close();
+    expect(rows(`SELECT id, title, created_at, confirmed_by AS c, confirmed_at AS ca, ratified_by AS r FROM decisions`)).toEqual([
+      { id: 'b', title: 'T2', created_at: '2026-01-01 00:00:00', c: 'tom', ca: '2026-02-01T00:00:00Z', r: 'tom' },
+    ]);
   });
 
   it('three twins (two edits) collapse to the most recent, and both losers are backed up', () => {
