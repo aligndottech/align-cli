@@ -189,10 +189,11 @@ export function removeJudgement(dbPath: string, w: Omit<JudgementWrite, 'value' 
 /** Every row of this judge, newest first, optionally only those that name one decision. */
 export function listJudgements(dbPath: string, judgeId: string, decisionId?: string): JudgementRow[] {
   return readDb<JudgementRow[]>(dbPath, [], (db) => db.prepare(
-    `SELECT * FROM local_judgements WHERE judge_id = ?1 AND (?2 IS NULL OR decision_id = ?2 OR counterpart_id = ?2)
+    // Anonymous placeholders, each bound: Node 22.16's DatabaseSync rejects numbered ones with 'column index out of range'.
+    `SELECT * FROM local_judgements WHERE judge_id = ? AND (? IS NULL OR decision_id = ? OR counterpart_id = ?)
        AND NOT (value IS NULL AND kind IN ('conflict_verdict', 'check_verdict'))
      ORDER BY judged_at DESC, rowid DESC`,
-  ).all(judgeId, decisionId ?? null) as unknown as JudgementRow[]);
+  ).all(judgeId, decisionId ?? null, decisionId ?? null, decisionId ?? null) as unknown as JudgementRow[]);
 }
 
 export interface CheckVerdictLookup {
