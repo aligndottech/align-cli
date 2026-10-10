@@ -7,7 +7,7 @@
  * Deliberately separate from project-state.ts's isLocalAlignServer (Claude Code, pi, Cursor),
  * which matches any command line that mentions align and mcp.
  */
-export type StrictHost = 'mcpServers' | 'codex' | 'copilot' | 'droid';
+export type StrictHost = 'mcpServers' | 'codex' | 'copilot' | 'droid' | 'auggie';
 
 export interface CanonicalOptions {
   /** Whether a bare `align mcp` reads the local graph on this machine. */
@@ -30,8 +30,10 @@ const EXTRA: Record<StrictHost, Record<string, (v: unknown) => boolean>> = {
   copilot: { type: (v) => v === 'local' || v === 'stdio', tools: (v) => sameArgs(v, ['*']) },
   // Factory Droid: `type` is optional and stdio by default; `disabled: true` is configured-but-off.
   droid: { type: (v) => v === 'stdio', disabled: (v) => v === false },
+  // Auggie: `auggie mcp add` writes `type: "stdio"` and an empty `env` (auggie 0.36.0).
+  auggie: { type: (v) => v === 'stdio', env: (v) => isObject(v) && Object.keys(v).length === 0 },
 };
-const REQUIRED: Record<StrictHost, string[]> = { mcpServers: [], codex: [], copilot: ['type', 'tools'], droid: [] };
+const REQUIRED: Record<StrictHost, string[]> = { mcpServers: [], codex: [], copilot: ['type', 'tools'], droid: [], auggie: [] };
 
 export function isCanonicalLocalEntry(entry: unknown, o: CanonicalOptions): boolean {
   if (!isObject(entry)) return false;

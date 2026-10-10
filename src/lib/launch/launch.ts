@@ -19,6 +19,10 @@ import { type DroidProjectState, readDroidState } from './droid-state.js';
 import { type GrokProjectState, readGrokState } from './grok-state.js';
 import { type KiroProjectState, readKiroState } from './kiro-state.js';
 import { type QwenProjectState, readQwenState } from './qwen-state.js';
+import { type AuggieProjectState, readAuggieState } from './auggie-state.js';
+import { type ClineProjectState, readClineState } from './cline-state.js';
+import { type ContinueProjectState, readContinueState } from './continue-state.js';
+import { type GooseProjectState, readGooseState } from './goose-state.js';
 import { launchCacheDir, pruneLaunchFiles, writeIfChanged } from './launch-files.js';
 import { type OpenCodeProjectState, readOpenCodeState } from './opencode-state.js';
 import { type PiProjectState, readPiState } from './pi-state.js';
@@ -70,6 +74,15 @@ export interface LaunchDeps {
   readKiroState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): KiroProjectState;
   /** What Grok Build would already load, and the config.toml align adds to. */
   readGrokState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): GrokProjectState;
+  /* Wave C readers, optional for the same reason as wave B's. */
+  /** What Goose would already load: its config.yaml, read for an `align-local` extension. */
+  readGooseState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): GooseProjectState;
+  /** What Auggie would already load (managed, workspace and user settings), and the user file align adds to. */
+  readAuggieState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): AuggieProjectState;
+  /** What Continue CLI would already load: the config.yaml it reads (or the user's --config file). */
+  readContinueState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): ContinueProjectState;
+  /** What Cline CLI would already load, and the MCP settings file align adds to. */
+  readClineState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): ClineProjectState;
   /** Add to a file in the user's own agent config, once (C4). Lines go to `note`. */
   applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
   cacheDir(env: Record<string, string | undefined>): string;
@@ -150,6 +163,10 @@ function defaultDeps(): LaunchDeps {
     readAmpState: (cwd, home, env, platform, passthrough) => readAmpState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     readKiroState: (cwd, home, env, platform) => readKiroState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
     readGrokState: (cwd, home, env, platform, passthrough) => readGrokState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
+    readGooseState: (cwd, home, env, platform) => readGooseState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform),
+    readAuggieState: (cwd, home, env, platform, passthrough) => readAuggieState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
+    readContinueState: (cwd, home, env, platform, passthrough) => readContinueState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
+    readClineState: (cwd, home, env, platform, passthrough) => readClineState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
     cacheDir: launchCacheDir,
     writeIfChanged,

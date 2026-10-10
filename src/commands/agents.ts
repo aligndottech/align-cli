@@ -17,6 +17,8 @@ const CONNECTS: Record<AgentSpec['injection'], string> = {
   'per-session': 'per session',
   'written-once': 'written once',
 };
+/** How Align connects, as the table says it: an agent with no graph tools (Aider) says so first. */
+const connectsText = (s: AgentSpec): string => (s.graph === false ? 'instructions only, no graph' : CONNECTS[s.injection]);
 
 /**
  * `align agents`: every agent in the registry, whether it is on PATH, how Align connects, and
@@ -39,6 +41,7 @@ export function runAgents(opts: { json?: boolean }, d: AgentsDeps): number {
       path,
       supported: s.supported,
       connects: s.injection,
+      graph: s.graph !== false,
       install: s.install,
       installCommand: installText(s.install),
     }));
@@ -47,7 +50,7 @@ export function runAgents(opts: { json?: boolean }, d: AgentsDeps): number {
   }
   const table = [
     ['Agent', 'Installed', 'How Align connects', 'Install command'],
-    ...rows.map(({ spec: s, path }) => [s.label, path ? 'yes' : 'no', CONNECTS[s.injection], installText(s.install)]),
+    ...rows.map(({ spec: s, path }) => [s.label, path ? 'yes' : 'no', connectsText(s), installText(s.install)]),
   ];
   const widths = table[0]!.map((_, i) => Math.max(...table.map((r) => r[i]!.length)));
   for (const r of table) d.out(r.map((c, i) => (i === r.length - 1 ? c : c.padEnd(widths[i]! + 2))).join(''));
