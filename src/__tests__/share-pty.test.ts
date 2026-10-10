@@ -103,7 +103,7 @@ describe.skipIf(!canPty)('the real binary and the private share salt', () => {
     expect(h.posts[0]!.body).not.toContain(h.ids[2]!);
     expect(h.posts[0]!.body).toMatch(/align-local:\/\/decision\/[0-9a-f]{32}/);
     const fs = await import('node:fs'); const path = await import('node:path');
-    const salt = fs.readFileSync(path.join(h.dir, 'state', 'align-cli', 'share-salt'), 'utf8');
+    const salt = fs.readFileSync(path.join(h.stateDir, 'share-salt'), 'utf8');
     expect(salt).toMatch(/^[0-9a-f]{64}$/);
     expect(h.posts[0]!.body).not.toContain(salt);
   });
