@@ -52,8 +52,12 @@ const NOT_SENT = new Set(['local', 'dev', 'connector']);
  * not on the gateway's list, so their `cli.command` pings 400 silently today. Not fixed by L7 (the
  * fix is a gateway change, outside this slice). Listed exactly, so the day the gateway adds them
  * this test fails until they are removed from here: it can only shrink.
+ *
+ * `join` (org invite plan C3) joins them: the gateway's `join` entry is a gateway change that
+ * ships with the gateway half of the plan, and until then `join`'s command ping 400s silently,
+ * exactly as `ai` and `agents` do.
  */
-const KNOWN_DRIFT = ['agents', 'ai'];
+const KNOWN_DRIFT = ['agents', 'ai', 'join'];
 
 const cliCommands = (): string[] => buildProgram({ internal: false }).commands.map((c) => c.name());
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();

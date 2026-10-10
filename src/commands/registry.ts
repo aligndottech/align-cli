@@ -23,6 +23,7 @@ import { registerAskCommand } from './why.js';
 import { registerSetupCommand } from './setup.js';
 import { registerExportCommand } from './export.js';
 import { registerInviteCommand } from './invite.js';
+import { registerJoinCommand } from './join.js';
 import { registerUseCommand } from './use.js';
 import { registerAgentsCommand } from './agents.js';
 import { registerAiCommand } from './ai.js';
@@ -64,6 +65,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['setup'], visible: false, summary: 'Guided onboarding (bare `align` runs it)', register: registerSetupCommand },
   { names: ['use'], visible: false, summary: 'Choose the coding agent bare `align` opens', register: registerUseCommand },
   { names: ['invite'], visible: false, summary: 'Invite a teammate to your graph', register: registerInviteCommand },
+  { names: ['join'], visible: false, summary: "Join your team's graph from an invite link", register: registerJoinCommand },
 
   // Customer: ask, then connect - the order `align --help` shows them in.
   { names: ['ask'], visible: true, summary: 'Ask your decision graph, with sources', register: registerAskCommand },
