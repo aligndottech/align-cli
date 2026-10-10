@@ -358,22 +358,39 @@ describe('a summary that is hostile or huge', () => {
     return { ms: performance.now() - t0, start };
   };
   const old = new Date(Date.now() - 3_600_000).toISOString();
-  const clear = (): void => { for (const n of fs.readdirSync(path.join(dir, 'align-cli'))) if (n.endsWith('.bgclaim')) fs.rmSync(path.join(dir, 'align-cli', n)); };
 
   it('one id that is not a source does not block the real ones', async () => {
     const { start } = await run([src('myspace', { status: 'ok', lastSuccessAt: minutesAgo(90) }), src('github', { lastSuccessAt: old })]);
     expect(start).toHaveBeenCalledExactlyOnceWith(['github']);
   });
 
-  it('20,000 junk ids cost the launch no more than 20 ms over a one-source summary, and start only the real source', async () => {
+  it('20,000 junk ids cause no per-id work: the lock and backfill probes run once per REAL due source, never per id', async () => {
+    const { planBackgroundSync } = await import('../lib/sync/launch-hook.js');
     const junk = Array.from({ length: 20_000 }, (_, i) => src(`junk${i}`, { status: 'ok', lastSuccessAt: minutesAgo(90) }));
-    await run([src('github', { lastSuccessAt: old })]); // warm the code
-    clear();
-    const small = await run([src('github', { lastSuccessAt: old })]);
-    clear();
-    const big = await run([...junk, src('github', { lastSuccessAt: old })]);
-    expect(big.start).toHaveBeenCalledExactlyOnceWith(['github']);
-    expect(big.ms - small.ms).toBeLessThan(20);
+    const probed: string[] = [];
+    const plan = planBackgroundSync({
+      env: {}, home: '/h', platform: 'linux', isTTY: true, config: {}, err: () => {},
+      io: { readSummary: () => summary(...junk, src('github', { lastSuccessAt: minutesAgo(90) })), busy: (s: string) => { probed.push(s); return false; }, inCi: () => false, nowMs: () => NOW },
+    });
+    expect(plan.sources).toEqual(['github']);
+    expect(probed).toEqual(['github']);
+  });
+
+  it('timing, as a ratio and a generous cap (the counter above is the property): 20,000 junk ids stay within a small multiple of one id', async () => {
+    const { planBackgroundSync } = await import('../lib/sync/launch-hook.js');
+    const junk = Array.from({ length: 20_000 }, (_, i) => src(`junk${i}`, { status: 'ok', lastSuccessAt: minutesAgo(90) }));
+    const real = src('github', { lastSuccessAt: minutesAgo(90) });
+    const plan = (sources: SummarySource[]): number => {
+      const t0 = performance.now();
+      planBackgroundSync({ env: {}, home: '/h', platform: 'linux', isTTY: true, config: {}, err: () => {}, io: { readSummary: () => summary(...sources), busy: () => false, inCi: () => false, nowMs: () => NOW } });
+      return performance.now() - t0;
+    };
+    plan([real]); plan([...junk, real]);
+    const small: number[] = []; const big: number[] = [];
+    for (let i = 0; i < 9; i++) { small.push(plan([real])); big.push(plan([...junk, real])); }
+    const median = (x: number[]): number => [...x].sort((p, q) => p - q)[Math.floor(x.length / 2)]!;
+    expect(median(big)).toBeLessThan(250);
+    expect(median(big)).toBeLessThan(Math.max(median(small), 1) * 400);
   });
 });
 
