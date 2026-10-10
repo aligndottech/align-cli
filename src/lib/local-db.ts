@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } from './local-db-migrate.js';
 import type { DeciderKind } from './decider-kind.js';
+import { absorbLoser } from './local-db-v7.js';
 import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
 
 export interface DecisionRow {
@@ -207,6 +208,16 @@ export function createLocalDb(dbPath: string) {
       // Both branches clear enriched_at: the row's text may have changed, so its links are not
       // known to be current until ingestOne's link pass marks it again (Decision 30).
       const sourceUrl = identifyingSourceUrl(row.sourceUrl);
+      const key = (row.keyed ? connectorItemKey(row.platform, sourceUrl) : undefined) ?? null;
+      // A keyless row at this (source_url, title) is a twin an older binary wrote beside the
+      // keyed one. Adopt it as the keyed row, or absorb it into the row that already holds the
+      // key: either way the upsert below cannot meet a UNIQUE(source_url, title) failure.
+      if (key !== null) {
+        const twin = db.prepare(`SELECT id FROM decisions WHERE source_url = ? AND title = ? AND source_key IS NULL`).get(sourceUrl, row.title) as { id: string } | undefined;
+        const holder = twin ? db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined : undefined;
+        if (twin && !holder) db.prepare(`UPDATE decisions SET source_key = ? WHERE id = ?`).run(key, twin.id);
+        else if (twin && holder) absorbLoser(db, twin.id, holder.id, new Set([twin.id, holder.id]), false);
+      }
       const inserted = db.prepare(
         `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET
@@ -231,7 +242,7 @@ export function createLocalDb(dbPath: string) {
         // date. Callers normalise, but this is the one place the column is written.
         row.decidedAt || null,
         row.deciderKind ?? null,
-        (row.keyed ? connectorItemKey(row.platform, sourceUrl) : undefined) ?? null,
+        key,
       ) as { id: string };
       return inserted.id;
     },

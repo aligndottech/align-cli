@@ -113,3 +113,36 @@ describe('migration: only connector-import rows are keyed and merged', () => {
     expect(rows('SELECT source_key FROM decisions')).toEqual([{ source_key: null }]);
   });
 });
+
+describe('a keyless twin written by an older binary beside the keyed row (review finding 3)', () => {
+  const U = 'https://github.com/o/r/pull/7';
+  function legacyInsert(id: string, title: string, summary: string): void {
+    // v6's INSERT: no source_key written.
+    const raw = new DatabaseSync(dbPath);
+    raw.prepare(`INSERT INTO decisions (id,title,summary,source_url,platform) VALUES (?,?,?,?,'github')`).run(id, title, summary, U);
+    raw.close();
+  }
+
+  it('a keyed import of the keyless row\'s (url, title) adopts that row instead of throwing', () => {
+    const db = createLocalDb(dbPath);
+    try {
+      legacyInsert('legacy', 'Same title', 's1');
+      const id = db.insertDecision({ title: 'Same title', summary: 's2', sourceUrl: U, platform: 'github', keyed: true });
+      expect(id).toBe('legacy');
+      expect(rows('SELECT id, summary, source_key FROM decisions')).toEqual([{ id: 'legacy', summary: 's2', source_key: `github|${U}` }]);
+    } finally { db.close(); }
+  });
+
+  it('with a keyed row already present, the keyless twin at the new title is absorbed, not a UNIQUE failure', () => {
+    const db = createLocalDb(dbPath);
+    try {
+      const keyed = db.insertDecision({ title: 'Old title', summary: 's1', sourceUrl: U, platform: 'github', keyed: true });
+      legacyInsert('legacy', 'New title', 's2');
+      let id = '';
+      expect(() => { id = db.insertDecision({ title: 'New title', summary: 's3', sourceUrl: U, platform: 'github', keyed: true }); }).not.toThrow();
+      expect(id).toBe(keyed);
+      expect(rows('SELECT id, title, summary FROM decisions')).toEqual([{ id: keyed, title: 'New title', summary: 's3' }]);
+      expect(rows(`SELECT id FROM decisions_merged_backup`)).toEqual([{ id: 'legacy' }]); // the absorbed row is recoverable
+    } finally { db.close(); }
+  });
+});

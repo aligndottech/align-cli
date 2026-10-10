@@ -123,6 +123,37 @@ function repointLinks(db: DatabaseSync, loser: string, survivor: string, group: 
   }
 }
 
+/** Fold one twin into its survivor: back the row up, re-point everything that named it, delete
+ *  it. `adoptVector`: the survivor takes the loser's embedding (the loser holds the text the
+ *  survivor is about to carry) - otherwise the loser's vector is dropped. Also used by
+ *  insertDecision to absorb a keyless row written by an older binary. */
+export function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, group: Set<string>, adoptVector: boolean): void {
+  const hasJudgements = tableExists(db, 'local_judgements');
+  const hasPromotions = tableExists(db, 'promotions');
+  db.prepare('INSERT INTO decisions_merged_backup SELECT * FROM decisions WHERE id = ?').run(loserId);
+  repoint(db, 'decision_audit', 'decision_id', loserId, survivorId);
+  repointLinks(db, loserId, survivorId, group);
+  repoint(db, 'decision_refs', 'decision_id', loserId, survivorId);
+  if (hasJudgements) {
+    repoint(db, 'local_judgements', 'decision_id', loserId, survivorId);
+    repoint(db, 'local_judgements', 'counterpart_id', loserId, survivorId);
+  }
+  if (hasPromotions) repoint(db, 'promotions', 'local_id', loserId, survivorId);
+  // Refs the survivor already had stay as they are; the loser's leftovers are duplicates.
+  db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(loserId);
+  if (adoptVector) {
+    // The survivor takes the newest text, so it takes the vector OF that text - or none, if the
+    // newest row never got one. Its own vector described text it no longer holds; with none,
+    // the next sync re-embeds it (ingestStep 'full').
+    db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(survivorId);
+    db.prepare('UPDATE decision_embeddings SET decision_id = ? WHERE decision_id = ?').run(survivorId, loserId);
+  }
+  db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(loserId);
+  db.prepare('DELETE FROM decisions WHERE id = ?').run(loserId);
+  db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'merged', 'migration', ?)`)
+    .run(survivorId, loserId);
+}
+
 interface TwinRow { id: string; rowid: number; ratified_at: string | null }
 
 function mergeGroup(db: DatabaseSync, key: string): void {
@@ -134,36 +165,11 @@ function mergeGroup(db: DatabaseSync, key: string): void {
   const survivor = ratified[0] ?? newest;
   const losers = twins.filter(t => t.id !== survivor.id);
   const group = new Set(twins.map(t => t.id));
-  const hasJudgements = tableExists(db, 'local_judgements');
-  const hasPromotions = tableExists(db, 'promotions');
   // The newest text, read before the newest row can be deleted as a loser.
   const latest = db.prepare('SELECT title, summary, source_url, repo, decided_at FROM decisions WHERE id = ?')
     .get(newest.id) as { title: string; summary: string; source_url: string | null; repo: string | null; decided_at: string | null };
 
-  for (const loser of losers) {
-    db.prepare('INSERT INTO decisions_merged_backup SELECT * FROM decisions WHERE id = ?').run(loser.id);
-    repoint(db, 'decision_audit', 'decision_id', loser.id, survivor.id);
-    repointLinks(db, loser.id, survivor.id, group);
-    repoint(db, 'decision_refs', 'decision_id', loser.id, survivor.id);
-    if (hasJudgements) {
-      repoint(db, 'local_judgements', 'decision_id', loser.id, survivor.id);
-      repoint(db, 'local_judgements', 'counterpart_id', loser.id, survivor.id);
-    }
-    if (hasPromotions) repoint(db, 'promotions', 'local_id', loser.id, survivor.id);
-    // Refs the survivor already had stay as they are; the loser's leftovers are duplicates.
-    db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(loser.id);
-    if (loser.id === newest.id) {
-      // The survivor takes the newest text, so it takes the vector OF that text - or none,
-      // if the newest row never got one. Its own vector described text it no longer holds;
-      // with none, the next sync re-embeds it (ingestStep 'full').
-      db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(survivor.id);
-      db.prepare('UPDATE decision_embeddings SET decision_id = ? WHERE decision_id = ?').run(survivor.id, loser.id);
-    }
-    db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(loser.id);
-    db.prepare('DELETE FROM decisions WHERE id = ?').run(loser.id);
-    db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'merged', 'migration', ?)`)
-      .run(survivor.id, loser.id);
-  }
+  for (const loser of losers) absorbLoser(db, loser.id, survivor.id, group, loser.id === newest.id);
   db.prepare(
     `UPDATE decisions SET title = ?, summary = ?, source_url = ?, repo = COALESCE(?, repo), decided_at = COALESCE(?, decided_at)
      WHERE id = ?`,
