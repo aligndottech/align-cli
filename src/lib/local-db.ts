@@ -676,10 +676,20 @@ export function createLocalDb(dbPath: string) {
       // LM: an edge a person's `align mark ... replaces` wrote (id `mark:<judgement id>`) is theirs, not
       // the classifier's to upgrade away: deleting it would orphan the judgement, and `--undo` could
       // no longer find its link. The pair may then carry that edge beside the new one.
-      db.prepare(
-        `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%'`,
-      ).run(link.sourceId, link.targetId, link.targetId, link.sourceId);
-      insertLinkRow(link);
+      // One unit (review F8): a failure after the delete must not leave the pair unlinked. A
+      // SAVEPOINT, not BEGIN, so a caller already inside a transaction can still call this.
+      db.exec('SAVEPOINT replace_link');
+      try {
+        db.prepare(
+          `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%'`,
+        ).run(link.sourceId, link.targetId, link.targetId, link.sourceId);
+        insertLinkRow(link);
+        db.exec('RELEASE replace_link');
+      } catch (err) {
+        db.exec('ROLLBACK TO replace_link');
+        db.exec('RELEASE replace_link');
+        throw err;
+      }
     },
 
     /**
