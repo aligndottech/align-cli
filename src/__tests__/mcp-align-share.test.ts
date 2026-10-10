@@ -62,9 +62,9 @@ describe('align_share', () => {
     const r = await runShareTool({ id }, env, ctx());
     expect(lookupCode(r.code as string)).toMatchObject({ ok: true, pending: { agentId: 'claude-code' } });
   });
-  it('refuses a token property by name without echoing its value, and prepares nothing', async () => {
-    await expect(runShareTool({ id, token: 'sk-SECRETVALUE' }, env, ctx())).rejects.toThrow(/does not accept "token"/);
-    await expect(runShareTool({ id, token: 'sk-SECRETVALUE' }, env, ctx())).rejects.not.toThrow(/SECRETVALUE/);
+  it('refuses a token property without echoing its name or value, and prepares nothing', async () => {
+    await expect(runShareTool({ id, token: 'sk-SECRETVALUE' }, env, ctx())).rejects.toThrow(/does not accept an unknown property/);
+    await expect(runShareTool({ id, token: 'sk-SECRETVALUE' }, env, ctx())).rejects.not.toThrow(/SECRETVALUE|token/);
     await expect(runShareTool({ id, yes: 'true' }, env, ctx())).rejects.toThrow(/does not accept/);
     expect(calls.whoami).toBe(0);
   });
