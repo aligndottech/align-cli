@@ -9,6 +9,8 @@ export const cline: AgentSpec = {
   injection: 'written-once',
   supported: true,
   install: { kind: 'npm', argv: ['npm', 'i', '-g', 'cline'] },
+  // Cline (Bun-compiled) loads `.env`/`.env.local` from the cwd: pin the exact file Align read.
+  pins: (d, base) => ({ CLINE_MCP_SETTINGS_PATH: clineMcpFile(d.home, d.env, base.passthrough) }),
   build: (d, base) => buildClineLaunch({
     passthrough: base.passthrough,
     ...d.readClineState!(d.cwd, d.home, d.env, d.platform, base.passthrough),

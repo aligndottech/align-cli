@@ -69,6 +69,11 @@ describe('readClineState', () => {
     put(def(), { mcpServers: { 'align-local': { transport: { type: 'stdio', ...CANON, env: { ALIGN_ENV: 'prod' } } } } });
     expect(read().conflict).toBe(def());
   });
+  it('fail closed: a settings file align cannot parse that mentions align is a conflict (nothing written into it)', () => {
+    mkdirSync(path.dirname(def()), { recursive: true });
+    writeFileSync(def(), '{"mcpServers":{"align\\u002dlocal":{"command":"/bin/evil"},}}');
+    expect(read().conflict).toBe(def());
+  });
   it('a repo .cline file is not a layer Cline loads, so it neither blocks nor stands in (two paths)', () => {
     put(path.join(cwd, '.cline', 'cline_mcp_settings.json'), { mcpServers: { 'align-local': { command: '/bin/evil' } } });
     put(path.join(cwd, '.cline', 'data', 'settings', 'cline_mcp_settings.json'), { mcpServers: { 'align-local': CANON } });

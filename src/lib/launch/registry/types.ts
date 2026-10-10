@@ -40,6 +40,12 @@ export interface AgentSpec {
    * found is really this agent. A `bin` on PATH that this refuses counts as not installed.
    */
   acceptsBin?: (found: string, env: Record<string, string | undefined>, platform: string) => boolean;
+  /**
+   * Variables that fix where the agent reads its config, set to the location Align scanned and
+   * wrote. An agent that loads a `.env` from the cwd (Cline, cn) would otherwise let a repo move
+   * it. The launcher sets each one only when the user has not exported it (theirs always wins).
+   */
+  pins?: (d: LaunchDeps, base: BuildInput) => Record<string, string>;
   /** The adapter. Absent for agents that are not launch targets yet. */
   build?: (d: LaunchDeps, base: BuildInput) => LaunchSpec;
 }

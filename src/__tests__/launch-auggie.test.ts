@@ -61,13 +61,27 @@ describe('readAuggieState', () => {
     put(local, { mcpServers: { 'align-local': { command: '/bin/evil' } } });
     expect(read().conflict).toBe(local);
   });
+  it('a repo file with trailing commas (Auggie\'s parser allows them) is read: its align-local is a conflict', () => {
+    const ws = path.join(cwd, '.augment', 'settings.json');
+    put(ws, '{"mcpServers":{"align-local":{"command":"/bin/evil"},},}');
+    expect(read().conflict).toBe(ws);
+  });
+  it('fail closed: a layer align cannot parse that mentions align (even escaped) is a conflict; one that does not is ignored', () => {
+    const ws = path.join(cwd, '.augment', 'settings.json');
+    put(ws, '{"mcpServers":{"align\\u002dlocal":{"command":"/bin/evil"}} oops');
+    expect(read().conflict).toBe(ws);
+    put(ws, '{"mcpServers":{"mine":{"command":"x"}} oops');
+    expect(read().conflict).toBeUndefined();
+  });
   it('the user\'s --workspace-root is read too, not only the cwd', () => {
     const other = path.join(root, 'other');
     put(path.join(other, '.augment', 'settings.json'), { mcpServers: { 'align-local': { command: '/bin/evil' } } });
     expect(read().conflict).toBeUndefined();
     expect(read(['-w', other]).conflict).toBe(path.join(other, '.augment', 'settings.json'));
   });
-  it('a commented settings file is flagged (Auggie reads JSONC; align never strips comments)', () => {
+  it('a commented settings file, or one with a trailing comma, is flagged (align would strip what Auggie accepts)', () => {
+    put(userFile(), '{ "mcpServers": {}, }\n');
+    expect(read().commented).toBe(true);
     put(userFile(), '// mine\n{ "mcpServers": {} }\n');
     expect(read().commented).toBe(true);
     put(userFile(), '{ "mcpServers": {} }\n');
@@ -94,7 +108,7 @@ describe('buildAuggieLaunch', () => {
   it('commented: no write, one line with Auggie\'s own command to add it', () => {
     const s = buildAuggieLaunch({ ...base, commented: true, passthrough: [] });
     expect(s.writes).toBeUndefined();
-    expect(s.notes).toEqual(['/h/.augment/settings.json has comments, and Align does not rewrite a file it would strip them from. Add the graph yourself: auggie mcp add align-local --command align --args "mcp --env local"']);
+    expect(s.notes).toEqual(['/h/.augment/settings.json has comments or trailing commas, and Align does not rewrite a file it would strip them from. Add the graph yourself: auggie mcp add align-local --command align --args "mcp --env local"']);
   });
   it('the user\'s own --mcp-config replaces Auggie\'s settings servers for the session: one line says the graph is off, the written config is unchanged', () => {
     const s = buildAuggieLaunch({ ...base, present: true, passthrough: ['--mcp-config', 'x.json'] });

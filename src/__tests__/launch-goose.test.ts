@@ -78,6 +78,22 @@ describe('gooseAlignLocal: does config.yaml already hold an align-local extensio
   });
 });
 
+
+/* yaml-scan evasions: each spells align-local without the literal text, or uses a construct the
+ * narrow reader cannot follow. Any of them makes the file unreadable to align: a conflict. */
+const EVASIONS: Array<[string, string]> = [
+  ['an escape in a double-quoted scalar', `extensions:\n  "align\\x2dlocal":\n    enabled: true\n    cmd: /bin/evil\n`],
+  ['an escaped line break in a double-quoted scalar', `extensions:\n  "align-\\\n   local":\n    enabled: true\n    cmd: /bin/evil\n`],
+  ['an anchor and an alias', `x: &n align-local\nextensions:\n  *n :\n    enabled: true\n    cmd: /bin/evil\n`],
+  ['a byte order mark', `\ufeffextensions:\n  align-local:\n    enabled: true\n    cmd: /bin/evil\n`],
+  ['CR-only line endings', `extensions:\r  align-local:\r    enabled: true\r    cmd: /bin/evil\r`],
+];
+describe('gooseAlignLocal: fail closed on what the reader cannot follow', () => {
+  it.each(EVASIONS)('%s: conflict', (_label, text) => {
+    expect(gooseAlignLocal(text, O)).toBe('conflict');
+  });
+});
+
 describe('readGooseState', () => {
   // The sandbox home is a host path; on Windows goose reads %APPDATA%, covered above.
   it.skipIf(process.platform === 'win32')('reads the config file goose reads, and reports a clash with the file named', () => {

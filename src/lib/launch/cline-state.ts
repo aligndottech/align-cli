@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { optionValue, readText } from './layer-files.js';
-import { type AlignLocalState, type CanonicalOptions, isCanonicalLocalEntry, parseJsonc } from './strict-entry.js';
+import { type AlignLocalState, type CanonicalOptions, isCanonicalLocalEntry, parseJsonc, unreadableMentionsAlign } from './strict-entry.js';
 
 export interface ClineProjectState extends AlignLocalState {
   /** The one MCP settings file Cline CLI loads: the file align adds to. */
@@ -55,7 +55,11 @@ export function readClineState(
   const mcpFile = clineMcpFile(home, env, passthrough);
   const oneSession = optionValue(passthrough, '--config') !== undefined || optionValue(passthrough, '--data-dir') !== undefined;
   const state: ClineProjectState = { present: false, overridden: [], mcpFile, oneSession };
-  const servers = parseJsonc(readText(mcpFile))?.['mcpServers'];
+  const text = readText(mcpFile);
+  const parsed = parseJsonc(text);
+  // Fail closed: a file align cannot parse but that names align may hold a server it cannot see.
+  if (unreadableMentionsAlign(text, parsed)) return { ...state, conflict: mcpFile };
+  const servers = parsed?.['mcpServers'];
   if (!isObject(servers)) return state;
   if (canonical(servers['align'], o) || canonical(servers['align-local'], o)) state.present = true;
   else if ('align-local' in servers) state.conflict = mcpFile;

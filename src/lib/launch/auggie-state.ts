@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { ancestors, optionValue, readText } from './layer-files.js';
-import { type AlignLocalState, isCanonicalLocalEntry, parseJsonc } from './strict-entry.js';
+import { type AlignLocalState, isCanonicalLocalEntry, parseJsoncTrailingCommas, unreadableMentionsAlign } from './strict-entry.js';
 
 export interface AuggieProjectState extends AlignLocalState {
   /** `<augment cache dir>/settings.json`, the user layer: the one file align adds to. */
@@ -37,6 +37,8 @@ function managedFile(env: Record<string, string | undefined>, platform: string):
  *  - a canonical align-local (or `align`) in any layer: present, nothing to add;
  *  - a non-canonical align-local in any layer: a conflict. In a repo layer it would replace ours;
  *    in the user file the writer adds and never edits.
+ * Files are parsed as Auggie parses them (comments and trailing commas allowed), and a layer align
+ * still cannot parse that names align at all is a conflict too (fail closed).
  * The workspace root is the git root unless `-w/--workspace-root` names one: every ancestor of the
  * cwd is read (a superset), plus the named root.
  */
@@ -64,10 +66,17 @@ export function readAuggieState(
     present: false,
     overridden: [],
     settingsFile,
-    commented: text !== null && text.trim() !== '' && !strictParse(text) && parseJsonc(text) !== null,
+    // Comments or a trailing comma: Auggie accepts both, and a JSON rewrite would drop them.
+    commented: text !== null && text.trim() !== '' && !strictParse(text) && parseJsoncTrailingCommas(text) !== null,
   };
   for (const file of files) {
-    const servers = parseJsonc(file === settingsFile ? text : readText(file))?.['mcpServers'];
+    const body = file === settingsFile ? text : readText(file);
+    const parsed = parseJsoncTrailingCommas(body);
+    if (unreadableMentionsAlign(body, parsed)) {
+      state.conflict ??= file;
+      continue;
+    }
+    const servers = parsed?.['mcpServers'];
     if (!isObject(servers)) continue;
     if (isCanonicalLocalEntry(servers['align'], o)) state.present = true;
     if (!('align-local' in servers)) continue;

@@ -23,7 +23,7 @@ const ALLOWED = new Set(['name', 'command', 'args', 'type']);
 export function continueAlignLocal(text: string | null, o: { localIsDefault: boolean; platform: string }): 'absent' | 'present' | 'conflict' {
   if (text === null) return 'absent';
   const lines = meaningfulLines(text);
-  if (lines === null) return text.includes('align-local') ? 'conflict' : 'absent';
+  if (lines === null) return 'conflict';
   const mentions = (ls: YamlLine[]) => ls.some((l) => l.text.includes('align-local'));
   const block = topLevelBlock(lines, 'mcpServers');
   if (block === 'inline' || block === null) return mentions(lines) ? 'conflict' : 'absent';
@@ -80,16 +80,9 @@ export function isContinueBin(found: string, platform: string): boolean {
   }
 }
 
-/** CONTINUE_GLOBAL_DIR from a dotenv file, as dotenv reads it: `[export ]KEY=value`, quotes stripped. */
-function dotenvGlobalDir(file: string): string | undefined {
-  const text = readText(file);
-  if (text === null) return undefined;
-  let value: string | undefined;
-  for (const line of text.split(/\r?\n/)) {
-    const m = /^\s*(?:export\s+)?CONTINUE_GLOBAL_DIR\s*=\s*(.*?)\s*$/.exec(line);
-    if (m) value = m[1]!.replace(/^(['"`])(.*)\1$/, '$2');
-  }
-  return value;
+/** cn's continue home: the user's CONTINUE_GLOBAL_DIR (relative to the cwd), else ~/.continue. */
+export function continueHome(home: string, env: Record<string, string | undefined>, cwd: string): string {
+  return env['CONTINUE_GLOBAL_DIR'] ? path.resolve(cwd, env['CONTINUE_GLOBAL_DIR']) : path.join(home, '.continue');
 }
 
 /**
@@ -109,9 +102,9 @@ function configPath(v: string, cwd: string, home: string): string | null {
 /**
  * The config cn 1.5.47 loads this session, read for an align-local: the user's `--config` file
  * (a hub slug cannot be read here, and blocks nothing), else `<continue home>/config.yaml`, where
- * the continue home is CONTINUE_GLOBAL_DIR, else ~/.continue. cn runs dotenv in the cwd first, so
- * a repo's `.env` can set CONTINUE_GLOBAL_DIR when the user has not: that is followed too.
- * cn loads no workspace MCP files.
+ * the continue home is CONTINUE_GLOBAL_DIR, else ~/.continue. cn runs dotenv in the cwd, so a
+ * repo's `.env` could move it: the launch pins CONTINUE_GLOBAL_DIR to this one instead (registry
+ * `pins`), and a process variable wins over dotenv. cn loads no workspace MCP files.
  */
 export function readContinueState(
   cwd: string,
@@ -126,8 +119,7 @@ export function readContinueState(
   if (flag !== undefined) {
     configFile = configPath(flag, cwd, home);
   } else {
-    const dir = env['CONTINUE_GLOBAL_DIR'] || dotenvGlobalDir(path.join(cwd, '.env'));
-    configFile = path.join(dir ? path.resolve(cwd, dir) : path.join(home, '.continue'), 'config.yaml');
+    configFile = path.join(continueHome(home, env, cwd), 'config.yaml');
   }
   if (configFile === null) return { present: false, configFile: null };
   const verdict = continueAlignLocal(readText(configFile), { ...opts, platform });

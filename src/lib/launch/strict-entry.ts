@@ -96,6 +96,42 @@ export function parseJsonc(text: string | null): Json | null {
   }
 }
 
+/**
+ * JSONC as Auggie reads it (jsonc-parser with allowTrailingComma): comments, plus a comma before
+ * `}` or `]`. Only for a reader that must see what such an agent sees; null when not an object.
+ */
+export function parseJsoncTrailingCommas(text: string | null): Json | null {
+  if (text === null) return null;
+  const stripped = stripJsonComments(text);
+  let out = '';
+  for (let i = 0; i < stripped.length; i++) {
+    const c = stripped[i]!;
+    if (c === '"') {
+      let j = i + 1;
+      while (j < stripped.length && stripped[j] !== '"') j += stripped[j] === '\\' ? 2 : 1;
+      out += stripped.slice(i, j + 1);
+      i = j;
+    } else if (c === ',' && /^\s*[}\]]/.test(stripped.slice(i + 1))) {
+      out += ' ';
+    } else {
+      out += c;
+    }
+  }
+  try {
+    const parsed: unknown = JSON.parse(out);
+    return isObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fail closed: a non-empty config file align cannot parse, that names align in any form (an
+ * escape like `align\u002dlocal` still carries "align"), may hold a server align cannot see.
+ */
+export const unreadableMentionsAlign = (text: string | null, parsed: unknown): boolean =>
+  text !== null && parsed === null && text.trim() !== '' && /align/i.test(text);
+
 /** What the agent's loaded config layers already hold for Align, decided by the strict test above. */
 export interface AlignLocalState {
   /** A layer the agent loads already runs align's own local server (align-local or align). */

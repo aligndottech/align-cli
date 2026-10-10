@@ -25,7 +25,7 @@ export function buildAuggieLaunch(c: AuggieLaunchContext): LaunchSpec {
   if (c.conflict) {
     notes.push(`${c.conflict} defines its own align-local MCP server, so Align did not add its graph to Auggie. Remove that entry to use the graph.`);
   } else if (!c.present && c.commented) {
-    notes.push(`${c.settingsFile} has comments, and Align does not rewrite a file it would strip them from. Add the graph yourself: auggie mcp add align-local --command align --args "mcp --env local"`);
+    notes.push(`${c.settingsFile} has comments or trailing commas, and Align does not rewrite a file it would strip them from. Add the graph yourself: auggie mcp add align-local --command align --args "mcp --env local"`);
   } else if (!c.present) {
     writes.push({ kind: 'mcp-entry', file: c.settingsFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: alignServerEntry('mcpServers', 'local') });
   }

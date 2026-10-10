@@ -80,7 +80,7 @@ const ALLOWED: Record<string, (f: Field) => boolean> = {
 export function gooseAlignLocal(text: string | null, o: { localIsDefault: boolean; platform: string }): 'absent' | 'present' | 'conflict' {
   if (text === null) return 'absent';
   const lines = meaningfulLines(text);
-  if (lines === null) return text.includes('align-local') ? 'conflict' : 'absent';
+  if (lines === null) return 'conflict';
   const mentions = (ls: YamlLine[]) => ls.some((l) => l.text.includes('align-local'));
   const block = topLevelBlock(lines, 'extensions');
   if (block === 'inline') return mentions(lines) ? 'conflict' : 'absent';

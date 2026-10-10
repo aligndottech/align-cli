@@ -29,8 +29,41 @@ function stripComment(line: string): string {
   return line;
 }
 
-/** The lines that carry content, comments removed, with their indentation. Tabs are not YAML indentation. */
+/**
+ * Constructs that can spell a name without its literal text, or that this reader cannot follow:
+ * an escape in a double-quoted scalar (`\x2d`, an escaped line break), an anchor or alias,
+ * a byte order mark, a CR not followed by LF. Their presence makes the whole file unreadable.
+ */
+function unfollowable(text: string): boolean {
+  if (text.startsWith('\ufeff') || /\r(?!\n)/.test(text)) return true;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (quote) {
+      if (quote === '"' && c === '\\') return true;
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '#' && (i === 0 || /\s/.test(text[i - 1]!))) {
+      const end = text.indexOf('\n', i);
+      if (end < 0) return false;
+      i = end;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+    } else if ((c === '&' || c === '*') && (i === 0 || /[\s[{,:-]/.test(text[i - 1]!)) && /[^\s,\]}]/.test(text[i + 1] ?? ' ')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The lines that carry content, comments removed, with their indentation. null when the file is
+ * outside what this reader follows (see `unfollowable`, and tab indentation): callers treat that
+ * as a conflict, fail closed.
+ */
 export function meaningfulLines(text: string): YamlLine[] | null {
+  if (unfollowable(text)) return null;
   const out: YamlLine[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = stripComment(raw).replace(/\s+$/, '');

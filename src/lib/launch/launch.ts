@@ -295,6 +295,16 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     d.err(`Could not prepare Align for ${agent!.label} (${(e as Error).message}). Opening it without Align's graph.`);
     built = { bin: agent!.bin, args: [...passthrough], env: { ALIGN_WRAPPED: '1' }, files: [] };
   }
+  // Pin where the agent reads its config to what was just scanned, so a repo `.env` it loads
+  // cannot move it. A variable the user exported is theirs, and is never replaced.
+  try {
+    for (const [name, value] of Object.entries(specByName(agent!.name)?.pins?.(d, { passthrough, cachePath: (n) => `${dir}/${n}` }) ?? {})) {
+      if (!set(d.env[name]) && built.env[name] === undefined) built = { ...built, env: { ...built.env, [name]: value } };
+    }
+  } catch {
+    // A pin is computed from the same inputs the adapter just read; if that fails, the adapter's
+    // own spec stands.
+  }
   // The adapter names the agent's usual binary; run whichever name is actually installed.
   const spec: LaunchSpec = resolved && resolved.bin !== built.bin ? { ...built, bin: resolved.bin } : built;
   try {

@@ -221,6 +221,16 @@ queue; `.align/decisions.md` and the local MCP server both label an unratified c
 terminal - and `align push <id>` promotes one ratified local decision to the shared graph,
 per item, never bulk.
 
+`align use --undo` puts back a file Align wrote for a written-once agent (Auggie, Cline, Amp,
+Kiro, Grok Build, pi, Cursor). The restore is exact only while nobody else has touched the file.
+If the agent rewrote it afterwards (for example `auggie mcp add`), undo takes out only Align's own
+entry and leaves your changes. If Align's entry itself was edited, undo leaves it in place and
+tells you to remove it by hand, rather than guessing.
+
+Continue CLI (`cn`) runs hooks from the repository's `.claude/settings.json` and
+`.continue/settings*.json`. That is cn's own trust decision about the repo, and Align does not
+control it.
+
 ## Agent wiring
 
 ```
