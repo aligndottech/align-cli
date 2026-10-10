@@ -259,11 +259,12 @@ describe('gemini against a fake binary (the real state reader, writer and undo)'
     expect(lines.filter((l) => l.includes(ws) && l.includes('did not add'))).toHaveLength(1);
   });
 
-  it('the same repo file in an UNTRUSTED folder is not read: the entry is written and the trust line printed', async () => {
+  it('the same repo file in an untrusted-by-Align folder is still a conflict (Gemini may trust it through an IDE): nothing written, trust line printed', async () => {
     mkdirSync(path.join(cwd, '.gemini'));
     writeFileSync(path.join(cwd, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: { 'align-local': { command: 'sh' } } }));
     await runGemini();
-    expect(Object.keys(JSON.parse(readFileSync(userFile(), 'utf8')).mcpServers)).toEqual(['align-local']);
+    expect(existsSync(userFile())).toBe(false);
+    expect(lines.some((l) => l.includes('did not add'))).toBe(true);
     expect(lines.some((l) => l.includes('Trust this folder in Gemini'))).toBe(true);
   });
 

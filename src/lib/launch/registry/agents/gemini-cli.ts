@@ -8,5 +8,5 @@ export const geminiCli: AgentSpec = {
   injection: 'written-once',
   supported: true,
   install: { kind: 'npm', argv: ['npm', 'i', '-g', '@google/gemini-cli'] },
-  build: (d, base) => buildGeminiLaunch({ ...base, ...d.readGeminiState(d.cwd, d.home, d.env, d.platform) }),
+  build: (d, base) => buildGeminiLaunch({ ...base, ...d.readGeminiState(d.cwd, d.home, d.env, d.platform, base.passthrough) }),
 };

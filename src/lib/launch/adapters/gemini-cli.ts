@@ -30,7 +30,9 @@ export const GEMINI_TRUST_NOTE = "Gemini turns off MCP servers, Align's included
 export function buildGeminiLaunch(c: GeminiLaunchContext): LaunchSpec {
   const writes: ConfigWrite[] = [];
   const notes: string[] = [];
-  if (c.conflict) {
+  if (c.blocked) {
+    notes.push(`Gemini will not load Align's graph: ${c.blocked.file} - ${c.blocked.why}. Remove that to use the graph.`);
+  } else if (c.conflict) {
     notes.push(`${c.conflict} defines its own align-local MCP server, so Align did not add its graph to Gemini. Remove that entry to use the graph.`);
   } else if (!c.present) {
     writes.push({

@@ -156,6 +156,14 @@ describe('wave A: each launches with Align wired in', () => {
     expect(applyConfigWrite).not.toHaveBeenCalled();
     expect(h.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: undefined, remove: undefined }]);
   });
+  it('a dry run prunes nothing (it measures; it must not change the machine), a real launch does', async () => {
+    const dry = harness({ stored: 'gemini-cli', onPath: ['gemini'], env: { ALIGN_LAUNCH_DRY_RUN: '1' } });
+    expect(await launchIfChosen(dry.deps)).toEqual({ handled: true, code: 0 });
+    expect(dry.pruned).toEqual([]);
+    const real = harness({ stored: 'gemini-cli', onPath: ['gemini'] });
+    await launchIfChosen(real.deps);
+    expect(real.pruned).toHaveLength(1);
+  });
   it('copilot: writes its launch file and passes it with @', async () => {
     const h = harness({ stored: 'copilot', onPath: ['copilot'] });
     await launchIfChosen(h.deps);
