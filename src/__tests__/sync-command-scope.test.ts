@@ -44,6 +44,7 @@ function deps(scope: Record<string, unknown>): SyncCommandDeps {
     estimate: () => ({ items: 0, calls: 0, available: 0, provider: undefined }),
     classify: vi.fn(),
     classifyLock: () => acquireLock('sync-classify', { dir: h.lockDir, alive: () => true }),
+    backgroundOff: () => false, setBackgroundOff: () => {}, shellGate: () => undefined, inAgent: () => false, noteOutcome: () => {}, backgroundProblems: () => [],
   };
 }
 const DISCLOSURE = 'Importing items from everyone in Jira project ALI that your token can read. They stay on this machine. To read only your own: align connect jira --scope yours';

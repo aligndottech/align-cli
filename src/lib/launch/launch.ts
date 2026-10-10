@@ -30,6 +30,7 @@ import { type ProjectState, readProjectState } from './project-state.js';
 import { specByName } from './registry/index.js';
 import type { LaunchAgentId } from './registry/types.js';
 import { runAgent } from './run-agent.js';
+import { applyBackgroundPlan, type BackgroundSyncConfig, type BackgroundSyncIo, planBackgroundSync } from '../sync/launch-hook.js';
 
 /*
  * The launch path of bare `align`. COST RULE (performance.md, plan "Cost line"): nothing
@@ -45,7 +46,7 @@ export interface LaunchDeps {
   home: string;
   platform: string;
   isTTY: boolean;
-  config: { getAgent(): string | undefined; setAgent(agent: string): void; isLaunchOff?(): boolean };
+  config: { getAgent(): string | undefined; setAgent(agent: string): void; isLaunchOff?(): boolean } & BackgroundSyncConfig;
   findOnPath(bin: string, env: Record<string, string | undefined>, platform: string): string | null;
   readProjectState(cwd: string, home: string): ProjectState;
   /** What OpenCode would already load. Separate from readProjectState: it reads other files. */
@@ -101,6 +102,8 @@ export interface LaunchDeps {
   /** Every line align itself writes on this path. stderr only: stdout belongs to the agent (`align -- -p ... | jq`). */
   err(line: string): void;
   now(): number;
+  /** L6: replaces the disk reads and the detached start of the background refresh. Tests only; the defaults are rooted at `env` and `home`. */
+  backgroundSyncIo?: Partial<BackgroundSyncIo>;
 }
 
 export type LaunchResult = { handled: false } | { handled: true; code: number };
@@ -323,6 +326,10 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   // runAgent it holds a .cmd shim.
   const toRun: LaunchSpec = { ...spec, bin: found };
 
+  // L6: decide whether a background refresh is due. Read-only, and before the trace line so the budget counts it.
+  const bgHost = { env: d.env, home: d.home, platform: d.platform, isTTY: d.isTTY, config: d.config, err: d.err, ...(d.backgroundSyncIo ? { io: d.backgroundSyncIo } : {}) };
+  const bgPlan = planBackgroundSync(bgHost);
+
   if (set(d.env['ALIGN_LAUNCH_TRACE'])) d.err(`align-overhead-ms=${Math.round(d.now())}`);
   // A dry run measures; it must not change the machine, so nothing is persisted before this.
   if (set(d.env['ALIGN_LAUNCH_DRY_RUN'])) return { handled: true, code: 0 };
@@ -346,6 +353,8 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
     }
   }
   if (announce) d.err(announce);
+  // L6: start the detached refresh, un-awaited. After the dry-run exit above: a dry run changes nothing.
+  applyBackgroundPlan(bgPlan, bgHost);
   d.record(agent!.name);
   try {
     return { handled: true, code: await d.runAgent(toRun) };

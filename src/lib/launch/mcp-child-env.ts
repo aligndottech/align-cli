@@ -19,7 +19,7 @@ import { absoluteXdg, XDG_VARS } from '../xdg.js';
 const ALIGN_READS = [
   'ALIGN_DEBUG', 'ALIGN_ENV', 'ALIGN_GATEWAY_URL', 'ALIGN_HEAD_SHA', 'ALIGN_INGEST_CONCURRENCY', 'ALIGN_INTERNAL',
   'ALIGN_LAUNCH_DRY_RUN', 'ALIGN_LAUNCH_TRACE', 'ALIGN_LLM_API_KEY', 'ALIGN_LLM_BASE_URL', 'ALIGN_LLM_PROVIDER',
-  'ALIGN_LLM_TIMEOUT_MS', 'ALIGN_MODEL_CACHE', 'ALIGN_NO_LAUNCH', 'ALIGN_OLLAMA_MODEL', 'ALIGN_PLATFORM',
+  'ALIGN_LLM_TIMEOUT_MS', 'ALIGN_MODEL_CACHE', 'ALIGN_NO_LAUNCH', 'ALIGN_NO_SYNC', 'ALIGN_OLLAMA_MODEL', 'ALIGN_PLATFORM',
   'ALIGN_SUBJECT_KEY', 'ALIGN_TELEMETRY', 'ALIGN_TENANT_ID', 'ALIGN_TOKEN', 'ALIGN_WRAPPED',
 ] as const;
 
@@ -97,7 +97,7 @@ function credentialedUrl(v: string): boolean {
 const isAbsolutePath = (v: string): boolean => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(v);
 
 /** The value Align writes for one key, given the user's environment. */
-function valueFor(k: string, env: Record<string, string | undefined>): string {
+export function childEnvValue(k: string, env: Record<string, string | undefined>): string {
   if (CHILD_ENV_SECRETS.includes(k) || ALWAYS_EMPTY.includes(k)) return '';
   if ((XDG_VARS as readonly string[]).includes(k)) return absoluteXdg(env, k) ?? '';
   const v = env[k] ?? '';
@@ -111,7 +111,7 @@ function valueFor(k: string, env: Record<string, string | undefined>): string {
 /** The block: for each key, the user's own value under the rules above, or empty. */
 export function mcpChildEnv(env: Record<string, string | undefined>): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const k of CHILD_ENV_KEYS) out[k] = valueFor(k, env);
+  for (const k of CHILD_ENV_KEYS) out[k] = childEnvValue(k, env);
   return out;
 }
 

@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { alignDistribution } from './distribution.js';
+import { readRegularFile } from './sync/safe-read.js';
 import { absoluteXdg } from './xdg.js';
 
 export const BACKFILL_STATUS_ENV = 'ALIGN_BACKFILL_STATUS';
@@ -31,11 +32,21 @@ export interface BackfillStatus {
   last_line?: string;
 }
 
-function stateHome(): string {
-  const xdg = absoluteXdg(process.env, 'XDG_STATE_HOME');
+/** Where the state home is, from an explicit environment (the launcher is handed one; tests pass their own). */
+export function stateHomeFor(env: Record<string, string | undefined>, home: string, platform: string): string {
+  const xdg = absoluteXdg(env, 'XDG_STATE_HOME');
   if (xdg) return xdg;
-  if (process.platform === 'win32') return process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
-  return path.join(os.homedir(), '.local', 'state');
+  if (platform === 'win32') return env['LOCALAPPDATA'] ?? path.join(home, 'AppData', 'Local');
+  return path.join(home, '.local', 'state');
+}
+
+function stateHome(): string {
+  return stateHomeFor(process.env, os.homedir(), process.platform);
+}
+
+/** `<state home>/align-cli` as a PATH ONLY: nothing is created or checked. For readers (the launch hook) that must not touch the disk. */
+export function alignStateDirPath(env: Record<string, string | undefined>, home: string, platform: string): string {
+  return path.join(stateHomeFor(env, home, platform), 'align-cli');
 }
 
 /** One directory of the chain: a real directory (never a link someone planted), ours, private. */
@@ -94,7 +105,9 @@ export function statusPath(dir: string, source: string): string {
 
 export function readStatus(file: string): BackfillStatus | null {
   try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<BackfillStatus>;
+    const text = readRegularFile(file, 65_536);
+    if (text === undefined) return null;
+    const raw = JSON.parse(text) as Partial<BackfillStatus>;
     if (typeof raw.source !== 'string' || !Number.isInteger(raw.pid) || typeof raw.started_at !== 'string') return null;
     if (raw.state !== 'running' && raw.state !== 'done' && raw.state !== 'failed') return null;
     return raw as BackfillStatus;
@@ -262,6 +275,10 @@ export function startBackfillChild(
   file: string | undefined,
   cmd: { command: string; args: string[] } = backfillChildCommand(argv),
   caller: ChildCaller = 'mcp',
+  /** The environment the child inherits. Defaults to this process's own; the sync launch hook passes a reduced one. */
+  baseEnv: Record<string, string | undefined> = process.env,
+  /** Where the child runs (default: here). The sync launcher passes the home folder, so a folder never picks scope for an unattended run. */
+  cwd?: string,
 ): Promise<{ ok: boolean; pid?: number }> {
   const { command, args } = cmd;
   return new Promise((resolve) => {
@@ -275,7 +292,8 @@ export function startBackfillChild(
         windowsHide: true,
         // L5: a sync child has no status file (the sync lock and source_sync record it), so it must
         // not inherit one from this process either.
-        env: stampCaller(file === undefined ? withoutStatusEnv(process.env) : { ...process.env, [BACKFILL_STATUS_ENV]: file }, caller),
+        ...(cwd !== undefined ? { cwd } : {}),
+        env: stampCaller(file === undefined ? withoutStatusEnv(baseEnv) : { ...baseEnv, [BACKFILL_STATUS_ENV]: file }, caller),
       });
     } catch {
       return done({ ok: false });

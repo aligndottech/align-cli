@@ -325,3 +325,47 @@ describe('GitHub discussion drain and classification', () => {
 });
 
 void NOW;
+
+describe('a background run re-checks the source\'s age after taking the lock (the interval holds across launches)', () => {
+  const MIN = 15 * 60_000;
+  const first = async () => { h.script({ items: [pr(1, '2026-10-01T00:00:00.000Z')], report: { highWater: '2026-10-01T00:00:00.000Z' } }); await syncSource('github', h.env); h.fetchCalls.length = 0; };
+
+  it('a source attempted 5 minutes ago is left alone; 16 minutes ago it runs (two examples)', async () => {
+    await first();
+    const at = (m: number) => ({ ...h.env, now: () => new Date(NOW.getTime() + m * 60_000) });
+    const young = await syncSource('github', at(5), { trigger: 'background', minIntervalMs: MIN });
+    expect(young).toMatchObject({ state: 'recent', read: 0 });
+    expect(h.fetchCalls).toHaveLength(0);
+    h.script({ items: [] });
+    const old = await syncSource('github', at(16), { trigger: 'background', minIntervalMs: MIN });
+    expect(old.state).toBe('ok');
+    expect(h.fetchCalls).toHaveLength(1);
+  });
+
+  it('exactly the interval runs', async () => {
+    await first();
+    h.script({ items: [] });
+    expect((await syncSource('github', { ...h.env, now: () => new Date(NOW.getTime() + MIN) }, { trigger: 'background', minIntervalMs: MIN })).state).toBe('ok');
+  });
+
+  it('only a background run with an interval is held back: a foreground run, and a background run without one, go ahead', async () => {
+    await first();
+    h.script({ items: [] });
+    expect((await syncSource('github', h.env)).state).toBe('ok');
+    expect((await syncSource('github', h.env, { trigger: 'background' })).state).toBe('ok');
+  });
+
+  it('a stamp in the future does not hold it back for ever', async () => {
+    await first();
+    const db = new DatabaseSync(h.dbPath);
+    db.prepare("UPDATE source_sync SET last_attempt_at = '2099-01-01T00:00:00.000Z', last_success_at = '2099-01-01T00:00:00.000Z'").run();
+    db.close();
+    h.script({ items: [] });
+    expect((await syncSource('github', h.env, { trigger: 'background', minIntervalMs: MIN })).state).toBe('ok');
+  });
+
+  it('a source never synced runs', async () => {
+    h.script({ items: [] });
+    expect((await syncSource('github', h.env, { trigger: 'background', minIntervalMs: MIN })).state).toBe('ok');
+  });
+});

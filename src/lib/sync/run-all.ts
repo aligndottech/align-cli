@@ -18,11 +18,11 @@ export interface SyncRunResult {
 export async function runSync(
   sources: readonly string[],
   env: SyncEnv,
-  o: { trigger: 'cli' | 'background'; onOutcome?: (o: SourceOutcome) => void } = { trigger: 'cli' },
+  o: { trigger: 'cli' | 'background'; minIntervalMs?: number; onOutcome?: (o: SourceOutcome) => void } = { trigger: 'cli' },
 ): Promise<SyncRunResult> {
   const outcomes: SourceOutcome[] = [];
   for (const source of sources) {
-    const out = await syncSource(source, env, { trigger: o.trigger });
+    const out = await syncSource(source, env, { trigger: o.trigger, ...(o.minIntervalMs !== undefined ? { minIntervalMs: o.minIntervalMs } : {}) });
     outcomes.push(out);
     o.onOutcome?.(out);
   }

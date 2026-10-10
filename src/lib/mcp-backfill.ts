@@ -28,13 +28,15 @@ import { createConfigStore } from './config.js';
 import { SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from './import-defaults.js';
 import { parseSince } from './since.js';
 import { lockHolder } from './sync/lock.js';
+import { KNOWN_SOURCES } from './sync/source-ids.js';
+import { syncChildEnv } from './sync/spawn-background.js';
 import { readSyncStatus, recordWindowSince } from './source-sync-state.js';
 
 export const BACKFILL_TOOL = 'align_backfill';
 
 /** The sources `align connect --source` takes (the paste-token ones). Equal to
  *  `localConnectorIds()` by test; spelled here so the MCP server does not import setup.ts. */
-export const BACKFILL_SOURCES = ['github', 'jira', 'confluence', 'slack', 'teams', 'gitlab', 'linear', 'notion'] as const;
+export const BACKFILL_SOURCES = KNOWN_SOURCES;
 type BackfillSource = (typeof BACKFILL_SOURCES)[number];
 
 /** Attribution until LM maps the MCP client's `clientInfo.name` onto the registry's closed list.
@@ -118,7 +120,7 @@ export function defaultBackfillDeps(env: EnvironmentConfig): BackfillDeps {
     start: async (source, argv) => {
       const dir = backfillDir();
       if (!dir) return { ok: false };
-      return startBackfillChild(source, argv, statusPath(dir, source));
+      return startBackfillChild(source, argv, statusPath(dir, source), undefined, 'mcp', syncChildEnv(process.env));
     },
   };
 }

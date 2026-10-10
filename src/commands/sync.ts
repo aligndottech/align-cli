@@ -1,8 +1,12 @@
 import { type Command, Option } from 'commander';
 import chalk from 'chalk';
 import { askWithTimeout } from '../lib/confirm-timeout.js';
+import { alignStateDir, STARTED_BY_AGENT_ENV } from '../lib/backfill-state.js';
 import { createConfigStore } from '../lib/config.js';
+import { inCi } from '../lib/telemetry-ci.js';
 import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
+import { claimProblem } from '../lib/sync/bg-claim.js';
+import { clearBlocked, writeBlocked } from '../lib/sync/blocked.js';
 import { acquireLock } from '../lib/sync/lock.js';
 import { classifyUnclassified, estimateClassify } from '../lib/sync/classify.js';
 import { localGraphPath, realStatusDeps, realSyncEnv } from '../lib/sync/real-env.js';
@@ -11,12 +15,13 @@ import { runSync } from '../lib/sync/run-all.js';
 import { recordSourceSynced, type ReportedTrigger, SYNC_TELEMETRY_TOTAL_MS } from '../lib/sync/telemetry.js';
 import type { SourceOutcome, SyncEnv } from '../lib/sync/run-source.js';
 import { collectStatus, renderStatus, type StatusDeps, TEAMS_NOTE } from '../lib/sync/status.js';
+import { BACKGROUND_LAUNCH_DELAY_SECONDS, SYNC_MIN_INTERVAL_MS } from '../lib/sync/should-background-sync.js';
 import { refreshSummary } from '../lib/sync/summary.js';
 import { nextWindow } from '../lib/sync/window.js';
 import { recordRunError } from '../lib/sync/sync-state.js';
 
 /** A background run waits this long before its first request, so it does not compete with the agent's own start-up. */
-export const BACKGROUND_DELAY_SECONDS = 20;
+export const BACKGROUND_DELAY_SECONDS = BACKGROUND_LAUNCH_DELAY_SECONDS;
 const DEFAULT_CLASSIFY_MAX = 25;
 
 export interface SyncCommandOptions {
@@ -26,6 +31,8 @@ export interface SyncCommandOptions {
   classify?: boolean;
   max?: string;
   yes?: boolean;
+  off?: boolean;
+  on?: boolean;
 }
 
 export interface SyncCommandDeps {
@@ -48,6 +55,17 @@ export interface SyncCommandDeps {
   report?(o: SourceOutcome, trigger: ReportedTrigger): Promise<void>;
   /** A seam for tests; defaults to the real run. */
   run?: typeof runSync;
+  /** L6: is the launch-time background refresh switched off (`align sync --off`)? */
+  backgroundOff(): boolean;
+  setBackgroundOff(off: boolean): void;
+  /** Why the launch-time refresh is off in THIS shell regardless of `--off` (ALIGN_NO_SYNC, CI), or undefined. */
+  shellGate(): string | undefined;
+  /** Is this process an agent's (ALIGN_WRAPPED, or started by an MCP tool call)? */
+  inAgent(): boolean;
+  /** A background run found a source it cannot read until a person acts, or got further: the launcher stops, or resumes, scheduling it. */
+  noteOutcome(source: string, state: SourceOutcome['state'], message?: string): void;
+  /** Why the launch-time refresh cannot record its claim for a connected source (an object in the way, an unwritable state directory). */
+  backgroundProblems(): string[];
 }
 
 function whole(raw: string | undefined, fallback: number, min: number): number | undefined {
@@ -56,8 +74,33 @@ function whole(raw: string | undefined, fallback: number, min: number): number |
 }
 
 /** Returns the process exit code. A background run always exits 0: nobody is there to read a failure, and the next run tries again. */
-export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOptions, d: SyncCommandDeps): Promise<number> {
-  const unknown = sourcesArg.filter((s) => !(BACKFILL_SOURCES as readonly string[]).includes(s));
+export async function runSyncCommand(sourcesRaw: string[], opts: SyncCommandOptions, d: SyncCommandDeps): Promise<number> {
+  let sourcesArg = sourcesRaw;
+  if (opts.off || opts.on) {
+    // A switch, not a sync: it takes nothing else, so a mistyped `align sync --off github` does not quietly sync (or not).
+    if ((opts.off && opts.on) || sourcesArg.length > 0 || opts.status || opts.classify || opts.background || opts.yes || opts.max !== undefined || opts.delay !== undefined) {
+      d.err('align sync: --off and --on are used on their own: align sync --off, or align sync --on. They stop or allow only the refresh that runs when you start Align; `align sync`, `align_sync` and `align_backfill` still work.');
+      return 2;
+    }
+    // Turning it off is the safe direction and is allowed anywhere. Turning it ON starts reads nobody asked for just now: a person must do it,
+    // at a terminal, and not from inside an agent (the same rule the scope gate applies).
+    if (opts.on && (d.inAgent() || !d.isTty())) {
+      d.err(`align sync: --on needs a person at a terminal. ${d.inAgent() ? 'This runs inside a coding agent.' : 'There is no terminal here.'} Run \`align sync --on\` yourself, in your own terminal.`);
+      return 1;
+    }
+    d.setBackgroundOff(opts.off === true);
+    d.out(opts.off
+      ? 'Background refresh is off. `align sync` still works when you run it. Turn it back on: align sync --on'
+      : `Background refresh is on: Align checks your connected sources when you start it, at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source. Turn it off: align sync --off`);
+    return 0;
+  }
+  let unknown = sourcesArg.filter((s) => !(BACKFILL_SOURCES as readonly string[]).includes(s));
+  // A background run has nobody to read an error, and one bad id must not stop the good ones: it skips what it does not know.
+  if (opts.background && unknown.length > 0) {
+    sourcesArg = sourcesArg.filter((s) => !unknown.includes(s));
+    unknown = [];
+    if (sourcesArg.length === 0) return 0;
+  }
   if (unknown.length > 0) {
     d.err(`align sync: cannot sync ${JSON.stringify(unknown[0]!.slice(0, 16))}. Sources: ${BACKFILL_SOURCES.join(', ')}.`);
     return 2;
@@ -75,6 +118,13 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
 
   if (opts.status) {
     d.out(renderStatus(collectStatus(d.statusDeps(dbPath))));
+    const gate = d.shellGate();
+    d.out(d.backgroundOff()
+      ? 'Background refresh: off. Turn it on: align sync --on'
+      : gate !== undefined
+        ? `Background refresh: on, but off in this shell (${gate})`
+        : `Background refresh: on (at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source; turn it off: align sync --off)`);
+    for (const line of d.backgroundProblems()) d.out(`Background refresh: ${line}`);
     return 0;
   }
   if (opts.classify) return classifyFlow(dbPath, max, opts, d);
@@ -84,7 +134,11 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
   if (sourcesArg.length === 0 && !opts.background && d.isConnected('teams')) d.out(TEAMS_NOTE);
   if (targets.length === 0 && !opts.background) d.out('No source is connected to sync. Run: align connect <source>');
 
-  if (delay > 0) await d.sleep(delay * 1000);
+  if (delay > 0) {
+    await d.sleep(delay * 1000);
+    // A child the launcher started may have slept through `align sync --off`. (An on-demand run, delay 0, is not the launcher's and ignores the switch.)
+    if (opts.background && d.backgroundOff()) return 0;
+  }
   const base = d.env(dbPath);
   // L4: a person at the terminal is told, before the first request, what a team scope reads. A background run has nobody to tell.
   const env: SyncEnv = opts.background ? base : { ...base, announce: (_source, line) => d.out(line), confirm: async (_source, message) => d.isTty() && (await askWithTimeout(() => d.confirm(message))) };
@@ -98,7 +152,10 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
     try {
       result = await (d.run ?? runSync)(targets, env, {
         trigger,
+        // The launcher's decision is older than the delay: each source re-checks its own age after taking its lock.
+        ...(opts.background && delay > 0 ? { minIntervalMs: SYNC_MIN_INTERVAL_MS } : {}),
         onOutcome: (o) => {
+          d.noteOutcome(o.source, o.state, o.message);
           if (!opts.background) for (const line of renderOutcome(o)) d.out(line);
           if (d.report) pings.push(d.report(o, reportTrigger).catch(() => {}));
         },
@@ -180,6 +237,8 @@ export function registerSyncCommand(program: Command): void {
     .option('--max <n>', `With --classify: how many items at most (default ${DEFAULT_CLASSIFY_MAX})`)
     .option('--yes', 'With --classify: skip the question (needed when there is no terminal)')
     .option('--background', 'Run quietly, as the background refresh does')
+    .option('--off', 'Stop the refresh that runs when you start Align (ALIGN_NO_SYNC=1 does the same for one shell)')
+    .option('--on', 'Turn the refresh that runs when you start Align back on')
     .addOption(new Option('--delay <seconds>', 'Wait before the first request (background default 20)').hideHelp())
     .action(async (sources: string[], opts: SyncCommandOptions) => {
       const config = createConfigStore();
@@ -202,6 +261,21 @@ export function registerSyncCommand(program: Command): void {
         classify: classifyUnclassified,
         classifyLock: () => acquireLock('sync-classify'),
         report: recordSourceSynced,
+        backgroundOff: () => config.isBackgroundSyncOff(),
+        setBackgroundOff: (off) => config.setBackgroundSyncOff(off),
+        inAgent: () => Boolean(process.env['ALIGN_WRAPPED']) || process.env[STARTED_BY_AGENT_ENV] === 'mcp',
+        noteOutcome: (source, state, message) => {
+          if (source === 'teams') return;
+          if (state === 'manual' || state === 'not_connected') writeBlocked(source, state, message ?? state);
+          else if (state === 'ok' || state === 'partial' || state === 'error' || state === 'needs_reauth') clearBlocked(source);
+        },
+        backgroundProblems: () => {
+          const dir = alignStateDir();
+          if (dir === null) return ['Align cannot use its state directory, so it does not refresh in the background'];
+          const lines = BACKFILL_SOURCES.filter((s) => config.getConnectorFields('local', s)?.['token']).map((s) => claimProblem(dir, s, Date.now(), SYNC_MIN_INTERVAL_MS));
+          return [...new Set(lines.filter((l): l is string => l !== undefined))];
+        },
+        shellGate: () => (process.env['ALIGN_NO_SYNC'] ? 'ALIGN_NO_SYNC is set' : inCi() ? 'this looks like CI' : undefined),
       });
       if (code !== 0) process.exitCode = code;
     });

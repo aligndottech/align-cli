@@ -113,7 +113,7 @@ One per command you run.
 | `command` | The command's name, at most two words: `align` (opening your coding agent), `ask`, `use`, `sync`, `mark`, `connect git`, `decisions list`. Never its arguments, never the query you typed, never a path. `align mark` sends the word `mark` and nothing about what you marked: no kind, no id, no text. |
 
 `align sync` sends this ping when you run it yourself. A background sync started by
-`align_sync run` (and, once the background refresh at launch ships, by that refresh) runs
+`align_sync run`, and the background refresh that runs when you start `align`, each run
 `align sync --background`, which sends no `cli.command` at all. The same goes for `align sync
 --background` typed by a person: no `cli.command`, and its `source_synced` pings report trigger
 `background`. `align_mark` over MCP is not a command you ran and sends nothing.
@@ -168,7 +168,7 @@ refreshed by hand) sends nothing. Local-only mode sends it; cloud mode does not.
 | `source` | Which kind of source, from a fixed list: `git`, `docs`, `github`, `jira`, `confluence`, `slack`, `teams`, `zoom`, `gitlab`, `linear`, `notion`. Never a repo, a site, a space, a channel or a project name. |
 | `outcome` | How it went: `ok`, `partial` (stopped early, the next sync continues), `needs_reauth` (the source refused the saved token) or `error`. |
 | `scope` | `yours` (your own items) or `team` (a repo you are inside, read for everyone). |
-| `trigger` | What started it: `manual` (you ran `align sync`) or `background` (a background sync: your agent's `align_sync run`, or `align sync --background`; the launch refresh will too once it ships). The gateway also accepts `connect`; the CLI does not send it yet. |
+| `trigger` | What started it: `manual` (you ran `align sync`) or `background` (a background sync: your agent's `align_sync run`, or `align sync --background`, which is also how the refresh at launch runs). The gateway also accepts `connect`; the CLI does not send it yet. |
 
 No title, URL, repo, organisation, author or id is ever in this body: it is built from these
 five fields and nothing else.

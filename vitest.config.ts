@@ -2,6 +2,8 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    // L6: the launcher starts a detached `align sync` for a due source. No test may start a real one from a developer's own state directory.
+    env: { ALIGN_NO_SYNC: '1' },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

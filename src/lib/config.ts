@@ -119,6 +119,9 @@ export function createConfigStore() {
     telemetryOffAt?: string;
     agent?: string;
     launchOff?: boolean;
+    backgroundSyncOff?: boolean;
+    backgroundSyncNoticeShownAt?: string;
+    reauthLineShownAt?: string;
     refusedWrites?: string[];
     writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
@@ -354,6 +357,28 @@ export function createConfigStore() {
     },
     clearAgent() {
       store.delete('agent');
+    },
+    // L6: `align sync --off` / `--on`. Read at launch; the background refresh never starts while it is set.
+    isBackgroundSyncOff(): boolean {
+      return store.get('backgroundSyncOff') === true;
+    },
+    setBackgroundSyncOff(off: boolean) {
+      if (off) store.set('backgroundSyncOff', true);
+      else store.delete('backgroundSyncOff');
+    },
+    // L6: the one-time disclosure line before the first background refresh. Its presence is the "shown" flag.
+    backgroundSyncNoticeShown(): boolean {
+      return typeof store.get('backgroundSyncNoticeShownAt') === 'string';
+    },
+    markBackgroundSyncNoticeShown(at: string) {
+      store.set('backgroundSyncNoticeShownAt', at);
+    },
+    // L6: when the "reconnect this source" line last printed, so it is not repeated on every launch.
+    getReauthLineShownAt(): string | undefined {
+      return store.get('reauthLineShownAt');
+    },
+    markReauthLineShown(at: string) {
+      store.set('reauthLineShownAt', at);
     },
     // C4: every other-product config file align wrote (safe-config-write.ts), so
     // `align use --undo` can put each one back. Keyed by absolute path; the whole map is

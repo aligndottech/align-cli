@@ -165,6 +165,33 @@ to a source, and it makes no AI calls. Specifically:
 - Stored items that never finished linking (all of them after an upgrade) are finished locally
   on the first sync, with no network and no AI calls.
 
+### Refresh when you start Align
+
+When you start `align` in a terminal, it refreshes each connected source in the background, at most
+once every 15 minutes per source. It never waits for it, and it prints one line the first time.
+The refresh runs from your home folder, so the folder you started in does not choose what it reads.
+It makes no AI calls and sends no keys other than the saved connector tokens it reads from its own
+config.
+
+- `align sync --off` stops it, and `align sync --on` starts it again. This stops **only** the
+  refresh at launch. `align sync`, `align_sync` and `align_backfill` still work, and a refresh that
+  was already waiting to start (it waits 20 seconds) stops when it sees the switch.
+- `ALIGN_NO_SYNC=1` stops it for one shell. CI and a session with no terminal never start it.
+  `align sync --status` says when the refresh is off in this shell.
+- It only refreshes a source that you have already synced or backfilled by hand once (`align sync github`).
+  A source Align cannot read until you act (Confluence with no spaces chosen) is not retried every 15 minutes.
+- `align sync --on` needs you at a terminal and is refused inside a coding agent; `--off` works anywhere.
+  If Align cannot record that it already started a refresh (something in the way in its state folder),
+  it skips that source, and `align sync --status` says why.
+- A source whose saved login stopped working is named in one line at most once a day.
+- Your own `DO_NOT_TRACK`, `CI` and `ALIGN_TELEMETRY` settings reach the refresh, and a stored opt-out
+  (`align telemetry off`, or a `DO_NOT_TRACK` any earlier run saw) holds for it too. When telemetry is on,
+  the refresh sends one `source_synced` ping per source with trigger `background` and no `cli.command`
+  (see [telemetry](telemetry.md)).
+- The first-use line and that reminder are remembered in your config file. Two Align processes that
+  save the config at the same moment can lose one of those flags (the config is read, changed and
+  written back without a lock). The result is one repeated line, not a wrong refresh.
+
 Typing the relationships between imported items takes your own AI key, so it is always your call:
 
 ```bash

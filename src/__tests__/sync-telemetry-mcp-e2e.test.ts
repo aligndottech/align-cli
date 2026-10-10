@@ -8,6 +8,7 @@
  * loopback port, so the sync finishes with an `error` outcome, which is a reportable one.
  * Positive control: the same flow without DO_NOT_TRACK sends source_synced.
  */
+import { rmDir } from './helpers/rm-dir.js';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -53,6 +54,14 @@ beforeEach(async () => {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const guard = path.join(dir, 'guard.cjs');
   fs.writeFileSync(guard, GUARD);
+  // The sync child gets a REDUCED environment (L6: no NODE_OPTIONS), so it cannot load the guard or tsx from the environment.
+  // The mcp server is started through this wrapper, and the child runs the same wrapper (process.argv[1]), which loads both itself.
+  fs.writeFileSync(path.join(dir, 'entry.mjs'), `
+    import { createRequire } from 'node:module';
+    createRequire(import.meta.url)(${JSON.stringify(guard)});
+    await import(${JSON.stringify(tsx)});
+    await import(${JSON.stringify(pathToFileURL(entry).href)});
+  `);
   const home = path.join(dir, 'home');
   env = {
     HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local', 'share'),
@@ -78,7 +87,7 @@ beforeEach(async () => {
 afterEach(async () => {
   server.closeAllConnections();
   await new Promise((r) => server.close(r));
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmDir(dir);
 });
 
 function find(d: string, name: string): boolean {
@@ -91,7 +100,7 @@ function find(d: string, name: string): boolean {
 /** foreground run (optionally under DO_NOT_TRACK=1), then the SDK-started mcp server runs a sync with an env block that never names DO_NOT_TRACK. */
 async function flow(dnt: boolean): Promise<void> {
   await run(process.execPath, [entry, 'telemetry', 'status'], { env: { ...env, ...(dnt ? { DO_NOT_TRACK: '1' } : {}) }, cwd: root });
-  const transport = new StdioClientTransport({ command: process.execPath, args: [entry, 'mcp'], env, cwd: root, stderr: 'ignore' });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(dir, 'entry.mjs'), 'mcp'], env, cwd: root, stderr: 'ignore' });
   const client = new Client({ name: 'probe', version: '0' });
   await client.connect(transport);
   try {

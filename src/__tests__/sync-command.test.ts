@@ -29,9 +29,12 @@ let err: string[];
 let sleeps: number[];
 let tokens: Map<string, Record<string, string>>;
 let refreshes: number;
+let bgOff: boolean;
+let bgWrites: boolean[];
+let notes: string[];
 beforeEach(() => {
   h = harness();
-  out = []; err = []; sleeps = []; refreshes = 0;
+  out = []; err = []; sleeps = []; refreshes = 0; bgOff = false; bgWrites = []; notes = [];
   tokens = new Map([['github', { token: 'tok' }], ['jira', { token: 'tok', domain: 'x.atlassian.net' }]]);
 });
 afterEach(() => h.cleanup());
@@ -51,6 +54,12 @@ function deps(over: Partial<SyncCommandDeps> = {}): SyncCommandDeps {
     estimate: () => ({ items: 10, calls: 30, available: 40, provider: 'Anthropic' }),
     classify: vi.fn(async () => ({ items: 10, calls: 30, typed: 12, unparsed: 0 })),
     classifyLock: () => acquireLock('sync-classify', { dir: h.lockDir, alive: () => true }),
+    backgroundOff: () => bgOff,
+    shellGate: () => undefined,
+    inAgent: () => false,
+    noteOutcome: (source, state) => { notes.push(`${source}:${state}`); },
+    backgroundProblems: () => [],
+    setBackgroundOff: (off) => { bgOff = off; bgWrites.push(off); },
     ...over,
   };
 }
@@ -70,6 +79,36 @@ describe('arguments', () => {
     expect(await run([], { background: true, delay: '-1' })).toBe(2);
     expect(await run([], { background: true, delay: '1.5' })).toBe(2);
     expect(h.fetchCalls).toHaveLength(0);
+  });
+});
+
+describe('--off and --on (the background refresh switch)', () => {
+  it('--off stores the switch, says how to turn it back on, and needs no graph and runs no sync', async () => {
+    expect(await run([], { off: true }, { graphPath: () => undefined })).toBe(0);
+    expect(bgWrites).toEqual([true]);
+    expect(out.join('\n')).toContain('align sync --on');
+    expect(h.fetchCalls).toHaveLength(0);
+  });
+  it('--on clears it and names the way to turn it off', async () => {
+    bgOff = true;
+    expect(await run([], { on: true }, { graphPath: () => undefined })).toBe(0);
+    expect(bgWrites).toEqual([false]);
+    expect(out.join('\n')).toContain('align sync --off');
+  });
+  it('--off with --on, or with a source or another mode, exits 2 and changes nothing (three examples)', async () => {
+    expect(await run([], { off: true, on: true })).toBe(2);
+    expect(await run(['github'], { off: true })).toBe(2);
+    expect(await run([], { on: true, classify: true })).toBe(2);
+    expect(bgWrites).toEqual([]);
+    expect(err.join('\n')).toContain('--off');
+  });
+  it('--status says which way the switch is set (two examples)', async () => {
+    await run([], { status: true });
+    expect(out.join('\n')).toContain('Background refresh: on');
+    out.length = 0; bgOff = true;
+    await run([], { status: true });
+    expect(out.join('\n')).toContain('Background refresh: off');
+    expect(out.join('\n')).toContain('align sync --on');
   });
 });
 
@@ -144,6 +183,74 @@ describe('a refused token', () => {
     expect(err).toEqual([]);
     expect(readRows(h.dbPath, 'github')[0]!.status).toBe('needs_reauth');
     expect(tokens.get('github')).toEqual({ token: 'tok' });
+  });
+});
+
+describe('--on needs a person; --off does not', () => {
+  it('--on inside an agent is refused with the reason, and nothing is written (agent with a terminal; no terminal without an agent)', async () => {
+    expect(await run([], { on: true }, { inAgent: () => true, isTty: () => true })).toBe(1);
+    expect(err.join('\n')).toContain('inside a coding agent');
+    err.length = 0;
+    expect(await run([], { on: true }, { inAgent: () => false, isTty: () => false })).toBe(1);
+    expect(err.join('\n')).toContain('no terminal');
+    expect(bgWrites).toEqual([]);
+  });
+  it('--on by a person at a terminal outside an agent works', async () => {
+    bgOff = true;
+    expect(await run([], { on: true }, { inAgent: () => false, isTty: () => true })).toBe(0);
+    expect(bgWrites).toEqual([true].map(() => false));
+  });
+  it('--off is allowed anywhere: inside an agent, and with no terminal', async () => {
+    expect(await run([], { off: true }, { inAgent: () => true, isTty: () => false })).toBe(0);
+    expect(bgWrites).toEqual([true]);
+  });
+});
+
+describe('what a run tells the launcher', () => {
+  it('every source outcome is passed on (so a manual or not_connected one can stop being scheduled, and a later success resumes it)', async () => {
+    h.script({ items: [] });
+    await run(['github'], { background: true, delay: '0' });
+    expect(notes).toEqual(['github:ok']);
+  });
+  it('--status lists a claim problem as one line', async () => {
+    await run([], { status: true }, { backgroundProblems: () => ['something that is not a file is in the way at /x/github.1.bgclaim'] });
+    expect(out.join('\n')).toContain('Background refresh: something that is not a file is in the way');
+  });
+});
+
+describe('background: ids, the switch and the interval', () => {
+  it('an id that is not a source is skipped and the rest run (a foreground run still exits 2)', async () => {
+    h.script({ items: [] });
+    expect(await run(['myspace', 'github'], { background: true, delay: '0' })).toBe(0);
+    expect(h.fetchCalls.map((c) => c.source)).toEqual(['github']);
+    expect(await run(['myspace', 'github'], {})).toBe(2);
+  });
+  it('only unknown ids: nothing runs, and it does not fall back to every connected source', async () => {
+    expect(await run(['myspace'], { background: true, delay: '0' })).toBe(0);
+    expect(h.fetchCalls).toHaveLength(0);
+  });
+  it('a launcher child that slept through `align sync --off` stops; an on-demand one (no delay) ignores the switch', async () => {
+    bgOff = true;
+    h.script({ items: [] });
+    expect(await run(['github'], { background: true, delay: '20' })).toBe(0);
+    expect(h.fetchCalls).toHaveLength(0);
+    expect(await run(['github'], { background: true, delay: '0' })).toBe(0);
+    expect(h.fetchCalls).toHaveLength(1);
+  });
+  it('--off with --yes, --max or --delay exits 2 and changes nothing', async () => {
+    for (const o of [{ off: true, yes: true }, { off: true, max: '5' }, { on: true, delay: '3' }] as SyncCommandOptions[]) expect(await run([], o)).toBe(2);
+    expect(bgWrites).toEqual([]);
+  });
+  it('--status says off in this shell when ALIGN_NO_SYNC or CI applies, and the switch itself wins when it is off', async () => {
+    await run([], { status: true }, { shellGate: () => 'ALIGN_NO_SYNC is set' });
+    expect(out.join('\n')).toContain('off in this shell (ALIGN_NO_SYNC is set)');
+    out.length = 0; bgOff = true;
+    await run([], { status: true }, { shellGate: () => 'this looks like CI' });
+    expect(out.join('\n')).toContain('Background refresh: off. Turn it on');
+  });
+  it('--off explains what it does not stop', async () => {
+    await run([], { off: true, on: true });
+    expect(err.join('\n')).toContain('align_backfill');
   });
 });
 

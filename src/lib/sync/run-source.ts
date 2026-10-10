@@ -28,7 +28,7 @@ import {
 import { HOT_THREAD_DAYS, mergePartialThread, selectHotThreads } from './threads.js';
 import { ascendingByUpdated, finishRun, inheritedWindowSince, later, newestUpdated, nextWindow, PERSISTENT_HOLE_RUNS, plausible } from './window.js';
 
-export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'not_connected' | 'manual';
+export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'recent' | 'not_connected' | 'manual';
 
 export interface SourceOutcome {
   source: string;
@@ -112,7 +112,8 @@ const none = (source: string, state: SourceState, message: string): SourceOutcom
 export async function syncSource(
   source: string,
   env: SyncEnv,
-  o: { trigger: 'cli' | 'background' } = { trigger: 'cli' },
+  /** `minIntervalMs` applies to a background run only: a launch's child that finds the source tried more recently than this stops, so the interval holds across launches. */
+  o: { trigger: 'cli' | 'background'; minIntervalMs?: number } = { trigger: 'cli' },
 ): Promise<SourceOutcome> {
   const tokens = env.tokens(source);
   if (tokens === null || !tokens['token']) return none(source, 'not_connected', `${source} is not connected. Run: align connect ${source}`);
@@ -122,6 +123,13 @@ export async function syncSource(
   const lock = env.lock(`sync-${source}`);
   if (!lock.ok) return none(source, 'locked', `already syncing${lock.holder ? ` (started ${lock.holder.started_at.slice(0, 16).replace('T', ' ')} UTC)` : ''}`);
   try {
+    if (o.trigger === 'background' && o.minIntervalMs !== undefined) {
+      // Re-read AFTER taking the lock: the launcher's decision is older than the 20 s the child waited, and another child may have just finished.
+      const nowMs = env.now().getTime();
+      const tried = readRows(env.dbPath, source).flatMap((r) => [r.last_success_at, r.last_attempt_at])
+        .map((t) => (t === null ? Number.NaN : Date.parse(t))).filter((t) => !Number.isNaN(t) && t <= nowMs);
+      if (tried.length > 0 && nowMs - Math.max(...tried) < o.minIntervalMs) return none(source, 'recent', `${source} was refreshed less than ${Math.round(o.minIntervalMs / 60_000)} minutes ago`);
+    }
     if (env.backfillRunning(source)) return none(source, 'backfill_running', `a backfill of ${source} is running; it is reading the same history`);
     return await run(source, tokens, env, lock, o);
   } finally {
