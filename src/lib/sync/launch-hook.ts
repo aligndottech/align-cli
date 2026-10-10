@@ -12,10 +12,10 @@
  * launch-path-imports.test.ts walks them. Nothing here throws into the launcher: a failure to
  * decide or to start means no refresh this time, and the agent opens exactly as it would have.
  */
-import fs from 'node:fs';
 import path from 'node:path';
 import { alignStateDirPath, type BackfillStatus, liveBackfills, pidAlive } from '../backfill-state.js';
 import { inCi } from '../telemetry-ci.js';
+import { claimInForce, releaseClaim, takeClaim } from './bg-claim.js';
 import { lockHolder } from './lock.js';
 import { BACKGROUND_LAUNCH_DELAY_SECONDS, REAUTH_LINE_INTERVAL_MS, reauthSources, shouldBackgroundSync, SYNC_MIN_INTERVAL_MS } from './should-background-sync.js';
 import { startSyncChild } from './spawn-background.js';
@@ -65,19 +65,8 @@ export interface BackgroundPlan { sources: string[]; reauth: string[] }
 const EMPTY: BackgroundPlan = { sources: [], reauth: [] };
 const set = (v: string | undefined): boolean => v !== undefined && v !== '';
 
-function readClaimAt(file: string): number | undefined {
-  try {
-    const at = (JSON.parse(fs.readFileSync(file, 'utf8')) as { at?: unknown }).at;
-    return typeof at === 'number' && Number.isFinite(at) ? at : undefined;
-  } catch { return undefined; }
-}
-
-/** A claim is fresh while it is younger than the interval and not dated in the future. */
-const freshClaim = (at: number | undefined, now: number): boolean => at !== undefined && at <= now && now - at < SYNC_MIN_INTERVAL_MS;
-
 function defaultIo(h: BackgroundSyncHost): BackgroundSyncIo {
   const stateDir = alignStateDirPath(h.env, h.home, h.platform);
-  const claimFile = (source: string): string => path.join(stateDir, `${source}.bgclaim`);
   // Read once per launch, however many sources are due.
   let backfills: BackfillStatus[] | undefined;
   const runningBackfills = (): BackfillStatus[] => (backfills ??= liveBackfills(path.join(stateDir, 'backfill'), pidAlive));
@@ -85,24 +74,12 @@ function defaultIo(h: BackgroundSyncHost): BackgroundSyncIo {
     readSummary: () => readSummary(stateDir),
     busy: (source) => lockHolder(`sync-${source}`, { dir: stateDir }) !== undefined
       || runningBackfills().some((s) => s.source === source)
-      || freshClaim(readClaimAt(claimFile(source)), Date.now()),
+      || claimInForce(stateDir, source, Date.now(), SYNC_MIN_INTERVAL_MS),
     inCi: () => inCi(h.env),
-    claim: (source) => {
-      const file = claimFile(source);
-      const body = JSON.stringify({ at: Date.now(), pid: process.pid });
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          fs.writeFileSync(file, body, { flag: 'wx', mode: 0o600 });
-          return true;
-        } catch (e) {
-          if ((e as { code?: string }).code !== 'EEXIST') return false;
-          if (freshClaim(readClaimAt(file), Date.now())) return false;
-          try { fs.rmSync(file, { force: true }); } catch { return false; }
-        }
-      }
-      return false;
-    },
-    releaseClaim: (source) => { try { fs.rmSync(claimFile(source), { force: true }); } catch { /* it expires on its own */ } },
+    // Skip, never block: a claim that cannot be recorded (an object in the way, an unwritable directory) means no start for that source,
+    // and `align sync --status` says why.
+    claim: (source) => takeClaim(stateDir, source, Date.now(), SYNC_MIN_INTERVAL_MS).ok,
+    releaseClaim: (source) => releaseClaim(stateDir, source, Date.now(), SYNC_MIN_INTERVAL_MS),
     start: (sources) => startSyncChild(sources, { delaySeconds: BACKGROUND_LAUNCH_DELAY_SECONDS, env: h.env, caller: 'launcher' }),
     nowMs: () => Date.now(),
   };

@@ -22,6 +22,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { alignStateDir, pidAlive } from '../backfill-state.js';
+import { readRegularFile } from './safe-read.js';
 
 export const LOCK_STALE_MS = 30 * 60_000;
 /** A takeover guard is held for microseconds; one older than this is a corpse. */
@@ -48,8 +49,8 @@ export function lockFile(dir: string, name: string): string {
 }
 
 function read(file: string): { raw: string; body: LockBody | undefined } | undefined {
-  let raw: string;
-  try { raw = fs.readFileSync(file, 'utf8'); } catch { return undefined; }
+  const raw = readRegularFile(file, 4096);
+  if (raw === undefined) return undefined;
   try {
     const b = JSON.parse(raw) as Partial<LockBody>;
     if (Number.isInteger(b.pid) && typeof b.at === 'number' && typeof b.started_at === 'string' && typeof b.nonce === 'string') return { raw, body: b as LockBody };

@@ -178,6 +178,11 @@ config.
   was already waiting to start (it waits 20 seconds) stops when it sees the switch.
 - `ALIGN_NO_SYNC=1` stops it for one shell. CI and a session with no terminal never start it.
   `align sync --status` says when the refresh is off in this shell.
+- It only refreshes a source that you have already synced or backfilled by hand once (`align sync github`).
+  A source Align cannot read until you act (Confluence with no spaces chosen) is not retried every 15 minutes.
+- `align sync --on` needs you at a terminal and is refused inside a coding agent; `--off` works anywhere.
+  If Align cannot record that it already started a refresh (something in the way in its state folder),
+  it skips that source, and `align sync --status` says why.
 - A source whose saved login stopped working is named in one line at most once a day.
 - Your own `DO_NOT_TRACK`, `CI` and `ALIGN_TELEMETRY` settings reach the refresh, so it follows them.
 - The first-use line and that reminder are remembered in your config file. Two Align processes that

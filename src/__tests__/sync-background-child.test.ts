@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { startBackfillChild } from '../lib/backfill-state.js';
 import { CHILD_ENV_KEYS } from '../lib/launch/mcp-child-env.js';
+import { inCi } from '../lib/telemetry-ci.js';
 import { startSyncChild, SYNC_CHILD_ALIGN_NAMES, syncChildEnv } from '../lib/sync/spawn-background.js';
 import { telemetryDisabledByEnv } from '../lib/telemetry-env.js';
 
@@ -50,6 +51,18 @@ describe('startSyncChild passes the reduced environment to the starter', () => {
     const call = start.mock.calls[0] as unknown as [string, string[], unknown, unknown, string, Record<string, string>];
     expect(call[1]).toEqual(['sync', '--background', '--delay', '20', 'github']);
     expect(call[5]).toEqual(KEPT);
+  });
+});
+
+describe('syncChildEnv keeps CI detection (the provider variables are dropped, so CI is said outright)', () => {
+  it('a parent that is in CI gives the child CI=true; a parent that is not gives no CI (two examples each)', () => {
+    expect(inCi(syncChildEnv({ JENKINS_URL: 'x', BUILD_NUMBER: '1' }))).toBe(true);
+    expect(inCi(syncChildEnv({ GITHUB_ACTIONS: 'true' }))).toBe(true);
+    expect(syncChildEnv({ PATH: '/bin' })).not.toHaveProperty('CI');
+    expect(inCi(syncChildEnv({ PATH: '/bin', HOME: '/h' }))).toBe(false);
+  });
+  it('an explicit CI=false stays false', () => {
+    expect(syncChildEnv({ CI: 'false', JENKINS_URL: 'x' })['CI']).toBe('false');
   });
 });
 

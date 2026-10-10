@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { alignDistribution } from './distribution.js';
+import { readRegularFile } from './sync/safe-read.js';
 import { absoluteXdg } from './xdg.js';
 
 export const BACKFILL_STATUS_ENV = 'ALIGN_BACKFILL_STATUS';
@@ -104,7 +105,9 @@ export function statusPath(dir: string, source: string): string {
 
 export function readStatus(file: string): BackfillStatus | null {
   try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<BackfillStatus>;
+    const text = readRegularFile(file, 65_536);
+    if (text === undefined) return null;
+    const raw = JSON.parse(text) as Partial<BackfillStatus>;
     if (typeof raw.source !== 'string' || !Number.isInteger(raw.pid) || typeof raw.started_at !== 'string') return null;
     if (raw.state !== 'running' && raw.state !== 'done' && raw.state !== 'failed') return null;
     return raw as BackfillStatus;

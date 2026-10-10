@@ -65,7 +65,9 @@ export function shouldBackgroundSync(i: BackgroundSyncInput): string[] {
   if (gatesClosed(i)) return [];
   const due = new Set<string>();
   for (const s of i.summary!.sources) {
-    if (!s.backgroundEligible || s.status === 'needs_reauth') continue;
+    // `never`: connected but never read by a person (no manual sync or backfill yet), so nothing is read unattended for it.
+    // `manual` and `not_connected`: a run cannot get further until a person acts, and writes no timestamp, so it would respawn every interval.
+    if (!s.backgroundEligible || s.status === 'needs_reauth' || s.status === 'never' || s.status === 'manual' || s.status === 'not_connected') continue;
     if (!SAFE_SOURCE_ID.test(s.id) || i.busy?.has(s.id)) continue;
     const tried = lastTried(s, i.now, i.summary!.generated_at);
     // No readable timestamp: stale, never fresh.

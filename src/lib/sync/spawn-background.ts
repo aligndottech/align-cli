@@ -14,6 +14,7 @@ import os from 'node:os';
 import { backfillChildCommand, type ChildCaller, startBackfillChild } from '../backfill-state.js';
 import { CHILD_ENV_KEYS, CHILD_ENV_SECRETS, childEnvValue } from '../launch/mcp-child-env.js';
 import { PROVIDER_ENV_VARS } from '../llm-providers.js';
+import { inCi } from '../telemetry-ci.js';
 
 /** `--delay 0`: an on-demand run (the person or their agent just asked) has no agent start-up to stay out of the way of. */
 export function syncChildArgv(sources: readonly string[], o: { delaySeconds?: number } = {}): string[] {
@@ -50,6 +51,8 @@ export function syncChildEnv(env: Record<string, string | undefined>): Record<st
     const v = childEnvValue(k, env);
     if (v !== '') out[k] = v;
   }
+  // The reduced env drops the CI provider's own variables (JENKINS_URL, BUILD_NUMBER...), which is how CI was recognised. Say it outright.
+  if (inCi(env)) out['CI'] = 'true';
   return out;
 }
 

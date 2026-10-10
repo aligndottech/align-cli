@@ -1,9 +1,12 @@
 import { type Command, Option } from 'commander';
 import chalk from 'chalk';
 import { askWithTimeout } from '../lib/confirm-timeout.js';
+import { alignStateDir, STARTED_BY_AGENT_ENV } from '../lib/backfill-state.js';
 import { createConfigStore } from '../lib/config.js';
 import { inCi } from '../lib/telemetry-ci.js';
 import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
+import { claimProblem } from '../lib/sync/bg-claim.js';
+import { clearBlocked, writeBlocked } from '../lib/sync/blocked.js';
 import { acquireLock } from '../lib/sync/lock.js';
 import { classifyUnclassified, estimateClassify } from '../lib/sync/classify.js';
 import { localGraphPath, realStatusDeps, realSyncEnv } from '../lib/sync/real-env.js';
@@ -57,6 +60,12 @@ export interface SyncCommandDeps {
   setBackgroundOff(off: boolean): void;
   /** Why the launch-time refresh is off in THIS shell regardless of `--off` (ALIGN_NO_SYNC, CI), or undefined. */
   shellGate(): string | undefined;
+  /** Is this process an agent's (ALIGN_WRAPPED, or started by an MCP tool call)? */
+  inAgent(): boolean;
+  /** A background run found a source it cannot read until a person acts, or got further: the launcher stops, or resumes, scheduling it. */
+  noteOutcome(source: string, state: SourceOutcome['state'], message?: string): void;
+  /** Why the launch-time refresh cannot record its claim for a connected source (an object in the way, an unwritable state directory). */
+  backgroundProblems(): string[];
 }
 
 function whole(raw: string | undefined, fallback: number, min: number): number | undefined {
@@ -72,6 +81,12 @@ export async function runSyncCommand(sourcesRaw: string[], opts: SyncCommandOpti
     if ((opts.off && opts.on) || sourcesArg.length > 0 || opts.status || opts.classify || opts.background || opts.yes || opts.max !== undefined || opts.delay !== undefined) {
       d.err('align sync: --off and --on are used on their own: align sync --off, or align sync --on. They stop or allow only the refresh that runs when you start Align; `align sync`, `align_sync` and `align_backfill` still work.');
       return 2;
+    }
+    // Turning it off is the safe direction and is allowed anywhere. Turning it ON starts reads nobody asked for just now: a person must do it,
+    // at a terminal, and not from inside an agent (the same rule the scope gate applies).
+    if (opts.on && (d.inAgent() || !d.isTty())) {
+      d.err(`align sync: --on needs a person at a terminal. ${d.inAgent() ? 'This runs inside a coding agent.' : 'There is no terminal here.'} Run \`align sync --on\` yourself, in your own terminal.`);
+      return 1;
     }
     d.setBackgroundOff(opts.off === true);
     d.out(opts.off
@@ -109,6 +124,7 @@ export async function runSyncCommand(sourcesRaw: string[], opts: SyncCommandOpti
       : gate !== undefined
         ? `Background refresh: on, but off in this shell (${gate})`
         : `Background refresh: on (at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source; turn it off: align sync --off)`);
+    for (const line of d.backgroundProblems()) d.out(`Background refresh: ${line}`);
     return 0;
   }
   if (opts.classify) return classifyFlow(dbPath, max, opts, d);
@@ -139,6 +155,7 @@ export async function runSyncCommand(sourcesRaw: string[], opts: SyncCommandOpti
         // The launcher's decision is older than the delay: each source re-checks its own age after taking its lock.
         ...(opts.background && delay > 0 ? { minIntervalMs: SYNC_MIN_INTERVAL_MS } : {}),
         onOutcome: (o) => {
+          d.noteOutcome(o.source, o.state, o.message);
           if (!opts.background) for (const line of renderOutcome(o)) d.out(line);
           if (d.report) pings.push(d.report(o, reportTrigger).catch(() => {}));
         },
@@ -246,6 +263,18 @@ export function registerSyncCommand(program: Command): void {
         report: recordSourceSynced,
         backgroundOff: () => config.isBackgroundSyncOff(),
         setBackgroundOff: (off) => config.setBackgroundSyncOff(off),
+        inAgent: () => Boolean(process.env['ALIGN_WRAPPED']) || process.env[STARTED_BY_AGENT_ENV] === 'mcp',
+        noteOutcome: (source, state, message) => {
+          if (source === 'teams') return;
+          if (state === 'manual' || state === 'not_connected') writeBlocked(source, state, message ?? state);
+          else if (state === 'ok' || state === 'partial' || state === 'error' || state === 'needs_reauth') clearBlocked(source);
+        },
+        backgroundProblems: () => {
+          const dir = alignStateDir();
+          if (dir === null) return ['Align cannot use its state directory, so it does not refresh in the background'];
+          const lines = BACKFILL_SOURCES.filter((s) => config.getConnectorFields('local', s)?.['token']).map((s) => claimProblem(dir, s, Date.now(), SYNC_MIN_INTERVAL_MS));
+          return [...new Set(lines.filter((l): l is string => l !== undefined))];
+        },
         shellGate: () => (process.env['ALIGN_NO_SYNC'] ? 'ALIGN_NO_SYNC is set' : inCi() ? 'this looks like CI' : undefined),
       });
       if (code !== 0) process.exitCode = code;

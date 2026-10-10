@@ -7,9 +7,9 @@
  * Reading tolerates a missing, corrupt or foreign file by returning undefined: the launch hook
  * then spawns nothing, which is the safe direction.
  */
-import fs from 'node:fs';
 import path from 'node:path';
 import { alignStateDir } from '../backfill-state.js';
+import { readRegularFile } from './safe-read.js';
 import { isKnownSource } from './source-ids.js';
 import type { SyncStatus } from './sync-state.js';
 
@@ -19,7 +19,7 @@ export interface SummarySource {
   id: string;
   /** Connected, and a kind of source a background run can read (not Teams, Decision 21). */
   backgroundEligible: boolean;
-  status: SyncStatus | 'never';
+  status: SyncStatus | 'never' | 'manual' | 'not_connected';
   lastSuccessAt?: string;
   /** Any run, complete or not: the launch hook spaces its attempts by this, so a source that is always partial is not retried on every launch. */
   lastAttemptAt?: string;
@@ -35,7 +35,9 @@ export function readSummary(dir: string | null = alignStateDir()): SyncSummary |
   const file = summaryPath(dir);
   if (file === null) return undefined;
   try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<SyncSummary>;
+    const text = readRegularFile(file, 4_194_304);
+    if (text === undefined) return undefined;
+    const raw = JSON.parse(text) as Partial<SyncSummary>;
     if (raw.version !== 1 || !Array.isArray(raw.sources) || typeof raw.generated_at !== 'string') return undefined;
     const sources = raw.sources.filter((s): s is SummarySource => typeof s?.id === 'string' && isKnownSource(s.id) && typeof s.backgroundEligible === 'boolean');
     // One entry per source: a repeated id would only repeat work, and a huge file is cut to the known list.

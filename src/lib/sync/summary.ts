@@ -10,6 +10,7 @@
  */
 import fs from 'node:fs';
 import { alignStateDir } from '../backfill-state.js';
+import { type BlockedState, readBlocked } from './blocked.js';
 import { BACKFILL_SOURCES } from '../mcp-backfill.js';
 import { readRows, type SyncStatus } from './sync-state.js';
 import { readSummary, SUMMARY_FILE, summaryPath, type SummarySource, type SyncSummary } from './summary-read.js';
@@ -19,7 +20,7 @@ export { SUMMARY_FILE, type SummarySource, type SyncSummary, readSummary, summar
 
 const SEVERITY: Record<SyncStatus, number> = { ok: 0, partial: 1, error: 2, needs_reauth: 3 };
 
-export function buildSummary(dbPath: string, isConnected: (id: string) => boolean, now: Date): SyncSummary {
+export function buildSummary(dbPath: string, isConnected: (id: string) => boolean, now: Date, blocked: (id: string) => BlockedState | undefined = () => undefined): SyncSummary {
   const all = readRows(dbPath);
   const sources: SummarySource[] = [];
   for (const id of BACKFILL_SOURCES) {
@@ -37,6 +38,8 @@ export function buildSummary(dbPath: string, isConnected: (id: string) => boolea
       if (r.last_attempt_at === null || Number.isNaN(Date.parse(r.last_attempt_at))) continue;
       if (attempt === undefined || Date.parse(r.last_attempt_at) > Date.parse(attempt)) attempt = r.last_attempt_at;
     }
+    const stuck = blocked(id);
+    if (stuck !== undefined) status = stuck;
     sources.push({ id, backgroundEligible: id !== 'teams', status, ...(last !== undefined ? { lastSuccessAt: last } : {}), ...(attempt !== undefined ? { lastAttemptAt: attempt } : {}) });
   }
   return { version: 1, generated_at: now.toISOString(), sources };
@@ -60,7 +63,7 @@ export function writeSummary(summary: SyncSummary, dir: string | null = alignSta
 /** Rebuild and write it. Called after a sync, and when a source is connected or forgotten. */
 export function refreshSummary(dbPath: string, isConnected: (id: string) => boolean, now: Date = new Date(), dir?: string | null): boolean {
   try {
-    return writeSummary(buildSummary(dbPath, isConnected, now), dir);
+    return writeSummary(buildSummary(dbPath, isConnected, now, (id) => readBlocked(id, dir === undefined ? alignStateDir() : dir)?.state), dir);
   } catch {
     return false;
   }

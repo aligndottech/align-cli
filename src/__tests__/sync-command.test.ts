@@ -31,9 +31,10 @@ let tokens: Map<string, Record<string, string>>;
 let refreshes: number;
 let bgOff: boolean;
 let bgWrites: boolean[];
+let notes: string[];
 beforeEach(() => {
   h = harness();
-  out = []; err = []; sleeps = []; refreshes = 0; bgOff = false; bgWrites = [];
+  out = []; err = []; sleeps = []; refreshes = 0; bgOff = false; bgWrites = []; notes = [];
   tokens = new Map([['github', { token: 'tok' }], ['jira', { token: 'tok', domain: 'x.atlassian.net' }]]);
 });
 afterEach(() => h.cleanup());
@@ -55,6 +56,9 @@ function deps(over: Partial<SyncCommandDeps> = {}): SyncCommandDeps {
     classifyLock: () => acquireLock('sync-classify', { dir: h.lockDir, alive: () => true }),
     backgroundOff: () => bgOff,
     shellGate: () => undefined,
+    inAgent: () => false,
+    noteOutcome: (source, state) => { notes.push(`${source}:${state}`); },
+    backgroundProblems: () => [],
     setBackgroundOff: (off) => { bgOff = off; bgWrites.push(off); },
     ...over,
   };
@@ -179,6 +183,38 @@ describe('a refused token', () => {
     expect(err).toEqual([]);
     expect(readRows(h.dbPath, 'github')[0]!.status).toBe('needs_reauth');
     expect(tokens.get('github')).toEqual({ token: 'tok' });
+  });
+});
+
+describe('--on needs a person; --off does not', () => {
+  it('--on inside an agent is refused with the reason, and nothing is written (agent with a terminal; no terminal without an agent)', async () => {
+    expect(await run([], { on: true }, { inAgent: () => true, isTty: () => true })).toBe(1);
+    expect(err.join('\n')).toContain('inside a coding agent');
+    err.length = 0;
+    expect(await run([], { on: true }, { inAgent: () => false, isTty: () => false })).toBe(1);
+    expect(err.join('\n')).toContain('no terminal');
+    expect(bgWrites).toEqual([]);
+  });
+  it('--on by a person at a terminal outside an agent works', async () => {
+    bgOff = true;
+    expect(await run([], { on: true }, { inAgent: () => false, isTty: () => true })).toBe(0);
+    expect(bgWrites).toEqual([true].map(() => false));
+  });
+  it('--off is allowed anywhere: inside an agent, and with no terminal', async () => {
+    expect(await run([], { off: true }, { inAgent: () => true, isTty: () => false })).toBe(0);
+    expect(bgWrites).toEqual([true]);
+  });
+});
+
+describe('what a run tells the launcher', () => {
+  it('every source outcome is passed on (so a manual or not_connected one can stop being scheduled, and a later success resumes it)', async () => {
+    h.script({ items: [] });
+    await run(['github'], { background: true, delay: '0' });
+    expect(notes).toEqual(['github:ok']);
+  });
+  it('--status lists a claim problem as one line', async () => {
+    await run([], { status: true }, { backgroundProblems: () => ['something that is not a file is in the way at /x/github.1.bgclaim'] });
+    expect(out.join('\n')).toContain('Background refresh: something that is not a file is in the way');
   });
 });
 

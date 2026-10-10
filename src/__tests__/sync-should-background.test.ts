@@ -37,8 +37,14 @@ describe('shouldBackgroundSync: which sources are due', () => {
     expect(shouldBackgroundSync(input({ summary: s }))).toEqual(['github', 'linear']);
   });
 
-  it('a source that never synced is due', () => {
-    expect(shouldBackgroundSync(input({ summary: summary(src('slack', { status: 'never' })) }))).toEqual(['slack']);
+  it('a source nobody has ever synced by hand is NOT started: a person runs `align sync` or a backfill once first', () => {
+    expect(shouldBackgroundSync(input({ summary: summary(src('slack', { status: 'never' })) }))).toEqual([]);
+    expect(shouldBackgroundSync(input({ summary: summary(src('slack', { status: 'never' }), src('github', { lastSuccessAt: minutesAgo(90) })) }))).toEqual(['github']);
+  });
+  it('a source stuck on manual or not_connected is not scheduled (its runs write no timestamp, so it would respawn every interval)', () => {
+    for (const status of ['manual', 'not_connected'] as const) {
+      expect(shouldBackgroundSync(input({ summary: summary(src('confluence', { status, lastSuccessAt: minutesAgo(90) }), src('github', { lastSuccessAt: minutesAgo(90) })) }))).toEqual(['github']);
+    }
   });
 
   it('a recent ATTEMPT holds a source back even when its last success is old (always-partial sources are not retried every launch)', () => {
@@ -89,7 +95,7 @@ describe('shouldBackgroundSync: when nothing may start', () => {
   it('Teams alone is never asked for; Teams with Slack leaves Teams out', () => {
     const teams = src('teams', { backgroundEligible: false, status: 'never' });
     expect(shouldBackgroundSync(input({ summary: summary(teams) }))).toEqual([]);
-    expect(shouldBackgroundSync(input({ summary: summary(teams, src('slack', { status: 'never' })) }))).toEqual(['slack']);
+    expect(shouldBackgroundSync(input({ summary: summary(teams, src('slack', { status: 'ok', lastSuccessAt: minutesAgo(90) })) }))).toEqual(['slack']);
   });
 
   it('a needs_reauth source is not asked for; error and partial sources are', () => {
@@ -102,19 +108,19 @@ describe('shouldBackgroundSync: when nothing may start', () => {
   });
 
   it('a source with a sync or backfill running is left out', () => {
-    const s = summary(src('github', { status: 'never' }), src('jira', { status: 'never' }));
+    const s = summary(src('github', { status: 'ok', lastSuccessAt: minutesAgo(90) }), src('jira', { status: 'ok', lastSuccessAt: minutesAgo(90) }));
     expect(shouldBackgroundSync(input({ summary: s, busy: new Set(['jira']) }))).toEqual(['github']);
     expect(shouldBackgroundSync(input({ summary: s, busy: new Set(['linear']) }))).toEqual(['github', 'jira']);
   });
 
   it('an id that could be read as a flag or a second word never reaches the argv', () => {
-    const s = summary(src('--yes', { status: 'never' }), src('a b', { status: 'never' }), src('github', { status: 'never' }), src('github', { status: 'never' }));
+    const s = summary(src('--yes', { status: 'ok', lastSuccessAt: minutesAgo(90) }), src('a b', { status: 'ok', lastSuccessAt: minutesAgo(90) }), src('github', { status: 'ok', lastSuccessAt: minutesAgo(90) }), src('github', { status: 'ok', lastSuccessAt: minutesAgo(90) }));
     expect(shouldBackgroundSync(input({ summary: s }))).toEqual(['github']);
   });
 
   it('an id that is well formed but is not a source does not stop the real ones, and does not start (two examples)', () => {
-    expect(shouldBackgroundSync(input({ summary: summary(src('myspace', { status: 'never' }), src('github', { status: 'never' })) }))).toEqual(['github']);
-    expect(shouldBackgroundSync(input({ summary: summary(src('myspace', { status: 'never' })) }))).toEqual([]);
+    expect(shouldBackgroundSync(input({ summary: summary(src('myspace', { status: 'ok', lastSuccessAt: minutesAgo(90) }), src('github', { status: 'ok', lastSuccessAt: minutesAgo(90) })) }))).toEqual(['github']);
+    expect(shouldBackgroundSync(input({ summary: summary(src('myspace', { status: 'ok', lastSuccessAt: minutesAgo(90) })) }))).toEqual([]);
   });
 });
 

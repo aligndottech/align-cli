@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -104,7 +105,7 @@ describe('launchIfChosen: background refresh', () => {
     const a = harness({ summary: summary(teams) });
     await launchIfChosen(a.deps);
     expect(a.start).not.toHaveBeenCalled();
-    const b = harness({ summary: summary(teams, src('slack', { status: 'never' })) });
+    const b = harness({ summary: summary(teams, src('slack', { status: 'ok', lastSuccessAt: minutesAgo(90) })) });
     await launchIfChosen(b.deps);
     expect(b.start).toHaveBeenCalledExactlyOnceWith(['slack']);
   });
@@ -285,7 +286,7 @@ describe('concurrent launches and the claim (the 15-minute rule across launches)
     const start = vi.fn();
     for (let i = 0; i < 5; i++) await launch(start, { nowMs: () => Date.now() });
     expect(start).toHaveBeenCalledTimes(1);
-    expect(fs.existsSync(path.join(state(), 'github.bgclaim'))).toBe(true);
+    expect(fs.readdirSync(state()).filter((n) => /^github\.\d+\.bgclaim$/.test(n))).toHaveLength(1);
   });
 
   it('two claims race for the same source at once: exactly one wins', async () => {
@@ -295,26 +296,19 @@ describe('concurrent launches and the claim (the 15-minute rule across launches)
     expect(start).toHaveBeenCalledTimes(1);
   });
 
-  it('a claim older than the interval is stale and a new launch takes over; a fresh one holds', async () => {
+  const bucketNow = (): number => Math.floor(Date.now() / (15 * 60_000));
+  it('a claim older than the interval is stale and a new launch starts; a fresh one holds', async () => {
     write(dueNow());
-    fs.writeFileSync(path.join(state(), 'github.bgclaim'), JSON.stringify({ at: Date.now() - 16 * 60_000 }));
+    // dated 16 minutes ago, in the previous bucket or the one before: not in force
+    fs.writeFileSync(path.join(state(), `github.${bucketNow() - 1}.bgclaim`), JSON.stringify({ at: Date.now() - 16 * 60_000 }));
     const stale = vi.fn();
     await launch(stale, { nowMs: () => Date.now() });
     expect(stale).toHaveBeenCalledTimes(1);
-    fs.writeFileSync(path.join(state(), 'github.bgclaim'), JSON.stringify({ at: Date.now() - 14 * 60_000 }));
+    fs.rmSync(path.join(state(), `github.${bucketNow()}.bgclaim`), { force: true });
+    fs.writeFileSync(path.join(state(), `github.${bucketNow() - 1}.bgclaim`), JSON.stringify({ at: Date.now() - 1000 }));
     const fresh = vi.fn();
     await launch(fresh, { nowMs: () => Date.now() });
     expect(fresh).not.toHaveBeenCalled();
-  });
-
-  it('a claim dated in the future, or unreadable, does not hold a source back for ever', async () => {
-    write(dueNow());
-    for (const body of [JSON.stringify({ at: Date.now() + 3_600_000 }), '{broken']) {
-      fs.writeFileSync(path.join(state(), 'github.bgclaim'), body);
-      const start = vi.fn();
-      await launch(start, { nowMs: () => Date.now() });
-      expect(start).toHaveBeenCalledTimes(1);
-    }
   });
 
   it('a start that fails gives the claim back, so the next launch may try again', async () => {
@@ -364,18 +358,19 @@ describe('a summary that is hostile or huge', () => {
     return { ms: performance.now() - t0, start };
   };
   const old = new Date(Date.now() - 3_600_000).toISOString();
+  const clear = (): void => { for (const n of fs.readdirSync(path.join(dir, 'align-cli'))) if (n.endsWith('.bgclaim')) fs.rmSync(path.join(dir, 'align-cli', n)); };
 
   it('one id that is not a source does not block the real ones', async () => {
-    const { start } = await run([src('myspace', { status: 'never' }), src('github', { lastSuccessAt: old })]);
+    const { start } = await run([src('myspace', { status: 'ok', lastSuccessAt: minutesAgo(90) }), src('github', { lastSuccessAt: old })]);
     expect(start).toHaveBeenCalledExactlyOnceWith(['github']);
   });
 
   it('20,000 junk ids cost the launch no more than 20 ms over a one-source summary, and start only the real source', async () => {
-    const junk = Array.from({ length: 20_000 }, (_, i) => src(`junk${i}`, { status: 'never' }));
+    const junk = Array.from({ length: 20_000 }, (_, i) => src(`junk${i}`, { status: 'ok', lastSuccessAt: minutesAgo(90) }));
     await run([src('github', { lastSuccessAt: old })]); // warm the code
-    fs.rmSync(path.join(dir, 'align-cli', 'github.bgclaim'), { force: true });
+    clear();
     const small = await run([src('github', { lastSuccessAt: old })]);
-    fs.rmSync(path.join(dir, 'align-cli', 'github.bgclaim'), { force: true });
+    clear();
     const big = await run([...junk, src('github', { lastSuccessAt: old })]);
     expect(big.start).toHaveBeenCalledExactlyOnceWith(['github']);
     expect(big.ms - small.ms).toBeLessThan(20);
@@ -403,4 +398,56 @@ describe('an unwritable config', () => {
     expect(h.configWrites).toEqual(['notice']);
     expect(h.events.indexOf(`err:${BACKGROUND_SYNC_NOTICE.slice(0, 24)}`)).toBeGreaterThanOrEqual(0);
   });
+});
+
+describe.skipIf(process.platform === 'win32')('a FIFO where a file is expected never hangs the launch', () => {
+  let dir: string;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-fifo-')); fs.mkdirSync(path.join(dir, 'align-cli', 'backfill'), { recursive: true }); });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const state = (): string => path.join(dir, 'align-cli');
+  const hostFor = () => ({ env: { XDG_STATE_HOME: dir }, home: '/home/u', platform: 'linux', isTTY: true, config: {}, err: () => {} });
+  const old = (): string => new Date(Date.now() - 3_600_000).toISOString();
+
+  it('a FIFO at sync-summary.json: the plan is empty, within 50 ms', async () => {
+    const { planBackgroundSync } = await import('../lib/sync/launch-hook.js');
+    execFileSync('mkfifo', [path.join(state(), 'sync-summary.json')]);
+    const t0 = performance.now();
+    expect(planBackgroundSync(hostFor())).toEqual({ sources: [], reauth: [] });
+    expect(performance.now() - t0).toBeLessThan(50);
+  });
+
+  it('a FIFO at a claim path, a sync lock and a backfill status: the source is skipped or still starts, within 50 ms, and nothing blocks', async () => {
+    const { planBackgroundSync, applyBackgroundPlan } = await import('../lib/sync/launch-hook.js');
+    fs.writeFileSync(path.join(state(), 'sync-summary.json'), JSON.stringify(summary(src('github', { lastSuccessAt: old() }), src('jira', { lastSuccessAt: old() }), src('slack', { lastSuccessAt: old() }))));
+    execFileSync('mkfifo', [path.join(state(), `github.${Math.floor(Date.now() / (15 * 60_000))}.bgclaim`)]);
+    execFileSync('mkfifo', [path.join(state(), 'sync-jira.lock')]);
+    execFileSync('mkfifo', [path.join(state(), 'backfill', 'slack.json')]);
+    const t0 = performance.now();
+    const plan = planBackgroundSync(hostFor());
+    const started: string[][] = [];
+    applyBackgroundPlan(plan, { ...hostFor(), config: { backgroundSyncNoticeShown: () => true }, io: { start: (s: string[]) => { started.push(s); } } });
+    expect(performance.now() - t0).toBeLessThan(50);
+    // the FIFO claim cannot be taken (an object in the way): github is skipped; the others are not blocked
+    expect(started.flat().sort()).toEqual(['jira', 'slack']);
+  });
+});
+
+describe('a summary written by the sync job: sources a person must act on', () => {
+  it('a blocked marker becomes the source\'s status in the file the launcher reads, and clearing it brings the status back', async () => {
+    const { refreshSummary } = await import('../lib/sync/summary.js');
+    const { readSummary } = await import('../lib/sync/summary-read.js');
+    const { createLocalDb } = await import('../lib/local-db.js');
+    const { writeBlocked, clearBlocked } = await import('../lib/sync/blocked.js');
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-blk-'));
+    try {
+      const db = path.join(d, 'g.db'); createLocalDb(db).close();
+      const connected = (id: string): boolean => ['confluence', 'github'].includes(id);
+      writeBlocked('confluence', 'manual', 'Pick spaces: align connect confluence', d);
+      expect(refreshSummary(db, connected, new Date(), d)).toBe(true);
+      expect(Object.fromEntries(readSummary(d)!.sources.map((x) => [x.id, x.status]))).toEqual({ github: 'never', confluence: 'manual' });
+      clearBlocked('confluence', d);
+      refreshSummary(db, connected, new Date(), d);
+      expect(readSummary(d)!.sources.find((x) => x.id === 'confluence')?.status).toBe('never');
+    } finally { fs.rmSync(d, { recursive: true, force: true }); }
+  }, 30_000);
 });
