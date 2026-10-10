@@ -95,7 +95,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
   }
   if (deps.cloudEnv.mode === 'local-embedded' || !deps.cloudEnv.authToken) {
     err(`align share sends decisions from your local graph to your team's.\n  ${teamCtaLine()}\n  Already have a team? Run: align login`);
-    await deps.leadPrompt?.();
+    try { await deps.leadPrompt?.(); } catch { /* an optional prompt never changes what the person sees from the command */ }
     return 1;
   }
   if (!deps.localDbPath) {
