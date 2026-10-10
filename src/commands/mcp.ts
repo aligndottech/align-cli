@@ -15,6 +15,7 @@ import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
 import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
 import { BACKFILL_TOOL, BACKFILL_TOOL_SCHEMA, runBackfill } from '../lib/mcp-backfill.js';
+import { runScopeTool, SCOPE_TOOL, SCOPE_TOOL_SCHEMA } from '../lib/mcp-scope.js';
 import { runSyncTool, SYNC_TOOL, SYNC_TOOL_SCHEMA } from '../lib/mcp-sync.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
 import {
@@ -229,6 +230,11 @@ export async function dispatchTool(
     );
   }
 
+  // L4: a scope change decides what the NEXT sync imports, so a frozen run refuses it (viewing stays available).
+  if (createdBefore && name === SCOPE_TOOL && args?.['action'] === 'set') {
+    throw new Error(`${SCOPE_TOOL} changes what the graph imports, and this server is frozen as of ${createdBefore}, so it never changes scope. Restart align mcp without --created-before to use it.`);
+  }
+
   // ALI-1411: every READ tool honours the as-of cutoff, not just the three built on
   // searchDecisions. Only smart-search and the decision-links cursor bound it server-side;
   // the rest are filtered by lib/as-of.ts, which says what that cannot cover. With no cutoff
@@ -281,6 +287,9 @@ export async function dispatchTool(
     // L5: never classifies and never takes a credential; `run` starts `align sync --background`.
     case SYNC_TOOL:
       return runSyncTool(args, env);
+    // L4: never takes a credential; `set` goes through the same setScope as `align connect --scope`.
+    case SCOPE_TOOL:
+      return runScopeTool(args, env);
     case 'align_check_alignment': {
       // ALI-1420: the gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
       // gateway that predates the parameter. No cutoff keeps the two-argument call.
@@ -590,6 +599,7 @@ export const TOOL_SCHEMAS = [
   // L3 and L5: appended, so the ranking an agent reads off tools/list (the check first) is unchanged.
   BACKFILL_TOOL_SCHEMA,
   SYNC_TOOL_SCHEMA,
+  SCOPE_TOOL_SCHEMA,
 ];
 
 /**

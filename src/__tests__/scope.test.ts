@@ -5,9 +5,9 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
-import { resolveScope, type ScopeDeps, ScopeRefusal, type ScopeStore, setScope, viewScopes } from '../lib/scope.js';
-import type { StoredScope } from '../lib/scope-values.js';
+import { resolveScope, ScopeRefusal, setScope, viewScopes } from '../lib/scope.js';
 import { beginRun, readRows } from '../lib/sync/sync-state.js';
+import { jiraProjects, makeDeps, memStore, type Route, TOKEN } from './helpers/scope-deps.js';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -33,7 +33,6 @@ vi.setConfig({ testTimeout: 30_000 });
  */
 const NOW = new Date('2026-10-10T12:00:00.000Z');
 const WINDOW = '2026-04-12T12:00:00.000Z';
-const TOKEN = 'SECRET-TOKEN-0123456789';
 
 let dir: string;
 let dbPath: string;
@@ -44,48 +43,7 @@ beforeEach(() => {
 });
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
-const FIELDS: Record<string, Record<string, string>> = {
-  github: { token: TOKEN }, jira: { token: TOKEN, email: 'me@acme.com', domain: 'acme.atlassian.net' },
-  confluence: { token: TOKEN, email: 'me@acme.com', domain: 'acme.atlassian.net' }, linear: { token: 'lin_api_abc' },
-  gitlab: { token: TOKEN }, zoom: { token: TOKEN }, slack: { token: TOKEN }, notion: { token: TOKEN }, teams: { token: TOKEN },
-};
-
-function memStore(init: { connected?: string[]; scopes?: Record<string, StoredScope>; disclosed?: string[] } = {}): ScopeStore & { scopes: Record<string, StoredScope>; disclosed: Set<string> } {
-  const connected = new Set(init.connected ?? Object.keys(FIELDS));
-  const scopes = { ...(init.scopes ?? {}) };
-  const disclosed = new Set(init.disclosed ?? []);
-  return {
-    scopes, disclosed,
-    getScope: (s) => scopes[s] ?? null,
-    saveScope: (s, v) => { scopes[s] = v; },
-    clearScope: (s) => { delete scopes[s]; },
-    fields: (s) => (connected.has(s) ? FIELDS[s] ?? null : null),
-    isDisclosed: (s) => disclosed.has(s),
-    markDisclosed: (s) => { disclosed.add(s); },
-  };
-}
-
-type Route = [RegExp, { status?: number; body?: unknown } | Error];
-function routes(table: Route[]): { fetch: typeof fetch; calls: string[] } {
-  const calls: string[] = [];
-  const f = async (url: string | URL | Request): Promise<Response> => {
-    calls.push(String(url));
-    const hit = table.find(([re]) => re.test(String(url)));
-    if (!hit) return new Response('{}', { status: 404 });
-    if (hit[1] instanceof Error) throw hit[1];
-    return new Response(JSON.stringify(hit[1].body ?? {}), { status: hit[1].status ?? 200 });
-  };
-  return { fetch: f as unknown as typeof fetch, calls };
-}
-
-function deps(over: Partial<ScopeDeps> & { store?: ReturnType<typeof memStore>; table?: Route[] } = {}): ScopeDeps & { store: ReturnType<typeof memStore>; calls: string[] } {
-  const r = routes(over.table ?? []);
-  const store = over.store ?? memStore();
-  return {
-    dbPath, now: () => NOW, cwdRepo: async () => undefined, cwdGitlabProject: async () => undefined, fetch: r.fetch, ...over, store, calls: r.calls,
-  } as never;
-}
-
+const deps = (over: Parameters<typeof makeDeps>[1] = {}): ReturnType<typeof makeDeps> => makeDeps(dbPath, over);
 const SEARCH = /api\.github\.com\/search\/issues/;
 
 describe('resolveScope: GitHub', () => {
@@ -206,7 +164,6 @@ function seedRows(over: { window?: string | null; withTeam?: { key: string; high
     raw.close();
   }
 }
-const jiraProjects = (...keys: string[]): Route => [/rest\/api\/3\/project\/search/, { body: { values: keys.map((key) => ({ key, name: key })), isLast: true } }];
 
 describe('setScope', () => {
   it('Jira team: stored, a new source_sync row with the source window and no watermark, attributed to the agent', async () => {

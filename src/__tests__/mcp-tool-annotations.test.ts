@@ -31,7 +31,8 @@ import type { EnvironmentConfig } from '../lib/config';
 
 // L3 added align_backfill: it records a window and starts an import, so it is a write.
 // L5 added align_sync: its "run" action starts a background refresh, so it is a write too.
-const WRITE_TOOLS = ['align_backfill', 'align_capture', 'align_check_drift', 'align_sync'] as const;
+// L4 added align_scope: its "set" action changes what the next sync reads, so it is a write too.
+const WRITE_TOOLS = ['align_backfill', 'align_capture', 'align_check_drift', 'align_scope', 'align_sync'] as const;
 
 const localEnv = { mode: 'local-embedded', gatewayUrl: '', localDbPath: '/tmp/x.db' } as unknown as EnvironmentConfig;
 const cloudEnv = { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't' } as unknown as EnvironmentConfig;
