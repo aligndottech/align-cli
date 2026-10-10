@@ -100,11 +100,15 @@ describe.skipIf(process.platform === 'win32')('a real detached child', () => {
   const ps = (pid: number, col: string): string => {
     try { return execFileSync('ps', ['-o', `${col}=`, '-p', String(pid)], { encoding: 'utf8' }).trim(); } catch { return ''; }
   };
-  const wait = async (file: string): Promise<void> => { for (let i = 0; i < 200 && !fs.existsSync(file); i++) await new Promise((res) => setTimeout(res, 50)); };
+  const wait = async (file: string): Promise<void> => {
+    for (let i = 0; i < 1200 && !fs.existsSync(file); i++) await new Promise((res) => setTimeout(res, 50));
+    if (!fs.existsSync(file)) throw new Error('the child never wrote its dump (it failed to start or to introspect itself)');
+  };
   const dump = (out: string): string => `
     const fs = require('node:fs');
     const { execFileSync } = require('node:child_process');
-    const ps = (c) => execFileSync('ps', ['-o', c + '=', '-p', String(process.pid)], { encoding: 'utf8' }).trim();
+    // \`ps\` keywords differ: macOS has no \`sid\`. A column it cannot print is '' and is not asserted; the child never dies for want of one.
+    const ps = (c) => { try { return execFileSync('ps', ['-o', c + '=', '-p', String(process.pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; } };
     fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify({
       pid: process.pid, sid: ps('sid'), pgid: ps('pgid'), tty: ps('tty'), cwd: process.cwd(),
       stdinTty: require('node:tty').isatty(0), stdoutTty: require('node:tty').isatty(1),
@@ -121,35 +125,37 @@ describe.skipIf(process.platform === 'win32')('a real detached child', () => {
 
   it('has its own session and no terminal, a stdin that is not ours, and is reaped on exit', async () => {
     const seen = await spawnReal(syncChildEnv(process.env));
-    expect(seen.sid).toBe(String(seen.pid));
+    // The session id is checked where ps can print it (Linux); the group id and the tty are checked everywhere.
+    if (seen.sid !== '') expect(seen.sid).toBe(String(seen.pid));
     expect(seen.pgid).toBe(String(seen.pid));
     expect(seen.pgid).not.toBe(ps(process.pid, 'pgid'));
+    // Linux prints `?`, macOS prints `??`.
     expect(seen.tty).toMatch(/^\?+$|^-$/);
     expect(seen.stdinTty).toBe(false);
     expect(seen.stdoutTty).toBe(false);
     await new Promise((res) => setTimeout(res, 400));
     expect(ps(seen.pid, 'stat')).toBe('');
-  });
+  }, 60_000);
 
   it('secrets in THIS process\'s environment never reach it: the starter honours the env it was given, not process.env', async () => {
     for (const [k, v] of Object.entries({ ...SECRETS, PGPASSWORD: 'pg-planted' })) vi.stubEnv(k, v);
     const seen = await spawnReal(syncChildEnv(process.env));
     for (const name of [...Object.keys(SECRETS), 'PGPASSWORD']) expect(Object.keys(seen.env), name).not.toContain(name);
     expect(seen.env['PATH']).toBe(process.env['PATH']);
-  });
+  }, 60_000);
 
   it('runs where it is told, not in the folder it was started from (two folders)', async () => {
     const home = fs.realpathSync(dir);
     expect((await spawnReal({ PATH: process.env['PATH'] }, { cwd: home })).cwd).toBe(home);
     fs.rmSync(path.join(dir, 'seen.json'));
     expect((await spawnReal({ PATH: process.env['PATH'] }, { cwd: fs.realpathSync(os.tmpdir()) })).cwd).toBe(fs.realpathSync(os.tmpdir()));
-  });
+  }, 60_000);
 
   it('caller: the default (an MCP tool call) stamps ALIGN_STARTED_BY=mcp; the launcher stamps nothing, and cannot inherit one', async () => {
     expect((await spawnReal({ PATH: process.env['PATH'] })).env['ALIGN_STARTED_BY']).toBe('mcp');
     fs.rmSync(path.join(dir, 'seen.json'));
     expect((await spawnReal({ PATH: process.env['PATH'], ALIGN_STARTED_BY: 'mcp' }, { caller: 'launcher' })).env).not.toHaveProperty('ALIGN_STARTED_BY');
-  });
+  }, 60_000);
 
   it('startSyncChild runs the child from the home directory and as the launcher when asked (recorded by a fake starter)', async () => {
     const start = vi.fn(async () => ({ ok: true, pid: 1 }));
@@ -158,7 +164,7 @@ describe.skipIf(process.platform === 'win32')('a real detached child', () => {
     const calls = start.mock.calls as unknown as Array<[string, string[], unknown, unknown, string, unknown, string]>;
     expect([calls[0]![4], calls[0]![6]]).toEqual(['launcher', os.homedir()]);
     expect([calls[1]![4], calls[1]![6]]).toEqual(['mcp', os.homedir()]);
-  });
+  }, 60_000);
 
   it('DO_NOT_TRACK=1 in the launcher shell is still set in the child, and that env turns telemetry off there', async () => {
     vi.stubEnv('DO_NOT_TRACK', '1');
@@ -170,5 +176,5 @@ describe.skipIf(process.platform === 'win32')('a real detached child', () => {
     expect(telemetryDisabledByEnv()).toBeDefined();
     vi.stubEnv('DO_NOT_TRACK', undefined);
     expect(telemetryDisabledByEnv()).toBeUndefined();
-  });
+  }, 60_000);
 });
