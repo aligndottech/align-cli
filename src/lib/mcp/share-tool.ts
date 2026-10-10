@@ -100,7 +100,13 @@ async function stageForApproval(prep: Prepared, t: ShareTarget, agentId: string)
   const live = findLiveRequest(hash, t.envName);
   if (live) {
     // Asking again must not burn one of the gateway's few live requests: reuse it while the gateway still has it pending.
-    const st = await t.client.getShareRequest(live.requestId).catch(() => null);
+    // Only a clean answer ends the old request. A temporary failure here must NOT drop the local file and stage a second request:
+    // the first is still live on the gateway, and each one holds one of the user's five live slots.
+    let st: { state: string } | null;
+    try { st = await t.client.getShareRequest(live.requestId); } catch (e) {
+      if ((e as { statusCode?: number }).statusCode !== 404) throw new Error(`Could not check the earlier request just now (${visible((e as Error).message)}), so no new one was staged. Try again in a moment.`);
+      st = null;
+    }
     if (st?.state === 'pending') {
       const url = approveUrl(t.appUrl, live.requestId, live.keyB64Url);
       return { shared: false, request_id: live.requestId, approve_url: url, user_code: live.userCode, text: stagedText(prep.preview, live, url) };
@@ -156,7 +162,7 @@ export async function runShareTool(args: Record<string, unknown> | undefined, en
     return {
       shared: false,
       code,
-      text: `${prep.preview}\n\nNOTHING HAS BEEN SENT. Show the user the text above and this code: ${code}\nTo share it, the PERSON must open a normal terminal of their own and run the align share command with its confirm option and this code. You, the agent, must not run it: the share is only theirs to confirm. The code works once and expires in 10 minutes.`,
+      text: `${prep.preview}\n\n(This gateway does not offer browser approval, so this is the older one-time code.)\nNOTHING HAS BEEN SENT. Show the user the text above and this code: ${code}\nTo share it, the PERSON must open a normal terminal of their own and run the align share command with its confirm option and this code. You, the agent, must not run it: the share is only theirs to confirm. The code works once and expires in 10 minutes.`,
     };
   } catch (e) {
     if (e instanceof ShareError) throw new Error(e.message);

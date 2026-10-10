@@ -108,16 +108,24 @@ export function consumeCode(code: string): boolean {
 }
 
 export const PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** A request can still be completed for 10 minutes after the approval, which can land just before `expiresAt`: past this much after it, nothing can use the file. */
+export const REQUEST_GRACE_MS = 11 * 60 * 1000;
 
 /** Remove code files (and abandoned `.used` files) older than a day. Returns how many. Touches only its own directories. */
 export function sweepPending(now = new Date()): number {
   let n = 0;
-  for (const dir of [dirOf(), requestsDir()]) {
+  const requestsDirNow = requestsDir();
+  for (const dir of [dirOf(), requestsDirNow]) {
     if (dir === null) continue;
     for (const f of fs.readdirSync(dir)) {
       if (!/\.(json|used|claimed)$/.test(f)) continue;
       const file = path.join(dir, f);
       try {
+        if (dir === requestsDirNow && f.endsWith('.json')) {
+          let exp = Number.NaN;
+          try { exp = Date.parse((JSON.parse(fs.readFileSync(file, 'utf8')) as PendingRequest).expiresAt); } catch { /* unreadable: treated as expired */ }
+          if (Number.isNaN(exp) || now.getTime() > exp + REQUEST_GRACE_MS) { fs.rmSync(file, { force: true }); n += 1; continue; }
+        }
         if (now.getTime() - fs.statSync(file).mtimeMs > PENDING_MAX_AGE_MS) { fs.rmSync(file, { force: true }); n += 1; }
       } catch { /* gone already */ }
     }
@@ -193,6 +201,7 @@ export function findLiveRequest(hash: string, envName: string, now = new Date())
     if (!f.endsWith('.json')) continue;
     let rec: PendingRequest | null = null;
     try { rec = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as PendingRequest; } catch { continue; }
+    if (Date.parse(rec.expiresAt) + REQUEST_GRACE_MS < now.getTime()) { fs.rmSync(path.join(dir, f), { force: true }); continue; }
     if (rec.kind === 'share' && rec.hash === hash && rec.envName === envName && Date.parse(rec.expiresAt) > now.getTime()) return rec;
   }
   return null;
