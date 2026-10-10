@@ -35,7 +35,7 @@ const version = () => sql<{ user_version: number }>('PRAGMA user_version')[0]!.u
 describe('a fresh graph', () => {
   it('is at v10 with a promotions table that has no foreign key', () => {
     createLocalDb(dbPath).close();
-    expect(SCHEMA_VERSION).toBe(11);
+    expect(SCHEMA_VERSION).toBe(12);
     expect(version()).toBe(SCHEMA_VERSION);
     expect(sql<{ name: string }>('PRAGMA table_info(promotions)').map((c) => c.name)).toEqual(
       ['local_id', 'env', 'tenant_id', 'remote_id', 'content_hash', 'matched', 'client_key', 'sent', 'confirm_pending', 'shared_at', 'retracted_at'],

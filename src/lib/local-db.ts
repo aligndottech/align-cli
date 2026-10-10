@@ -45,6 +45,9 @@ export interface AuditRow {
   createdAt: string;
 }
 
+/** A link to write. `detectorVersion` defaults to 'v0' (schema v12). */
+export interface NewLink { id?: string; sourceId: string; targetId: string; relation: string; confidence: number; detectorVersion?: 'v0' | 'v1' }
+
 export interface LinkRow {
   id: string;
   sourceId: string;
@@ -168,12 +171,15 @@ export function createLocalDb(dbPath: string) {
 
   // Shared by insertLink and resolveRefs (ALI-796), so there is one writer of the
   // decision_links insert rather than two copies of the same ON CONFLICT clause.
-  function insertLinkRow(link: { id?: string; sourceId: string; targetId: string; relation: string; confidence: number }): void {
+  // `detectorVersion` (schema v12): which detector wrote the edge. Omitted means 'v0'; only the
+  // v1 detector passes 'v1'. A conflict on the triple keeps the stored version: same relation,
+  // nothing re-typed.
+  function insertLinkRow(link: NewLink): void {
     db.prepare(
-      `INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO decision_links (id, source_id, target_id, relation, confidence, detector_version) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(source_id, target_id, relation)
          DO UPDATE SET confidence = MAX(confidence, excluded.confidence)`
-    ).run(link.id ?? randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
+    ).run(link.id ?? randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence, link.detectorVersion ?? 'v0');
   }
 
   let dataVersionStmt: ReturnType<typeof db.prepare> | undefined;
@@ -643,7 +649,7 @@ export function createLocalDb(dbPath: string) {
      * The unique index (created in migrate) is what makes the OR IGNORE real. Confidence is
      * refreshed rather than ignored so a better score replaces a worse one.
      */
-    insertLink(link: { id?: string; sourceId: string; targetId: string; relation: string; confidence: number }): void {
+    insertLink(link: NewLink): void {
       insertLinkRow(link);
     },
 
@@ -666,7 +672,7 @@ export function createLocalDb(dbPath: string) {
      * (either direction, any relation) before writing the new one, so capture-time
      * classification can upgrade a cosine `relates` edge into a typed one atomically.
      */
-    replaceLink(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
+    replaceLink(link: Omit<NewLink, 'id'>): void {
       // LM: an edge a person's `align mark ... replaces` wrote (id `mark:<judgement id>`) is theirs, not
       // the classifier's to upgrade away: deleting it would orphan the judgement, and `--undo` could
       // no longer find its link. The pair may then carry that edge beside the new one.
