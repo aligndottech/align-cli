@@ -68,4 +68,24 @@ describe('the backfill child against a hosted-default config', () => {
     expect(String(status['last_line'])).toMatch(/Unknown source nope/);
     expect(typeof status['finished_at']).toBe('string');
   }, 120_000);
+
+  it('a bad --since ends "failed" with the reason, even though it fails before any connect code', () => {
+    const dir = path.join(home, 'state', 'align-cli', 'backfill');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'github.json');
+    child(['connect', '--env', 'local', '--source', 'github', '--since', '6x', '--yes', '--json'], { ALIGN_BACKFILL_STATUS: file });
+    const status = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    expect(status).toMatchObject({ source: 'github', state: 'failed', exit_code: 2 });
+    expect(String(status['last_line'])).toContain('30d, 2w, 6m, 1y or all');
+  }, 120_000);
+
+  it('a command-line parse error also ends "failed" (commander exits before any command runs)', () => {
+    const dir = path.join(home, 'state', 'align-cli', 'backfill');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'jira.json');
+    child(['connect', '--env', 'local', '--source', 'jira', '--no-such-flag'], { ALIGN_BACKFILL_STATUS: file });
+    const status = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    expect(status['state']).toBe('failed');
+    expect(status['exit_code']).not.toBe(0);
+  }, 120_000);
 });

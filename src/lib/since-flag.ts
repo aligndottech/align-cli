@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { trackChildFromEnv } from './backfill-state.js';
 import { parseSince, SinceError, type SyncWindow } from './since.js';
 
 /** The help line for `--since`, one writer for every command that takes it. */
@@ -15,6 +16,7 @@ export function sinceFromFlag(raw: string | undefined, now: Date = new Date()): 
     return parseSince(raw, now);
   } catch (e) {
     if (!(e instanceof SinceError)) throw e;
+    trackChildFromEnv()?.note(e.message); // a backfill child records why it ended
     console.error(chalk.red(`align connect: ${e.message}`));
     return process.exit(2);
   }

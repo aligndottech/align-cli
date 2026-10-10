@@ -261,29 +261,44 @@ export function startBackfillChild(
   });
 }
 
+export interface ChildTrack {
+  /** The last thing worth knowing about this run; written into the final status. */
+  note(line: string): void;
+  /** Write the final state now (idempotent; also runs at process exit). */
+  finish(code: number): void;
+}
+const tracks = new Map<string, ChildTrack>();
+
 /**
  * The child's side. Reads the status path from the environment, but only trusts one inside the
  * backfill directory: the variable is not a way to make this process overwrite another file.
  * Writes `running` now and the final state at exit (the exit code, and the last line it noted).
+ * Called at the very top of the entry point (startup-backfill-track.ts) so a run that dies before
+ * any command code - a bad flag, a parse error - still records that it failed. Memoised per file.
  */
 export function trackChildFromEnv(
   env: Record<string, string | undefined> = process.env,
-): { note(line: string): void } | null {
+): ChildTrack | null {
   const file = env[BACKFILL_STATUS_ENV];
   const dir = backfillDir();
   if (!file || !dir) return null;
   if (path.resolve(path.dirname(file)) !== path.resolve(dir) || !file.endsWith('.json')) return null;
+  const known = tracks.get(file);
+  if (known) return known;
   const source = path.basename(file, '.json');
   const started_at = readStatus(file)?.started_at ?? new Date().toISOString();
   let last: string | undefined;
   try { writeStatus(file, { source, pid: process.pid, started_at, state: 'running' }); } catch { return null; }
-  process.on('exit', (code) => {
+  const finish = (code: number): void => {
     try {
       writeStatus(file, {
         source, pid: process.pid, started_at, state: code === 0 ? 'done' : 'failed',
         finished_at: new Date().toISOString(), exit_code: code, ...(last !== undefined ? { last_line: last.slice(0, 200) } : {}),
       });
     } catch { /* nothing to report to */ }
-  });
-  return { note: (line) => { last = line; } };
+  };
+  process.on('exit', (code) => finish(code));
+  const track: ChildTrack = { note: (line) => { last = line; }, finish };
+  tracks.set(file, track);
+  return track;
 }

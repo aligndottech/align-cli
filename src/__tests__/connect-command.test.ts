@@ -6,6 +6,9 @@
  * confirms - and a run with no terminal and no bypass exits non-zero naming the flag it
  * needed (clig.dev, Heroku). `--json` prints one machine-readable summary.
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -316,6 +319,56 @@ describe('align connect (ALI-951)', () => {
       mockResolveRepo.mockResolvedValueOnce('o/r');
       await run(['connect', '--source', 'github', '--token', 't', '--yes']);
       expect(mockFetchGitHub.mock.calls.at(-1)![0]).toMatchObject({ repo: 'o/r', scope: 'team' });
+    });
+  });
+
+  // Re-review C: a background run that could not read its source must not end "done".
+  describe('how a backfill child ends (L3 re-review)', () => {
+    let stateDir: string;
+    const saved: Record<string, string | undefined> = {};
+    beforeEach(async () => {
+      setTty(false, false);
+      stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l3-child-'));
+      for (const k of ['XDG_STATE_HOME', 'HOME', 'USERPROFILE', 'LOCALAPPDATA', 'ALIGN_BACKFILL_STATUS']) saved[k] = process.env[k];
+      process.env['XDG_STATE_HOME'] = stateDir; process.env['HOME'] = stateDir; process.env['USERPROFILE'] = stateDir; process.env['LOCALAPPDATA'] = stateDir;
+      const { backfillDir, statusPath } = await import('../lib/backfill-state.js');
+      process.env['ALIGN_BACKFILL_STATUS'] = statusPath(backfillDir()!, 'github');
+    });
+    afterEach(() => {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+      process.exitCode = undefined;
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    });
+
+    it('a rejected token: non-zero exit, final state failed, last_line is the error, and the next call says so', async () => {
+      mockFetchGitHub.mockRejectedValueOnce(new Error('GitHub authentication failed (401)'));
+      await run(['connect', '--env', 'local', '--source', 'github', '--token', 'bad', '--yes', '--json']);
+      expect(process.exitCode).toBe(1);
+      const { trackChildFromEnv, readStatus, backfillDir, statusPath } = await import('../lib/backfill-state.js');
+      trackChildFromEnv()!.finish(process.exitCode ?? 0); // what the process 'exit' handler does
+      const status = readStatus(statusPath(backfillDir()!, 'github'));
+      expect(status).toMatchObject({ state: 'failed', exit_code: 1 });
+      expect(status!.last_line).toContain('github: GitHub authentication failed (401)');
+
+      const { runBackfill, defaultBackfillDeps } = await import('../lib/mcp-backfill.js');
+      const env = { mode: 'local-embedded', gatewayUrl: '', authToken: null, tenantId: null, localDbPath: '/x' } as never;
+      const reply = await runBackfill({ source: 'github' }, env, { ...defaultBackfillDeps(env), isConnected: () => false });
+      expect(reply.text).toContain('Last run failed: github: GitHub authentication failed (401)');
+    });
+
+    it('a run that worked ends done with exit code 0 and says what it did', async () => {
+      await run(['connect', '--env', 'local', '--source', 'github', '--token', 't', '--yes', '--json']);
+      expect(process.exitCode).toBeUndefined();
+      const { trackChildFromEnv, readStatus, backfillDir, statusPath } = await import('../lib/backfill-state.js');
+      trackChildFromEnv()!.finish(0);
+      expect(readStatus(statusPath(backfillDir()!, 'github'))).toMatchObject({ state: 'done', exit_code: 0, last_line: expect.stringContaining('github: found 1') });
+    });
+
+    it('an interactive connect (no backfill status in the environment) keeps its exit code even when a source fails', async () => {
+      delete process.env['ALIGN_BACKFILL_STATUS'];
+      mockFetchGitHub.mockRejectedValueOnce(new Error('boom'));
+      await run(['connect', '--env', 'local', '--source', 'github', '--token', 'bad', '--yes', '--json']);
+      expect(process.exitCode).toBeUndefined();
     });
   });
 });

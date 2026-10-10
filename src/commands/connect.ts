@@ -85,7 +85,12 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
       json: opts.json,
       window,
     });
-    track?.note(results.map((r) => (r.error ? `${r.id}: ${r.error}` : `${r.id}: found ${r.found}, imported ${r.imported}`)).join('; '));
+    const failed = results.filter((r) => r.error);
+    // The line that explains the outcome: the errors first (they are why a run "succeeded" with nothing).
+    track?.note([...failed.map((r) => `${r.id}: ${r.error}`), ...results.filter((r) => !r.error).map((r) => `${r.id}: found ${r.found}, imported ${r.imported}`)].join('; '));
+    // A background run that could not read its source must not end "done": non-zero exit, but only
+    // for a run `align_backfill` started, so an interactive `align connect` keeps its exit code.
+    if (track && failed.length > 0) process.exitCode = 1;
     if (opts.json) {
       console.log(JSON.stringify({ env: 'local', graph: dbPath, sources: results }));
       return true;
