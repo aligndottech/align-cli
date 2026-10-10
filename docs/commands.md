@@ -232,8 +232,13 @@ queue; `.align/decisions.md` and the local MCP server both label an unratified c
 `align ratify <id>` is the human act - it refuses a hook, a pipe, or any caller not at a
 terminal - and `align share <id>` (alias `push`) sends ratified decisions, with the judgements you made
 about them, to your team. It prints exactly what leaves the machine and asks first; nothing is
-sent without a yes. `align share --retract <id>` undoes it while you are on the team; once you have left, a share stays as the team's record. An agent can only PREPARE a share
-(`align_share`); you finish it with `align share --confirm <code>` in your own terminal.
+sent without a yes. `align share --retract <id>` undoes it while you are on the team; once you have left, a share stays as the team's record. An agent can ask for a share, and
+cannot finish it alone. With a server that offers browser approval, `align_share` stages the share and hands
+you a link and a short code. You approve it in your logged-in browser, and the agent then finishes it with
+`align_share_status`. With an older server, or one that has it turned off, `align_share` returns a one-time
+code and you finish it with `align share --confirm <code>` in your own terminal. Browser approval is not a
+lock: an agent that can read your mailbox or your browser's cookies can still get a session, and it stays
+that way until a passkey or other step-up credential exists (see SECURITY.md).
 
 `align use --undo` puts back a file Align wrote for a written-once agent (Auggie, Cline, Amp,
 Kiro, Grok Build, pi, Cursor). The restore is exact only while nobody else has touched the file.

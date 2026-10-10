@@ -44,6 +44,19 @@ describe('the docs', () => {
     expect(d).toContain('`align share --retract <id>` undoes it while you are on the team; once you have left, a share stays as the team\'s record.');
     expect(d).not.toContain('`align share --retract <id>` undoes it.');
   });
+  it('docs/commands.md describes both real modes of align_share, and no longer says an agent can only prepare', () => {
+    const d = read('docs/commands.md').replace(/\s+/g, ' ');
+    expect(d).not.toContain('An agent can only PREPARE a share');
+    expect(d).toContain('With a server that offers browser approval, `align_share` stages the share and hands you a link and a short code. You approve it in your logged-in browser, and the agent then finishes it with `align_share_status`.');
+    expect(d).toContain('With an older server, or one that has it turned off, `align_share` returns a one-time code and you finish it with `align share --confirm <code>` in your own terminal.');
+    expect(d).toContain('Browser approval is not a lock: an agent that can read your mailbox or your browser\'s cookies can still get a session, and it stays that way until a passkey or other step-up credential exists (see SECURITY.md).');
+  });
+  it('align_share_status says a completed share stays with the team, and still says it does not approve', async () => {
+    const { SHARE_STATUS_TOOL_SCHEMA } = await import('../lib/mcp/share-status-tool.js');
+    expect(SHARE_STATUS_TOOL_SCHEMA.description).toContain('A completed share stays with the team as its record, even if the user later leaves.');
+    expect(SHARE_STATUS_TOOL_SCHEMA.description).toMatch(/does not approve anything/);
+    expect(SHARE_STATUS_TOOL_SCHEMA.description.length).toBeLessThan(2048);
+  });
   it('the --retract option says a share stays with the team after you leave (the generated reference lists commands, not options, so it carries no copy of this)', () => {
     expect(read('src/commands/share.ts')).toContain("'Archive what you shared for this decision on your team graph (a share stays with the team after you leave)'");
   });

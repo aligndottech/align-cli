@@ -38,7 +38,7 @@ export const SHARE_STATUS_TOOL_SCHEMA = {
   description:
     'Check a share the user was asked to approve in their browser (from align_share), and finish it once they have. ' +
     'It reports waiting, declined, expired or cancelled, and changes nothing in those cases. When the user HAS approved, the first call sends exactly what they approved and returns the result; a second call sends nothing. ' +
-    'It does not approve anything: approving is the user\'s act, in their browser, and you must not attempt it. Call it after the user says they approved, or to see whether they have. ' +
+    'A completed share stays with the team as its record, even if the user later leaves. It does not approve anything: approving is the user\'s act, in their browser, and you must not attempt it. Call it after the user says they approved, or to see whether they have. ' +
     'It never takes a token or key.',
   inputSchema: jsonSchemaOf(SPEC),
 } as const;
