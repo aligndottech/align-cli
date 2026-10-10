@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { type CaptureSource, renderCaptureReport, toCaptureSource } from '../lib/capture-report.js';
 import { withCaptureReport } from '../lib/fetchers/capture.js';
@@ -72,22 +75,36 @@ describe('an incomplete windowed read', () => {
   });
 });
 
-describe('the GitHub discussion clause', () => {
-  it('is added when items are waiting for their discussion', () => {
-    expect(lines([github({ discussionPending: 312 })])[1]).toBe(
-      '    GitHub: imported 412 PRs and issues from the last 6 months; discussion is being added in the background',
+describe('the GitHub discussion clause says what was fetched, and promises nothing', () => {
+  const clause = 'discussion fetched for 188 of 312, the rest stay thin until align sync (not available yet)';
+
+  it('counts the items that got their discussion against those that could have', () => {
+    expect(lines([github({ discussionPending: 124, discussionTotal: 312 })])[1]).toBe(
+      `    GitHub: imported 412 PRs and issues from the last 6 months; ${clause}`,
     );
   });
 
-  it('is absent when none is pending (zero, and undefined)', () => {
+  it('a second count (two examples)', () => {
+    expect(lines([github({ discussionPending: 1, discussionTotal: 4 })])[1]).toContain('discussion fetched for 3 of 4, the rest stay thin');
+  });
+
+  it('is absent when everything got its discussion, when none was pending, and when nothing was counted', () => {
+    expect(renderCaptureReport([github({ discussionPending: 0, discussionTotal: 9 })])).not.toContain('discussion');
     expect(renderCaptureReport([github({ discussionPending: 0 })])).not.toContain('discussion');
     expect(renderCaptureReport([github({})])).not.toContain('discussion');
   });
 
   it('also follows an incomplete line', () => {
-    const out = lines([github({ complete: false, oldestReached: '2026-05-02T00:00:00Z', discussionPending: 5,
+    const out = lines([github({ complete: false, oldestReached: '2026-05-02T00:00:00Z', discussionPending: 5, discussionTotal: 10,
       skips: [{ kind: 'page_cap', count: 1, detail: 'cut' }] })])[1];
-    expect(out).toMatch(/: cut; discussion is being added in the background$/);
+    expect(out).toMatch(/: cut; discussion fetched for 5 of 10, the rest stay thin/);
+  });
+
+  it('never says a background pass is adding it: no such pass exists until L5 (source and docs are swept)', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const f of ['../lib/capture-report.ts', '../lib/fetchers/github.ts', '../commands/setup.ts', '../commands/import/github.ts', '../../docs/importing.md']) {
+      expect(readFileSync(join(here, f), 'utf8'), f).not.toMatch(/being added in the background|follows in the background/);
+    }
   });
 });
 
@@ -126,8 +143,8 @@ describe('withCaptureReport carries the SDK report through', () => {
 
   it('toCaptureSource passes them on, and the caller adds the window label', () => {
     const src = toCaptureSource({ label: 'GitHub', unit: 'PRs and issues' }, {
-      items: [], report: { scanned: 0, skips: [], complete: true, discussionPending: 4 },
+      items: [], report: { scanned: 0, skips: [], complete: true, discussionPending: 4, discussionTotal: 9 },
     }, 'the last 6 months');
-    expect(src).toMatchObject({ window: 'the last 6 months', complete: true, discussionPending: 4 });
+    expect(src).toMatchObject({ window: 'the last 6 months', complete: true, discussionPending: 4, discussionTotal: 9 });
   });
 });

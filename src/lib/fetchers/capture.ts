@@ -45,6 +45,8 @@ export interface CaptureFetchReport {
   scope?: 'yours' | 'team';
   /** L3: items returned whole but waiting for their discussion (GitHub's items-first pass). */
   discussionPending?: number;
+  /** L3: items fetched items-first that COULD have had discussion (the denominator for the above). */
+  discussionTotal?: number;
 }
 
 /** L3: what every windowed fetch is given on top of its limit (see fetchWindow in since.ts). */

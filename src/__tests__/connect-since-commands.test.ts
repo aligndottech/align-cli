@@ -129,9 +129,9 @@ describe('slack keeps --days-back as a deprecated spelling of --since', () => {
 });
 
 describe('github: items first, whole repo when there is a repo', () => {
-  it('reads items only (discussion: none) so the first import is fast, repo or not', async () => {
+  it('leaves the items-first-then-budgeted-discussion split to fetchGitHubItems: the command passes no discussion mode', async () => {
     await run('github', []);
-    expect(opts('github')['discussion']).toBe('none');
+    expect('discussion' in opts('github')).toBe(false);
   });
 
   it('inside a repo asks for team scope with that repo (Decision 7)', async () => {
@@ -146,9 +146,10 @@ describe('github: items first, whole repo when there is a repo', () => {
     expect('scope' in opts('github')).toBe(false);
   });
 
-  it('says discussion is coming, when items are waiting for it', async () => {
-    fetchers.github.mockResolvedValue({ items: [{ source_url: 'u', platform: 'github', raw_text: 't' }], report: { scanned: 1, skips: [], complete: true, discussionPending: 1 } });
+  it('says how many items got their discussion, and that the rest stay thin (no promise of a later pass)', async () => {
+    fetchers.github.mockResolvedValue({ items: [{ source_url: 'u', platform: 'github', raw_text: 't' }], report: { scanned: 1, skips: [], complete: true, discussionPending: 1, discussionTotal: 3 } });
     await run('github', []);
-    expect(out.join('\n')).toContain('discussion is being added in the background');
+    expect(out.join('\n')).toContain('discussion fetched for 2 of 3, the rest stay thin until align sync (not available yet)');
+    expect(out.join('\n')).not.toMatch(/background/);
   });
 });

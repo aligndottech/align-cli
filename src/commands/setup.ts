@@ -124,8 +124,8 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
         // same default `align connect github` uses. Without it, a token spanning several
         // unrelated repos returns everything across all of them, undifferentiated.
         const repo = await resolveGitHubRepoScope({});
-        // L3: items first (discussion follows in the background), and inside a repo everyone's items in it.
-        return fetchGitHubItems({ token: t['token']!, ...fetchWindow('github', w), discussion: 'none', ...(repo ? { repo, scope: 'team' as const } : {}) });
+        // L3: items first, then discussion inline up to a request budget (fetchGitHubItems); inside a repo, everyone's items in it.
+        return fetchGitHubItems({ token: t['token']!, ...fetchWindow('github', w), ...(repo ? { repo, scope: 'team' as const } : {}) });
       },
     },
     {

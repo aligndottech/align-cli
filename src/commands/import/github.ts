@@ -74,9 +74,9 @@ export function registerImportGitHubCommand(importCmd: Command): void {
             ? `Fetching your GitHub PRs and issues in ${repo}...`
             : 'Fetching your GitHub PRs and issues everywhere your token can see (pass --repo to narrow)...',
         );
-        // L3: items first, discussion later (Decision 27); inside a repo, everyone's items in it (Decision 7).
+        // L3: items first, then discussion inline up to a request budget (fetchGitHubItems); inside a repo, everyone's items in it.
         const fetched = await fetchGitHubItems({
-          token, ...fetchWindow('github', window), limit: parseInt(opts.limit, 10), discussion: 'none',
+          token, ...fetchWindow('github', window), limit: parseInt(opts.limit, 10),
           ...(repo ? { repo, scope: 'team' as const } : {}),
         });
         const { items } = fetched;

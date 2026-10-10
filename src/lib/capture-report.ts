@@ -38,8 +38,9 @@ export interface CaptureSource {
   complete?: boolean;
   /** L3: the oldest `updated_at` the read reached, named on an incomplete line. */
   oldestReached?: string;
-  /** L3: GitHub items waiting for their discussion. */
+  /** L3: GitHub items still without their discussion, of `discussionTotal` that could have had it. */
   discussionPending?: number;
+  discussionTotal?: number;
 }
 
 /**
@@ -50,8 +51,10 @@ export interface CaptureSource {
  */
 function windowedLine(s: CaptureSource, window: string): string {
   const head = `${s.label}: imported ${s.fetched} ${s.unit}`;
-  const tail = s.discussionPending !== undefined && s.discussionPending > 0
-    ? '; discussion is being added in the background'
+  // Said as a count, and promising nothing: the items the request budget did not reach stay thin
+  // until `align sync` exists to finish them (L5).
+  const tail = s.discussionPending !== undefined && s.discussionPending > 0 && s.discussionTotal !== undefined
+    ? `; discussion fetched for ${s.discussionTotal - s.discussionPending} of ${s.discussionTotal}, the rest stay thin until align sync (not available yet)`
     : '';
   if (s.complete !== false) return `${head} from ${window}${tail}`;
   const cut = s.skips.find((k) => k.kind !== undefined && (INCOMPLETE_SKIP_KINDS as ReadonlySet<string>).has(k.kind));
@@ -121,6 +124,7 @@ export function toCaptureSource(
     ...(result.report.complete !== undefined ? { complete: result.report.complete } : {}),
     ...(result.report.oldestReached !== undefined ? { oldestReached: result.report.oldestReached } : {}),
     ...(result.report.discussionPending !== undefined ? { discussionPending: result.report.discussionPending } : {}),
+    ...(result.report.discussionTotal !== undefined ? { discussionTotal: result.report.discussionTotal } : {}),
   };
 }
 

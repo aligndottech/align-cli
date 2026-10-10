@@ -1,18 +1,46 @@
-import { GitHubFetcher } from '@aligndottech/connector-core';
+import { fetchGitHubDiscussion, GitHubFetcher } from '@aligndottech/connector-core';
+import { GITHUB_DISCUSSION_BUDGET } from '../import-defaults.js';
 import { type CaptureFetchResult, type WindowedOpts, withCaptureReport } from './capture.js';
 import { currentRepoIdentity } from '../repo-identity.js';
 
-/** Read-only personal GitHub import (canonical fetcher in connector-core). `repo`
- *  (`owner/repo`) narrows the search to one repo - connector-core >= 0.7.0 (ALI-917);
- *  omitted, every repo the token can see, unchanged from before that version. */
+/**
+ * Read-only personal GitHub import (canonical fetcher in connector-core). `repo` (`owner/repo`)
+ * narrows the search to one repo - connector-core >= 0.7.0 (ALI-917); omitted, every repo the
+ * token can see, unchanged from before that version.
+ *
+ * L3: the list is read ITEMS FIRST (`discussion: 'none'`, about 4 search calls per 300 items),
+ * then the SDK's own `fetchGitHubDiscussion` reads comments and reviews INLINE, newest first,
+ * until `discussionBudget` core requests are spent (GITHUB_DISCUSSION_BUDGET by default). Items
+ * the budget did not reach stay `detail_pending` and thin; the report says how many got their
+ * discussion. Nothing here promises a later drain - none exists until `align sync` (L5).
+ */
 export async function fetchGitHubItems(opts: {
   token: string; limit?: number; repo?: string;
-  /** L3: 'none' reads items only; their discussion is fetched later (Decision 27). */
-  discussion?: 'none' | 'full';
-  /** L3: 'team' reads everyone's items in `repo`. The SDK honours it only with a repo. */
   scope?: 'yours' | 'team';
+  discussionBudget?: number;
 } & WindowedOpts): Promise<CaptureFetchResult> {
-  return withCaptureReport(opts, new GitHubFetcher());
+  const { discussionBudget = GITHUB_DISCUSSION_BUDGET, ...rest } = opts;
+  const first = await withCaptureReport({ ...rest, discussion: 'none' as const }, new GitHubFetcher());
+  const pending = first.items.filter((i) => i.detail_pending === true);
+  if (pending.length === 0) return first;
+
+  let drained: Awaited<ReturnType<typeof fetchGitHubDiscussion>> = { items: [], skips: [], requests: 0 };
+  let failure: { kind: 'error'; count: number; detail: string } | undefined;
+  try {
+    drained = await fetchGitHubDiscussion(pending, { token: opts.token, maxRequests: discussionBudget });
+  } catch {
+    failure = { kind: 'error', count: pending.length, detail: 'items whose discussion could not be read (GitHub did not answer); they stay thin' };
+  }
+  const enriched = new Map(drained.items.map((i) => [i.source_url, i]));
+  return {
+    items: first.items.map((i) => enriched.get(i.source_url) ?? i),
+    report: {
+      ...first.report,
+      skips: [...first.report.skips, ...drained.skips, ...(failure ? [failure] : [])],
+      discussionTotal: pending.length,
+      discussionPending: pending.length - enriched.size,
+    },
+  };
 }
 
 const GITHUB_HOST_PREFIX = 'github.com/';
