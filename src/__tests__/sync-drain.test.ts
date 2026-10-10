@@ -14,7 +14,7 @@ vi.mock('@aligndottech/connector-core', async (orig) => {
 });
 
 vi.mock('../lib/local-embeddings.js', () => ({
-  getEmbedding: vi.fn(async (t: string) => { const v = new Float32Array(384).fill(0.1); v[0] = t.includes('Postgres') ? 0.9 : 0.1; return v; }),
+  getEmbedding: vi.fn(async (t: string) => { await new Promise<void>((r) => setImmediate(r)); const v = new Float32Array(384).fill(0.1); v[0] = t.includes('Postgres') ? 0.9 : 0.1; return v; }),
   cosineSimilarity: vi.fn().mockReturnValue(0.1),
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
 }));
@@ -103,7 +103,7 @@ describe('drainGitHub', () => {
     expect(sql(`SELECT 1 FROM decisions WHERE detail_pending = 1`)).toHaveLength(150);
     expect(sql<{ summary: string }>(`SELECT summary FROM decisions WHERE title = 'PR 300'`)[0]!.summary).toContain('we chose Postgres');
     expect(r.skips.some((k) => k.kind === 'page_cap')).toBe(true); // and it says the budget ran out
-  }, 180_000); // 150 real ingests, each several commits: about 5 s on Linux, and the Windows runner is an order slower
+  }, 600_000); // 150 real ingests, each several commits: about 5 s on Linux, and the Windows runner is an order slower
 
   it('a second run picks up where the first stopped (pending rows keep their place)', async () => {
     await seedPending(8);

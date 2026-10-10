@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { FetcherItem } from '@aligndottech/connector-core';
 
 vi.mock('../lib/local-embeddings.js', () => ({
-  getEmbedding: vi.fn(async (t: string) => { const v = new Float32Array(384).fill(0.01); v[t.length % 7] = 1; return v; }),
+  getEmbedding: vi.fn(async (t: string) => { await new Promise<void>((r) => setImmediate(r)); const v = new Float32Array(384).fill(0.01); v[t.length % 7] = 1; return v; }),
   cosineSimilarity: vi.fn().mockReturnValue(0.1),
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
 }));
@@ -141,7 +141,7 @@ describe('H4: a hole that comes back', () => {
     const last = wins.at(-1)!.since!;
     const nowAtLast = new Date(Date.parse(START) + 89 * DAY);
     expect(Date.parse(last)).toBeGreaterThanOrEqual(nowAtLast.getTime() - 180 * DAY);
-  });
+  }, 300_000); // 90 daily syncs, each several commits: 6 s on Linux, 70 s on the Windows runner
 
   it('the same hole five runs in a row is called persistent: named in the status, and the watermark moves past it for the rest', async () => {
     const c = { v: new Date(START) };

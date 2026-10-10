@@ -26,7 +26,7 @@ function vectorFor(text: string): Float32Array {
 const hooks = vi.hoisted(() => ({ onEmbed: undefined as undefined | ((text: string) => void) }));
 vi.mock('../lib/local-embeddings.js', async (importOriginal) => ({
   ...(await importOriginal<typeof Embeddings>()),
-  getEmbedding: vi.fn(async (text: string) => { hooks.onEmbed?.(text); return vectorFor(text); }),
+  getEmbedding: vi.fn(async (text: string) => { await new Promise<void>((r) => setImmediate(r)); hooks.onEmbed?.(text); return vectorFor(text); }),
 }));
 
 import { cosineSimilarity, EMBEDDING_MODEL_ID } from '../lib/local-embeddings.js';
