@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
@@ -27,7 +27,8 @@ function listSrcFiles(dir = SRC): string[] {
       if (e.name === '__tests__' || e.name === 'node_modules') continue;
       out.push(...listSrcFiles(p));
     } else if (/\.tsx?$/.test(e.name) && !/\.(test|spec)\.tsx?$/.test(e.name)) {
-      out.push(relative(ROOT, p));
+      // repo-relative with forward slashes on every OS: the allowlist keys are written that way
+      out.push(relative(ROOT, p).split(sep).join('/'));
     }
   }
   return out.sort();
