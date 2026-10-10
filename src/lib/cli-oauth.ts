@@ -72,7 +72,8 @@ export function waitForCallback(opts: {
         clearTimeout(timer);
         reject(err);
       });
-      s.listen(port, () => { server = s; void opts.onBound?.(port, nonce); });
+      // 127.0.0.1, not every interface: this socket accepts a credential, and on 0.0.0.0 anyone on the LAN can dial it (ALI-1504).
+      s.listen(port, '127.0.0.1', () => { server = s; void opts.onBound?.(port, nonce); });
     }
 
     tryPort(opts.ports);

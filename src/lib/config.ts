@@ -6,7 +6,8 @@ import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 import { STORABLE_PROVIDERS, type StoredProviderId } from './llm-providers.js';
 import type { ActiveScope, StoredScope } from './scope-values.js';
 
-import type { TeamDestinationName } from './destination-name.js';
+import { asDestinationName, type TeamDestinationName } from './destination-name.js';
+import { assertTransport } from './destination-trust.js';
 
 export type BuiltinEnv = 'local' | 'preview' | 'prod';
 /** A builtin, or the name of a team destination saved by `align join`. */
@@ -21,6 +22,11 @@ export interface EnvironmentConfig {
   localDbPath?: string;
   /** 'team' for a destination saved by `align join`; absent for the three builtins. */
   kind?: 'builtin' | 'team';
+  /** Team destinations: the web app the gateway named at join time (never guessed from the gateway URL). */
+  appUrl?: string;
+  /** Team destinations: the org name the SERVER claimed. Display only, never an identity. */
+  orgNameClaimed?: string;
+  joinedAt?: string;
 }
 
 const DEFAULTS: Record<BuiltinEnv, EnvironmentConfig> = {
@@ -135,6 +141,7 @@ export function createConfigStore() {
     llm?: LlmPreference;
     askKeyOfferDismissed?: boolean;
     teamScopeDisclosedFor?: string[];
+    shareDestination?: string;
   }>({
     projectName: 'align-cli',
     // conf's own default is 'nodejs' (node_modules/conf/dist/source/index.js), which
@@ -161,6 +168,14 @@ export function createConfigStore() {
 
   return {
     getEnvironment(env: EnvName): EnvironmentConfig {
+      // A team destination is exactly what `align join` stored. No builtin defaults, and none of
+      // the ALIGN_* overrides below: those exist for CI and self-hosts of the builtins, and on a
+      // named destination they would let the shell redirect a saved token to another server (S4, S5).
+      if (!Object.hasOwn(DEFAULTS, env)) {
+        const saved = Object.hasOwn(getEnvs(), env) ? getEnvs()[env] : undefined;
+        if (saved?.kind !== 'team') throw new Error(`Unknown environment "${String(env).slice(0, 40)}"`);
+        return { authToken: null, tenantId: null, mode: 'auth', ...saved } as EnvironmentConfig;
+      }
       const base = { ...DEFAULTS[env as BuiltinEnv], ...(getEnvs()[env] ?? {}) } as EnvironmentConfig;
       // Env var overrides - useful for CI and self-hosted deployments
       if (!base.authToken && process.env['ALIGN_TOKEN']) {
@@ -174,6 +189,43 @@ export function createConfigStore() {
       }
       return base;
     },
+    /** One write: a crash cannot leave a token saved without the gateway it belongs to. */
+    saveTeamDestination(
+      name: string,
+      d: { gatewayUrl: string; appUrl: string; authToken: string; tenantId: string | null; orgNameClaimed?: string },
+      now: Date = new Date(),
+    ) {
+      const valid = asDestinationName(name);
+      if (!d.authToken) throw new Error('saveTeamDestination: needs a non-empty token');
+      const entry: Partial<EnvironmentConfig> = {
+        kind: 'team',
+        mode: 'auth',
+        gatewayUrl: assertTransport(d.gatewayUrl),
+        appUrl: assertTransport(d.appUrl),
+        authToken: d.authToken,
+        tenantId: d.tenantId,
+        joinedAt: now.toISOString(),
+        ...(d.orgNameClaimed === undefined ? {} : { orgNameClaimed: d.orgNameClaimed }),
+      };
+      store.set('environments', { ...getEnvs(), [valid]: entry });
+    },
+    /** Logout for a team destination: the entry stays so `align login --env <name>` can renew it. */
+    clearTeamToken(name: string) {
+      const envs = getEnvs();
+      if (envs[name]?.kind !== 'team') return;
+      store.set('environments', { ...envs, [name]: { ...envs[name], authToken: null } });
+    },
+    getShareDestination(): string | null {
+      const n = store.get('shareDestination');
+      return typeof n === 'string' && Object.hasOwn(getEnvs(), n) && getEnvs()[n]?.kind === 'team' ? n : null;
+    },
+    setShareDestination(name: string) {
+      if (!(Object.hasOwn(getEnvs(), name) && getEnvs()[name]?.kind === 'team')) {
+        throw new Error(`"${name.slice(0, 40)}" is not a saved team destination`);
+      }
+      store.set('shareDestination', name);
+    },
+    clearShareDestination() { store.delete('shareDestination'); },
     setAuthToken(env: EnvName, token: string) {
       const envs = getEnvs();
       store.set('environments', { ...envs, [env]: { ...(envs[env] ?? {}), authToken: token } });
@@ -338,6 +390,7 @@ export function createConfigStore() {
       const envs = getEnvs();
       const { [env]: _, ...rest } = envs;
       store.set('environments', rest);
+      if (store.get('shareDestination') === env) store.delete('shareDestination');
     },
     // ALI-618: global to the machine's install, not per-environment - unlike authToken/tenantId,
     // an anonymous local-mode user has no account for either to belong to. Generated once and
