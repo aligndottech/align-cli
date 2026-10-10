@@ -15,6 +15,7 @@ import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
 import { fetchWindow, windowLabel } from '../../lib/since.js';
 import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 import { discloseTeamScope } from '../../lib/scope-values.js';
+import { activeStoredScope } from '../../lib/scope-real.js';
 
 interface GitHubImportOpts {
   token?: string;
@@ -69,7 +70,11 @@ export function registerImportGitHubCommand(importCmd: Command): void {
         // execa calls each swallow their own error) - but that is an invariant of THAT
         // file, not this one, and this call must not be the one thing standing outside
         // the safety net if it ever changes.
-        const repo = await resolveGitHubRepoScope(opts);
+        const flagged = await resolveGitHubRepoScope(opts);
+        // L4: on the local graph the choice already made (`align connect --source github --scope ...`, or `align_scope`) is honoured here too,
+        // unless --repo/--all says otherwise: a stored "yours" is not widened by the folder, and a stored repo is read wherever this runs.
+        const chosen = env.mode === 'local-embedded' && opts.repo === undefined && !opts.all ? activeStoredScope('github', config) : null;
+        const repo = chosen?.kind === 'team' ? chosen.values[0] : chosen?.kind === 'yours' ? undefined : flagged;
         // Team scope only on the LOCAL graph, and only inside a repo; a hosted env keeps `yours`.
         // The status text says what is read, because it is not "your" items.
         const team = Boolean(repo) && env.mode === 'local-embedded';

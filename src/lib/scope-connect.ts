@@ -26,7 +26,11 @@ import { disclosureText, fetchOptsFor, FIXED_SCOPES, SCOPED_SOURCES, type Scoped
 import { CAPTURE_SOURCES } from './capture-sources.js';
 import type { FetchExtras, SyncWindow } from './since.js';
 
-export interface ScopeFlags { scope?: string; repo?: string; projects?: string; teams?: string; gitlabProject?: string; spaces?: string }
+export interface ScopeFlags {
+  scope?: string; repo?: string; projects?: string; teams?: string; gitlabProject?: string; spaces?: string;
+  /** The `--since` the person actually gave, as the lower bound it read back to (null: `all`). Not a scope flag: it only sets a NEW scope row's window. */
+  windowSince?: string | null;
+}
 export interface PickOption { value: string; label: string; hint?: string }
 export interface ScopePrompts {
   /** The values the person chose, or null when they cancelled. */
@@ -117,7 +121,7 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     const extras: FetchExtras = c.scope === 'yours'
       ? { resolved: true }
       : { resolved: true, ...(source === 'github' ? { repo: c.values[0]!, team: true } : fetchOptsFor(source, c.values)) };
-    return { extras, scope: c.scope, label: c.label, get disclosurePending() { return disclosurePending; }, commit: () => { commitScope(deps, source, c, { via: 'cli' }); } };
+    return { extras, scope: c.scope, label: c.label, get disclosurePending() { return disclosurePending; }, commit: () => { commitScope(deps, source, c, { via: 'cli' }, ctx.flags.windowSince); } };
   };
   const fromResolved = (r: ResolvedScope): ScopeDecision => {
     if (r.blocked !== undefined) throw blocked(r.blocked);

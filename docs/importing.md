@@ -96,7 +96,7 @@ align connect --source jira --scope yours --yes        # back to only your own
 align connect                                          # at a terminal: pickers, with the keys your decisions cite preselected
 ```
 
-The first time a source is read as a team, one line says what that means: "Importing items from
+The first time a source is read as a particular team scope (each repo, project set or space set counts separately, so widening later says it again), one line says what that means: "Importing items from
 everyone in ... that your token can read. They stay on this machine." Nothing leaves your machine
 unless you share a decision yourself. A repo your token cannot see (a private repo, a token with no
 repo access) is not read as a team: it says so and reads only your items. A choice you make is
@@ -108,8 +108,19 @@ some of the source's rate limit). Going back to a scope you read before only cat
 scope never deletes an imported item; items from the wider scope stay and are no longer refreshed.
 
 From inside a coding agent, `align_scope` shows each connected source's scope (`view`) and changes it
-(`set`), through the same code the command uses. It records that an agent made the change. It never
+(`set`), through the same code the command uses, and records that an agent made the change. It never
 takes a token: a source that is not connected gets the `align connect` command back for you to run.
+
+**A team scope an agent sets waits for you.** Nothing reads it in the background, or when an agent runs a
+sync, until you run `align sync <source>` at a terminal: that shows the line above, then reads it.
+Until then the source keeps reading what it read before, and `align sync --status` says a change is
+waiting. Going back to only your own items is immediate.
+
+The per-source commands (`align connect jira ...`) do not take scope flags; use `align connect --source
+jira --projects ALI`. On the local graph `align connect confluence` reads the spaces already chosen, or
+refuses and tells you how to choose them. If a vendor has more projects, spaces or teams than Align
+lists (1,000, or 100 for Linear), a key that is not in the list is asked for directly before it is
+refused.
 
 ## Keeping it up to date: `align sync`
 

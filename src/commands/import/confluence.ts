@@ -1,4 +1,6 @@
 import type { Command } from 'commander';
+import chalk from 'chalk';
+import { activeStoredScope } from '../../lib/scope-real.js';
 import { subcommandOpts } from '../../lib/command-opts.js';
 import * as p from '@clack/prompts';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
@@ -47,6 +49,18 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
       const env = config.getEnvironment(envName);
       const client = createGatewayClient(env);
 
+      // L4: on the local graph Confluence reads only the spaces you chose (it has no "only yours"). This command cannot pick them, so it
+      // reads the chosen ones, or refuses with the command that picks them. The hosted import is unchanged.
+      let spaces: string[] | undefined;
+      if (env.mode === 'local-embedded') {
+        const chosen = activeStoredScope('confluence', config);
+        if (chosen?.kind !== 'team') {
+          console.error(chalk.red('align connect confluence: Confluence reads only the spaces you choose, and none are chosen. Pick them: align connect --source confluence --spaces ENG,OPS'));
+          process.exit(2);
+        }
+        spaces = chosen.values;
+      }
+
       // Resolve auth: explicit flags first, then --personal (cached-or-browser OAuth), then
       // the cached OAuth token align setup persisted - under the source's oauthKey
       // ('confluence-personal'), which is the key this file wrongly read as 'confluence'
@@ -92,6 +106,7 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
           email: opts.email,
           domain: opts.domain,
           ...fetchWindow('confluence', window), limit: parseInt(opts.limit, 10),
+          ...(spaces ? { spaces } : {}),
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} pages`);

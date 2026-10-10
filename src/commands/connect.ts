@@ -94,7 +94,7 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
       seedTokens: opts.token ? { token: opts.token } : undefined,
       json: opts.json,
       window,
-      ...(opts.scopeFlags ? { scopeFlags: opts.scopeFlags } : {}),
+      ...(opts.scopeFlags || opts.since !== undefined ? { scopeFlags: { ...opts.scopeFlags, ...(opts.since !== undefined ? { windowSince: window.since ?? null } : {}) } } : {}),
     });
     const failed = results.filter((r) => r.error);
     // The line that explains the outcome: the errors first (they are why a run "succeeded" with nothing).

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { configScopeStore, gitlabPlaceOf, realScopeDeps, scopeStatusHooks } from '../lib/scope-real.js';
+import { createConfigStore } from '../lib/config.js';
+import { activeStoredScope, configScopeStore, gitlabPlaceOf, realScopeDeps, scopeStatusHooks } from '../lib/scope-real.js';
 
 const resolveRepo = vi.hoisted(() => vi.fn());
 vi.mock('../lib/fetchers/github.js', () => ({ resolveGitHubRepoScope: resolveRepo }));
@@ -64,6 +65,22 @@ describe('scopeStatusHooks', () => {
     expect(h.activeScopeKey('gitlab')).toBe('gitlab:a/b');
     c.saveScope('confluence', { kind: 'team', values: ['ENG'], labels: ['ENG'], pending: { previous: { kind: 'yours' } } });
     expect(h.activeScopeKey('confluence')).toBe('yours');
+  });
+});
+
+describe('activeStoredScope (what the per-source subcommands honour)', () => {
+  it('is the stored choice in force: team, yours, and for a waiting agent choice the one it replaces; null when nothing was chosen', () => {
+    const config = createConfigStore();
+    const c = configScopeStore(config);
+    expect(activeStoredScope('local-x', config)).toBeNull();
+    c.saveScope('jira', { kind: 'team', values: ['ALI'], labels: ['ALI'] });
+    expect(activeStoredScope('jira', config)).toEqual({ kind: 'team', values: ['ALI'], labels: ['ALI'] });
+    c.saveScope('github', { kind: 'yours' });
+    expect(activeStoredScope('github', config)).toEqual({ kind: 'yours' });
+    c.saveScope('confluence', { kind: 'team', values: ['ENG'], labels: ['ENG'], pending: { previous: null } });
+    expect(activeStoredScope('confluence', config)).toBeNull();
+    c.saveScope('linear', { kind: 'team', values: ['i'], labels: ['ENG'], pending: { previous: { kind: 'yours' } } });
+    expect(activeStoredScope('linear', config)).toEqual({ kind: 'yours' });
   });
 });
 

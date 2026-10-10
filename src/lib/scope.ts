@@ -297,7 +297,11 @@ export async function chooseScope(deps: ScopeDeps, source: string, input: SetInp
 }
 
 /** Write a checked choice: the stored preference, and the scope's own `source_sync` row (the source's window, no watermark). Deletes nothing. */
-export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choice, by: ChangedBy): { newRow: boolean; pending: boolean; row?: { high_water: string | null; window_since: string | null } } {
+/**
+ * `windowSince` is the window a connect actually READ (its `--since`), given only when the person gave one; it becomes the window of a NEW
+ * scope row so the next sync does not read it all again. An existing row keeps its own. Absent: the source's window.
+ */
+export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choice, by: ChangedBy, windowSince?: string | null): { newRow: boolean; pending: boolean; row?: { high_water: string | null; window_since: string | null } } {
   if (choice.scope === 'team') {
     // An AGENT's team choice waits for a person (the disclosure at a terminal); what was in force stays in force until then.
     // Re-choosing the scope that is already active is not a change, so it needs no confirmation.
@@ -313,7 +317,7 @@ export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choic
   else deps.store.saveScope(source, { kind: 'yours' });
   const pending = deps.store.getScope(source)?.kind === 'team' && (deps.store.getScope(source) as { pending?: unknown }).pending !== undefined;
   if (deps.dbPath === undefined || !fs.existsSync(deps.dbPath)) return { newRow: true, pending };
-  const window = inheritedWindowSince(readRows(deps.dbPath, source), deps.now());
+  const window = windowSince !== undefined ? windowSince : inheritedWindowSince(readRows(deps.dbPath, source), deps.now());
   const adopted = adoptScope(deps.dbPath, { source, scopeKey: choice.scopeKey, scope: choice.scope }, window, { via: by.via, agent: by.via === 'mcp' ? by.agent : null });
   return { newRow: adopted.created, pending, row: adopted.row };
 }

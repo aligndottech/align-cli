@@ -6,7 +6,7 @@ import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { runScopeTool } from '../lib/mcp-scope.js';
 import { scopeOf } from '../lib/sync/sources.js';
 import { checkScopeFlags, type ConnectScopeCtx, decideConnectScope, fetchUnderScope, type PickOption, type ScopeFlags } from '../lib/scope-connect.js';
-import { readRows } from '../lib/sync/sync-state.js';
+import { beginRun, readRows } from '../lib/sync/sync-state.js';
 import { FIELDS, jiraProjects, makeDeps, memStore, type Route } from './helpers/scope-deps.js';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -283,6 +283,41 @@ describe('Confluence', () => {
   it('a list that cannot be read is a refusal too (Confluence has no yours to fall back to), with the reason', async () => {
     const s = setup({ interactive: true, table: [[/wiki\/api\/v2\/spaces/, { status: 401 }]] });
     await expect(decideConnectScope('confluence', TOKENS.confluence, s.ctx)).rejects.toThrow(/refused the saved token/);
+  });
+});
+
+describe('the window a new scope row records', () => {
+  const rowOf = (key: string) => readRows(dbPath, 'jira').find((r) => r.scope_key === key);
+  const run = async (flags: ScopeFlags): Promise<void> => {
+    const s = setup({ flags, table: [jiraProjects('ALI')] });
+    await fetchUnderScope({ id: 'jira', fetch: vi.fn(async () => ({ items: [], report: { scanned: 0, skips: [] as never[] } })) }, TOKENS.jira, undefined, s.ctx);
+  };
+
+  it('the --since actually read is the new row window, so the next sync does not re-read everything (a date, and "all")', async () => {
+    await run({ projects: 'ALI', windowSince: '2026-09-10T12:00:00.000Z' });
+    expect(rowOf('jira:ALI')!.window_since).toBe('2026-09-10T12:00:00.000Z');
+  });
+
+  it('--since all is recorded as all (NULL), not as the default window', async () => {
+    await run({ projects: 'ALI', windowSince: null });
+    expect(rowOf('jira:ALI')!.window_since).toBeNull();
+  });
+
+  it('without --since the row inherits the source window, as before', async () => {
+    beginRun(dbPath, { source: 'jira', scopeKey: 'yours', scope: 'yours' }, '2026-01-01T00:00:00.000Z', '2026-10-10T00:00:00.000Z');
+    await run({ projects: 'ALI' });
+    expect(rowOf('jira:ALI')!.window_since).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('a row that already exists keeps its own window (a later --since does not rewrite it)', async () => {
+    beginRun(dbPath, { source: 'jira', scopeKey: 'jira:ALI', scope: 'team' }, '2026-02-02T00:00:00.000Z', '2026-10-10T00:00:00.000Z');
+    await run({ projects: 'ALI', windowSince: '2026-09-10T12:00:00.000Z' });
+    expect(rowOf('jira:ALI')!.window_since).toBe('2026-02-02T00:00:00.000Z');
+  });
+
+  it('a window given alone is not a scope flag (it neither needs --source nor changes the scope)', () => {
+    expect(checkScopeFlags(undefined, { windowSince: null })).toBeUndefined();
+    expect(checkScopeFlags('jira', { windowSince: '2026-09-10T12:00:00.000Z' })).toBeUndefined();
   });
 });
 

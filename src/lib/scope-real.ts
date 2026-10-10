@@ -5,7 +5,7 @@
 import { createConfigStore } from './config.js';
 import { currentRepoIdentity } from './repo-identity.js';
 import type { ScopeDeps, ScopeStore } from './scope.js';
-import { describeScopeKey, type ScopedSource, scopeKeyOf } from './scope-values.js';
+import { type ActiveScope, describeScopeKey, type ScopedSource, scopeKeyOf } from './scope-values.js';
 
 /** `group/project` from `gitlab.com/group/project`. Self-managed hosts are not detected: name them with `--project`. */
 export function gitlabPlaceOf(identity: string | null): string | undefined {
@@ -21,6 +21,12 @@ export function configScopeStore(config = createConfigStore()): ScopeStore {
     isDisclosed: (source, scopeKey) => config.isTeamScopeDisclosed(source, scopeKey),
     markDisclosed: (source, scopeKey) => config.markTeamScopeDisclosed(source, scopeKey),
   };
+}
+
+/** The stored choice IN FORCE for a source (a waiting agent choice is not), or null when nothing was chosen. For callers outside the scope code. */
+export function activeStoredScope(source: string, config = createConfigStore()): ActiveScope | null {
+  const s = configScopeStore(config).getScope(source);
+  return s?.kind === 'team' && s.pending ? s.pending.previous : s;
 }
 
 /** What the sync status needs to know about the scope in force, from the stored choice. An unchosen source answers undefined (the most recently started row is used). */
