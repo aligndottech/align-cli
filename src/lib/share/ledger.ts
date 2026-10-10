@@ -40,7 +40,7 @@ export interface PromotionWrite {
   confirmPending: boolean;
 }
 
-interface Row { local_id: string; env: string; tenant_id: string; remote_id: string; content_hash: string; matched: number; client_key: string; sent: string; confirm_pending: number; shared_at: string; retracted_at: string | null }
+export interface LedgerRow { local_id: string; env: string; tenant_id: string; remote_id: string; content_hash: string; matched: number; client_key: string; sent: string; confirm_pending: number; shared_at: string; retracted_at: string | null }
 
 function parseSent(raw: string): string[] {
   try {
@@ -49,7 +49,7 @@ function parseSent(raw: string): string[] {
   } catch { return []; }
 }
 
-const fromRow = (r: Row): Promotion => ({
+const fromRow = (r: LedgerRow): Promotion => ({
   localId: r.local_id, env: r.env, tenantId: r.tenant_id, remoteId: r.remote_id, contentHash: r.content_hash,
   matched: r.matched === 1, clientKey: r.client_key, sent: parseSent(r.sent), confirmPending: r.confirm_pending === 1, sharedAt: r.shared_at, retractedAt: r.retracted_at,
 });
@@ -79,7 +79,7 @@ function readDb<T>(dbPath: string, fallback: T, fn: (db: DatabaseSync) => T): T 
 
 export function getPromotion(dbPath: string, localId: string, env: string, tenantId: string): Promotion | null {
   return readDb<Promotion | null>(dbPath, null, (db) => {
-    const r = db.prepare('SELECT * FROM promotions WHERE local_id = ? AND env = ? AND tenant_id = ?').get(localId, env, tenantId) as Row | undefined;
+    const r = db.prepare('SELECT * FROM promotions WHERE local_id = ? AND env = ? AND tenant_id = ?').get(localId, env, tenantId) as LedgerRow | undefined;
     return r ? fromRow(r) : null;
   });
 }
@@ -111,7 +111,28 @@ export function markRetracted(dbPath: string, localId: string, env: string, tena
 /** Every live (not retracted) share into one workspace, keyed by local id. */
 export function listPromotions(dbPath: string, env: string, tenantId: string): Map<string, Promotion> {
   return readDb<Map<string, Promotion>>(dbPath, new Map(), (db) => new Map(
-    (db.prepare('SELECT * FROM promotions WHERE env = ? AND tenant_id = ? AND retracted_at IS NULL').all(env, tenantId) as unknown as Row[])
+    (db.prepare('SELECT * FROM promotions WHERE env = ? AND tenant_id = ? AND retracted_at IS NULL').all(env, tenantId) as unknown as LedgerRow[])
       .map((r) => [r.local_id, fromRow(r)] as const),
   ));
+}
+
+/** Every ledger row, raw, so a reset can carry the record of what was shared across a wipe. [] when there is none. */
+export function exportLedger(dbPath: string): LedgerRow[] {
+  return readDb<LedgerRow[]>(dbPath, [], (db) => db.prepare('SELECT * FROM promotions').all() as unknown as LedgerRow[]);
+}
+
+/** Put exported rows back (replay-safe: the key is the table's primary key). */
+export function restoreLedger(dbPath: string, rows: readonly LedgerRow[]): void {
+  if (rows.length === 0) return;
+  withDb(dbPath, (db) => {
+    const ins = db.prepare(
+      `INSERT OR REPLACE INTO promotions (local_id, env, tenant_id, remote_id, content_hash, matched, client_key, sent, confirm_pending, shared_at, retracted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const r of rows) ins.run(r.local_id, r.env, r.tenant_id, r.remote_id, r.content_hash, r.matched, r.client_key, r.sent, r.confirm_pending, r.shared_at, r.retracted_at);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  });
 }

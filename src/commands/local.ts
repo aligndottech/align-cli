@@ -3,6 +3,8 @@ import type { Command } from 'commander';
 import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
 import { createLocalDb } from '../lib/local-db.js';
+import { exportLedger, restoreLedger } from '../lib/share/ledger.js';
+import { sweepPending } from '../lib/share/pending.js';
 import { getLocalDbPath, initLocalMode, LOCAL_DB_SUFFIXES } from '../lib/local-mode.js';
 import { localValueRollup, renderValueReadout } from '../lib/value-rollup.js';
 import { forgetSourceData } from '../lib/sync/forget.js';
@@ -66,6 +68,7 @@ export function registerLocalCommand(program: Command): void {
     .option('--purge', 'Also delete the items imported from that connector, except any you ratified, confirmed, captured by hand, acted on or judged. Asks first')
     .option('--yes', 'With --purge: skip the question (needed when there is no terminal)')
     .action(async (connector: string | undefined, opts: { purge?: boolean; yes?: boolean }) => {
+      sweepPending();
       const config = createConfigStore();
       const env = config.getEnvironment('local');
       const dbPath = env.mode === 'local-embedded' ? env.localDbPath : undefined;
@@ -140,7 +143,11 @@ export function registerLocalCommand(program: Command): void {
       if (!ok) { console.log('Cancelled.'); return; }
       const config = createConfigStore();
       const env = config.getEnvironment('local');
+      sweepPending();
       if (env.localDbPath) {
+        // The record of what this machine shared is NOT part of "the graph": without it a share could no longer be
+        // retracted. Carry it across the wipe.
+        const ledger = exportLedger(env.localDbPath);
         const db = createLocalDb(env.localDbPath);
         db.dropAll();
         db.close();
@@ -151,6 +158,11 @@ export function registerLocalCommand(program: Command): void {
         for (const suffix of LOCAL_DB_SUFFIXES) {
           const f = `${env.localDbPath}${suffix}`;
           if (existsSync(f)) rmSync(f);
+        }
+        if (ledger.length > 0) {
+          createLocalDb(env.localDbPath).close();
+          restoreLedger(env.localDbPath, ledger);
+          console.log(`Kept your record of ${ledger.length} share${ledger.length === 1 ? '' : 's'} to your team, so you can still retract them (align share --retract).`);
         }
       }
       config.clearLocalMode();

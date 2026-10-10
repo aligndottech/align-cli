@@ -85,13 +85,34 @@ export function lookupCode(code: string, now = new Date()): CodeCheck {
   return { ok: true, pending: rec };
 }
 
-/** Single use: removes the file. Returns false when it was already gone (someone else used it first). */
+/**
+ * Single use, and atomic: the file is RENAMED to a name only this call owns, and only the caller whose
+ * rename succeeded wins. Two racers cannot both pass an exists-then-delete check.
+ */
 export function consumeCode(code: string): boolean {
   if (!CODE_RE.test(code)) return false;
   const dir = dirOf();
   if (dir === null) return false;
   const file = path.join(dir, `${code}.json`);
-  if (!fs.existsSync(file)) return false;
-  fs.rmSync(file, { force: true });
+  const mine = path.join(dir, `${code}.${process.pid}.${randomBytes(4).toString('hex')}.used`);
+  try { fs.renameSync(file, mine); } catch { return false; }
+  fs.rmSync(mine, { force: true });
   return true;
+}
+
+export const PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Remove code files (and abandoned `.used` files) older than a day. Returns how many. Touches only its own directory. */
+export function sweepPending(now = new Date()): number {
+  const dir = dirOf();
+  if (dir === null) return 0;
+  let n = 0;
+  for (const f of fs.readdirSync(dir)) {
+    if (!/\.(json|used)$/.test(f)) continue;
+    const file = path.join(dir, f);
+    try {
+      if (now.getTime() - fs.statSync(file).mtimeMs > PENDING_MAX_AGE_MS) { fs.rmSync(file, { force: true }); n += 1; }
+    } catch { /* gone already */ }
+  }
+  return n;
 }

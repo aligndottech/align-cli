@@ -985,12 +985,12 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
      */
     async shareBatch(items: Array<Record<string, unknown> & { created_at?: string }>): Promise<ShareBatchResponse> {
       const decisions = items.map(({ created_at, ...rest }) => ({ ...rest, ...(created_at ? { decided_at: created_at } : {}) }));
-      return request<ShareBatchResponse>('/ingest/batch', { method: 'POST', body: JSON.stringify({ decisions }) });
+      return request<ShareBatchResponse>('/ingest/batch', { method: 'POST', redirect: 'error', body: JSON.stringify({ decisions }) });
     },
 
     /** L9: retract a share (the existing archive route; it is the only undo the server has). */
     async archiveDecision(id: string): Promise<void> {
-      await request(`/decisions/${encodePathSegment(id)}/archive`, { method: 'POST', body: '{}' });
+      await request(`/decisions/${encodePathSegment(id)}/archive`, { method: 'POST', redirect: 'error', body: '{}' });
     },
 
     getStreamUrl(jobId: string): string {

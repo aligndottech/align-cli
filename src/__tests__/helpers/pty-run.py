@@ -1,11 +1,12 @@
 # Run a command on a real pseudo-terminal and type answers when prompts appear.
 # argv: <json command> <json steps [[expect, send], ...]>. Prints one JSON line {code, out}.
 # The master side stays open until the child exits, so the child's stdin is never at EOF.
-import json, os, pty, select, sys, time
+import fcntl, json, os, pty, select, struct, sys, termios, time
 cmd = json.loads(sys.argv[1]); steps = json.loads(sys.argv[2])
 pid, fd = pty.fork()
 if pid == 0:
     os.execvpe(cmd[0], cmd, os.environ)
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 160, 0, 0))  # a 0-column window makes prompt libraries print one character per line
 buf = b''; pos = 0; si = 0; deadline = time.time() + 50
 while time.time() < deadline:
     r, _, _ = select.select([fd], [], [], 0.2)

@@ -17,7 +17,7 @@ import { defaultJudge } from '../curation/judge.js';
 import type { Judge } from '../curation/judgements-db.js';
 import { createGatewayClient } from '../gateway-client.js';
 import { resolveEnv } from '../resolve-env.js';
-import { issueCode } from '../share/pending.js';
+import { issueCode, sweepPending } from '../share/pending.js';
 import { visible } from '../share/visible.js';
 import { prepare, secretRefusal, type ShareClient, ShareError } from '../share/run.js';
 import { teamCtaLine } from '../team-cta.js';
@@ -64,6 +64,7 @@ export async function runShareTool(args: Record<string, unknown> | undefined, en
     const cloudEnv = config.getEnvironment(envName);
     target = { cloudEnv, envName, client: createGatewayClient(cloudEnv) as unknown as ShareClient, salt: config.getInstallId() };
   }
+  sweepPending();
   const { cloudEnv, envName, client } = target;
   if (cloudEnv.mode === 'local-embedded' || (!cloudEnv.authToken && cloudEnv.mode !== 'demo')) {
     return { text: `Sharing needs a team login, and none is set up. Ask the user to run: align login\n${teamCtaLine()}`, shared: false };

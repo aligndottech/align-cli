@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { getPromotion } from '../lib/share/ledger.js';
 import { canPty, type Harness, startHarness } from './helpers/share-harness.js';
 
 /**
@@ -78,5 +79,20 @@ describe.skipIf(!canPty)('on a real pseudo-terminal', () => {
     const agree = await h.pty([h.ids[1]!], [['[y/N]', 'y\n'], ['stand behind the team', 'y\n']]);
     expect(agree.code).toBe(0);
     expect(h.posts).toHaveLength(2);
+  });
+});
+
+describe.skipIf(!canPty)('align local reset', () => {
+  it('wipes the graph but keeps the record of what was shared, so a share stays retractable', async () => {
+    const id = h.ids[0]!;
+    if (getPromotion(h.dbPath, id, 'prod', 'T1') === null) await h.pty([id], [['[y/N]', 'y\n']]);
+    expect(getPromotion(h.dbPath, id, 'prod', 'T1')).not.toBeNull();
+    const r = await h.ptyAlign(['local', 'reset'], [['Continue', 'y\r']]);
+    expect(r.out).toContain('Kept your record of');
+    const { DatabaseSync } = await import('node:sqlite');
+    const d = new DatabaseSync(h.dbPath);
+    expect((d.prepare('SELECT count(*) AS n FROM decisions').get() as { n: number }).n).toBe(0);
+    d.close();
+    expect(getPromotion(h.dbPath, id, 'prod', 'T1')).toMatchObject({ remoteId: 'R0' });
   });
 });

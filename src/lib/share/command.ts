@@ -11,7 +11,7 @@
 import { visible } from './visible.js';
 import { type EnvironmentConfig } from '../config.js';
 import { teamCtaLine } from '../team-cta.js';
-import { combinedHash, consumeCode, lookupCode } from './pending.js';
+import { combinedHash, consumeCode, lookupCode, sweepPending } from './pending.js';
 import { prepare, type Prepared, ratifiedRows, renderResults, renderTeamText, retract, secretRefusal, send, type ShareClient, ShareError } from './run.js';
 import type { Judge } from '../curation/judgements-db.js';
 
@@ -59,6 +59,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     return 1;
   }
   const dbPath = deps.localDbPath;
+  sweepPending(); // codes are 10 minutes; a file a day old is leftover
   const ctx = async () => ({ dbPath, envName: opts.envName, client: deps.client(), judge: await deps.judge(), salt: deps.salt, gatewayUrl: deps.cloudEnv.gatewayUrl, defaultGatewayUrl: deps.defaultGatewayUrl });
 
   try {

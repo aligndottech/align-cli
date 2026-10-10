@@ -21,6 +21,9 @@ export interface Harness {
   plain(args: string[]): Promise<{ code: number | null; out: string }>;
   /** A real pty: type `send` once `expect` appears. */
   pty(args: string[], steps: Array<[string, string]>): Promise<{ code: number; out: string }>;
+  /** Like pty but for any align subcommand (args are the whole command line after `align`). */
+  ptyAlign(args: string[], steps: Array<[string, string]>): Promise<{ code: number; out: string }>;
+  dbPath: string;
   close(): Promise<void>;
 }
 
@@ -48,7 +51,12 @@ export async function startHarness(seed: (db: ReturnType<typeof createLocalDb>) 
   const env: Record<string, string | undefined> = { ...process.env, XDG_CONFIG_HOME: path.join(dir, 'cfg'), XDG_STATE_HOME: path.join(dir, 'state'), HOME: dir, ALIGN_ENV: 'prod', ALIGN_TOKEN: 'tok', ALIGN_TENANT_ID: 'T1', ALIGN_GATEWAY_URL: base, ALIGN_TELEMETRY: '0', DO_NOT_TRACK: '1' };
   const cmd = [path.join(ROOT, 'node_modules/.bin/tsx'), path.join(ROOT, 'src/index.ts'), 'share'];
   return {
-    ...h, ids, dir, env, base,
+    ...h, ids, dir, env, base, dbPath,
+    ptyAlign: (args, steps) => new Promise((resolve) => {
+      const p = spawn('python3', [path.join(__dirname, 'pty-run.py'), JSON.stringify([...cmd.slice(0, 2), ...args]), JSON.stringify(steps)], { env });
+      let out = ''; p.stdout.on('data', (b) => (out += b));
+      p.on('close', () => resolve(JSON.parse(out.trim().split('\n').pop()!)));
+    }),
     plain: (args) => new Promise((resolve) => {
       const p = spawn(cmd[0]!, [...cmd.slice(1), ...args], { detached: true, env, stdio: ['ignore', 'pipe', 'pipe'] });
       let out = ''; p.stdout!.on('data', (b) => (out += b)); p.stderr!.on('data', (b) => (out += b));
