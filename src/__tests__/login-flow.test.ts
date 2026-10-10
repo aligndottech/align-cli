@@ -85,6 +85,39 @@ describe('loginInteractive', () => {
   });
 });
 
+describe('renewing a team destination fails closed (join review F10)', () => {
+  const team: EnvironmentConfig = { ...env, kind: 'team', appUrl: 'https://align.acme.example' };
+  const good = { user: { email: 'a@b.example' }, tenant: { id: 't1', name: 'Acme' } };
+  beforeEach(() => { mockWaitForCallback.mockReset(); mockWhoami.mockReset(); });
+
+  it('an unreachable gateway saves nothing and returns false (a builtin still saves, above)', async () => {
+    mockWaitForCallback.mockResolvedValue({ data: { token: 'tok' }, port: 1 });
+    mockWhoami.mockRejectedValue(new GatewayError('Cannot reach gateway', 0));
+    const config = fakeConfig();
+    expect(await loginInteractive(team, 'acme' as never, cast(config))).toBe(false);
+    expect(config.setAuthToken).not.toHaveBeenCalled();
+  });
+
+  it('a reply that is not an Align whoami saves nothing', async () => {
+    mockWaitForCallback.mockResolvedValue({ data: { token: 'tok' }, port: 1 });
+    for (const bad of [{}, { user: { email: 7 }, tenant: { id: 't', name: 'x' } }, { user: { email: 'a@b.example' }, tenant: { id: { x: 1 }, name: 'x' } }]) {
+      mockWhoami.mockResolvedValue(bad);
+      const config = fakeConfig();
+      expect(await loginInteractive(team, 'acme' as never, cast(config))).toBe(false);
+      expect(config.setAuthToken).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a good answer saves the token and the tenant id', async () => {
+    mockWaitForCallback.mockResolvedValue({ data: { token: 'tok' }, port: 1 });
+    mockWhoami.mockResolvedValue(good);
+    const config = fakeConfig();
+    expect(await loginInteractive(team, 'acme' as never, cast(config))).toBe(true);
+    expect(config.setAuthToken).toHaveBeenCalledWith('acme', 'tok');
+    expect(config.setTenantId).toHaveBeenCalledWith('acme', 't1');
+  });
+});
+
 describe('the spinner message follows the opener verdict', () => {
   // The message fires inside onBound, which the shared mock never invokes - so this
   // block drives it: the callback mock calls onBound (as the real server does on

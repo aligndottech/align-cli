@@ -1,6 +1,8 @@
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
+import { verifyToken } from './join-flow.js';
 import { tryOpenUrl } from './open-url.js';
+import { visible } from './share/visible.js';
 import { createGatewayClient, GatewayError } from './gateway-client.js';
 import { CLI_CALLBACK_PORTS, waitForCallback } from './cli-oauth.js';
 import type { createConfigStore, EnvironmentConfig, EnvName } from './config.js';
@@ -56,6 +58,23 @@ export async function loginInteractive(
   if (!token) {
     p.log.error('No token received. Try again or use: align login --token <token>');
     return false;
+  }
+
+  // A team destination is renewed the way it was joined: the token is only kept once the gateway has answered who it belongs to,
+  // in the shape an Align gateway uses. "Unreachable" is not "verified" here, unlike the builtins below (join review F10).
+  if (env.kind === 'team') {
+    const spin = p.spinner();
+    spin.start('Verifying token...');
+    const who = await verifyToken(env.gatewayUrl, token);
+    if (typeof who === 'string') {
+      spin.stop('Login failed: the new token could not be verified.');
+      p.log.error(`${new URL(env.gatewayUrl).host} ${who}`);
+      return false;
+    }
+    config.setAuthToken(envName, token);
+    config.setTenantId(envName, who.tenantId);
+    spin.stop(`Logged in as ${visible(who.email)} (${visible(who.tenantName)}) [${envName}]`);
+    return true;
   }
 
   const verifySpinner = p.spinner();

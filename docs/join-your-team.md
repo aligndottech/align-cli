@@ -13,18 +13,27 @@ align join '<the link>'
 
 Keep the quotes. The link has `&` in it.
 
+**You have to run this yourself, in your own terminal.** It refuses when input or output is not a
+terminal, and inside an agent that `align` launched. There is no flag to get around that, on purpose: joining
+gives a server a credential and a place to send your decisions, so a person answers the questions. (An agent that
+opens its own pseudo-terminal can still get past a terminal check. That is a limit of any such check, not something
+this command solves.)
+
 What happens, in order:
 
 1. The CLI asks the server about the invite. Nothing is saved and no browser opens yet.
 2. It prints the two servers it is about to trust, the gateway and the web app, and the org name
-   the server claims. **If the gateway is not under `align.tech`, you type its host back to confirm.**
-   That is the check against a link someone sent you by mistake or on purpose.
+   the server gives. That name is chosen by the organisation and is not verified by Align, so it is never a reason
+   to trust a link. **If the gateway is not under `align.tech`, you type its host back to confirm. If it is,
+   you type `y`.** That is the check against a link someone sent you by mistake or on purpose.
 3. Your browser opens the web app. You sign in and click **Give the Align CLI on this computer access**.
 4. The server hands the CLI a new token for that org only. The CLI checks it works, then saves it as a
    named destination (the name comes from the org, or `--name`).
 
 It never moves your decisions, never archives a workspace, never expires a token you already have.
-Your first destination becomes where `align share` goes. A later join asks before changing that.
+It then asks whether `align share` should go to this destination from now on. Nothing sets that for you:
+only a `y` does, and the output says "Shares from this machine now go to ...". A later join asks again before
+changing it.
 
 The access expires after 90 days. The CLI prints the date. Renew it with:
 
@@ -48,9 +57,7 @@ That needs the destination to exist already, so join once from a machine with a 
 |---|---|
 | `--name <name>` | What to call it. 2 to 32 lowercase letters, digits or hyphens, starting with a letter. `prod`, `preview`, `local` and a few other words are reserved. |
 | `--gateway <url>` | The server, for a link that does not carry one. |
-| `--confirm-host <host>` | Confirm the host without a prompt. Required when there is no terminal. |
-| `--replace` | Replace a destination with the same name. |
-| `--make-share-destination` | Make this the share destination without asking. |
+| `--replace` | Replace a destination with the same name. It shows the old and the new host, makes you type the new host, and asks again if the destination is where your shares go. |
 
 ### Using it
 
@@ -62,12 +69,18 @@ align env list                      # your destinations, with both hosts
 align logout --env acme             # removes the token, keeps the destination
 ```
 
-A share always prints the gateway host it goes to, on the `To:` line, before you say yes.
+A share prints the gateway host and the org name it goes to, on the `To:` line, before anything is staged. When the
+workspace approves shares in the browser, your yes is on that web page, after the preview; when it uses the typed
+answer, the yes is at your terminal, after the same preview. The org name there is the organisation's own, and the
+line says Align does not verify it.
 
 ## What the CLI refuses
 
 - A gateway or web app on plain `http`, except `localhost`.
 - A link whose gateway or web app differs from what the server says about itself.
+- Joining without a terminal, or inside an agent.
+- A link that carries a gateway the server does not confirm as its own. The join page is also told which gateway the
+  CLI expects, and refuses a link that points at another one.
 - An unknown `--env` name. It never falls back to prod.
 - Using `ALIGN_TOKEN`, `ALIGN_TENANT_ID` or `ALIGN_GATEWAY_URL` for a named destination. They only apply to
   the built-in environments.
