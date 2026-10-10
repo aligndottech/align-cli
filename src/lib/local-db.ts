@@ -339,6 +339,21 @@ export function createLocalDb(dbPath: string) {
       return row ?? null;
     },
 
+    /**
+     * L2, Decision 30: the decision's ingest finished, link pass included. ingestOne is the one
+     * caller, and calls it as its last write; insertDecision clears it whenever it rewrites the
+     * row. NULL therefore means "links not known to be current", and the unchanged-skip will
+     * not skip such a row.
+     */
+    markEnriched(id: string): void {
+      db.prepare(`UPDATE decisions SET enriched_at = ? WHERE id = ?`).run(new Date().toISOString(), id);
+    },
+
+    getEnrichedAt(id: string): string | null {
+      const row = db.prepare(`SELECT enriched_at AS e FROM decisions WHERE id = ?`).get(id) as { e: string | null } | undefined;
+      return row?.e ?? null;
+    },
+
     /** ALI-831: one row per human act on a decision (ratified, pushed), so "who stood behind
      *  this, and when" is answerable after the fact. Append-only by construction. */
     insertAudit(entry: { decisionId: string; action: string; actor: string | null; detail?: string | null }): void {
