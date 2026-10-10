@@ -92,6 +92,7 @@ function stagedText(preview: string, rec: Pick<PendingRequest, 'requestId' | 'us
   return `${preview}\n\nNOTHING HAS BEEN SENT. The user must approve this in their browser. Give them this link exactly as written (everything after the # is needed) and the code:\n` +
     `  Link: ${visible(url)}\n  Code: ${visible(rec.userCode)}  (the approval page shows the same code)\n` +
     `They open the link in a browser where they are signed in to Align, check the text and the code, and click Approve. It works on any device and expires in ${minutes} minutes. ` +
+    `Show the link to the user as a clickable link, and tell them it also opens on their phone (approving there with Face ID or a fingerprint is the strongest way); on this machine they can run: align share --open ${rec.requestId} to open it or get a QR code. ` +
     `Hand the link to the user and do not try to approve it yourself, by any means. When they say they approved, call ${SHARE_STATUS_TOOL} with request_id ${rec.requestId} to finish the share.`;
 }
 

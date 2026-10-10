@@ -72,10 +72,22 @@ still obtain one:
 
 So browser approval raises the bar from one shell line to needing your mailbox or your cookies, and it records
 which credential staged the request. **It is not a lock** until a passkey or other step-up credential is added to
-the approve step, which is planned and not built. The agent that stages a request also sees the link, and so
-the key; it already had the text it sealed, so that adds nothing, but the link is not a secret from the agent.
-The code on the page is not a secret either: an agent that runs the CLI relays its own link and code, so only
+the approve step. That is planned and not built. The agent that stages a request also sees the link, and so
+the key. It already had the text it sealed, so that adds nothing, but the link is not a secret from the agent.
+The code on the page is not a secret either. An agent that runs the CLI relays its own link and code, so only
 reading the content on the page defends against a request you did not mean to make.
+
+**Opening the link.** At an interactive terminal on a machine with a browser, `align share` opens the link for
+you. On a remote machine, scan the QR code it prints with your phone. Approving on a phone with Face ID or a
+fingerprint is the strongest way. The link is not a secret from the agent that ran the command, and the QR code is
+the same link, so neither is a lock. Before the link reaches a browser launcher, the CLI checks the whole string
+against one exact shape (https, the app's host, `/share/approve/<id>`, a 43-character key in the
+fragment). It starts the launcher with an argument list, never a shell string. That is a shape check. It does not
+check where the link goes: the host is whatever your configuration says. A self-host whose link has a path prefix, or
+uses plain http on a non-local host, fails the check. The CLI then prints the link without opening it or drawing a
+code. On Linux and macOS the launcher's command line holds the whole link, key included, while it runs, so another
+local user could read it with `ps`. The key alone cannot approve anything (that needs your signed-in session and,
+where enabled, your passkey). Use `--no-open` and the QR code if that matters on a shared machine.
 
 > **What else this does NOT stop.**
 > - **The control only holds once the gateway runs `required`.** In `available`, the browser flow exists but the

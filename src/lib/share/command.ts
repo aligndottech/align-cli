@@ -18,7 +18,9 @@ import { visible } from './visible.js';
 import { type EnvironmentConfig } from '../config.js';
 import { teamCtaLine } from '../team-cta.js';
 import { runBrowserShare } from './browser-flow.js';
-import { combinedHash, consumeCode, lookupCode, sweepPending } from './pending.js';
+import { type DeliveryPlan, type PresentDeps, presentLink } from './delivery.js';
+import { approveUrl } from './approval.js';
+import { combinedHash, consumeCode, loadRequest, lookupCode, sweepPending } from './pending.js';
 import { prepare, type Prepared, ratifiedRows, renderResults, renderTeamText, retract, secretRefusal, send, type ShareClient, ShareError } from './run.js';
 import type { Judge } from '../curation/judgements-db.js';
 
@@ -31,6 +33,8 @@ export interface ShareOptions {
   retract?: string;
   /** Use the typed-yes flow although the gateway offers browser approval (refused when it requires it). */
   typed?: boolean;
+  /** --open <request id>: re-open or re-print the link of a request an agent staged on this machine. */
+  openRequest?: string;
   envName: string;
 }
 
@@ -41,6 +45,11 @@ export interface ApprovalDeps {
   /** This machine's label, shown on the page as client-claimed. */
   label: string;
   openUrl?: (url: string) => Promise<boolean>;
+  /** Open and/or QR for the link: see decideDelivery. */
+  plan?: DeliveryPlan;
+  qr?: PresentDeps['qr'];
+  columns?: number;
+  copy?: (url: string) => void;
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   now: () => number;
   /**
@@ -70,8 +79,8 @@ export interface ShareDeps {
   err: (line: string) => void;
 }
 
-const WRAPPED = 'align share needs your own answer typed at a terminal here, and this is not run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.';
-const NO_TERMINAL = 'Confirm this in your own terminal: there is no interactive terminal here (an agent shell, a pipe and a hook have none). Nothing was sent.';
+const WRAPPED = 'align share needs you to type your answer at a terminal, and this run is inside an agent that align launched, so it cannot ask you. Open a normal terminal of your own and run it there. Nothing was sent.';
+const NO_TERMINAL = 'Confirm this in your own terminal. There is no interactive terminal here (an agent shell, a pipe and a hook have none). Nothing was sent.';
 
 export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<number> {
   // Every line this prints can carry text a stranger wrote (a remote id, a tenant name, a server error, a
@@ -86,6 +95,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     err(`align share sends decisions from your local graph to your team's.\n  ${teamCtaLine()}\n  Already have a team? Run: align login`);
     return 1;
   }
+  if (opts.openRequest !== undefined) return await reopenRequest(opts, deps, out, err);
   if (!deps.localDbPath) {
     err('There is no local graph on this machine to share from. `align setup --local` creates one.');
     return 1;
@@ -152,7 +162,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
       out(prep.preview);
       const { guard, ...rest } = deps.approval;
       const maxWaitMs = ((cfg?.pendingTtlS ?? 900) + (cfg?.completeTtlS ?? 600)) * 1000;
-      return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, signal, maxWaitMs, client: c.client, out, err, ...(deps.wrapped ? { agent: 'wrapped' } : {}) }));
+      return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, raw: deps.out, signal, maxWaitMs, client: c.client, out, err, ...(deps.wrapped ? { agent: 'wrapped' } : {}) }));
     }
 
     if (pendingCode !== undefined) {
@@ -186,4 +196,36 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     err((e as Error).message);
     return 1;
   }
+}
+
+/**
+ * `align share --open <id>`. The key for an agent-staged request rests in one place, the 0600 pending file on the machine
+ * that staged it, so this works there and nowhere else. Every refusal below prints no key. It only shows the link again: the
+ * person approves in the browser, and the agent's own status call finishes the share.
+ */
+async function reopenRequest(opts: ShareOptions, deps: ShareDeps, out: (l: string) => void, err: (l: string) => void): Promise<number> {
+  sweepPending();
+  const rec = loadRequest(opts.openRequest!);
+  if (rec === null) { err('No pending request with that id on this machine. A request can only be re-opened on the machine that staged it, and only until it expires. Ask your agent to start the share again.'); return 1; }
+  if (!(Date.parse(rec.expiresAt) > Date.now())) { err('That request has expired. Ask your agent to start the share again.'); return 1; }
+  if (rec.envName !== opts.envName) { err(`That request was staged for ${rec.envName}, not ${opts.envName}. Run: align share --open ${rec.requestId} --env ${rec.envName}`); return 1; }
+  if (rec.gatewayUrl !== deps.cloudEnv.gatewayUrl || (deps.cloudEnv.tenantId !== undefined && rec.tenantId !== deps.cloudEnv.tenantId)) {
+    err('That request was staged for a different workspace or gateway than the one you are signed in to now, so it was not shown.');
+    return 1;
+  }
+  let state: string;
+  try { state = (await deps.client().getShareRequest(rec.requestId)).state; } catch (e) { err(`Could not ask the gateway about that request (${visible((e as Error).message)}), so the link was not shown. Try again in a moment.`); return 1; }
+  if (state !== 'pending') { err(`That request is ${visible(state)}, so there is nothing to approve. Ask your agent to start the share again if you still want it.`); return 1; }
+  const url = approveUrl(deps.approval.appUrl, rec.requestId, rec.keyB64Url);
+  const minutes = Math.max(1, Math.round((Date.parse(rec.expiresAt) - Date.now()) / 60000));
+  out(`Approve in your browser: ${url}`);
+  out(`Code: ${rec.userCode}  (the page shows the same code. Check they match before you approve.)`);
+  out(`It expires in ${minutes} minutes. Nothing is sent until you approve. When you have, tell your agent so it can finish the share.`);
+  const a = deps.approval;
+  await presentLink(url, {
+    appUrl: a.appUrl, plan: a.plan ?? { open: a.openUrl !== undefined, qr: false, qrIfOpenFails: false, why: 'default' },
+    ...(a.openUrl ? { openUrl: a.openUrl } : {}), ...(a.qr ? { qr: a.qr } : {}), ...(a.columns !== undefined ? { columns: a.columns } : {}),
+    ...(a.copy ? { copy: a.copy } : {}), out, raw: deps.out,
+  });
+  return 0;
 }

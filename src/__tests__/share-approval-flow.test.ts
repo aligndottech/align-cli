@@ -490,3 +490,38 @@ describe('no silent downgrade to the typed answer', () => {
     expect(f.out.join('\n')).not.toMatch(/browser approval/);
   });
 });
+
+describe('delivery of the approval link (QR, open, narrow terminal)', () => {
+  const qr = (url: string) => ({ lines: [`\u001b[38;5;16;48;5;231m▀\u001b[0m ${url.length}`], columns: 30 });
+  it('prints the QR after the link when the plan asks for one, does not open, and keeps the colour escapes intact', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.approval.openUrl = undefined; f.deps.approval.plan = { open: false, qr: true, qrIfOpenFails: true, why: 'ssh' }; f.deps.approval.qr = qr;
+    const raw: string[] = []; const outer = f.deps.out; f.deps.out = (l) => { raw.push(l); outer(l); };
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.opened).toEqual([]);
+    const lines = f.out;
+    const at = lines.findIndex((l) => l.includes('Scan this with your phone camera'));
+    expect(at).toBeGreaterThan(lines.findIndex((l) => l.startsWith('Approve in your browser:')));
+    expect(lines[at + 1]).toContain('\u001b[38;5;16;48;5;231m');   // not neutralised by the output cleaning
+    expect(lines.join('\n')).toMatch(/scan the QR code with your phone/);
+  });
+  it('prints no QR and opens nothing when the plan has neither (CI, a pipe), and still says how to open the link', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.approval.plan = { open: false, qr: false, qrIfOpenFails: false, why: 'ci' }; f.deps.approval.qr = qr;
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.opened).toEqual([]); expect(say(f)).not.toContain('Scan this'); expect(say(f)).toMatch(/open the link above/);
+  });
+  it('a terminal too narrow for the code gets a sentence and no code', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.approval.plan = { open: false, qr: true, qrIfOpenFails: true, why: 'ssh' }; f.deps.approval.qr = qr; f.deps.approval.columns = 20;
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(say(f)).toMatch(/20 columns wide and the QR code needs 30/); expect(say(f)).not.toContain('Scan this');
+  });
+  it('a gateway that returns an id with a shell metacharacter in it gets no browser and no QR', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.approval.plan = { open: true, qr: true, qrIfOpenFails: true, why: 't' }; f.deps.approval.qr = qr;
+    f.deps.approval.appUrl = 'https://app.align.test"; calc; "';
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.opened).toEqual([]); expect(say(f)).not.toContain('Scan this'); expect(say(f)).toMatch(/not in the expected form/);
+  });
+});
