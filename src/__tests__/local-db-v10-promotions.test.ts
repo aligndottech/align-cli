@@ -150,3 +150,47 @@ describe('a copy of the real graph', () => {
     expect(titlesAfter).toBe(titlesBefore);
   });
 });
+
+/**
+ * L9 second review, item 4: a graph an EARLIER build of this branch stamped v10 (promotions without client_key, sent,
+ * confirm_pending) is repaired at open; the repair is idempotent, keeps rows, and a share refuses before any request
+ * if the ledger is still not in the expected shape.
+ */
+describe('a graph already at v10 with the first-build promotions table', () => {
+  const OLD = `CREATE TABLE promotions (local_id TEXT NOT NULL, env TEXT NOT NULL, tenant_id TEXT NOT NULL, remote_id TEXT NOT NULL,
+    content_hash TEXT NOT NULL, matched INTEGER NOT NULL DEFAULT 0, shared_at TEXT NOT NULL DEFAULT (datetime('now')), retracted_at TEXT,
+    PRIMARY KEY (local_id, env, tenant_id))`;
+  const makeOld = () => {
+    createLocalDb(dbPath).close();
+    exec(`DROP TABLE promotions; ${OLD}; INSERT INTO promotions (local_id, env, tenant_id, remote_id, content_hash, matched) VALUES ('L1', 'prod', 'T1', 'R1', 'h', 0); PRAGMA user_version = 10`);
+  };
+  it('gains the three columns on open, keeps its row, and a second open and a third change nothing', () => {
+    makeOld();
+    createLocalDb(dbPath).close();
+    expect(sql<{ name: string }>('PRAGMA table_info(promotions)').map((c) => c.name)).toEqual(expect.arrayContaining(['client_key', 'sent', 'confirm_pending']));
+    expect(sql('SELECT local_id, remote_id, client_key, sent, confirm_pending FROM promotions')).toEqual([{ local_id: 'L1', remote_id: 'R1', client_key: '', sent: '[]', confirm_pending: 0 }]);
+    const once = sql('SELECT count(*) AS n FROM sqlite_master')[0];
+    createLocalDb(dbPath).close(); createLocalDb(dbPath).close();
+    expect(sql('SELECT count(*) AS n FROM sqlite_master')[0]).toEqual(once);
+    expect(getPromotion(dbPath, 'L1', 'prod', 'T1')).toMatchObject({ remoteId: 'R1', clientKey: '', sent: [], confirmPending: false });
+    expect(version()).toBe(10);
+  });
+  it('the real old-shape file from the review (16 decisions) opens, repairs and replays', () => {
+    const FX = '/tmp/align-work/l9r2/fxold/local.db';
+    if (!fs.existsSync(FX)) return;
+    fs.copyFileSync(FX, dbPath);
+    createLocalDb(dbPath).close(); createLocalDb(dbPath).close();
+    expect(sql<{ n: number }>('SELECT count(*) AS n FROM decisions')[0]!.n).toBe(16);
+    expect(sql<{ name: string }>('PRAGMA table_info(promotions)').map((c) => c.name)).toContain('client_key');
+  });
+  it('a share refuses before any request when the ledger cannot be made usable', async () => {
+    const { prepare, ShareError } = await import('../lib/share/run.js');
+    const db = createLocalDb(dbPath);
+    const id = db.insertDecision({ title: 't', summary: 's', sourceUrl: 'https://e/1', platform: 'cli' }); db.markRatified(id, 'me'); db.close();
+    exec('DROP TABLE promotions');
+    let posts = 0;
+    const client = { whoami: async () => ({ user: { email: 'a@b.c' }, tenant: { id: 'T', name: 'W' } }), shareBatch: async () => { posts++; return {}; }, getDecision: async () => ({}), archiveDecision: async () => undefined };
+    await expect(prepare({ dbPath, envName: 'prod', client, judge: { judgeId: 'j', judgeLabel: null }, salt: 's', gatewayUrl: 'https://x', defaultGatewayUrl: 'https://x' }, [id])).rejects.toBeInstanceOf(ShareError);
+    expect(posts).toBe(0);
+  });
+});

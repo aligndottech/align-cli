@@ -9,7 +9,7 @@ import { repoFromSourceUrl } from './repo-identity.js';
 import { migrateV7 } from './local-db-v7.js';
 import { migrateV8 } from './local-db-v8.js';
 import { migrateV9 } from './local-db-v9.js';
-import { migrateV10 } from './local-db-v10.js';
+import { migrateV10, repairPromotions } from './local-db-v10.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -449,6 +449,8 @@ export function migrate(db: DatabaseSync): void {
       throw err;
     }
   }
+  // A graph an earlier build of this branch stamped v10 (see repairPromotions): runs on every open.
+  repairPromotions(db);
   if (version < SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }

@@ -44,3 +44,20 @@ export function migrateV10(db: DatabaseSync): void {
     insert.run(p.decision_id, env, remote);
   }
 }
+
+/**
+ * A graph an EARLIER build of this branch already stamped v10 has `promotions` without the columns v10 grew
+ * (`client_key`, `sent`, `confirm_pending`), and the `version < 10` step will never run for it. This repair
+ * runs on every open: guarded by table_info, so it is idempotent and a no-op on a current graph. Existing
+ * rows keep their values (the defaults say "no key yet, nothing recorded as sent, nothing pending").
+ */
+export function repairPromotions(db: DatabaseSync): void {
+  const cols = new Set((db.prepare('PRAGMA table_info(promotions)').all() as Array<{ name: string }>).map((c) => c.name));
+  if (cols.size === 0) return; // pre-v10: the step itself creates it
+  if (!cols.has('client_key')) db.exec("ALTER TABLE promotions ADD COLUMN client_key TEXT NOT NULL DEFAULT ''");
+  if (!cols.has('sent')) db.exec("ALTER TABLE promotions ADD COLUMN sent TEXT NOT NULL DEFAULT '[]'");
+  if (!cols.has('confirm_pending')) db.exec('ALTER TABLE promotions ADD COLUMN confirm_pending INTEGER NOT NULL DEFAULT 0');
+}
+
+/** The columns the ledger code reads and writes, in one place so the share can refuse BEFORE any request. */
+export const LEDGER_COLUMNS = ['local_id', 'env', 'tenant_id', 'remote_id', 'content_hash', 'matched', 'client_key', 'sent', 'confirm_pending', 'shared_at', 'retracted_at'] as const;

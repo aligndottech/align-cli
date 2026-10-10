@@ -10,7 +10,7 @@
  */
 import { existingTitles, type Judge, listJudgements } from '../curation/judgements-db.js';
 import { createLocalDb, type DecisionRow } from '../local-db.js';
-import { getLegacyPromotion, getPromotion, listPromotions, markRetracted, type Promotion, type PromotionWrite, recordPromotion, recordPromotions } from './ledger.js';
+import { getLegacyPromotion, getPromotion, ledgerReady, listPromotions, markRetracted, type Promotion, type PromotionWrite, recordPromotion, recordPromotions } from './ledger.js';
 import { visible } from './visible.js';
 import { buildSharePayload, clientKeyFor, type SharePayload } from './payload.js';
 import { type Destination, renderPreview } from './preview.js';
@@ -90,6 +90,8 @@ export async function prepare(ctx: ShareContext, ids: string[]): Promise<Prepare
       rows.push(row);
     }
   } finally { db.close(); }
+  // The graph was just opened (which repairs an older v10); refuse BEFORE any request if the ledger is still not usable.
+  if (!ledgerReady(ctx.dbPath)) throw new ShareError('Your local graph\'s record of shares is not in the expected shape, so nothing was sent. Run `align local status` once, or update the CLI.');
 
   const shared = listPromotions(ctx.dbPath, ctx.envName, tenantId);
   const remoteIdOf = (id: string) => shared.get(id)?.remoteId;

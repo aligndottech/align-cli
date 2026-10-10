@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { assertSchemaSupported } from '../local-db-migrate.js';
+import { LEDGER_COLUMNS } from '../local-db-v10.js';
 
 export interface Promotion {
   localId: string;
@@ -153,5 +154,14 @@ export function restoreLedger(dbPath: string, rows: readonly LedgerRow[]): void 
       for (const r of rows) ins.run(r.local_id, r.env, r.tenant_id, r.remote_id, r.content_hash, r.matched, r.client_key, r.sent, r.confirm_pending, r.shared_at, r.retracted_at);
       db.exec('COMMIT');
     } catch (e) { db.exec('ROLLBACK'); throw e; }
+  });
+}
+
+/** True when the ledger table has every column this code uses. A share checks it BEFORE any request. */
+export function ledgerReady(dbPath: string): boolean {
+  if (!fs.existsSync(dbPath)) return false;
+  return withDb(dbPath, (db) => {
+    const cols = new Set((db.prepare('PRAGMA table_info(promotions)').all() as Array<{ name: string }>).map((c) => c.name));
+    return LEDGER_COLUMNS.every((c) => cols.has(c));
   });
 }
