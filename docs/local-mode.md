@@ -53,24 +53,27 @@ is listed on its own page, and a test keeps that page true.
 
 - **Cloud mode is opt-out.** You're already on an authenticated connection to Align's gateway,
   so a usage event about a call you're already making isn't a new phone-home. Set
-  `ALIGN_TELEMETRY=0` to turn it off.
+  `ALIGN_TELEMETRY=0`, or run `align telemetry off`, to turn it off.
 - **Local-only mode sends anonymous usage counts, and tells you first.** The first time you
-  run `align`, it prints a short notice to stderr saying what is sent and how to stop it.
-  Nothing is sent before that notice. After it: a random id generated once for this machine,
+  run `align` in a terminal, it prints a short notice to stderr saying what is sent and how to
+  stop it. Nothing is sent before that notice, and a run with no terminal (piped, a hook, cron,
+  `docker build`, an agent's shell tool) shows none and sends nothing. After it: a random id generated once for this machine,
   the CLI version, your OS on the first run, the command name (never its arguments), and on a
   handful of milestone pings (setup finished, an import finishing, an agent wired up or
   opened, the first useful answer) which milestone it was, plus a count and the agent's name
   for a session import. Never code, decision text, or file, repo or org names.
-- **Nothing is sent from CI**, and the notice is not shown there. Nor from inside an agent
-  hook. `align mcp`, or a run inside an agent `align` opened, does not show the notice, so it
+- **Nothing is sent from CI**, and the notice is not shown there. Nothing is ever sent by the
+  commands align's hooks run (`align check --hook`, `align check --advisory`,
+  `align context inject`). `align mcp`, or a run inside an agent `align` opened, does not show the notice, so it
   sends nothing until the notice has printed in your own terminal.
-- If an earlier version asked you at the end of setup and you said No, that stands: usage
-  stays off, and only the two counts (install, setup completed) send.
+- If an earlier version asked you at the end of setup and you said No, that stands as off:
+  nothing is sent, the two counts included, until you run `align telemetry on`.
 - **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.** `ALIGN_TELEMETRY=0` does the
   same. All three win, in both modes, over everything else including a prior
   `align telemetry on`. Set the env var before your first run and the install count is never
   sent, and the notice is not shown.
-- `align telemetry on` / `align telemetry off` change the local-only decision at any time.
+- `align telemetry on` / `align telemetry off` change the decision at any time. `off` also
+  stops cloud-mode events.
   `align telemetry status` prints the effective state and why.
 
 ## How the local graph behaves

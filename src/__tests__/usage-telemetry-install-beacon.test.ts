@@ -32,6 +32,11 @@ vi.mock('../lib/config.js', () => ({
     getInstallId,
     wasFunnelStageRecorded,
     markFunnelStageRecorded,
+    claimFunnelStage: (s: string) => {
+      if (wasFunnelStageRecorded(s)) return false;
+      markFunnelStageRecorded(s);
+      return true;
+    },
     getEnvironment,
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
@@ -79,10 +84,10 @@ describe('recordInstallBeacon', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('C6: an existing install that answered the old prompt (declined) still sends with no notice', async () => {
+  it('C6: the first run is not consumed while the notice has not printed (no terminal yet)', async () => {
     noticeShownAt = undefined;
-    getTelemetryConsent.mockReturnValue('declined');
-    await expect(recordInstallBeacon('align')).resolves.toBe(true);
+    await recordInstallBeacon('align');
+    expect(markFunnelStageRecorded).not.toHaveBeenCalled();
   });
 
   it('C6: in CI the first run is not consumed - no beacon, and the install is NOT marked', async () => {
@@ -158,12 +163,23 @@ describe('recordInstallBeacon', () => {
   });
 
   // A prompt-declined consent is about USAGE; the beacons are the documented default.
-  it('a "declined" consent does not stop the beacon', async () => {
+  // Review of e794c6e: a stored No from the old consent question is "off", and the privacy page
+  // says off stays off - so it stops the beacon, and consumes the first run like an env switch.
+  it('a "declined" consent stops the beacon and consumes the first run', async () => {
     getTelemetryConsent.mockReturnValue('declined');
 
-    await expect(recordInstallBeacon('align')).resolves.toBe(true);
+    await expect(recordInstallBeacon('align')).resolves.toBe(false);
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(markFunnelStageRecorded).toHaveBeenCalledWith('install');
+  });
+
+  it('marks the install before the send, so a second run started meanwhile does not send again', async () => {
+    const order: string[] = [];
+    markFunnelStageRecorded.mockImplementation(() => { order.push('mark'); });
+    mockFetch.mockImplementation(async () => { order.push('send'); return { ok: true }; });
+    await recordInstallBeacon('align');
+    expect(order).toEqual(['mark', 'send']);
   });
 
   it('cloud mode unchanged: a run that already holds a cloud token sends no anonymous beacon', async () => {

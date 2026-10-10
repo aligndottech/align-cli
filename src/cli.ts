@@ -74,12 +74,14 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   //
   // C6: the one-time telemetry notice prints first, to stderr, and is awaited - it is the
   // disclosure local-mode sends wait on, so it must land before the command's output and before
-  // the beacon. `check --hook` / `--advisory` are agent hooks: no notice there, and nothing sent.
+  // the beacon. Every command an installed hook runs (isHookInvocation) gets no notice and sends
+  // nothing, and the notice prints only to a person at a terminal (telemetry-consent.ts).
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     const { beginInvocationTelemetry, invocationCommandPath } = await import('./lib/usage-telemetry.js');
-    const opts = actionCommand.opts();
-    const hook = actionCommand.name() === 'check' && (opts['hook'] === true || opts['advisory'] === true);
-    const { beaconSent } = await beginInvocationTelemetry(invocationCommandPath(actionCommand), { hook });
+    const { isHookInvocation } = await import('./lib/hook-context.js');
+    const commandPath = invocationCommandPath(actionCommand);
+    const hook = isHookInvocation(commandPath, actionCommand.opts());
+    const { beaconSent } = await beginInvocationTelemetry(commandPath, { hook });
     void beaconSent;
   });
 

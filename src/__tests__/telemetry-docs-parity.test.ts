@@ -35,6 +35,11 @@ vi.mock('../lib/config.js', () => ({
     getInstallId,
     wasFunnelStageRecorded,
     markFunnelStageRecorded,
+    claimFunnelStage: (s: string) => {
+      if (wasFunnelStageRecorded(s)) return false;
+      markFunnelStageRecorded(s);
+      return true;
+    },
     getEnvironment,
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,

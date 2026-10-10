@@ -380,6 +380,15 @@ export function createConfigStore() {
     wasFunnelStageRecorded(stage: string): boolean {
       return (store.get('funnelStagesRecorded') ?? []).includes(stage);
     },
+    // C6: check and mark in one call, re-reading the store, so the install beacon is marked
+    // before it is sent. Narrows the double-send window between two first runs; it is not a
+    // lock (see recordInstallBeacon).
+    claimFunnelStage(stage: string): boolean {
+      const existing = store.get('funnelStagesRecorded') ?? [];
+      if (existing.includes(stage)) return false;
+      store.set('funnelStagesRecorded', [...existing, stage]);
+      return true;
+    },
     markFunnelStageRecorded(stage: string): void {
       const existing = store.get('funnelStagesRecorded') ?? [];
       if (!existing.includes(stage)) store.set('funnelStagesRecorded', [...existing, stage]);

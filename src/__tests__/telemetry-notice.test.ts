@@ -29,6 +29,11 @@ vi.mock('../lib/config.js', () => ({
     getInstallId: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     wasFunnelStageRecorded: (s: string) => state.stages.includes(s),
     markFunnelStageRecorded: (s: string) => { if (!state.stages.includes(s)) state.stages.push(s); },
+    claimFunnelStage: (s: string) => {
+      if (state.stages.includes(s)) return false;
+      state.stages.push(s);
+      return true;
+    },
     getEnvironment: () => state.env,
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
@@ -37,7 +42,7 @@ vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('p
 
 import { beginInvocationTelemetry, recordCommandUsage, recordFunnelStage } from '../lib/usage-telemetry.js';
 import { TELEMETRY_NOTICE } from '../lib/telemetry-consent.js';
-import { markHookContext, resetHookContextForTests } from '../lib/hook-context.js';
+import { isHookInvocation, markHookContext, resetHookContextForTests } from '../lib/hook-context.js';
 
 const fetchSpy = vi.fn();
 vi.stubGlobal('fetch', fetchSpy);
@@ -45,6 +50,23 @@ vi.stubGlobal('fetch', fetchSpy);
 const localEnv: EnvironmentConfig = { gatewayUrl: 'http://localhost:8080', authToken: null, tenantId: null, mode: 'local-embedded' };
 
 let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+const realTTY = {
+  stdin: Object.getOwnPropertyDescriptor(process.stdin, 'isTTY'),
+  stderr: Object.getOwnPropertyDescriptor(process.stderr, 'isTTY'),
+};
+/** A person at a terminal has both. Set explicitly, never inherited from the runner. */
+function setTTY(stdin: boolean, stderr: boolean): void {
+  Object.defineProperty(process.stdin, 'isTTY', { value: stdin, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: stderr, configurable: true });
+}
+function restoreTTY(): void {
+  for (const [name, desc] of Object.entries(realTTY)) {
+    const stream = name === 'stdin' ? process.stdin : process.stderr;
+    if (desc) Object.defineProperty(stream, 'isTTY', desc);
+    else delete (stream as { isTTY?: boolean }).isTTY;
+  }
+}
 
 /** What cli.ts's preAction does on any run: the notice, then the install beacon. */
 async function runCommand(commandPath = 'ask', hook = false): Promise<void> {
@@ -70,12 +92,71 @@ describe('the one-time telemetry notice', () => {
     fetchSpy.mockResolvedValue(new Response(null, { status: 201 }));
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     resetHookContextForTests();
+    setTTY(true, true);
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
     stderrSpy.mockRestore();
     resetHookContextForTests();
+    restoreTTY();
+  });
+
+  // P0 (review of e794c6e): the notice is the disclosure every send waits on, so it only counts
+  // when a person can read it. With stderr to /dev/null, a pipe, a hook runner, cron, systemd,
+  // `docker build` or an agent's Bash tool, printing it and marking it shown made sends begin
+  // with nobody told.
+  it.each([
+    ['stderr is not a terminal', true, false],
+    ['stdin is not a terminal', false, true],
+    ['neither is a terminal', false, false],
+  ])('%s: no notice, nothing marked, nothing sent', async (_label, stdin, stderr) => {
+    setTTY(stdin, stderr);
+    await runCommand('ask');
+    await recordCommandUsage(localEnv, 'ask');
+    await recordFunnelStage(localEnv, 'setup_completed', 'setup');
+    expect(noticeWrites()).toHaveLength(0);
+    expect(state.noticeShownAt).toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('stays unsent through non-terminal runs, then the first real terminal run shows it and sends', async () => {
+    setTTY(false, false);
+    await runCommand('ask');
+    await runCommand('ask');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(state.stages).not.toContain('install');
+
+    setTTY(true, true);
+    await runCommand('ask');
+    expect(noticeWrites()).toHaveLength(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(state.stages).toContain('install');
+  });
+
+  // Every command an installed hook runs is hook context: check --hook (pre-commit), check
+  // --advisory (every agent's tool hook, agent-rules.ts / user-hooks.ts) and context inject (the
+  // Claude Code SessionStart hook, agent-rules.ts's SESSION_INJECT_COMMAND).
+  it.each<[string, Record<string, unknown>, boolean]>([
+    ['context inject', {}, true],
+    ['check', { advisory: true }, true],
+    ['check', { hook: true }, true],
+    ['check', {}, false],
+    ['context', {}, false],
+    ['ask', { hook: true }, false],
+  ])('isHookInvocation(%s, %o) is %s', (path, opts, expected) => {
+    expect(isHookInvocation(path, opts)).toBe(expected);
+  });
+
+  it('`align context inject` (the SessionStart hook) sends nothing even on a terminal, and marks nothing', async () => {
+    await runCommand('context inject', isHookInvocation('context inject', {}));
+    expect(noticeWrites()).toHaveLength(0);
+    expect(state.noticeShownAt).toBeUndefined();
+
+    // Even on an install whose notice printed in a terminal earlier, the hook's own ping is refused.
+    state.noticeShownAt = '2026-10-10T00:00:00.000Z';
+    await recordCommandUsage(localEnv, 'context inject');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('the copy is the founder-approved wording, word for word', () => {
@@ -127,17 +208,36 @@ describe('the one-time telemetry notice', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('keeps an existing decline: no usage ping, no notice, and the beacons still send', async () => {
+  // The privacy page: "If you turned telemetry off earlier, it stays off." A stored No from the
+  // old consent question is that, so it now stops the beacons too.
+  it('keeps an existing decline as off: no notice, no usage ping, and no beacon', async () => {
     state.consent = 'declined';
 
     await recordCommandUsage(localEnv, 'ask');
-    expect(fetchSpy).not.toHaveBeenCalled();
-
     await runCommand();
     expect(noticeWrites()).toHaveLength(0);
-    expect(fetchSpy).toHaveBeenCalledTimes(1); // the install beacon, as before C6
-    await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(true);
+    await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(false);
     await expect(recordFunnelStage(localEnv, 'setup_started', 'setup')).resolves.toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  describe('a stored decision in cloud mode', () => {
+    const cloudEnv: EnvironmentConfig = { gatewayUrl: 'https://gw.example', authToken: 'tok', tenantId: 't1', mode: 'auth' };
+    const ingestCalls = () => fetchSpy.mock.calls.filter((c) => String(c[0]).endsWith('/telemetry/ingest'));
+
+    it('`align telemetry off` stops cloud events too: no POST to /telemetry/ingest', async () => {
+      state.consent = 'off';
+      await recordCommandUsage(cloudEnv, 'ask');
+      await expect(recordFunnelStage(cloudEnv, 'first_useful_decision', 'ask')).resolves.toBe(false);
+      expect(ingestCalls()).toHaveLength(0);
+    });
+
+    it.each([['granted'], [undefined]] as const)('consent %s: cloud events still send (unchanged)', async (consent) => {
+      state.consent = consent;
+      await recordCommandUsage(cloudEnv, 'ask');
+      await expect(recordFunnelStage(cloudEnv, 'mcp_wired', 'mcp')).resolves.toBe(true);
+      expect(ingestCalls()).toHaveLength(2);
+    });
   });
 
   it('`align telemetry off` (stored off) sends nothing and shows no notice', async () => {

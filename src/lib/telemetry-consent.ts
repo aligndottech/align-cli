@@ -37,7 +37,7 @@ const isSet = (v: string | undefined): boolean => v !== undefined && v !== '';
 
 /**
  * Shows the notice and marks it shown, or does neither. Skipped, and NOT marked, wherever
- * nobody is reading it or it would be moot: CI, an agent hook, `align mcp` (an agent's stdio
+ * nobody is reading it or it would be moot: no terminal on stdin and stderr, CI, an agent hook, `align mcp` (an agent's stdio
  * server), a run inside a launched agent (ALIGN_WRAPPED), `align telemetry ...` (the off switch
  * must not be raced by what it switches off), an env switch that already turns everything off,
  * and any stored decision (granted, declined or off - that user was already asked or chose).
@@ -61,6 +61,12 @@ export function maybeShowTelemetryNotice(
     if (telemetryDisabledByEnv() !== undefined || inCi()) return false;
     if (config.getTelemetryConsent() !== undefined) return false;
     if (config.getTelemetryNoticeShownAt() !== undefined) return false;
+    // The real control (review of e794c6e, P0): the notice is the disclosure every local send
+    // waits on, so it counts only when a person can read it. A person at a terminal has both
+    // stdin and stderr on it. Anything else - stderr to /dev/null, a pipe, a hook runner, cron,
+    // systemd, `docker build`, an agent's Bash tool - prints nothing and marks nothing, so
+    // nothing sends until a real terminal run shows it.
+    if (!process.stderr.isTTY || !process.stdin.isTTY) return false;
     write(`${TELEMETRY_NOTICE}\n\n`);
     config.markTelemetryNoticeShown();
     return true;

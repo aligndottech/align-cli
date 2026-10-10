@@ -108,12 +108,17 @@ describe('getTelemetryStatus', () => {
       expect(getTelemetryStatus(cloudEnv, undefined).enabled).toBe(false);
     });
 
-    it('local mode, declined at the prompt: says the two counts still send', () => {
-      vi.stubEnv('ALIGN_TELEMETRY', '');
+    // Review of e794c6e: a stored No is off, beacons included - and the line has to say so.
+    it('local mode, declined at the old prompt: off, nothing sends', () => {
       const status = getTelemetryStatus(localEnv, 'declined');
       expect(status.enabled).toBe(false);
-      expect(status.reason).toContain('two anonymous counts');
-      expect(status.reason).toContain('align telemetry off');
+      expect(status.reason).toContain('nothing is sent');
+      expect(status.reason).not.toContain('two anonymous counts');
+    });
+
+    it('cloud mode, `align telemetry off`: off (the stored off covers cloud events too)', () => {
+      expect(getTelemetryStatus(cloudEnv, 'off')).toEqual({ enabled: false, reason: expect.stringContaining('align telemetry off') });
+      expect(getTelemetryStatus(cloudEnv, 'granted').enabled).toBe(true);
     });
 
 

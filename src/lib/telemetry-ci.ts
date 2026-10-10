@@ -1,6 +1,12 @@
 import vendors from 'ci-info/vendors.json' with { type: 'json' };
 
 /**
+ * CI detection is a PROXY: it knows the CI providers ci-info lists, and nothing else - a
+ * self-hosted runner, a cron job or a `docker build` sets none of their variables. The real
+ * control is the TTY gate in telemetry-consent.ts: the notice, which every local send waits on,
+ * prints only to a person at a terminal. This check exists so a CI job never sends and never
+ * consumes the install's first run, even on a runner that allocates a pseudo-terminal.
+ *
  * C6: whether this run is a CI job. Nothing is sent from CI, the notice is not shown there, and
  * the install is not marked recorded - a CI job is not a person installing Align.
  *

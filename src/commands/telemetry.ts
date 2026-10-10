@@ -8,9 +8,9 @@ import { getTelemetryStatus } from '../lib/usage-telemetry.js';
  * opt-out default is controlled by ALIGN_TELEMETRY, not by this command - and `status` says
  * which model applies (see usage-telemetry.ts's getTelemetryStatus).
  *
- * ALI-954: `off` stores 'off', which stops BOTH tiers - the usage pings and the two anonymous
- * counts (install, setup completed). That is a stronger decision than the pre-C6 consent
- * prompt's No ('declined'), which only declined usage and still stands where it was given.
+ * ALI-954: `off` stores 'off', which stops everything - the usage pings, the two anonymous
+ * counts (install, setup completed) and, since the review of C6, cloud-mode events too. A stored
+ * No from the pre-C6 consent question ('declined') now stops the local ones the same way.
  */
 export function registerTelemetryCommand(program: Command): void {
   const telemetry = program
@@ -32,7 +32,7 @@ export function registerTelemetryCommand(program: Command): void {
     .action(() => {
       createConfigStore().setTelemetryConsent('off');
       console.log(chalk.green('Telemetry off.'));
-      console.log(chalk.dim('Nothing is sent from this machine - not usage, and not the two anonymous counts (install, setup completed).'));
+      console.log(chalk.dim('Nothing is sent from this machine - not usage, not the two anonymous counts (install, setup completed), and not cloud-mode events.'));
     });
 
   telemetry

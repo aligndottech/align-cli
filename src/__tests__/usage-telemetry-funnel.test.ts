@@ -119,11 +119,14 @@ describe('recordFunnelStage', () => {
       expect(body).toMatchObject({ installId: INSTALL_ID, command: 'setup', stage: 'setup_completed' });
     });
 
-    it('consent declined at the prompt: setup_completed still sends', async () => {
+    // Review of e794c6e: a stored No means off ("if you turned telemetry off earlier, it stays
+    // off"), so the beacon stops too, notice or not.
+    it('consent declined at the old prompt: setup_completed does not send, even after the notice', async () => {
       getTelemetryConsent.mockReturnValue('declined');
+      noticeShownAt = '2026-10-10T00:00:00.000Z';
 
-      await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(true);
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('consent declined: setup_started does NOT send - only the two beacons are default-on', async () => {
@@ -151,7 +154,8 @@ describe('recordFunnelStage', () => {
 
     // The snapshot the docs page is checked against: every field, by equality.
     it('beacon payload is exactly installId, command, cliVersion and stage - no os, no consent state', async () => {
-      getTelemetryConsent.mockReturnValue('declined');
+      getTelemetryConsent.mockReturnValue(undefined);
+      noticeShownAt = '2026-10-10T00:00:00.000Z';
 
       await recordFunnelStage(localEnv, 'setup_completed', 'setup');
 

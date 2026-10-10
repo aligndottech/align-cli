@@ -31,6 +31,21 @@ function telemetryOptedOut(): boolean {
 }
 
 /**
+ * Whether the user ran `align telemetry off`. That stored 'off' stops cloud events too, not only
+ * local ones (review of e794c6e): the privacy page lists `align telemetry off` as a way to turn
+ * the CLI's telemetry off, with no mode attached. A store that cannot be read counts as off -
+ * the direction that sends nothing.
+ */
+async function storedOff(): Promise<boolean> {
+  try {
+    const { createConfigStore } = await import('./config.js');
+    return createConfigStore().getTelemetryConsent() === 'off';
+  } catch {
+    return true;
+  }
+}
+
+/**
  * POST with a hard timeout, and never throw - telemetry must never fail or delay a command. A
  * blackholing proxy hangs rather than rejecting, so a bare `fetch` would freeze the CLI after
  * its real work is done. The timer both aborts the request and wins the race, so we stop
@@ -86,18 +101,16 @@ export function getTelemetryStatus(
   if (inCi()) {
     return { enabled: false, reason: 'off: running in CI - nothing is sent' };
   }
+  if (env.mode !== 'local-embedded' && localConsent === 'off') {
+    return { enabled: false, reason: 'off: you ran `align telemetry off` - nothing is sent, cloud events included' };
+  }
   if (env.mode === 'local-embedded') {
     if (localConsent === 'granted') {
       return { enabled: true, reason: 'on: local mode, you opted in' };
     }
     if (localConsent === 'declined') {
-      // ALI-954: "off" here is about usage. The two beacons still send unless the user ran
-      // `align telemetry off` (stored 'off') - and the line has to say so, or "off" would be
-      // read as "nothing is sent" over a beacon that still is.
-      return {
-        enabled: false,
-        reason: 'off: local mode, you declined when asked - the two anonymous counts (install, setup completed) still send; `align telemetry off` stops those too',
-      };
+      // A No to the old setup question is off, beacons included (review of e794c6e).
+      return { enabled: false, reason: 'off: local mode, you declined when asked - nothing is sent' };
     }
     if (localConsent === 'off') {
       return { enabled: false, reason: 'off: local mode, you ran `align telemetry off` - nothing is sent' };
@@ -130,6 +143,7 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
     return;
   }
   if (!env.authToken || !env.tenantId) return;
+  if (await storedOff()) return;
 
   await postWithTimeout(`${env.gatewayUrl}/telemetry/ingest`, {
     method: 'POST',
@@ -308,7 +322,7 @@ export async function recordFunnelStage(
     const isLocal = env.mode === 'local-embedded';
     const canSend = isLocal
       ? localTierAllows(config.getTelemetryConsent(), stage, noticeShownOn(config))
-      : Boolean(env.authToken && env.tenantId);
+      : Boolean(env.authToken && env.tenantId) && config.getTelemetryConsent() !== 'off';
     if (!canSend) return false;
     if (stage === 'first_useful_decision') config.markFunnelStageRecorded(stage);
 
@@ -365,11 +379,11 @@ export async function recordFunnelStage(
 /**
  * Whether a local-mode event may send, given the stored decision and whether the one-time
  * notice has printed (C6). Local mode is opt-out since C6, and the notice is the disclosure:
- * - stored 'off' (`align telemetry off`) stops everything;
- * - a beacon stage sends once the user has been told - by the notice, or by the pre-C6 consent
- *   prompt (any stored answer), so an existing install keeps the beacons it already sent;
- * - an existing prompt-declined user ('declined') stays declined for usage;
- * - otherwise usage sends with a granted consent (`align telemetry on`) or after the notice.
+ * - stored 'off' (`align telemetry off`) stops everything, and so does 'declined' (a No to the
+ *   pre-C6 setup question): the privacy page promises "if you turned telemetry off earlier, it
+ *   stays off", so a stored No stops the beacons too (review of e794c6e);
+ * - otherwise everything sends with a granted consent (`align telemetry on`) or after the notice.
+ *   Beacons and usage now share one rule; BEACON_STAGES remains the documented set.
  * Every caller has already returned under an env switch, in CI and (for usage) in a hook.
  */
 function localTierAllows(
@@ -377,9 +391,7 @@ function localTierAllows(
   stage: FunnelStage | 'install' | 'command',
   noticeShown: boolean,
 ): boolean {
-  if (consent === 'off') return false;
-  if ((BEACON_STAGES as readonly string[]).includes(stage)) return noticeShown || consent !== undefined;
-  if (consent === 'declined') return false;
+  if (consent === 'off' || consent === 'declined') return false;
   return consent === 'granted' || noticeShown;
 }
 
@@ -436,9 +448,21 @@ export async function recordInstallBeacon(commandPath: string): Promise<boolean>
     if (config.wasFunnelStageRecorded('install')) return false;
     const env = config.getEnvironment(resolveEnv(undefined, { preferLocalEmbedded: true }));
     if (env.authToken) return false;
-    config.markFunnelStageRecorded('install');
-    if (telemetryOptedOut()) return false;
-    if (!localTierAllows(config.getTelemetryConsent(), 'install', noticeShownOn(config))) return false;
+    // A decision that says "never" consumes the first run, so the beacon is never sent later
+    // either: an env switch, `align telemetry off`, or a stored No.
+    const consent = config.getTelemetryConsent();
+    if (telemetryOptedOut() || consent === 'off' || consent === 'declined') {
+      config.markFunnelStageRecorded('install');
+      return false;
+    }
+    // Not told yet (no notice: no terminal, or the notice failed): the first run is NOT consumed,
+    // so the beacon goes out after the first run that does show the notice.
+    if (!localTierAllows(consent, 'install', noticeShownOn(config))) return false;
+    // Marked BEFORE the send, as a check-and-set on the store, so two first runs started together
+    // mostly send one beacon. Not atomic across processes: the store is a JSON file with no lock,
+    // so two processes that both read it before either writes can still both send. The cost is
+    // one duplicate install row, in the overcount direction, and only on a racing first run.
+    if (!config.claimFunnelStage('install')) return false;
 
     await postAnonymous({
       installId: config.getInstallId(),

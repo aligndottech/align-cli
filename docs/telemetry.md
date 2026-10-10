@@ -7,8 +7,9 @@ and not listed here fails the build, and so does a field listed here that is no 
 
 The short version, for local-only mode:
 
-- **It is on by default, and you are told first.** The first time you run `align`, it prints
-  this once, to stderr, before anything is sent:
+- **It is on by default, and you are told first.** The first time you run `align` in a real
+  terminal (stdin and stderr both a terminal), it prints this once, to stderr, before anything
+  is sent:
 
   ```
   Align sends anonymous usage counts: which commands and coding agent you use,
@@ -17,11 +18,15 @@ The short version, for local-only mode:
   Turn it off: align telemetry off (or DO_NOT_TRACK=1). Details: align.tech/privacy#cli
   ```
 
-- **Nothing sends before that notice has printed.**
+- **Nothing sends before that notice has printed in a real terminal.** A run with no terminal -
+  output piped or sent to `/dev/null`, a hook, cron, systemd, `docker build`, an agent's shell
+  tool - shows no notice and sends nothing, and it does not count as the first run: the notice
+  waits for your next run in a terminal.
 - **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.**
-- **Nothing is sent from CI**, and the notice is not shown there. Nor from inside an agent hook,
-  from `align mcp` before the notice has printed in a real terminal, or from a run inside an
-  agent `align` launched before the notice has printed.
+- **Nothing is sent from CI**, and the notice is not shown there. Nothing is ever sent by the
+  commands align's installed hooks run (`align check --hook`, `align check --advisory`,
+  `align context inject`). `align mcp`, and a run inside an agent `align` launched, show no
+  notice, so they send nothing until it has printed in a terminal.
 
 Nothing about your repo, your decisions, your files or you is ever sent.
 `align telemetry status` prints the effective state and why.
@@ -32,18 +37,18 @@ Nothing about your repo, your decisions, your files or you is ever sent.
 |---|---|---|
 | `DO_NOT_TRACK=1` | Everything, both tiers, both modes. Set before the first run and the install count is never sent, even if you unset it later. The [consoledonottrack.com](https://consoledonottrack.com) convention. | environment |
 | `ALIGN_TELEMETRY=0` | Same as above. Any value other than `1`, `true`, `yes` or `on` counts as off. | environment |
-| `align telemetry off` | Everything, in local-only mode. Stored on this machine. | command |
+| `align telemetry off` | Everything, in both modes: local events and cloud-mode events. Stored on this machine. | command |
 | Running in CI | Everything. Detected the way [ci-info](https://github.com/watson/ci-info) does (`CI`, `GITHUB_ACTIONS` and the other CI providers' variables). A CI run does not count as an install. | automatic |
 | `align telemetry on` | Turns usage on (and undoes `align telemetry off`). | command |
 
 Earlier versions asked a consent question at the end of setup. If you answered No there, that
-answer stands: usage stays off and the two counts below still send, as they did before.
-`align telemetry off` stops those too.
+answer stands, and it now means off: nothing is sent in local-only mode, the two counts below
+included. `align telemetry on` turns it back on.
 
 ## Sent always, unless turned off (the two counts)
 
-Sent once the notice has printed (or, on an install from before the notice, whatever you
-answered at the old consent question). Both go to
+Sent once the notice has printed in a terminal, or after `align telemetry on`. Never after
+`align telemetry off` or a No to the old consent question. Both go to
 `POST https://api.align.tech/telemetry/anonymous` with no account, no token and no tenant.
 The gateway accepts nothing outside these fields (a strict schema) and mirrors the event to
 PostHog under `cli-local:<installId>` with `platform: cli` and `mode: local`
@@ -75,8 +80,8 @@ Sent when the setup wizard finishes, after its closing message.
 | `stage` | Always `setup_completed`. |
 | `command` | Always `setup`, the wizard that sent it. |
 
-That is the whole beacon tier: `install` and `setup_completed`. They are the only events an
-install that answered No to the old consent question still sends.
+That is the whole beacon tier: `install` and `setup_completed`. They follow the same rule as
+everything below; they are listed apart because they are the funnel's denominator.
 
 ## Sent after the notice, in local-only mode
 
@@ -125,8 +130,9 @@ None of these, and no `cli.command`, is ever sent from inside an agent hook.
 
 Unchanged by the notice above. A cloud user is already on an authenticated connection to
 Align's gateway, so usage events are on by default and `ALIGN_TELEMETRY=0` or
-`DO_NOT_TRACK=1` turns them off. Nothing is sent from CI in cloud mode either. They go to `POST <gateway>/telemetry/ingest` with your login
-token and tenant, and land in your tenant's own `telemetry_events` table.
+`DO_NOT_TRACK=1` turns them off, and so does `align telemetry off`. Nothing is sent from CI in
+cloud mode either. They go to `POST <gateway>/telemetry/ingest` with your login token and
+tenant, and land in your tenant's own `telemetry_events` table.
 
 ### `cli.command` (cloud mode)
 

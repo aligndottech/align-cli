@@ -24,11 +24,45 @@ function fakeStore(consent?: 'granted' | 'declined' | 'off', shownAt?: string): 
 
 const ctx = { command: 'ask', hook: false, cloudSignedIn: false };
 
+const realTTY = {
+  stdin: Object.getOwnPropertyDescriptor(process.stdin, 'isTTY'),
+  stderr: Object.getOwnPropertyDescriptor(process.stderr, 'isTTY'),
+};
+function setTTY(stdin: boolean, stderr: boolean): void {
+  Object.defineProperty(process.stdin, 'isTTY', { value: stdin, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: stderr, configurable: true });
+}
+function restoreTTY(): void {
+  for (const [name, desc] of Object.entries(realTTY)) {
+    const stream = name === 'stdin' ? process.stdin : process.stderr;
+    if (desc) Object.defineProperty(stream, 'isTTY', desc);
+    else delete (stream as { isTTY?: boolean }).isTTY;
+  }
+}
+
 describe('maybeShowTelemetryNotice', () => {
   beforeEach(() => {
     clearTelemetryEnv();
+    setTTY(true, true);
   });
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    restoreTTY();
+  });
+
+  // The real default, no seam: with process.stdin/stderr.isTTY as a pipe or /dev/null leaves
+  // them (undefined), nothing prints and nothing is marked.
+  it('reads the real streams: isTTY undefined on either one means no notice and not marked', () => {
+    for (const stream of [process.stdin, process.stderr]) {
+      setTTY(true, true);
+      delete (stream as { isTTY?: boolean }).isTTY;
+      const store = fakeStore();
+      const write = vi.fn();
+      expect(maybeShowTelemetryNotice(store, ctx, write)).toBe(false);
+      expect(write).not.toHaveBeenCalled();
+      expect(store.marks).toBe(0);
+    }
+  });
 
   it('writes the notice, then a blank line, once, and marks it shown', () => {
     const store = fakeStore();
