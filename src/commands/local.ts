@@ -133,6 +133,48 @@ export function registerLocalCommand(program: Command): void {
       }
     });
 
+  // Shared detector P3: the one path that re-types an existing link. Schema v12 stamped every
+  // existing link v0 and nothing re-types silently; see src/lib/local-relink.ts for the rules.
+  local
+    .command('relink')
+    .description('Re-type existing local links with the v1 relationship detector (a dry run unless --apply)')
+    .requiredOption('--detector <version>', 'Detector to re-type with (only v1)')
+    .option('--dry-run', 'Show what would change and write nothing (the default)')
+    .option('--apply', 'Write the re-typed links as v1 rows beside the v0 ones')
+    .option('--replace', 'With --apply: replace each re-typed v0 link instead of keeping it')
+    .option('--limit <n>', 'Classify at most this many source decisions', (v) => Number.parseInt(v, 10))
+    .action(async (opts: { detector: string; dryRun?: boolean; apply?: boolean; replace?: boolean; limit?: number }) => {
+      const refuse = (message: string): void => { console.error(message); process.exitCode = 2; };
+      if (opts.detector !== 'v1') return refuse(`align local relink: only --detector v1 can re-type links (got "${opts.detector}").`);
+      if (opts.dryRun && opts.apply) return refuse('align local relink: --dry-run and --apply contradict each other. Pick one.');
+      if (opts.replace && !opts.apply) return refuse('align local relink: --replace only makes sense with --apply.');
+      if (opts.limit !== undefined && (!Number.isInteger(opts.limit) || opts.limit < 0)) return refuse('align local relink: --limit needs a whole number.');
+      const env = createConfigStore().getEnvironment('local');
+      if (env.mode !== 'local-embedded') {
+        console.log('Local mode is not active. Run `align local start` first.');
+        return;
+      }
+      const { hasConfiguredProvider } = await import('../lib/local-llm.js');
+      if (!hasConfiguredProvider()) {
+        console.error('align local relink: no AI provider is configured, so nothing can be re-typed. Set a provider key (for example ANTHROPIC_API_KEY) or run a local Ollama.');
+        process.exitCode = 1;
+        return;
+      }
+      const { relinkWithV1 } = await import('../lib/local-relink.js');
+      const apply = opts.apply === true;
+      console.log(`Re-typing v0 links with the v1 detector: one model call per source decision, with your own AI provider.${apply ? '' : ' Dry run: nothing will be written.'}`);
+      const r = await relinkWithV1(env.localDbPath ?? getLocalDbPath(), { apply, replace: opts.replace === true, ...(opts.limit !== undefined ? { limit: opts.limit } : {}) }, undefined);
+      for (const c of r.changes) console.log(`  ${c.sourceId} -> ${c.targetId}: ${c.from} -> ${c.to}`);
+      console.log(`${r.sources} source decision(s), ${r.calls} call(s): ${r.changes.length} link(s) would change type, ${r.unchanged} unchanged, ${r.failed} failed.`);
+      if (apply) console.log(`Wrote ${r.written} v1 link(s)${opts.replace ? ', replacing the v0 ones' : ' beside the v0 ones (add --replace to swap them)'}.`);
+      else console.log('Dry run: nothing was written. Re-run with --apply to write v1 links.');
+      if (r.remainingSources > 0) console.log(`${r.remainingSources} more source decision(s) not classified (--limit).`);
+      if (r.stopped) {
+        console.error(`Stopped early: ${r.stopped}`);
+        process.exitCode = 1;
+      }
+    });
+
   local
     .command('reset')
     .description('Wipe local graph and reset config')

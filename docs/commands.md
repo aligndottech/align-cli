@@ -203,6 +203,8 @@ align local status            Show local graph statistics
 align local forget [connector]
                               Remove saved read-only tokens (all, or one named connector)
                               flags: --purge --yes
+align local relink            Re-type existing local links with the v1 relationship detector (a dry run unless --apply)
+                              flags: --detector --dry-run --apply --replace --limit
 align local reset             Wipe local graph and reset config
 ```
 <!-- commands:end -->
