@@ -22,6 +22,7 @@ and there is a section for them below.
 | `align_ask` | Natural-language question about past decisions |
 | `align_search` | Search the decision graph |
 | `align_capture` | Capture a decision from a URL (raw text too, in local-only mode) |
+| `align_backfill` | Local only. Import more history from a source you already connected (`since`: `30d`, `6m`, `1y`, `all`). Never takes a token |
 | `align_check_alignment` | Check a proposed change for conflicts with prior decisions |
 | `align_check_drift` | Check whether code or config has drifted from a decision |
 | `align_get_related_decisions` | Decisions related to a file or module |

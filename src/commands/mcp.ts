@@ -14,6 +14,7 @@ import { commandIntro } from '../lib/brand.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
 import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
+import { BACKFILL_TOOL, BACKFILL_TOOL_SCHEMA, runBackfill } from '../lib/mcp-backfill.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
 import {
   createAsOfGuard,
@@ -74,6 +75,14 @@ const CLOUD_ONLY_LINES = [
 ];
 
 /**
+ * L3: lines about tools only the LOCAL server serves, appended in local mode alone. A line naming
+ * a tool the cloud server cannot serve would be a guaranteed-fail instruction (see above).
+ */
+const LOCAL_ONLY_LINES = [
+  `- When the user wants older history from a source they connected (say, the last year of PRs), call ${BACKFILL_TOOL}. It never takes a token: for a source not connected it returns the align connect command for the user to run.`,
+];
+
+/**
  * Which decision graph THIS server reads, appended to the base instructions.
  *
  * Three Align MCP servers are commonly connected at once - align-prod, align-preview, and this
@@ -109,7 +118,7 @@ function graphIdentity(env: EnvironmentConfig): string {
 export function instructionsFor(env: EnvironmentConfig): string {
   const base =
     env.mode === 'local-embedded'
-      ? ALIGN_MCP_INSTRUCTIONS
+      ? renderMcpInstructions({ check_alignment: 'align_check_alignment', search: 'align_ask' }, LOCAL_ONLY_LINES)
       : renderMcpInstructions(
           { check_alignment: 'align_check_alignment', search: 'align_ask' },
           CLOUD_ONLY_LINES,
@@ -206,10 +215,13 @@ export async function dispatchTool(
   // that does. Scoped to decisions on purpose: align_check_drift and align_check_alignment stay
   // available, and both send the cutoff so the gateway records no check event or drift row for
   // them (ALI-1429, ALI-1438).
-  if (createdBefore && name === 'align_capture') {
+  if (createdBefore && (name === 'align_capture' || name === BACKFILL_TOOL)) {
     throw new Error(
-      `align_capture adds a decision to the graph, and this server is frozen as of ${createdBefore}, ` +
-        'so it never captures. Restart align mcp without --created-before to capture.',
+      name === 'align_capture'
+        ? `align_capture adds a decision to the graph, and this server is frozen as of ${createdBefore}, ` +
+          'so it never captures. Restart align mcp without --created-before to capture.'
+        : `${name} imports into the graph, and this server is frozen as of ${createdBefore}, ` +
+          `so it never backfills. Restart align mcp without --created-before to use ${name}.`,
     );
   }
 
@@ -259,6 +271,9 @@ export async function dispatchTool(
       }
       return client.captureDecision(input, platform);
     }
+    // L3: never classifies and never takes a credential; the child it starts is `align connect`.
+    case BACKFILL_TOOL:
+      return runBackfill(args, env);
     case 'align_check_alignment': {
       // ALI-1420: the gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
       // gateway that predates the parameter. No cutoff keeps the two-argument call.
@@ -565,6 +580,8 @@ export const TOOL_SCHEMAS = [
       required: ['decision_id'],
     },
   },
+  // L3: appended, so the ranking an agent reads off tools/list (the check first) is unchanged.
+  BACKFILL_TOOL_SCHEMA,
 ];
 
 /**

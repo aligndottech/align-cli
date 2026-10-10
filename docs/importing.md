@@ -28,6 +28,29 @@ manual and CI alternative, and how you connect self-managed hosts.
 Every import previews what it will import and asks before sending anything. Use `--approve` to
 skip the prompt.
 
+## How far back
+
+Each source reads the last six months by default. `--since` changes that on `align connect`, on
+`align connect <source>` and on `align connect --source <id>`:
+
+```bash
+align connect github --since 30d     # 30 days
+align connect jira --since 1y        # a year (6m = six months, 2w = two weeks)
+align connect slack --since all      # no start date; only the per-source ceiling applies
+```
+
+`Nd`, `Nw`, `Nm` (a month is 30.4 days, rounded), `Ny` and `all` are the only forms. Anything
+else exits 2 and reads nothing. Every source also has a ceiling on how many items one run reads,
+and a time budget. When either stops a read early, the report says how far back it actually got
+and what stopped it, instead of printing a thin count that looks like a quiet six months.
+
+GitHub reads items first and fetches their comments and reviews afterwards. Inside a repo it
+reads everyone's pull requests and issues in that repo; elsewhere, only yours.
+
+From inside a coding agent, `align_backfill` does the same for a source you already connected.
+It never takes a token: for a source that is not connected it hands back the `align connect`
+command for you to run.
+
 > **Local-only mode:** add `--env local` to every import. A machine that has also logged in to
 > cloud otherwise imports to the cloud graph.
 
@@ -119,8 +142,8 @@ align connect slack --token xoxp-<your-slack-user-token>
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--limit` | `50` | Max threads to import |
-| `--days-back` | `90` | How many days back to scan |
+| `--limit` | `2000` | Max threads to import (a ceiling, not a target) |
+| `--since` | `6m` | How far back to read (see "How far back" above). `--days-back <n>` still works and means `--since <n>d` |
 
 ## Notion
 
