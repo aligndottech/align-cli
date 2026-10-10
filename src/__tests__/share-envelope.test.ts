@@ -86,7 +86,7 @@ describe('buildPlaintext', () => {
     expect(plain.confirm).toBeUndefined();
   });
   it('a confirm_team_text request names the team decision and the hash the judgements carry', () => {
-    const plain = JSON.parse(buildPlaintext({ kind: 'confirm_team_text', tenantId: T, gatewayUrl: 'https://g', payloads: [payload()], confirm: { remoteId: 'R9', teamTextHash: 'abc' } }).toString('utf8'));
+    const plain = JSON.parse(buildPlaintext({ kind: 'confirm_team_text', tenantId: T, gatewayUrl: 'https://g', payloads: [payload()], confirm: { remoteId: 'R9', teamTextHash: 'b'.repeat(64) } }).toString('utf8'));
     expect(plain.kind).toBe('confirm_team_text');
     expect(plain.confirm).toEqual({ decision_id: 'R9', team_text_hash: 'b'.repeat(64) });
   });
