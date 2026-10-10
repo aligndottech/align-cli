@@ -68,6 +68,11 @@ export interface ShareDeps {
   ttyConfirm: (shown: string, question: string) => Promise<boolean | null>;
   out: (line: string) => void;
   err: (line: string) => void;
+  /**
+   * The optional work-email prompt (lib/lead-prompt.ts). Called ONLY on the no-team-login path of this human command,
+   * after the upgrade line. Absent in the MCP tools, which never ask a person for an email.
+   */
+  leadPrompt?: () => Promise<unknown>;
 }
 
 const WRAPPED = 'align share needs your own answer typed at a terminal here, and this is not run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.';
@@ -84,6 +89,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
   }
   if (deps.cloudEnv.mode === 'local-embedded' || !deps.cloudEnv.authToken) {
     err(`align share sends decisions from your local graph to your team's.\n  ${teamCtaLine()}\n  Already have a team? Run: align login`);
+    await deps.leadPrompt?.();
     return 1;
   }
   if (!deps.localDbPath) {

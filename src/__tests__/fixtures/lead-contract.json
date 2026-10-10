@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "endpoint": "POST /leads/team-interest",
+  "auth": "none (public, no cookies, JSON only, no CORS headers)",
+  "request": {
+    "email": "string, required, max 254",
+    "source": "cli-share",
+    "consent_version": "string, required, max 64",
+    "cli_version": "string, optional, max 32",
+    "os": "darwin | linux | win32, optional"
+  },
+  "responses": {
+    "202": {"status": "pending_confirmation"},
+    "422": {"error": "invalid_email | invalid_body"},
+    "429": {"error": "rate_limited", "retry_after_s": "integer"}
+  },
+  "notes": [
+    "202 is identical for new, duplicate, confirmed, unsubscribed and suppressed addresses (no enumeration oracle)",
+    "One double opt-in confirmation email is sent; nothing is confirmed or notified until the owner clicks",
+    "GET /leads/confirm?token= and GET|POST /leads/unsubscribe?token= are for people, not the CLI"
+  ]
+}

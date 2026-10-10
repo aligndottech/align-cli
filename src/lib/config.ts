@@ -106,6 +106,9 @@ export function savedLlmConfig(config: {
   return { keys, ...config.getLlmPreference() };
 }
 
+export type LeadPromptOutcome = 'declined' | 'submitted' | 'skipped';
+export interface LeadState { shownAt?: string; version?: string; outcome?: LeadPromptOutcome; submittedAt?: string }
+
 export function createConfigStore() {
   const store = new Conf<{
     environments: Record<string, Partial<EnvironmentConfig>>;
@@ -114,6 +117,10 @@ export function createConfigStore() {
     installId?: string;
     telemetryConsent?: TelemetryConsent;
     telemetryNoticeShownAt?: string;
+    leadPromptShownAt?: string;
+    leadPromptVersion?: string;
+    leadPromptOutcome?: LeadPromptOutcome;
+    leadEmailSubmittedAt?: string;
     telemetryOffReason?: 'env';
     telemetryOffVia?: string;
     telemetryOffAt?: string;
@@ -445,6 +452,30 @@ export function createConfigStore() {
     },
     markTelemetryNoticeShown(): void {
       if (!store.get('telemetryNoticeShownAt')) store.set('telemetryNoticeShownAt', new Date().toISOString());
+    },
+    // The optional work-email prompt at the share moment (lib/lead-prompt.ts). NOT telemetry, so its
+    // state is its own keys. Only timestamps and an outcome word live here, never the address.
+    getLeadState(): LeadState {
+      return {
+        shownAt: store.get('leadPromptShownAt'),
+        version: store.get('leadPromptVersion'),
+        outcome: store.get('leadPromptOutcome'),
+        submittedAt: store.get('leadEmailSubmittedAt'),
+      };
+    },
+    markLeadPromptShown(version: string, now: Date = new Date()): void {
+      store.set('leadPromptShownAt', now.toISOString());
+      store.set('leadPromptVersion', version);
+      store.set('leadPromptOutcome', 'skipped');
+    },
+    setLeadOutcome(outcome: LeadPromptOutcome, now: Date = new Date()): void {
+      store.set('leadPromptOutcome', outcome);
+      if (outcome === 'submitted') store.set('leadEmailSubmittedAt', now.toISOString());
+    },
+    clearLeadPromptShown(): void {
+      store.delete('leadPromptShownAt');
+      store.delete('leadPromptVersion');
+      store.delete('leadPromptOutcome');
     },
     // ALI-1284: the key `align setup`'s guided free-tier path collected, persisted the same
     // way a local connector's read-only token already is (saveConnectorFields above) - one
