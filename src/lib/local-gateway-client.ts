@@ -8,7 +8,7 @@ import { repositoryOf } from './decision-links.js';
 import { localCitationFor } from './commit-cite.js';
 import { extractRefs, refIdentityFor } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
-import { type IngestOptions, type IngestResult, isUnchanged, type LocalBatchItem, type LocalBatchOptions, selectForClassification } from './local-ingest.js';
+import { captureFieldsForUrl, type IngestOptions, type IngestResult, ingestStep, type LocalBatchItem, type LocalBatchOptions, selectForClassification } from './local-ingest.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
 // (ask/search/check) work identically in local mode.
@@ -296,12 +296,14 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       try {
         const url = new URL(input);
         sourceUrl = url.href;
-        title = url.pathname.split('/').filter(Boolean).pop() ?? url.hostname;
-        summary = `Captured from ${url.hostname}`;
+        ({ title, summary } = captureFieldsForUrl(url));
         capturedAsUrl = true;
       } catch { /* plain text - use as-is */ }
     }
     if (opts.titleOverride) title = opts.titleOverride.slice(0, 80);
+    // L2: a capture of a URL whose item a connector already imported adds nothing to it.
+    const heldRow = capturedAsUrl ? db.noteCaptureOfHeldItem(sourceUrl!) : null;
+    if (heldRow) return { id: heldRow.id, title: heldRow.title, summary: heldRow.summary, sourceUrl: heldRow.sourceUrl, platform: heldRow.platform, related: [], created: false, changed: false };
 
     // ALI-792: what the text points at, stored beside the decision. When the whole
     // input IS the URL being captured, there is nothing to point at - and comparing
@@ -324,38 +326,62 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // refreshed, so this is the only moment the difference is visible. Without it a
     // re-import reports every decision as imported while the graph does not move, which
     // reads as having imported twice (ALI-770).
-    const existingId = db.findIdBySource(sourceUrl, title);
-    const created = existingId === null;
+    //
     // ALI-829: a Slack thread arriving under a real title replaces the tombstone-titled row
-    // an older fetcher may have written for the same source_url (see local-db.ts).
+    // an older fetcher may have written for the same source_url (see local-db.ts). Removed
+    // BEFORE the lookup: L2 finds a Slack thread by its source_key, which the tombstone shares.
     if (platform === 'slack') db.deleteSlackTombstoneTwin(sourceUrl);
+    if (opts.keyed) db.foldPendingTwin(sourceUrl, title, platform, true);
+    const existingId = db.findIdBySource(sourceUrl, title, platform, opts.keyed);
+    if (opts.keyed && existingId !== null) ({ title, summary } = db.keepProtectedText(existingId, title, summary));
+    const created = existingId === null;
     // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.
     const decidedAt = normaliseDecidedAt(opts.createdAt);
 
-    // L1: unchanged-skip, connector imports (classify:false) only - capture re-ranks every time.
-    // Refs stay current, and citations INTO the row resolve: both are local (see isUnchanged).
-    if (opts.classify === false && existingId !== null && isUnchanged(db.getDecisionById(existingId),
-      { summary, platform, repo, decidedAt }, db.getEmbeddingModel(existingId), EMBEDDING_MODEL_ID)) {
-      db.replaceRefs(existingId, refs);
-      db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
-      return { id: existingId, title, summary, sourceUrl, platform, related: [], created: false, changed: false };
+    // L1/L2: connector imports (classify:false) only - capture re-ranks every time. Only the
+    // missing steps run (Decision 30): nothing for a finished row, the link pass alone for a
+    // row whose ingest died after storing its embedding. Refs stay current and citations INTO
+    // the row resolve either way: both are local and cheap.
+    if (opts.classify === false && existingId !== null) {
+      const step = ingestStep(db.getDecisionById(existingId), { title, summary, platform, repo, decidedAt },
+        db.getEmbeddingModel(existingId), EMBEDDING_MODEL_ID, db.getEnrichedAt(existingId));
+      const stored = step === 'full' ? null : db.getEmbedding(existingId);
+      if (stored !== null) {
+        db.replaceRefs(existingId, refs);
+        db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
+        const related = step === 'relink' ? await linkPass(existingId, stored, title, summary, opts.classify) : [];
+        if (step === 'relink') db.markEnriched(existingId);
+        return { id: existingId, title, summary, sourceUrl, platform, related, created: false, changed: false };
+      }
     }
+    // Embed title + summary so URL captures (whose summary is just "Captured
+    // from <host>") still carry the path-derived title's semantic content. Embedded BEFORE the
+    // row is rewritten: a failed embed then leaves the row (and its enriched_at) as it was,
+    // rather than new text beside the old text's vector.
+    const embedText = title === summary ? summary : `${title}. ${summary}`;
+    const embedding = await getEmbedding(embedText);
     // ALI-831: origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
-    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind });
+    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind, keyed: opts.keyed });
     db.replaceRefs(id, refs);
     // ALI-796's payoff: if some earlier decision already cited THIS one (a git commit
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
     // link now that the cited item has arrived. Harmless no-op for platforms with no
     // citable identity (refIdentityFor returns [] for a plain git/slack/cli capture).
     db.resolveRefs(id, refIdentityFor(platform, sourceUrl));
-    // Embed title + summary so URL captures (whose summary is just "Captured
-    // from <host>") still carry the path-derived title's semantic content.
-    const embedText = title === summary ? summary : `${title}. ${summary}`;
-    const embedding = await getEmbedding(embedText);
     db.setEmbedding(id, embedding, EMBEDDING_MODEL_ID);
+    const candidates = await linkPass(id, embedding, title, summary, opts.classify);
+    // L2, Decision 30: the LAST write. Only now is the ingest done.
+    db.markEnriched(id);
+    return { id, title, summary, sourceUrl, platform, related: candidates, created, changed: true };
+  }
 
+  /** The similarity and link pass of one ingest: rank, classify the top tier when allowed,
+   *  write the edges. Returns the candidates it linked. */
+  async function linkPass(
+    id: string, embedding: Float32Array, title: string, summary: string, classify: boolean | undefined,
+  ): Promise<Array<{ decisionId: string; score: number }>> {
     // One ranked pass, two rules united. Absolute (>= SIMILARITY_THRESHOLD, cap 10)
     // as before, PLUS the top RELATED_TOP_K overall when they clear RELATED_FLOOR -
     // the cross-tool edges live between those two lines (see RELATED_FLOOR's note).
@@ -370,7 +396,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // mirrors checkAlignment's own short-circuit: once one candidate's classification fails
     // with a stopped provider, further calls in THIS capture are skipped rather than repeated.
     const toClassify = selectForClassification(candidates, {
-      classify: opts.classify, threshold: SIMILARITY_THRESHOLD, hasProvider: hasConfiguredProvider,
+      classify, threshold: SIMILARITY_THRESHOLD, hasProvider: hasConfiguredProvider,
     });
     const classifyIds = new Set(toClassify.map(c => c.decisionId));
     const newDecision = { title, summary };
@@ -405,7 +431,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // align_get_conflicts MCP tool report manufactured findings as detections.
       db.insertLink({ sourceId: id, targetId: c.decisionId, relation: 'relates', confidence: c.score });
     }
-    return { id, title, summary, sourceUrl, platform, related: candidates, created, changed: true };
+    return candidates;
   }
 
   return {
@@ -439,6 +465,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           sourceUrlOverride: item.source_url ?? null,
           createdAt: item.created_at,
           classify: opts.classify,
+          keyed: opts.keyed,
         });
         snapshots.push({
           id: r.id,

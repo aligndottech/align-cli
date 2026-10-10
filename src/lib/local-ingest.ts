@@ -27,6 +27,9 @@ export interface IngestOptions {
    *  today's behaviour (classify when a provider is configured), which explicit human
    *  capture relies on. */
   classify?: boolean;
+  /** L2: the call is a connector import, so a one-item-per-URL item gets a source_key.
+   *  Omitted (capture, MCP align_capture, sessions) never keys, whatever the platform. */
+  keyed?: boolean;
 }
 
 export interface LocalBatchItem {
@@ -35,39 +38,81 @@ export interface LocalBatchItem {
 
 /** `classify`: see IngestOptions. `deferEnrichment` is the cloud gateway's option and is
  *  accepted only so one call site serves both clients; local ingest ignores it. */
-export interface LocalBatchOptions { classify?: boolean; deferEnrichment?: boolean }
+export interface LocalBatchOptions { classify?: boolean; deferEnrichment?: boolean; keyed?: boolean }
+
+/** What `align capture <url>` stores for a URL: the last path segment (or host) as the title and
+ *  "Captured from <host>" as the summary. One writer, read by the v7 migration to recognise
+ *  rows that are captures and not connector imports. */
+export function captureFieldsForUrl(url: URL): { title: string; summary: string } {
+  return { title: url.pathname.split('/').filter(Boolean).pop() ?? url.hostname, summary: `Captured from ${url.hostname}` };
+}
+
+/** True when a stored row has the exact shape `captureFieldsForUrl` writes. */
+export function isCaptureShaped(row: { title: string; summary: string; source_url: string | null }): boolean {
+  if (row.source_url === null) return false;
+  let url: URL;
+  try { url = new URL(row.source_url); } catch { return false; }
+  const f = captureFieldsForUrl(url);
+  // The title alone is not a signal: a Linear/Jira/GitHub import can be titled by the same
+  // segment (ENG-12). It counts only for a row with no summary at all.
+  return row.summary === f.summary || (row.summary === '' && row.title === f.title.slice(0, 80));
+}
 
 export interface IngestResult {
   id: string; title: string; summary: string; sourceUrl: string | null; platform: string;
   related: Array<{ decisionId: string; score: number }>; created: boolean; changed: boolean;
 }
 
+type StoredForSkip = Pick<DecisionRow, 'title' | 'summary' | 'platform' | 'repo' | 'decidedAt'>;
+type NextForSkip = { title: string; summary: string; platform: string; repo: string | null; decidedAt: string | null };
+
 /**
- * L1: unchanged-skip. A sync window overlaps the last run, so known items arrive again,
- * and re-embedding and re-linking each one is the whole cost of a refresh. True only when
- * the upsert would write nothing new: same summary (the column holds exactly what
- * insertDecision stores, so no hash column is needed), same platform, no repo or date the
- * row lacks or holds differently, and an embedding from the current model. Anything else
- * falls through to the full path, so a late-arriving date or a model swap still lands.
- *
- * Known gap, left for L2: a current-model embedding does not prove the row's similarity
- * pass finished. setEmbedding runs before findSimilar and the link writes, so an ingest that
- * died between them leaves a row this predicate calls unchanged forever, and its links are
- * never written. L2's schema bump adds an `enriched_at` marker, set after the link pass, and
- * the skip must require it. No column is added here: L2 owns the schema change.
+ * L1: would the upsert write nothing new? Same title (L2: a source_key upsert retitles the
+ * row, so a new title is a change), same summary (the column holds exactly what
+ * insertDecision stores, so no hash column is needed), same platform, and no repo or date the
+ * row lacks or holds differently.
  */
-export function isUnchanged(
-  stored: Pick<DecisionRow, 'summary' | 'platform' | 'repo' | 'decidedAt'> | null,
-  next: { summary: string; platform: string; repo: string | null; decidedAt: string | null },
-  storedModel: string | null,
-  currentModel: string,
-): boolean {
+export function contentUnchanged(stored: StoredForSkip | null, next: NextForSkip): boolean {
   return stored !== null
+    && stored.title === next.title
     && stored.summary === next.summary
     && stored.platform === next.platform
     && (next.repo === null || stored.repo === next.repo)
-    && (next.decidedAt === null || stored.decidedAt === next.decidedAt)
-    && storedModel === currentModel;
+    && (next.decidedAt === null || stored.decidedAt === next.decidedAt);
+}
+
+/**
+ * L1 unchanged-skip, tightened by L2 (Decision 30). A sync window overlaps the last run, so
+ * known items arrive again, and re-embedding and re-linking each one is the whole cost of a
+ * refresh. True only when the content is unchanged, the embedding is from the current model,
+ * AND `enriched_at` is set - the marker ingestOne writes after its link pass. Without that
+ * last condition an ingest that died between storing the embedding and writing the links
+ * would be called unchanged forever, and its links never written.
+ */
+export function isUnchanged(
+  stored: StoredForSkip | null,
+  next: NextForSkip,
+  storedModel: string | null,
+  currentModel: string,
+  enrichedAt: string | null,
+): boolean {
+  return ingestStep(stored, next, storedModel, currentModel, enrichedAt) === 'skip';
+}
+
+/**
+ * What a connector re-ingest of a known row still has to do (Decision 30: only the missing
+ * steps). 'skip': nothing. 'relink': the text and a current-model embedding are stored, only
+ * the link pass is missing. 'full': anything else - a change, a missing or retired embedding.
+ */
+export function ingestStep(
+  stored: StoredForSkip | null,
+  next: NextForSkip,
+  storedModel: string | null,
+  currentModel: string,
+  enrichedAt: string | null,
+): 'skip' | 'relink' | 'full' {
+  if (!contentUnchanged(stored, next) || storedModel !== currentModel) return 'full';
+  return enrichedAt === null ? 'relink' : 'skip';
 }
 
 /**
