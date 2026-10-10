@@ -11,12 +11,13 @@ import { runSync } from '../lib/sync/run-all.js';
 import { recordSourceSynced, type ReportedTrigger, SYNC_TELEMETRY_TOTAL_MS } from '../lib/sync/telemetry.js';
 import type { SourceOutcome, SyncEnv } from '../lib/sync/run-source.js';
 import { collectStatus, renderStatus, type StatusDeps, TEAMS_NOTE } from '../lib/sync/status.js';
+import { BACKGROUND_LAUNCH_DELAY_SECONDS, SYNC_MIN_INTERVAL_MS } from '../lib/sync/should-background-sync.js';
 import { refreshSummary } from '../lib/sync/summary.js';
 import { nextWindow } from '../lib/sync/window.js';
 import { recordRunError } from '../lib/sync/sync-state.js';
 
 /** A background run waits this long before its first request, so it does not compete with the agent's own start-up. */
-export const BACKGROUND_DELAY_SECONDS = 20;
+export const BACKGROUND_DELAY_SECONDS = BACKGROUND_LAUNCH_DELAY_SECONDS;
 const DEFAULT_CLASSIFY_MAX = 25;
 
 export interface SyncCommandOptions {
@@ -26,6 +27,8 @@ export interface SyncCommandOptions {
   classify?: boolean;
   max?: string;
   yes?: boolean;
+  off?: boolean;
+  on?: boolean;
 }
 
 export interface SyncCommandDeps {
@@ -48,6 +51,9 @@ export interface SyncCommandDeps {
   report?(o: SourceOutcome, trigger: ReportedTrigger): Promise<void>;
   /** A seam for tests; defaults to the real run. */
   run?: typeof runSync;
+  /** L6: is the launch-time background refresh switched off (`align sync --off`)? */
+  backgroundOff(): boolean;
+  setBackgroundOff(off: boolean): void;
 }
 
 function whole(raw: string | undefined, fallback: number, min: number): number | undefined {
@@ -57,6 +63,18 @@ function whole(raw: string | undefined, fallback: number, min: number): number |
 
 /** Returns the process exit code. A background run always exits 0: nobody is there to read a failure, and the next run tries again. */
 export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOptions, d: SyncCommandDeps): Promise<number> {
+  if (opts.off || opts.on) {
+    // A switch, not a sync: it takes nothing else, so a mistyped `align sync --off github` does not quietly sync (or not).
+    if ((opts.off && opts.on) || sourcesArg.length > 0 || opts.status || opts.classify || opts.background) {
+      d.err('align sync: --off and --on are used on their own: align sync --off, or align sync --on.');
+      return 2;
+    }
+    d.setBackgroundOff(opts.off === true);
+    d.out(opts.off
+      ? 'Background refresh is off. `align sync` still works when you run it. Turn it back on: align sync --on'
+      : `Background refresh is on: Align checks your connected sources when you start it, at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source. Turn it off: align sync --off`);
+    return 0;
+  }
   const unknown = sourcesArg.filter((s) => !(BACKFILL_SOURCES as readonly string[]).includes(s));
   if (unknown.length > 0) {
     d.err(`align sync: cannot sync ${JSON.stringify(unknown[0]!.slice(0, 16))}. Sources: ${BACKFILL_SOURCES.join(', ')}.`);
@@ -75,6 +93,9 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
 
   if (opts.status) {
     d.out(renderStatus(collectStatus(d.statusDeps(dbPath))));
+    d.out(d.backgroundOff()
+      ? 'Background refresh: off. Turn it on: align sync --on'
+      : `Background refresh: on (at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source; turn it off: align sync --off)`);
     return 0;
   }
   if (opts.classify) return classifyFlow(dbPath, max, opts, d);
@@ -180,6 +201,8 @@ export function registerSyncCommand(program: Command): void {
     .option('--max <n>', `With --classify: how many items at most (default ${DEFAULT_CLASSIFY_MAX})`)
     .option('--yes', 'With --classify: skip the question (needed when there is no terminal)')
     .option('--background', 'Run quietly, as the background refresh does')
+    .option('--off', 'Stop the refresh that runs when you start Align (ALIGN_NO_SYNC=1 does the same for one shell)')
+    .option('--on', 'Turn the refresh that runs when you start Align back on')
     .addOption(new Option('--delay <seconds>', 'Wait before the first request (background default 20)').hideHelp())
     .action(async (sources: string[], opts: SyncCommandOptions) => {
       const config = createConfigStore();
@@ -202,6 +225,8 @@ export function registerSyncCommand(program: Command): void {
         classify: classifyUnclassified,
         classifyLock: () => acquireLock('sync-classify'),
         report: recordSourceSynced,
+        backgroundOff: () => config.isBackgroundSyncOff(),
+        setBackgroundOff: (off) => config.setBackgroundSyncOff(off),
       });
       if (code !== 0) process.exitCode = code;
     });

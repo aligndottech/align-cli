@@ -9,24 +9,13 @@
  * launch path then spawns nothing, which is the safe direction.
  */
 import fs from 'node:fs';
-import path from 'node:path';
 import { alignStateDir } from '../backfill-state.js';
 import { BACKFILL_SOURCES } from '../mcp-backfill.js';
 import { readRows, type SyncStatus } from './sync-state.js';
+import { readSummary, SUMMARY_FILE, summaryPath, type SummarySource, type SyncSummary } from './summary-read.js';
 
-export const SUMMARY_FILE = 'sync-summary.json';
-
-export interface SummarySource {
-  id: string;
-  /** Connected, and a kind of source a background run can read (not Teams, Decision 21). */
-  backgroundEligible: boolean;
-  status: SyncStatus | 'never';
-  lastSuccessAt?: string;
-  /** Any run, complete or not: the launch hook spaces its attempts by this, so a source that is always partial is not retried on every launch. */
-  lastAttemptAt?: string;
-}
-
-export interface SyncSummary { version: 1; generated_at: string; sources: SummarySource[] }
+/** The read side lives in summary-read.ts (the launch path imports it; this file reaches SQLite). */
+export { SUMMARY_FILE, type SummarySource, type SyncSummary, readSummary, summaryPath };
 
 const SEVERITY: Record<SyncStatus, number> = { ok: 0, partial: 1, error: 2, needs_reauth: 3 };
 
@@ -53,10 +42,6 @@ export function buildSummary(dbPath: string, isConnected: (id: string) => boolea
   return { version: 1, generated_at: now.toISOString(), sources };
 }
 
-export function summaryPath(dir: string | null = alignStateDir()): string | null {
-  return dir === null ? null : path.join(dir, SUMMARY_FILE);
-}
-
 /** Returns false when it could not write (an unusable state directory); nothing else depends on it. */
 export function writeSummary(summary: SyncSummary, dir: string | null = alignStateDir()): boolean {
   const file = summaryPath(dir);
@@ -69,19 +54,6 @@ export function writeSummary(summary: SyncSummary, dir: string | null = alignSta
   } catch {
     try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
     return false;
-  }
-}
-
-export function readSummary(dir: string | null = alignStateDir()): SyncSummary | undefined {
-  const file = summaryPath(dir);
-  if (file === null) return undefined;
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<SyncSummary>;
-    if (raw.version !== 1 || !Array.isArray(raw.sources) || typeof raw.generated_at !== 'string') return undefined;
-    const sources = raw.sources.filter((s): s is SummarySource => typeof s?.id === 'string' && typeof s.backgroundEligible === 'boolean');
-    return { version: 1, generated_at: raw.generated_at, sources };
-  } catch {
-    return undefined;
   }
 }
 

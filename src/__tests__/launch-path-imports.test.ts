@@ -77,6 +77,18 @@ describe('the launch decision imports (from default-action.ts)', () => {
   it.each(HEAVY)('does not reach %s', (heavy) => {
     expect(rel).not.toContain(heavy);
   });
+  it('L6: the background-refresh hook is on the launch path, and reaches no sync runner, database layer, fetcher or MCP module', () => {
+    // Positive control: the walk sees the hook and the file it reads.
+    expect(rel).toContain('lib/sync/launch-hook.ts');
+    expect(rel).toContain('lib/sync/summary-read.ts');
+    expect(rel).toContain('lib/sync/spawn-background.ts');
+    const heavySync = ['lib/sync/summary.ts', 'lib/sync/sync-state.ts', 'lib/sync/sources.ts', 'lib/sync/run-source.ts', 'lib/sync/run-all.ts', 'lib/mcp-backfill.ts', 'lib/source-sync-state.ts'];
+    for (const h of heavySync) expect(rel, h).not.toContain(h);
+    expect(rel.filter((r) => r.startsWith('lib/fetchers/'))).toEqual([]);
+  });
+  it('L6: the hook never awaits (the start is fire-and-forget; a pending spawn must not hold the agent back)', () => {
+    expect(readFileSync(path.join(SRC, 'lib/sync/launch-hook.ts'), 'utf8')).not.toMatch(/\bawait\b/);
+  });
   it('the launcher itself never names fetch or the gateway', () => {
     for (const f of rel.filter((r) => r.startsWith('lib/launch/'))) {
       expect(readFileSync(path.join(SRC, f), 'utf8'), f).not.toMatch(/\bfetch\(|gateway-client/);

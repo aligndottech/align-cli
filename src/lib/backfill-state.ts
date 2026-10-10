@@ -31,11 +31,21 @@ export interface BackfillStatus {
   last_line?: string;
 }
 
-function stateHome(): string {
-  const xdg = absoluteXdg(process.env, 'XDG_STATE_HOME');
+/** Where the state home is, from an explicit environment (the launcher is handed one; tests pass their own). */
+export function stateHomeFor(env: Record<string, string | undefined>, home: string, platform: string): string {
+  const xdg = absoluteXdg(env, 'XDG_STATE_HOME');
   if (xdg) return xdg;
-  if (process.platform === 'win32') return process.env['LOCALAPPDATA'] ?? path.join(os.homedir(), 'AppData', 'Local');
-  return path.join(os.homedir(), '.local', 'state');
+  if (platform === 'win32') return env['LOCALAPPDATA'] ?? path.join(home, 'AppData', 'Local');
+  return path.join(home, '.local', 'state');
+}
+
+function stateHome(): string {
+  return stateHomeFor(process.env, os.homedir(), process.platform);
+}
+
+/** `<state home>/align-cli` as a PATH ONLY: nothing is created or checked. For readers (the launch hook) that must not touch the disk. */
+export function alignStateDirPath(env: Record<string, string | undefined>, home: string, platform: string): string {
+  return path.join(stateHomeFor(env, home, platform), 'align-cli');
 }
 
 /** One directory of the chain: a real directory (never a link someone planted), ours, private. */
@@ -262,6 +272,8 @@ export function startBackfillChild(
   file: string | undefined,
   cmd: { command: string; args: string[] } = backfillChildCommand(argv),
   caller: ChildCaller = 'mcp',
+  /** The environment the child inherits. Defaults to this process's own; the sync launch hook passes a reduced one. */
+  baseEnv: Record<string, string | undefined> = process.env,
 ): Promise<{ ok: boolean; pid?: number }> {
   const { command, args } = cmd;
   return new Promise((resolve) => {
@@ -275,7 +287,7 @@ export function startBackfillChild(
         windowsHide: true,
         // L5: a sync child has no status file (the sync lock and source_sync record it), so it must
         // not inherit one from this process either.
-        env: stampCaller(file === undefined ? withoutStatusEnv(process.env) : { ...process.env, [BACKFILL_STATUS_ENV]: file }, caller),
+        env: stampCaller(file === undefined ? withoutStatusEnv(baseEnv) : { ...baseEnv, [BACKFILL_STATUS_ENV]: file }, caller),
       });
     } catch {
       return done({ ok: false });

@@ -29,9 +29,11 @@ let err: string[];
 let sleeps: number[];
 let tokens: Map<string, Record<string, string>>;
 let refreshes: number;
+let bgOff: boolean;
+let bgWrites: boolean[];
 beforeEach(() => {
   h = harness();
-  out = []; err = []; sleeps = []; refreshes = 0;
+  out = []; err = []; sleeps = []; refreshes = 0; bgOff = false; bgWrites = [];
   tokens = new Map([['github', { token: 'tok' }], ['jira', { token: 'tok', domain: 'x.atlassian.net' }]]);
 });
 afterEach(() => h.cleanup());
@@ -51,6 +53,8 @@ function deps(over: Partial<SyncCommandDeps> = {}): SyncCommandDeps {
     estimate: () => ({ items: 10, calls: 30, available: 40, provider: 'Anthropic' }),
     classify: vi.fn(async () => ({ items: 10, calls: 30, typed: 12, unparsed: 0 })),
     classifyLock: () => acquireLock('sync-classify', { dir: h.lockDir, alive: () => true }),
+    backgroundOff: () => bgOff,
+    setBackgroundOff: (off) => { bgOff = off; bgWrites.push(off); },
     ...over,
   };
 }
@@ -70,6 +74,36 @@ describe('arguments', () => {
     expect(await run([], { background: true, delay: '-1' })).toBe(2);
     expect(await run([], { background: true, delay: '1.5' })).toBe(2);
     expect(h.fetchCalls).toHaveLength(0);
+  });
+});
+
+describe('--off and --on (the background refresh switch)', () => {
+  it('--off stores the switch, says how to turn it back on, and needs no graph and runs no sync', async () => {
+    expect(await run([], { off: true }, { graphPath: () => undefined })).toBe(0);
+    expect(bgWrites).toEqual([true]);
+    expect(out.join('\n')).toContain('align sync --on');
+    expect(h.fetchCalls).toHaveLength(0);
+  });
+  it('--on clears it and names the way to turn it off', async () => {
+    bgOff = true;
+    expect(await run([], { on: true }, { graphPath: () => undefined })).toBe(0);
+    expect(bgWrites).toEqual([false]);
+    expect(out.join('\n')).toContain('align sync --off');
+  });
+  it('--off with --on, or with a source or another mode, exits 2 and changes nothing (three examples)', async () => {
+    expect(await run([], { off: true, on: true })).toBe(2);
+    expect(await run(['github'], { off: true })).toBe(2);
+    expect(await run([], { on: true, classify: true })).toBe(2);
+    expect(bgWrites).toEqual([]);
+    expect(err.join('\n')).toContain('--off');
+  });
+  it('--status says which way the switch is set (two examples)', async () => {
+    await run([], { status: true });
+    expect(out.join('\n')).toContain('Background refresh: on');
+    out.length = 0; bgOff = true;
+    await run([], { status: true });
+    expect(out.join('\n')).toContain('Background refresh: off');
+    expect(out.join('\n')).toContain('align sync --on');
   });
 });
 
