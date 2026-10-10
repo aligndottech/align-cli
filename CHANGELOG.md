@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.50.0](https://github.com/aligndottech/align-cli/compare/cli-v0.49.0...cli-v0.50.0) (2026-10-10)
+
+
+### Features
+
+* **import:** 180-day capture window, ceilings, --since everywhere, align_backfill (ALI-1521) ([#362](https://github.com/aligndottech/align-cli/issues/362)) ([6455d3e](https://github.com/aligndottech/align-cli/commit/6455d3ea8da3a2e63128eb4606c7dd8704e80ef5))
+* **launch:** Goose, Auggie, Continue, Cline and Aider, with hostile-repo hardening (ALI-1519) ([#360](https://github.com/aligndottech/align-cli/issues/360)) ([61f7e84](https://github.com/aligndottech/align-cli/commit/61f7e843e7dbb5f053cee938d166872c5e4e4639))
+* **local-db:** re-key zoom rows on connector-core 0.10.1 (schema v11, ALI-1527) ([#369](https://github.com/aligndottech/align-cli/issues/369)) ([530ff84](https://github.com/aligndottech/align-cli/commit/530ff84471a46fb6941d039337220e84301b6452))
+* **local:** connector imports never call the classifier; unchanged re-syncs cost nothing (ALI-1505) ([#355](https://github.com/aligndottech/align-cli/issues/355)) ([81c7246](https://github.com/aligndottech/align-cli/commit/81c7246a539040bd820919e10a20d3691484475d))
+* **local:** graph schema v7 - one row per source item, safe twin merge (ALI-1516) ([#358](https://github.com/aligndottech/align-cli/issues/358)) ([c126b6a](https://github.com/aligndottech/align-cli/commit/c126b6ac9a9f319dca1224c3ca497f9826359d94))
+* **mark:** align mark and align_mark - local curation the guardrail honours (ALI-1530) ([#364](https://github.com/aligndottech/align-cli/issues/364)) ([5980502](https://github.com/aligndottech/align-cli/commit/5980502ccb129c811dfff13cf34ba4856c9e290a))
+* **scope:** scope pickers and align_scope with a consent gate (ALI-1534) ([#365](https://github.com/aligndottech/align-cli/issues/365)) ([5777534](https://github.com/aligndottech/align-cli/commit/5777534754d14d6e5c4d32e823e4936f115d46a8))
+* **share:** align share promotes local decisions to the team graph (ALI-1539) ([#367](https://github.com/aligndottech/align-cli/issues/367)) ([6a87e0f](https://github.com/aligndottech/align-cli/commit/6a87e0f5f3bb5a6c3fa1d15c0e2f98f23b752838))
+* **sync:** align sync, comment fill-in, reconnect marking, lock, forget --purge (ALI-1525) ([#363](https://github.com/aligndottech/align-cli/issues/363)) ([5123de1](https://github.com/aligndottech/align-cli/commit/5123de1fa64ef688c68b8a35c586544766d30209))
+* **sync:** refresh connected sources in the background at launch (ALI-1538) ([#368](https://github.com/aligndottech/align-cli/issues/368)) ([c5283ab](https://github.com/aligndottech/align-cli/commit/c5283ab7a41b1b485d90dc5225c4fc0a90798a2a))
+* **telemetry:** content-free sync and mark telemetry with a sticky env opt-out (ALI-1535) ([#366](https://github.com/aligndottech/align-cli/issues/366)) ([74ca297](https://github.com/aligndottech/align-cli/commit/74ca2976a9c93aa3b4cd12139dcfb86a1c117f2b))
+* **telemetry:** usage counts on by default with a one-time notice, off with one command (ALI-1514) ([#357](https://github.com/aligndottech/align-cli/issues/357)) ([16cedc7](https://github.com/aligndottech/align-cli/commit/16cedc7f07f39d475b044c18378c8b662786099e))
+
+
+### Bug Fixes
+
+* **launch:** Gemini loads Align's graph again - written-once user entry, real layer rules (ALI-1518) ([#359](https://github.com/aligndottech/align-cli/issues/359)) ([4765cbf](https://github.com/aligndottech/align-cli/commit/4765cbf344fda4fb104c377977588b396376aa2b))
+* **share:** re-vendor the secret patterns from align-stack; pin them with tests ([#371](https://github.com/aligndottech/align-cli/issues/371)) ([ad7d813](https://github.com/aligndottech/align-cli/commit/ad7d8133bfd9d9b3bb353e6ecf36622256c77664))
+* **share:** the booking nudge says 30 minutes, matching the booking page ([#370](https://github.com/aligndottech/align-cli/issues/370)) ([8ff1b88](https://github.com/aligndottech/align-cli/commit/8ff1b8847320d2ac0c5626a9d1ba985ecf058d1f))
+
+
+### Performance Improvements
+
+* **local:** one in-memory similarity matrix per import run, bit-identical scores (ALI-1520) ([#361](https://github.com/aligndottech/align-cli/issues/361)) ([34cb6d5](https://github.com/aligndottech/align-cli/commit/34cb6d5ef77baa7630c8e2ae706fe02dbb15d351))
+
 ## [0.49.0](https://github.com/aligndottech/align-cli/compare/cli-v0.48.0...cli-v0.49.0) (2026-10-09)
 
 
