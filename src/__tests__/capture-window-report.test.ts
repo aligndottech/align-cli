@@ -76,7 +76,7 @@ describe('an incomplete windowed read', () => {
 });
 
 describe('the GitHub discussion clause says what was fetched, and promises nothing', () => {
-  const clause = 'discussion fetched for 188 of 312, the rest stay thin until align sync (not available yet)';
+  const clause = 'discussion fetched for 188 of 312, the rest stay thin until align sync reads them (run it now)';
 
   it('counts the items that got their discussion against those that could have', () => {
     expect(lines([github({ discussionPending: 124, discussionTotal: 312 })])[1]).toBe(

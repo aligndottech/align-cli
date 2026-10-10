@@ -60,6 +60,10 @@ vi.mock('../lib/setup-ux.js', async (importOriginal) => ({
 vi.mock('../lib/open-url.js', () => ({ tryOpenUrl: vi.fn().mockResolvedValue(true) }));
 vi.mock('execa', () => ({ execa: vi.fn().mockResolvedValue({ stdout: '' }) }));
 
+// L5: a successful foreground connect clears needs_reauth (the helper is tested on its own).
+const mockAfterConnected = vi.hoisted(() => vi.fn());
+vi.mock('../lib/sync/after-connect.js', () => ({ afterSourceConnected: mockAfterConnected }));
+
 const mockGetConnectorFields = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
 vi.mock('../lib/config.js', async (importOriginal) => ({
@@ -138,6 +142,22 @@ describe('align connect (ALI-951)', () => {
     await run(['connect', 'jira', '--email', 'e@x', '--token', 't', '--domain', 'x.atlassian.net', '--approve']);
     expect(mockFetchJira).toHaveBeenCalledWith(expect.objectContaining({ token: 't', domain: 'x.atlassian.net' }));
     expect(mockMultiselect).not.toHaveBeenCalled();
+  });
+
+  describe('a reconnect clears needs_reauth (L5)', () => {
+    it('a successful connect tells the sync state the source is healthy again, for THAT source and graph', async () => {
+      setTty(false, false);
+      await run(['connect', '--source', 'github', '--token', 'ghp_fresh', '--yes']);
+      expect(mockAfterConnected).toHaveBeenCalledTimes(1);
+      expect(mockAfterConnected).toHaveBeenCalledWith('/tmp/local.db', 'github', expect.any(Function));
+    });
+
+    it('a connect whose fetch failed does not: a token that never worked is not a reconnect', async () => {
+      setTty(false, false);
+      mockFetchGitHub.mockRejectedValueOnce(new Error('401 Bad credentials'));
+      await run(['connect', '--source', 'github', '--token', 'ghp_bad', '--yes']);
+      expect(mockAfterConnected).not.toHaveBeenCalled();
+    });
   });
 
   describe('every prompt has a flag bypass, and a run with no terminal names the one it needed', () => {

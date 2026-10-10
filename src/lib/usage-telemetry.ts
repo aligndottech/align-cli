@@ -183,6 +183,10 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
   // (the hook may resolve an env other than the one the command used), so the token check below
   // is not enough on its own.
   if (command === 'local' || command.startsWith('local ')) return;
+  // L5: `sync` is not in the gateway's closed command list yet (G-T adds it, L7 sends it), and a
+  // ping it does not know is a 400 that silently drops. The background child would also count
+  // itself as a person running a command. Until L7, neither sends.
+  if (command === 'sync' || command.startsWith('sync ')) return;
   // The mode is the consent boundary (PR #77: cloud is opt-out; ALI-618: local usage sends
   // only with the stored consent decision - the ALI-954 beacons are the two named exceptions,
   // and this per-command ping is not one of them). It has to gate on its own because a token

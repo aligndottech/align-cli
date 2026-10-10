@@ -27,6 +27,7 @@ import type { EnvironmentConfig } from './config.js';
 import { createConfigStore } from './config.js';
 import { SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from './import-defaults.js';
 import { parseSince } from './since.js';
+import { lockHolder } from './sync/lock.js';
 import { readSyncStatus, recordWindowSince } from './source-sync-state.js';
 
 export const BACKFILL_TOOL = 'align_backfill';
@@ -66,6 +67,8 @@ export interface BackfillDeps {
   now(): Date;
   isConnected(source: string): boolean;
   needsReauth(source: string): boolean;
+  /** Is a `align sync` of this source running? The two read and write the same history, so one waits for the other. */
+  syncRunning?(source: string): boolean;
   recordWindow(source: string, since: string | null, agent: string): void;
   /** Take a slot SYNCHRONOUSLY (check and take in one tick, no await): MCP does not queue requests,
    *  so parallel calls would otherwise all pass the cap. Released when the child is confirmed
@@ -102,6 +105,7 @@ export function defaultBackfillDeps(env: EnvironmentConfig): BackfillDeps {
     now: () => new Date(),
     isConnected: (source) => Boolean(config.getConnectorFields('local', source)?.['token']),
     needsReauth: (source) => readSyncStatus(need(), source).needsReauth,
+    syncRunning: (source) => lockHolder(`sync-${source}`) !== undefined,
     recordWindow: (source, since, agent) => recordWindowSince(need(), source, since, agent),
     reserve: (source) => {
       const dir = backfillDir();
@@ -180,6 +184,10 @@ export async function runBackfill(
         started: false,
         text: `${source} needs the person to re-authenticate (the provider refused its saved token), so nothing was started. Ask them to run: align connect ${source}`,
       };
+    }
+
+    if (deps.syncRunning?.(source)) {
+      return { started: false, text: `A sync of ${source} is running and reads the same history, so nothing new was started. Ask again when it has finished.` };
     }
 
     // Taken in this same synchronous stretch (nothing above awaits): five parallel calls cannot all pass.

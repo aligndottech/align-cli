@@ -66,13 +66,60 @@ a window and lifts the scan bound to the ceiling.
 
 GitHub reads items first, then fetches comments and reviews for as many as 600 requests allow,
 newest first. The report says how many got their discussion ("discussion fetched for 188 of 312");
-the rest stay without it until `align sync` exists. Inside a repo, on your local graph, it reads
+the rest stay without it until `align sync` reads them (a later run continues where the last one
+stopped, 600 requests at a time). Inside a repo, on your local graph, it reads
 everyone's pull requests and issues in that repo, as far as your token can see, and the report says
 so; elsewhere, only yours.
 
 From inside a coding agent, `align_backfill` does the same for a source you already connected. It
 never takes a token: for a source that is not connected it hands back the `align connect` command
 for you to run. At most one backfill per source and three at once run at a time.
+
+## Keeping it up to date: `align sync`
+
+```bash
+align sync              # every connected source except Teams
+align sync github jira  # just these
+align sync --status     # what is connected, when it last synced, what is waiting
+```
+
+A sync reads only what changed since the last one (it starts a day before the last complete read,
+so a late edit is not missed) and stores it the same way a connect does. It reads, it never writes
+to a source, and it makes no AI calls. Specifically:
+
+- **It never moves its bookmark past data it did not read.** A read a ceiling cut short in date order
+  says so and the next sync finishes the older part before it moves on. A read with a hole in it (a
+  channel that would not open, a repo the token cannot see) keeps the bookmark where the last complete
+  read left it and reads again from there, so one stubborn skip never stops newer items arriving. The
+  status separates "last complete sync" from "last tried" and says what was not read.
+- **GitHub comments and reviews** arrive over several runs, newest first, 600 requests a run.
+- **A refused token is recorded, never deleted.** Only a refusal of the token itself marks a source as
+  needing you to reconnect (`align connect <source>`); a successful reconnect clears it. One repo or
+  channel the token cannot see is a skip of that scope, shown in the status, and blocks nothing.
+  Nothing here asks for a token.
+- **Slack replies to older threads** are picked up for threads that had a reply in the last 30 days.
+- **Teams is manual** (its token lasts about an hour): `align sync teams`, or `align connect teams`.
+- One sync per source at a time, across terminals and agents. A second one says "already syncing".
+- Stored items that never finished linking (all of them after an upgrade) are finished locally
+  on the first sync, with no network and no AI calls.
+
+Typing the relationships between imported items takes your own AI key, so it is always your call:
+
+```bash
+align sync --classify --max 25    # shows "up to 75 LLM calls on your <provider> key", then asks
+```
+
+From inside a coding agent, `align_sync` can show the status, start the same background refresh
+and estimate the classification cost. It cannot classify, and it never takes a token.
+
+`align local forget <source>` drops the token and the source's sync state and leaves what it
+imported. Add `--purge` to delete the imported items too, for a connected source only (`github`,
+`slack`, ...; never `git`, `cli` or a typo, which are refused). It shows the count and asks first
+(`--yes` when there is no terminal). It deletes only items a connector import wrote and nobody has
+handled: items you ratified, confirmed, captured by hand, acted on or judged are kept, as is
+anything with no import identity. Deleted items are copied into the graph file first
+(`decisions_purged_backup`), and the whole forget is one transaction, so a failure leaves the token
+and every item as they were.
 
 ## Git
 

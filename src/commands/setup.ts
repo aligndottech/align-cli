@@ -19,8 +19,9 @@ import { type CaptureSource, createCaptureCollector, toCaptureSource } from '../
 import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
 import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
-import { fetchWindow, parseSince, type SyncWindow, windowLabel } from '../lib/since.js';
+import { fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
 import { initLocalMode } from '../lib/local-mode.js';
+import { afterSourceConnected } from '../lib/sync/after-connect.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { collectTokensViaOAuth, oauthFlowLabel } from '../lib/personal-oauth.js';
@@ -58,7 +59,7 @@ const TIER_ORDER: Record<ConnectorTier, number> = { personal: 0, site: 1, worksp
 // batch-parallel (runPersonalImport), so this bounds total gateway load.
 const IMPORT_CONCURRENCY = 4;
 
-interface SetupSource {
+export interface SetupSource {
   id: string;
   label: string;
   description: string;
@@ -78,10 +79,10 @@ interface SetupSource {
   /** What one fetched item IS, for the capture report (ALI-827) - from CAPTURE_SOURCES. */
   unit: string;
   /** L3: `window` defaults to the plan's six months; `align connect --since` passes its own. */
-  fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: { team?: boolean }) => Promise<CaptureFetchResult>;
+  fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: { team?: boolean; until?: string; hotThreads?: Array<{ channel: string; ts: string }> }) => Promise<CaptureFetchResult>;
 }
 
-function buildSources(gitAvailable: boolean): SetupSource[] {
+export function buildSources(gitAvailable: boolean): SetupSource[] {
   const sources: SetupSource[] = [];
 
   if (gitAvailable) {
@@ -145,9 +146,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
         { key: 'email', label: 'Atlassian account email' },
         { key: 'domain', label: 'Atlassian domain (yourorg.atlassian.net)' },
       ],
-      fetch: async (t, w = parseSince(undefined)) => {
+      fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
-        return fetchJiraItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], ...fetchWindow('jira', w) });
+        return fetchJiraItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], ...fetchWindow('jira', w), ...windowExtras(o) });
       },
     },
     {
@@ -165,9 +166,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
         { key: 'email', label: 'Atlassian account email' },
         { key: 'domain', label: 'Atlassian domain (yourorg.atlassian.net)' },
       ],
-      fetch: async (t, w = parseSince(undefined)) => {
+      fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
-        return fetchConfluenceItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], ...fetchWindow('confluence', w) });
+        return fetchConfluenceItems({ token: t['token']!, cloudId: t['cloudId'], email: t['email'], domain: t['domain'], ...fetchWindow('confluence', w), ...windowExtras(o) });
       },
     },
     {
@@ -182,9 +183,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       tokenLabel: 'User token (xoxp-...)',
       tokenHint: 'User token with read scopes only: channels:read, channels:history, groups:read, groups:history',
       tokenUrl: 'https://api.slack.com/apps',
-      fetch: async (t, w = parseSince(undefined)) => {
+      fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
-        return fetchSlackItems({ token: t['token']!, ...fetchWindow('slack', w) });
+        return fetchSlackItems({ token: t['token']!, ...fetchWindow('slack', w), ...windowExtras(o) });
       },
     },
     {
@@ -204,9 +205,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
         'The token expires after about an hour; re-run setup to paste a fresh one.',
       tokenUrl: 'https://developer.microsoft.com/en-us/graph/graph-explorer',
       tokenShortLived: true,
-      fetch: async (t, w = parseSince(undefined)) => {
+      fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchTeamsItems } = await import('../lib/fetchers/teams.js');
-        return fetchTeamsItems({ token: t['token']!, ...fetchWindow('teams', w) });
+        return fetchTeamsItems({ token: t['token']!, ...fetchWindow('teams', w), ...windowExtras(o) });
       },
     },
     {
@@ -215,9 +216,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Cloud recording transcripts from your meetings',
       tier: 'personal',
       oauthKey: 'zoom',
-      fetch: async (t, w = parseSince(undefined)) => {
+      fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchZoomItems } = await import('../lib/fetchers/zoom.js');
-        return fetchZoomItems({ token: t['token']!, ...fetchWindow('zoom', w) });
+        return fetchZoomItems({ token: t['token']!, ...fetchWindow('zoom', w), ...windowExtras(o) });
       },
     },
     {
@@ -243,9 +244,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       extraFields: [
         { key: 'domain', label: 'GitLab domain (leave blank for gitlab.com)' },
       ],
-      fetch: async (t, w = parseSince(undefined)) => {
+      fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchGitLabItems } = await import('../lib/fetchers/gitlab.js');
-        return fetchGitLabItems({ token: t['token']!, domain: t['domain'] || undefined, ...fetchWindow('gitlab', w) });
+        return fetchGitLabItems({ token: t['token']!, domain: t['domain'] || undefined, ...fetchWindow('gitlab', w), ...windowExtras(o) });
       },
     },
     {
@@ -264,9 +265,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       // a workspace slug here, it 404s for everyone outside that workspace.
       tokenHint: 'Click Create key, then copy it here',
       tokenUrl: 'https://linear.app/settings/account/security/api-keys/new',
-      fetch: async (t, w = parseSince(undefined)) => {
+      fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
-        return fetchLinearItems({ token: t['token']!, ...fetchWindow('linear', w) });
+        return fetchLinearItems({ token: t['token']!, ...fetchWindow('linear', w), ...windowExtras(o) });
       },
     },
     {
@@ -288,9 +289,9 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       // landing (both resolve; this one is where the secret actually lives - Tom,
       // from a live run, 2026-08-31).
       tokenUrl: 'https://app.notion.com/developers/tokens',
-      fetch: async (t, w = parseSince(undefined)) => {
+      fetch: async (t, w = parseSince(undefined), o) => {
         const { fetchNotionItems } = await import('../lib/fetchers/notion.js');
-        return fetchNotionItems({ token: t['token']!, ...fetchWindow('notion', w) });
+        return fetchNotionItems({ token: t['token']!, ...fetchWindow('notion', w), ...windowExtras(o) });
       },
     },
   );
@@ -965,6 +966,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       // into a silent empty import. Re-saving an already-saved token is a harmless no-op, so
       // there is one rule here rather than a branch that has to stay in step with the reuse.
       config.saveConnectorFields('local', source.id, tokens);
+      afterSourceConnected(localEnv.localDbPath, source.id, (id) => Boolean(config.getConnectorFields('local', id)?.['token']));
       spinner.stop(`Found ${items.length} items`);
       let imported = 0;
       if (items.length) {

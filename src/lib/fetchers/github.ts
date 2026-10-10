@@ -50,6 +50,21 @@ export async function fetchGitHubItems(opts: {
 }
 
 /**
+ * L5: the list read alone, for `align sync`. The discussion of what it returns is the drain's job
+ * (sync/drain.ts, under its own request budget, from the stored `detail_pending` rows), so this
+ * reads no comment and makes no second pass of its own: the budget is spent once per run, not twice.
+ */
+export async function fetchGitHubItemsOnly(opts: {
+  token: string; limit?: number; repo?: string; scope?: 'yours' | 'team';
+} & WindowedOpts): Promise<CaptureFetchResult> {
+  const r = await withCaptureReport({ ...opts, discussion: 'none' as const }, new GitHubFetcher());
+  const scopeNote = r.report.scope === 'team' && opts.repo !== undefined
+    ? { scopeNote: `everyone's PRs and issues in ${opts.repo}, as far as your token can see` }
+    : {};
+  return { items: r.items, report: { ...r.report, ...scopeNote } };
+}
+
+/**
  * The discussion pass, in chunks, because the SDK's drain takes no deadline or cancel and keeps
  * going after a refusal. One item first as a probe, then ten at a time, newest first (the SDK
  * orders only within what it is given). It stops, leaving the rest pending, when: the request
@@ -58,7 +73,7 @@ export async function fetchGitHubItems(opts: {
  * a 403 with no quota left, a 429), so a dead token costs about one request, not the whole budget.
  * It never sleeps on a Retry-After: stopping is the honest answer for a one-shot import.
  */
-async function drainDiscussion(
+export async function drainDiscussion(
   pending: FetcherItem[],
   o: { token: string; budget: number; deadlineMs: number },
 ): Promise<{ items: FetcherItem[]; skips: CaptureSkip[] }> {

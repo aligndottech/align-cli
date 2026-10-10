@@ -26,6 +26,7 @@ import { registerInviteCommand } from './invite.js';
 import { registerUseCommand } from './use.js';
 import { registerAgentsCommand } from './agents.js';
 import { registerAiCommand } from './ai.js';
+import { registerSyncCommand } from './sync.js';
 
 /**
  * ALI-951: the one list of top-level commands. `align --help` shows the `visible` ones and
@@ -69,6 +70,8 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   // `align ask` with nothing configured offers it, and names this command.
   { names: ['ai'], visible: false, summary: 'Choose the AI model align ask uses in the terminal', register: registerAiCommand },
   { names: ['capture'], visible: false, summary: 'Capture one decision from a URL', register: registerCaptureCommand },
+  // L5: refresh what was connected. Hidden like capture and push: `connect` is the everyday verb.
+  { names: ['sync'], visible: false, summary: 'Bring connected sources up to date in your local graph', register: registerSyncCommand },
   {
     names: ['connect'],
     visible: true,

@@ -180,7 +180,7 @@ describe('github: items first, whole repo when there is a repo', () => {
   it('says how many items got their discussion, and that the rest stay thin (no promise of a later pass)', async () => {
     fetchers.github.mockResolvedValue({ items: [{ source_url: 'u', platform: 'github', raw_text: 't' }], report: { scanned: 1, skips: [], complete: true, discussionPending: 1, discussionTotal: 3 } });
     await run('github', []);
-    expect(out.join('\n')).toContain('discussion fetched for 2 of 3, the rest stay thin until align sync (not available yet)');
+    expect(out.join('\n')).toContain('discussion fetched for 2 of 3, the rest stay thin until align sync reads them (run it now)');
     expect(out.join('\n')).not.toMatch(/background/);
   });
 });
