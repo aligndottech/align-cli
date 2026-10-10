@@ -22,7 +22,7 @@
  * the child is `align connect --env local`. The import is an upsert, so an overlap costs time and
  * never duplicates a row.
  */
-import { admit, backfillDir, type BackfillStatus, liveBackfills, startBackfillChild, statusPath } from './backfill-state.js';
+import { backfillDir, type BackfillStatus, readStatus, type Reservation, reserveSlot, startBackfillChild, statusPath } from './backfill-state.js';
 import type { EnvironmentConfig } from './config.js';
 import { createConfigStore } from './config.js';
 import { SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from './import-defaults.js';
@@ -67,8 +67,12 @@ export interface BackfillDeps {
   isConnected(source: string): boolean;
   needsReauth(source: string): boolean;
   recordWindow(source: string, since: string | null, agent: string): void;
-  /** Children that are running right now (status file says running AND the pid is alive). */
-  live(): BackfillStatus[];
+  /** Take a slot SYNCHRONOUSLY (check and take in one tick, no await): MCP does not queue requests,
+   *  so parallel calls would otherwise all pass the cap. Released when the child is confirmed
+   *  (its status file then holds the slot) or has failed to start. */
+  reserve(source: string): Reservation;
+  /** How the previous backfill of this source ended, if it left a status file. */
+  lastRun(source: string): BackfillStatus | null;
   /** Start `align <argv>` detached and wait briefly for the OS to confirm it exists. */
   start(source: string, argv: string[]): Promise<{ ok: boolean; pid?: number }>;
 }
@@ -99,9 +103,13 @@ export function defaultBackfillDeps(env: EnvironmentConfig): BackfillDeps {
     isConnected: (source) => Boolean(config.getConnectorFields('local', source)?.['token']),
     needsReauth: (source) => readSyncStatus(need(), source).needsReauth,
     recordWindow: (source, since, agent) => recordWindowSince(need(), source, since, agent),
-    live: () => {
+    reserve: (source) => {
       const dir = backfillDir();
-      return dir ? liveBackfills(dir) : [];
+      return dir ? reserveSlot(dir, source) : { ok: false, reason: 'state', running: [] };
+    },
+    lastRun: (source) => {
+      const dir = backfillDir();
+      return dir ? readStatus(statusPath(dir, source)) : null;
     },
     start: async (source, argv) => {
       const dir = backfillDir();
@@ -149,53 +157,69 @@ export async function runBackfill(
   const window = parseSince(rawSince, now); // throws SinceError naming the accepted forms
   const sinceArg = rawSince === undefined ? `${SYNC_WINDOW_DEFAULT_DAYS}d` : rawSince.trim().toLowerCase();
 
-  if (!deps.isConnected(source)) {
-    return {
-      started: false,
-      text: `${source} is not connected, so nothing was started. Connecting needs a token only the person can supply. Ask them to run: align connect ${source}`,
-    };
-  }
-  if (source === 'teams') {
-    // Decision 21: a Graph token lasts about an hour, so a background child would hold a dead one.
-    return {
-      started: false,
-      text: `Teams tokens last about an hour, so a refresh is manual and nothing was started. Ask the person to run: align connect teams --since ${sinceArg}`,
-    };
-  }
-  if (deps.needsReauth(source)) {
-    return {
-      started: false,
-      text: `${source} needs the person to re-authenticate (the provider refused its saved token), so nothing was started. Ask them to run: align connect ${source}`,
-    };
-  }
+  // How the previous run of this source ended, said first: a dead token ended "done" would hide it.
+  const prev = deps.lastRun(source);
+  const say = (r: BackfillResult): BackfillResult =>
+    prev?.state === 'failed' && prev.last_line ? { ...r, text: `Last run failed: ${prev.last_line}. ${r.text}` } : r;
+  const proceed = async (): Promise<BackfillResult> => {
+    if (!deps.isConnected(source)) {
+      return {
+        started: false,
+        text: `${source} is not connected, so nothing was started. Connecting needs a token only the person can supply. Ask them to run: align connect ${source}`,
+      };
+    }
+    if (source === 'teams') {
+      // Decision 21: a Graph token lasts about an hour, so a background child would hold a dead one.
+      return {
+        started: false,
+        text: `Teams tokens last about an hour, so a refresh is manual and nothing was started. Ask the person to run: align connect teams --since ${sinceArg}`,
+      };
+    }
+    if (deps.needsReauth(source)) {
+      return {
+        started: false,
+        text: `${source} needs the person to re-authenticate (the provider refused its saved token), so nothing was started. Ask them to run: align connect ${source}`,
+      };
+    }
 
-  const admission = admit(deps.live(), source);
-  if (!admission.ok) {
-    const names = [...new Set(admission.running.map((r) => r.source))].join(', ');
+    // Taken in this same synchronous stretch (nothing above awaits): five parallel calls cannot all pass.
+    const slot = deps.reserve(source);
+    if (!slot.ok) {
+      if (slot.reason === 'state') {
+        return { started: false, text: `The state directory for backfills could not be used safely, so nothing was started. The person can run it themselves: align connect ${source} --since ${sinceArg}` };
+      }
+      const names = [...new Set(slot.running.map((r) => r.source))].join(', ');
+      return {
+        started: false,
+        text: slot.reason === 'source'
+          ? `A backfill for ${source} is already running${slot.running[0]?.pid ? ` (started ${slot.running[0].started_at.slice(0, 16).replace('T', ' ')} UTC)` : ''}, so nothing new was started. It only reads and makes no LLM calls; ask again when it has finished.`
+          : `${slot.running.length} backfills are already running (${names}), which is the most at once, so nothing new was started. Ask again when one has finished.`,
+      };
+    }
+    let started: { ok: boolean; pid?: number };
+    try {
+      started = await deps.start(source, backfillArgv(source, sinceArg));
+    } finally {
+      slot.release();
+    }
+    if (!started.ok) {
+      return {
+        started: false,
+        text: `The background process for ${source} could not start, so nothing was started. The person can run it themselves: align connect ${source} --since ${sinceArg}`,
+      };
+    }
+    // Only now: the window is recorded for a child that exists.
+    deps.recordWindow(source, window.since ?? null, UNKNOWN_AGENT);
+    const reach = window.since === undefined
+      ? `as far back as the ceiling allows (${SYNC_CEILINGS[source as BackfillSource]} items)`
+      : `back to ${window.since.slice(0, 10)}`;
+    const scope = source === 'github'
+      ? " Inside a repo it reads everyone's PRs and issues in that repo, as far as their access allows; elsewhere only the person's own."
+      : '';
     return {
-      started: false,
-      text: admission.reason === 'source'
-        ? `A backfill for ${source} is already running (started ${admission.running[0]!.started_at.slice(0, 16).replace('T', ' ')} UTC), so nothing new was started. It only reads and makes no LLM calls; ask again when it has finished.`
-        : `${admission.running.length} backfills are already running (${names}), which is the most at once, so nothing new was started. Ask again when one has finished.`,
+      started: true,
+      text: `Backfill started for ${source} ${reach}. It runs in the background on this machine, only reads, and makes no LLM calls.${scope} New items appear in align_ask as they land.`,
     };
-  }
-  const started = await deps.start(source, backfillArgv(source, sinceArg));
-  if (!started.ok) {
-    return {
-      started: false,
-      text: `The background process for ${source} could not start, so nothing was started. The person can run it themselves: align connect ${source} --since ${sinceArg}`,
-    };
-  }
-  // Only now: the window is recorded for a child that exists.
-  deps.recordWindow(source, window.since ?? null, UNKNOWN_AGENT);
-  const reach = window.since === undefined
-    ? `as far back as the ceiling allows (${SYNC_CEILINGS[source as BackfillSource]} items)`
-    : `back to ${window.since.slice(0, 10)}`;
-  const scope = source === 'github'
-    ? " Inside a repo it reads everyone's PRs and issues in that repo, as far as their access allows; elsewhere only the person's own."
-    : '';
-  return {
-    started: true,
-    text: `Backfill started for ${source} ${reach}. It runs in the background on this machine, only reads, and makes no LLM calls.${scope} New items appear in align_ask as they land.`,
   };
+  return say(await proceed());
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { EnvironmentConfig } from '../lib/config.js';
-import type { BackfillStatus } from '../lib/backfill-state.js';
+import { admit, type BackfillStatus } from '../lib/backfill-state.js';
 import { BACKFILL_SOURCES, BACKFILL_TOOL, backfillArgv, type BackfillDeps, runBackfill } from '../lib/mcp-backfill.js';
 import { ACCEPTED_SINCE_FORMS } from '../lib/since.js';
 
@@ -24,7 +24,11 @@ function deps(over: Partial<BackfillDeps> = {}, running: BackfillStatus[] = []):
     isConnected: () => true,
     needsReauth: () => false,
     recordWindow: (source, since, agent) => { recorded.push([source, since, agent]); events.push('record'); },
-    live: () => fake.running,
+    reserve: (source) => {
+      const a = admit(fake.running, source);
+      return a.ok ? { ok: true, release: () => {} } : a;
+    },
+    lastRun: () => null,
     start: async (source, argv) => {
       spawned.push(argv); events.push('start');
       fake.running = [...fake.running, { source, pid: 100 + spawned.length, started_at: NOW.toISOString(), state: 'running' }];
@@ -249,6 +253,33 @@ describe('the sources it takes', () => {
   it('are exactly the ones `align connect --source` takes (one writer, checked from the other side)', async () => {
     const { localConnectorIds } = await import('../commands/setup.js');
     expect([...BACKFILL_SOURCES].sort()).toEqual(localConnectorIds().sort());
+  });
+});
+
+describe('the last run is reported on the next call (re-review C)', () => {
+  const failed: BackfillStatus = {
+    source: 'github', pid: 1, started_at: NOW.toISOString(), state: 'failed', exit_code: 1,
+    last_line: 'GitHub authentication failed (401)',
+  };
+
+  it('says how the previous run ended, first, then proceeds as usual', async () => {
+    const d = deps({ lastRun: () => failed });
+    const r = await runBackfill({ source: 'github', since: '1y' }, localEnv, d);
+    expect(text(r).startsWith('Last run failed: GitHub authentication failed (401). ')).toBe(true);
+    expect(r.started).toBe(true);
+  });
+
+  it('also when the answer is "not connected" (the dead token was forgotten)', async () => {
+    const d = deps({ lastRun: () => failed, isConnected: () => false });
+    const r = await runBackfill({ source: 'github' }, localEnv, d);
+    expect(text(r)).toContain('Last run failed: GitHub authentication failed (401)');
+    expect(text(r)).toContain('align connect github');
+  });
+
+  it('a run that finished fine, or never ran, adds nothing', async () => {
+    for (const lastRun of [() => null, () => ({ ...failed, state: 'done' as const, exit_code: 0 })]) {
+      expect(text(await runBackfill({ source: 'github' }, localEnv, deps({ lastRun })))).not.toContain('Last run failed');
+    }
   });
 });
 

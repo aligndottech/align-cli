@@ -38,14 +38,39 @@ function stateHome(): string {
   return path.join(os.homedir(), '.local', 'state');
 }
 
-/** The directory, created private, or null when it cannot be (or is a symlink someone planted). */
+/** One directory of the chain: a real directory (never a link someone planted), ours, private. */
+function ensureOwnPrivateDir(d: string): boolean {
+  try {
+    let st = fs.lstatSync(d, { throwIfNoEntry: false });
+    if (!st) {
+      fs.mkdirSync(d, { mode: 0o700 });
+      st = fs.lstatSync(d);
+    }
+    if (!st.isDirectory() || st.isSymbolicLink()) return false;
+    if (typeof process.getuid === 'function') {
+      if (st.uid !== process.getuid()) return false;
+      // Ours but open to the group or the world: tighten it. If that fails, do not trust it.
+      if ((st.mode & 0o077) !== 0) fs.chmodSync(d, 0o700);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The directory, created private, or null when anything BELOW the state home is not ours and
+ * private: `align-cli` and `backfill` are each checked with lstat before anything is created
+ * inside them, so a symlink planted at either is refused instead of written through. (The state
+ * home itself is the user's own choice and may legitimately sit behind links, as /var does on macOS.)
+ */
 export function backfillDir(): string | null {
   try {
-    const dir = path.join(stateHome(), 'align-cli', 'backfill');
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const st = fs.lstatSync(dir);
-    if (!st.isDirectory() || st.isSymbolicLink()) return null;
-    return dir;
+    const home = stateHome();
+    fs.mkdirSync(home, { recursive: true });
+    const base = path.join(home, 'align-cli');
+    const dir = path.join(base, 'backfill');
+    return ensureOwnPrivateDir(base) && ensureOwnPrivateDir(dir) ? dir : null;
   } catch {
     return null;
   }
@@ -84,12 +109,21 @@ export function pidAlive(pid: number): boolean {
   }
 }
 
+/** A "running" file older than this is a leftover (SIGKILL, OOM, reboot), whatever its pid says now:
+ *  pids are reused, and a backfill that has run for a day is not running. */
+const STALE_RUNNING_MS = 24 * 3_600_000;
+
 export function liveBackfills(dir: string, alive: (pid: number) => boolean = pidAlive): BackfillStatus[] {
   let names: string[];
   try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch { return []; }
   return names
     .map((n) => readStatus(path.join(dir, n)))
-    .filter((s): s is BackfillStatus => s !== null && s.state === 'running' && alive(s.pid));
+    .filter((s): s is BackfillStatus => s !== null && s.state === 'running' && !isStale(s) && alive(s.pid));
+}
+
+function isStale(s: BackfillStatus): boolean {
+  const started = Date.parse(s.started_at);
+  return Number.isNaN(started) || Date.now() - started > STALE_RUNNING_MS;
 }
 
 export function admit(
@@ -100,6 +134,73 @@ export function admit(
   if (same.length >= MAX_PER_SOURCE) return { ok: false, reason: 'source', running: same };
   if (live.length >= MAX_TOTAL) return { ok: false, reason: 'total', running: live };
   return { ok: true };
+}
+
+/** Sources whose slot THIS process has taken and not yet handed over to a status file. MCP does not
+ *  queue requests, so five tool calls can be in flight at once; the check and the take happen in
+ *  one synchronous stretch, before any await, or all five pass. */
+const reservedHere = new Set<string>();
+/** A placeholder older than this, or whose process is gone, is a leftover. */
+const LOCK_FRESH_MS = 60_000;
+
+export type Reservation =
+  | { ok: true; release(): void }
+  | { ok: false; reason: 'source' | 'total'; running: BackfillStatus[] }
+  /** The state directory could not be used safely, so no slot can be recorded: nothing starts. */
+  | { ok: false; reason: 'state'; running: [] };
+
+function lockHolderActive(file: string, alive: (pid: number) => boolean): boolean {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { pid?: number; at?: number };
+    return typeof raw.pid === 'number' && typeof raw.at === 'number' && Date.now() - raw.at < LOCK_FRESH_MS && alive(raw.pid);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Take a slot for `source`, SYNCHRONOUSLY (no await anywhere in here). Counts what is running
+ * (status files), what this process has reserved, and what other server processes have reserved
+ * (placeholder `<source>.lock` files made with O_EXCL, so two processes cannot both pass). The
+ * caller releases it once the child is confirmed (its status file then holds the slot) or has
+ * failed to start.
+ */
+export function reserveSlot(dir: string, source: string, alive: (pid: number) => boolean = pidAlive): Reservation {
+  const lock = path.join(dir, `${source}.lock`);
+  const held = new Map<string, BackfillStatus>();
+  for (const s of liveBackfills(dir, alive)) held.set(s.source, s);
+  for (const r of reservedHere) held.set(r, held.get(r) ?? { source: r, pid: process.pid, started_at: new Date().toISOString(), state: 'running' });
+  try {
+    for (const n of fs.readdirSync(dir)) {
+      if (!n.endsWith('.lock')) continue;
+      const src = n.slice(0, -'.lock'.length);
+      if (lockHolderActive(path.join(dir, n), alive)) held.set(src, held.get(src) ?? { source: src, pid: 0, started_at: new Date().toISOString(), state: 'running' });
+    }
+  } catch { /* an unreadable directory counts as empty; the exclusive create below still decides */ }
+  const admission = admit([...held.values()], source);
+  if (!admission.ok) return admission;
+  const take = (): boolean => {
+    try {
+      fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: Date.now() }), { flag: 'wx', mode: 0o600 });
+      return true;
+    } catch (e) {
+      if ((e as { code?: string }).code !== 'EEXIST') return true; // cannot make the file: the in-process set still holds
+      return false;
+    }
+  };
+  if (!take()) {
+    if (lockHolderActive(lock, alive)) return { ok: false, reason: 'source', running: [held.get(source) ?? { source, pid: 0, started_at: new Date().toISOString(), state: 'running' }] };
+    try { fs.unlinkSync(lock); } catch { /* raced with another process's cleanup */ }
+    if (!take()) return { ok: false, reason: 'source', running: [] };
+  }
+  reservedHere.add(source);
+  return {
+    ok: true,
+    release: () => {
+      reservedHere.delete(source);
+      try { fs.unlinkSync(lock); } catch { /* already gone */ }
+    },
+  };
 }
 
 /**
