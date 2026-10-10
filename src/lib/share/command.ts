@@ -2,15 +2,22 @@
  * L9: `align share` as a function of injected dependencies, returning an exit code. The commander
  * wrapper (commands/share.ts) wires the real config, gateway client and prompts; tests wire fakes.
  *
- * Who may complete a share: a person at a terminal. EVERY path (a plain `align share` and
- * `align share --confirm <code>`) shows the preview on the CONTROLLING terminal and needs a typed
- * yes there (default No). There is no `--yes`: a flag is exactly what an agent would pass. A caller
- * with no controlling terminal is refused. The known gap (an agent that allocates its own
- * pseudo-terminal) is stated in SECURITY.md.
+ * Who may complete a share depends on what the gateway says (GET /share-requests/config, ALI-1540):
+ *
+ * - `required`, or `available` without `--typed`: the person approves in a BROWSER session. This process stages
+ *   an encrypted request, prints a link and a code, waits, and sends only what the gateway says was approved.
+ *   It never prompts on a terminal and never calls shareBatch. It may run inside an agent (ALIGN_WRAPPED): an
+ *   agent can ask, and cannot approve, because the approve route refuses the CLI's token.
+ * - `off`, a gateway with no such route (404), or `available` with `--typed`: today's flow. EVERY path (a plain
+ *   `align share` and `align share --confirm <code>`) shows the preview on the CONTROLLING terminal and needs a
+ *   typed yes there (default No). There is no `--yes`: a flag is exactly what an agent would pass. A caller with
+ *   no controlling terminal, or inside an agent align launched, is refused. The known gap (an agent that
+ *   allocates its own pseudo-terminal) is stated in SECURITY.md. `required` never reaches this branch.
  */
 import { visible } from './visible.js';
 import { type EnvironmentConfig } from '../config.js';
 import { teamCtaLine } from '../team-cta.js';
+import { runBrowserShare } from './browser-flow.js';
 import { combinedHash, consumeCode, lookupCode, sweepPending } from './pending.js';
 import { prepare, type Prepared, ratifiedRows, renderResults, renderTeamText, retract, secretRefusal, send, type ShareClient, ShareError } from './run.js';
 import type { Judge } from '../curation/judgements-db.js';
@@ -22,7 +29,25 @@ export interface ShareOptions {
   sinceIso?: string;
   confirm?: string;
   retract?: string;
+  /** Use the typed-yes flow although the gateway offers browser approval (refused when it requires it). */
+  typed?: boolean;
   envName: string;
+}
+
+/** Everything the browser flow needs from the outside world, so tests drive it with a fake clock and no browser. */
+export interface ApprovalDeps {
+  /** The web app's base URL (the link's origin), from the environment. */
+  appUrl: string;
+  /** This machine's label, shown on the page as client-claimed. */
+  label: string;
+  openUrl?: (url: string) => Promise<boolean>;
+  sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  now: () => number;
+  /**
+   * Runs the waiting part with a signal that aborts on Ctrl-C (the request is then cancelled and nothing is sent),
+   * and takes the handler away afterwards. Absent, nothing can interrupt the wait but the expiry.
+   */
+  guard?: <T>(run: (signal: AbortSignal | undefined) => Promise<T>) => Promise<T>;
 }
 
 export interface ShareDeps {
@@ -36,14 +61,16 @@ export interface ShareDeps {
   judge: () => Promise<Judge>;
   /** The person's own git identity: `--all-ratified` shares only what they ratified. */
   owner: () => Promise<string>;
-  /** True inside an agent that `align` launched (ALIGN_WRAPPED): a share is then refused, as a speed bump. */
+  /** True inside an agent that `align` launched (ALIGN_WRAPPED): the TYPED flow is then refused, as a speed bump. Asking for browser approval is not. */
   wrapped: boolean;
+  approval: ApprovalDeps;
   /** Show `shown` and ask on the controlling terminal; null when there is no interactive terminal. */
   ttyConfirm: (shown: string, question: string) => Promise<boolean | null>;
   out: (line: string) => void;
   err: (line: string) => void;
 }
 
+const WRAPPED = 'align share needs your own answer typed at a terminal here, and this is not run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.';
 const NO_TERMINAL = 'Confirm this in your own terminal: there is no interactive terminal here (an agent shell, a pipe and a hook have none). Nothing was sent.';
 
 export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<number> {
@@ -51,10 +78,6 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
   // pending file's env). visible() is idempotent, so lines that were already escaped pass through unchanged.
   const out = (l: string): void => deps.out(visible(l, { keepNewline: true }));
   const err = (l: string): void => deps.err(visible(l, { keepNewline: true }));
-  if (deps.wrapped) {
-    err('align share is not run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.');
-    return 1;
-  }
   if (deps.cloudEnv.mode === 'demo') {
     err('align share needs a team account, and this environment is in demo mode. Run: align login');
     return 1;
@@ -73,10 +96,26 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
 
   try {
     if (opts.retract !== undefined) {
+      if (deps.wrapped) { err(WRAPPED); return 1; }
       const r = await retract(await ctx(), opts.retract);
       (r.ok ? out : err)(r.message);
       return r.ok ? 0 : 1;
     }
+
+    // Who approves is the gateway's call. A 404 is an older gateway (the typed flow); any other failure stops here
+    // and does NOT fall back, so a broken answer can never loosen the rule.
+    const cfg = await deps.client().shareRequestsConfig();
+    const mode = cfg?.mode ?? 'off';
+    if (mode === 'required' && (opts.typed || opts.confirm !== undefined)) {
+      err('This workspace requires approval in your browser, so --typed and --confirm are not accepted. Run: align share <id>. Nothing was sent.');
+      return 1;
+    }
+    const browser = mode === 'required' || (mode === 'available' && !opts.typed);
+    if (browser && opts.confirm !== undefined) {
+      err('Shares are approved in your browser on this gateway, so a confirmation code does not apply. Run: align share <id>. (Or add --typed to answer at this terminal.) Nothing was sent.');
+      return 1;
+    }
+    if (!browser && deps.wrapped) { err(WRAPPED); return 1; }
 
     let ids = opts.ids;
     let pendingCode: string | undefined;
@@ -106,6 +145,12 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     if (prep.secrets.length) { err(secretRefusal(prep.secrets)); return 1; }
     for (const a of prep.already) out(`Already shared as ${visible(a.remoteId)}: ${visible(a.title)}`);
     if (prep.payloads.length === 0) return 0;
+
+    if (browser) {
+      out(prep.preview);
+      const { guard, ...rest } = deps.approval;
+      return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, signal, client: c.client, out, err }));
+    }
 
     if (pendingCode !== undefined) {
       const found = lookupCode(pendingCode);

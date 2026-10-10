@@ -12,6 +12,7 @@ import { existingTitles, type Judge, listJudgements } from '../curation/judgemen
 import { createLocalDb, type DecisionRow } from '../local-db.js';
 import { getLegacyPromotion, getPromotion, ledgerReady, listPromotions, markRetracted, type Promotion, type PromotionWrite, recordPromotion, recordPromotions } from './ledger.js';
 import { visible } from './visible.js';
+import type { ShareRequestsApi } from './requests-client.js';
 import { buildSharePayload, clientKeyFor, type SharePayload } from './payload.js';
 import { type Destination, renderPreview } from './preview.js';
 import { scanForSecrets, scanHiddenText, scanSourceUrl, type SecretFinding } from './secret-scan.js';
@@ -24,7 +25,7 @@ export interface TeamDecision {
   decision_json?: { ai?: { decisions?: unknown; gherkin?: unknown; acceptance_criteria?: unknown } } | null;
 }
 
-export interface ShareClient {
+export interface ShareClient extends ShareRequestsApi {
   whoami(): Promise<{ user: { email: string }; tenant: { id: string; name: string } }>;
   shareBatch(items: Array<Record<string, unknown>>): Promise<BatchResponse>;
   getDecision(id: string): Promise<TeamDecision>;
@@ -155,11 +156,23 @@ export type RowResult = {
 export interface SendHooks {
   /** A matched share whose ratify/supersede wait on the team's text: show it, return whether the person agrees. */
   confirmTeamText?: (info: { localId: string; title: string; team: TeamDecision }) => Promise<boolean>;
+  /**
+   * Browser approval (ALI-1540): the batch goes out through the gateway's completion of a request the person
+   * approved, NOT through shareBatch. Called once per batch with phase 'share' (the caller already holds the
+   * answer) and once more with phase 'confirm' for a re-post that waits on the team's text. Null means that
+   * step was not approved (declined, expired, cancelled): nothing was posted for it.
+   */
+  post?: (batch: SharePayload[], phase: 'share' | 'confirm', confirm?: { remoteId: string; teamTextHash: string }) => Promise<BatchResponse | null>;
+  /**
+   * With `post`: whether the person can approve the team-text confirmation in this run. Absent, the judgements
+   * that wait on it stay unconfirmed and the result says so (a person re-runs the share to finish that step).
+   */
+  confirmByApproval?: boolean;
 }
 
-async function postBatch(ctx: ShareContext, batch: SharePayload[]): Promise<ItemOutcome[]> {
-  const res = await ctx.client.shareBatch(batch.map((p) => ({ ...p.item })));
-  return readOutcomes(batch.length, res);
+async function postBatch(ctx: ShareContext, batch: SharePayload[], hooks: SendHooks, phase: 'share' | 'confirm' = 'share', confirm?: { remoteId: string; teamTextHash: string }): Promise<ItemOutcome[] | null> {
+  const res = hooks.post ? await hooks.post(batch, phase, confirm) : await ctx.client.shareBatch(batch.map((p) => ({ ...p.item })));
+  return res === null ? null : readOutcomes(batch.length, res);
 }
 
 /** The judgements the gateway reported as stored, by hash. A null report stores nothing we can name. */
@@ -200,7 +213,8 @@ export async function send(ctx: ShareContext, prep: Prepared, hooks: SendHooks =
   const results: RowResult[] = [];
   for (let at = 0; at < prep.payloads.length; at += SHARE_BATCH_ITEMS) {
     const batch = prep.payloads.slice(at, at + SHARE_BATCH_ITEMS);
-    const outcomes = await postBatch(ctx, batch);
+    const outcomes = await postBatch(ctx, batch, hooks);
+    if (outcomes === null) throw new ShareError('The share was not approved, so nothing was posted.');
     const items: Item[] = batch.map((p, k) => {
       const outcome = outcomes[k]!;
       const prior = prep.priors.get(p.localId) ?? null;
@@ -224,19 +238,21 @@ export async function send(ctx: ShareContext, prep: Prepared, hooks: SendHooks =
       const { p, outcome } = it;
       if (outcome.kind === 'matched' && outcome.needsConfirmation.length > 0) {
         let team: TeamDecision | null = null;
-        if (outcome.teamTextHash && hooks.confirmTeamText) team = await ctx.client.getDecision(outcome.remoteId).catch(() => null);
+        const byApproval = hooks.post !== undefined && hooks.confirmByApproval === true && outcome.teamTextHash !== null;
+        if (!byApproval && outcome.teamTextHash && hooks.confirmTeamText) team = await ctx.client.getDecision(outcome.remoteId).catch(() => null);
         if (team !== null && !('decision_json' in team)) {
           it.warnings.push('the team\'s full text could not be read from this gateway, so your ratify was not confirmed.');
           team = null;
         }
-        const agreed = team !== null && await hooks.confirmTeamText!({ localId: p.localId, title: p.item.title, team });
+        const agreed = byApproval || (team !== null && hooks.confirmTeamText !== undefined && await hooks.confirmTeamText({ localId: p.localId, title: p.item.title, team }));
         if (agreed) {
           // Re-post ONLY what waited: a note or check verdict already stored must not be posted a second time.
           const need = new Set(outcome.needsConfirmation.map((n) => n.judgement_index));
           const waiting = p.shown.filter((_, i) => need.has(i));
           const again: SharePayload = { ...p, shown: waiting, item: { ...p.item, judgements: waiting.map((s) => ({ ...s.wire, confirm_team_text_hash: outcome.teamTextHash! })) } };
-          const second = (await postBatch(ctx, [again]))[0]!;
-          if (second.kind === 'matched') {
+          const second = (await postBatch(ctx, [again], hooks, 'confirm', byApproval ? { remoteId: outcome.remoteId, teamTextHash: outcome.teamTextHash! } : undefined))?.[0];
+          if (second === undefined) it.warnings.push('the confirmation of the team\'s text was not approved, so your ratify was not confirmed. Run the share again to try once more.');
+          else if (second.kind === 'matched') {
             for (const h of storedHashes(again, second.judgements)) it.stored.add(h);
             it.failures = failedJudgements(second.judgements);
             it.confirmPending = it.failures.length > 0;

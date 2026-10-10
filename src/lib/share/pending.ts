@@ -109,17 +109,113 @@ export function consumeCode(code: string): boolean {
 
 export const PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-/** Remove code files (and abandoned `.used` files) older than a day. Returns how many. Touches only its own directory. */
+/** Remove code files (and abandoned `.used` files) older than a day. Returns how many. Touches only its own directories. */
 export function sweepPending(now = new Date()): number {
-  const dir = dirOf();
-  if (dir === null) return 0;
   let n = 0;
-  for (const f of fs.readdirSync(dir)) {
-    if (!/\.(json|used)$/.test(f)) continue;
-    const file = path.join(dir, f);
-    try {
-      if (now.getTime() - fs.statSync(file).mtimeMs > PENDING_MAX_AGE_MS) { fs.rmSync(file, { force: true }); n += 1; }
-    } catch { /* gone already */ }
+  for (const dir of [dirOf(), requestsDir()]) {
+    if (dir === null) continue;
+    for (const f of fs.readdirSync(dir)) {
+      if (!/\.(json|used|claimed)$/.test(f)) continue;
+      const file = path.join(dir, f);
+      try {
+        if (now.getTime() - fs.statSync(file).mtimeMs > PENDING_MAX_AGE_MS) { fs.rmSync(file, { force: true }); n += 1; }
+      } catch { /* gone already */ }
+    }
   }
   return n;
+}
+
+/**
+ * ALI-1540: a share staged for BROWSER approval, kept so a later call (the MCP `align_share_status`) can finish it
+ * and so asking again returns the same live link instead of burning one of the gateway's five live requests.
+ *
+ * It holds what is secret: the key (it makes the link) and the exact plaintext bytes (decision text). So the file is
+ * 0600 in the same private directory as the codes, and it is deleted the moment the request reaches an end. The
+ * server never has the key; this file is the only other place it rests, by design, and an agent that staged the
+ * request already knew the text it sealed.
+ */
+export interface PendingRequest {
+  requestId: string;
+  kind: 'share' | 'confirm_team_text';
+  envName: string;
+  tenantId: string;
+  gatewayUrl: string;
+  /** base64url of the 32-byte key. */
+  keyB64Url: string;
+  /** The exact plaintext bytes, base64: what `complete` sends. */
+  bytesB64: string;
+  sha256: string;
+  /** combinedHash of the payloads this was built from: a changed local row is refused at completion. */
+  hash: string;
+  localIds: string[];
+  agentId: string;
+  userCode: string;
+  expiresAt: string;
+}
+
+const REQUEST_FILE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function requestsDir(): string | null {
+  const base = alignStateDir();
+  if (base === null) return null;
+  const dir = path.join(base, 'pending-requests');
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const st = fs.lstatSync(dir);
+    return st.isDirectory() && !st.isSymbolicLink() ? dir : null;
+  } catch { return null; }
+}
+
+/** Store a request. False when there is no safe place for it (the caller must then not hand out a link it cannot finish). */
+export function saveRequest(rec: PendingRequest): boolean {
+  const dir = requestsDir();
+  if (dir === null || !REQUEST_FILE_RE.test(rec.requestId)) return false;
+  try { fs.writeFileSync(path.join(dir, `${rec.requestId}.json`), JSON.stringify(rec), { mode: 0o600 }); return true; } catch { return false; }
+}
+
+export function loadRequest(id: string): PendingRequest | null {
+  const dir = requestsDir();
+  if (dir === null || !REQUEST_FILE_RE.test(id)) return null;
+  try { return JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf8')) as PendingRequest; } catch { return null; }
+}
+
+export function deleteRequest(id: string): void {
+  const dir = requestsDir();
+  if (dir === null || !REQUEST_FILE_RE.test(id)) return;
+  fs.rmSync(path.join(dir, `${id}.json`), { force: true });
+}
+
+/** A live request for the SAME payload and destination, if this machine staged one that has not run out. */
+export function findLiveRequest(hash: string, envName: string, now = new Date()): PendingRequest | null {
+  const dir = requestsDir();
+  if (dir === null) return null;
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.json')) continue;
+    let rec: PendingRequest | null = null;
+    try { rec = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as PendingRequest; } catch { continue; }
+    if (rec.kind === 'share' && rec.hash === hash && rec.envName === envName && Date.parse(rec.expiresAt) > now.getTime()) return rec;
+  }
+  return null;
+}
+
+export interface Claim { request: PendingRequest; finish: () => void; release: () => void }
+
+/**
+ * Take a request to finish it. Atomic like consumeCode: the file is RENAMED to a name only this call owns, and only
+ * the caller whose rename worked gets it, so two status calls cannot both complete the same share. `finish` deletes
+ * it for good; `release` puts it back (the completion call never reached a verdict, so a retry is still meaningful).
+ */
+export function claimRequest(id: string): Claim | null {
+  const dir = requestsDir();
+  if (dir === null || !REQUEST_FILE_RE.test(id)) return null;
+  const file = path.join(dir, `${id}.json`);
+  const mine = path.join(dir, `${id}.${process.pid}.${randomBytes(4).toString('hex')}.claimed`);
+  try { fs.renameSync(file, mine); } catch { return null; }
+  let request: PendingRequest;
+  try { request = JSON.parse(fs.readFileSync(mine, 'utf8')) as PendingRequest; } catch { fs.rmSync(mine, { force: true }); return null; }
+  return {
+    request,
+    finish: () => { fs.rmSync(mine, { force: true }); },
+    release: () => { try { fs.renameSync(mine, file); } catch { /* swept or gone */ } },
+  };
 }

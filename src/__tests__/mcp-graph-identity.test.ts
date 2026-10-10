@@ -81,12 +81,15 @@ describe('the retrieval tools say which graph they search', () => {
 
   it('keeps the tool set identical across modes, so only wording differs', () => {
     // LM: align_mark records into the local graph, so a hosted server does not offer it.
-    expect(toolSchemasFor(localEnv).map(t => t.name).filter(n => n !== 'align_mark' && n !== 'align_share')).toEqual(toolSchemasFor(cloudEnv).map(t => t.name));
+    expect(toolSchemasFor(localEnv).map(t => t.name).filter(n => n !== 'align_mark' && n !== 'align_share' && n !== 'align_share_status')).toEqual(toolSchemasFor(cloudEnv).map(t => t.name));
     expect(toolSchemasFor(localEnv).map(t => t.name)).toContain('align_mark');
     expect(toolSchemasFor(cloudEnv).map(t => t.name)).not.toContain('align_mark');
     // L9: align_share previews a share from the local graph, so a hosted server does not offer it either.
     expect(toolSchemasFor(localEnv).map(t => t.name)).toContain('align_share');
     expect(toolSchemasFor(cloudEnv).map(t => t.name)).not.toContain('align_share');
+    // ALI-1540: so is the tool that finishes it once the user approves in a browser.
+    expect(toolSchemasFor(localEnv).map(t => t.name)).toContain('align_share_status');
+    expect(toolSchemasFor(cloudEnv).map(t => t.name)).not.toContain('align_share_status');
   });
 });
 

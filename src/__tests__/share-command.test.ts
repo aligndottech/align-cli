@@ -10,6 +10,7 @@ import { issueCode } from '../lib/share/pending.js';
 import { prepare } from '../lib/share/run.js';
 import type { BatchResponse } from '../lib/share/wire.js';
 import { BOOK_CALL_URL, teamCtaLine } from '../lib/team-cta.js';
+import { approvalDeps, noShareRequests } from './helpers/share-requests-fake.js';
 
 /**
  * L9 Test List, `align share`:
@@ -56,13 +57,14 @@ function fixture(): Fx {
   const deps: ShareDeps = {
     cloudEnv: { mode: 'auth', gatewayUrl: 'https://x', authToken: 't', tenantId: 'T1' }, localDbPath: dbPath, salt: 'salt-1', defaultGatewayUrl: 'https://x',
     client: () => ({
+      ...noShareRequests,
       whoami: async () => { f.whoamiCalls.n++; return { user: { email: ME }, tenant: TENANT }; },
       shareBatch: async (items) => { f.sent.push(items); const r = f.reply.current; return typeof r === 'function' ? r(items, f.sent.length) : r; },
       getDecision: async () => f.team,
       archiveDecision: async (id) => { f.archived.push(id); },
     }),
     judge: async () => judge, owner: async () => ME,
-    wrapped: false,
+    wrapped: false, approval: approvalDeps,
     ttyConfirm: async (shown, q) => { f.asks.push(q); f.shown.push(shown); return f.tty.queue.length ? f.tty.queue.shift()! : f.tty.answer; },
     out: (l) => f.out.push(l), err: (l) => f.err.push(l),
   };

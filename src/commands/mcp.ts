@@ -17,7 +17,8 @@ import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
 import { BACKFILL_TOOL, BACKFILL_TOOL_SCHEMA, runBackfill } from '../lib/mcp-backfill.js';
 import { runScopeTool, SCOPE_TOOL, SCOPE_TOOL_SCHEMA } from '../lib/mcp-scope.js';
 import { runSyncTool, SYNC_TOOL, SYNC_TOOL_SCHEMA } from '../lib/mcp-sync.js';
-import { runShareTool, SHARE_TOOL, SHARE_TOOL_SCHEMA, type ShareToolContext } from '../lib/mcp/share-tool.js';
+import { runShareTool, SHARE_STATUS_TOOL, SHARE_TOOL, SHARE_TOOL_SCHEMA, type ShareToolContext } from '../lib/mcp/share-tool.js';
+import { runShareStatusTool, SHARE_STATUS_TOOL_SCHEMA } from '../lib/mcp/share-status-tool.js';
 import { MARK_TOOL, MARK_TOOL_SCHEMA, type MarkToolContext, runMarkTool } from '../lib/mcp/mark-tool.js';
 import { agentIdFrom } from '../lib/mcp/tool-rules.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
@@ -168,7 +169,7 @@ export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
     ? ' NOT AVAILABLE IN LOCAL MODE: this local graph has no implementation for it, so the call will fail. Use align_ask to search the local graph instead, or a cloud environment for this tool.'
     : '';
   // LM: align_mark writes to the local graph; a hosted server has nothing to write to, so it is not offered.
-  return TOOL_SCHEMAS.filter((tool) => local || (tool.name !== MARK_TOOL && tool.name !== SHARE_TOOL)).map(tool => {
+  return TOOL_SCHEMAS.filter((tool) => local || (tool.name !== MARK_TOOL && tool.name !== SHARE_TOOL && tool.name !== SHARE_STATUS_TOOL)).map(tool => {
     if (tool.name === 'align_ask' || tool.name === 'align_search') {
       return { ...tool, description: tool.description + suffix };
     }
@@ -226,7 +227,7 @@ export async function dispatchTool(
   // that does. Scoped to decisions on purpose: align_check_drift and align_check_alignment stay
   // available, and both send the cutoff so the gateway records no check event or drift row for
   // them (ALI-1429, ALI-1438).
-  if (createdBefore && (name === 'align_capture' || name === BACKFILL_TOOL || name === MARK_TOOL || name === SHARE_TOOL || (name === SYNC_TOOL && args?.['action'] === 'run'))) {
+  if (createdBefore && (name === 'align_capture' || name === BACKFILL_TOOL || name === MARK_TOOL || name === SHARE_TOOL || name === SHARE_STATUS_TOOL || (name === SYNC_TOOL && args?.['action'] === 'run'))) {
     throw new Error(
       name === 'align_capture'
         ? `align_capture adds a decision to the graph, and this server is frozen as of ${createdBefore}, ` +
@@ -300,9 +301,12 @@ export async function dispatchTool(
     // LM: records the USER's judgement on this machine only; attributed to the calling agent, never takes a credential.
     case MARK_TOOL:
       return runMarkTool(args, env, toolCtx);
-    // L9: step one of a share only. It previews and returns a code; it never sends (share-tool.ts).
+    // L9: an agent can ASK for a share (a browser approval link, or an older one-time code); it never sends (share-tool.ts).
     case SHARE_TOOL:
       return runShareTool(args, env, toolCtx);
+    // ALI-1540: completes a request the gateway says the PERSON approved, once; otherwise read-only (share-status-tool.ts).
+    case SHARE_STATUS_TOOL:
+      return runShareStatusTool(args, env, toolCtx);
     case 'align_check_alignment': {
       // ALI-1420: the gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
       // gateway that predates the parameter. No cutoff keeps the two-argument call.
@@ -637,6 +641,8 @@ export const TOOL_SCHEMAS = [
   MARK_TOOL_SCHEMA,
   // L9: appended after align_mark.
   SHARE_TOOL_SCHEMA,
+  // ALI-1540: appended after align_share.
+  SHARE_STATUS_TOOL_SCHEMA,
 ];
 
 /**

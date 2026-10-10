@@ -9,6 +9,7 @@ import { runShare, type ShareDeps } from '../lib/share/command.js';
 import { runShareTool, SHARE_TOOL } from '../lib/mcp/share-tool.js';
 import { lookupCode } from '../lib/share/pending.js';
 import { BOOK_CALL_URL } from '../lib/team-cta.js';
+import { approvalDeps, noShareRequests } from './helpers/share-requests-fake.js';
 
 /**
  * L9 Test List, align_share (step one only):
@@ -23,6 +24,7 @@ import { BOOK_CALL_URL } from '../lib/team-cta.js';
 let dir: string; let dbPath: string; let env: EnvironmentConfig; let id: string;
 const calls = { whoami: 0, shareBatch: 0, archive: 0 };
 const client = {
+  ...noShareRequests,
   whoami: async () => { calls.whoami++; return { user: { email: 'me@co.com' }, tenant: { id: 'T1', name: 'Acme' } }; },
   shareBatch: async () => { calls.shareBatch++; return { snapshots: [{ id: 'R0', request_index: 0 }] }; },
   getDecision: async () => ({}), archiveDecision: async () => { calls.archive++; },
@@ -126,7 +128,7 @@ describe('no sequence of tool calls sends a share', () => {
   it('the positive control: the human path through runShare does call it', async () => {
     const r = await runShareTool({ id }, env, ctx());
     const out: string[] = [];
-    const deps: ShareDeps = { cloudEnv: cloud, salt: 'salt-1', defaultGatewayUrl: 'https://x', localDbPath: dbPath, client: () => client, judge: async () => ({ judgeId: 'i', judgeLabel: null }), owner: async () => 'me@co.com', ttyConfirm: async () => true, wrapped: false, out: (l) => out.push(l), err: (l) => out.push(l) };
+    const deps: ShareDeps = { cloudEnv: cloud, salt: 'salt-1', defaultGatewayUrl: 'https://x', localDbPath: dbPath, client: () => client, judge: async () => ({ judgeId: 'i', judgeLabel: null }), owner: async () => 'me@co.com', ttyConfirm: async () => true, wrapped: false, approval: approvalDeps, out: (l) => out.push(l), err: (l) => out.push(l) };
     const code = await runShare({ ids: [], envName: 'prod', confirm: r.code as string }, deps);
     expect(code).toBe(0);
     expect(calls.shareBatch).toBe(1);

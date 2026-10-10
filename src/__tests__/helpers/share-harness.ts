@@ -11,6 +11,13 @@ export const canPty = process.platform !== 'win32' && spawnSync('python3', ['-c'
 
 export interface Harness {
   posts: Array<{ url: string; body: string }>;
+  /**
+   * The fake gateway's share-request routes (ALI-1540). `mode` null answers the config route 404, like an older gateway.
+   * `states` is the status the next polls return, in order (the last one repeats). Calls to these routes are logged
+   * in `requests`, NOT in `posts`, so "zero POSTs" assertions about /ingest/batch keep their meaning.
+   */
+  share: { mode: 'off' | 'available' | 'required' | null; states: string[]; staged: Array<{ id: string; body: Record<string, unknown> }> };
+  requests: Array<{ method: string; url: string; body: string; auth: string | undefined }>;
   reply: { batch: (n: number) => unknown };
   team: { current: Record<string, unknown> };
   ids: string[];
@@ -66,13 +73,37 @@ export async function startHarness(seed: (db: ReturnType<typeof createLocalDb>) 
   const dbPath = path.join(cfg, 'local.db');
   const db = createLocalDb(dbPath); const ids = seed(db); db.close();
   fs.writeFileSync(path.join(cfg, 'config.json'), JSON.stringify({ environments: { local: { mode: 'local-embedded', localDbPath: dbPath } }, defaultEnv: 'prod' }));
-  const h = { posts: [] as Harness['posts'], reply: { batch: (n: number): unknown => ({ snapshots: Array.from({ length: n }, (_, i) => ({ id: `R${i}`, request_index: i, is_new: true })) }) }, team: { current: { title: 'Team title', summary: 'Team summary', decision_json: {} } as Record<string, unknown> } };
+  const h = { posts: [] as Harness['posts'], requests: [] as Harness['requests'], share: { mode: null, states: ['pending'], staged: [] } as Harness['share'], reply: { batch: (n: number): unknown => ({ snapshots: Array.from({ length: n }, (_, i) => ({ id: `R${i}`, request_index: i, is_new: true })) }) }, team: { current: { title: 'Team title', summary: 'Team summary', decision_json: {} } as Record<string, unknown> } };
   const server = http.createServer((req, res) => {
     let body = ''; req.on('data', (c) => (body += c));
     req.on('end', () => {
       res.setHeader('content-type', 'application/json');
       if (req.url === '/auth/me') return res.end(JSON.stringify({ user: { id: 'u', email: 'me@acme.test', role: 'org_admin' }, tenant: { id: 'T1', name: 'Acme' } }));
       if (req.url?.startsWith('/snapshots/')) return res.end(JSON.stringify(h.team.current));
+      if (req.url?.startsWith('/share-requests')) {
+        h.requests.push({ method: req.method ?? '', url: req.url, body, auth: req.headers.authorization });
+        const url = req.url;
+        if (url === '/share-requests/config') {
+          if (h.share.mode === null) { res.statusCode = 404; return res.end(JSON.stringify({ error: 'not_found' })); }
+          return res.end(JSON.stringify({ mode: h.share.mode, pending_ttl_s: 900, complete_ttl_s: 600 }));
+        }
+        if (req.method === 'POST' && url === '/share-requests') {
+          const parsed = JSON.parse(body) as Record<string, unknown>;
+          h.share.staged.push({ id: String(parsed['id']), body: parsed });
+          res.statusCode = 201;
+          return res.end(JSON.stringify({ id: parsed['id'], user_code: 'KJ4M-9XQT', expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), approve_path: `/share/approve/${String(parsed['id'])}` }));
+        }
+        if (req.method === 'GET') {
+          const next = h.share.states.length > 1 ? h.share.states.shift()! : h.share.states[0]!;
+          return res.end(JSON.stringify({ state: next }));
+        }
+        if (url.endsWith('/cancel')) return res.end('{}');
+        if (url.endsWith('/complete')) {
+          const n = (JSON.parse(Buffer.from((JSON.parse(body) as { payload_b64: string }).payload_b64, 'base64').toString('utf8')) as { decisions?: unknown[] }).decisions?.length ?? 0;
+          return res.end(JSON.stringify(h.reply.batch(n)));
+        }
+        res.statusCode = 404; return res.end('{}');
+      }
       h.posts.push({ url: req.url ?? '', body });
       const n = (JSON.parse(body || '{}') as { decisions?: unknown[] }).decisions?.length ?? 0;
       res.end(JSON.stringify(h.reply.batch(n)));

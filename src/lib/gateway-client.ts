@@ -387,6 +387,8 @@ export interface BatchIngestResult {
 import { visible as visibleText } from './share/visible.js';
 export type { BatchResponse as ShareBatchResponse } from './share/wire.js';
 import type { BatchResponse as ShareBatchResponse } from './share/wire.js';
+import { toBatchDecisions } from './share/payload.js';
+import { shareRequestMethods } from './share/requests-client.js';
 
 export class GatewayError extends Error {
   constructor(message: string, public readonly statusCode: number) {
@@ -985,9 +987,11 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
      * rename `created_at` -> `decided_at` ingestBatch also makes.
      */
     async shareBatch(items: Array<Record<string, unknown> & { created_at?: string }>): Promise<ShareBatchResponse> {
-      const decisions = items.map(({ created_at, ...rest }) => ({ ...rest, ...(created_at ? { decided_at: created_at } : {}) }));
-      return request<ShareBatchResponse>('/ingest/batch', { method: 'POST', redirect: 'error', body: JSON.stringify({ decisions }) });
+      return request<ShareBatchResponse>('/ingest/batch', { method: 'POST', redirect: 'error', body: JSON.stringify({ decisions: toBatchDecisions(items) }) });
     },
+
+    // ALI-1540: browser approval. The routes and their parsing live in share/requests-client.ts.
+    ...shareRequestMethods(request),
 
     /** L9: retract a share (the existing archive route; it is the only undo the server has). */
     async archiveDecision(id: string): Promise<void> {
