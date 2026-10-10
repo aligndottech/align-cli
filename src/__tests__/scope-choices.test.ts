@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  githubRepoVisibility, gitlabProjectVisibility, listConfluenceSpaces, listJiraProjects, listLinearTeams, ScopeLookupError,
+  findConfluenceSpace, findJiraProject, findLinearTeam, githubRepoVisibility, gitlabProjectVisibility, listConfluenceSpaces, listJiraProjects, listLinearTeams, ScopeLookupError,
 } from '../lib/scope-choices.js';
 
 /**
@@ -35,7 +35,7 @@ describe('listJiraProjects', () => {
   it('reads project keys and names with basic auth from the saved fields, to the saved site only, without following redirects', async () => {
     const s = scripted([{ body: { values: [{ key: 'ALI', name: 'Align' }, { key: 'OPS', name: 'Ops' }], isLast: true } }]);
     const r = await listJiraProjects(jiraFields, s.fetch);
-    expect(r).toEqual([{ key: 'ALI', name: 'Align' }, { key: 'OPS', name: 'Ops' }]);
+    expect(r).toEqual({ items: [{ key: 'ALI', name: 'Align' }, { key: 'OPS', name: 'Ops' }], truncated: false });
     expect(s.calls).toHaveLength(1);
     expect(s.calls[0]!.url.startsWith('https://acme.atlassian.net/rest/api/3/project/search?')).toBe(true);
     expect((s.calls[0]!.init.headers as Record<string, string>)['Authorization']).toBe(`Basic ${Buffer.from(`me@acme.com:${TOKEN}`).toString('base64')}`);
@@ -47,7 +47,7 @@ describe('listJiraProjects', () => {
       { body: { values: [{ key: 'AAA', name: 'a' }], isLast: false, startAt: 0, maxResults: 1 } },
       { body: { values: [{ key: 'BBB', name: 'b' }], isLast: true, startAt: 1, maxResults: 1 } },
     ]);
-    expect((await listJiraProjects(jiraFields, s.fetch)).map((p) => p.key)).toEqual(['AAA', 'BBB']);
+    expect((await listJiraProjects(jiraFields, s.fetch)).items.map((p) => p.key)).toEqual(['AAA', 'BBB']);
     expect(s.calls).toHaveLength(2);
     expect(s.calls[1]!.url).toContain('startAt=1');
   });
@@ -85,7 +85,7 @@ describe('listConfluenceSpaces', () => {
       { body: { results: [{ key: 'OPS', name: 'Ops' }], _links: {} } },
     ]);
     const r = await listConfluenceSpaces(jiraFields, s.fetch);
-    expect(r).toEqual([{ key: 'ENG', name: 'Engineering' }, { key: 'OPS', name: 'Ops' }]);
+    expect(r.items).toEqual([{ key: 'ENG', name: 'Engineering' }, { key: 'OPS', name: 'Ops' }]);
     expect(s.calls[0]!.url.startsWith('https://acme.atlassian.net/wiki/api/v2/spaces?limit=250')).toBe(true);
     expect(s.calls[1]!.url).toBe('https://acme.atlassian.net/wiki/api/v2/spaces?cursor=abc&limit=250');
   });
@@ -93,7 +93,7 @@ describe('listConfluenceSpaces', () => {
   it('an absolute next link to another host is not followed with the credential', async () => {
     const s = scripted([{ body: { results: [{ key: 'ENG', name: 'E' }], _links: { next: 'https://evil.example/steal' } } }]);
     const r = await listConfluenceSpaces(jiraFields, s.fetch);
-    expect(r.map((x) => x.key)).toEqual(['ENG']);
+    expect(r.items.map((x) => x.key)).toEqual(['ENG']);
     expect(s.calls).toHaveLength(1);
   });
 
@@ -108,7 +108,7 @@ describe('listLinearTeams', () => {
   it('asks the GraphQL endpoint for team ids and keys; an API key goes bare, an OAuth token as Bearer (two examples)', async () => {
     const body = { data: { teams: { nodes: [{ id: 'id-1', key: 'ENG', name: 'Engineering' }] } } };
     const a = scripted([{ body }]);
-    expect(await listLinearTeams({ token: 'lin_api_abc' }, a.fetch)).toEqual([{ id: 'id-1', key: 'ENG', name: 'Engineering' }]);
+    expect((await listLinearTeams({ token: 'lin_api_abc' }, a.fetch)).items).toEqual([{ id: 'id-1', key: 'ENG', name: 'Engineering' }]);
     expect(a.calls[0]!.url).toBe('https://api.linear.app/graphql');
     expect((a.calls[0]!.init.headers as Record<string, string>)['Authorization']).toBe('lin_api_abc');
     const b = scripted([{ body }]);
@@ -174,5 +174,51 @@ describe('gitlabProjectVisibility', () => {
     const b = scripted([{ status: 200 }]);
     expect(await gitlabProjectVisibility({ token: TOKEN, domain: 'evil.com/x' }, '12', b.fetch)).toBe('unknown');
     expect(b.calls).toHaveLength(0);
+  });
+});
+
+describe('truncated lists and direct lookup of a named key', () => {
+  it('a list cut at the cap says so (Jira, Confluence, Linear)', async () => {
+    const jira = scripted([{ body: { values: [{ key: 'AAA', name: 'a' }, { key: 'BBB', name: 'b' }], isLast: false, startAt: 0, maxResults: 2 } }]);
+    expect(await listJiraProjects(jiraFields, jira.fetch, { max: 2 })).toMatchObject({ truncated: true });
+    expect(jira.calls).toHaveLength(1);
+    const conf = scripted([{ body: { results: [{ key: 'A', name: 'a' }, { key: 'B', name: 'b' }], _links: { next: '/wiki/api/v2/spaces?cursor=x' } } }]);
+    expect(await listConfluenceSpaces(jiraFields, conf.fetch, { max: 2 })).toMatchObject({ truncated: true });
+    const lin = scripted([{ body: { data: { teams: { nodes: [{ id: 'i', key: 'ENG', name: 'E' }], pageInfo: { hasNextPage: true } } } } }]);
+    expect(await listLinearTeams({ token: 'lin_api_abc' }, lin.fetch)).toMatchObject({ truncated: true });
+  });
+
+  it('a list that reached its end is not truncated, even at exactly the cap', async () => {
+    const jira = scripted([{ body: { values: [{ key: 'AAA', name: 'a' }, { key: 'BBB', name: 'b' }], isLast: true } }]);
+    expect(await listJiraProjects(jiraFields, jira.fetch, { max: 2 })).toMatchObject({ truncated: false });
+  });
+
+  it('findJiraProject asks for exactly that key on the saved site: 200 found, 404 not found, 401 is a refusal (three outcomes)', async () => {
+    const ok = scripted([{ body: { key: 'ALI', name: 'Align' } }]);
+    expect(await findJiraProject(jiraFields, 'ALI', ok.fetch)).toBe(true);
+    expect(ok.calls[0]!.url).toBe('https://acme.atlassian.net/rest/api/3/project/ALI');
+    expect(await findJiraProject(jiraFields, 'ALI', scripted([{ status: 404 }]).fetch)).toBe(false);
+    await expect(findJiraProject(jiraFields, 'ALI', scripted([{ status: 401 }]).fetch)).rejects.toMatchObject({ kind: 'auth' });
+  });
+
+  it('findConfluenceSpace asks for that key only and is true only when it comes back', async () => {
+    const hit = scripted([{ body: { results: [{ key: 'ENG', name: 'E' }] } }]);
+    expect(await findConfluenceSpace(jiraFields, 'ENG', hit.fetch)).toBe(true);
+    expect(hit.calls[0]!.url).toBe('https://acme.atlassian.net/wiki/api/v2/spaces?keys=ENG&limit=1');
+    expect(await findConfluenceSpace(jiraFields, 'ENG', scripted([{ body: { results: [] } }]).fetch)).toBe(false);
+  });
+
+  it('findLinearTeam filters on that key and returns its id, or undefined', async () => {
+    const hit = scripted([{ body: { data: { teams: { nodes: [{ id: 'id-9', key: 'ENG', name: 'E' }] } } } }]);
+    expect(await findLinearTeam({ token: 'lin_api_abc' }, 'ENG', hit.fetch)).toEqual({ id: 'id-9', key: 'ENG', name: 'E' });
+    expect(JSON.parse(String(hit.calls[0]!.init.body))).toMatchObject({ variables: { key: 'ENG' } });
+    expect(String(hit.calls[0]!.init.body)).not.toMatch(/eq: "ENG"/);
+    expect(await findLinearTeam({ token: 'lin_api_abc' }, 'ENG', scripted([{ body: { data: { teams: { nodes: [] } } } }]).fetch)).toBeUndefined();
+  });
+
+  it('a hostile stored domain makes no direct lookup request either', async () => {
+    const s = scripted([{}]);
+    await expect(findJiraProject({ ...jiraFields, domain: 'evil.com/x' }, 'ALI', s.fetch)).rejects.toBeInstanceOf(ScopeLookupError);
+    expect(s.calls).toHaveLength(0);
   });
 });

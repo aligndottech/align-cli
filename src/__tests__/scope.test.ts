@@ -360,6 +360,44 @@ describe('setScope', () => {
   });
 });
 
+describe('setScope with a truncated list (past the cap a real key is not "cannot see")', () => {
+  const cut: Route = [/rest\/api\/3\/project\/search/, { body: { values: [{ key: 'ALI', name: 'a' }], isLast: false, startAt: 0, maxResults: 1 } }];
+
+  it('Jira: a key missing from the cut list is asked for directly and accepted when it exists', async () => {
+    const d = deps({ listMax: 1, table: [cut, [/rest\/api\/3\/project\/OPS$/, { body: { key: 'OPS' } }]] });
+    await setScope(d, 'jira', { scope: 'team', values: ['ALI', 'OPS'] }, { via: 'cli' });
+    expect(d.store.scopes['jira']).toMatchObject({ kind: 'team', values: ['ALI', 'OPS'] });
+    expect(d.calls.some((u) => u.endsWith('/project/OPS'))).toBe(true);
+    expect(d.calls.some((u) => u.endsWith('/project/ALI'))).toBe(false);
+  });
+
+  it('Jira: a key that the direct lookup also cannot find is refused, and the message says the list was cut off', async () => {
+    const d = deps({ listMax: 1, table: [cut, [/project\/NOPE$/, { status: 404 }]] });
+    const err = await setScope(d, 'jira', { scope: 'team', values: ['NOPE'] }, { via: 'cli' }).catch((e: unknown) => e) as ScopeRefusal;
+    expect(err.kind).toBe('not_visible');
+    expect(err.message).toContain('NOPE');
+    expect(err.message).toContain('list was cut off after 1');
+    expect(d.store.scopes['jira']).toBeUndefined();
+  });
+
+  it('an untruncated list never makes a direct request (a missing key is just missing)', async () => {
+    const d = deps({ table: [jiraProjects('ALI')] });
+    await setScope(d, 'jira', { scope: 'team', values: ['NOPE'] }, { via: 'cli' }).catch(() => undefined);
+    expect(d.calls.every((u) => u.includes('/project/search'))).toBe(true);
+  });
+
+  it('Linear: a team key past the first page is found by its key and stored as its id', async () => {
+    const bodies = [
+      { data: { teams: { nodes: [{ id: 'id-A', key: 'AAA', name: 'a' }], pageInfo: { hasNextPage: true } } } },
+      { data: { teams: { nodes: [{ id: 'id-Z', key: 'ZZZ', name: 'z' }] } } },
+    ];
+    let n = 0;
+    const d = deps({ fetch: (async () => new Response(JSON.stringify(bodies[Math.min(n++, 1)]), { status: 200 })) as unknown as typeof fetch });
+    await setScope(d, 'linear', { scope: 'team', values: ['ZZZ'] }, { via: 'cli' });
+    expect(d.store.scopes['linear']).toEqual({ kind: 'team', values: ['id-Z'], labels: ['ZZZ'] });
+  });
+});
+
 describe('viewScopes', () => {
   it('lists connected sources only, with kind, key and words, and nothing secret', async () => {
     const store = memStore({ connected: ['github', 'jira', 'zoom', 'slack'], scopes: { jira: { kind: 'team', values: ['ALI', 'OPS'], labels: ['ALI', 'OPS'] } } });

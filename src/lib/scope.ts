@@ -17,7 +17,8 @@
 import fs from 'node:fs';
 import { CAPTURE_SOURCES } from './capture-sources.js';
 import {
-  type FetchLike, githubRepoVisibility, gitlabProjectVisibility, listConfluenceSpaces, listJiraProjects, listLinearTeams, ScopeLookupError,
+  type FetchLike, findConfluenceSpace, findJiraProject, findLinearTeam, githubRepoVisibility, gitlabProjectVisibility, listConfluenceSpaces, listJiraProjects,
+  listLinearTeams, ScopeLookupError,
 } from './scope-choices.js';
 import {
   describeScopeKey, disclosureText, fetchOptsFor, FIXED_SCOPES, normaliseScopeValues, SCOPED_SOURCES, type ScopedSource, type ScopeFetchOpts,
@@ -47,6 +48,8 @@ export interface ScopeDeps {
   /** `group/project` when the folder's remote is on gitlab.com. */
   cwdGitlabProject(): Promise<string | undefined>;
   fetch: FetchLike;
+  /** Cap on how many projects, spaces or teams a lookup lists before it calls the list truncated. Tests lower it; absent is the real cap. */
+  listMax?: number;
 }
 
 export interface ResolvedScope {
@@ -189,18 +192,31 @@ async function verify(source: ScopedSource, raw: unknown, deps: ScopeDeps, field
       }
       case 'jira':
       case 'confluence': {
-        const visible = new Set((source === 'jira' ? await listJiraProjects(fields, deps.fetch) : await listConfluenceSpaces(fields, deps.fetch)).map((x) => x.key));
-        const missing = given.filter((g) => !visible.has(g));
+        const cap = deps.listMax !== undefined ? { max: deps.listMax } : {};
+        const listed = source === 'jira' ? await listJiraProjects(fields, deps.fetch, cap) : await listConfluenceSpaces(fields, deps.fetch, cap);
+        const visible = new Set(listed.items.map((x) => x.key));
+        let missing = given.filter((g) => !visible.has(g));
+        // A truncated list cannot say a key is invisible: ask for each missing key directly.
+        if (listed.truncated && missing.length > 0) {
+          const still: string[] = [];
+          for (const k of missing) if (!(source === 'jira' ? await findJiraProject(fields, k, deps.fetch) : await findConfluenceSpace(fields, k, deps.fetch))) still.push(k);
+          missing = still;
+        }
         if (missing.length > 0) {
-          throw new ScopeRefusal(`Your ${name} token cannot see ${source === 'jira' ? 'these projects' : 'these spaces'}: ${missing.join(', ')}. Nothing was changed.`, 'not_visible');
+          throw new ScopeRefusal(`Your ${name} token cannot see ${source === 'jira' ? 'these projects' : 'these spaces'}: ${missing.join(', ')}.${listed.truncated ? ` The list was cut off after ${listed.items.length}, so each was also asked for directly.` : ''} Nothing was changed.`, 'not_visible');
         }
         return { values: given, labels: given };
       }
       case 'linear': {
-        const teams = await listLinearTeams(fields, deps.fetch);
-        const found = given.map((g) => teams.find((t) => t.id === g || t.key === g));
+        const listed = await listLinearTeams(fields, deps.fetch);
+        const found = given.map((g) => listed.items.find((t) => t.id === g || t.key === g));
+        if (listed.truncated) {
+          for (let i = 0; i < given.length; i++) if (found[i] === undefined) found[i] = await findLinearTeam(fields, given[i]!, deps.fetch);
+        }
         const missing = given.filter((_, i) => found[i] === undefined);
-        if (missing.length > 0) throw new ScopeRefusal(`Your Linear token cannot see these teams: ${missing.join(', ')}. Nothing was changed.`, 'not_visible');
+        if (missing.length > 0) {
+          throw new ScopeRefusal(`Your Linear token cannot see these teams: ${missing.join(', ')}.${listed.truncated ? ` The list was cut off after ${listed.items.length}, so each key was also asked for directly.` : ''} Nothing was changed.`, 'not_visible');
+        }
         const hits = found as Array<{ id: string; key: string }>;
         return { values: hits.map((t) => t.id), labels: hits.map((t) => t.key) };
       }

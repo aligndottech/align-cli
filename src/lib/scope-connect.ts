@@ -83,11 +83,11 @@ function flagInput(source: ScopedSource, flags: ScopeFlags): SetInput | undefine
   return value !== undefined ? { scope: 'team', values: value } : undefined;
 }
 
-type Lister = (tokens: Record<string, string>, f: ScopeDeps['fetch']) => Promise<Array<{ key: string; name: string }>>;
+type Lister = (tokens: Record<string, string>, f: ScopeDeps['fetch'], o: { max?: number }) => Promise<{ items: Array<{ key: string; name: string }>; truncated: boolean }>;
 const LISTERS: Partial<Record<ScopedSource, Lister>> = {
   jira: listJiraProjects,
   confluence: listConfluenceSpaces,
-  linear: async (t, f) => (await listLinearTeams(t, f)).map(({ key, name }) => ({ key, name })),
+  linear: async (t, f) => { const r = await listLinearTeams(t, f); return { items: r.items.map(({ key, name }) => ({ key, name })), truncated: r.truncated }; },
 };
 
 /** Decide the scope of one source being connected, with the in-flight `tokens`. May print (disclosure, notes). Throws to refuse. */
@@ -125,7 +125,11 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
   };
   const resolved = async (): Promise<ScopeDecision> => fromResolved(await resolveScope(source, deps, { foreground: true }));
   const list = async (): Promise<Array<{ key: string; name: string }> | undefined> => {
-    try { return await LISTERS[source]!(tokens, deps.fetch); } catch (e) {
+    try {
+      const r = await LISTERS[source]!(tokens, deps.fetch, deps.listMax !== undefined ? { max: deps.listMax } : {});
+      if (r.truncated) tell(`Only the first ${r.items.length} ${WHAT[source as keyof typeof WHAT]} are listed. To pick one that is not shown: align connect --source ${source} ${source === 'jira' ? '--projects' : source === 'linear' ? '--teams' : '--spaces'} KEYS`);
+      return r.items;
+    } catch (e) {
       if (!(e instanceof ScopeLookupError)) throw e;
       if (source === 'confluence') throw blocked(`${e.message} Confluence reads only the spaces you choose, so nothing was read. Pick them: align connect --source confluence --spaces ENG,OPS`);
       tell(`Could not list your ${WHAT[source as keyof typeof WHAT]}: ${e.message}`);

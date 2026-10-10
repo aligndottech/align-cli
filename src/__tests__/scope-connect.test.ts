@@ -224,6 +224,17 @@ describe('an explicit yours is remembered', () => {
   });
 });
 
+describe('a truncated project list', () => {
+  it('the picker says so and how to name a project that is not shown', async () => {
+    const cut: Route = [/project\/search/, { body: { values: [{ key: 'ALI', name: 'a' }], isLast: false } }];
+    const s = setup({ interactive: true, table: [cut], picks: [] });
+    s.deps.listMax = 1;
+    await decideConnectScope('jira', TOKENS.jira, s.ctx);
+    expect(s.said.join('\n')).toContain('Only the first 1 Jira projects are listed');
+    expect(s.said.join('\n')).toContain('--projects KEYS');
+  });
+});
+
 describe('Linear', () => {
   it('interactive: team keys are offered, the cited ones preselected, and the choice reaches the fetcher as ids', async () => {
     const s = setup({ interactive: true, cited: ['ENG', 'GONE'], table: [teams('ENG', 'OPS')], picks: ['ENG'] });

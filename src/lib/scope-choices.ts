@@ -57,57 +57,102 @@ function atlassianHeaders(fields: Record<string, string>): Record<string, string
   return { Authorization: `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`, Accept: 'application/json' };
 }
 
-export async function listJiraProjects(fields: Record<string, string>, f: FetchLike): Promise<Array<{ key: string; name: string }>> {
+export interface Listed<T> {
+  items: T[];
+  /** True when the vendor had more than was read. A key missing from a truncated list is NOT known to be invisible: look it up directly. */
+  truncated: boolean;
+}
+
+export async function listJiraProjects(fields: Record<string, string>, f: FetchLike, o: { max?: number } = {}): Promise<Listed<{ key: string; name: string }>> {
+  const max = o.max ?? MAX_LISTED;
   const host = hostOf('Jira', fields['domain']);
   const headers = atlassianHeaders(fields);
-  const out: Array<{ key: string; name: string }> = [];
-  for (let startAt = 0; out.length < MAX_LISTED;) {
+  const items: Array<{ key: string; name: string }> = [];
+  let truncated = false;
+  for (let startAt = 0; items.length < max;) {
     const page = asRecord(await get('Jira', `https://${host}/rest/api/3/project/search?maxResults=100&startAt=${startAt}`, headers, f));
     const values = Array.isArray(page['values']) ? page['values'] : [];
     for (const v of values) {
       const key = text(asRecord(v)['key']);
-      if (key !== undefined) out.push({ key, name: text(asRecord(v)['name']) ?? key });
+      if (key !== undefined) items.push({ key, name: text(asRecord(v)['name']) ?? key });
     }
     if (page['isLast'] !== false || values.length === 0) break;
     startAt += values.length;
+    if (items.length >= max) truncated = true;
   }
-  return out;
+  return { items, truncated };
 }
 
-export async function listConfluenceSpaces(fields: Record<string, string>, f: FetchLike): Promise<Array<{ key: string; name: string }>> {
+export async function listConfluenceSpaces(fields: Record<string, string>, f: FetchLike, o: { max?: number } = {}): Promise<Listed<{ key: string; name: string }>> {
+  const max = o.max ?? MAX_LISTED;
   const host = hostOf('Confluence', fields['domain']);
   const headers = atlassianHeaders(fields);
   const base = `https://${host}`;
-  const out: Array<{ key: string; name: string }> = [];
+  const items: Array<{ key: string; name: string }> = [];
+  let truncated = false;
   let next: string | undefined = '/wiki/api/v2/spaces?limit=250';
-  while (next !== undefined && out.length < MAX_LISTED) {
+  while (next !== undefined) {
     const page = asRecord(await get('Confluence', `${base}${next}`, headers, f));
     for (const v of Array.isArray(page['results']) ? page['results'] : []) {
       const key = text(asRecord(v)['key']);
-      if (key !== undefined) out.push({ key, name: text(asRecord(v)['name']) ?? key });
+      if (key !== undefined) items.push({ key, name: text(asRecord(v)['name']) ?? key });
     }
     // Only a path on the same site is followed: an absolute link elsewhere would carry the credential to another host.
     const link = text(asRecord(page['_links'])['next']);
     next = link !== undefined && link.startsWith('/') && !link.startsWith('//') ? link : undefined;
+    if (next !== undefined && items.length >= max) { truncated = true; break; }
   }
-  return out;
+  return { items, truncated };
 }
 
-export async function listLinearTeams(fields: Record<string, string>, f: FetchLike): Promise<Array<{ id: string; key: string; name: string }>> {
+function linearHeaders(fields: Record<string, string>): Record<string, string> {
   const token = fields['token'];
   if (!token) throw new ScopeLookupError('The Linear connection has no token saved. Reconnect: align connect linear', 'unsupported');
   // A personal API key goes bare and an OAuth token as Bearer; Linear refuses the other way round with a 400 (connector-core).
-  const headers = { Authorization: token.startsWith('lin_api_') ? token : `Bearer ${token}`, 'Content-Type': 'application/json' };
-  const body = await get('Linear', 'https://api.linear.app/graphql', headers, f, { method: 'POST', body: JSON.stringify({ query: 'query { teams(first: 100) { nodes { id key name } } }' }) });
-  const nodes = asRecord(asRecord(asRecord(body)['data'])['teams'])['nodes'];
-  if (!Array.isArray(nodes)) throw new ScopeLookupError('Linear did not return a team list.', 'unreachable');
-  const out: Array<{ id: string; key: string; name: string }> = [];
-  for (const n of nodes) {
+  return { Authorization: token.startsWith('lin_api_') ? token : `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+
+type LinearTeam = { id: string; key: string; name: string };
+const toTeams = (nodes: unknown): LinearTeam[] => {
+  const out: LinearTeam[] = [];
+  for (const n of Array.isArray(nodes) ? nodes : []) {
     const id = text(asRecord(n)['id']);
     const key = text(asRecord(n)['key']);
     if (id !== undefined && key !== undefined) out.push({ id, key, name: text(asRecord(n)['name']) ?? key });
   }
   return out;
+};
+
+export async function listLinearTeams(fields: Record<string, string>, f: FetchLike): Promise<Listed<LinearTeam>> {
+  const body = await get('Linear', 'https://api.linear.app/graphql', linearHeaders(fields), f, { method: 'POST', body: JSON.stringify({ query: 'query { teams(first: 100) { nodes { id key name } pageInfo { hasNextPage } } }' }) });
+  const teams = asRecord(asRecord(asRecord(body)['data'])['teams']);
+  if (!Array.isArray(teams['nodes'])) throw new ScopeLookupError('Linear did not return a team list.', 'unreachable');
+  return { items: toTeams(teams['nodes']), truncated: asRecord(teams['pageInfo'])['hasNextPage'] === true };
+}
+
+/** One team by key, for a key a truncated list did not show. */
+export async function findLinearTeam(fields: Record<string, string>, key: string, f: FetchLike): Promise<LinearTeam | undefined> {
+  // The key travels as a GraphQL variable, never spliced into the query text.
+  const query = 'query($key: String!) { teams(first: 1, filter: { key: { eq: $key } }) { nodes { id key name } } }';
+  const body = await get('Linear', 'https://api.linear.app/graphql', linearHeaders(fields), f, { method: 'POST', body: JSON.stringify({ query, variables: { key } }) });
+  return toTeams(asRecord(asRecord(asRecord(body)['data'])['teams'])['nodes'])[0];
+}
+
+/** Is this one project visible? Asked directly, for a key a truncated list did not show. A refused token is an error, not "no". */
+export async function findJiraProject(fields: Record<string, string>, key: string, f: FetchLike): Promise<boolean> {
+  const host = hostOf('Jira', fields['domain']);
+  const headers = atlassianHeaders(fields);
+  const code = await status(`https://${host}/rest/api/3/project/${encodeURIComponent(key)}`, headers, f);
+  if (code === 200) return true;
+  if (code === 404) return false;
+  if (code === 401 || code === 403) throw new ScopeLookupError('Jira refused the saved token. Reconnect: align connect jira', 'auth');
+  throw new ScopeLookupError(`Could not check Jira project ${key} (Jira answered ${code ?? 'nothing'}).`, 'unreachable');
+}
+
+export async function findConfluenceSpace(fields: Record<string, string>, key: string, f: FetchLike): Promise<boolean> {
+  const host = hostOf('Confluence', fields['domain']);
+  const page = asRecord(await get('Confluence', `https://${host}/wiki/api/v2/spaces?keys=${encodeURIComponent(key)}&limit=1`, atlassianHeaders(fields), f));
+  return (Array.isArray(page['results']) ? page['results'] : []).some((v) => asRecord(v)['key'] === key);
 }
 
 async function status(url: string, headers: Record<string, string>, f: FetchLike): Promise<number | undefined> {
