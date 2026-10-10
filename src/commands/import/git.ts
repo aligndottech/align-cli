@@ -13,7 +13,7 @@ import { gitCaptureReport } from '../../lib/fetchers/git.js';
 import { commandIntro } from '../../lib/brand.js';
 import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS } from '../../lib/import-defaults.js';
 import { windowLabel } from '../../lib/since.js';
-import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
+import { sinceFromFlag } from '../../lib/since-flag.js';
 
 interface GitImportOpts {
   limit: string;
