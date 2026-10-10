@@ -17,8 +17,11 @@ import { visible } from './share/visible.js';
 type ConfigStore = ReturnType<typeof createConfigStore>;
 
 export interface JoinDeps {
-  config: Pick<ConfigStore, 'hasTeamDestination' | 'saveTeamDestination' | 'getShareDestination' | 'setShareDestination'>;
+  config: Pick<ConfigStore, 'hasTeamDestination' | 'saveTeamDestination' | 'getShareDestination' | 'setShareDestination' | 'getEnvironment'>;
+  /** stdin AND stdout are terminals. Joining is a person's act: it never runs without one. */
   isTTY: boolean;
+  /** Inside an agent align launched (ALIGN_WRAPPED). Such a process is not the person, so it cannot join. */
+  wrapped: boolean;
   out(line: string): void;
   openUrl(url: string): Promise<boolean>;
   /** One line typed by the person, or null if they cancelled. Only called on a terminal. */
@@ -39,13 +42,12 @@ export interface JoinInput {
   gateway?: string;
   name?: string;
   replace?: boolean;
-  confirmHost?: string;
-  makeShareDestination?: boolean;
 }
 
 export type JoinResult = { ok: true; name: string; expiresAt?: string } | { ok: false; reason: string };
 
 const PEEK_MAX_BYTES = 16 * 1024;
+const ORG_NOTE = 'chosen by that organisation, not verified by Align';
 const PEEK_TIMEOUT_MS = 10_000;
 const ORG_NAME_MAX = 100;
 const TOKEN_SHAPE = /^[\x21-\x7e]{8,512}$/;
@@ -57,6 +59,12 @@ export async function runJoin(deps: JoinDeps, input: JoinInput): Promise<JoinRes
     deps.out(`\nNothing was saved and no browser was opened.\n  ${reason}\n`);
     return { ok: false, reason };
   };
+
+  // First, before any request: a join gives a server a credential and a place to send shares, so it is a person's act, at a
+  // terminal of their own. An agent (or a script) that has been handed a link must not be able to finish it, whichever host
+  // the link names, and the refusal says nothing about a way around it.
+  if (deps.wrapped) return refuse('align join has to be run by you, in your own terminal, not from inside an agent.');
+  if (!deps.isTTY) return refuse('align join needs a terminal: both input and output must be a terminal, so a person answers the questions.');
 
   let link;
   try {
@@ -88,6 +96,10 @@ export async function runJoin(deps: JoinDeps, input: JoinInput): Promise<JoinRes
   if (peeked.gatewayClaim !== undefined && peeked.gatewayClaim !== link.gatewayUrl) {
     return refuse(`The link names the server ${gwHost}, but that server says it is ${new URL(peeked.gatewayClaim).host}. Neither was used.`);
   }
+  // A gateway that wrote gw= into the link also reports its own address when asked. An answer with none, to a link that carried one, is not that gateway.
+  if (peeked.gatewayClaim === undefined && link.gatewayFromLink) {
+    return refuse(`The link names the server ${gwHost}, but that server did not say it is the one that made the link. Ask for a new link.`);
+  }
 
   const claimed = visible(peeked.orgName).slice(0, ORG_NAME_MAX);
   const gwShown = describeHost(gwHost);
@@ -95,33 +107,36 @@ export async function runJoin(deps: JoinDeps, input: JoinInput): Promise<JoinRes
   deps.out('\nJoining a team graph');
   deps.out(`  Gateway:  ${gwShown.text}`);
   deps.out(`  Web app:  ${appShown.text}`);
-  deps.out(`  Org:      "${claimed || '(no name given)'}" (as claimed by ${gwHost})`);
+  deps.out(`  Org:      "${claimed || '(no name given)'}" (${ORG_NOTE})`);
   for (const w of new Set([gwShown.warning, appShown.warning])) if (w) deps.out(`  Warning:  ${w}`);
 
+  const hostTyped = { done: false };
   if (needsTypeBack(gwHost, peekAppHost)) {
-    const typed = input.confirmHost !== undefined ? input.confirmHost : await typeBack(deps, gwHost);
-    if (typed === null) return refuse(`This server is not under align.tech, so the host has to be confirmed. Re-run with --confirm-host ${gwHost} to confirm it without a prompt.`);
-    if (typed.trim().toLowerCase() !== gwHost) return refuse(`"${visible(typed.slice(0, 80))}" is not ${gwHost}.`);
+    const typed = await typeBack(deps, gwHost);
+    if (typed === null || typed.trim().toLowerCase() !== gwHost) return refuse(`That is not ${gwHost}, so nothing was done.`);
+    hostTyped.done = true;
+  } else {
+    // An Align address does not make the org name Align's: any hosted org picks its own name and can issue invites.
+    const yes = await deps.promptLine(`Join "${claimed}" at ${gwHost}? The name is ${ORG_NOTE}. Type y to continue: `);
+    if (yes === null || !/^y(es)?$/i.test(yes.trim())) return refuse('You did not answer y, so nothing was done.');
   }
 
   const derived = input.name ?? slugOrgName(claimed);
   if (!derived) return refuse('Could not make a name from the org name. Choose one with --name <name>.');
   const name = derived;
-  if (deps.config.hasTeamDestination(name) && !input.replace) {
-    return refuse(`You already have a destination called "${name}". Use --replace to replace it, or --name <other> to keep both.`);
+  if (deps.config.hasTeamDestination(name)) {
+    if (!input.replace) return refuse(`You already have a destination called "${name}". Use --replace to replace it, or --name <other> to keep both.`);
+    const refusal = await confirmReplace(deps, name, gwHost, claimed, hostTyped.done);
+    if (refusal) return refuse(refusal);
   }
 
-  const received = await receive(deps, link.token, peekApp);
+  const received = await receive(deps, link.token, peekApp, link.gatewayUrl);
   if (typeof received === 'string') return refuse(received);
 
-  let me;
-  try {
-    me = await createGatewayClient({ gatewayUrl: link.gatewayUrl, authToken: received.token, tenantId: null, mode: 'auth' }).whoami();
-  } catch (e) {
-    return refuse(`${gwHost} did not accept the new token (${visible(String((e as Error).message).slice(0, 120))}).`);
-  }
+  const me = await verifyToken(link.gatewayUrl, received.token);
+  if (typeof me === 'string') return refuse(`${gwHost} ${me}`);
 
-  const tenantName = visible(String(me.tenant?.name ?? '')).slice(0, ORG_NAME_MAX);
+  const tenantName = visible(me.tenantName).slice(0, ORG_NAME_MAX);
   if (tenantName.trim() !== claimed.trim()) {
     deps.out(`\n  Heads up: the invite said "${claimed}" but you are signed in to "${tenantName}". Both come from ${gwHost}, so neither proves who runs it.`);
   }
@@ -130,22 +145,53 @@ export async function runJoin(deps: JoinDeps, input: JoinInput): Promise<JoinRes
     gatewayUrl: link.gatewayUrl,
     appUrl: peekApp,
     authToken: received.token,
-    tenantId: me.tenant?.id ?? null,
+    tenantId: me.tenantId,
     orgNameClaimed: claimed,
   }, deps.now());
 
-  await chooseShareDestination(deps, name, input.makeShareDestination === true);
+  await chooseShareDestination(deps, name, claimed, gwHost);
 
-  deps.out(`\nJoined as "${name}" (${me.user.email}, ${tenantName}).`);
+  deps.out(`\nJoined as "${name}" (${visible(me.email)}, ${tenantName}).`);
   if (received.expiresAt) deps.out(`  This access expires on ${received.expiresAt.slice(0, 10)}. Renew it with: align login --env ${name}`);
   deps.out(`  Use it with: align <command> --env ${name}`);
   return received.expiresAt ? { ok: true, name, expiresAt: received.expiresAt } : { ok: true, name };
 }
 
+/** Replacing a destination points a saved name at a server a person has not used under that name. Never silent. */
+async function confirmReplace(deps: JoinDeps, name: string, newHost: string, claimed: string, hostAlreadyTyped: boolean): Promise<string | null> {
+  let oldHost = '(unknown)';
+  try { oldHost = new URL(deps.config.getEnvironment(name as never).gatewayUrl).host; } catch { /* unreadable entry: shown as unknown */ }
+  deps.out(`\n  Replacing "${name}":  ${describeHost(oldHost).text}  ->  ${describeHost(newHost).text}`);
+  if (!hostAlreadyTyped) {
+    const typed = await deps.promptLine('Type the new gateway host to confirm the replacement: ');
+    if (typed === null || typed.trim().toLowerCase() !== newHost) return `That is not ${newHost}, so "${name}" was not replaced.`;
+  }
+  if (deps.config.getShareDestination() === name) {
+    const ok = await deps.confirm(`"${name}" is where "align share" sends decisions. Send them to "${claimed}" at ${newHost} instead?`);
+    if (!ok) return `"${name}" was not replaced: it is where your shares go, and you did not agree to move them.`;
+  }
+  return null;
+}
+
 async function typeBack(deps: JoinDeps, gwHost: string): Promise<string | null> {
-  if (!deps.isTTY) return null;
   deps.out(`\n  ${gwHost} is not an Align address. If you did not expect this link, stop here.`);
   return deps.promptLine('Type the gateway host to confirm: ');
+}
+
+/** Reads at most `max` bytes, and stops reading (cancels the stream) the moment it would pass that. Null when the body is too big. */
+async function readCapped(res: Response, max: number): Promise<string | null> {
+  const reader = res.body?.getReader();
+  if (!reader) return '';
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) { await reader.cancel().catch(() => undefined); return null; }
+    parts.push(value);
+  }
+  return Buffer.concat(parts).toString('utf8');
 }
 
 async function peek(gatewayUrl: string, token: string): Promise<(Peek & { gatewayClaim: string | undefined }) | string> {
@@ -164,8 +210,8 @@ async function peek(gatewayUrl: string, token: string): Promise<(Peek & { gatewa
   if (!res.ok) return `${host} answered ${res.status} when asked about the invite.`;
   let body: unknown;
   try {
-    const text = await res.text();
-    if (text.length > PEEK_MAX_BYTES) return `${host} sent an unexpectedly large answer.`;
+    const text = await readCapped(res, PEEK_MAX_BYTES);
+    if (text === null) return `${host} sent an unexpectedly large answer.`;
     body = JSON.parse(text);
   } catch {
     return `${host} did not answer with an invite description.`;
@@ -187,14 +233,16 @@ async function peek(gatewayUrl: string, token: string): Promise<(Peek & { gatewa
   return { orgName: typeof b.org_name === 'string' ? b.org_name : '', appUrl: b.app_url, gatewayClaim };
 }
 
-async function receive(deps: JoinDeps, token: string, appUrl: string): Promise<{ token: string; expiresAt?: string } | string> {
+async function receive(deps: JoinDeps, token: string, appUrl: string, gatewayUrl: string): Promise<{ token: string; expiresAt?: string } | string> {
   let result: CallbackResult;
   try {
     result = await deps.waitForCallback({
       ports: deps.callbackPorts,
       timeoutMs: deps.timeoutMs,
       onBound: async (port, nonce) => {
-        const url = `${appUrl}/join?token=${token}&cli_port=${port}&cli_nonce=${nonce}`;
+        // cli_gw: the gateway THIS CLI validated. The web app is the one party that knows its own gateway, so it can refuse a
+        // link whose gw= was swapped for another server's, which no check on this side can tell from the real one.
+        const url = `${appUrl}/join?token=${token}&cli_port=${port}&cli_nonce=${nonce}&cli_gw=${encodeURIComponent(gatewayUrl)}`;
         deps.out(`\nOpening your browser at:\n  ${url}`);
         if (!(await deps.openUrl(url))) deps.out('  Could not open a browser here. Open that link yourself.');
         deps.out('Waiting for you to approve in the browser (5 min)...');
@@ -211,16 +259,46 @@ async function receive(deps: JoinDeps, token: string, appUrl: string): Promise<{
   return expiresAt ? { token: t, expiresAt } : { token: t };
 }
 
-async function chooseShareDestination(deps: JoinDeps, name: string, force: boolean): Promise<void> {
+export interface VerifiedIdentity { email: string; tenantId: string; tenantName: string }
+
+const ID_SHAPE = /^[\x21-\x7e]{1,128}$/;
+const EMAIL_SHAPE = /^[^\s\p{C}]{3,254}$/u;
+
+/**
+ * "Verified" means the gateway answered /auth/me like an Align gateway would, with this token and no other, not that it said 2xx.
+ * Every field that is saved or printed is checked for type and shape first, so a hostile server cannot save an object as a tenant
+ * id or put escape sequences on the person's screen. Anything else is a string saying why, and nothing is saved.
+ */
+export async function verifyToken(gatewayUrl: string, token: string): Promise<VerifiedIdentity | string> {
+  let raw: unknown;
+  try {
+    raw = await createGatewayClient({ gatewayUrl, authToken: token, tenantId: null, mode: 'auth' }).whoami();
+  } catch (e) {
+    return `did not accept the new token (${visible(String((e as Error).message).slice(0, 120))}).`;
+  }
+  const r = raw as { user?: { email?: unknown }; tenant?: { id?: unknown; name?: unknown } } | null;
+  const email = r?.user?.email;
+  const id = r?.tenant?.id;
+  const name = r?.tenant?.name;
+  if (typeof email !== 'string' || !EMAIL_SHAPE.test(email) || typeof id !== 'string' || !ID_SHAPE.test(id) || typeof name !== 'string') {
+    return 'answered, but not the way an Align gateway answers who you are. The token was not saved.';
+  }
+  return { email, tenantId: id, tenantName: name };
+}
+
+async function chooseShareDestination(deps: JoinDeps, name: string, claimed: string, gwHost: string): Promise<void> {
   const current = deps.config.getShareDestination();
-  if (current === null) {
+  // Where shares go is a decision about where decisions are sent, so it is made by a yes at this terminal and never by default.
+  // (A replace of the share destination was already agreed to, and keeps pointing at the name it had.)
+  if (current !== name) {
+    const q = current === null
+      ? `Send "align share" to "${claimed}" at ${gwHost} from now on?`
+      : `Send "align share" to "${claimed}" at ${gwHost} from now on? It currently goes to "${current}".`;
+    if (!(await deps.confirm(q))) {
+      deps.out(`  "align share" ${current === null ? 'has no destination yet' : `still goes to "${current}"`}. Send one share to "${name}" with --to ${name}.`);
+      return;
+    }
     deps.config.setShareDestination(name);
-    return;
   }
-  if (current === name) return;
-  if (force || (deps.isTTY && await deps.confirm(`Send "align share" to "${name}" from now on? It currently goes to "${current}".`))) {
-    deps.config.setShareDestination(name);
-    return;
-  }
-  deps.out(`  "align share" still goes to "${current}". Send one share to "${name}" with --to ${name}, or re-run this join with --make-share-destination.`);
+  deps.out(`  Shares from this machine now go to "${claimed}" at ${gwHost}.`);
 }

@@ -79,6 +79,8 @@ export interface ParsedJoinLink {
   gatewayUrl: string;
   /** `host[:port]` of the web app the link points at, compared with the gateway's own claim later. */
   appHost: string;
+  /** The link itself carried gw= (as opposed to the person passing --gateway). */
+  gatewayFromLink: boolean;
 }
 
 /**
@@ -108,7 +110,7 @@ export function parseJoinLink(raw: string, opts: { gateway?: string } = {}): Par
   if (!gatewayUrl) {
     throw new TransportError('The link does not say which server to join. Ask the sender for a newer link, or pass the gateway yourself: --gateway https://api.<their-domain>');
   }
-  return { token, gatewayUrl, appHost: new URL(appOrigin).host };
+  return { token, gatewayUrl, appHost: new URL(appOrigin).host, gatewayFromLink: fromLink !== null };
 }
 
 /** A destination name derived from the org name the server claimed, or null when nothing usable is left. */

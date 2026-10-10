@@ -76,11 +76,13 @@ describe('parseJoinLink', () => {
 
   it('reads the token, the gateway and the app origin', () => {
     const r = parseJoinLink(link(`token=${TOKEN}&gw=${encodeURIComponent('https://api.acme.example/')}`));
-    expect(r).toEqual({ token: TOKEN, gatewayUrl: 'https://api.acme.example', appHost: 'align.acme.example' });
+    expect(r).toEqual({ token: TOKEN, gatewayUrl: 'https://api.acme.example', appHost: 'align.acme.example', gatewayFromLink: true });
   });
 
-  it('--gateway stands in for a link with no gw', () => {
-    expect(parseJoinLink(link(`token=${TOKEN}`), { gateway: 'https://api.acme.example' }).gatewayUrl).toBe('https://api.acme.example');
+  it('--gateway stands in for a link with no gw, and is not reported as the link\'s own', () => {
+    const r = parseJoinLink(link(`token=${TOKEN}`), { gateway: 'https://api.acme.example' });
+    expect(r.gatewayUrl).toBe('https://api.acme.example');
+    expect(r.gatewayFromLink).toBe(false);
   });
 
   it('a link with no gw and no --gateway is refused naming --gateway', () => {

@@ -56,7 +56,8 @@ describe('join over real sockets', () => {
     const host = new URL(base).host;
     const result = await runJoin({
       config,
-      isTTY: false,
+      isTTY: true,
+      wrapped: false,
       out: (l) => out.push(l),
       // The fake browser: read the callback port and nonce out of the URL the CLI opened and
       // do what the web app's join page does after the person clicks the button.
@@ -69,13 +70,13 @@ describe('join over real sockets', () => {
         });
         return true;
       },
-      promptLine: async () => null,
+      promptLine: async () => host,
       confirm: async () => false,
       waitForCallback,
       now: () => new Date('2026-10-11T00:00:00Z'),
       callbackPorts: [19931, 19932],
       timeoutMs: 5000,
-    }, { link: `${base}/join?token=${TOKEN}&gw=${encodeURIComponent(base)}`, confirmHost: host });
+    }, { link: `${base}/join?token=${TOKEN}&gw=${encodeURIComponent(base)}` });
 
     expect(result).toMatchObject({ ok: true, name: 'loop-org', expiresAt: '2027-01-08T00:00:00.000Z' });
     expect(config.getEnvironment('loop-org')).toMatchObject({ gatewayUrl: base, authToken: NEW_TOKEN, tenantId: 't-loop' });
@@ -88,7 +89,8 @@ describe('join over real sockets', () => {
     const host = new URL(base).host;
     const result = await runJoin({
       config,
-      isTTY: false,
+      isTTY: true,
+      wrapped: false,
       out: () => undefined,
       openUrl: async (url) => {
         const u = new URL(url);
@@ -99,13 +101,13 @@ describe('join over real sockets', () => {
         expect(r.status).toBe(403);
         return true;
       },
-      promptLine: async () => null,
+      promptLine: async () => host,
       confirm: async () => false,
       waitForCallback,
       now: () => new Date(),
       callbackPorts: [19933],
       timeoutMs: 400,
-    }, { link: `${base}/join?token=${TOKEN}&gw=${encodeURIComponent(base)}`, confirmHost: host });
+    }, { link: `${base}/join?token=${TOKEN}&gw=${encodeURIComponent(base)}` });
     expect(result.ok).toBe(false);
     expect(config.listTeamDestinationNames()).toEqual([]);
   });

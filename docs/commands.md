@@ -110,8 +110,8 @@ align invite <email>          Invite a teammate to your shared Align decision gr
 
 # Join your team's graph from an invite link
 
-align join <link>             Join your team's graph from an invite link, as a named destination (additive: nothing you already have is moved)
-                              flags: --name --gateway --confirm-host --replace --make-share-destination
+align join <link>             Join your team's graph from an invite link, as a named destination (a terminal only; additive: nothing you already have is moved)
+                              flags: --name --gateway --replace
 
 # Choose the AI model align ask uses in the terminal
 
