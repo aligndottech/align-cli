@@ -684,7 +684,16 @@ export async function recordInvocationUsage(
   const { resolveEnv } = await import('./resolve-env.js');
   const config = createConfigStore();
   if (command === 'setup' && config.getEnvironment('local').mode === 'local-embedded') return;
-  await recordCommandUsage(config.getEnvironment(resolveEnv(envFlag, { preferLocalEmbedded: true })), command, opts.capMs === undefined ? {} : { capMs: opts.capMs });
+  let env;
+  try {
+    env = config.getEnvironment(resolveEnv(envFlag, { preferLocalEmbedded: true }));
+  } catch (e) {
+    // This hook runs after the command already acted. A name that means nothing (a stale ALIGN_ENV, a typo) must not turn
+    // that into exit 2, and it names no environment to report against, so nothing is sent. Only this error: any other still surfaces.
+    if ((e as Error).name === 'UnknownEnvError') return;
+    throw e;
+  }
+  await recordCommandUsage(env, command, opts.capMs === undefined ? {} : { capMs: opts.capMs });
 }
 
 /**
