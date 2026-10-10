@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  admit, backfillChildCommand, reserveSlot, backfillDir, type BackfillStatus, liveBackfills, MAX_PER_SOURCE, MAX_TOTAL,
-  pidAlive, readStatus, startBackfillChild, statusPath, trackChildFromEnv, writeStatus,
+  admit, backfillChildCommand, backfillDir, type BackfillStatus, liveBackfills, MAX_PER_SOURCE, MAX_TOTAL, pidAlive,
+  readStatus, reserveSlot, startBackfillChild, statusPath, trackChildFromEnv, writeStatus,
 } from '../lib/backfill-state.js';
 
 /**
