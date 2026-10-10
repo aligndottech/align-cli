@@ -7,7 +7,7 @@
  * - `required`, or `available` without `--typed`: the person approves in a BROWSER session. This process stages
  *   an encrypted request, prints a link and a code, waits, and sends only what the gateway says was approved.
  *   It never prompts on a terminal and never calls shareBatch. It may run inside an agent (ALIGN_WRAPPED): an
- *   agent can ask, and cannot approve, because the approve route refuses the CLI's token.
+ *   agent can ask, and its own CLI token cannot approve, because the approve route refuses it. A browser session can (SECURITY.md lists how an agent may get one), so this is not a lock.
  * - `off`, a gateway with no such route (404), or `available` with `--typed`: today's flow. EVERY path (a plain
  *   `align share` and `align share --confirm <code>`) shows the preview on the CONTROLLING terminal and needs a
  *   typed yes there (default No). There is no `--yes`: a flag is exactly what an agent would pass. A caller with

@@ -51,7 +51,7 @@ function fixture(init: Parameters<typeof fakeRequests>[0] = {}): Fx {
     cloudEnv: { mode: 'auth', gatewayUrl: 'https://api.align.test', authToken: 't', tenantId: 'T1' }, localDbPath: dbPath, salt: 'salt-1', defaultGatewayUrl: 'https://api.align.test',
     client: () => ({
       ...gw.api,
-      whoami: async () => ({ user: { email: ME }, tenant: { id: 'T1', name: 'Acme' } }),
+      whoami: async () => ({ user: { email: ME, id: 'U1' }, tenant: { id: 'T1', name: 'Acme' } }),
       shareBatch: async () => { f.batches++; return { snapshots: [{ id: 'TYPED', request_index: 0, is_new: true }] }; },
       getDecision: async () => { f.teamReads++; return { title: 'Team', summary: 'Team text', decision_json: {} }; },
       archiveDecision: async () => undefined,
@@ -78,10 +78,14 @@ describe('available: the person approves in a browser', () => {
     expect(await run(f, { ids: [id] })).toBe(0);
     expect(f.gw.staged).toHaveLength(1);
     expect(f.gw.staged[0]).toMatchObject({ kind: 'share', item_count: 1, requester_label: 'tom-laptop' });
-    expect(f.gw.staged[0]!.id).toMatch(/^[0-9a-f-]{36}$/);
+    const envelopeId = f.gw.staged[0]!.envelope_id;
+    expect(envelopeId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(f.gw.staged[0]).not.toHaveProperty('id');           // the CLI's id is the envelope id, never the row's primary key
+    const rowId = f.gw.rowIds.get(envelopeId)!;
+    expect(rowId).not.toBe(envelopeId);                        // every later call uses the SERVER's id
     expect(f.gw.gets).toBe(3);
     expect(f.gw.completes).toHaveLength(1);
-    expect(f.gw.completes[0]!.id).toBe(f.gw.staged[0]!.id);
+    expect(f.gw.completes[0]!.id).toBe(rowId);
     expect(f.asks).toEqual([]);          // never prompted on a terminal
     expect(f.batches).toBe(0);           // never called shareBatch
     expect(say(f)).toContain('To: Acme (prod) as me@co.com');   // the destination, as before
@@ -103,11 +107,11 @@ describe('available: the person approves in a browser', () => {
     const f = fixture(); const id = seed();
     await run(f, { ids: [id] });
     const url = urlIn(f.out); const staged = f.gw.staged[0]!;
-    const opened = await openInBrowserWay(staged.envelope, keyOf(url), staged.id, 'T1');
+    const opened = await openInBrowserWay(staged.envelope, keyOf(url), { envelopeId: staged.envelope_id, tenantId: 'T1', userId: 'U1', kind: 'share' });
     expect(opened.toString('base64')).toBe(f.gw.completes[0]!.payloadB64);
     expect(createHash('sha256').update(opened).digest('hex')).toBe(staged.payload_sha256);
     expect(JSON.parse(opened.toString())).toMatchObject({ v: 1, kind: 'share', tenant_id: 'T1', gateway_url: 'https://api.align.test' });
-    expect(new URL(url).pathname).toBe(`/share/approve/${staged.id}`);
+    expect(new URL(url).pathname).toBe(`/share/approve/${f.gw.rowIds.get(staged.envelope_id)}`);
   });
   it('never sends the key: it is in no request, and in the link only after the # (printed once)', async () => {
     const f = fixture({ states: ['pending', 'approved'] }); const id = seed();
@@ -156,7 +160,7 @@ describe('what happens when it does not get approved', () => {
     const f = fixture({ states: ['pending'] }); const id = seed();
     f.gw.onGet = (n) => { if (n === 2) f.abort.abort(); };
     expect(await run(f, { ids: [id] })).toBe(130);
-    expect(f.gw.cancels).toEqual([f.gw.staged[0]!.id]);
+    expect(f.gw.cancels).toEqual([f.gw.rowIds.get(f.gw.staged[0]!.envelope_id)]);
     expect(say(f)).toContain('Cancelled the request. Nothing was sent.');
     expect(f.gw.completes).toHaveLength(0);
   });
@@ -281,7 +285,7 @@ describe('a match that waits on the team\'s text', () => {
     expect(await run(f, { ids: [id] })).toBe(0);
     expect(f.gw.staged.map((s) => s.kind)).toEqual(['share', 'confirm_team_text']);
     const second = f.gw.staged[1]!;
-    const plain = JSON.parse((await openInBrowserWay(second.envelope, keyOf(f.out.filter((l) => l.includes('Approve in your browser')).at(-1)!.split(' ').at(-1)!), second.id, 'T1')).toString());
+    const plain = JSON.parse((await openInBrowserWay(second.envelope, keyOf(f.out.filter((l) => l.includes('Approve in your browser')).at(-1)!.split(' ').at(-1)!), { envelopeId: second.envelope_id, tenantId: 'T1', userId: 'U1', kind: 'confirm_team_text' })).toString());
     expect(plain.confirm).toEqual({ decision_id: 'TEAM1', team_text_hash: 'th-1' });
     expect(plain.decisions[0].judgements).toEqual([expect.objectContaining({ kind: 'ratify', confirm_team_text_hash: 'th-1' })]);
     expect(f.gw.completes).toHaveLength(2);
@@ -299,12 +303,35 @@ describe('a match that waits on the team\'s text', () => {
   });
 });
 
+describe('what is staged', () => {
+  it('refuses to stage an item that carries no client_key: nothing reaches the gateway', async () => {
+    const f = fixture(); const id = seed();
+    const { buildPlaintext } = await import('../lib/share/envelope.js');
+    expect(() => buildPlaintext({ kind: 'share', tenantId: 'T1', gatewayUrl: 'g', payloads: [{ localId: 'x', hash: 'h', fullHash: 'f', deferredPairs: [], shown: [], leftLocal: [], item: { source_url: 'u', platform: 'github', title: 'No key', summary: 's', raw_text: 's', client_key: '', judgements: [] } }] })).toThrow(/no client_key/);
+    expect(await run(f, { ids: [id] })).toBe(0);   // positive control: a real share item does carry a key
+    expect(JSON.parse(Buffer.from(f.gw.completes[0]!.payloadB64, 'base64').toString()).decisions[0].client_key).toMatch(/^[0-9a-f-]{36}$/);
+  });
+  it('seals to the signed-in user: a different user id or kind does not open it, and a gateway that does not say who you are stages nothing', async () => {
+    const f = fixture(); const id = seed();
+    await run(f, { ids: [id] });
+    const url = urlIn(f.out); const st = f.gw.staged[0]!;
+    await expect(openInBrowserWay(st.envelope, keyOf(url), { envelopeId: st.envelope_id, tenantId: 'T1', userId: 'U2', kind: 'share' })).rejects.toThrow();
+    await expect(openInBrowserWay(st.envelope, keyOf(url), { envelopeId: st.envelope_id, tenantId: 'T1', userId: 'U1', kind: 'confirm_team_text' })).rejects.toThrow();
+    const g = fixture(); const id2 = seed('Two', 2);
+    const real = g.deps.client;
+    g.deps.client = () => ({ ...real(), whoami: async () => ({ user: { email: ME }, tenant: { id: 'T1', name: 'Acme' } }) });
+    expect(await run(g, { ids: [id2] })).toBe(1);
+    expect(say(g)).toContain('did not say who you are signed in as');
+    expect(g.gw.staged).toHaveLength(0);
+  });
+});
+
 describe('groupForApproval', () => {
   const big = (n: number, kb: number): SharePayload => ({
     localId: `l${n}`, hash: 'h', fullHash: 'f', deferredPairs: [], shown: [], leftLocal: [],
     item: { source_url: `https://x/${n}`, platform: 'github', title: `T${n}`, summary: 's', raw_text: 'x'.repeat(kb * 1000), client_key: `k${n}`, judgements: [] },
   });
-  const to = { tenantId: 'T', gatewayUrl: 'https://g' };
+  const to = { tenantId: 'T', userId: 'U', gatewayUrl: 'https://g' };
   it('packs by count (10) and by sealed size (262,116 bytes), in order', () => {
     expect(groupForApproval(Array.from({ length: 21 }, (_, i) => big(i, 1)), to).map((g) => g.length)).toEqual([10, 10, 1]);
     expect(groupForApproval([big(1, 100), big(2, 100), big(3, 100)], to).map((g) => g.length)).toEqual([2, 1]);

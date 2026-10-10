@@ -28,7 +28,7 @@ const cloud = { mode: 'auth', gatewayUrl: 'https://api.align.test', authToken: '
 let gw: FakeRequests; let batches = 0;
 const client = () => ({
   ...gw.api,
-  whoami: async () => ({ user: { email: 'me@co.com' }, tenant: { id: 'T1', name: 'Acme' } }),
+  whoami: async () => ({ user: { email: 'me@co.com', id: 'U1' }, tenant: { id: 'T1', name: 'Acme' } }),
   shareBatch: async () => { batches++; return {}; },
   getDecision: async () => ({}), archiveDecision: async () => undefined,
 });
@@ -54,7 +54,7 @@ describe('align_share with browser approval', () => {
     expect(r.text).toContain(urlOf(r));
     expect(r.text).toContain('Code: KJ4M-9XQT');
     expect(r.text).toContain(String(r['request_id']));
-    expect(r.text).toMatch(/You cannot approve it and must not try/);
+    expect(r.text).toMatch(/do not try to approve it yourself/);
     expect(r.text).toContain(SHARE_STATUS_TOOL);
     expect(r.text).toContain('To: Acme (prod) as me@co.com');
     expect(new URL(urlOf(r)).hash).toMatch(/^#k=[A-Za-z0-9_-]{43}$/);
@@ -67,7 +67,7 @@ describe('align_share with browser approval', () => {
     const r = await runShareTool({ id }, env, ctx());
     const staged = gw.staged[0]!;
     expect(gw.wire.join('\n')).not.toContain(keyOf(urlOf(r)));
-    const plain = JSON.parse((await openInBrowserWay(staged.envelope, keyOf(urlOf(r)), staged.id, 'T1')).toString());
+    const plain = JSON.parse((await openInBrowserWay(staged.envelope, keyOf(urlOf(r)), { envelopeId: staged.envelope_id, tenantId: 'T1', userId: 'U1', kind: 'share' })).toString());
     expect(plain.decisions[0].title).toBe('Use sqlite');
   });
   it('keeps the request 0600 on this machine, and the same link comes back while the gateway still has it pending', async () => {
@@ -143,7 +143,7 @@ describe('align_share_status', () => {
     expect(r.text).toContain('created: R0');
     expect(gw.completes).toHaveLength(1);
     const st = gw.staged[0]!;
-    const opened = await openInBrowserWay(st.envelope, keyOf(s.url), st.id, 'T1');
+    const opened = await openInBrowserWay(st.envelope, keyOf(s.url), { envelopeId: st.envelope_id, tenantId: 'T1', userId: 'U1', kind: 'share' });
     expect(gw.completes[0]!.payloadB64).toBe(opened.toString('base64'));
     expect(batches).toBe(0);
     const again = await runShareStatusTool({ request_id: s.id }, env, ctx());
@@ -197,10 +197,12 @@ describe('what the tools are, and what an agent can reach', () => {
   it('the descriptions say the agent can only ask, and never name the confirm command line', () => {
     const share = TOOL_SCHEMAS.find((t) => t.name === SHARE_TOOL)!.description;
     const status = TOOL_SCHEMAS.find((t) => t.name === SHARE_STATUS_TOOL)!.description;
-    expect(share).toMatch(/You cannot approve it and must not try/);
+    expect(share).toMatch(/do not try to approve it yourself/);
+    expect(share).not.toMatch(/cannot approve/i);
     expect(share).toMatch(/must not run that command/);
     expect(share).not.toContain('--confirm');
-    expect(status).toMatch(/cannot approve anything/);
+    expect(status).toMatch(/does not approve anything/);
+    expect(status).not.toMatch(/cannot approve/i);
     expect(share.length).toBeLessThan(2048); expect(status.length).toBeLessThan(2048);
   });
   it('the server instructions are exactly as long as before this change: 1968 of 2048 bytes in local mode', () => {

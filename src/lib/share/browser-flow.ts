@@ -6,8 +6,9 @@
  * its `#k=` fragment; this module prints it to the terminal the person is at and keeps it nowhere else (the MCP
  * path stores it 0600 in the pending directory; this one holds it in memory).
  *
- * What a run from inside an agent can do here: stage and wait. It cannot approve: the gateway refuses the CLI's
- * token on the approve route. That is why this path, unlike the typed one, is allowed when ALIGN_WRAPPED is set.
+ * What a run from inside an agent can do here: stage and wait. Its own CLI token cannot approve: the gateway
+ * refuses it on the approve route. That is why this path, unlike the typed one, is allowed when ALIGN_WRAPPED is set. It is
+ * not a lock: SECURITY.md lists how an agent can still obtain a session.
  */
 import { approveUrl, completeRequest, type PollDeps, pollUntilDecided, stageRequest } from './approval.js';
 import { buildPlaintext, MAX_PLAINTEXT_BYTES, type RequestKind } from './envelope.js';
@@ -30,7 +31,7 @@ export interface BrowserFlowDeps extends Omit<PollDeps, 'client'> {
 }
 
 /** Split into requests of at most SHARE_BATCH_ITEMS decisions that each seal under the size cap. */
-export function groupForApproval(payloads: readonly SharePayload[], to: { tenantId: string; gatewayUrl: string }): SharePayload[][] {
+export function groupForApproval(payloads: readonly SharePayload[], to: { tenantId: string; userId: string; gatewayUrl: string }): SharePayload[][] {
   const size = (g: readonly SharePayload[]): number => buildPlaintext({ kind: 'share', ...to, payloads: g }).length;
   const groups: SharePayload[][] = [];
   let cur: SharePayload[] = [];
@@ -50,12 +51,12 @@ const minutesLeft = (expiresAt: string, now: number): number => Math.max(1, Math
 /** One request, end to end: stage, show the link, wait, and send the approved bytes. Prints what happened. */
 export async function approveOne(
   d: BrowserFlowDeps,
-  to: { tenantId: string; gatewayUrl: string },
+  to: { tenantId: string; userId: string; gatewayUrl: string },
   spec: { kind: RequestKind; payloads: readonly SharePayload[]; confirm?: { remoteId: string; teamTextHash: string }; heading?: string },
 ): Promise<StepResult> {
   const plaintext = buildPlaintext({ kind: spec.kind, ...to, payloads: spec.payloads, ...(spec.confirm ? { confirm: spec.confirm } : {}) });
   const staged = await stageRequest(d.client, {
-    kind: spec.kind, plaintext, tenantId: to.tenantId,
+    kind: spec.kind, plaintext, tenantId: to.tenantId, userId: to.userId,
     itemCount: spec.payloads.length, judgementCount: spec.payloads.reduce((n, p) => n + p.item.judgements.length, 0),
     label: d.label, ...(d.agent ? { agent: d.agent } : {}),
   });
@@ -91,7 +92,7 @@ export async function approveOne(
  * matched share that waits on the team's text asks for a SECOND approval (kind confirm_team_text), whose page shows
  * the team's text and refuses when its hash is not the one carried here.
  */
-export function approvalHooks(d: BrowserFlowDeps, to: { tenantId: string; gatewayUrl: string }, firstResponse: BatchResponse): SendHooks {
+export function approvalHooks(d: BrowserFlowDeps, to: { tenantId: string; userId: string; gatewayUrl: string }, firstResponse: BatchResponse): SendHooks {
   let first = true;
   return {
     confirmByApproval: true,
@@ -114,7 +115,8 @@ export function approvalHooks(d: BrowserFlowDeps, to: { tenantId: string; gatewa
  * Returns the exit code.
  */
 export async function runBrowserShare(ctx: ShareContext, prep: Prepared, d: BrowserFlowDeps): Promise<number> {
-  const to = { tenantId: prep.tenantId, gatewayUrl: prep.gatewayUrl };
+  if (prep.userId === null) throw new ShareError('The gateway did not say who you are signed in as, so a request cannot be sealed to you. Nothing was staged. Run: align login');
+  const to = { tenantId: prep.tenantId, userId: prep.userId, gatewayUrl: prep.gatewayUrl };
   const groups = groupForApproval(prep.payloads, to);
   let failed = false;
   for (const [i, group] of groups.entries()) {

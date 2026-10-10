@@ -3,9 +3,9 @@
  *
  * The CLI seals the exact plaintext bytes with AES-256-GCM under a random 32-byte key the server never sees:
  * the key travels only in the approve link's `#k=` fragment, which a browser does not send. The AAD is
- * `v1|<request id>|<tenant id>`, so a ciphertext swapped onto another request or workspace fails to open. The
- * request id is made HERE, before sealing, and sent with the request so the stored envelope is bound to the
- * id it lives under. The hash is over the plaintext bytes as sealed, never over a re-serialised object.
+ * `v1|<envelope id>|<tenant id>|<user id>|<kind>`, so a ciphertext swapped onto another request, workspace, user or
+ * kind fails to open. The envelope id is made HERE, before sealing, and sent with the request; the gateway keeps its
+ * own row id (it is not the primary key, so a chosen id cannot squat a row or probe for one across tenants). The hash is over the plaintext bytes as sealed, never over a re-serialised object.
  *
  * Layout: iv (12) || ciphertext || tag (16). That is the order WebCrypto wants (it takes the tag appended to the
  * ciphertext), so the browser opens it with no reshaping (spike S1: parity with Node and real Chromium).
@@ -26,10 +26,17 @@ export class PlaintextTooLargeError extends Error {
   }
 }
 
-export interface Binding { requestId: string; tenantId: string }
+export class UnkeyedItemError extends Error {
+  constructor(title: string) {
+    super(`"${title.slice(0, 80)}" has no client_key, so it cannot be staged for approval (a share item always carries one). Nothing was staged.`);
+    this.name = 'UnkeyedItemError';
+  }
+}
+
+export interface Binding { envelopeId: string; tenantId: string; userId: string; kind: RequestKind }
 
 export function aadFor(b: Binding): Buffer {
-  return Buffer.from(`v1|${b.requestId}|${b.tenantId}`, 'utf8');
+  return Buffer.from(`v1|${b.envelopeId}|${b.tenantId}|${b.userId}|${b.kind}`, 'utf8');
 }
 
 export interface Sealed {
@@ -69,6 +76,11 @@ export interface PlaintextInput {
  * hide or add text that is sent. `tenant_id` and `gateway_url` let the page refuse a link aimed elsewhere.
  */
 export function buildPlaintext(input: PlaintextInput): Buffer {
+  // Only a KEYED item is promoted as written; one without a client_key can be rewritten by synthesis or upserted onto
+  // a teammate's row. Every share item carries one today, and anything else is refused here rather than staged.
+  for (const p of input.payloads) {
+    if (typeof p.item.client_key !== 'string' || p.item.client_key === '') throw new UnkeyedItemError(p.item.title);
+  }
   const body = {
     v: 1,
     kind: input.kind,

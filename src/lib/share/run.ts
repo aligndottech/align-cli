@@ -26,7 +26,7 @@ export interface TeamDecision {
 }
 
 export interface ShareClient extends ShareRequestsApi {
-  whoami(): Promise<{ user: { email: string }; tenant: { id: string; name: string } }>;
+  whoami(): Promise<{ user: { email: string; id?: string }; tenant: { id: string; name: string } }>;
   shareBatch(items: Array<Record<string, unknown>>): Promise<BatchResponse>;
   getDecision(id: string): Promise<TeamDecision>;
   archiveDecision(id: string): Promise<void>;
@@ -53,6 +53,8 @@ export interface Prepared {
   payloads: SharePayload[];
   dest: Destination;
   tenantId: string;
+  /** The signed-in user's id (from whoami), bound into a sealed request's AAD. Null when the gateway did not say. */
+  userId: string | null;
   gatewayUrl: string;
   /** What this machine knew of each payload before: its ledger row, if any (live or retracted). */
   priors: Map<string, Promotion | null>;
@@ -137,7 +139,7 @@ export async function prepare(ctx: ShareContext, ids: string[]): Promise<Prepare
     } else if (!prior && getLegacyPromotion(ctx.dbPath, row.id, ctx.envName)) legacy.add(row.id);
     payloads.push(p);
   }
-  return { payloads, dest, tenantId, gatewayUrl: ctx.gatewayUrl, priors, already, secrets, preview: renderPreview(payloads, dest, { updates, legacy }) };
+  return { payloads, dest, tenantId, userId: who.user.id ?? null, gatewayUrl: ctx.gatewayUrl, priors, already, secrets, preview: renderPreview(payloads, dest, { updates, legacy }) };
 }
 
 /** The refusal text: where, which kind, never the value. */

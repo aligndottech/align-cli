@@ -8,7 +8,7 @@
  *
  * Routes (the plan's Routes table; the gateway side is built separately, so these shapes are the contract):
  *   GET  /share-requests/config            -> { mode, pending_ttl_s, complete_ttl_s }   (404: an older gateway)
- *   POST /share-requests                   -> 201 { id, user_code, expires_at }
+ *   POST /share-requests                   -> 201 { id (the SERVER's row id), user_code, expires_at }; 409 on a repeated envelope_id for this tenant and user
  *   GET  /share-requests/:id               -> { state, expires_at? }
  *   POST /share-requests/:id/cancel        -> any 2xx
  *   POST /share-requests/:id/complete      -> the /ingest/batch response shape
@@ -24,7 +24,8 @@ export type RequestState = 'pending' | 'approved' | 'completing' | 'completed' |
 const STATES: readonly string[] = ['pending', 'approved', 'completing', 'completed', 'declined', 'expired', 'cancelled', 'failed'];
 
 export interface StageBody {
-  id: string;
+  /** The CLI's own id for the sealed envelope (in its AAD). Unique per tenant and user; NOT the row's id. */
+  envelope_id: string;
   kind: 'share' | 'confirm_team_text';
   /** iv || ciphertext || tag, base64. */
   envelope: string;
@@ -76,8 +77,8 @@ export function shareRequestMethods(request: Requester): ShareRequestsApi {
     async stageShareRequest(body) {
       const raw = await call<unknown>('/share-requests', { method: 'POST', body: JSON.stringify(body) });
       if (!isObj(raw) || typeof raw['id'] !== 'string' || typeof raw['user_code'] !== 'string' || typeof raw['expires_at'] !== 'string') throw bad('the staged request');
-      // The id is OURS (sealed into the envelope's AAD). A different one means the stored envelope is not the one we bound.
-      if (raw['id'] !== body.id) throw bad('a different request id');
+      // The row id is the server's. Every later route uses it, so it must be a well-formed UUID before it becomes a path.
+      if (!REQUEST_ID_RE.test(raw['id'])) throw bad('the request id');
       if (!USER_CODE_RE.test(raw['user_code'])) throw bad('the code');
       if (Number.isNaN(Date.parse(raw['expires_at']))) throw bad('the expiry');
       return { id: raw['id'], userCode: raw['user_code'], expiresAt: raw['expires_at'] };

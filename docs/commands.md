@@ -192,7 +192,7 @@ align ratify <id>             Stand behind an agent-made decision as a human: ma
 # Share ratified decisions, with your judgements, with your team (alias: push)
 
 align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
-                              flags: --env --all-ratified --since --yes --confirm --retract
+                              flags: --env --all-ratified --since --yes --confirm --no-open --typed --retract
 align push                    same as align share
 
 # The local graph: start, status, reset, forget

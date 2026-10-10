@@ -14,7 +14,7 @@ const client = () => createGatewayClient({ mode: 'auth', gatewayUrl: 'https://gw
 const answer = (body: unknown, status = 200) => vi.fn(async () => new Response(JSON.stringify(body), { status }));
 afterEach(() => { vi.unstubAllGlobals(); });
 
-const stageBody = { id: ID, kind: 'share' as const, envelope: 'AAAA', payload_sha256: 'a'.repeat(64), item_count: 1, judgement_count: 0 };
+const stageBody = { envelope_id: '7a1b2c3d-1111-4222-8333-444455556666', kind: 'share' as const, envelope: 'AAAA', payload_sha256: 'a'.repeat(64), item_count: 1, judgement_count: 0 };
 
 describe('config', () => {
   it('reads each mode', async () => {
@@ -40,12 +40,17 @@ describe('config', () => {
 });
 
 describe('stage', () => {
+  it('uses the SERVER\'s row id, which is not the envelope id the CLI sent', async () => {
+    vi.stubGlobal('fetch', answer({ id: ID, user_code: 'KJ4M-9XQT', expires_at: '2026-10-10T12:00:00.000Z' }, 201));
+    expect((await client().stageShareRequest(stageBody)).id).toBe(ID);
+    expect(stageBody.envelope_id).not.toBe(ID);
+  });
   it('returns the id, the code and the expiry it was given', async () => {
     vi.stubGlobal('fetch', answer({ id: ID, user_code: 'KJ4M-9XQT', expires_at: '2026-10-10T12:00:00.000Z' }, 201));
     expect(await client().stageShareRequest(stageBody)).toEqual({ id: ID, userCode: 'KJ4M-9XQT', expiresAt: '2026-10-10T12:00:00.000Z' });
   });
   it.each([
-    ['a different id', { id: '1b9f3c1e-5d2a-4f8e-9a77-3c1d2e4f5a6b', user_code: 'KJ4M-9XQT', expires_at: '2026-10-10T12:00:00.000Z' }],
+    ['a row id that is not a UUID', { id: '../auth/me', user_code: 'KJ4M-9XQT', expires_at: '2026-10-10T12:00:00.000Z' }],
     ['a malformed code', { id: ID, user_code: 'kj4m-9xqt', expires_at: '2026-10-10T12:00:00.000Z' }],
     ['a code with a letter the alphabet leaves out', { id: ID, user_code: 'KJ4M-9XQO', expires_at: '2026-10-10T12:00:00.000Z' }],
     ['no usable expiry', { id: ID, user_code: 'KJ4M-9XQT', expires_at: 'soon' }],

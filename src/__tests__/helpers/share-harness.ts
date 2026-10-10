@@ -1,6 +1,7 @@
 /** A real CLI process against a fake gateway on loopback, with a seeded local graph. Test-only. */
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -89,9 +90,10 @@ export async function startHarness(seed: (db: ReturnType<typeof createLocalDb>) 
         }
         if (req.method === 'POST' && url === '/share-requests') {
           const parsed = JSON.parse(body) as Record<string, unknown>;
-          h.share.staged.push({ id: String(parsed['id']), body: parsed });
+          h.share.staged.push({ id: String(parsed['envelope_id']), body: parsed });
           res.statusCode = 201;
-          return res.end(JSON.stringify({ id: parsed['id'], user_code: 'KJ4M-9XQT', expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), approve_path: `/share/approve/${String(parsed['id'])}` }));
+          const rowId = crypto.randomUUID();
+          return res.end(JSON.stringify({ id: rowId, user_code: 'KJ4M-9XQT', expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), approve_path: `/share/approve/${rowId}` }));
         }
         if (req.method === 'GET') {
           const next = h.share.states.length > 1 ? h.share.states.shift()! : h.share.states[0]!;

@@ -30,13 +30,16 @@ export interface StageInput {
   kind: RequestKind;
   plaintext: Buffer;
   tenantId: string;
+  userId: string;
   itemCount: number;
   judgementCount: number;
   label: string;
   agent?: string;
 }
 
+/** `id` is the gateway's row id (every route and the link use it); `envelopeId` is the CLI's own, bound in the AAD. */
 export interface Staged extends StagedRequest {
+  envelopeId: string;
   keyB64Url: string;
   sha256: string;
   /** The exact plaintext, base64: what `complete` sends and what the gateway re-hashes. */
@@ -49,15 +52,15 @@ export function cleanLabel(raw: string): string {
 }
 
 export async function stageRequest(client: Pick<ShareRequestsApi, 'stageShareRequest'>, input: StageInput, makeId: () => string = randomUUID): Promise<Staged> {
-  const id = makeId();
-  const sealed = seal(input.plaintext, { requestId: id, tenantId: input.tenantId });
+  const envelopeId = makeId();
+  const sealed = seal(input.plaintext, { envelopeId, tenantId: input.tenantId, userId: input.userId, kind: input.kind });
   const label = cleanLabel(input.label);
   const res = await client.stageShareRequest({
-    id, kind: input.kind, envelope: sealed.envelopeB64, payload_sha256: sealed.sha256,
+    envelope_id: envelopeId, kind: input.kind, envelope: sealed.envelopeB64, payload_sha256: sealed.sha256,
     item_count: input.itemCount, judgement_count: input.judgementCount,
     ...(label ? { requester_label: label } : {}), ...(input.agent ? { agent: input.agent } : {}),
   });
-  return { ...res, keyB64Url: sealed.keyB64Url, sha256: sealed.sha256, bytesB64: input.plaintext.toString('base64') };
+  return { ...res, envelopeId, keyB64Url: sealed.keyB64Url, sha256: sealed.sha256, bytesB64: input.plaintext.toString('base64') };
 }
 
 /** The link the person opens. The key is in the fragment, never the path or query. */
