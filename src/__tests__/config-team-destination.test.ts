@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createConfigStore } from '../lib/config.js';
 
 const sets: string[] = [];
+const seed = vi.hoisted(() => ({ environments: undefined as Record<string, unknown> | undefined }));
 vi.mock('conf', () => {
   let store: Record<string, unknown> = {};
   return {
@@ -10,6 +11,7 @@ vi.mock('conf', () => {
       constructor(opts: { defaults?: Record<string, unknown> }) {
         this.defaults = opts.defaults ?? {};
         store = { ...this.defaults };
+        if (seed.environments) store['environments'] = seed.environments;
       }
       get(k: string) { return store[k]; }
       set(k: string, v: unknown) { sets.push(k); store[k] = v; }
@@ -31,6 +33,7 @@ const ACME = {
 
 describe('team destination config (join plan C2)', () => {
   beforeEach(() => {
+    seed.environments = undefined;
     sets.length = 0;
     vi.stubEnv('ALIGN_TOKEN', '');
     vi.stubEnv('ALIGN_TENANT_ID', '');
@@ -190,4 +193,26 @@ describe('team destination config (join plan C2)', () => {
       expect(c.getShareDestination()).toBeNull();
     });
   });
+
+  describe('a hand-edited config file is not trusted on read (join review F9)', () => {
+    const entry = (over: Record<string, unknown> = {}) => ({ kind: 'team', gatewayUrl: 'https://api.acme.example', appUrl: 'https://align.acme.example', authToken: 'x', mode: 'auth', ...over });
+
+    it('a key that is not a valid destination name is not a destination, and cannot be the share destination', () => {
+      seed.environments = { 'a;rm -rf ~': entry(), ok: entry() };
+      const c = createConfigStore();
+      expect(c.hasTeamDestination('a;rm -rf ~')).toBe(false);
+      expect(c.hasTeamDestination('ok')).toBe(true);
+      expect(c.listTeamDestinationNames()).toEqual(['ok']);
+      expect(() => c.setShareDestination('a;rm -rf ~')).toThrow();
+    });
+
+    it('a plain-http gateway or app URL makes the destination unreadable, not used (both fields)', () => {
+      seed.environments = { evil: entry({ gatewayUrl: 'http://api.evil.example' }), evilapp: entry({ appUrl: 'http://align.evil.example' }), ok: entry() };
+      const c = createConfigStore();
+      expect(() => c.getEnvironment('evil' as never)).toThrow(/https/);
+      expect(() => c.getEnvironment('evilapp' as never)).toThrow(/https/);
+      expect(c.getEnvironment('ok' as never).gatewayUrl).toBe('https://api.acme.example');
+    });
+  });
 });
+

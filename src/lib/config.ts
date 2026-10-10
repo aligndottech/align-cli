@@ -6,7 +6,7 @@ import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 import { STORABLE_PROVIDERS, type StoredProviderId } from './llm-providers.js';
 import type { ActiveScope, StoredScope } from './scope-values.js';
 
-import { asDestinationName, type TeamDestinationName } from './destination-name.js';
+import { asDestinationName, type TeamDestinationName, validateDestinationName } from './destination-name.js';
 import { assertTransport } from './destination-trust.js';
 
 export type BuiltinEnv = 'local' | 'preview' | 'prod';
@@ -160,6 +160,9 @@ export function createConfigStore() {
 
   const getEnvs = () => store.get('environments') as Record<string, Partial<EnvironmentConfig>>;
   const getTokens = () => store.get('connectorTokens') as Record<string, string>;
+  // A team destination is a saved entry of kind team under a VALID name. The name check is what keeps a hand-edited key
+  // such as `a;b` from ever reaching a command line this CLI prints (envFlag) or a `--env` an agent config stores.
+  const isTeam = (name: string): boolean => Object.hasOwn(getEnvs(), name) && getEnvs()[name]?.kind === 'team' && validateDestinationName(name) === null;
 
   // Extra fields (an Atlassian email, a GitLab domain) live beside the token under a `field:`
   // segment. The OAuth path already writes `<env>:<key>:cloudId` and `:siteBase` in this same
@@ -172,8 +175,11 @@ export function createConfigStore() {
       // the ALIGN_* overrides below: those exist for CI and self-hosts of the builtins, and on a
       // named destination they would let the shell redirect a saved token to another server (S4, S5).
       if (!Object.hasOwn(DEFAULTS, env)) {
-        const saved = Object.hasOwn(getEnvs(), env) ? getEnvs()[env] : undefined;
-        if (saved?.kind !== 'team') throw new Error(`Unknown environment "${String(env).slice(0, 40)}"`);
+        const saved = isTeam(env) ? getEnvs()[env] : undefined;
+        if (saved === undefined) throw new Error(`Unknown environment "${String(env).slice(0, 40)}"`);
+        // The file is a person's to edit: the transport rule is re-checked on READ, so a hand-written plain-http gateway is unusable, not trusted.
+        if (saved.gatewayUrl) assertTransport(saved.gatewayUrl);
+        if (saved.appUrl) assertTransport(saved.appUrl);
         return { authToken: null, tenantId: null, mode: 'auth', ...saved } as EnvironmentConfig;
       }
       const base = { ...DEFAULTS[env as BuiltinEnv], ...(getEnvs()[env] ?? {}) } as EnvironmentConfig;
@@ -212,15 +218,15 @@ export function createConfigStore() {
     /** Logout for a team destination: the entry stays so `align login --env <name>` can renew it. */
     clearTeamToken(name: string) {
       const envs = getEnvs();
-      if (envs[name]?.kind !== 'team') return;
+      if (!isTeam(name)) return;
       store.set('environments', { ...envs, [name]: { ...envs[name], authToken: null } });
     },
     getShareDestination(): string | null {
       const n = store.get('shareDestination');
-      return typeof n === 'string' && Object.hasOwn(getEnvs(), n) && getEnvs()[n]?.kind === 'team' ? n : null;
+      return typeof n === 'string' && isTeam(n) ? n : null;
     },
     setShareDestination(name: string) {
-      if (!(Object.hasOwn(getEnvs(), name) && getEnvs()[name]?.kind === 'team')) {
+      if (!isTeam(name)) {
         throw new Error(`"${name.slice(0, 40)}" is not a saved team destination`);
       }
       store.set('shareDestination', name);
@@ -240,10 +246,10 @@ export function createConfigStore() {
     },
     /** True only for a destination `align join` saved. A builtin name is never one. */
     hasTeamDestination(name: string): boolean {
-      return Object.hasOwn(getEnvs(), name) && getEnvs()[name]?.kind === 'team';
+      return isTeam(name);
     },
     listTeamDestinationNames(): string[] {
-      return Object.entries(getEnvs()).filter(([, e]) => e?.kind === 'team').map(([n]) => n).sort();
+      return Object.keys(getEnvs()).filter(isTeam).sort();
     },
     setDefaultEnv(env: EnvName) { store.set('defaultEnv', env); },
     getDefaultEnv(): EnvName { return store.get('defaultEnv') as EnvName; },
