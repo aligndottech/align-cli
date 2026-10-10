@@ -85,8 +85,11 @@ available on the gateway admin API.
 
 The link carries your gateway address, so the gateway has to know its own public address:
 
-- Set `PUBLIC_GATEWAY_URL` on the gateway (Helm: `gateway.publicUrl`), for example `https://api.acme.example`.
-  It must be `https`, or `http` on `localhost`.
+- Tell the gateway its own public address, for example `https://api.acme.example`. With Helm set
+  `gateway.apiBaseUrl` (or the gateway ingress host, which the chart falls back to). Without Helm set
+  `PUBLIC_GATEWAY_URL`. It must be `https`, or `http` on `localhost`. The chart's defaults give
+  `https://api.align.tech`, so a self-host that leaves them alone writes the wrong address into every link;
+  the CLI then refuses the link because the gateway disagrees with it.
 - Set `FRONTEND_URL` to the public address of your web app. The CLI uses the address the gateway reports, so a
   wrong value here sends approval links to the wrong place.
 
