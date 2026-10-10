@@ -1,0 +1,9 @@
+{
+  "revision": "2026-10-10 initial: taxonomy synced to the database CHECK (14 types), v0 offer list frozen, v1 candidate offer list and parse rules added",
+  "files": {
+    "relationship-contract.v1.json": "ffa2cdf3df9f258bb01178953602565b2c26f8bcdbe4febe7ba414e97002f2af",
+    "parse-vectors.json": "9633c9fe3730e3b88a879da7efb63c78f52f7858a193489c1540101036d692d3",
+    "relationship-contract.ts": "129a2908d1e8c4a8715aea68c41831a9f222393da219bf574539e7fda8b1d293",
+    "__tests__/relationship-contract.test.ts": "f9ab3211ecef5438916515180426817014fec28779d6f5872a7f9f1829f14840"
+  }
+}
