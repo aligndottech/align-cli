@@ -63,8 +63,9 @@ export function registerImportLinearCommand(importCmd: Command): void {
         const fetched = await fetchLinearItems({ token, ...fetchWindow('linear', window), limit: parseInt(opts.limit, 10) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
-        await runPersonalImport(items, client, { label: 'Linear', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'linear' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.linear, fetched, windowLabel(window.days))])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'Linear', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'linear' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.linear, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

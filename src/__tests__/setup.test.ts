@@ -755,6 +755,8 @@ describe('align setup', () => {
         await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
 
         expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ repo: 'o/r' }));
+        // L3 review 5: the local graph reads the whole repo (named in the report); see the cloud case below.
+        expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ repo: 'o/r', scope: 'team' }));
       });
 
       it('re-imports a connected Atlassian connector with its saved email, domain and token', async () => {
@@ -2653,6 +2655,10 @@ describe('align setup', () => {
         report: { scanned: 1, requested: 250, skips: [] },
       });
       await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      // L3 review 5: the hosted path narrows to the repo but never asks for team scope until L4 discloses it.
+      const cloudCall = vi.mocked(fetchGitHubItems).mock.calls.at(-1)![0] as unknown as Record<string, unknown>;
+      expect(cloudCall['repo']).toBe('o/r');
+      expect('scope' in cloudCall).toBe(false);
       const reports = reportsPrinted();
       expect(reports).toHaveLength(1);
       expect(reports[0]).toContain('Git: 1 commits');

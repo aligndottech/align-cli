@@ -72,8 +72,9 @@ export function registerImportTeamsCommand(importCmd: Command): void {
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} messages`);
-        await runPersonalImport(items, client, { label: 'Teams', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'teams' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.teams, fetched, windowLabel(window.days))])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'Teams', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'teams' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.teams, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

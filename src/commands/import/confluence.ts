@@ -95,8 +95,9 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} pages`);
-        await runPersonalImport(items, client, { label: 'Confluence', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'confluence' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.confluence, fetched, windowLabel(window.days))])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'Confluence', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'confluence' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.confluence, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         if (err instanceof AuthExpiredError) {

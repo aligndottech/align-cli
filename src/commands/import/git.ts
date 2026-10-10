@@ -94,7 +94,9 @@ export function registerImportGitCommand(importCmd: Command): void {
         };
       });
 
+      const importResult: { stored?: number; failedBatches?: number } = {};
       await runPersonalImport(items, client, {
+        result: importResult,
         label: 'git history',
         approve: opts.approve,
         appUrl: resolveAppUrl(env),
@@ -105,6 +107,6 @@ export function registerImportGitCommand(importCmd: Command): void {
       // import ends with. Derived by gitCaptureReport so this command and `align setup`
       // cannot disagree on what "mechanical" means or when the cap is worth naming.
       const report = gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: requested });
-      console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.git, { items, report }, window !== undefined && opts.from === undefined ? windowLabel(window.days) : undefined)])}\n`);
+      console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.git, { items, report }, window !== undefined && opts.from === undefined ? windowLabel(window.days) : undefined, importResult)])}\n`);
     });
 }

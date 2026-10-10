@@ -87,8 +87,13 @@ export async function runPersonalImport(
      *  Carries the env because the consent decision needs it; source is the connector
      *  id ('git', 'jira'), which becomes the stage's provenance command. */
     funnel?: { env: EnvironmentConfig; source: string };
+    /** L3: filled with what the gateway STORED and how many batches failed, so the capture report
+     *  can say "imported 20 of 40 (a batch failed)" instead of the fetched count. Untouched when
+     *  the import throws or the process exits before ingest: the caller treats absence as unknown. */
+    result?: { stored?: number; failedBatches?: number };
   },
 ): Promise<number> {
+  if (opts.result) { opts.result.stored = 0; opts.result.failedBatches = 0; }
   if (!items.length) {
     if (!opts.silent) p.log.warn(`No items found from ${opts.label}.`);
     return 0;
@@ -172,6 +177,8 @@ export async function runPersonalImport(
       failures.push(`Batch ${i + 1}: ${(r.reason as Error).message}`);
     }
   }
+
+  if (opts.result) { opts.result.stored = total; opts.result.failedBatches = failures.length; }
 
   // ALI-795: ingest ran (the empty-items case returned above), so the funnel stage
   // fires whichever rendering branch follows. Consent gating lives in the emitter.

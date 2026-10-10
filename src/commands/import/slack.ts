@@ -77,8 +77,9 @@ export function registerImportSlackCommand(importCmd: Command): void {
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} threads`);
-        await runPersonalImport(items, client, { label: 'Slack', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'slack' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.slack, fetched, windowLabel(window.days))])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'Slack', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'slack' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.slack, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

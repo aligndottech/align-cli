@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * default window (180 days), its ceiling from the one table, and the shared time budget; `all`
  * drops the lower bound; anything unparseable exits 2 naming the accepted forms and reads nothing.
  */
+const spinnerStart = vi.hoisted(() => vi.fn());
+const envMode = vi.hoisted(() => ({ value: 'auth' as 'auth' | 'local-embedded' }));
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(), outro: vi.fn(), cancel: vi.fn(), note: vi.fn(), confirm: vi.fn(), isCancel: () => false,
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), success: vi.fn() },
-  spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
+  spinner: () => ({ start: spinnerStart, stop: vi.fn(), message: vi.fn() }),
 }));
 
 const SOURCES = ['github', 'gitlab', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'linear', 'notion'] as const;
@@ -33,7 +35,7 @@ vi.mock('../lib/env-resolver.js', () => ({ resolveAppUrl: vi.fn(() => 'https://a
 vi.mock('../lib/resolve-env.js', () => ({ resolveImportEnv: vi.fn(() => 'prod') }));
 vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
-    getEnvironment: vi.fn(() => ({ gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: 'auth' })),
+    getEnvironment: vi.fn(() => ({ gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: envMode.value })),
     getConnectorToken: vi.fn(() => null), getConnectorCloudId: vi.fn(() => null), getConnectorSiteBase: vi.fn(() => null),
   })),
 }));
@@ -72,6 +74,8 @@ beforeEach(() => {
   out = [];
   vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { out.push(a.join(' ')); });
   vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { out.push(a.join(' ')); });
+  envMode.value = 'auth';
+  spinnerStart.mockClear();
   resolveRepo.mockReset().mockResolvedValue(undefined);
   for (const id of SOURCES) fetchers[id].mockReset().mockResolvedValue({ items: [{ source_url: 'u', platform: id, raw_text: 't' }], report: { scanned: 1, skips: [], complete: true } });
 });
@@ -134,10 +138,29 @@ describe('github: items first, whole repo when there is a repo', () => {
     expect('discussion' in opts('github')).toBe(false);
   });
 
-  it('inside a repo asks for team scope with that repo (Decision 7)', async () => {
+  it('inside a repo, on the LOCAL graph, asks for team scope with that repo (Decision 7)', async () => {
+    envMode.value = 'local-embedded';
     resolveRepo.mockResolvedValue('o/r');
     await run('github', []);
     expect(opts('github')).toMatchObject({ repo: 'o/r', scope: 'team' });
+  });
+
+  it('on a hosted env keeps scope yours until the L4 disclosure ships: the repo narrows, team is not asked for', async () => {
+    envMode.value = 'auth';
+    resolveRepo.mockResolvedValue('o/r');
+    await run('github', []);
+    expect(opts('github')['repo']).toBe('o/r');
+    expect('scope' in opts('github')).toBe(false);
+  });
+
+  it('the status text says what is read: everyone\'s items under team scope, yours under yours', async () => {
+    envMode.value = 'local-embedded';
+    resolveRepo.mockResolvedValue('o/r');
+    await run('github', []);
+    expect(spinnerStart).toHaveBeenLastCalledWith("Fetching everyone's PRs and issues in o/r, as far as your token can see...");
+    envMode.value = 'auth';
+    await run('github', []);
+    expect(spinnerStart).toHaveBeenLastCalledWith('Fetching your GitHub PRs and issues in o/r...');
   });
 
   it('outside a repo (or with --all) stays the caller\'s own: neither repo nor scope is sent', async () => {

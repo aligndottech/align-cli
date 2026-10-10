@@ -21,8 +21,12 @@ export async function fetchGitHubItems(opts: {
 } & WindowedOpts): Promise<CaptureFetchResult> {
   const { discussionBudget = GITHUB_DISCUSSION_BUDGET, ...rest } = opts;
   const first = await withCaptureReport({ ...rest, discussion: 'none' as const }, new GitHubFetcher());
+  // Said only when the SDK actually read team scope (it ignores `scope: 'team'` without a repo).
+  const scopeNote = first.report.scope === 'team' && opts.repo !== undefined
+    ? { scopeNote: `everyone's PRs and issues in ${opts.repo}, as far as your token can see` }
+    : {};
   const pending = first.items.filter((i) => i.detail_pending === true);
-  if (pending.length === 0) return first;
+  if (pending.length === 0) return { items: first.items, report: { ...first.report, ...scopeNote } };
 
   let drained: Awaited<ReturnType<typeof fetchGitHubDiscussion>> = { items: [], skips: [], requests: 0 };
   let failure: { kind: 'error'; count: number; detail: string } | undefined;
@@ -36,6 +40,7 @@ export async function fetchGitHubItems(opts: {
     items: first.items.map((i) => enriched.get(i.source_url) ?? i),
     report: {
       ...first.report,
+      ...scopeNote,
       skips: [...first.report.skips, ...drained.skips, ...(failure ? [failure] : [])],
       discussionTotal: pending.length,
       discussionPending: pending.length - enriched.size,

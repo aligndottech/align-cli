@@ -38,6 +38,12 @@ export interface CaptureSource {
   complete?: boolean;
   /** L3: the oldest `updated_at` the read reached, named on an incomplete line. */
   oldestReached?: string;
+  /** L3: what the gateway STORED, and how many batches failed. Absent means unknown, and the
+   *  line then falls back to `fetched`. "Imported" is never claimed for more than was stored. */
+  stored?: number;
+  failedBatches?: number;
+  /** L3: whose items a team-scope read covered, printed as one line under the source. */
+  scopeNote?: string;
   /** L3: GitHub items still without their discussion, of `discussionTotal` that could have had it. */
   discussionPending?: number;
   discussionTotal?: number;
@@ -49,8 +55,18 @@ export interface CaptureSource {
  * result is never mistaken for a quiet six months. The reason is the fetcher's own words
  * (verbatim, never a raw URL: the SDK redacts them and this adds nothing back).
  */
+function storedNote(s: CaptureSource): { count: string; failed: string } {
+  const stored = s.stored ?? s.fetched;
+  const n = s.failedBatches ?? 0;
+  return {
+    count: stored < s.fetched || n > 0 ? `${stored} of ${s.fetched}` : String(s.fetched),
+    failed: n > 0 ? ` (${n === 1 ? 'a batch' : `${n} batches`} failed)` : '',
+  };
+}
+
 function windowedLine(s: CaptureSource, window: string): string {
-  const head = `${s.label}: imported ${s.fetched} ${s.unit}`;
+  const { count, failed } = storedNote(s);
+  const head = `${s.label}: imported ${count} ${s.unit}${failed}`;
   // Said as a count, and promising nothing: the items the request budget did not reach stay thin
   // until `align sync` exists to finish them (L5).
   const tail = s.discussionPending !== undefined && s.discussionPending > 0 && s.discussionTotal !== undefined
@@ -100,7 +116,9 @@ export function renderCaptureReport(sources: CaptureSource[]): string {
         ? ' (0 scanned)'
         : ` (0 kept of ${s.scanned} scanned)`;
     }
-    lines.push(`    ${s.window !== undefined ? windowedLine(s, s.window) : `${s.label}: ${s.fetched} ${s.unit}${shortfall}${scannedNote}`}`);
+    const stored = storedNote(s);
+    lines.push(`    ${s.window !== undefined ? windowedLine(s, s.window) : `${s.label}: ${stored.count} ${s.unit}${stored.failed}${shortfall}${scannedNote}`}`);
+    if (s.scopeNote !== undefined) lines.push(`      reads ${s.scopeNote}`);
     for (const skip of s.skips) lines.push(`      ${skip.count} ${skip.detail}`);
   }
   return lines.join('\n');
@@ -112,6 +130,7 @@ export function toCaptureSource(
   source: { label: string; unit: string },
   result: CaptureFetchResult,
   window?: string,
+  imported?: { stored?: number; failedBatches?: number },
 ): CaptureSource {
   return {
     label: source.label,
@@ -121,9 +140,12 @@ export function toCaptureSource(
     ...(result.report.requested !== undefined ? { requested: result.report.requested } : {}),
     skips: result.report.skips,
     ...(window !== undefined ? { window } : {}),
+    ...(imported?.stored !== undefined ? { stored: imported.stored } : {}),
+    ...(imported?.failedBatches !== undefined ? { failedBatches: imported.failedBatches } : {}),
     ...(result.report.complete !== undefined ? { complete: result.report.complete } : {}),
     ...(result.report.oldestReached !== undefined ? { oldestReached: result.report.oldestReached } : {}),
     ...(result.report.discussionPending !== undefined ? { discussionPending: result.report.discussionPending } : {}),
+    ...(result.report.scopeNote !== undefined ? { scopeNote: result.report.scopeNote } : {}),
     ...(result.report.discussionTotal !== undefined ? { discussionTotal: result.report.discussionTotal } : {}),
   };
 }
@@ -134,11 +156,13 @@ export function toCaptureSource(
  * never a module-level singleton: a hidden global is untestable and would leak between
  * two commands in one process.
  */
-export function createCaptureCollector(): { add(source: CaptureSource): void; render(): string } {
+export function createCaptureCollector(): { add(source: CaptureSource): CaptureSource; render(): string } {
   const sources: CaptureSource[] = [];
   return {
-    add(source: CaptureSource): void {
+    /** Returns the same object, so the import that follows can fill in what it stored (L3). */
+    add(source: CaptureSource): CaptureSource {
       sources.push(source);
+      return source;
     },
     render(): string {
       return renderCaptureReport(sources);

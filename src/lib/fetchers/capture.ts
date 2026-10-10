@@ -47,6 +47,8 @@ export interface CaptureFetchReport {
   discussionPending?: number;
   /** L3: items fetched items-first that COULD have had discussion (the denominator for the above). */
   discussionTotal?: number;
+  /** L3: one line saying whose items a team-scope read covered ("everyone's PRs and issues in o/r"). */
+  scopeNote?: string;
 }
 
 /** L3: what every windowed fetch is given on top of its limit (see fetchWindow in since.ts). */

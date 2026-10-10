@@ -72,8 +72,9 @@ export function registerImportGitLabCommand(importCmd: Command): void {
         const fetched = await fetchGitLabItems({ token, domain: opts.domain, ...fetchWindow('gitlab', window), limit: parseInt(opts.limit, 10) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
-        await runPersonalImport(items, client, { label: 'GitLab', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'gitlab' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.gitlab, fetched, windowLabel(window.days))])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'GitLab', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'gitlab' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.gitlab, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

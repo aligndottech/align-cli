@@ -69,8 +69,9 @@ Create an integration at: https://app.notion.com/developers/tokens`)
         const fetched = await fetchNotionItems({ token, ...fetchWindow('notion', window), limit: parseInt(opts.limit, 10) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} pages`);
-        await runPersonalImport(items, client, { label: 'Notion', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'notion' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.notion, fetched, windowLabel(window.days))])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'Notion', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'notion' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.notion, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

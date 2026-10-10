@@ -66,8 +66,9 @@ export function registerImportZoomCommand(importCmd: Command): void {
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} recordings with transcripts`);
-        await runPersonalImport(items, client, { label: 'Zoom', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'zoom' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.zoom, fetched, windowLabel(window.days))])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'Zoom', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'zoom' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.zoom, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

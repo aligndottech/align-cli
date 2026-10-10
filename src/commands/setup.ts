@@ -15,7 +15,7 @@ import { currentRepoIdentity } from '../lib/repo-identity.js';
 import { fetchDocsItems } from '../lib/fetchers/docs.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
-import { createCaptureCollector, toCaptureSource } from '../lib/capture-report.js';
+import { type CaptureSource, createCaptureCollector, toCaptureSource } from '../lib/capture-report.js';
 import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
 import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
@@ -78,7 +78,7 @@ interface SetupSource {
   /** What one fetched item IS, for the capture report (ALI-827) - from CAPTURE_SOURCES. */
   unit: string;
   /** L3: `window` defaults to the plan's six months; `align connect --since` passes its own. */
-  fetch: (tokens: Record<string, string>, window?: SyncWindow) => Promise<CaptureFetchResult>;
+  fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: { team?: boolean }) => Promise<CaptureFetchResult>;
 }
 
 function buildSources(gitAvailable: boolean): SetupSource[] {
@@ -117,15 +117,16 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
         '&description=Read-only+import+of+your+PRs+and+issues+into+your+local+Align+graph' +
         '&expires_in=90' +
         '&contents=read&issues=read&pull_requests=read',
-      fetch: async (t, w = parseSince(undefined)) => {
+      fetch: async (t, w = parseSince(undefined), o = {}) => {
         const { fetchGitHubItems, resolveGitHubRepoScope } = await import('../lib/fetchers/github.js');
         // ALI-917: this interactive source has no --repo/--all of its own, so it takes
         // resolveGitHubRepoScope's auto-detect-only path (an empty opts object) - the
         // same default `align connect github` uses. Without it, a token spanning several
         // unrelated repos returns everything across all of them, undifferentiated.
         const repo = await resolveGitHubRepoScope({});
-        // L3: items first, then discussion inline up to a request budget (fetchGitHubItems); inside a repo, everyone's items in it.
-        return fetchGitHubItems({ token: t['token']!, ...fetchWindow('github', w), ...(repo ? { repo, scope: 'team' as const } : {}) });
+        // L3: items first, then discussion inline up to a request budget (fetchGitHubItems). Team scope
+        // (everyone's items in the repo) only when the caller says the graph is local; cloud setup keeps yours.
+        return fetchGitHubItems({ token: t['token']!, ...fetchWindow('github', w), ...(repo ? { repo, ...(o.team ? { scope: 'team' as const } : {}) } : {}) });
       },
     },
     {
@@ -602,7 +603,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     try {
       const gitSource = buildSources(true).find(s => s.id === 'git')!;
       const fetched = await gitSource.fetch({});
-      capture.add(toCaptureSource(gitSource, fetched));
+      const gitCs = capture.add(toCaptureSource(gitSource, fetched));
       const { items } = fetched;
       if (items.length) {
         gitSpinner.stop(`Found ${items.length} commits worth importing`);
@@ -610,6 +611,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         // runPersonalImport prints by default (component 2's whole point) - the one compact
         // line quiet mode DOES print is a fine progress marker while the summary is built.
         await runPersonalImport(items, localClient, {
+          result: gitCs,
           label: 'Git',
           approve: true,
           appUrl: resolveAppUrl(localEnv),
@@ -666,11 +668,12 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   try {
     if (docsKnown) throw new SkipDocs();
     const docs = await fetchDocsItems({ limit: SYNC_CEILINGS.docs });
-    capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
+    const docsCs = capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
     const docsItems = docs.items;
     if (docsItems.length) {
       localDocsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
       await runPersonalImport(docsItems, localClient, {
+        result: docsCs,
         label: 'repo docs',
         approve: true,
         appUrl: resolveAppUrl(localEnv),
@@ -738,6 +741,8 @@ export interface ConnectedSourceResult {
   imported: number;
   /** Set when the fetch threw; found and imported are 0 then. */
   error?: string;
+  /** L3: whose items a team-scope read covered, when it was one. */
+  reads?: string;
 }
 
 export interface ConnectLocalSourcesOptions {
@@ -950,9 +955,10 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   for (const { source, tokens, reused } of localReady) {
     const spinner = quiet ? { start() {}, stop() {} } : p.spinner();
     spinner.start(`Fetching from ${source.label}...`);
+    let sourceCs: CaptureSource | undefined;
     try {
-      const fetched = await source.fetch(tokens, window);
-      capture.add(toCaptureSource(source, fetched, windowLabel(window.days)));
+      const fetched = await source.fetch(tokens, window, { team: true });
+      sourceCs = capture.add(toCaptureSource(source, fetched, windowLabel(window.days)));
       const { items } = fetched;
       // Saved only once the fetch it unlocked has succeeded. A token that never worked is not
       // worth remembering, and storing one would turn the next run's honest "paste a token"
@@ -963,6 +969,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       let imported = 0;
       if (items.length) {
         imported = await runPersonalImport(items, localClient, {
+          result: sourceCs,
           label: source.label,
           approve: true,
           appUrl: resolveAppUrl(localEnv),
@@ -972,9 +979,11 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
           funnel: { env: localEnv, source: source.id },
         });
       }
-      results.push({ id: source.id, label: source.label, found: items.length, imported });
+      results.push({ id: source.id, label: source.label, found: items.length, imported, ...(fetched.report.scopeNote ? { reads: fetched.report.scopeNote } : {}) });
     } catch (e) {
       const msg = (e as Error).message;
+      // An import that threw stored an unknown amount: never leave the report saying all of it.
+      if (sourceCs) { sourceCs.stored ??= 0; sourceCs.failedBatches = Math.max(sourceCs.failedBatches ?? 0, 1); }
       if (reused && isAuthExpiry(e)) {
         // The provider said the SAVED token is dead. Left saved it would keep the connector
         // "connected" on every later run and hide the gap line the graph would otherwise
@@ -1327,13 +1336,14 @@ async function runCloudSetup(ctx: {
     try {
       const gitSource = buildSources(true).find(s => s.id === 'git')!;
       const fetched = await gitSource.fetch({});
-      capture.add(toCaptureSource(gitSource, fetched));
+      const gitCs = capture.add(toCaptureSource(gitSource, fetched));
       const { items } = fetched;
       // Stop the scan spinner before runPersonalImport - it starts its own
       // progress spinner, and two animated spinners on one line flicker.
       if (items.length) {
         gitSpinner.stop(`Found ${items.length} commits worth importing`);
         const ingested = await runPersonalImport(items, client, {
+          result: gitCs,
           label: 'Git',
           approve: true,
           appUrl: resolveAppUrl(env),
@@ -1356,11 +1366,12 @@ async function runCloudSetup(ctx: {
   docsSpinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
   try {
     const docs = await fetchDocsItems({ limit: SYNC_CEILINGS.docs });
-    capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
+    const docsCs = capture.add(toCaptureSource(CAPTURE_SOURCES.docs, docs));
     const docsItems = docs.items;
     if (docsItems.length) {
       docsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
       const ingested = await runPersonalImport(docsItems, client, {
+        result: docsCs,
         label: 'repo docs',
         approve: true,
         appUrl: resolveAppUrl(env),
@@ -1408,13 +1419,13 @@ async function runCloudSetup(ctx: {
 
   // Resolve any expired-token connectors interactively first (sequential, and
   // rare - step 4 just minted fresh tokens), collecting everything ready to import.
-  const ready: Array<{ source: SetupSource; items: PersonalImportItem[] }> = [];
+  const ready: Array<{ source: SetupSource; items: PersonalImportItem[]; cs: CaptureSource }> = [];
   for (const result of fetched) {
     const source = result.source;
     if ('fetched' in result) {
-      capture.add(toCaptureSource(source, result.fetched, windowLabel(SYNC_WINDOW_DEFAULT_DAYS)));
+      const cs = capture.add(toCaptureSource(source, result.fetched, windowLabel(SYNC_WINDOW_DEFAULT_DAYS)));
       const { items } = result.fetched;
-      if (items.length) ready.push({ source, items });
+      if (items.length) ready.push({ source, items, cs });
       else p.log.warn(`No items found in ${source.label}.`);
     } else if ('authExpired' in result) {
       // Jira + Confluence share one Atlassian OAuth app, so a single consent
@@ -1440,10 +1451,10 @@ async function runCloudSetup(ctx: {
       retrySpinner.start(`Retrying ${source.label}...`);
       try {
         const fetched = await source.fetch(fresh);
-        capture.add(toCaptureSource(source, fetched, windowLabel(SYNC_WINDOW_DEFAULT_DAYS)));
+        const cs = capture.add(toCaptureSource(source, fetched, windowLabel(SYNC_WINDOW_DEFAULT_DAYS)));
         const { items } = fetched;
         retrySpinner.stop(`Found ${items.length} items`);
-        if (items.length) ready.push({ source, items });
+        if (items.length) ready.push({ source, items, cs });
         else p.log.warn(`No items found in ${source.label}.`);
       } catch (retryErr) {
         retrySpinner.stop(`Still failed: ${(retryErr as Error).message}`);
@@ -1461,8 +1472,9 @@ async function runCloudSetup(ctx: {
     console.log('');
     p.log.step(`Importing from ${ready.length} source${ready.length === 1 ? '' : 's'} in parallel...`);
     const importResults = await runWithConcurrency(
-      ready.map(({ source, items }) => async () => {
+      ready.map(({ source, items, cs }) => async () => {
         const total = await runPersonalImport(items, client, {
+          result: cs,
           label: source.label,
           approve: true,
           appUrl: resolveAppUrl(env),
@@ -1476,11 +1488,15 @@ async function runCloudSetup(ctx: {
       }),
       IMPORT_CONCURRENCY,
     );
-    for (const r of importResults) {
+    for (const [i, r] of importResults.entries()) {
       if (r.status === 'fulfilled') {
         totalDecisions += r.value.total;
         if (r.value.total > 0) sourcesImported.push(r.value.label);
       } else {
+        // The import threw before reporting: the capture line must not say all of it was imported.
+        const cs = ready[i]!.cs;
+        cs.stored ??= 0;
+        cs.failedBatches = Math.max(cs.failedBatches ?? 0, 1);
         p.log.warn(`Import failed: ${(r.reason as Error).message}`);
       }
     }

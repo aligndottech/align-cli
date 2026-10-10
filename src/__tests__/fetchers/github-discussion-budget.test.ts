@@ -81,3 +81,17 @@ describe('items first, then a budgeted discussion pass', () => {
     expect(r.report.skips.some((s) => s.kind === 'error' && /discussion/.test(s.detail))).toBe(true);
   });
 });
+
+describe('team scope is named in the report (review 5)', () => {
+  it('names the repo when the SDK read team scope', async () => {
+    fetchWithReport.mockResolvedValue({ items: [full(1)], report: { platform: 'github', scanned: 1, skips: [], complete: true, scope: 'team' } });
+    const r = await fetchGitHubItems({ token: 't', repo: 'o/r', scope: 'team' });
+    expect(r.report.scopeNote).toBe("everyone's PRs and issues in o/r, as far as your token can see");
+  });
+
+  it('says nothing when the SDK read only the caller\'s own items, even if team was asked for (no repo, so it falls back)', async () => {
+    fetchWithReport.mockResolvedValue({ items: [full(1)], report: { platform: 'github', scanned: 1, skips: [], complete: true, scope: 'yours' } });
+    const r = await fetchGitHubItems({ token: 't', scope: 'team' });
+    expect('scopeNote' in r.report).toBe(false);
+  });
+});

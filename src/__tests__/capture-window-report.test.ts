@@ -108,6 +108,49 @@ describe('the GitHub discussion clause says what was fetched, and promises nothi
   });
 });
 
+describe('a team-scope read says whose items it read (review 5)', () => {
+  const note = "everyone's PRs and issues in o/r, as far as your token can see";
+
+  it('prints one line under the source, not a prompt', () => {
+    expect(lines([github({ scopeNote: note })])).toEqual([
+      '  Capture report',
+      '    GitHub: imported 412 PRs and issues from the last 6 months',
+      `      reads ${note}`,
+    ]);
+  });
+
+  it('prints nothing for a read of the caller\'s own items', () => {
+    expect(renderCaptureReport([github({})])).not.toContain('reads ');
+  });
+});
+
+describe('imported means STORED (review 4)', () => {
+  it('a windowed line says "imported X of N" and that a batch failed', () => {
+    expect(lines([github({ fetched: 40, stored: 20, failedBatches: 1 })])[1]).toBe(
+      '    GitHub: imported 20 of 40 PRs and issues (a batch failed) from the last 6 months',
+    );
+  });
+
+  it('plural, and an import that stored nothing (two examples)', () => {
+    expect(lines([github({ fetched: 60, stored: 20, failedBatches: 2 })])[1]).toContain('imported 20 of 60 PRs and issues (2 batches failed)');
+    expect(lines([github({ fetched: 5, stored: 0, failedBatches: 1 })])[1]).toContain('imported 0 of 5 PRs and issues (a batch failed)');
+  });
+
+  it('stored equal to fetched is the plain line; stored absent falls back to fetched', () => {
+    expect(lines([github({ fetched: 40, stored: 40, failedBatches: 0 })])[1]).toBe('    GitHub: imported 40 PRs and issues from the last 6 months');
+    expect(lines([github({ fetched: 40 })])[1]).toBe('    GitHub: imported 40 PRs and issues from the last 6 months');
+  });
+
+  it('an unwindowed line (git) says it too', () => {
+    expect(lines([{ label: 'Git', unit: 'commits', fetched: 8, stored: 3, failedBatches: 1, skips: [] }])[1]).toBe('    Git: 3 of 8 commits (a batch failed)');
+  });
+
+  it('toCaptureSource carries what the import filled in', () => {
+    const src = toCaptureSource({ label: 'GitHub', unit: 'PRs and issues' }, { items: [], report: { scanned: 0, skips: [] } }, 'the last 6 months', { stored: 7, failedBatches: 1 });
+    expect(src).toMatchObject({ stored: 7, failedBatches: 1 });
+  });
+});
+
 describe('a source with no window keeps the old line', () => {
   it('prints exactly what ALI-827 printed', () => {
     expect(lines([{ label: 'Git', unit: 'commits', fetched: 8, skips: [] }])).toEqual(['  Capture report', '    Git: 8 commits']);

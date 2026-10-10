@@ -30,9 +30,10 @@ const mockFetchGitHub = vi.hoisted(() => vi.fn().mockResolvedValue({
   items: [{ source_url: 'https://github.com/o/r/pull/1', title: 'PR: a', raw_text: 'a', type: 'pull_request' }],
   report: { scanned: 1, skips: [] },
 }));
+const mockResolveRepo = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('../lib/fetchers/github.js', () => ({
   fetchGitHubItems: mockFetchGitHub,
-  resolveGitHubRepoScope: vi.fn().mockResolvedValue(undefined),
+  resolveGitHubRepoScope: mockResolveRepo,
 }));
 const mockFetchJira = vi.hoisted(() => vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }));
 vi.mock('../lib/fetchers/jira.js', () => ({ fetchJiraItems: mockFetchJira }));
@@ -271,6 +272,50 @@ describe('align connect (ALI-951)', () => {
       expect(code).toBe(2);
       expect(stderr.join('\n')).toContain('30d, 2w, 6m, 1y or all');
       expect(mockFetchGitHub).not.toHaveBeenCalled();
+    });
+  });
+
+  // L3 review 4 and 5 on the --source path.
+  describe('what the report claims (L3 review)', () => {
+    beforeEach(() => { setTty(false, false); });
+
+    it('says imported X of N when a batch failed, not the fetched count', async () => {
+      mockFetchGitHub.mockResolvedValueOnce({
+        items: [{ source_url: 'u1', platform: 'github', raw_text: 'a' }, { source_url: 'u2', platform: 'github', raw_text: 'b' }],
+        report: { scanned: 2, skips: [], complete: true },
+      });
+      mockRunPersonalImport.mockImplementationOnce(async (_i: unknown, _c: unknown, o: { result: { stored: number; failedBatches: number } }) => {
+        o.result.stored = 1; o.result.failedBatches = 1; return 1;
+      });
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      expect(stdout.join('\n')).toContain('imported 1 of 2 PRs and issues (a batch failed)');
+    });
+
+    it('an import that THROWS leaves no "imported N" claim: it reports 0 of N and a failure', async () => {
+      mockFetchGitHub.mockResolvedValueOnce({
+        items: [{ source_url: 'u1', platform: 'github', raw_text: 'a' }, { source_url: 'u2', platform: 'github', raw_text: 'b' }],
+        report: { scanned: 2, skips: [], complete: true },
+      });
+      mockRunPersonalImport.mockRejectedValueOnce(new Error('gateway down'));
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      const out = stdout.join('\n');
+      expect(out).toContain('imported 0 of 2 PRs and issues (a batch failed)');
+      expect(out).not.toMatch(/imported 2 /);
+    });
+
+    it('prints the team scope line when the read was team scope', async () => {
+      mockFetchGitHub.mockResolvedValueOnce({
+        items: [{ source_url: 'u1', platform: 'github', raw_text: 'a' }],
+        report: { scanned: 1, skips: [], complete: true, scope: 'team', scopeNote: "everyone's PRs and issues in o/r, as far as your token can see" },
+      });
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      expect(stdout.join('\n')).toContain("reads everyone's PRs and issues in o/r, as far as your token can see");
+    });
+
+    it('asks the fetcher for team scope on the local graph', async () => {
+      mockResolveRepo.mockResolvedValueOnce('o/r');
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      expect(mockFetchGitHub.mock.calls.at(-1)![0]).toMatchObject({ repo: 'o/r', scope: 'team' });
     });
   });
 });
