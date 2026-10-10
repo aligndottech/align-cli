@@ -6,6 +6,7 @@ import envPaths from 'env-paths';
 import { migrateConfigDirectory } from './lib/config.js';
 import { legacyLocalDbDir, migrateLocalDb } from './lib/local-mode.js';
 import { buildProgram } from './cli.js';
+import { resolveDetectorVersion } from './detector/detector-version.js';
 
 // Last-resort guard so no command ever dumps a raw Node stack trace at a user.
 // Individual commands still handle their own expected errors; this only catches
@@ -35,6 +36,13 @@ try {
   migrateLocalDb(legacyLocalDbDir(), envPaths('align-cli', { suffix: '' }).config);
 } catch (e) {
   if (process.env['ALIGN_DEBUG']) console.error('align: startup migration failed (non-fatal):', e);
+}
+
+// An unknown ALIGN_DETECTOR is fatal before any command runs: a typo must never run v0 silently.
+try {
+  resolveDetectorVersion();
+} catch (e) {
+  handleFatal(e);
 }
 
 // The command tree lives in cli.ts, built from src/commands/registry.ts (ALI-951), so the

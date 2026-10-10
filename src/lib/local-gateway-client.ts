@@ -3,7 +3,7 @@ import { deriveDeciderKind } from './decider-kind.js';
 import { provenanceOf } from './local-provenance.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
-import { type ClassificationOutcome, classifyRelationship } from './local-relationship-classifier.js';
+import { classifyCandidates } from './local-candidate-classify.js';
 import { noProviderHintInline, RECOMMENDED_OLLAMA_PULL } from './local-llm.js';
 import { repositoryOf } from './decision-links.js';
 import { localCitationFor } from './commit-cite.js';
@@ -719,18 +719,15 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // ALI-845: the classifier's own buildUserPrompt is now budget-derived (local-relationship-
       // classifier.ts), so capping the subject at a literal here would be a second writer of the
       // same fact, at a number unrelated to any window. Send the diff uncut.
-      const subject = { title: opts.title ?? 'Proposed change', summary: diff };
+      const subject = { title: opts.title ?? 'Proposed change', summary: diff, decidedAt: null, platform: 'cli' };
+      // ALIGN_DETECTOR (local-candidate-classify.ts): v0 types each candidate in turn, v1 types the set in one call.
+      const { outcomes } = await classifyCandidates(subject, candidates.map(c => ({
+        id: c.id, title: c.title, summary: c.summary, similarity: c.score, platform: c.platform, decidedAt: c.decidedAt,
+        status: relationFieldsFor(c.id).status === 'superseded' ? 'superseded' : null,
+      })), 'subject-first');
       const typed = [];
-      let chainStopped = false;
-      for (const c of candidates) {
-        // ALI-692: a recorded chain stop is a property of the PROVIDER, not of this
-        // candidate, so asking again per candidate repeats one doomed call N times -
-        // on a 429 that burns the retry budget while `--advisory` races its deadline.
-        // The remaining candidates still report, untyped, which is what `unknown` means.
-        const outcome: ClassificationOutcome = chainStopped
-          ? { ok: false, reason: 'classifier_error' }
-          : await classifyRelationship(subject, { title: c.title, summary: c.summary });
-        if (!outcome.ok && outcome.failure?.kind === 'provider_stopped') chainStopped = true;
+      for (const [i, c] of candidates.entries()) {
+        const outcome = outcomes[i]!;
         const rel = outcome.ok ? outcome.relationship : null;
         typed.push({
           id: c.id,
