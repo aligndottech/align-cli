@@ -131,6 +131,11 @@ describe('docs/telemetry.md matches what the CLI sends', () => {
     expect(sentFields()).toEqual(documentedFields('`cli.funnel.<stage>` (local mode)'));
   });
 
+  it('a local-mode source_synced ping', async () => {
+    await recordFunnelStage(localEnv, 'source_synced', 'sync', { count: 3, source: 'github', outcome: 'ok', scope: 'yours', trigger: 'manual' });
+    expect(sentFields()).toEqual(documentedFields('`cli.funnel.source_synced` (local mode)'));
+  });
+
   it('a cloud-mode command event', async () => {
     await recordCommandUsage(cloudEnv, 'ask');
     expect(sentFields()).toEqual(documentedFields('`cli.command` (cloud mode)'));

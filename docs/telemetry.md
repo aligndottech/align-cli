@@ -101,7 +101,12 @@ One per command you run.
 |---|---|
 | `installId` | The same random UUID. |
 | `cliVersion` | The CLI version. |
-| `command` | The command's name, at most two words: `align` (opening your coding agent), `ask`, `use`, `import git`, `decisions list`. Never its arguments, never the query you typed, never a path. |
+| `command` | The command's name, at most two words: `align` (opening your coding agent), `ask`, `use`, `sync`, `mark`, `import git`, `decisions list`. Never its arguments, never the query you typed, never a path. `align mark` sends the word `mark` and nothing about what you marked: no kind, no id, no text. |
+
+`align sync` sends this ping only when you run it yourself. The background refresh that `align`
+starts at launch (and that your agent starts with `align_sync`) runs `align sync --background`,
+which sends no `cli.command` at all. `align_mark` over MCP is not a command you ran and sends
+nothing.
 
 ### `cli.funnel.<stage>` (local mode)
 
@@ -123,12 +128,40 @@ standing behind a claim rather than anything an agent did.
 
 None of these, and no `cli.command`, is ever sent from inside an agent hook.
 
+`source_synced` is the one stage with its own table below.
+
 | Field | What it is |
 |---|---|
 | `installId` | The same random UUID. |
 | `cliVersion` | The CLI version. |
 | `stage` | Which milestone, from the list above. |
 | `command` | The command that reached it, same rules as `cli.command`. |
+
+### `cli.funnel.source_synced` (local mode)
+
+`align sync` sends one per source each time it finishes reading that source, whether you ran it
+or the background refresh did. It reports how many items were stored and how it went. It is sent
+from the sync itself (including the detached background run, which is why it is the one event
+that can come from a process you did not type a command into), under the same rules as every
+other event here: nothing before the notice, nothing after `align telemetry off`, nothing under
+`DO_NOT_TRACK=1` or `ALIGN_TELEMETRY=0`, nothing in CI and nothing from an agent hook. A source
+that was not synced at all (already syncing, not connected, a backfill running, Teams, which is
+refreshed by hand) sends nothing. Local-only mode sends it; cloud mode does not.
+
+| Field | What it is |
+|---|---|
+| `installId` | The same random UUID. |
+| `cliVersion` | The CLI version. |
+| `stage` | Always `source_synced`. |
+| `command` | Always `sync`. |
+| `count` | How many items this run stored (new plus updated). A number, at most 100000. |
+| `source` | Which kind of source, from a fixed list: `git`, `docs`, `github`, `jira`, `confluence`, `slack`, `teams`, `zoom`, `gitlab`, `linear`, `notion`. Never a repo, a site, a space, a channel or a project name. |
+| `outcome` | How it went: `ok`, `partial` (stopped early, the next sync continues), `needs_reauth` (the source refused the saved token) or `error`. |
+| `scope` | `yours` (your own items) or `team` (a repo you are inside, read for everyone). |
+| `trigger` | What started it: `manual` (you ran `align sync`) or `background` (the refresh at launch, or your agent's `align_sync`). The gateway also accepts `connect`; the CLI does not send it yet. |
+
+No title, URL, repo, organisation, author or id is ever in this body: it is built from these
+five fields and nothing else.
 
 ## Cloud mode
 

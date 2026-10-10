@@ -8,7 +8,8 @@ import { classifyUnclassified, estimateClassify } from '../lib/sync/classify.js'
 import { localGraphPath, realStatusDeps, realSyncEnv } from '../lib/sync/real-env.js';
 import { renderOutcome } from '../lib/sync/report.js';
 import { runSync } from '../lib/sync/run-all.js';
-import type { SyncEnv } from '../lib/sync/run-source.js';
+import { recordSourceSynced, type ReportedTrigger } from '../lib/sync/telemetry.js';
+import type { SourceOutcome, SyncEnv } from '../lib/sync/run-source.js';
 import { collectStatus, renderStatus, type StatusDeps, TEAMS_NOTE } from '../lib/sync/status.js';
 import { refreshSummary } from '../lib/sync/summary.js';
 import { nextWindow } from '../lib/sync/window.js';
@@ -43,6 +44,10 @@ export interface SyncCommandDeps {
   estimate: typeof estimateClassify;
   classify: typeof classifyUnclassified;
   classifyLock(): ReturnType<typeof acquireLock>;
+  /** L7: one `source_synced` ping per source outcome. Consent and every other rule live behind it. */
+  report?(o: SourceOutcome, trigger: ReportedTrigger): Promise<void>;
+  /** A seam for tests; defaults to the real run. */
+  run?: typeof runSync;
 }
 
 function whole(raw: string | undefined, fallback: number, min: number): number | undefined {
@@ -86,12 +91,21 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
   try {
     const trigger = opts.background ? 'background' as const : 'cli' as const;
     let result: Awaited<ReturnType<typeof runSync>>;
+    // The pings go out in parallel, each capped at 2 s, and are awaited before the command ends:
+    // the background child exits as soon as it returns, and a send nobody awaits would be cut off.
+    const pings: Array<Promise<unknown>> = [];
+    const reportTrigger: ReportedTrigger = opts.background ? 'background' : 'manual';
     try {
-      result = await runSync(targets, env, {
+      result = await (d.run ?? runSync)(targets, env, {
         trigger,
-        onOutcome: (o) => { if (!opts.background) for (const line of renderOutcome(o)) d.out(line); },
+        onOutcome: (o) => {
+          if (!opts.background) for (const line of renderOutcome(o)) d.out(line);
+          if (d.report) pings.push(d.report(o, reportTrigger).catch(() => {}));
+        },
       });
+      await Promise.all(pings);
     } catch (e) {
+      await Promise.all(pings);
       // A background child has nobody to tell: record why it stopped where the next foreground moment will see it.
       if (!opts.background) { d.refresh(dbPath); throw e; }
       const now = (d.now ?? (() => new Date()))();
@@ -179,6 +193,7 @@ export function registerSyncCommand(program: Command): void {
         estimate: estimateClassify,
         classify: classifyUnclassified,
         classifyLock: () => acquireLock('sync-classify'),
+        report: recordSourceSynced,
       });
       if (code !== 0) process.exitCode = code;
     });

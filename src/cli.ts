@@ -123,7 +123,12 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
     // pointing at cloud on purpose, so reading the default reported local sessions as cloud ones.
     // envFlagOf reads through to the parent, because `--env` is declared on both the `connect`
     // group and its subcommands and Commander awards it to the parent (align-cli#79).
-    await recordInvocationUsage(envFlagOf(actionCommand), invocationCommandPath(actionCommand));
+    // L7: `sync --background` is the detached refresh child (the launch hook and `align_sync` start
+    // it), a machine rather than a person, so it sends no usage ping. `--background` exists on
+    // `sync` alone.
+    await recordInvocationUsage(envFlagOf(actionCommand), invocationCommandPath(actionCommand), {
+      background: actionCommand.opts()['background'] === true,
+    });
   });
 
   const internal = options.internal ?? process.env.ALIGN_INTERNAL === '1';

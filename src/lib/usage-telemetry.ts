@@ -183,10 +183,6 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
   // (the hook may resolve an env other than the one the command used), so the token check below
   // is not enough on its own.
   if (command === 'local' || command.startsWith('local ')) return;
-  // L5: `sync` is not in the gateway's closed command list yet (G-T adds it, L7 sends it), and a
-  // ping it does not know is a 400 that silently drops. The background child would also count
-  // itself as a person running a command. Until L7, neither sends.
-  if (command === 'sync' || command.startsWith('sync ')) return;
   // The mode is the consent boundary (PR #77: cloud is opt-out; ALI-618: local usage sends
   // only with the stored consent decision - the ALI-954 beacons are the two named exceptions,
   // and this per-command ping is not one of them). It has to gate on its own because a token
@@ -298,7 +294,56 @@ export const FUNNEL_STAGES = [
   ...SESSION_IMPORT_STAGES,
   // C1: bare `align` handed the terminal to a coding agent. Carries the agent name only.
   'agent_launched',
+  // L7: one per source per completed sync. Carries a count and four closed enums (SyncMeasurement).
+  'source_synced',
 ] as const;
+
+/**
+ * L7: what `source_synced` reports. A count and four closed enums, nothing else - never a repo, a
+ * host, a space, a project, a title or an id. Each list is a mirror of the gateway's (align-stack
+ * telemetryAnonymousRoutes.ts: SOURCE_VALUES, SYNC_OUTCOME_VALUES, SCOPE_VALUES,
+ * SYNC_TRIGGER_VALUES), and `telemetry-server-parity.test.ts` checks them against that file.
+ * A value outside a list is a silent 400 there, so it is dropped here instead of sent.
+ *
+ * `SYNC_TRIGGERS` has no `mcp` although the plan wanted one: the gateway's list does not (it is
+ * `connect`, `background`, `manual`), and a sync an agent starts over MCP runs as the background
+ * child, so it reports `background`.
+ */
+export const SYNC_SOURCES = [
+  'git', 'docs', 'github', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'gitlab', 'linear', 'notion',
+] as const;
+export const SYNC_OUTCOMES = ['ok', 'partial', 'needs_reauth', 'error'] as const;
+export const SYNC_SCOPES = ['yours', 'team'] as const;
+export const SYNC_TRIGGERS = ['connect', 'background', 'manual'] as const;
+/** The gateway's `MAX_FUNNEL_COUNT`: above it the whole ping is a 400. */
+export const MAX_FUNNEL_COUNT = 100_000;
+
+export interface SyncMeasurement {
+  count: number;
+  source: (typeof SYNC_SOURCES)[number];
+  outcome: (typeof SYNC_OUTCOMES)[number];
+  scope: (typeof SYNC_SCOPES)[number];
+  trigger: (typeof SYNC_TRIGGERS)[number];
+}
+
+/**
+ * The `source_synced` body fields, built from the fixed whitelist and never by stripping a richer
+ * object. Undefined when anything is missing or outside its closed list: the caller then sends
+ * nothing, because the gateway requires all five and answers a partial body with a silent 400.
+ */
+function syncFields(m: unknown): Record<string, string | number> | undefined {
+  if (m === null || typeof m !== 'object') return undefined;
+  const r = m as Record<string, unknown>;
+  const count = r['count'];
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return undefined;
+  const pick = <T extends string>(list: readonly T[], v: unknown): T | undefined => list.find((x) => x === v);
+  const source = pick(SYNC_SOURCES, r['source']);
+  const outcome = pick(SYNC_OUTCOMES, r['outcome']);
+  const scope = pick(SYNC_SCOPES, r['scope']);
+  const trigger = pick(SYNC_TRIGGERS, r['trigger']);
+  if (!source || !outcome || !scope || !trigger) return undefined;
+  return { count: Math.min(count, MAX_FUNNEL_COUNT), source, outcome, scope, trigger };
+}
 
 /**
  * What a session-import stage reports. A count and the agent's name, and nothing else - never a
@@ -347,7 +392,7 @@ export async function recordFunnelStage(
   env: EnvironmentConfig,
   stage: FunnelStage,
   command: string,
-  measurement?: FunnelMeasurement | AgentMeasurement,
+  measurement?: FunnelMeasurement | AgentMeasurement | SyncMeasurement,
 ): Promise<boolean> {
   // The whole body is guarded: telemetry must never fail or delay a command (the same
   // invariant postWithTimeout enforces for the network half, extended to the config
@@ -362,6 +407,12 @@ export async function recordFunnelStage(
     // HERE for the same reason first_useful_decision's once-check is: one enforcement point
     // rather than one per call site.
     if (inHookContext()) return false;
+
+    // L7: the sync measurement is built and checked before anything else, so a ping the gateway
+    // would 400 is never counted as sent. Local only: the endpoint that knows this stage is the
+    // anonymous one, and a sync reads the local graph.
+    const syncMeasured = stage === 'source_synced' ? syncFields(measurement) : undefined;
+    if (stage === 'source_synced' && (syncMeasured === undefined || env.mode !== 'local-embedded')) return false;
 
     const { createConfigStore } = await import('./config.js');
     const config = createConfigStore();
@@ -390,11 +441,12 @@ export async function recordFunnelStage(
     // 400 the whole ping - and the catch below swallows that, so the stage would go silently
     // missing rather than fail loudly. Dropping the two fields keeps the stage itself.
     const measured: Record<string, string | number> =
-      measurement && 'count' in measurement && (SESSION_IMPORT_STAGES as readonly string[]).includes(stage)
+      syncMeasured ??
+      (measurement && 'agent' in measurement && 'count' in measurement && (SESSION_IMPORT_STAGES as readonly string[]).includes(stage)
         ? { count: measurement.count, agent: measurement.agent }
-        : measurement && stage === 'agent_launched'
+        : measurement && 'agent' in measurement && stage === 'agent_launched'
           ? { agent: measurement.agent }
-          : {};
+          : {});
 
     if (isLocal) {
       await postAnonymous({
@@ -615,7 +667,12 @@ export function envFlagOf(cmd: { optsWithGlobals(): Record<string, unknown> }): 
 export async function recordInvocationUsage(
   envFlag: string | undefined,
   command: string,
+  opts: { background?: boolean } = {},
 ): Promise<void> {
+  // L7: the detached `align sync --background` child is a machine running a refresh, not a person
+  // running a command (its per-source `source_synced` pings are the measurement). Decided from the
+  // command's own flag, the way hook invocations are, so one place says so.
+  if (opts.background === true) return;
   const { createConfigStore } = await import('./config.js');
   const { resolveEnv } = await import('./resolve-env.js');
   const config = createConfigStore();
