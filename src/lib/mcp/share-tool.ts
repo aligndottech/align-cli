@@ -18,6 +18,7 @@ import type { Judge } from '../curation/judgements-db.js';
 import { createGatewayClient } from '../gateway-client.js';
 import { resolveEnv } from '../resolve-env.js';
 import { issueCode } from '../share/pending.js';
+import { visible } from '../share/visible.js';
 import { prepare, secretRefusal, type ShareClient, ShareError } from '../share/run.js';
 import { teamCtaLine } from '../team-cta.js';
 import { agentIdFrom, jsonSchemaOf, strictInput, type StrictSpec } from './tool-rules.js';
@@ -71,7 +72,7 @@ export async function runShareTool(args: Record<string, unknown> | undefined, en
     const prep = await prepare({ dbPath: env.localDbPath, envName, client, judge: await (ctx.judge ?? defaultJudge)() }, [input['id'] as string]);
     if (prep.secrets.length) return { text: secretRefusal(prep.secrets), shared: false };
     if (prep.payloads.length === 0) {
-      return { text: prep.already.map((a) => `Already shared as ${a.remoteId}: ${a.title}`).join('\n'), shared: false };
+      return { text: prep.already.map((a) => `Already shared as ${visible(a.remoteId)}: ${visible(a.title)}`).join('\n'), shared: false };
     }
     const agentId = agentIdFrom(ctx.clientInfo);
     const code = issueCode(prep.payloads, { agentId, envName, preview: prep.preview });

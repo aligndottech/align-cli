@@ -11,6 +11,7 @@
 import { existingTitles, type Judge, listJudgements } from '../curation/judgements-db.js';
 import { createLocalDb, type DecisionRow } from '../local-db.js';
 import { getLegacyPromotion, getPromotion, listPromotions, markRetracted, recordPromotion } from './ledger.js';
+import { visible } from './visible.js';
 import { buildSharePayload, type SharePayload } from './payload.js';
 import { type Destination, renderPreview } from './preview.js';
 import { scanForSecrets, type SecretFinding } from './secret-scan.js';
@@ -95,7 +96,7 @@ export async function prepare(ctx: ShareContext, ids: string[]): Promise<Prepare
 
 /** The refusal text: where, which kind, never the value. */
 export function secretRefusal(secrets: Prepared['secrets']): string {
-  const lines = secrets.map((s) => `  ${s.localId}: ${s.field} looks like ${s.placeholder}`);
+  const lines = secrets.map((s) => `  ${visible(s.localId)}: ${visible(s.field)} looks like ${s.placeholder}`);
   return `Nothing was sent: part of what would be shared looks like a credential.\n${lines.join('\n')}\n  Edit it out of the decision, then share again.`;
 }
 
@@ -157,16 +158,16 @@ export function renderResults(rows: readonly RowResult[]): string {
     const o = r.outcome;
     const head = ((): string => {
       switch (o.kind) {
-        case 'created': return o.ambiguous ? `shared as new (several team decisions share this source, so it was not matched): ${o.remoteId}` : `created: ${o.remoteId}`;
-        case 'updated': return `updated: ${o.remoteId}`;
-        case 'matched': return `matched an existing team decision (${o.remoteId}); your judgements were added, its text is untouched`;
-        case 'skipped': return `left alone (${o.reason}): ${o.remoteId}`;
-        case 'refused': return `refused by the server (${o.reason})`;
+        case 'created': return o.ambiguous ? `shared as new (several team decisions share this source, so it was not matched): ${visible(o.remoteId)}` : `created: ${visible(o.remoteId)}`;
+        case 'updated': return `updated: ${visible(o.remoteId)}`;
+        case 'matched': return `matched an existing team decision (${visible(o.remoteId)}); your judgements were added, its text is untouched`;
+        case 'skipped': return `left alone (${visible(o.reason)}): ${visible(o.remoteId)}`;
+        case 'refused': return `refused by the server (${visible(o.reason)})`;
         case 'unknown': return 'the server did not say what happened to it; check your team graph before sharing again';
       }
     })();
-    lines.push(`  ${r.title}\n    ${head}`);
-    for (const f of r.judgementFailures) lines.push(`    judgement ${f.index + 1} not stored: ${FAIL_TEXT[f.error] ?? f.error}`);
+    lines.push(`  ${visible(r.title)}\n    ${head}`);
+    for (const f of r.judgementFailures) lines.push(`    judgement ${f.index + 1} not stored: ${FAIL_TEXT[f.error] ?? visible(f.error)}`);
   }
   return lines.join('\n');
 }

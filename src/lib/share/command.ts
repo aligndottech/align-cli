@@ -8,6 +8,7 @@
  * with no controlling terminal is refused. The known gap (an agent that allocates its own
  * pseudo-terminal) is stated in SECURITY.md.
  */
+import { visible } from './visible.js';
 import { type EnvironmentConfig } from '../config.js';
 import { teamCtaLine } from '../team-cta.js';
 import { combinedHash, consumeCode, lookupCode } from './pending.js';
@@ -89,7 +90,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     const c = await ctx();
     const prep: Prepared = await prepare(c, ids);
     if (prep.secrets.length) { err(secretRefusal(prep.secrets)); return 1; }
-    for (const a of prep.already) out(`Already shared as ${a.remoteId}: ${a.title}`);
+    for (const a of prep.already) out(`Already shared as ${visible(a.remoteId)}: ${visible(a.title)}`);
     if (prep.payloads.length === 0) return 0;
 
     if (pendingCode !== undefined) {
@@ -99,19 +100,19 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
         err('What would be shared has changed since your agent previewed it (a decision, a judgement or the destination). Nothing was sent. Ask your agent to start again.');
         return 1;
       }
-      const yes = await deps.ttyConfirm(prep.preview, `Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${prep.dest.workspace}?`);
+      const yes = await deps.ttyConfirm(prep.preview, `Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${visible(prep.dest.workspace)}?`);
       if (yes === null) { err(NO_TERMINAL); return 1; }
       if (!yes) { out('Nothing was sent.'); return 0; }
       if (!consumeCode(pendingCode)) { err('That code was already used. Nothing was sent.'); return 1; }
     } else {
-      const yes = await deps.ttyConfirm(prep.preview, `Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${prep.dest.workspace}?`);
+      const yes = await deps.ttyConfirm(prep.preview, `Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${visible(prep.dest.workspace)}?`);
       if (yes === null) { err(NO_TERMINAL); return 1; }
       if (!yes) { out('Nothing was sent.'); return 0; }
     }
 
     const results = await send(c, prep, {
       confirmTeamText: async (i) => {
-        const shown = `"${i.title}" is already on your team graph, as:\n  ${i.teamTitle}\n  ${i.teamSummary}\nYour ratification would put your name on THAT text, not on yours.`;
+        const shown = `"${visible(i.title)}" is already on your team graph, as:\n  ${visible(i.teamTitle)}\n${visible(i.teamSummary, { keepNewline: true }).split('\n').map((l) => `  ${l}`).join('\n')}\nYour ratification would put your name on THAT text, not on yours.`;
         return (await deps.ttyConfirm(shown, 'Do you stand behind the team\'s text?')) === true;
       },
     });
