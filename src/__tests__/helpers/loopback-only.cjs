@@ -4,7 +4,8 @@ const net = require('node:net');
 const real = net.Socket.prototype.connect;
 const loopback = (h) => h === undefined || h === null || h === 'localhost' || h === '::1' || h === '127.0.0.1' || /^127\./.test(String(h));
 net.Socket.prototype.connect = function (...args) {
-  const a = args[0];
+  // net normalises to [options, cb] before the call reaches here, so unwrap that form too.
+  const a = Array.isArray(args[0]) ? args[0][0] : args[0];
   const host = a && typeof a === 'object' && !Array.isArray(a) ? a.host : undefined;
   if (a && typeof a === 'object' && a.path) return real.apply(this, args);
   if (!loopback(host)) throw new Error(`loopback-only preload: refused a connection to ${String(host)}`);

@@ -5,7 +5,7 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import os from 'node:os';
-import { createConfigStore, defaultGatewayUrlFor, type EnvName } from '../lib/config.js';
+import { ALIGN_HOSTED_GATEWAY_URL, createConfigStore, defaultGatewayUrlFor, type EnvName } from '../lib/config.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { tryOpenUrl } from '../lib/open-url.js';
 import { abortableSleep } from '../lib/share/approval.js';
@@ -83,10 +83,12 @@ export function registerShareCommand(program: Command): void {
           store: config,
           env: process.env,
           hasLogin: false,
+          gatewayUrl: cloudEnv.gatewayUrl,
+          hostedGatewayUrl: ALIGN_HOSTED_GATEWAY_URL,
           inCi: inCi(),
           tty: Boolean(process.stdin.isTTY && process.stdout.isTTY && process.stderr.isTTY),
           ask: ttyAsk,
-          post: (email) => postLead(email),
+          post: (email) => postLead(email, cloudEnv.gatewayUrl),
           out: (l) => console.log(l),
         }),
       } satisfies ShareDeps);
