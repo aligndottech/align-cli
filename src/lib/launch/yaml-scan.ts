@@ -14,33 +14,48 @@ export interface YamlLine {
 }
 
 /**
- * One line, read on its own (no quote state carries to the next line). A quote opens a quoted
- * scalar only where a YAML node starts: after the indent, after `- `, after `: `, or after `[`, `{`
- * or `,`. Anywhere else (`Tom's`) it is a plain character. Returns where a comment starts (or the
- * line length), and whether the line holds something this reader does not follow: an escape in a
- * double-quoted scalar, a quoted scalar that does not close on the line, an anchor or alias at a
- * node start, or a complex key (`? `). When unsure, it says unfollowable.
+ * One line, read on its own (no quote state carries to the next line). Returns where a comment
+ * starts (or the line length), and whether the line holds something this reader does not follow.
+ * Conservative on purpose: when unsure it says unfollowable, and the callers then treat the file
+ * as a conflict (no graph, one note). Unfollowable, anywhere on the line:
+ *  - a backslash inside a double-quoted span, wherever the span starts (`{"name":"a\x2d"}`), or a
+ *    double-quoted span that does not close on the line;
+ *  - a tag (`!` starting a token), an anchor or alias (`&`/`*` starting a token), a merge key
+ *    (`<<`), a complex key (`? `);
+ *  - a single-quoted scalar, where a node starts, that does not close on the line.
+ * A token starts at the line start, after whitespace, or after `[`, `{`, `,` or `:`. So a `!` in
+ * `Hello!`, an `&` in a URL and an apostrophe in `Tom's` are plain characters.
  */
 function scanLine(line: string): { comment: number; unfollowable: boolean } {
+  const bad = { comment: line.length, unfollowable: true };
   let nodeStart = true;
   const space = (k: number) => k >= line.length || /\s/.test(line[k]!);
+  const tokenStart = (k: number) => k === 0 || /[\s[{,:]/.test(line[k - 1]!);
   for (let i = 0; i < line.length; i++) {
     const c = line[i]!;
     if (/\s/.test(c)) continue;
     if (c === '#' && (i === 0 || /\s/.test(line[i - 1]!))) return { comment: i, unfollowable: false };
+    if (c === '"') {
+      let j = i + 1;
+      for (; j < line.length && line[j] !== '"'; j++) if (line[j] === '\\') return bad;
+      if (j >= line.length) return bad;
+      i = j;
+      nodeStart = false;
+      continue;
+    }
+    if ((c === '!' || c === '&' || c === '*') && tokenStart(i)) return bad;
+    if (c === '<' && line[i + 1] === '<' && tokenStart(i)) return bad;
     if (nodeStart) {
-      if (c === '&' || c === '*') return { comment: line.length, unfollowable: true };
-      if (c === '?' && space(i + 1)) return { comment: line.length, unfollowable: true };
-      if (c === '"' || c === "'") {
+      if (c === '?' && space(i + 1)) return bad;
+      if (c === "'") {
         let j = i + 1;
         for (; j < line.length; j++) {
-          if (c === '"' && line[j] === '\\') return { comment: line.length, unfollowable: true };
-          if (line[j] === c) {
-            if (c === "'" && line[j + 1] === "'") { j++; continue; }
+          if (line[j] === "'") {
+            if (line[j + 1] === "'") { j++; continue; }
             break;
           }
         }
-        if (j >= line.length) return { comment: line.length, unfollowable: true };
+        if (j >= line.length) return bad;
         i = j;
         nodeStart = false;
         continue;

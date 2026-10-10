@@ -1,14 +1,15 @@
 import envPaths from 'env-paths';
 import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { absoluteXdg } from '../xdg.js';
 
 /**
  * $XDG_CACHE_HOME/align-cli/launch, honoured on every platform; else the OS cache dir.
  * The XDG spec says a relative XDG_CACHE_HOME is invalid and must be ignored.
  */
 export function launchCacheDir(env: Record<string, string | undefined>): string {
-  const xdg = env['XDG_CACHE_HOME'];
-  return path.join(xdg && path.isAbsolute(xdg) ? path.join(xdg, 'align-cli') : defaultCacheDir(), 'launch');
+  const xdg = absoluteXdg(env, 'XDG_CACHE_HOME');
+  return path.join(xdg ? path.join(xdg, 'align-cli') : defaultCacheDir(), 'launch');
 }
 
 /**

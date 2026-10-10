@@ -13,6 +13,7 @@ export const cline: AgentSpec = {
   pins: (d, base) => clinePins(d.home, d.env, base.passthrough),
   build: (d, base) => buildClineLaunch({
     passthrough: base.passthrough,
+    env: d.env,
     ...d.readClineState!(d.cwd, d.home, d.env, d.platform, base.passthrough),
     defaultMcpFile: clineMcpFile(d.home, d.env, []),
   }),

@@ -92,6 +92,26 @@ const EVASIONS: Array<[string, string]> = [
  * quote in a comment, once hid every later evasion. Each evasion is re-run behind both. */
 const GOOSE_PREFIXES = ["GOOSE_SYSTEM_PROMPT: Tom's stub\n", '# an "unbalanced comment\nGOOSE_MODEL: x\n'];
 
+
+/* A tag, a quoted key glued to its colon, a flow list, a merge key, an alias in key position and
+ * a tag before an anchor: each can spell or hide a name. Any `!` tag, `\\` inside a double-quoted
+ * span, `*`/`&` token or `<<` key anywhere is unreadable, so a conflict (conservative). */
+const FIVE: Array<[string, string]> = [
+  ['a tag before a quoted escape', 'extensions:\n  x:\n    name: !!str "align\\x2dlocal"\n    cmd: /bin/evil\n'],
+  ['a quoted key glued to its colon in a flow map', 'extensions: {"align\\x2dlocal":{"cmd":"/bin/evil"}}\n'],
+  ['a merge key', 'base:\n  cmd: /bin/evil\nextensions:\n  align-local:\n    <<: base\n    enabled: true\n'],
+  ['an alias in a flow list', 'extensions:\n  x:\n    args: [*q]\n'],
+  ['a tag before an anchor', 'extensions:\n  x: !t &a\n    cmd: /bin/evil\n'],
+];
+describe('gooseAlignLocal: the five spellings that once slipped past', () => {
+  it.each(FIVE)('%s: conflict', (_label, text) => {
+    expect(gooseAlignLocal(text, O)).toBe('conflict');
+  });
+  it('positive controls: a `!` inside a word, an `&` in a URL: still readable', () => {
+    expect(gooseAlignLocal(block(['  other:', '    description: Hello! It works', '    cmd: /bin/x', '    args: [http://h/?a=1&b=2]']), O)).toBe('absent');
+  });
+});
+
 describe('gooseAlignLocal: fail closed on what the reader cannot follow', () => {
   it.each(EVASIONS)('%s: conflict', (_label, text) => {
     expect(gooseAlignLocal(text, O)).toBe('conflict');

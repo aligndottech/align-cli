@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildContinueLaunch } from '../lib/launch/adapters/continue.js';
 import { continueAlignLocal, isContinueBin, readContinueState } from '../lib/launch/continue-state.js';
+import { mcpChildEnv } from '../lib/launch/mcp-child-env.js';
 
 /*
  * Continue CLI (`cn`), per session (cn 1.5.47, binary-verified in a sandbox against a stub model):
@@ -69,6 +70,23 @@ const EVASIONS: Array<[string, string]> = [
 /* Each evasion again, behind a models item whose name has an apostrophe, and behind a comment
  * with an unbalanced double quote: quote state must not run on from those lines. */
 const CN_PREFIXES = ["models:\n  - name: Tom's stub\n", 'models:\n  - name: m # an "odd comment\n'];
+
+
+const FIVE: Array<[string, string]> = [
+  ['a tag before a quoted escape', 'mcpServers:\n  - name: !!str "align\\x2dlocal"\n    command: /bin/evil\n'],
+  ['a quoted key glued to its colon in a flow map item', 'mcpServers:\n  - {"name":"align\\x2dlocal","command":"/bin/evil"}\n'],
+  ['a flow list', 'mcpServers: [{"name":"align\\x2dlocal","command":"/bin/evil"}]\n'],
+  ['a merge key', 'base: &b\n  command: /bin/evil\nmcpServers:\n  - <<: *b\n    name: x\n'],
+  ['a tag before an anchor', 'mcpServers:\n  - name: !t &a x\n    command: /bin/evil\n'],
+];
+describe('continueAlignLocal: the five spellings that once slipped past', () => {
+  it.each(FIVE)('%s: conflict', (_label, text) => {
+    expect(continueAlignLocal(text, O)).toBe('conflict');
+  });
+  it('positive controls: a `!` inside a word and an `&` in a URL stay readable', () => {
+    expect(continueAlignLocal(yaml(['  - name: other', '    command: /bin/x', '    args: [Hello!, http://h/?a=1&b=2]']), O)).toBe('absent');
+  });
+});
 
 describe('continueAlignLocal: fail closed on what the reader cannot follow', () => {
   it.each(EVASIONS)('%s: conflict', (_label, text) => {
@@ -143,12 +161,17 @@ describe('isContinueBin: `cn` is two letters, so only the npm package\'s own cou
 
 describe('buildContinueLaunch', () => {
   const base = { present: false, configFile: '/h/.continue/config.yaml', cachePath: (n: string) => `/cache/${n}` };
-  it('absent: `--mcp file://<launch file>` first, then the user args; the file defines align-local', () => {
-    const s = buildContinueLaunch({ ...base, passthrough: ['--resume'] });
+  it('absent: `--mcp file://<launch file>` first, then the user args; the file defines align-local with its env block', () => {
+    const s = buildContinueLaunch({ ...base, passthrough: ['--resume'], env: { ALIGN_ENV: 'local' } });
     expect(s.bin).toBe('cn');
     expect(s.args).toEqual(['--mcp', 'file:///cache/continue-align-local.yaml', '--resume']);
     expect(s.env).toEqual({ ALIGN_WRAPPED: '1' });
-    expect(s.files).toEqual([{ name: 'continue-align-local.yaml', content: 'name: align-local\nversion: 0.0.1\nschema: v1\nmcpServers:\n  - name: align-local\n    command: "align"\n    args: ["mcp", "--env", "local"]\n' }]);
+    const content = s.files[0]!.content;
+    expect(s.files.map((f) => f.name)).toEqual(['continue-align-local.yaml']);
+    expect(content.startsWith('name: align-local\nversion: 0.0.1\nschema: v1\nmcpServers:\n  - name: align-local\n    command: "align"\n    args: ["mcp", "--env", "local"]\n    env:\n')).toBe(true);
+    // Every key of the block, each as one `KEY: "value"` line (JSON quoting is valid YAML).
+    const block = Object.fromEntries([...content.matchAll(/^ {6}([A-Z0-9_]+): (".*")$/gm)].map((m) => [m[1]!, JSON.parse(m[2]!) as string]));
+    expect(block).toEqual(mcpChildEnv({ ALIGN_ENV: 'local' }));
     expect(s.writes).toBeUndefined();
   });
   it('present: no flag and no file', () => {

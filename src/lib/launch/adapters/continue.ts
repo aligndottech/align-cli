@@ -1,8 +1,12 @@
 import { alignServerEntry } from '../../mcp-setup.js';
 import type { ContinueProjectState } from '../continue-state.js';
+import { mcpChildEnv } from '../mcp-child-env.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
-export interface ContinueLaunchContext extends Pick<LaunchContext, 'passthrough' | 'cachePath'>, ContinueProjectState {}
+export interface ContinueLaunchContext extends Pick<LaunchContext, 'passthrough' | 'cachePath'>, ContinueProjectState {
+  /** The launcher's environment: the user's own values for the MCP child's env block. */
+  env?: Record<string, string | undefined>;
+}
 
 const FILE = 'continue-align-local.yaml';
 
@@ -32,6 +36,10 @@ export function buildContinueLaunch(c: ContinueLaunchContext): LaunchSpec {
     '  - name: align-local',
     `    command: ${JSON.stringify(command)}`,
     `    args: [${args.map((a) => JSON.stringify(a)).join(', ')}]`,
+    // cn spawns its MCP servers with its own environment, repo `.env` included: name every
+    // variable align reads (JSON-quoted values are valid YAML scalars).
+    '    env:',
+    ...Object.entries(mcpChildEnv(c.env ?? {})).map(([k, v]) => `      ${k}: ${JSON.stringify(v)}`),
     '',
   ].join('\n');
   return { ...spec, args: ['--mcp', `file://${c.cachePath(FILE)}`, ...c.passthrough], files: [{ name: FILE, content }] };

@@ -232,17 +232,37 @@ Continue CLI (`cn`) runs hooks from the repository's `.claude/settings.json` and
 control it.
 
 Some agents load a `.env` file from the repository you open them in. A repo could use that to
-point the agent at its own MCP config. For those agents, Align sets the config-location
-variables itself when it launches them, and leaves alone any variable you exported:
+point the agent at its own MCP config, or to change the environment of the MCP servers the agent
+starts, Align's own included. For those agents, Align sets the config-location variables itself
+when it launches them, and leaves alone any variable you exported. Their `align-local` entry also
+carries an `env` block that names every variable `align` reads, `NODE_OPTIONS`, `NODE_PATH` and
+the `XDG_*` directories, so a repo's values never reach Align's server:
 
 | Agent | Loads a repo `.env`? | Align sets |
 |---|---|---|
-| Cline | yes (checked) | `CLINE_DIR`, `CLINE_DATA_DIR`, `CLINE_MCP_SETTINGS_PATH` |
-| Continue CLI | yes (checked) | `CONTINUE_GLOBAL_DIR`, `CONTINUE_API_BASE`, `CONTINUE_USE_BEDROCK` |
+| Cline | yes (checked) | `CLINE_DIR`, `CLINE_DATA_DIR`, `CLINE_MCP_SETTINGS_PATH`; `CLINE_SANDBOX`, `CLINE_SANDBOX_DATA_DIR`, `CLINE_PROVIDER_SETTINGS_PATH` empty unless you pass `--data-dir`; the `env` block |
+| Continue CLI | yes (checked) | `CONTINUE_GLOBAL_DIR`, `CONTINUE_API_BASE`, `CONTINUE_USE_BEDROCK`; the `env` block |
 | Codex, Copilot, Gemini CLI, Qwen Code, OpenCode, Goose, Claude Code | no (checked) | nothing |
 | pi, Auggie | no loader in the shipped code | nothing |
-| Aider | yes (its own feature) | nothing: Align passes its file on the command line |
+| Aider | yes (its own feature) | nothing: Align passes its file on the command line, and Aider runs no MCP server |
 | Amp, Factory Droid, Kiro CLI, Grok Build, Cursor | UNVERIFIED (not installable here) | nothing: no evidence they load a repo `.env` |
+
+What the `env` block costs: it holds your own values for the `ALIGN_*` and `XDG_*` variables, as
+they were when Align added the entry (Cline keeps them until you run `align use --undo` and
+relaunch). API keys are never written into it: they are empty there, so under Cline and Continue
+CLI Align's server uses the keys you saved with Align, not ones exported in your shell.
+
+Cline's `--config <dir>` and `--data-dir <dir>` each choose a directory for that run. Align reads
+the MCP file there and points Cline at it, but adds nothing to it.
+
+`align` ignores a relative `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` or `XDG_STATE_HOME`
+(the XDG spec calls one invalid), and never copies its local database into the directory it was
+started in, unless that is your home directory or above it.
+
+Align reads Goose's and Continue CLI's YAML config with a deliberately narrow reader. If a file
+uses a tag (`!`), an anchor or alias (`&`, `*`), a merge key (`<<`), a backslash inside double
+quotes, or a quoted value that spans lines, Align cannot be sure what it says. It then adds
+nothing for that session and prints one line, even when the file is harmless.
 
 Known limit: every MCP entry Align adds runs a bare `align`. The agent resolves `align`
 through its own PATH, so it runs whichever `align` comes first on the PATH the agent sees.
