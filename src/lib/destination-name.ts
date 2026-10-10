@@ -22,6 +22,17 @@ export function validateDestinationName(n: string): string | null {
   return null;
 }
 
+/**
+ * ` --env <name>` for a command line a person will paste, or '' for prod (the default, left off to keep
+ * the line portable). Refuses any name that is neither a builtin nor a valid destination name: this is
+ * the one place a name becomes shell text, so it is checked here and not trusted from the config file.
+ */
+export function envFlag(name: string): string {
+  if (name === 'prod') return '';
+  if (name === 'preview' || name === 'local' || validateDestinationName(name) === null) return ` --env ${name}`;
+  throw new Error(`"${name.replace(/[^\x20-\x7e]/g, '?').slice(0, 40)}" is not a safe environment name`);
+}
+
 export function asDestinationName(n: string): TeamDestinationName {
   const problem = validateDestinationName(n);
   if (problem) throw new Error(`Invalid destination name "${n.slice(0, 40)}": ${problem}`);

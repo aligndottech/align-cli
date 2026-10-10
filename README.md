@@ -120,6 +120,7 @@ picks which one is used when you have several. [Setting one up](docs/configurati
 | | |
 |---|---|
 | [Installing](docs/installation.md) | npm, the binary, Windows and PowerShell |
+| [Join your team's graph](docs/join-your-team.md) | `align join`, hosted and self-hosted |
 | [Importing](docs/importing.md) | Every source, tokens, flags |
 | [Alignment check](docs/check.md) | Modes, exit codes, CI, the GitHub Action |
 | [Cloud or local-only](docs/local-mode.md) | What runs where, what touches the network |

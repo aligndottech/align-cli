@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { createConfigStore, type EnvName } from '../lib/config.js';
+import { destinationLines } from '../lib/destination-summary.js';
 
 const VALID_ENVS: EnvName[] = ['local', 'preview', 'prod'];
 
@@ -20,6 +21,15 @@ export function registerEnvCommand(program: Command): void {
       createConfigStore().setDefaultEnv(name as EnvName);
       console.log(chalk.green(`Default env set to ${chalk.bold(name)}`));
       console.log(chalk.dim('All commands will now target this environment unless --env is passed.'));
+    });
+
+  env
+    .command('list')
+    .description('List the environments and every team destination joined with align join, with both hosts')
+    .action(() => {
+      const config = createConfigStore();
+      for (const e of VALID_ENVS) console.log(`  ${e}`);
+      for (const line of destinationLines(config)) console.log(line);
     });
 
   env

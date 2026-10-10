@@ -93,6 +93,9 @@ export function registerInviteCommand(program: Command): void {
         inviteSpinner.stop();
         console.log(chalk.green(`\n  Invite sent. Share this link with ${email}:`));
         console.log(chalk.dim(`  ${result.inviteUrl}\n`));
+        console.log('  Send this to one person. It works once and expires in 7 days.');
+        // Pasted into a shell line, so only a link with no quote in it is: the server writes these, but this is a command a person copies.
+        if (!result.inviteUrl.includes("'")) console.log(`  They run: align join '${result.inviteUrl}'\n`);
       } catch (err) {
         spinner.stop();
         console.log(chalk.red(`\n  ${(err as Error).message}\n`));

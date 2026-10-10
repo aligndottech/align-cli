@@ -4,8 +4,10 @@ import type { EnvironmentConfig, EnvName } from '../lib/config.js';
 
 /** A store where `tokens` says which envs hold a login. `ALIGN_TOKEN` is folded in by the real
  *  getEnvironment, so a token "from the environment" is just a token on every env here. */
-function store(tokens: Partial<Record<EnvName, string>>, defaultEnv: EnvName = 'prod') {
+function store(tokens: Partial<Record<EnvName, string>>, defaultEnv: EnvName = 'prod', teams: string[] = []) {
   return {
+    hasTeamDestination: (n: string) => teams.includes(n),
+    listTeamDestinationNames: () => teams,
     getEnvironment: (env: EnvName): EnvironmentConfig =>
       ({ gatewayUrl: '', authToken: tokens[env] ?? null, tenantId: null, mode: 'auth' }),
     getDefaultEnv: (): EnvName => defaultEnv,
@@ -75,5 +77,26 @@ describe('align login then align setup', () => {
     // login stores the token with setAuthToken(env, ...) and ends "Ready. Run: align setup".
     expect(routeSetup({}, store({ prod: 'fresh-from-login' }), {}).kind).toBe('team');
     expect(routeSetup({ approve: true }, store({ preview: 'fresh-from-login' }), {}).kind).toBe('team');
+  });
+});
+
+
+describe('routeSetup: a saved team destination (join C6)', () => {
+  it('--env <destination> routes to team on it, with no token needed (setup then offers the login)', () => {
+    expect(routeSetup({ env: 'acme' }, store({}, 'prod', ['acme']), {})).toEqual({ kind: 'team', env: 'acme' });
+  });
+  it('ALIGN_ENV=<destination> routes to team on it', () => {
+    expect(routeSetup({}, store({}, 'prod', ['acme']), { ALIGN_ENV: 'acme' })).toEqual({ kind: 'team', env: 'acme' });
+  });
+  it('an unknown --env still throws, and the message lists the destinations too', () => {
+    const run = () => routeSetup({ env: 'acmee' }, store({}, 'prod', ['acme']), {});
+    expect(run).toThrow(InvalidEnvError);
+    expect(run).toThrow(/local, preview, prod, acme/);
+  });
+  it('an unknown ALIGN_ENV fails closed instead of being ignored', () => {
+    expect(() => routeSetup({}, store({ prod: 'tok' }), { ALIGN_ENV: 'acme' })).toThrow(InvalidEnvError);
+  });
+  it('an empty ALIGN_ENV is unset', () => {
+    expect(routeSetup({}, store({}), { ALIGN_ENV: '' })).toEqual({ kind: 'local' });
   });
 });
