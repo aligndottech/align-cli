@@ -8,6 +8,7 @@
  * report would still say the read was complete.
  */
 import { type SourceId, SYNC_CEILINGS, SYNC_TIME_BUDGET_MS, SYNC_WINDOW_DEFAULT_DAYS } from './import-defaults.js';
+import type { ScopeFetchOpts } from './scope-values.js';
 
 export const ACCEPTED_SINCE_FORMS = '30d, 2w, 6m, 1y or all';
 
@@ -79,10 +80,28 @@ export function fetchWindow(id: SourceId, window: SyncWindow): { limit: number; 
   };
 }
 
-/** L5: the optional extras a sync adds to a fetch beyond the window itself. Omitted keys stay omitted. */
-export function windowExtras(o?: { until?: string; hotThreads?: Array<{ channel: string; ts: string }> }): { until?: string; hotThreads?: Array<{ channel: string; ts: string }> } {
+/**
+ * What a source's fetch is handed beyond the window: L5's `until` and Slack `hotThreads`, and L4's team-scope option (Jira `projects`,
+ * Linear `teams`, GitLab `projectId`, Confluence `spaces`). `team` and `repo` are GitHub's, read by its closure in setup.ts.
+ */
+export interface FetchExtras extends ScopeFetchOpts {
+  until?: string;
+  hotThreads?: Array<{ channel: string; ts: string }>;
+  team?: boolean;
+  /** GitHub team scope: the repo. */
+  repo?: string;
+  /** True when the caller has already decided the scope (repo or none): the fetch must not look at the folder itself. */
+  resolved?: boolean;
+}
+
+/** The optional extras a fetch adds to the window itself. Omitted keys stay omitted. */
+export function windowExtras(o?: FetchExtras): FetchExtras {
   return {
     ...(o?.until !== undefined ? { until: o.until } : {}),
     ...(o?.hotThreads !== undefined && o.hotThreads.length > 0 ? { hotThreads: o.hotThreads } : {}),
+    ...(o?.projects !== undefined ? { projects: o.projects } : {}),
+    ...(o?.teams !== undefined ? { teams: o.teams } : {}),
+    ...(o?.projectId !== undefined ? { projectId: o.projectId } : {}),
+    ...(o?.spaces !== undefined ? { spaces: o.spaces } : {}),
   };
 }

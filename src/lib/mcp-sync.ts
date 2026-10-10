@@ -21,6 +21,7 @@ import type { EnvironmentConfig } from './config.js';
 import { createConfigStore } from './config.js';
 import { BACKFILL_SOURCES } from './mcp-backfill.js';
 import { estimateClassify } from './sync/classify.js';
+import { scopeStatusHooks } from './scope-real.js';
 import { lockHolder } from './sync/lock.js';
 import { startSyncChild } from './sync/spawn-background.js';
 import { readRows } from './sync/sync-state.js';
@@ -73,7 +74,7 @@ export function defaultSyncDeps(env: EnvironmentConfig): SyncToolDeps {
   const config = createConfigStore();
   const dir = backfillDir();
   const status: StatusDeps = {
-    dbPath,
+    dbPath, ...scopeStatusHooks(config),
     isConnected: (id) => Boolean(config.getConnectorFields('local', id)?.['token']),
     syncRunning: (id) => lockHolder(`sync-${id}`) !== undefined,
     backfill: (id) => (dir ? readStatus(statusPath(dir, id)) : null),

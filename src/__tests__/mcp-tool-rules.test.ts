@@ -7,7 +7,7 @@ import { agentIdFrom, cliCommandFor, jsonSchemaOf, strictInput, type StrictSpec 
 /**
  * LM Test List (shared MCP tool rules):
  * - agentIdFrom maps clientInfo.name onto the launcher registry's closed list, else 'unknown'; two examples each way; the raw name is never returned.
- * - strictInput refuses an unknown property by name (truncated, value never echoed) and enforces type, enum and length limits.
+ * - strictInput refuses an unknown property (neither its name nor its value is echoed) and enforces type, enum and length limits.
  * - No registered tool has a property that looks like a token, key, secret, password or credential (positive control: a fixture that does).
  * - The local instructions stay inside the byte budget; the tool that records judgements says in its own description when to offer it.
  */
@@ -46,13 +46,14 @@ describe('strictInput', () => {
   it('accepts a valid call and returns it', () => {
     expect(strictInput(SPEC, { id: 'x', mode: 'a', paths: ['a', 'b'] })).toEqual({ id: 'x', mode: 'a', paths: ['a', 'b'] });
   });
-  it('refuses an unknown property by name, truncated, without its value (two examples)', () => {
-    for (const [key, secret] of [['token', 'ghp_SECRETVALUE'], ['api_key_that_is_far_too_long_to_print', 'sk-SECRETVALUE']] as const) {
+  it('refuses an unknown property without printing its name or its value (two examples; a token pasted AS the name is not echoed either)', () => {
+    for (const [key, secret] of [['ghp_PASTEDASANAME0123456789', 'ghp_SECRETVALUE'], ['api_key_that_is_far_too_long_to_print', 'sk-SECRETVALUE']] as const) {
       let message = '';
       try { strictInput(SPEC, { id: 'x', [key]: secret }); } catch (e) { message = (e as Error).message; }
-      expect(message).toContain(JSON.stringify(key.slice(0, 16)));
+      expect(message).toContain('an unknown property (the name is not printed back)');
       expect(message).not.toContain('SECRETVALUE');
-      if (key.length > 16) expect(message).not.toContain(key);
+      expect(message).not.toContain(key);
+      expect(message).not.toContain(key.slice(0, 8));
     }
   });
   it('requires required properties, including when they are empty', () => {

@@ -9,6 +9,7 @@
 import { CAPTURE_SOURCES } from '../capture-sources.js';
 import type { BackfillStatus } from '../backfill-state.js';
 import { BACKFILL_SOURCES } from '../mcp-backfill.js';
+import { describeScopeKey, labelOfScopeKey } from '../scope-values.js';
 import type { SyncRow, SyncStatus } from './sync-state.js';
 import { EMBEDDING_MODEL_ID } from '../local-embeddings.js';
 import { PERSISTENT_HOLE_RUNS } from './window.js';
@@ -20,7 +21,8 @@ export interface SourceStatus {
   connected: boolean;
   /** Whose items it reads: "your own items", "everyone's items in o/r". */
   scope: string;
-  status: SyncStatus | 'never' | 'not_connected';
+  /** `blocked`: the scope in force reads nothing until the person acts (Confluence with no spaces chosen), whatever the last run said. */
+  status: SyncStatus | 'never' | 'not_connected' | 'blocked';
   /** Stamped only by a COMPLETE run. */
   last_success_at?: string;
   /** Stamped by every run, complete or not. */
@@ -37,6 +39,8 @@ export interface SourceStatus {
   /** A read a ceiling cut in date order: how far back it got. Older history is still to come. */
   reached_back_to?: string;
   running?: 'sync' | 'backfill';
+  /** Scopes this source was read under before, kept in the graph and not read now. Absent when there are none. */
+  older_scopes?: number;
   /** The command or note the person needs, when there is one. */
   next_step?: string;
 }
@@ -49,6 +53,12 @@ export interface StatusDeps {
   /** The latest backfill status file for the source, if any. */
   backfill(id: string): BackfillStatus | null;
   backfillAlive(s: BackfillStatus): boolean;
+  /** The `source_sync.scope_key` in force for the source, when the caller can tell (the stored choice). Absent: the most recently started row. */
+  activeScopeKey?(id: string): string | undefined;
+  /** An agent's team choice waiting for a person to confirm it, in words, or undefined. */
+  pendingScope?(id: string): string | undefined;
+  /** Why a source reads nothing until the person acts, or undefined (Confluence with no spaces chosen). */
+  blockedScope?(id: string): string | undefined;
 }
 
 export const TEAMS_NOTE = 'Teams: refresh manually with `align connect teams` (its token lasts about an hour). Only yours until then.';
@@ -59,11 +69,11 @@ const RANK: Record<SyncStatus, number> = { ok: 0, partial: 1, error: 2, needs_re
 function scopeText(rows: readonly SyncRow[]): string {
   const team = rows.filter((r) => r.scope === 'team');
   if (team.length === 0) return 'your own items';
-  return team.map((r) => `everyone's items in ${r.scope_key.replace(/^repo:/, '')}`).join('; ');
+  return team.map((r) => describeScopeKey(r.source_id, r.scope_key, r.scope)).join('; ');
 }
 
 function scopeLabelOf(r: SyncRow): string {
-  return r.scope === 'team' ? r.scope_key.replace(/^repo:/, '') : 'your own items';
+  return r.scope === 'team' ? labelOfScopeKey(r.source_id, r.scope_key) : 'your own items';
 }
 
 /** The skips that mean something was NOT read (everything but `shape`, which is a note), with which scope they hit. */
@@ -100,8 +110,19 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
   const all = readRows(d.dbPath);
   const sources: SourceStatus[] = BACKFILL_SOURCES.map((id): SourceStatus => {
     const connected = d.isConnected(id);
-    const rows = all.filter((r) => r.source_id === id);
-    const worst = rows.reduce<SyncStatus | undefined>((w, r) => (w === undefined || RANK[r.status] > RANK[w] ? r.status : w), undefined);
+    const everyScope = all.filter((r) => r.source_id === id);
+    // Only the scope in force is described; the others are counted. (A refused token is refused for the whole source, so it is read off every row.)
+    const wanted = d.activeScopeKey?.(id);
+    // The fallback is the row most recently started; a row that never started, or whose stamp is not a date, cannot be "most recent" (NaN
+    // compares false both ways and would pick an arbitrary winner).
+    const started = (r: SyncRow): number => (r.last_started_at === null ? Number.NaN : Date.parse(r.last_started_at));
+    const active = everyScope.find((r) => r.scope_key === wanted)
+      ?? [...everyScope].filter((r) => !Number.isNaN(started(r))).sort((a, b) => started(b) - started(a))[0]
+      ?? everyScope[0];
+    const rows = active ? [active] : [];
+    // A scope that never started (an agent's request waiting for a person) was never read, so it is not an "older scope kept".
+    const older = everyScope.filter((r) => !rows.includes(r) && r.last_started_at !== null).length;
+    const worst = everyScope.some((r) => r.status === 'needs_reauth') ? 'needs_reauth' as SyncStatus : rows.reduce<SyncStatus | undefined>((w, r) => (w === undefined || RANK[r.status] > RANK[w] ? r.status : w), undefined);
     const lasts = rows.map((r) => r.last_success_at).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t)));
     const last = lasts.sort((a, b) => Date.parse(b) - Date.parse(a))[0];
     const attempts = rows.map((r) => r.last_attempt_at).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t)));
@@ -112,21 +133,25 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
     const pending = rows.map((r) => r.pending_until).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t))).sort()[0];
     const bf = d.backfill(id);
     const s: SourceStatus = {
-      id, label: label(id), connected, scope: scopeText(rows),
-      status: !connected ? 'not_connected' : (worst ?? 'never'),
+      id, label: label(id), connected, scope: id === 'confluence' && !rows.some((r) => r.scope === 'team') ? 'no spaces chosen' : scopeText(rows),
+      status: !connected ? 'not_connected' : worst === 'needs_reauth' || d.blockedScope?.(id) === undefined ? (worst ?? 'never') : 'blocked',
       skips: skipCounts(rows),
       ...(last !== undefined ? { last_success_at: last } : {}),
       ...(attempt !== undefined ? { last_attempt_at: attempt } : {}),
       ...(missing.length > 0 ? { missing } : {}),
       ...(stuck ? { persistent_hole: `${stuck.hole_sig} (${stuck.hole_streak} runs in a row)` } : {}),
       ...(items !== undefined ? { items_last_run: items } : {}),
+      ...(older > 0 ? { older_scopes: older } : {}),
       ...(pending !== undefined ? { reached_back_to: pending } : {}),
       ...(connected && d.syncRunning(id) ? { running: 'sync' as const } : bf && d.backfillAlive(bf) ? { running: 'backfill' as const } : {}),
     };
     if (id === 'github' && connected) s.discussion_pending = pendingDetailCount(d.dbPath, 'github');
     if (!connected) s.next_step = `Not connected. Ask the person to run: align connect ${id}`;
     else if (s.status === 'needs_reauth') s.next_step = `The provider refused the saved token. Ask the person to run: align connect ${id}`;
+    else if (s.status === 'blocked') s.next_step = d.blockedScope!(id)!;
     else if (id === 'teams') s.next_step = TEAMS_NOTE;
+    const waiting = connected ? d.pendingScope?.(id) : undefined;
+    if (waiting !== undefined) s.next_step = `Team scope for ${id} is waiting for you to confirm (${waiting}): run \`align sync ${id}\` (it will show what it reads)`;
     return s;
   });
   return { sources, rows_awaiting_relink: unfinishedCount(d.dbPath, EMBEDDING_MODEL_ID) };
@@ -151,6 +176,7 @@ export function renderStatus(r: { sources: SourceStatus[]; rows_awaiting_relink:
     if (s.persistent_hole) bits.push(`persistent hole: ${s.persistent_hole}; the sync reads the rest and no longer waits for it, so fix the access or leave it`);
     const skips = Object.entries(s.skips).map(([k, n]) => `${k} ${n}`);
     if (skips.length) bits.push(`skipped last run: ${skips.join(', ')}`);
+    if (s.older_scopes) bits.push(`${s.older_scopes} older scope${s.older_scopes === 1 ? '' : 's'} kept (not read)`);
     lines.push(`${s.label} (${s.scope}): ${bits.join('; ')}.`);
     if (s.next_step) lines.push(`  ${s.next_step}`);
   }

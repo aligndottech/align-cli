@@ -20,7 +20,7 @@ align ask <query>             Ask a question about your decision graph, or pass 
                               flags: --env --limit --repo --all --json
 
 align connect [connectors]    Connect a source and import its decisions. No source: pick from a list. --all: scan every connected cloud connector
-                              flags: --env --source --token --yes --json --since --all --channel --project --from --to --approve
+                              flags: --env --source --token --yes --json --since --scope --repo --projects --teams --gitlab-project --spaces --all --channel --project --from --to --approve
 align connect list            List import jobs
                               flags: --env --status --connector
 align connect suggestions     List pending import suggestions

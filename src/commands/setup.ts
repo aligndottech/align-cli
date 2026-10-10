@@ -19,9 +19,10 @@ import { type CaptureSource, createCaptureCollector, toCaptureSource } from '../
 import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
 import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
-import { fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
+import { type FetchExtras, fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { afterSourceConnected } from '../lib/sync/after-connect.js';
+import { connectScopeCtx, fetchUnderScope, type ScopeFlags } from '../lib/scope-connect.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { collectTokensViaOAuth, oauthFlowLabel } from '../lib/personal-oauth.js';
@@ -79,7 +80,7 @@ export interface SetupSource {
   /** What one fetched item IS, for the capture report (ALI-827) - from CAPTURE_SOURCES. */
   unit: string;
   /** L3: `window` defaults to the plan's six months; `align connect --since` passes its own. */
-  fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: { team?: boolean; until?: string; hotThreads?: Array<{ channel: string; ts: string }> }) => Promise<CaptureFetchResult>;
+  fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: FetchExtras) => Promise<CaptureFetchResult>;
 }
 
 export function buildSources(gitAvailable: boolean): SetupSource[] {
@@ -120,14 +121,10 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
         '&contents=read&issues=read&pull_requests=read',
       fetch: async (t, w = parseSince(undefined), o = {}) => {
         const { fetchGitHubItems, resolveGitHubRepoScope } = await import('../lib/fetchers/github.js');
-        // ALI-917: this interactive source has no --repo/--all of its own, so it takes
-        // resolveGitHubRepoScope's auto-detect-only path (an empty opts object) - the
-        // same default `align connect github` uses. Without it, a token spanning several
-        // unrelated repos returns everything across all of them, undifferentiated.
-        const repo = await resolveGitHubRepoScope({});
-        // L3: items first, then discussion inline up to a request budget (fetchGitHubItems). Team scope
-        // (everyone's items in the repo) only when the caller says the graph is local; cloud setup keeps yours.
-        return fetchGitHubItems({ token: t['token']!, ...fetchWindow('github', w), ...(repo ? { repo, ...(o.team ? { scope: 'team' as const } : {}) } : {}) });
+        // L4: when the caller has resolved the scope (`resolved`), its `repo` is the whole answer and the folder is not consulted.
+        // Without it (cloud setup) this is ALI-917's auto-detect: the repo narrows the search, and team scope only when asked.
+        const repo = o.resolved ? o.repo : await resolveGitHubRepoScope({});
+        return fetchGitHubItems({ token: t['token']!, ...fetchWindow('github', w), ...(repo ? { repo, ...(o.team || o.resolved ? { scope: 'team' as const } : {}) } : {}) });
       },
     },
     {
@@ -744,6 +741,7 @@ export interface ConnectedSourceResult {
   error?: string;
   /** L3: whose items a team-scope read covered, when it was one. */
   reads?: string;
+  disclosure_pending?: boolean; // L4: a team read --json could not tell the person about; still owed
 }
 
 export interface ConnectLocalSourcesOptions {
@@ -761,6 +759,8 @@ export interface ConnectLocalSourcesOptions {
   json?: boolean;
   /** L3 (`align connect --since`): how far back to read. Absent means the plan's six months. */
   window?: SyncWindow;
+  /** L4 (`align connect --scope/--projects/...`): which part of a source to read. */
+  scopeFlags?: ScopeFlags;
 }
 
 /** The ids `align connect --source` accepts: every local paste-token source, in picker order. */
@@ -784,6 +784,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   const quiet = o.json === true;
   const window = o.window ?? parseSince(undefined);
   const results: ConnectedSourceResult[] = [];
+  const scopeCtx = connectScopeCtx({ config, dbPath: localEnv.localDbPath, interactive, quiet, flags: o.scopeFlags });
 
   // Connectors: local mode connects by a read-only token the user mints themselves,
   // for every connector - their personal graph, their credential. OAuth belongs to
@@ -955,10 +956,9 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   // is only the automatic import for the paste-token connectors just collected.
   for (const { source, tokens, reused } of localReady) {
     const spinner = quiet ? { start() {}, stop() {} } : p.spinner();
-    spinner.start(`Fetching from ${source.label}...`);
     let sourceCs: CaptureSource | undefined;
     try {
-      const fetched = await source.fetch(tokens, window, { team: true });
+      const fetched = await fetchUnderScope(source, tokens, window, scopeCtx, () => spinner.start(`Fetching from ${source.label}...`));
       sourceCs = capture.add(toCaptureSource(source, fetched, windowLabel(window.days)));
       const { items } = fetched;
       // Saved only once the fetch it unlocked has succeeded. A token that never worked is not
@@ -981,7 +981,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
           funnel: { env: localEnv, source: source.id },
         });
       }
-      results.push({ id: source.id, label: source.label, found: items.length, imported, ...(fetched.report.scopeNote ? { reads: fetched.report.scopeNote } : {}) });
+      results.push({ id: source.id, label: source.label, found: items.length, imported, ...(fetched.report.scopeNote ? { reads: fetched.report.scopeNote } : {}), ...(fetched.report.disclosurePending ? { disclosure_pending: true } : {}) });
     } catch (e) {
       const msg = (e as Error).message;
       // An import that threw stored an unknown amount: never leave the report saying all of it.

@@ -8,6 +8,7 @@ import { createCaptureCollector } from '../lib/capture-report.js';
 import { connectLocalSources } from './setup.js';
 import { sinceFromFlag } from '../lib/since-flag.js';
 import { trackChildFromEnv } from '../lib/backfill-state.js';
+import { checkScopeFlags, type ScopeFlags } from '../lib/scope-connect.js';
 
 /**
  * ALI-951: `align import <source>` was renamed `align connect <source>` in 0.38.0 and kept as
@@ -30,6 +31,8 @@ export interface ConnectOptions {
   json?: boolean;
   /** L3: how far back to read (30d, 2w, 6m, 1y, all). Absent means six months. */
   since?: string;
+  /** L4: which part of the source to read (`--scope`, `--repo`, `--projects`, `--teams`, `--gitlab-project`, `--spaces`). Needs `source`. */
+  scopeFlags?: ScopeFlags;
   env?: EnvName;
 }
 
@@ -66,6 +69,13 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
     process.exit(2);
   }
 
+  // Before any prompt or request, like --since: a scope the person did not mean is refused, not guessed.
+  const scopeProblem = checkScopeFlags(opts.source, opts.scopeFlags ?? {});
+  if (scopeProblem) {
+    console.error(chalk.red(`align connect: ${scopeProblem}`));
+    process.exit(2);
+  }
+
   const config = createConfigStore();
   const { dbPath } = await initLocalMode();
   const localEnv = config.getEnvironment('local');
@@ -84,6 +94,7 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
       seedTokens: opts.token ? { token: opts.token } : undefined,
       json: opts.json,
       window,
+      ...(opts.scopeFlags || opts.since !== undefined ? { scopeFlags: { ...opts.scopeFlags, ...(opts.since !== undefined ? { windowSince: window.since ?? null } : {}) } } : {}),
     });
     const failed = results.filter((r) => r.error);
     // The line that explains the outcome: the errors first (they are why a run "succeeded" with nothing).

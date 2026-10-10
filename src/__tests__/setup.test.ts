@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearTelemetryEnv } from './helpers/telemetry-env.js';
+import { vendorFetch } from './helpers/vendor-fetch.js';
 import type * as McpSetup from '../lib/mcp-setup.js';
 import { Command } from 'commander';
 import { AuthExpiredError } from '../lib/errors.js';
@@ -97,6 +98,9 @@ const makeDefaultConfig = () => ({
     getConnectorFields: mockGetConnectorFields,
     saveConnectorFields: mockSaveConnectorFields,
     forgetConnector: mockForgetConnector,
+    // L4: the scope choice and the one-time team-scope disclosure. Nothing chosen and nothing told by default, like every other store field here.
+    getConnectorScope: vi.fn().mockReturnValue(null), setConnectorScope: vi.fn(), clearConnectorScope: vi.fn(),
+    isTeamScopeDisclosed: vi.fn().mockReturnValue(false), markTeamScopeDisclosed: vi.fn(), clearTeamScopeDisclosed: vi.fn(),
     getConnectorCloudId: vi.fn().mockReturnValue(null),
     setConnectorCloudId: vi.fn(),
     getConnectorSiteBase: vi.fn().mockReturnValue(null),
@@ -293,6 +297,8 @@ describe('align setup', () => {
     // C6: CI vars, ALIGN_WRAPPED and ALIGN_TOKEN/ALIGN_ENV change what this suite does; clear them.
     clearTelemetryEnv();
     vi.stubGlobal('setTimeout', (fn: () => void) => { fn(); return 0; });
+    // L4: connecting looks at what the token can see; that never reaches a vendor from a test.
+    vi.stubGlobal('fetch', vendorFetch);
     vi.clearAllMocks();
     mockWhoami.mockResolvedValue({ user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } });
     mockIngestBatch.mockResolvedValue({ snapshots: [{ id: 'snap1', analysis: { relatedDecisions: [] } }] });
@@ -830,7 +836,10 @@ describe('align setup', () => {
         mockGetConnectorFields.mockImplementation((_env: string, key: string) =>
           key === 'jira' || key === 'confluence' ? { token: 'old', email: 'ada@x.io', domain: 'acme.atlassian.net' } : null,
         );
-        mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']);
+        // L4: then the Jira project picker (nothing selected: only your own) and the Confluence space picker (it needs a space).
+        mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']).mockResolvedValueOnce([]).mockResolvedValueOnce(['ENG']);
+        // ...which look at the site the pasted domain names, so it has to be a hostname.
+        vi.mocked((await import('@clack/prompts')).text).mockResolvedValueOnce('ada@x.io').mockResolvedValueOnce('acme.atlassian.net');
         mockConfirm.mockImplementation(async (o: { message?: string }) => !/Jira/.test(String(o?.message)));
         const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
         const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
@@ -1079,8 +1088,11 @@ describe('align setup', () => {
       // domain are the same account facts - so asking twice is pure friction, typed
       // out loud by a field report. The second connector reuses the first's answers
       // and SAYS so, in the same disclosure style as the gh-token reuse.
-      mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']);
+      // L4: then the Jira project picker (nothing selected: only your own) and the Confluence space picker (it needs a space).
+      mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']).mockResolvedValueOnce([]).mockResolvedValueOnce(['ENG']);
       const { log, password, text } = await import('@clack/prompts');
+      // ...which look at the site the pasted domain names, so it has to be a hostname.
+      vi.mocked(text).mockResolvedValueOnce('ada@x.io').mockResolvedValueOnce('acme.atlassian.net');
       const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
       const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
@@ -1342,6 +1354,9 @@ describe('align setup', () => {
           getConnectorFields: mockGetConnectorFields,
           saveConnectorFields: mockSaveConnectorFields,
           forgetConnector: mockForgetConnector,
+          // L4: the scope choice and the one-time team-scope disclosure. Nothing chosen and nothing told by default, like every other store field here.
+          getConnectorScope: vi.fn().mockReturnValue(null), setConnectorScope: vi.fn(), clearConnectorScope: vi.fn(),
+          isTeamScopeDisclosed: vi.fn().mockReturnValue(false), markTeamScopeDisclosed: vi.fn(), clearTeamScopeDisclosed: vi.fn(),
           getConnectorCloudId: vi.fn().mockReturnValue(null),
           setConnectorCloudId: vi.fn(),
           getConnectorSiteBase: vi.fn().mockReturnValue(null),
@@ -1828,6 +1843,9 @@ describe('align setup', () => {
       getConnectorFields: mockGetConnectorFields,
       saveConnectorFields: mockSaveConnectorFields,
       forgetConnector: mockForgetConnector,
+      // L4: the scope choice and the one-time team-scope disclosure. Nothing chosen and nothing told by default, like every other store field here.
+      getConnectorScope: vi.fn().mockReturnValue(null), setConnectorScope: vi.fn(), clearConnectorScope: vi.fn(),
+      isTeamScopeDisclosed: vi.fn().mockReturnValue(false), markTeamScopeDisclosed: vi.fn(), clearTeamScopeDisclosed: vi.fn(),
       getConnectorCloudId: vi.fn().mockReturnValue(null),
       setConnectorCloudId: vi.fn(),
       getConnectorSiteBase: vi.fn().mockReturnValue(null),

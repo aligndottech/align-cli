@@ -16,6 +16,7 @@ import type { CaptureFetchResult, CaptureSkip } from '../fetchers/capture.js';
 import { isAuthExpiry } from '../errors.js';
 import { SYNC_TIME_BUDGET_MS } from '../import-defaults.js';
 import type { createLocalGatewayClient } from '../local-gateway-client.js';
+import { describeScopeKey } from '../scope-values.js';
 import { connectorItemKey } from '../source-key.js';
 import { drainGitHub, type DrainResult } from './drain.js';
 import type { Lock } from './lock.js';
@@ -25,7 +26,7 @@ import {
   threadRows,
 } from './sync-state.js';
 import { HOT_THREAD_DAYS, mergePartialThread, selectHotThreads } from './threads.js';
-import { ascendingByUpdated, finishRun, later, newestUpdated, nextWindow, PERSISTENT_HOLE_RUNS, plausible } from './window.js';
+import { ascendingByUpdated, finishRun, inheritedWindowSince, later, newestUpdated, nextWindow, PERSISTENT_HOLE_RUNS, plausible } from './window.js';
 
 export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'not_connected' | 'manual';
 
@@ -43,6 +44,8 @@ export interface SourceOutcome {
   skips: CaptureSkip[];
   drain?: DrainResult;
   scopeNote?: string;
+  /** L4: why this source is only yours, or how to widen it - one line, printed as it is. */
+  scopeLine?: string;
   message?: string;
   /** Set when this run's hole has now come back PERSISTENT_HOLE_RUNS times in a row. */
   persistentHole?: string;
@@ -52,7 +55,13 @@ export interface SyncEnv {
   dbPath: string;
   now(): Date;
   tokens(source: string): Record<string, string> | null;
-  scopeOf(source: string): Promise<SyncScope>;
+  scopeOf(source: string, o: { trigger: 'cli' | 'background' }): Promise<SyncScope>;
+  /** L4: print the one-time team-scope disclosure. Wired only for a foreground run; nobody is there to read it in the background. */
+  announce?(source: string, line: string): void;
+  /** L4: ask a person, default No, before an agent's waiting scope is read. Absent: not asked, so not read. */
+  confirm?(source: string, message: string): Promise<boolean>;
+  /** L4: remember the disclosure was told. Called only after `announce`. */
+  markDisclosed?(source: string, scopeKey: string): void;
   fetch(source: string, tokens: Record<string, string>, win: SourceWindow, scope: SyncScope): Promise<CaptureFetchResult>;
   client: Pick<ReturnType<typeof createLocalGatewayClient>, 'ingestBatch' | 'relinkUnfinished'>;
   lock(name: string): Lock;
@@ -112,21 +121,33 @@ export async function syncSource(
   if (!lock.ok) return none(source, 'locked', `already syncing${lock.holder ? ` (started ${lock.holder.started_at.slice(0, 16).replace('T', ' ')} UTC)` : ''}`);
   try {
     if (env.backfillRunning(source)) return none(source, 'backfill_running', `a backfill of ${source} is running; it is reading the same history`);
-    return await run(source, tokens, env, lock);
+    return await run(source, tokens, env, lock, o);
   } finally {
     lock.release();
   }
 }
 
-async function run(source: string, tokens: Record<string, string>, env: SyncEnv, lock: Extract<Lock, { ok: true }>): Promise<SourceOutcome> {
+async function run(source: string, tokens: Record<string, string>, env: SyncEnv, lock: Extract<Lock, { ok: true }>, o: { trigger: 'cli' | 'background' }): Promise<SourceOutcome> {
   const now = env.now();
   const nowIso = now.toISOString();
-  const scope = await env.scopeOf(source);
+  let scope = await env.scopeOf(source, { trigger: o.trigger });
+  // A source that must not be read until the person acts (Confluence with no spaces): no request, no row, the command to run.
+  if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
+  if (scope.activates && scope.disclosure !== undefined) {
+    // An agent's waiting scope offered to a person: it is read only after an explicit Yes. Anything else reads what was in force.
+    env.announce?.(source, scope.disclosure);
+    const yes = env.announce !== undefined && env.confirm !== undefined && await env.confirm(source, `Read ${describeScopeKey(source, scope.scopeKey, 'team')} now? No keeps your current scope.`);
+    if (yes) env.markDisclosed?.(source, scope.scopeKey);
+    else scope = await env.scopeOf(source, { trigger: 'background' });
+    if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
+  } else if (scope.disclosure !== undefined && env.announce) {
+    env.announce(source, scope.disclosure);
+    env.markDisclosed?.(source, scope.scopeKey);
+  }
   const key = { source, scopeKey: scope.scopeKey, scope: scope.scope };
   const rows = readRows(env.dbPath, source);
-  const yours = rows.find((r) => r.scope_key === 'yours');
   // A new scope inherits the depth the person asked for on this source ("all" stays all).
-  const row = beginRun(env.dbPath, key, yours ? yours.window_since : nextWindow(undefined, now).since!, nowIso);
+  const row = beginRun(env.dbPath, key, inheritedWindowSince(rows, now), nowIso);
   if (row.status === 'needs_reauth') {
     return none(source, 'needs_reauth', `${source} needs the person to re-authenticate. Run: align connect ${source}`);
   }
@@ -230,6 +251,7 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
     ...(drain ? { drain } : {}),
     ...(persistent && holeSig !== null ? { persistentHole: holeSig } : {}),
     ...(report.scopeNote ? { scopeNote: report.scopeNote } : {}),
+    ...(scope.note !== undefined ? { scopeLine: scope.note } : {}),
   };
 }
 

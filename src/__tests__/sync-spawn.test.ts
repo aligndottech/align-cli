@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { BACKFILL_STATUS_ENV, startBackfillChild } from '../lib/backfill-state.js';
+import { BACKFILL_STATUS_ENV, stampCaller, startBackfillChild } from '../lib/backfill-state.js';
 import { startSyncChild, syncChildArgv } from '../lib/sync/spawn-background.js';
 
 describe('startSyncChild', () => {
@@ -48,5 +48,21 @@ describe('a real detached child with no status file', () => {
     } finally {
       if (saved === undefined) delete process.env[BACKFILL_STATUS_ENV]; else process.env[BACKFILL_STATUS_ENV] = saved;
     }
+  });
+});
+
+describe('who started the child', () => {
+  it('startSyncChild passes its caller to the spawner: mcp by default, launcher when named', async () => {
+    const start = vi.fn(async () => ({ ok: true, pid: 1 }));
+    await startSyncChild(['slack'], { start });
+    expect(start.mock.calls[0]![4]).toBe('mcp');
+    await startSyncChild(['slack'], { start, caller: 'launcher' });
+    expect(start.mock.calls[1]![4]).toBe('launcher');
+  });
+
+  it('only an mcp child is stamped as an agent\'s; a launcher child is not, and loses a marker it would inherit (three cases)', () => {
+    expect(stampCaller({ A: '1' }, 'mcp')).toEqual({ A: '1', ALIGN_STARTED_BY: 'mcp' });
+    expect(stampCaller({ A: '1' }, 'launcher')).toEqual({ A: '1' });
+    expect(stampCaller({ A: '1', ALIGN_STARTED_BY: 'mcp' }, 'launcher')).not.toHaveProperty('ALIGN_STARTED_BY');
   });
 });

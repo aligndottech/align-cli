@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 import { STORABLE_PROVIDERS, type StoredProviderId } from './llm-providers.js';
+import type { ActiveScope, StoredScope } from './scope-values.js';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -116,6 +117,7 @@ export function createConfigStore() {
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
     llm?: LlmPreference;
     askKeyOfferDismissed?: boolean;
+    teamScopeDisclosedFor?: string[];
   }>({
     projectName: 'align-cli',
     // conf's own default is 'nodejs' (node_modules/conf/dist/source/index.js), which
@@ -210,6 +212,10 @@ export function createConfigStore() {
     /** Drops every key this connector owns - token, extra fields, and any OAuth cloudId/siteBase. */
     forgetConnector(env: EnvName, connectorKey: string) {
       const owned = `${env}:${connectorKey}`;
+      if (env === 'local') {
+        const told = store.get('teamScopeDisclosedFor') ?? [];
+        store.set('teamScopeDisclosedFor', told.filter((e) => !e.startsWith(`${connectorKey}|`)));
+      }
       const kept = Object.fromEntries(
         Object.entries(getTokens()).filter(([key]) => key !== owned && !key.startsWith(`${owned}:`)),
       );
@@ -217,6 +223,7 @@ export function createConfigStore() {
     },
     /** Every connector in one environment. The other environments' credentials are untouched. */
     forgetAllConnectors(env: EnvName) {
+      if (env === 'local') store.set('teamScopeDisclosedFor', []);
       const kept = Object.fromEntries(
         Object.entries(getTokens()).filter(([key]) => !key.startsWith(`${env}:`)),
       );
@@ -237,6 +244,60 @@ export function createConfigStore() {
     setConnectorSiteBase(env: EnvName, connectorKey: string, siteBase: string) {
       const tokens = store.get('connectorTokens') as Record<string, string>;
       store.set('connectorTokens', { ...tokens, [`${env}:${connectorKey}:siteBase`]: siteBase });
+    },
+    /**
+     * L4: what the person chose to read for a source, kept beside its token under `<env>:<source>:scope` so forgetting the
+     * connector removes it too. Non-secret, and not a `:field:` key, so no fetch is ever handed it as a credential.
+     * An entry that is PRESENT but unreadable (truncated, or written by a newer CLI) reads as yours, never as "no choice": for GitHub
+     * and GitLab "no choice" means "widen from the folder", and a damaged record must not do that. Only an absent entry is null.
+     */
+    // KNOWN LIMIT (lost updates): this store reads the whole file and writes the whole file, and every setter here is a read-modify-write of
+    // one key. Two Align processes writing at the same instant can lose one write. Re-reading just before each set (as the setters do) keeps the
+    // window to milliseconds; a lock was judged not worth its cost for a settings file. The visible failure for a scope is the old scope staying in force.
+    getConnectorScope(env: EnvName, connectorKey: string): StoredScope | null {
+      const raw = getTokens()[`${env}:${connectorKey}:scope`];
+      if (raw === undefined) return null;
+      try {
+        const v = JSON.parse(raw) as { kind?: unknown; values?: unknown; labels?: unknown };
+        if (v.kind === 'yours') return { kind: 'yours' };
+        const strings = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.every((e) => typeof e === 'string');
+        if (v.kind === 'team' && strings(v.values) && strings(v.labels)) {
+          const p = (v as { pending?: { previous?: unknown } }).pending;
+          if (p === undefined) return { kind: 'team', values: v.values, labels: v.labels };
+          // A waiting team scope whose "previous" cannot be read stays waiting on yours: never an active team read.
+          const prev = p.previous as { kind?: unknown; values?: unknown; labels?: unknown } | null | undefined;
+          const previous: ActiveScope | null = prev === null || prev === undefined ? null
+            : prev.kind === 'team' && strings(prev.values) && strings(prev.labels) ? { kind: 'team', values: prev.values, labels: prev.labels } : { kind: 'yours' };
+          return { kind: 'team', values: v.values, labels: v.labels, pending: { previous } };
+        }
+      } catch { /* damaged: falls through to yours */ }
+      return { kind: 'yours' };
+    },
+    setConnectorScope(env: EnvName, connectorKey: string, scope: StoredScope) {
+      store.set('connectorTokens', { ...getTokens(), [`${env}:${connectorKey}:scope`]: JSON.stringify(scope) });
+    },
+    clearConnectorScope(env: EnvName, connectorKey: string) {
+      const { [`${env}:${connectorKey}:scope`]: _gone, ...kept } = getTokens();
+      store.set('connectorTokens', kept);
+    },
+    // L4: the one-time team-scope disclosure, remembered per source and scope so it prints before the FIRST team read of each.
+    // Forgetting a connector, or narrowing it to yours, forgets that its scopes were told: a wider one later is announced again.
+    clearTeamScopeDisclosed(source: string): void {
+      const existing = store.get('teamScopeDisclosedFor') ?? [];
+      const kept = existing.filter((e) => !e.startsWith(`${source}|`));
+      if (kept.length !== existing.length) store.set('teamScopeDisclosedFor', kept);
+    },
+    getTeamScopeDisclosedFor(): string[] {
+      return store.get('teamScopeDisclosedFor') ?? [];
+    },
+    // Per (source, scope): told about repo A is not told about a wider scope set later.
+    isTeamScopeDisclosed(source: string, scopeKey: string): boolean {
+      return (store.get('teamScopeDisclosedFor') ?? []).includes(`${source}|${scopeKey}`);
+    },
+    markTeamScopeDisclosed(source: string, scopeKey: string): void {
+      const existing = store.get('teamScopeDisclosedFor') ?? [];
+      const entry = `${source}|${scopeKey}`;
+      if (!existing.includes(entry)) store.set('teamScopeDisclosedFor', [...existing, entry]);
     },
     setLocalMode(dbPath: string) {
       const envs = getEnvs();

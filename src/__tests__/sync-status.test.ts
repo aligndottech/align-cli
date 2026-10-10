@@ -48,6 +48,83 @@ describe('collectStatus', () => {
     expect(r.sources.find((s) => s.id === 'slack')).toMatchObject({ status: 'not_connected', connected: false, next_step: 'Not connected. Ask the person to run: align connect slack' });
   });
 
+  it('L4: a Jira or Confluence team scope reads as the projects or spaces, not as its raw key (two sources)', () => {
+    beginRun(dbPath, { source: 'jira', scopeKey: 'jira:ALI,OPS', scope: 'team' }, null, '2026-10-10T11:00:00.000Z');
+    beginRun(dbPath, { source: 'confluence', scopeKey: 'confluence:ENG', scope: 'team' }, null, '2026-10-10T11:00:00.000Z');
+    const r = collectStatus(deps(['jira', 'confluence']));
+    expect(r.sources.find((s) => s.id === 'jira')!.scope).toBe("everyone's items in Jira projects ALI, OPS");
+    expect(r.sources.find((s) => s.id === 'confluence')!.scope).toBe("everyone's items in Confluence space ENG");
+  });
+
+  describe('L4: only the scope in force is described; older scopes are counted, not listed', () => {
+    const team = { source: 'jira', scopeKey: 'jira:OPS', scope: 'team' as const };
+    const yours = { source: 'jira', scopeKey: 'yours', scope: 'yours' as const };
+    beforeEach(() => {
+      beginRun(dbPath, yours, null, '2026-10-01T00:00:00.000Z');
+      saveRun(dbPath, yours, { attemptAt: '2026-10-01T01:00:00.000Z', status: 'partial', high_water: null, pending_until: null, items: 7, skips: [{ kind: 'error', count: 3, detail: 'old trouble' }], successAt: '2026-10-01T01:00:00.000Z' });
+      beginRun(dbPath, team, null, '2026-10-09T00:00:00.000Z');
+      saveRun(dbPath, team, { attemptAt: '2026-10-09T01:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 40, skips: [], successAt: '2026-10-09T01:00:00.000Z' });
+    });
+
+    it('the active scope (given by the caller) is the only one described, its numbers are its own, and the rest are counted', () => {
+      const j = collectStatus(deps(['jira'], { activeScopeKey: () => 'jira:OPS' })).sources.find((s) => s.id === 'jira')!;
+      expect(j).toMatchObject({ scope: "everyone's items in Jira project OPS", status: 'ok', items_last_run: 40, older_scopes: 1 });
+      expect(j.missing).toBeUndefined();
+      expect(j.skips).toEqual({});
+      expect(renderStatus({ sources: [j], rows_awaiting_relink: 0 })).toContain('1 older scope kept (not read)');
+    });
+
+    it('going back to yours makes the other row the older one', () => {
+      const j = collectStatus(deps(['jira'], { activeScopeKey: () => 'yours' })).sources.find((s) => s.id === 'jira')!;
+      expect(j).toMatchObject({ scope: 'your own items', items_last_run: 7, older_scopes: 1 });
+      expect(j.missing).toEqual(['your own items: 3 old trouble']);
+    });
+
+    it('with no answer from the caller, the scope most recently started is the active one; a single scope has no older line', () => {
+      const j = collectStatus(deps(['jira'])).sources.find((s) => s.id === 'jira')!;
+      expect(j.scope).toBe("everyone's items in Jira project OPS");
+      const only = collectStatus(deps(['github'])).sources.find((s) => s.id === 'github')!;
+      expect(only.older_scopes).toBeUndefined();
+      expect(renderStatus({ sources: [only], rows_awaiting_relink: 0 })).not.toContain('older scope');
+    });
+
+    it('Confluence with no spaces chosen is BLOCKED, not "ok": the state and the command say so even though its last run looked fine', () => {
+      beginRun(dbPath, { source: 'confluence', scopeKey: 'yours', scope: 'yours' }, null, '2026-10-01T00:00:00.000Z');
+      saveRun(dbPath, { source: 'confluence', scopeKey: 'yours', scope: 'yours' }, { attemptAt: '2026-10-01T01:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 5, skips: [], successAt: '2026-10-01T01:00:00.000Z' });
+      const c = collectStatus(deps(['confluence'], { blockedScope: () => 'Confluence reads only the spaces you choose, and none are chosen yet. Pick them: align connect --source confluence --spaces ENG,OPS' })).sources.find((s) => s.id === 'confluence')!;
+      expect(c.status).toBe('blocked');
+      expect(c.next_step).toContain('--spaces ENG,OPS');
+      expect(renderStatus({ sources: [c], rows_awaiting_relink: 0 })).toContain('blocked');
+      const fine = collectStatus(deps(['confluence'])).sources.find((s) => s.id === 'confluence')!;
+      expect(fine.status).toBe('ok');
+    });
+
+    it('a refused token outranks a blocked scope', () => {
+      markNeedsReauth(dbPath, { source: 'confluence', scopeKey: 'yours', scope: 'yours' }, null, '2026-10-01T00:00:00.000Z');
+      const c = collectStatus(deps(['confluence'], { blockedScope: () => 'x' })).sources.find((s) => s.id === 'confluence')!;
+      expect(c.status).toBe('needs_reauth');
+    });
+
+    it('a row that never started is not the "most recent" one, and a garbage timestamp does not decide it (the fallback)', () => {
+      exec(`INSERT INTO source_sync (source_id, scope_key, scope, window_since, last_started_at) VALUES ('jira', 'jira:BAD', 'team', NULL, 'not a date'), ('jira', 'jira:NEVER', 'team', NULL, NULL)`);
+      const j = collectStatus(deps(['jira'])).sources.find((s) => s.id === 'jira')!;
+      expect(j.scope).toBe("everyone's items in Jira project OPS");
+    });
+
+    it('a request that never ran is not an "older scope kept"; Confluence with no spaces is not described as "your own items" (two cosmetics)', () => {
+      exec(`INSERT INTO source_sync (source_id, scope_key, scope, window_since) VALUES ('jira', 'jira:NEVER', 'team', NULL)`);
+      const j = collectStatus(deps(['jira'], { activeScopeKey: () => 'jira:OPS' })).sources.find((s) => s.id === 'jira')!;
+      expect(j.older_scopes).toBe(1);
+      beginRun(dbPath, { source: 'confluence', scopeKey: 'yours', scope: 'yours' }, null, '2026-10-01T00:00:00.000Z');
+      expect(collectStatus(deps(['confluence'])).sources.find((s) => s.id === 'confluence')!.scope).toBe('no spaces chosen');
+    });
+
+    it('an agent-chosen scope waiting for a person is said, with the command', () => {
+      const j = collectStatus(deps(['jira'], { pendingScope: () => "everyone's items in Jira project BETA" })).sources.find((s) => s.id === 'jira')!;
+      expect(j.next_step).toBe("Team scope for jira is waiting for you to confirm (everyone's items in Jira project BETA): run `align sync jira` (it will show what it reads)");
+    });
+  });
+
   it('a refused token carries the exact re-auth command', () => {
     markNeedsReauth(dbPath, { source: 'jira', scopeKey: 'yours', scope: 'yours' }, null, '2026-10-10T11:00:00.000Z');
     expect(collectStatus(deps(['jira'])).sources.find((s) => s.id === 'jira')).toMatchObject({ status: 'needs_reauth', next_step: 'The provider refused the saved token. Ask the person to run: align connect jira' });

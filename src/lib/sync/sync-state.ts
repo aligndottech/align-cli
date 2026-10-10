@@ -90,6 +90,26 @@ export function beginRun(dbPath: string, key: ScopeKey, defaultWindowSince: stri
   ).get(key.source, key.scopeKey, key.scope, defaultWindowSince, nowIso) as unknown as SyncRow);
 }
 
+/**
+ * A person (or their agent) chose a scope: give it its row NOW, with the source's window and no watermark, and attribute the
+ * change. An existing row keeps its window and its watermark - going back to a scope read before only catches up - and only
+ * its attribution moves. `created` says which. Nothing else is touched: the earlier scope's row and every stored item stay.
+ */
+export function adoptScope(
+  dbPath: string, key: ScopeKey, windowSince: string | null, by: { via: 'cli' | 'mcp'; agent: string | null },
+): { created: boolean; row: SyncRow } {
+  return transact(dbPath, (db) => {
+    const exists = db.prepare('SELECT 1 AS hit FROM source_sync WHERE source_id = ? AND scope_key = ?').get(key.source, key.scopeKey) !== undefined;
+    const row = db.prepare(
+      `INSERT INTO source_sync (source_id, scope_key, scope, window_since, changed_via, changed_by_agent)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(source_id, scope_key) DO UPDATE SET changed_via = excluded.changed_via, changed_by_agent = excluded.changed_by_agent
+       RETURNING *`,
+    ).get(key.source, key.scopeKey, key.scope, windowSince, by.via, by.agent) as unknown as SyncRow;
+    return { created: !exists, row };
+  });
+}
+
 export interface RunResult {
   status: SyncStatus;
   high_water: string | null;

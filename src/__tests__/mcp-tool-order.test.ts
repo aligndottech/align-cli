@@ -43,9 +43,11 @@ describe('the local MCP tool list leads with the check (ALI-139)', () => {
     expect(names).toContain('align_backfill');
     // L5 appended align_sync (its run action starts a refresh, so it is a write too).
     expect(names).toContain('align_sync');
+    // L4 appended align_scope (its set action changes what the next sync reads, so it is a write too).
+    expect(names).toContain('align_scope');
     // LM appended align_mark (it records the user's judgement, so it is a write).
     expect(names).toContain('align_mark');
-    expect(names).toHaveLength(14);
+    expect(names).toHaveLength(15);
   });
 });
 

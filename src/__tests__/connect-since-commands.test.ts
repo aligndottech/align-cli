@@ -8,9 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const spinnerStart = vi.hoisted(() => vi.fn());
 const envMode = vi.hoisted(() => ({ value: 'auth' as 'auth' | 'local-embedded' }));
+const disclosure = vi.hoisted(() => ({ told: vi.fn(() => false), mark: vi.fn() }));
+const infoLog = vi.hoisted(() => vi.fn());
+const storedScope = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(), outro: vi.fn(), cancel: vi.fn(), note: vi.fn(), confirm: vi.fn(), isCancel: () => false,
-  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), success: vi.fn() },
+  log: { info: infoLog, error: vi.fn(), warn: vi.fn(), success: vi.fn() },
   spinner: () => ({ start: spinnerStart, stop: vi.fn(), message: vi.fn() }),
 }));
 
@@ -37,6 +40,8 @@ vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn(() => ({ gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: envMode.value })),
     getConnectorToken: vi.fn(() => null), getConnectorCloudId: vi.fn(() => null), getConnectorSiteBase: vi.fn(() => null),
+    isTeamScopeDisclosed: disclosure.told, markTeamScopeDisclosed: disclosure.mark,
+    getConnectorScope: (_e: string, source: string) => storedScope.value[source] ?? null,
   })),
 }));
 
@@ -76,10 +81,16 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { out.push(a.join(' ')); });
   envMode.value = 'auth';
   spinnerStart.mockClear();
+  infoLog.mockClear();
+  storedScope.value = {};
+  disclosure.told.mockReset().mockReturnValue(false);
+  disclosure.mark.mockClear();
   resolveRepo.mockReset().mockResolvedValue(undefined);
   for (const id of SOURCES) fetchers[id].mockReset().mockResolvedValue({ items: [{ source_url: 'u', platform: id, raw_text: 't' }], report: { scanned: 1, skips: [], complete: true } });
 });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+
+const tty = (on: boolean): void => { Object.defineProperty(process.stdin, 'isTTY', { value: on, configurable: true }); Object.defineProperty(process.stdout, 'isTTY', { value: on, configurable: true }); };
 
 describe.each(SOURCES)('align connect %s --since', (id) => {
   it('defaults to the last 180 days, the source ceiling and the shared time budget', async () => {
@@ -141,6 +152,33 @@ describe('slack keeps --days-back as a deprecated spelling of --since', () => {
 });
 
 describe('github: items first, whole repo when there is a repo', () => {
+  const inTty = process.stdin.isTTY, outTty = process.stdout.isTTY;
+  beforeEach(() => tty(true));
+  afterEach(() => tty(Boolean(inTty) && Boolean(outTty)));
+
+  it('review: with NO terminal the folder does not widen and nothing is marked told; --repo is read but still not marked; a folder already told is read (four cases)', async () => {
+    tty(false);
+    envMode.value = 'local-embedded';
+    resolveRepo.mockResolvedValue('acme/folder');
+    await run('github', []);
+    expect('repo' in opts('github')).toBe(false);
+    expect('scope' in opts('github')).toBe(false);
+    expect(disclosure.mark).not.toHaveBeenCalled();
+    expect(infoLog).not.toHaveBeenCalled();
+    resolveRepo.mockImplementation(async (o: { repo?: string }) => o.repo ?? 'acme/folder');
+    await run('github', ['--repo', 'acme/explicit']);
+    expect(opts('github')).toMatchObject({ repo: 'acme/explicit', scope: 'team' });
+    expect(disclosure.mark).not.toHaveBeenCalled();
+    disclosure.told.mockReturnValue(true);
+    await run('github', []);
+    expect(opts('github')).toMatchObject({ repo: 'acme/folder', scope: 'team' });
+    expect(disclosure.mark).not.toHaveBeenCalled();
+    tty(true);
+    disclosure.told.mockReturnValue(false);
+    await run('github', []);
+    expect(disclosure.mark).toHaveBeenCalledWith('github', 'repo:acme/folder');
+  });
+
   it('leaves the items-first-then-budgeted-discussion split to fetchGitHubItems: the command passes no discussion mode', async () => {
     await run('github', []);
     expect('discussion' in opts('github')).toBe(false);
@@ -153,12 +191,26 @@ describe('github: items first, whole repo when there is a repo', () => {
     expect(opts('github')).toMatchObject({ repo: 'o/r', scope: 'team' });
   });
 
-  it('on a hosted env keeps scope yours until the L4 disclosure ships: the repo narrows, team is not asked for', async () => {
+  it('on a hosted env scope stays yours, and nothing is disclosed because nothing team is read: the repo narrows, team is not asked for', async () => {
     envMode.value = 'auth';
     resolveRepo.mockResolvedValue('o/r');
     await run('github', []);
     expect(opts('github')['repo']).toBe('o/r');
     expect('scope' in opts('github')).toBe(false);
+    expect(infoLog).not.toHaveBeenCalled();
+    expect(disclosure.mark).not.toHaveBeenCalled();
+  });
+
+  it('L4: a team read on the local graph tells the person first, once: the line, then marked told; told already, no line (two runs)', async () => {
+    envMode.value = 'local-embedded';
+    resolveRepo.mockResolvedValue('o/r');
+    await run('github', []);
+    expect(infoLog).toHaveBeenCalledWith(expect.stringContaining('Importing items from everyone in o/r that your token can read. They stay on this machine.'));
+    expect(disclosure.mark).toHaveBeenCalledWith('github', 'repo:o/r');
+    infoLog.mockClear();
+    disclosure.told.mockReturnValue(true);
+    await run('github', []);
+    expect(infoLog).not.toHaveBeenCalled();
   });
 
   it('the status text says what is read: everyone\'s items under team scope, yours under yours', async () => {
@@ -169,6 +221,44 @@ describe('github: items first, whole repo when there is a repo', () => {
     envMode.value = 'auth';
     await run('github', []);
     expect(spinnerStart).toHaveBeenLastCalledWith('Fetching your GitHub PRs and issues in o/r...');
+  });
+
+  it('L4: a stored "yours" for GitHub is honoured by this command too: no team read, no disclosure, even inside a repo', async () => {
+    envMode.value = 'local-embedded';
+    resolveRepo.mockResolvedValue('o/r');
+    storedScope.value = { github: { kind: 'yours' } };
+    await run('github', []);
+    expect('scope' in opts('github')).toBe(false);
+    expect('repo' in opts('github')).toBe(false);
+    expect(infoLog).not.toHaveBeenCalled();
+  });
+
+  it('L4: a stored team repo for GitHub is what this command reads, whatever folder it runs in; an explicit --all still wins (two cases)', async () => {
+    envMode.value = 'local-embedded';
+    resolveRepo.mockResolvedValue(undefined);
+    storedScope.value = { github: { kind: 'team', values: ['x/y'], labels: ['x/y'] } };
+    await run('github', []);
+    expect(opts('github')).toMatchObject({ repo: 'x/y', scope: 'team' });
+    await run('github', ['--all']);
+    expect('repo' in opts('github')).toBe(false);
+  });
+
+  it('L4: on the local graph, `align connect confluence` reads only chosen spaces: with none chosen it refuses with the command and reads nothing; with some it reads them (both sides)', async () => {
+    envMode.value = 'local-embedded';
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((c?: number) => { throw new Error(`exit ${c}`); }) as never);
+    await expect(run('confluence', [])).rejects.toThrow('exit 2');
+    expect(out.join('\n')).toContain('align connect --source confluence --spaces ENG,OPS');
+    expect(fetchers.confluence).not.toHaveBeenCalled();
+    exit.mockRestore();
+    storedScope.value = { confluence: { kind: 'team', values: ['ENG'], labels: ['ENG'] } };
+    await run('confluence', []);
+    expect(opts('confluence')['spaces']).toEqual(['ENG']);
+  });
+
+  it('L4: hosted `align connect confluence` is unchanged: no spaces asked for, nothing refused', async () => {
+    envMode.value = 'auth';
+    await run('confluence', []);
+    expect('spaces' in opts('confluence')).toBe(false);
   });
 
   it('outside a repo (or with --all) stays the caller\'s own: neither repo nor scope is sent', async () => {
