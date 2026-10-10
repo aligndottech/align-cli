@@ -12,11 +12,12 @@ export function waitForCallback(opts: {
   onBound?: (port: number, nonce: string) => void | Promise<void>;
 }): Promise<CallbackResult> {
   return new Promise((resolve, reject) => {
-    let server: http.Server | undefined;
+    let servers: http.Server[] = [];
+    const closeAll = (): void => { for (const x of servers) x.close(); };
     const nonce = randomBytes(16).toString('hex');
 
     const timer = setTimeout(() => {
-      server?.close();
+      closeAll();
       reject(new Error('CLI OAuth timed out waiting for browser callback'));
     }, opts.timeoutMs);
 
@@ -27,7 +28,7 @@ export function waitForCallback(opts: {
         return;
       }
       const [port, ...rest] = remaining as [number, ...number[]];
-      const s = http.createServer((req, res) => {
+      const onRequest: http.RequestListener = (req, res) => {
         const origin = req.headers['origin'];
         if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -60,10 +61,11 @@ export function waitForCallback(opts: {
           const { cli_nonce: _, ...payload } = parsed;
           res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"ok":true}');
           clearTimeout(timer);
-          s.close();
+          closeAll();
           resolve({ data: payload, port });
         });
-      });
+      };
+      const s = http.createServer(onRequest);
       s.on('error', (err: Error & { code?: string }) => {
         if (err.code === 'EADDRINUSE') {
           tryPort(rest);
@@ -73,7 +75,22 @@ export function waitForCallback(opts: {
         reject(err);
       });
       // 127.0.0.1, not every interface: this socket accepts a credential, and on 0.0.0.0 anyone on the LAN can dial it (ALI-1504).
-      s.listen(port, '127.0.0.1', () => { server = s; void opts.onBound?.(port, nonce); });
+      s.listen(port, '127.0.0.1', () => {
+        // The web page posts to http://localhost, which a browser may resolve to ::1. Answer there too, or the token goes to
+        // whatever else holds ::1 on this port. A port whose ::1 side is taken is skipped whole: never half of a pair.
+        const s6 = http.createServer(onRequest);
+        s6.once('error', (err: Error & { code?: string }) => {
+          if (err.code === 'EADDRINUSE') {
+            s.close();
+            tryPort(rest);
+            return;
+          }
+          // No IPv6 loopback on this machine (a container, a disabled stack): IPv4 alone is all there is to answer on.
+          servers = [s];
+          void opts.onBound?.(port, nonce);
+        });
+        s6.listen(port, '::1', () => { servers = [s, s6]; void opts.onBound?.(port, nonce); });
+      });
     }
 
     tryPort(opts.ports);
