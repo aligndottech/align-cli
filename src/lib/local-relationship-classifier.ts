@@ -78,6 +78,9 @@ const SYSTEM_PROMPT =
   'Use "conflicts_with" or "contradicts" ONLY when B genuinely opposes A - high textual similarity alone is NOT a conflict ' +
   '(two decisions about the same topic often agree). Use "supersedes" when B replaces A, "relates" when merely related.';
 
+/** The v0 system prompt, exported only so its bytes can be pinned (src/detector/__tests__/v0-prompt-bytes.test.ts). */
+export const V0_SYSTEM_PROMPT = SYSTEM_PROMPT;
+
 /**
  * ALI-845 defect 3 (classifier side): neither side was capped here - the asymmetry the
  * ticket described lived one layer up, at the call site (see local-gateway-client.ts).
