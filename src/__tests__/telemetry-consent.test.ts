@@ -1,156 +1,110 @@
 /**
- * ALI-618 D3/align-cli#118: the one-time local-mode consent prompt. Never asks twice - a
- * decision already on disk is left alone - and never blocks or crashes a non-interactive run,
- * the same TTY-gating lesson setup-local-non-tty.test.ts pins for the connector prompt.
+ * C6: maybeShowTelemetryNotice, called directly. It replaced ALI-618's setup-time consent
+ * question (maybeRequestTelemetryConsent): local telemetry is opt-out, and this one-time notice
+ * is the disclosure. The end-to-end order (notice before the first send) and every context it
+ * is skipped in live in telemetry-notice.test.ts; this file pins the function's own contract.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
+import { maybeShowTelemetryNotice, TELEMETRY_NOTICE, type TelemetryNoticeStore } from '../lib/telemetry-consent.js';
 
-const mockConfirm = vi.fn();
-const mockIsCancel = vi.fn(() => false);
-const mockLogInfo = vi.fn();
-
-vi.mock('@clack/prompts', () => ({
-  confirm: (...args: unknown[]) => mockConfirm(...args),
-  isCancel: (v: unknown) => mockIsCancel(v),
-  log: { info: (...args: unknown[]) => mockLogInfo(...args) },
-}));
-
-import { maybeRequestTelemetryConsent } from '../lib/telemetry-consent.js';
-
-function fakeConfig(initial: 'granted' | 'declined' | 'off' | undefined = undefined) {
-  let consent = initial;
-  return {
-    getTelemetryConsent: vi.fn(() => consent),
-    setTelemetryConsent: vi.fn((v: 'granted' | 'declined' | 'off') => {
-      consent = v;
-    }),
+function fakeStore(consent?: 'granted' | 'declined' | 'off', shownAt?: string): TelemetryNoticeStore & { marks: number } {
+  const store = {
+    marks: 0,
+    shownAt,
+    getTelemetryConsent: () => consent,
+    getTelemetryNoticeShownAt: () => store.shownAt,
+    markTelemetryNoticeShown: () => {
+      store.marks += 1;
+      store.shownAt = 'now';
+    },
   };
+  return store;
 }
 
-describe('maybeRequestTelemetryConsent', () => {
+const ctx = { command: 'ask', hook: false, cloudSignedIn: false };
+
+const realTTY = {
+  stdin: Object.getOwnPropertyDescriptor(process.stdin, 'isTTY'),
+  stderr: Object.getOwnPropertyDescriptor(process.stderr, 'isTTY'),
+};
+function setTTY(stdin: boolean, stderr: boolean): void {
+  Object.defineProperty(process.stdin, 'isTTY', { value: stdin, configurable: true });
+  Object.defineProperty(process.stderr, 'isTTY', { value: stderr, configurable: true });
+}
+function restoreTTY(): void {
+  for (const [name, desc] of Object.entries(realTTY)) {
+    const stream = name === 'stdin' ? process.stdin : process.stderr;
+    if (desc) Object.defineProperty(stream, 'isTTY', desc);
+    else delete (stream as { isTTY?: boolean }).isTTY;
+  }
+}
+
+describe('maybeShowTelemetryNotice', () => {
   beforeEach(() => {
-    mockConfirm.mockReset();
-    mockIsCancel.mockReset();
-    mockIsCancel.mockReturnValue(false);
-    mockLogInfo.mockReset();
-    // The environment is an input (tdd.md): both switches explicitly OFF unless a test sets one.
-    vi.stubEnv('DO_NOT_TRACK', undefined);
-    vi.stubEnv('ALIGN_TELEMETRY', undefined);
+    clearTelemetryEnv();
+    setTTY(true, true);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    restoreTTY();
   });
 
-  afterEach(() => vi.unstubAllEnvs());
-
-  // ALI-954: an env var that already turns everything off makes the question pointless, and
-  // asking it would imply the answer matters. Skip it, say why in one line, and leave the
-  // decision UNSET - a later run without the variable can still ask.
-  describe('skipped with a one-line note when an env var already disables telemetry', () => {
-    it('DO_NOT_TRACK=1: no prompt, consent stays unset, the note names the variable', async () => {
-      vi.stubEnv('DO_NOT_TRACK', '1');
-      const config = fakeConfig(undefined);
-
-      await maybeRequestTelemetryConsent(config, true);
-
-      expect(mockConfirm).not.toHaveBeenCalled();
-      expect(config.setTelemetryConsent).not.toHaveBeenCalled();
-      expect(mockLogInfo).toHaveBeenCalledTimes(1);
-      expect(String(mockLogInfo.mock.calls[0]?.[0])).toContain('DO_NOT_TRACK');
-    });
-
-    it('ALIGN_TELEMETRY=0: same, naming ALIGN_TELEMETRY', async () => {
-      vi.stubEnv('ALIGN_TELEMETRY', '0');
-      const config = fakeConfig(undefined);
-
-      await maybeRequestTelemetryConsent(config, true);
-
-      expect(mockConfirm).not.toHaveBeenCalled();
-      expect(config.setTelemetryConsent).not.toHaveBeenCalled();
-      expect(String(mockLogInfo.mock.calls[0]?.[0])).toContain('ALIGN_TELEMETRY');
-    });
-
-    // The note is for a person at a terminal; a scripted run gets no output it did not ask for.
-    it('non-interactive: no note either', async () => {
-      vi.stubEnv('DO_NOT_TRACK', '1');
-
-      await maybeRequestTelemetryConsent(fakeConfig(undefined), false);
-
-      expect(mockLogInfo).not.toHaveBeenCalled();
-    });
+  // The real default, no seam: with process.stdin/stderr.isTTY as a pipe or /dev/null leaves
+  // them (undefined), nothing prints and nothing is marked.
+  it('reads the real streams: isTTY undefined on either one means no notice and not marked', () => {
+    for (const stream of [process.stdin, process.stderr]) {
+      setTTY(true, true);
+      delete (stream as { isTTY?: boolean }).isTTY;
+      const store = fakeStore();
+      const write = vi.fn();
+      expect(maybeShowTelemetryNotice(store, ctx, write)).toBe(false);
+      expect(write).not.toHaveBeenCalled();
+      expect(store.marks).toBe(0);
+    }
   });
 
-  // ALI-954: `align telemetry off` stores 'off'; a stored decision of any kind is never re-asked.
-  it('consent already "off" (align telemetry off): does not ask again', async () => {
-    const config = fakeConfig('off');
+  it('writes the notice, then a blank line, once, and marks it shown', () => {
+    const store = fakeStore();
+    const write = vi.fn();
+    expect(maybeShowTelemetryNotice(store, ctx, write)).toBe(true);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledWith(`${TELEMETRY_NOTICE}\n\n`);
+    expect(store.marks).toBe(1);
 
-    await maybeRequestTelemetryConsent(config, true);
-
-    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(maybeShowTelemetryNotice(store, ctx, write)).toBe(false);
+    expect(write).toHaveBeenCalledTimes(1);
   });
 
-  // test 1
-  it('non-TTY, no consent recorded: no prompt, consent stays unset', async () => {
-    const config = fakeConfig(undefined);
-
-    await maybeRequestTelemetryConsent(config, false);
-
-    expect(mockConfirm).not.toHaveBeenCalled();
-    expect(config.setTelemetryConsent).not.toHaveBeenCalled();
-    expect(config.getTelemetryConsent()).toBeUndefined();
+  it('defaults to stderr, never stdout (stdout is a command\'s machine output)', () => {
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const out = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      maybeShowTelemetryNotice(fakeStore(), ctx);
+      expect(err).toHaveBeenCalledWith(`${TELEMETRY_NOTICE}\n\n`);
+      expect(out).not.toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
+      out.mockRestore();
+    }
   });
 
-  // test 2
-  it('consent already declined: does not ask again, even when interactive', async () => {
-    const config = fakeConfig('declined');
-
-    await maybeRequestTelemetryConsent(config, true);
-
-    expect(mockConfirm).not.toHaveBeenCalled();
+  it.each(['granted', 'declined', 'off'] as const)('a stored "%s" decision: no notice, not marked', (consent) => {
+    const store = fakeStore(consent);
+    const write = vi.fn();
+    expect(maybeShowTelemetryNotice(store, ctx, write)).toBe(false);
+    expect(write).not.toHaveBeenCalled();
+    expect(store.marks).toBe(0);
   });
 
-  // Second example for the same rule: a prior grant is also never re-asked.
-  it('consent already granted: does not ask again', async () => {
-    const config = fakeConfig('granted');
-
-    await maybeRequestTelemetryConsent(config, true);
-
-    expect(mockConfirm).not.toHaveBeenCalled();
-  });
-
-  it('interactive, no consent recorded, user answers yes: records granted', async () => {
-    mockConfirm.mockResolvedValue(true);
-    const config = fakeConfig(undefined);
-
-    await maybeRequestTelemetryConsent(config, true);
-
-    expect(mockConfirm).toHaveBeenCalledTimes(1);
-    expect(config.setTelemetryConsent).toHaveBeenCalledWith('granted');
-  });
-
-  it('interactive, user answers no: records declined', async () => {
-    mockConfirm.mockResolvedValue(false);
-    const config = fakeConfig(undefined);
-
-    await maybeRequestTelemetryConsent(config, true);
-
-    expect(config.setTelemetryConsent).toHaveBeenCalledWith('declined');
-  });
-
-  // Ctrl-C: "anything other than an explicit yes leaves it off" (D3).
-  it('interactive, user cancels (Ctrl-C): records declined, not left unset', async () => {
-    mockConfirm.mockResolvedValue(Symbol('cancel'));
-    mockIsCancel.mockReturnValue(true);
-    const config = fakeConfig(undefined);
-
-    await maybeRequestTelemetryConsent(config, true);
-
-    expect(config.setTelemetryConsent).toHaveBeenCalledWith('declined');
-  });
-
-  it('defaults the prompt to No', async () => {
-    mockConfirm.mockResolvedValue(false);
-    const config = fakeConfig(undefined);
-
-    await maybeRequestTelemetryConsent(config, true);
-
-    expect(mockConfirm.mock.calls[0]?.[0]).toMatchObject({ initialValue: false });
+  it('a broken store costs the notice, never the command', () => {
+    const write = vi.fn();
+    const broken = {
+      getTelemetryConsent: () => { throw new Error('disk'); },
+      getTelemetryNoticeShownAt: () => undefined,
+      markTelemetryNoticeShown: () => {},
+    };
+    expect(maybeShowTelemetryNotice(broken, ctx, write)).toBe(false);
+    expect(write).not.toHaveBeenCalled();
   });
 });

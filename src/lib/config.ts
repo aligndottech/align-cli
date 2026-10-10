@@ -107,6 +107,7 @@ export function createConfigStore() {
     connectorTokens: Record<string, string>;
     installId?: string;
     telemetryConsent?: TelemetryConsent;
+    telemetryNoticeShownAt?: string;
     agent?: string;
     launchOff?: boolean;
     refusedWrites?: string[];
@@ -326,6 +327,14 @@ export function createConfigStore() {
     setTelemetryConsent(value: TelemetryConsent) {
       store.set('telemetryConsent', value);
     },
+    // C6: when the one-time telemetry notice printed (telemetry-consent.ts). Its presence is the
+    // disclosure local-mode sends wait on; the timestamp says when, for `align telemetry status`.
+    getTelemetryNoticeShownAt(): string | undefined {
+      return store.get('telemetryNoticeShownAt');
+    },
+    markTelemetryNoticeShown(): void {
+      if (!store.get('telemetryNoticeShownAt')) store.set('telemetryNoticeShownAt', new Date().toISOString());
+    },
     // ALI-1284: the key `align setup`'s guided free-tier path collected, persisted the same
     // way a local connector's read-only token already is (saveConnectorFields above) - one
     // paste, reused on every later invocation. savedLlmConfig hands it to local-llm as data;
@@ -370,6 +379,23 @@ export function createConfigStore() {
     // guard has exactly one enforcement point rather than one per call site.
     wasFunnelStageRecorded(stage: string): boolean {
       return (store.get('funnelStagesRecorded') ?? []).includes(stage);
+    },
+    // C6: check and mark in one call, re-reading the store, so the install beacon is marked
+    // before it is sent. Narrows the double-send window between two first runs; it is not a
+    // lock (see recordInstallBeacon).
+    claimFunnelStage(stage: string): boolean {
+      const existing = store.get('funnelStagesRecorded') ?? [];
+      if (existing.includes(stage)) return false;
+      store.set('funnelStagesRecorded', [...existing, stage]);
+      return true;
+    },
+    // The undo of claimFunnelStage, for a claimed send that was not delivered: removes the stage
+    // only if it is there, re-reading the store, so the next run can claim it again.
+    releaseFunnelStage(stage: string): boolean {
+      const existing = store.get('funnelStagesRecorded') ?? [];
+      if (!existing.includes(stage)) return false;
+      store.set('funnelStagesRecorded', existing.filter((s) => s !== stage));
+      return true;
     },
     markFunnelStageRecorded(stage: string): void {
       const existing = store.get('funnelStagesRecorded') ?? [];

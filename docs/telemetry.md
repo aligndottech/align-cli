@@ -7,12 +7,28 @@ and not listed here fails the build, and so does a field listed here that is no 
 
 The short version, for local-only mode:
 
-- **Two anonymous counts send by default**: one when you first run `align` (install), one when
-  the setup wizard finishes (setup completed).
-- **Usage sends only with your consent.** The wizard asks once, at the end, default No.
-- **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it**, the two counts included.
+- **It is on by default, and you are told first.** The first time you run `align` in a real
+  terminal (stdin and stderr both a terminal), it prints this once, to stderr, before anything
+  is sent:
 
-Nothing about your repo, your decisions, your files or you is ever sent, on either tier.
+  ```
+  Align sends anonymous usage counts: which commands and coding agent you use,
+  which tools you connect and how many items, the CLI version, and your OS.
+  Never code, decision text, or file, repo or org names.
+  Turn it off: align telemetry off (or DO_NOT_TRACK=1). Details: align.tech/privacy#cli
+  ```
+
+- **Nothing sends before that notice has printed in a real terminal.** A run with no terminal -
+  output piped or sent to `/dev/null`, a hook, cron, systemd, `docker build`, an agent's shell
+  tool - shows no notice and sends nothing, and it does not count as the first run: the notice
+  waits for your next run in a terminal.
+- **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.**
+- **Nothing is sent from CI**, and the notice is not shown there. Nothing is ever sent by the
+  commands align's installed hooks run (`align check --hook`, `align check --advisory`,
+  `align context inject`). `align mcp`, and a run inside an agent `align` launched, show no
+  notice, so they send nothing until it has printed in a terminal.
+
+Nothing about your repo, your decisions, your files or you is ever sent.
 `align telemetry status` prints the effective state and why.
 
 ## Turning it off
@@ -21,24 +37,31 @@ Nothing about your repo, your decisions, your files or you is ever sent, on eith
 |---|---|---|
 | `DO_NOT_TRACK=1` | Everything, both tiers, both modes. Set before the first run and the install count is never sent, even if you unset it later. The [consoledonottrack.com](https://consoledonottrack.com) convention. | environment |
 | `ALIGN_TELEMETRY=0` | Same as above. Any value other than `1`, `true`, `yes` or `on` counts as off. | environment |
-| `align telemetry off` | Everything, both tiers, in local-only mode. Stored on this machine. | command |
-| Answering No to the consent prompt | Usage only. The two counts still send. | the setup wizard |
+| `align telemetry off` | Everything, in both modes: local events and cloud-mode events. Stored on this machine. | command |
+| Running in CI | Everything. Detected the way [ci-info](https://github.com/watson/ci-info) does (`CI`, `GITHUB_ACTIONS` and the other CI providers' variables). A CI run does not count as an install. | automatic |
 | `align telemetry on` | Turns usage on (and undoes `align telemetry off`). | command |
 
-When `DO_NOT_TRACK` or `ALIGN_TELEMETRY` already turns everything off, the wizard skips the
-consent question and prints one line saying so.
+Earlier versions asked a consent question at the end of setup. If you answered No there, that
+answer stands, and it now means off, exactly like `align telemetry off`: nothing is sent, in
+either mode, the two counts below and cloud-mode events included. `align telemetry on` turns it
+back on.
 
-## Sent by default in local-only mode (the two counts)
+## Sent always, unless turned off (the two counts)
 
-Both go to `POST https://api.align.tech/telemetry/anonymous` with no account, no token and
-no tenant. The gateway accepts nothing outside these fields (a strict schema) and mirrors
-the event to PostHog under `cli-local:<installId>` with `platform: cli` and `mode: local`
+Sent once the notice has printed in a terminal, or after `align telemetry on`. Never after
+`align telemetry off` or a No to the old consent question. Both go to
+`POST https://api.align.tech/telemetry/anonymous` with no account, no token and no tenant.
+The gateway accepts nothing outside these fields (a strict schema) and mirrors the event to
+PostHog under `cli-local:<installId>` with `platform: cli` and `mode: local`
 added server-side.
 
 ### `cli.funnel.install`
 
-Sent once per install, on the very first run of any command, before any prompt. Never again
-for that install id. Not sent when the first run already holds a cloud login token (cloud
+Sent once per install, on the first run that shows the notice, before any prompt. Never again
+for that install id once it has been sent. That first run waits for it, for at most 0.8
+seconds. If the connection fails outright, the next run tries again; if the gateway does not
+answer in time, it is not retried, so it is sent at most once. Every other event is sent without
+waiting. Not sent when the first run already holds a cloud login token (cloud
 mode has its own, authenticated events) and not sent when the first command is
 `align telemetry ...`.
 
@@ -52,8 +75,7 @@ mode has its own, authenticated events) and not sent when the first command is
 
 ### `cli.funnel.setup_completed`
 
-Sent when the setup wizard finishes, after its closing message, whatever you answered at the
-consent prompt.
+Sent when the setup wizard finishes, after its closing message.
 
 | Field | What it is |
 |---|---|
@@ -62,12 +84,13 @@ consent prompt.
 | `stage` | Always `setup_completed`. |
 | `command` | Always `setup`, the wizard that sent it. |
 
-That is the whole beacon tier: `install` and `setup_completed`. No other stage sends without
-consent.
+That is the whole beacon tier: `install` and `setup_completed`. They follow the same rule as
+everything below; they are listed apart because they are the funnel's denominator.
 
-## Sent only with your consent, in local-only mode
+## Sent after the notice, in local-only mode
 
-Off until you say yes at the wizard's prompt or run `align telemetry on`. Same endpoint as
+On once the one-time notice has printed, or after `align telemetry on`. Off for an install that
+answered No to the old consent question, and off after `align telemetry off`. Same endpoint as
 above, same anonymity: no account, no token, no tenant.
 
 ### `cli.command` (local mode)
@@ -78,7 +101,7 @@ One per command you run.
 |---|---|
 | `installId` | The same random UUID. |
 | `cliVersion` | The CLI version. |
-| `command` | The command's name, at most two words: `ask`, `import git`, `decisions list`. Never its arguments, never the query you typed, never a path. |
+| `command` | The command's name, at most two words: `align` (opening your coding agent), `ask`, `use`, `import git`, `decisions list`. Never its arguments, never the query you typed, never a path. |
 
 ### `cli.funnel.<stage>` (local mode)
 
@@ -98,7 +121,7 @@ the counts are counts, and the agent is the name of a tool on your machine. `dec
 is sent by `align ratify` with no count and no agent, because a ratification is a person
 standing behind a claim rather than anything an agent did.
 
-None of the four is ever sent from inside an agent hook.
+None of these, and no `cli.command`, is ever sent from inside an agent hook.
 
 | Field | What it is |
 |---|---|
@@ -109,10 +132,12 @@ None of the four is ever sent from inside an agent hook.
 
 ## Cloud mode
 
-Unchanged by the two tiers above. A cloud user is already on an authenticated connection to
+Unchanged by the notice above. A cloud user is already on an authenticated connection to
 Align's gateway, so usage events are on by default and `ALIGN_TELEMETRY=0` or
-`DO_NOT_TRACK=1` turns them off. They go to `POST <gateway>/telemetry/ingest` with your login
-token and tenant, and land in your tenant's own `telemetry_events` table.
+`DO_NOT_TRACK=1` turns them off, and so do `align telemetry off` and a No to the old consent
+question. Nothing is sent from CI in cloud mode either. They go to
+`POST <gateway>/telemetry/ingest` with your login token and tenant, and land in your tenant's
+own `telemetry_events` table.
 
 ### `cli.command` (cloud mode)
 
