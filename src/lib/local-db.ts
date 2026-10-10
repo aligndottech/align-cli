@@ -667,8 +667,11 @@ export function createLocalDb(dbPath: string) {
      * classification can upgrade a cosine `relates` edge into a typed one atomically.
      */
     replaceLink(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
+      // LM: an edge a person's `align mark ... replaces` wrote (id `mark:<judgement id>`) is theirs, not
+      // the classifier's to upgrade away: deleting it would orphan the judgement, and `--undo` could
+      // no longer find its link. The pair may then carry that edge beside the new one.
       db.prepare(
-        'DELETE FROM decision_links WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)',
+        `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%'`,
       ).run(link.sourceId, link.targetId, link.targetId, link.sourceId);
       insertLinkRow(link);
     },

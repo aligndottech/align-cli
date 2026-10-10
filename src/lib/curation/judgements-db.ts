@@ -9,6 +9,15 @@
  * paths of a repo and compare. It stays on this machine. Nothing the share phase reads may include it
  * or any file path.
  *
+ * TOMBSTONES: when a person undoes a conflict or check verdict, the row stays with `value` NULL and
+ * note 'undone' (via 'cli'). Readers skip it, so it is no verdict, but an agent's write on that key
+ * still meets a person's row and is refused until a person marks it again. ANYTHING THAT READS THIS
+ * TABLE (the share phase included) MUST ignore a verdict-kind row whose value is NULL.
+ *
+ * Builds before the round-3 fix (never released) let an agent write supersede and not_a_decision rows
+ * and gave a supersede link a random id. Those rows still read correctly, and `--undo` removes their
+ * judgement but cannot tell their link from a classifier's, so the link stays; no repair is attempted.
+ *
  * Ratification is not here: it stays in `decisions.ratified_by` (Decision 14), because storing it
  * twice would give one fact two writers.
  *
@@ -120,10 +129,12 @@ export function upsertJudgement(dbPath: string, w: JudgementWrite, judge: Judge,
              AND COALESCE(counterpart_id, context_key, decision_id) = ?`;
         // The row keeps its id when it is replaced: a supersedes link is owned by `mark:<id>`, so a
         // re-mark and its --undo must still find it.
-        const before = db.prepare(`SELECT id ${sel}`).get(w.kind, judge.judgeId, w.decisionId, keyOf(w)) as { id: string } | undefined;
+        const before = db.prepare(`SELECT id, value ${sel}`).get(w.kind, judge.judgeId, w.decisionId, keyOf(w)) as { id: string; value: string | null } | undefined;
         if (before) {
           id = before.id;
-          replaced = true;
+          // A tombstone (a verdict the person took back) is not an answer being replaced.
+          replaced = !(before.value === null && isVerdictKind(w.kind));
+
           db.prepare(`DELETE ${sel}`).run(w.kind, judge.judgeId, w.decisionId, keyOf(w));
         }
       }
@@ -143,14 +154,34 @@ export function upsertJudgement(dbPath: string, w: JudgementWrite, judge: Judge,
   });
 }
 
-/** Remove this judge's own row for the key (never another judge's). Returns the ids of the rows that went. */
-export function removeJudgement(dbPath: string, w: Omit<JudgementWrite, 'value' | 'note'>, judge: Judge): string[] {
+const isVerdictKind = (k: JudgementKind): boolean => k === 'conflict_verdict' || k === 'check_verdict';
+
+/**
+ * Take back this judge's own mark for the key (never another judge's). Returns the ids of the marks
+ * that were taken back.
+ *
+ * A verdict a PERSON gave is not deleted but turned into a TOMBSTONE: the same row with no value
+ * (`value` NULL, note 'undone'). Readers skip it, so the guardrail behaves as if the verdict never
+ * existed, but an agent's write on that key still meets a person's row and is refused until a
+ * person marks it again. Without it, undoing a "real" verdict would hand the key to an agent.
+ * A mark an agent made, and the kinds an agent cannot write at all, are deleted outright.
+ */
+export function removeJudgement(dbPath: string, w: Omit<JudgementWrite, 'value' | 'note'>, judge: Judge, now = new Date()): string[] {
   if (w.kind === 'note') throw new Error('Notes append and are not removed by key.');
   return withDb(dbPath, (db) => {
     const sel = `FROM local_judgements WHERE kind = ? AND judge_id = ? AND decision_id = ?
        AND COALESCE(counterpart_id, context_key, decision_id) = ?`;
-    const gone = (db.prepare(`SELECT id ${sel}`).all(w.kind, judge.judgeId, w.decisionId, keyOf(w)) as Array<{ id: string }>).map((r) => r.id);
-    db.prepare(`DELETE ${sel}`).run(w.kind, judge.judgeId, w.decisionId, keyOf(w));
+    const found = db.prepare(`SELECT id, via, value ${sel}`).all(w.kind, judge.judgeId, w.decisionId, keyOf(w)) as unknown as Array<{ id: string; via: string; value: string | null }>;
+    const gone: string[] = [];
+    for (const r of found) {
+      if (isVerdictKind(w.kind) && r.via === 'cli') {
+        if (r.value === null) continue;
+        db.prepare(`UPDATE local_judgements SET value = NULL, note = 'undone', judged_at = ? WHERE id = ?`).run(now.toISOString(), r.id);
+      } else {
+        db.prepare('DELETE FROM local_judgements WHERE id = ?').run(r.id);
+      }
+      gone.push(r.id);
+    }
     return gone;
   });
 }
@@ -159,6 +190,7 @@ export function removeJudgement(dbPath: string, w: Omit<JudgementWrite, 'value' 
 export function listJudgements(dbPath: string, judgeId: string, decisionId?: string): JudgementRow[] {
   return readDb<JudgementRow[]>(dbPath, [], (db) => db.prepare(
     `SELECT * FROM local_judgements WHERE judge_id = ?1 AND (?2 IS NULL OR decision_id = ?2 OR counterpart_id = ?2)
+       AND NOT (value IS NULL AND kind IN ('conflict_verdict', 'check_verdict'))
      ORDER BY judged_at DESC, rowid DESC`,
   ).all(judgeId, decisionId ?? null) as unknown as JudgementRow[]);
 }
@@ -173,7 +205,7 @@ export interface CheckVerdictLookup {
 export function checkVerdictFor(dbPath: string, judgeId: string, decisionId: string, contextKey: string | null): CheckVerdictLookup {
   return readDb<CheckVerdictLookup>(dbPath, { here: null, elsewhereFalse: null }, (db) => {
     const rows = db.prepare(
-      `SELECT context_key, value, judged_at, agent_id FROM local_judgements WHERE kind = 'check_verdict' AND judge_id = ? AND decision_id = ?
+      `SELECT context_key, value, judged_at, agent_id FROM local_judgements WHERE kind = 'check_verdict' AND value IS NOT NULL AND judge_id = ? AND decision_id = ?
        ORDER BY judged_at DESC, rowid DESC`,
     ).all(judgeId, decisionId) as unknown as Array<{ context_key: string; value: Verdict; judged_at: string; agent_id: string | null }>;
     const here = contextKey === null ? undefined : rows.find((r) => r.context_key === contextKey);
@@ -206,25 +238,10 @@ export function supersedeMarkFor(dbPath: string, judgeId: string, olderId: strin
   });
 }
 
-/**
- * Marks an AGENT made that change what a check returns: a false check verdict hides a hit, and
- * not-a-decision / supersede (refused from agents now, but older rows may exist) reshape retrieval.
- * Every check says so, so a suppression by an agent is never invisible.
- */
-export function agentRetrievalMarks(dbPath: string, judgeId: string): { count: number; since: string } | null {
-  return readDb<{ count: number; since: string } | null>(dbPath, null, (db) => {
-    const r = db.prepare(
-      `SELECT COUNT(*) AS n, MIN(judged_at) AS since FROM local_judgements
-        WHERE judge_id = ? AND via = 'mcp' AND ((kind = 'check_verdict' AND value = 'false') OR kind IN ('not_a_decision', 'supersede'))`,
-    ).get(judgeId) as { n: number; since: string | null };
-    return r.n > 0 && r.since ? { count: r.n, since: r.since } : null;
-  });
-}
-
 /** Every conflict verdict this judge gave, keyed by `lowerId|higherId`: one read for a whole list of pairs. */
 export function pairVerdictsFor(dbPath: string, judgeId: string): Map<string, { value: Verdict; judged_at: string; agent_id: string | null }> {
   return readDb(dbPath, new Map(), (db) => new Map(
-    (db.prepare(`SELECT decision_id, counterpart_id, value, judged_at, agent_id FROM local_judgements WHERE kind = 'conflict_verdict' AND judge_id = ?`).all(judgeId) as Array<{ decision_id: string; counterpart_id: string; value: Verdict; judged_at: string; agent_id: string | null }>)
+    (db.prepare(`SELECT decision_id, counterpart_id, value, judged_at, agent_id FROM local_judgements WHERE kind = 'conflict_verdict' AND value IS NOT NULL AND judge_id = ?`).all(judgeId) as Array<{ decision_id: string; counterpart_id: string; value: Verdict; judged_at: string; agent_id: string | null }>)
       .map((r) => [`${r.decision_id}|${r.counterpart_id}`, { value: r.value, judged_at: r.judged_at, agent_id: r.agent_id }] as const),
   ));
 }

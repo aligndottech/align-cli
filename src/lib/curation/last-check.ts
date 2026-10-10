@@ -5,6 +5,7 @@
  * leaves the machine. A missing or unreadable file reads as "no last check".
  */
 import { randomBytes } from 'node:crypto';
+import { execa } from 'execa';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,8 @@ export interface LastCheck {
   checked_at: string;
   /** The directory the check ran in: a default from another checkout is not this one's. */
   cwd: string;
+  /** The git HEAD it ran at (null outside a repository): a default from before a commit or a branch switch is not this check's. */
+  head: string | null;
   files: string[];
   /** Every decision the check retrieved (a hit hidden by a mark is still here), so a default is offered only for a decision it covered. */
   decision_ids: string[];
@@ -54,10 +57,12 @@ export function writeLastCheck(entry: LastCheck, file = lastCheckPath()): void {
 
 export function readLastCheck(file = lastCheckPath()): LastCheck | null {
   try {
+    // A planted link is not ours to read (writing already refuses one).
+    if (!fs.lstatSync(file).isFile()) return null;
     const v = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<LastCheck>;
     if (!Array.isArray(v.files) || v.files.some((f) => typeof f !== 'string')) return null;
     const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string') : []);
-    return { checked_at: typeof v.checked_at === 'string' ? v.checked_at : '', cwd: typeof v.cwd === 'string' ? v.cwd : '', files: v.files, decision_ids: strings(v.decision_ids) };
+    return { checked_at: typeof v.checked_at === 'string' ? v.checked_at : '', cwd: typeof v.cwd === 'string' ? v.cwd : '', head: typeof v.head === 'string' ? v.head : null, files: v.files, decision_ids: strings(v.decision_ids) };
   } catch {
     return null;
   }
@@ -69,7 +74,18 @@ export function lastCheckFor(
   result: { relevant_decisions?: Array<{ id: string }>; conflicts?: Array<{ decision_id: string }>; checked_files?: string[] },
   now = new Date(),
   cwd = process.cwd(),
+  head: string | null = null,
 ): LastCheck {
   const ids = new Set([...(result.relevant_decisions ?? []).map((d) => d.id), ...(result.conflicts ?? []).map((c) => c.decision_id)]);
-  return { checked_at: now.toISOString(), cwd, files: result.checked_files ?? filesFromDiff(diff), decision_ids: [...ids] };
+  return { checked_at: now.toISOString(), cwd, head, files: result.checked_files ?? filesFromDiff(diff), decision_ids: [...ids] };
+}
+
+/** The git HEAD of the current directory, or null outside a repository (or without git). */
+export async function gitHead(): Promise<string | null> {
+  try {
+    const { stdout } = await execa('git', ['rev-parse', 'HEAD']);
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
 }

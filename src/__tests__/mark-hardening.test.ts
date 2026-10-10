@@ -104,7 +104,7 @@ describe('F5/F12 notes cannot carry control characters', () => {
       .run(ids.alpha, 'fine\n2026-10-10  not a decision  (by you)\u001b[8m\u009b2J');
     d.close();
     const out: string[] = [];
-    await runMarkCommand([], { list: true }, { out: (l) => out.push(l), err: (l) => out.push(l), graphPath: () => dbPath, judge: async () => me, lastCheck: () => null, isTty: () => true });
+    await runMarkCommand([], { list: true }, { out: (l) => out.push(l), err: (l) => out.push(l), graphPath: () => dbPath, judge: async () => me, lastCheck: () => null, isTty: () => true, head: async () => null });
     expect(out).toHaveLength(1);
     expect([...out[0]].some((c) => { const n = c.charCodeAt(0); return n < 0x20 || (n >= 0x7f && n <= 0x9f); })).toBe(false);
     expect(out[0]).toContain('\\u001b[8m');
@@ -182,7 +182,7 @@ describe('F10 last-check.json', () => {
     const f = path.join(dir, 'last-check.json');
     fs.writeFileSync(f, '{}', { mode: 0o644 });
     fs.chmodSync(f, 0o644);
-    writeLastCheck({ checked_at: 't', files: ['a'], decision_ids: [], cwd: '/x' }, f);
+    writeLastCheck({ checked_at: 't', files: ['a'], decision_ids: [], cwd: '/x', head: null }, f);
     if (process.platform !== 'win32') expect(fs.statSync(f).mode & 0o077).toBe(0);
     expect(readLastCheck(f)?.files).toEqual(['a']);
     expect(fs.readdirSync(dir).filter((n) => n.endsWith('.tmp'))).toEqual([]);
@@ -192,12 +192,12 @@ describe('F10 last-check.json', () => {
     fs.writeFileSync(victim, 'precious');
     const link = path.join(dir, 'lc-link.json');
     fs.symlinkSync(victim, link);
-    writeLastCheck({ checked_at: 't', files: ['a'], decision_ids: [], cwd: '/x' }, link);
+    writeLastCheck({ checked_at: 't', files: ['a'], decision_ids: [], cwd: '/x', head: null }, link);
     expect(fs.readFileSync(victim, 'utf8')).toBe('precious');
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
     const asDir = path.join(dir, 'lc-dir.json');
     fs.mkdirSync(asDir);
-    expect(() => writeLastCheck({ checked_at: 't', files: [], decision_ids: [], cwd: '/x' }, asDir)).not.toThrow();
+    expect(() => writeLastCheck({ checked_at: 't', files: [], decision_ids: [], cwd: '/x', head: null }, asDir)).not.toThrow();
     expect(fs.statSync(asDir).isDirectory()).toBe(true);
     expect(fs.readdirSync(dir).filter((n) => n.endsWith('.tmp'))).toEqual([]);
   });
@@ -206,7 +206,7 @@ describe('F10 last-check.json', () => {
 describe('F6 the default file set must belong to the decision being marked', () => {
   const baseDeps = (over: Partial<MarkCommandDeps> = {}): MarkCommandDeps & { out: string[]; err: string[] } => {
     const out: string[] = []; const err: string[] = [];
-    return { out: (l) => out.push(l), err: (l) => err.push(l), graphPath: () => dbPath, judge: async () => me, lastCheck: () => null, isTty: () => true, ...over, outBuf: out, errBuf: err } as never;
+    return { out: (l) => out.push(l), err: (l) => err.push(l), graphPath: () => dbPath, judge: async () => me, lastCheck: () => null, isTty: () => true, head: async () => null, ...over, outBuf: out, errBuf: err } as never;
   };
   it('lastCheckFor keeps cwd and every retrieved decision id, hidden hits included, and never the diff', () => {
     const e = lastCheckFor('diff --git a/a.ts b/a.ts\n+++ b/a.ts\n', { relevant_decisions: [{ id: 'd1' }, { id: 'd2' }], conflicts: [{ decision_id: 'd3' }] }, new Date(0), '/work/repo');
@@ -237,7 +237,7 @@ describe('F6 the default file set must belong to the decision being marked', () 
 describe('suppressive CLI marks need a terminal', () => {
   const run = (args: string[], opts: Parameters<typeof runMarkCommand>[1], tty: boolean) => {
     const err: string[] = [];
-    return runMarkCommand(args, opts, { out: () => {}, err: (l) => err.push(l), graphPath: () => dbPath, judge: async () => me, lastCheck: () => null, isTty: () => tty })
+    return runMarkCommand(args, opts, { out: () => {}, err: (l) => err.push(l), graphPath: () => dbPath, judge: async () => me, lastCheck: () => null, isTty: () => tty, head: async () => null })
       .then((code) => ({ code, err: err.join(' ') }));
   };
   it('check false, not-a-decision and replaces are refused without a terminal (exit 1, nothing stored)', async () => {
@@ -252,11 +252,11 @@ describe('suppressive CLI marks need a terminal', () => {
     }
     expect(rows('SELECT * FROM local_judgements')).toEqual([]);
   });
-  it('real verdicts, conflict marks, notes and every --undo still run without one; the same marks run at a terminal', async () => {
+  it('real verdicts, conflict marks and notes still run without one; undo does not; the same marks run at a terminal', async () => {
     expect((await run(['check', ids.alpha, 'real'], { files: ['x.ts'] }, false)).code).toBe(0);
     expect((await run(['conflict', ids.alpha, ids.bravo, 'false'], {}, false)).code).toBe(0);
     expect((await run([ids.alpha, 'note', 'n'], {}, false)).code).toBe(0);
-    expect((await run([ids.alpha, 'not-a-decision'], { undo: true }, false)).code).toBe(0);
+    expect((await run([ids.alpha, 'not-a-decision'], { undo: true }, false)).code).toBe(1);
     expect((await run([ids.alpha, 'not-a-decision'], {}, true)).code).toBe(0);
     expect((await run(['check', ids.alpha, 'false'], { files: ['x.ts'] }, true)).code).toBe(0);
   });

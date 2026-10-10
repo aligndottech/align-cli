@@ -19,7 +19,7 @@ describe('lastCheckFor', () => {
   const diff = 'diff --git a/src/b.ts b/src/b.ts\n+SECRET_LINE_OF_DIFF\ndiff --git a/src/a.ts b/src/a.ts\n+x\n';
   it('keeps the sorted files and the conflict ids, and none of the diff', () => {
     const e = lastCheckFor(diff, { conflicts: [{ decision_id: 'd1' }, { decision_id: 'd2' }] }, new Date('2026-10-10T00:00:00Z'), '/work');
-    expect(e).toEqual({ checked_at: '2026-10-10T00:00:00.000Z', cwd: '/work', files: ['src/a.ts', 'src/b.ts'], decision_ids: ['d1', 'd2'] });
+    expect(e).toEqual({ checked_at: '2026-10-10T00:00:00.000Z', cwd: '/work', head: null, files: ['src/a.ts', 'src/b.ts'], decision_ids: ['d1', 'd2'] });
     expect(JSON.stringify(e)).not.toContain('SECRET_LINE_OF_DIFF');
   });
   it('prefers the file list the check itself returned, and copes with no conflicts', () => {
@@ -32,12 +32,12 @@ describe('lastCheckFor', () => {
 describe('read and write', () => {
   it('round-trips, creating the directory', () => {
     const file = path.join(dir, 'nested', 'last-check.json');
-    writeLastCheck({ checked_at: 't', cwd: '/w', files: ['a.ts'], decision_ids: ['d1'] }, file);
-    expect(readLastCheck(file)).toEqual({ checked_at: 't', cwd: '/w', files: ['a.ts'], decision_ids: ['d1'] });
+    writeLastCheck({ checked_at: 't', cwd: '/w', head: null, files: ['a.ts'], decision_ids: ['d1'] }, file);
+    expect(readLastCheck(file)).toEqual({ checked_at: 't', cwd: '/w', head: null, files: ['a.ts'], decision_ids: ['d1'] });
   });
   it.skipIf(process.platform === 'win32')('is private to the user', () => {
     const file = path.join(dir, 'last-check.json');
-    writeLastCheck({ checked_at: 't', cwd: '/w', files: [], decision_ids: [] }, file);
+    writeLastCheck({ checked_at: 't', cwd: '/w', head: null, files: [], decision_ids: [] }, file);
     expect(fs.statSync(file).mode & 0o077).toBe(0);
   });
   it('a missing, corrupt or wrongly shaped file reads as null', () => {
@@ -51,6 +51,6 @@ describe('read and write', () => {
   it('an unwritable location is silent', () => {
     const blocker = path.join(dir, 'file-not-dir');
     fs.writeFileSync(blocker, 'x');
-    expect(() => writeLastCheck({ checked_at: 't', cwd: '/w', files: [], decision_ids: [] }, path.join(blocker, 'last-check.json'))).not.toThrow();
+    expect(() => writeLastCheck({ checked_at: 't', cwd: '/w', head: null, files: [], decision_ids: [] }, path.join(blocker, 'last-check.json'))).not.toThrow();
   });
 });

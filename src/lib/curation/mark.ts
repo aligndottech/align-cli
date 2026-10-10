@@ -50,10 +50,11 @@ export function normaliseFiles(files: readonly string[]): string[] {
   return [...new Set(clean)].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
 }
 
-/** sha256 of the sorted paths joined by newline. No files, or more than 500, has NO key. */
+/** sha256 of the sorted paths joined by newline. No files, more than 500, or an unnameable path has NO key. */
 export function contextKeyFor(files: readonly string[]): string | null {
   const list = normaliseFiles(files);
-  if (list.length === 0 || list.length > MAX_CHECK_FILES) return null;
+  // A path with a control or format character cannot be named safely, so it is not a file set at all: nothing is hidden for it.
+  if (list.length === 0 || list.length > MAX_CHECK_FILES || list.some(hasUnsafeChars)) return null;
   return createHash('sha256').update(list.join('\n')).digest('hex');
 }
 
@@ -228,7 +229,7 @@ function writeOf(m: MarkAction): JudgementWrite | null {
 export function checkNote(text: string): string {
   const t = text.trim();
   if (t === '') throw new MarkError('usage', 'A note needs some text.');
-  if (hasUnsafeChars(t)) throw new MarkError('usage', 'A note cannot hold control characters or line breaks (a newline, tab, escape, or a text-direction override). Write it on one line of ordinary text.');
+  if (hasUnsafeChars(t)) throw new MarkError('usage', 'A note cannot hold control characters or invisible ones: line breaks, tabs, escapes, zero-width and direction marks, Unicode tags, or the joiners emoji sequences use (a single emoji is fine). Write it on one line of ordinary text.');
   if ([...t].length > MAX_NOTE_CHARS) throw new MarkError('usage', `A note is at most ${MAX_NOTE_CHARS} characters; this one is ${[...t].length}.`);
   return t;
 }
@@ -272,6 +273,7 @@ function applyChecked(ctx: ApplyContext, m: MarkAction, opts: { undo?: boolean; 
     case 'check': {
       const titles = requireDecisions(dbPath, [m.id]);
       const files = normaliseFiles(m.files);
+      if (files.some(hasUnsafeChars)) throw new MarkError('usage', 'A file path with control characters or invisible ones cannot be named in a mark, so no verdict can be recorded for that set.');
       const contextKey = contextKeyFor(files);
       if (contextKey === null) {
         throw new MarkError('usage', files.length > MAX_CHECK_FILES

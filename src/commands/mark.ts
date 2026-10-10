@@ -18,7 +18,7 @@ import { applyJudgement, type MarkAction, MarkError, parseMarkArgs } from '../li
 import { agentLabel, quote } from '../lib/curation/text.js';
 import { existingTitles, type Judge, type JudgementRow, listJudgements } from '../lib/curation/judgements-db.js';
 import { defaultJudge } from '../lib/curation/judge.js';
-import { type LastCheck, readLastCheck } from '../lib/curation/last-check.js';
+import { gitHead, type LastCheck, readLastCheck } from '../lib/curation/last-check.js';
 import { localGraphPath } from '../lib/sync/real-env.js';
 
 export interface MarkCommandOptions { files?: string[]; undo?: boolean; list?: boolean; force?: boolean }
@@ -28,9 +28,11 @@ export interface MarkCommandDeps {
   err(line: string): void;
   graphPath(): string | undefined;
   judge(): Promise<Judge>;
-  lastCheck(): Pick<LastCheck, 'files'> & Partial<Pick<LastCheck, 'decision_ids' | 'cwd'>> | null;
+  lastCheck(): Pick<LastCheck, 'files'> & Partial<Pick<LastCheck, 'decision_ids' | 'cwd' | 'head'>> | null;
   /** A controller terminal on stdin: the marks that HIDE something are a person's at a keyboard. */
   isTty(): boolean;
+  /** The git HEAD of the current directory, or null outside a repository. */
+  head(): Promise<string | null>;
 }
 
 const LABEL: Record<string, string> = {
@@ -51,7 +53,7 @@ function describe(r: JudgementRow, titles: Map<string, string>): string {
   return `${day}  ${LABEL[r.kind]}  ${what}  (${who})`;
 }
 
-const TTY_MESSAGE = 'This hides or replaces a decision, so it is a person\'s act and needs a terminal. Run it in your own terminal. (A terminal check is a speed bump, not proof: a program can open one. It keeps an agent\'s shell tool and a pipe from doing this by accident.)';
+const TTY_MESSAGE = 'This hides or replaces a decision, or takes a mark back, so it is a person\'s act and needs a terminal. Run it in your own terminal. (A terminal check is a speed bump, not proof: a program can open one. It keeps an agent\'s shell tool and a pipe from doing this by accident.)';
 
 /** The marks that make the guardrail show LESS, or declare a decision replaced. */
 function needsTerminal(a: MarkAction): boolean {
@@ -82,17 +84,18 @@ export async function runMarkCommand(args: string[], opts: MarkCommandOptions, d
     if (draft.action === 'check' && files === undefined) {
       // The last check is a default only for the decision it covered, in the directory it ran in.
       const last = deps.lastCheck();
-      if (last && last.decision_ids?.includes(draft.id) && last.cwd === process.cwd()) files = last.files;
+      if (last && last.decision_ids?.includes(draft.id) && last.cwd === process.cwd() && (last.head ?? null) === (await deps.head())) files = last.files;
       else {
         deps.err(last
-          ? 'The last `align check` did not cover that decision in this directory, so its files are not a default for it. Pass the files: align mark check <id> real|false --files <file>...'
+          ? 'The last `align check` did not cover that decision in this directory, at this commit, so its files are not a default for it. Pass the files: align mark check <id> real|false --files <file>...'
           : 'There is no last `align check` to take the files from. Pass them: align mark check <id> real|false --files <file>...');
         return 2;
       }
     }
     const action = draft.action === 'check' ? { ...draft, files: files ?? [] } : draft;
     if (!dbPath) return needsGraph();
-    if (!opts.undo && (needsTerminal(action) || opts.force) && !deps.isTty()) {
+    // Undo needs one too: otherwise a shell could take back a person's verdict and then have an agent write its own.
+    if ((opts.undo || opts.force || needsTerminal(action)) && !deps.isTty()) {
       deps.err(TTY_MESSAGE);
       return 1;
     }
@@ -124,6 +127,7 @@ export function registerMarkCommand(program: Command): void {
         judge: defaultJudge,
         lastCheck: readLastCheck,
         isTty: () => Boolean(process.stdin.isTTY),
+        head: gitHead,
       });
       if (code !== 0) process.exitCode = code;
     });

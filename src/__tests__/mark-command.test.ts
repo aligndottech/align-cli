@@ -33,6 +33,7 @@ function deps(over: Partial<MarkCommandDeps> = {}): MarkCommandDeps {
     judge: async () => ME,
     lastCheck: () => last,
     isTty: () => true,
+    head: async () => null,
     ...over,
   };
 }
@@ -202,7 +203,8 @@ describe('align mark --undo', () => {
     await run(['check', ids.alpha, 'false'], { files: ['x.ts'] });
     expect(await run(['conflict', ids.bravo, ids.alpha, 'false'], { undo: true })).toBe(0);
     expect(await run(['check', ids.alpha, 'false'], { files: ['x.ts'], undo: true })).toBe(0);
-    expect(rows('SELECT * FROM local_judgements')).toEqual([]);
+    // A person's undone verdict stays as a tombstone (no value), so an agent cannot take the key over.
+    expect(rows('SELECT * FROM local_judgements WHERE value IS NOT NULL')).toEqual([]);
     out = [];
     await run(['conflict', ids.bravo, ids.alpha, 'false'], { undo: true });
     expect(out.join('\n')).toMatch(/no verdict/i);

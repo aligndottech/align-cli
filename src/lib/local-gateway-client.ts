@@ -19,10 +19,9 @@ import type { AlignmentResult, SearchResults } from './gateway-client.js';
 import type { CheckDepth } from './check-depth.js';
 import { annotatePairs, anyJudgements, reviewConflicts } from './curation/guardrail.js';
 import { defaultJudge } from './curation/judge.js';
-import { checkNotes, emptyCheck, splitRetrieved } from './curation/check-marks.js';
-import { agentBanner } from './curation/guardrail.js';
+import { bannerFor, checkNotes, emptyCheck, offeredFiles, splitRetrieved } from './curation/check-marks.js';
 import { notADecisionMarks } from './curation/judgements-db.js';
-import { contextKeyFor, filesFromDiff, MAX_CHECK_FILES } from './curation/mark.js';
+import { contextKeyFor, filesFromDiff } from './curation/mark.js';
 
 import {
   DRIFT_THRESHOLD, RELATED_FLOOR, RELATED_TOP_K, RELATES_THRESHOLD, RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD,
@@ -598,7 +597,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const hidden = judge ? notADecisionMarks(dbPath, judge) : new Map();
       const dropNotes: string[] = [];
       const visible = (rows: Awaited<ReturnType<typeof findSimilar>>) => {
-        const split = splitRetrieved(rows, hidden, limit, (id) => db.getDecisionById(id)?.title);
+        const split = splitRetrieved(rows, hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
         dropNotes.splice(0, dropNotes.length, ...split.notes);
         return split.kept;
       };
@@ -647,15 +646,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       return { results, count: results.length, strategy: 'semantic', scope: effectiveRepo, ...(dropNotes.length ? { notes: dropNotes } : {}) };
     },
 
-    /** LM: the check, wrapped so EVERY answer carries the banner while an agent's mark shapes retrieval. */
-    async checkAlignment(diff: string, context?: string, opts: CheckOpts = {}): Promise<AlignmentResult> {
-      const result = await client.checkCore(diff, context, opts);
-      const judge = await activeJudge();
-      const banner = judge ? agentBanner(dbPath, judge) : null;
-      return banner ? { ...result, notes: [banner, ...(result.notes ?? [])] } : result;
-    },
-
-    async checkCore(
+    async checkAlignment(
       diff: string,
       _context?: string,
       // 'exhaustive' deliberately collapses into 'full' here: local mode has no gateway
@@ -685,7 +676,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         .filter((d): d is NonNullable<typeof d> => d !== null);
 
       if (!candidates.length) {
-        return emptyCheck(retrieved.dropped, retrieved.notes);
+        return emptyCheck(retrieved);
       }
 
       // `depth:'related'` means retrieval only, and honouring it matters more here than in the
@@ -714,7 +705,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             ...provenanceOf(c),
           })),
           conflicts: [],
-          ...(retrieved.notes.length ? { notes: retrieved.notes } : {}),
+          ...(retrieved.notes.length ? { notes: [...bannerFor(retrieved.agentApplied), ...retrieved.notes] } : {}),
           message: `Found ${candidates.length} related decision(s) - retrieval only, not adjudicated.`,
         };
       }
@@ -779,10 +770,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         }));
       // LM: this person's false-alarm marks hide a hit for exactly this set of files, or annotate it.
       const files = filesFromDiff(diff);
-      const reviewed = judge ? reviewConflicts(dbPath, judge, rawConflicts, contextKeyFor(files), files) : { conflicts: rawConflicts, notes: [] as string[] };
+      const reviewed = judge ? reviewConflicts(dbPath, judge, rawConflicts, contextKeyFor(files), files) : { conflicts: rawConflicts, notes: [] as string[], agentApplied: [] as string[] };
       const conflicts = reviewed.conflicts;
       // LM: say what a mark changed - a decision left out, a decision a person declared replaced.
-      const allNotes = checkNotes(dbPath, judge, retrieved.notes, relevant_decisions, reviewed.notes, files.length);
+      const allNotes = checkNotes(dbPath, judge, retrieved, relevant_decisions, reviewed, files);
       const notes = allNotes.length ? { notes: allNotes } : {};
 
       // ALI-414: a candidate we retrieved but could not classify is exactly the case
@@ -799,7 +790,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           relevant_decisions,
           conflicts,
           ...notes,
-          ...(files.length && files.length <= MAX_CHECK_FILES ? { checked_files: files } : {}),
+          ...(offeredFiles(files) ? { checked_files: files } : {}),
           message: `This change conflicts with ${conflicts.length} existing decision(s) in your local graph - review before proceeding.`,
         };
       }

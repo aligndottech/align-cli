@@ -47,6 +47,7 @@ describe('local guardrail honours local judgements', () => {
     dbPath = path.join(os.tmpdir(), `align-lm-guard-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
     client = createLocalGatewayClient(dbPath, { judgeId: 'me' });
     vi.mocked(classifyRelationship).mockResolvedValue(conflictReply);
+    vi.mocked((await import('../lib/local-embeddings.js')).cosineSimilarity).mockReturnValue(0.75);
     a = (await client.captureDecision('Use Postgres for persistence', 'cli')).id;
     b = (await client.captureDecision('Use MySQL for the reporting store', 'cli')).id;
   });
@@ -264,12 +265,13 @@ describe('local guardrail honours local judgements', () => {
       mark({ action: 'check', id: a, verdict: 'false', files: ['x.ts'] });
       expect((await client.checkAlignment(diffOf('z.ts'))).notes?.join('\n')).not.toMatch(/by agents/);
     });
-    it('an agent\'s false verdict puts the banner on a check that does not touch its file set, and counts correctly (two rows)', async () => {
+    it('an agent\'s false verdict that hid a hit puts the banner first; a check on other files has none for it; counts add up (two rows)', async () => {
       applyJudgement({ dbPath, judge: me, origin: { via: 'mcp', agentId: 'claude-code' } }, { action: 'check', id: a, verdict: 'false', files: ['x.ts'] });
-      const one = await client.checkAlignment(diffOf('z.ts'));
+      expect((await client.checkAlignment(diffOf('z.ts'))).notes?.join('\n') ?? '').not.toMatch(/by agents/);
+      const one = await client.checkAlignment(diffOf('x.ts'));
       expect(one.notes?.[0]).toMatch(/^1 mark by agents since \d{4}-\d{2}-\d{2} affects this check \(align mark --list\)$/);
       legacyAgentRow('not_a_decision', b);
-      const two = await client.checkAlignment(diffOf('z.ts'));
+      const two = await client.checkAlignment(diffOf('x.ts'));
       expect(two.notes?.[0]).toMatch(/^2 marks by agents since .* affect this check \(align mark --list\)$/);
     });
     it('an agent\'s real verdict, conflict verdict or note does not change a check, so it brings no banner', async () => {
@@ -277,13 +279,12 @@ describe('local guardrail honours local judgements', () => {
       applyJudgement({ dbPath, judge: me, origin: { via: 'mcp', agentId: 'claude-code' } }, { action: 'note', id: a, text: 'n' });
       expect((await client.checkAlignment(diffOf('z.ts'))).notes?.join('\n') ?? '').not.toMatch(/by agents/);
     });
-    it('it rides on a check that found nothing at all', async () => {
-      applyJudgement({ dbPath, judge: me, origin: { via: 'mcp', agentId: 'claude-code' } }, { action: 'check', id: a, verdict: 'false', files: ['x.ts'] });
-      vi.mocked((await import('../lib/local-embeddings.js')).cosineSimilarity).mockReturnValue(0);
+    it('it rides on a check whose every candidate an agent\'s older mark left out', async () => {
+      legacyAgentRow('not_a_decision', a);
+      legacyAgentRow('not_a_decision', b);
       const r = await client.checkAlignment(diffOf('z.ts'));
       expect(r.status).toBe('no-context');
-      expect(r.notes?.[0]).toMatch(/by agents/);
-      vi.mocked((await import('../lib/local-embeddings.js')).cosineSimilarity).mockReturnValue(0.75);
+      expect(r.notes?.[0]).toMatch(/^2 marks by agents since/);
     });
   });
 

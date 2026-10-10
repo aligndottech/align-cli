@@ -22,7 +22,7 @@ import {
   recordVerdict,
 } from '../lib/advisory-verdict.js';
 import { CHECK_DEPTHS, type CheckDepth } from '../lib/check-depth.js';
-import { lastCheckFor, writeLastCheck } from '../lib/curation/last-check.js';
+import { gitHead, lastCheckFor, writeLastCheck } from '../lib/curation/last-check.js';
 import { quote } from '../lib/curation/text.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
@@ -256,7 +256,7 @@ export function registerCheckCommand(program: Command): void {
         spinner.stop();
         // LM: what this person's marks did to the result, and the file set `align mark check` defaults to.
         for (const note of result.notes ?? []) console.log(chalk.dim(`  ${note}`));
-        if (!opts.hook) writeLastCheck(lastCheckFor(diff, result));
+        if (!opts.hook) writeLastCheck(lastCheckFor(diff, result, undefined, undefined, await gitHead()));
 
         if (result.status === 'aligned') {
           console.log(chalk.green('\n  Aligned with decision graph.\n'));
@@ -343,7 +343,8 @@ export function registerCheckCommand(program: Command): void {
           if (opts.hook) process.exit(0);
           process.exit(EXIT_UNKNOWN);
         } else {
-          if (!opts.hook) console.log(chalk.dim('\n  No related decisions found in your graph.\n'));
+          // LM: when marks are part of the answer, say what they did instead of "found nothing".
+          if (!opts.hook) console.log(chalk.dim(`\n  ${result.notes?.length ? result.message : 'No related decisions found in your graph.'}\n`));
         }
       } catch (err) {
         spinner.fail(chalk.red((err as Error).message));
