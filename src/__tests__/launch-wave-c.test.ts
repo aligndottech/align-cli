@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAgents } from '../commands/agents.js';
+import { runUse } from '../commands/use.js';
+import { ALIGN_NUDGE_START } from '../lib/agent-rules.js';
 import { supportedAgents } from '../lib/launch/agents.js';
 import { readAuggieState } from '../lib/launch/auggie-state.js';
 import { readClineState } from '../lib/launch/cline-state.js';
@@ -28,7 +30,7 @@ import { prependPath, writeFakeAgent } from './helpers/fake-agent.js';
 const HOST = process.platform;
 const WAVE_C = { goose: 'goose', auggie: 'auggie', continue: 'cn', cline: 'cline', aider: 'aider' } as const;
 
-let root: string, home: string, cwd: string, cnPath: string;
+let root: string, home: string, cwd: string, cnPath: string, goosePath: string;
 beforeEach(() => {
   root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'align-wave-c-')));
   home = path.join(root, 'home');
@@ -42,10 +44,16 @@ beforeEach(() => {
   writeFileSync(path.join(pkg, 'cn.js'), '');
   cnPath = HOST === 'win32' ? path.join(root, 'npm', 'cn.cmd') : path.join(pkg, 'cn.js');
   if (HOST === 'win32') writeFileSync(cnPath, '');
+  // Block's installer location (download_cli.sh), so isGooseBin accepts it.
+  mkdirSync(gooseDir(), { recursive: true });
+  goosePath = path.join(gooseDir(), HOST === 'win32' ? 'goose.exe' : 'goose');
+  writeFileSync(goosePath, '');
 });
+/** Where Block's installer puts goose: ~/.local/bin, or %USERPROFILE%\goose on Windows. */
+const gooseDir = () => (HOST === 'win32' ? path.join(home, 'goose') : path.join(home, '.local', 'bin'));
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-const binPath = (b: string) => (b === 'cn' ? cnPath : `/usr/bin/${b}`);
+const binPath = (b: string) => (b === 'cn' ? cnPath : b === 'goose' ? goosePath : `/usr/bin/${b}`);
 
 function harness(over: Partial<LaunchDeps> & { stored?: string; bins?: Record<string, string> } = {}) {
   const err: string[] = [];
@@ -53,7 +61,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; bins?: Record<st
   const applied: unknown[] = [];
   const bins = over.bins ?? {};
   const deps: Partial<LaunchDeps> = {
-    env: { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') },
+    env: { HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config') },
     argv: ['node', 'align'],
     cwd,
     home,
@@ -114,16 +122,23 @@ describe('wave C: each launches with Align wired in', () => {
   });
 
   it('win32: the resolved .cmd shim is what runs, with the injected flags kept (goose, cn)', async () => {
-    const g = harness({ stored: 'goose', platform: 'win32', bins: { goose: 'C:\\bin\\goose.exe' } });
+    const g = harness({ stored: 'goose', platform: 'win32', env: { USERPROFILE: 'C:\\Users\\u' }, bins: { goose: 'C:\\Users\\u\\goose\\goose.exe' } });
     await launchIfChosen(g.deps);
-    expect(g.runAgentMock.mock.calls[0]![0]).toMatchObject({ bin: 'C:\\bin\\goose.exe', args: ['session', '--with-extension', expect.stringMatching(/^align-local:/)] });
+    expect(g.runAgentMock.mock.calls[0]![0]).toMatchObject({ bin: 'C:\\Users\\u\\goose\\goose.exe', args: ['session', '--with-extension', expect.stringMatching(/^align-local:/)] });
     const a = harness({ stored: 'aider', platform: 'win32', bins: { aider: 'C:\\py\\Scripts\\aider.exe' } });
     await launchIfChosen(a.deps);
     expect(a.runAgentMock.mock.calls[0]![0]).toMatchObject({ bin: 'C:\\py\\Scripts\\aider.exe', args: ['--read', expect.stringContaining('aider-align-instructions.md')] });
   });
 
+  it('aider: `align -- --read AGENTS.md` with Align\'s general block in AGENTS.md still gets the Aider file first', async () => {
+    writeFileSync(path.join(cwd, 'AGENTS.md'), `# x\n${ALIGN_NUDGE_START}\nuse align_check_alignment\n`);
+    const h = harness({ stored: 'aider', bins: { aider: '/usr/bin/aider' }, argv: ['node', 'align', '--', '--read', 'AGENTS.md'] });
+    await launchIfChosen(h.deps);
+    expect(h.runAgentMock.mock.calls[0]![0].args).toEqual(['--read', path.join(root, 'cache', 'aider-align-instructions.md'), '--read', 'AGENTS.md']);
+  });
+
   it('an ALIGN_WRAPPED session never launches another (nested align)', async () => {
-    const h = harness({ stored: 'goose', bins: { goose: '/usr/bin/goose' }, env: { ALIGN_WRAPPED: '1' } });
+    const h = harness({ stored: 'goose', bins: { goose: goosePath }, env: { ALIGN_WRAPPED: '1' } });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: false });
     expect(h.runAgentMock).not.toHaveBeenCalled();
   });
@@ -135,6 +150,49 @@ describe('wave C: each launches with Align wired in', () => {
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 127 });
     expect(h.runAgentMock).not.toHaveBeenCalled();
     expect(h.err.join('\n')).toContain('Continue CLI is not installed any more');
+  });
+});
+
+describe('Goose: pressly/goose (the Go migration CLI) is never taken for Block\'s', () => {
+  // `go install github.com/pressly/goose/v3/cmd/goose` puts it in ~/go/bin.
+  const pressly = () => {
+    const f = path.join(home, 'go', 'bin', HOST === 'win32' ? 'goose.exe' : 'goose');
+    mkdirSync(path.dirname(f), { recursive: true });
+    writeFileSync(f, '');
+    return f;
+  };
+  it('launcher: a stored Goose with only pressly\'s goose on PATH is not installed, and nothing runs', async () => {
+    const h = harness({ stored: 'goose', bins: { goose: pressly() }, argv: ['node', 'align', '--'] });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 127 });
+    expect(h.runAgentMock).not.toHaveBeenCalled();
+    expect(h.err.join('\n')).toContain('Goose is not installed any more');
+  });
+  it('picker: pressly\'s goose leaves Goose marked not installed; Block\'s marks it installed', async () => {
+    const labelOf = (d: Partial<LaunchDeps>) => ((d.pick as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Array<{ value: string; label: string }>).find((o) => o.value === 'goose')!.label;
+    const p = harness({ bins: { goose: pressly() } });
+    await launchIfChosen(p.deps);
+    expect(labelOf(p.deps)).toBe('Goose (not installed)');
+    const b = harness({ bins: { goose: goosePath } });
+    await launchIfChosen(b.deps);
+    expect(labelOf(b.deps)).toBe('Goose');
+  });
+  it('`align use goose` refuses pressly\'s goose and takes Block\'s', async () => {
+    const use = async (found: string) => {
+      const config = { getAgent: () => undefined, setAgent: vi.fn(), clearAgent: vi.fn(), setLaunchOff: vi.fn(), clearRefusedWrites: vi.fn() };
+      const code = await runUse('goose', { config, findOnPath: () => found, writtenConfigs: { get: () => ({}), drop: () => {} }, env: { HOME: home, USERPROFILE: home }, platform: HOST, log: () => {}, err: () => {} });
+      return { code, set: config.setAgent.mock.calls.length };
+    };
+    expect(await use(pressly())).toEqual({ code: 1, set: 0 });
+    expect(await use(goosePath)).toEqual({ code: 0, set: 1 });
+  });
+  it('`align agents`: pressly\'s goose is "no", Block\'s is "yes"', () => {
+    const row = (found: string) => {
+      const out: string[] = [];
+      runAgents({ json: true }, { specs: AGENT_REGISTRY, findOnPath: (b) => (b === 'goose' ? found : null), env: { HOME: home, USERPROFILE: home }, platform: HOST, out: (l) => out.push(l), err: () => {} });
+      return (JSON.parse(out.join('\n')) as Array<Record<string, unknown>>).find((r) => r['id'] === 'goose')!['installed'];
+    };
+    expect(row(pressly())).toBe(false);
+    expect(row(goosePath)).toBe(true);
   });
 });
 
@@ -154,7 +212,7 @@ describe('the picker and `align agents` list wave C honestly', () => {
   });
 
   it('picker, installed: Aider keeps its instructions-only marker; Goose has none', async () => {
-    const h = harness({ bins: { aider: '/usr/bin/aider', goose: '/usr/bin/goose' } });
+    const h = harness({ bins: { aider: '/usr/bin/aider', goose: goosePath } });
     await launchIfChosen(h.deps);
     const opts = (h.deps.pick as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Array<{ value: string; label: string }>;
     expect(opts.find((o) => o.value === 'aider')!.label).toBe('Aider (instructions only: no graph tools)');
@@ -192,7 +250,9 @@ describe('written once, against FAKE auggie and cline binaries (real pipeline)',
     mkdirSync(bin);
     record = path.join(root, 'record.json');
     const body = '{argv: args, wrapped: env.ALIGN_WRAPPED ?? null, anthropic: env.ANTHROPIC_API_KEY ?? null, openai: env.OPENAI_API_KEY ?? null}';
-    for (const b of ['auggie', 'cline', 'goose']) writeFakeAgent(bin, b, { record, recordBody: body, exitCode: 0 });
+    for (const b of ['auggie', 'cline']) writeFakeAgent(bin, b, { record, recordBody: body, exitCode: 0 });
+    // Goose only counts from Block's install place, so its fake lives there.
+    writeFakeAgent(gooseDir(), HOST === 'win32' ? 'goose' : 'goose', { record, recordBody: body, exitCode: 0 });
     manifest = {};
     lines = [];
     refused = new Set();
@@ -201,7 +261,7 @@ describe('written once, against FAKE auggie and cline binaries (real pipeline)',
     vi.stubEnv('HOME', home);
     vi.stubEnv('USERPROFILE', home);
     vi.stubEnv('XDG_CONFIG_HOME', path.join(home, '.config'));
-    vi.stubEnv('PATH', prependPath(bin, process.env['PATH']));
+    vi.stubEnv('PATH', prependPath(bin, prependPath(gooseDir(), process.env['PATH'])));
     // As if align had put saved keys into its own environment.
     vi.stubEnv('ANTHROPIC_API_KEY', 'saved-by-align');
     vi.stubEnv('OPENAI_API_KEY', 'saved-by-align');
@@ -283,7 +343,7 @@ describe('written once, against FAKE auggie and cline binaries (real pipeline)',
   it('goose: a bare word is a goose subcommand, so it is passed through untouched with one note', async () => {
     await run('goose');
     expect(recorded().argv).toEqual(['hi']);
-    expect(lines).toContain('Align adds its graph to `goose session` only, so `goose hi` opens without it.');
+    expect(lines).toContain('Align adds its graph to `goose session` and `goose run` only, so `goose hi` opens without it.');
   });
 });
 
@@ -295,10 +355,11 @@ describe('wave C: the wizard without a terminal keeps its old answers', () => {
   };
   it('a wave B agent plus a wave C one picks the wave B one, as before wave C (two examples)', async () => {
     expect(await run(['qwen', 'goose'])).toBe('qwen');
-    expect(await run(['codex', 'aider'])).toBe('codex');
+    expect(await run(['amp', 'aider'])).toBe('amp');
   });
   it('a wave C agent alone is picked; two wave C agents are not guessed between', async () => {
-    expect(await run(['goose'])).toBe('goose');
-    expect(await run(['goose', 'cline'])).toBeNull();
+    // Not goose or cn here: those count only from their real install places, which /b/ is not.
+    expect(await run(['cline'])).toBe('cline');
+    expect(await run(['cline', 'auggie'])).toBeNull();
   });
 });

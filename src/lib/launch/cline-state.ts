@@ -5,6 +5,8 @@ import { type AlignLocalState, type CanonicalOptions, isCanonicalLocalEntry, par
 export interface ClineProjectState extends AlignLocalState {
   /** The one MCP settings file Cline CLI loads: the file align adds to. */
   mcpFile: string;
+  /** The user's --config or --data-dir chose that file for this session only: align writes nothing there. */
+  oneSession: boolean;
 }
 
 type Json = Record<string, unknown>;
@@ -51,7 +53,8 @@ export function readClineState(
 ): ClineProjectState {
   const o = { ...opts, platform, host: 'mcpServers' as const };
   const mcpFile = clineMcpFile(home, env, passthrough);
-  const state: ClineProjectState = { present: false, overridden: [], mcpFile };
+  const oneSession = optionValue(passthrough, '--config') !== undefined || optionValue(passthrough, '--data-dir') !== undefined;
+  const state: ClineProjectState = { present: false, overridden: [], mcpFile, oneSession };
   const servers = parseJsonc(readText(mcpFile))?.['mcpServers'];
   if (!isObject(servers)) return state;
   if (canonical(servers['align'], o) || canonical(servers['align-local'], o)) state.present = true;

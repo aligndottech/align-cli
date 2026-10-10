@@ -131,9 +131,14 @@ export function topLevelBlock(lines: YamlLine[], key: string): YamlLine[] | 'inl
   const i = lines.findIndex((l) => l.indent === 0 && KEY.exec(l.text)?.slice(1, 4).some((k) => k === key));
   if (i < 0) return null;
   if ((KEY.exec(lines[i]!.text)![4] ?? '') !== '') return 'inline';
+  // YAML lets a block list sit at its key's own column (`key:` then `- item` at column 0).
   const block: YamlLine[] = [];
+  let zeroList = false;
   for (const l of lines.slice(i + 1)) {
-    if (l.indent === 0) break;
+    if (l.indent === 0) {
+      if (!l.text.startsWith('- ') || (block.length > 0 && !zeroList)) break;
+      zeroList = true;
+    }
     block.push(l);
   }
   return block;

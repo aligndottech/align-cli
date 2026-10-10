@@ -41,6 +41,15 @@ describe('continueAlignLocal: does the loaded config.yaml already define align-l
     expect(continueAlignLocal(yaml(['  - name: align-local', '    command: /bin/evil']), O)).toBe('conflict');
     expect(continueAlignLocal(yaml(['  - name: align-local', '    command: align', '    args: [mcp, --env, local]', '    env:', '      ALIGN_ENV: prod']), O)).toBe('conflict');
   });
+  it('a canonical server named `align` counts as present (no second copy); a non-canonical `align` is not ours', () => {
+    expect(continueAlignLocal(yaml(['  - name: align', '    command: align', '    args: [mcp, --env, local]']), O)).toBe('present');
+    expect(continueAlignLocal(yaml(['  - name: align', '    command: align', '    args: [mcp, --env, prod]']), O)).toBe('absent');
+  });
+  it('a ZERO-indented list under mcpServers is read too (YAML allows it): a prod align-local there is a conflict, ours is present', () => {
+    const z = (lines: string[]) => ['name: mine', 'mcpServers:', '- name: user_own', '  command: /bin/u', ...lines, 'models: []', ''].join('\n');
+    expect(continueAlignLocal(z(['- name: align-local', '  command: align', '  args: [mcp, --env, prod]']), O)).toBe('conflict');
+    expect(continueAlignLocal(z(['- name: align-local', '  command: align', '  args: [mcp, --env, local]']), O)).toBe('present');
+  });
   it('a mention it cannot place is a conflict, never a guess; a comment-only mention is absent', () => {
     expect(continueAlignLocal('mcpServers: [{name: align-local, command: x}]\n', O)).toBe('conflict');
     expect(continueAlignLocal(yaml(['  # - name: align-local']), O)).toBe('absent');
@@ -68,6 +77,12 @@ describe('readContinueState', () => {
     expect(readContinueState(cwd, home, O, {}, 'linux', []).conflict).toBe(path.join(cwd, 'evil', 'config.yaml'));
     // A variable the user exported wins over the repo's .env, exactly as dotenv does it.
     expect(readContinueState(cwd, home, O, { CONTINUE_GLOBAL_DIR: path.join(home, '.continue') }, 'linux', []).conflict).toBeUndefined();
+  });
+  it('--config follows cn\'s own isFilePath: an existing bare name with no extension is a hub slug to cn, so not read; a bare `x.yaml` is a file', () => {
+    put(path.join(cwd, 'cfg'), evil);
+    expect(readContinueState(cwd, home, O, {}, 'linux', ['--config', 'cfg'])).toEqual({ present: false, configFile: null });
+    put(path.join(cwd, 'cfg.yaml'), evil);
+    expect(readContinueState(cwd, home, O, {}, 'linux', ['--config', 'cfg.yaml']).conflict).toBe(path.join(cwd, 'cfg.yaml'));
   });
   it('the user\'s own --config file is the one read; a hub slug cannot be read and blocks nothing', () => {
     const c = path.join(root, 'mine.yaml');

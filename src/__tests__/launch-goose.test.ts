@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildGooseLaunch } from '../lib/launch/adapters/goose.js';
-import { gooseAlignLocal, gooseConfigFile, readGooseState } from '../lib/launch/goose-state.js';
+import { gooseAlignLocal, gooseConfigFile, isGooseBin, readGooseState } from '../lib/launch/goose-state.js';
 
 /*
  * Goose, per session (goose 1.54.0, binary-verified in a sandbox): `goose session
@@ -59,6 +59,11 @@ describe('gooseAlignLocal: does config.yaml already hold an align-local extensio
     expect(gooseAlignLocal(block(['  align-local:', '    enabled: true', '    cmd: /tmp/evil', '    args: []']), O)).toBe('conflict');
     expect(gooseAlignLocal(block(['  align-local:', '    enabled: true', '    cmd: align', '    args: [mcp, --env, local]', '    envs:', '      ALIGN_ENV: prod']), O)).toBe('conflict');
   });
+  it('a canonical extension named `align` counts as present (no second copy); a non-canonical `align` is not ours and blocks nothing', () => {
+    expect(gooseAlignLocal(block(['  align:', '    enabled: true', '    type: stdio', '    cmd: align', '    args: [mcp, --env, local]']), O)).toBe('present');
+    expect(gooseAlignLocal(block(['  align:', '    enabled: true', '    cmd: align', '    args: [mcp, --env, prod]']), O)).toBe('absent');
+    expect(gooseAlignLocal(block(['  align:', '    enabled: false', '    cmd: align', '    args: [mcp, --env, local]']), O)).toBe('absent');
+  });
   it('a DISABLED align-local is absent: goose only refuses a clash with an enabled one', () => {
     expect(gooseAlignLocal(block(['  align-local:', '    enabled: false', '    cmd: /tmp/evil', '    args: []']), O)).toBe('absent');
   });
@@ -101,10 +106,14 @@ describe('buildGooseLaunch: `goose session --with-extension`', () => {
   it('a session SUBcommand (`session list`) is left alone: it opens no chat', () => {
     expect(buildGooseLaunch({ ...base, passthrough: ['session', 'list'] }).args).toEqual(['session', 'list']);
   });
+  it('`goose run` takes the same flag (the form verified against a stub model): the extension goes right after `run`', () => {
+    expect(buildGooseLaunch({ ...base, passthrough: ['run', '-t', 'hi'] }).args).toEqual(['run', '--with-extension', EXT, '-t', 'hi']);
+    expect(buildGooseLaunch({ ...base, passthrough: ['run', '--recipe', 'r.yaml'] }).args).toEqual(['run', '--with-extension', EXT, '--recipe', 'r.yaml']);
+  });
   it('another subcommand is left alone with one note; root --help/--version are left alone silently', () => {
-    const run = buildGooseLaunch({ ...base, passthrough: ['run', '-t', 'hi'] });
-    expect(run.args).toEqual(['run', '-t', 'hi']);
-    expect(run.notes).toEqual(["Align adds its graph to `goose session` only, so `goose run` opens without it."]);
+    const run = buildGooseLaunch({ ...base, passthrough: ['configure'] });
+    expect(run.args).toEqual(['configure']);
+    expect(run.notes).toEqual(["Align adds its graph to `goose session` and `goose run` only, so `goose configure` opens without it."]);
     expect(buildGooseLaunch({ ...base, passthrough: ['--help'] })).toEqual({ bin: 'goose', args: ['--help'], env: { ALIGN_WRAPPED: '1' }, files: [] });
     expect(buildGooseLaunch({ ...base, passthrough: ['-V'] }).args).toEqual(['-V']);
   });
@@ -120,5 +129,48 @@ describe('buildGooseLaunch: `goose session --with-extension`', () => {
     const s = buildGooseLaunch({ ...base, passthrough: [] });
     expect(s.writes).toBeUndefined();
     expect(s.args.join(' ')).not.toMatch(/--no-profile|approve|yolo|--with-builtin/);
+  });
+});
+
+/*
+ * `goose` is also pressly/goose, a common Go database-migration CLI; Homebrew ships both
+ * (formula `goose` is pressly's, `block-goose-cli` is Block's, both install bin/goose). So a
+ * `goose` counts only from Block's documented install places: the installer's $GOOSE_BIN_DIR
+ * (download_cli.sh: default ~/.local/bin; %USERPROFILE%\goose on Windows) or Homebrew's
+ * Cellar/block-goose-cli. Judged on the real path, so a link in ~/.local/bin to pressly's does not pass.
+ */
+describe('isGooseBin: only Block\'s goose, never pressly\'s migration tool', () => {
+  const touch = (f: string) => { mkdirSync(path.dirname(f), { recursive: true }); writeFileSync(f, ''); return f; };
+  const env = () => ({ HOME: home });
+  it.skipIf(process.platform === 'win32')('the installer\'s default ~/.local/bin, and a $GOOSE_BIN_DIR, are Block\'s', () => {
+    expect(isGooseBin(touch(path.join(home, '.local', 'bin', 'goose')), env(), 'linux')).toBe(true);
+    const custom = touch(path.join(root, 'opt', 'goose-bin', 'goose'));
+    expect(isGooseBin(custom, { ...env(), GOOSE_BIN_DIR: path.dirname(custom) }, 'linux')).toBe(true);
+    expect(isGooseBin(custom, env(), 'linux')).toBe(false);
+  });
+  it.skipIf(process.platform === 'win32')('pressly\'s usual places are not: `go install` (~/go/bin) and /usr/local/bin', () => {
+    expect(isGooseBin(touch(path.join(home, 'go', 'bin', 'goose')), env(), 'linux')).toBe(false);
+    expect(isGooseBin(touch(path.join(root, 'usr', 'local', 'bin', 'goose')), env(), 'linux')).toBe(false);
+  });
+  it.skipIf(process.platform === 'win32')('Homebrew: a bin/goose resolving into Cellar/block-goose-cli is Block\'s; into Cellar/goose (pressly) it is not', () => {
+    const block = touch(path.join(root, 'brew', 'Cellar', 'block-goose-cli', '1.54.0', 'bin', 'goose'));
+    const pressly = touch(path.join(root, 'brew2', 'Cellar', 'goose', '3.28.0', 'bin', 'goose'));
+    mkdirSync(path.join(root, 'brew', 'bin'), { recursive: true });
+    mkdirSync(path.join(root, 'brew2', 'bin'), { recursive: true });
+    symlinkSync(block, path.join(root, 'brew', 'bin', 'goose'));
+    symlinkSync(pressly, path.join(root, 'brew2', 'bin', 'goose'));
+    expect(isGooseBin(path.join(root, 'brew', 'bin', 'goose'), env(), 'darwin')).toBe(true);
+    expect(isGooseBin(path.join(root, 'brew2', 'bin', 'goose'), env(), 'darwin')).toBe(false);
+  });
+  it.skipIf(process.platform === 'win32')('a link in ~/.local/bin pointing at pressly\'s goose elsewhere is not Block\'s', () => {
+    const pressly = touch(path.join(home, 'go', 'bin', 'goose'));
+    mkdirSync(path.join(home, '.local', 'bin'), { recursive: true });
+    symlinkSync(pressly, path.join(home, '.local', 'bin', 'goose'));
+    expect(isGooseBin(path.join(home, '.local', 'bin', 'goose'), env(), 'linux')).toBe(false);
+  });
+  it('win32: %USERPROFILE%\\goose\\goose.exe is Block\'s; a go\\bin goose.exe is not', () => {
+    const w = { USERPROFILE: 'C:\\Users\\u' };
+    expect(isGooseBin('C:\\Users\\u\\goose\\goose.exe', w, 'win32')).toBe(true);
+    expect(isGooseBin('C:\\Users\\u\\go\\bin\\goose.exe', w, 'win32')).toBe(false);
   });
 });

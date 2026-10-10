@@ -16,9 +16,9 @@ const SESSION_SUBCOMMANDS = new Set(['list', 'remove', 'export', 'import', 'diag
  * which takes the same flag, against a stub model: the request carried the user's tools and
  * align-local's. The `align-local:` prefix names it.
  *
- * Only the chat takes it: with no subcommand (or only session options) Align opens
- * `goose session`, the interactive command; `session`/`s` the user typed gets it right after;
- * any other subcommand is left alone, with one line. When config.yaml already has align-local,
+ * The chat and the one-shot run take it: with no subcommand (or only session options) Align opens
+ * `goose session`, the interactive command; `session`/`s` or `run` the user typed gets it right
+ * after; any other subcommand is left alone, with one line. When config.yaml already has align-local,
  * nothing is added: an enabled same-named extension makes goose refuse to start.
  */
 export function buildGooseLaunch(c: GooseLaunchContext): LaunchSpec {
@@ -35,5 +35,7 @@ export function buildGooseLaunch(c: GooseLaunchContext): LaunchSpec {
   if (first === 'session' || first === 's') {
     return rest[0] !== undefined && SESSION_SUBCOMMANDS.has(rest[0]) ? spec : { ...spec, args: [first, ...ext, ...rest] };
   }
-  return { ...spec, notes: [`Align adds its graph to \`goose session\` only, so \`goose ${first}\` opens without it.`] };
+  // `goose run` takes the same flag, and is the form that was checked against a stub model.
+  if (first === 'run') return { ...spec, args: [first, ...ext, ...rest] };
+  return { ...spec, notes: [`Align adds its graph to \`goose session\` and \`goose run\` only, so \`goose ${first}\` opens without it.`] };
 }

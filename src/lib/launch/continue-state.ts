@@ -3,7 +3,7 @@ import path from 'node:path';
 import { optionValue, readText } from './layer-files.js';
 import type { AlignLocalState } from './strict-entry.js';
 import { isCanonicalLocalEntry } from './strict-entry.js';
-import { fields, listValue, meaningfulLines, scalarValue, topLevelBlock, type YamlLine } from './yaml-scan.js';
+import { type Field, fields, listValue, meaningfulLines, scalarValue, topLevelBlock, type YamlLine } from './yaml-scan.js';
 
 export interface ContinueProjectState extends Pick<AlignLocalState, 'present' | 'conflict'> {
   /** The local config file cn loads this session; null when it is a hub slug Align cannot read. */
@@ -25,10 +25,9 @@ export function continueAlignLocal(text: string | null, o: { localIsDefault: boo
   const lines = meaningfulLines(text);
   if (lines === null) return text.includes('align-local') ? 'conflict' : 'absent';
   const mentions = (ls: YamlLine[]) => ls.some((l) => l.text.includes('align-local'));
-  if (!mentions(lines)) return 'absent';
   const block = topLevelBlock(lines, 'mcpServers');
-  if (block === 'inline') return 'conflict';
-  if (block === null || !mentions(block)) return 'absent';
+  if (block === 'inline' || block === null) return mentions(lines) ? 'conflict' : 'absent';
+  if (block.length === 0) return 'absent';
   // Each item starts `- key: value`; rewrite that line as a mapping line two columns in.
   const items: YamlLine[][] = [];
   const itemIndent = block[0]!.indent;
@@ -42,19 +41,29 @@ export function continueAlignLocal(text: string | null, o: { localIsDefault: boo
       return 'conflict';
     }
   }
-  let verdict: 'absent' | 'present' | 'conflict' = 'absent';
+  let local: 'absent' | 'present' | 'conflict' = 'absent';
+  let alignIsOurs = false;
   for (const item of items) {
-    if (!mentions(item)) continue;
     const f = fields(item);
-    if (!f || scalarValue(f.get('name')) !== 'align-local') return 'conflict';
-    for (const key of f.keys()) if (!ALLOWED.has(key)) return 'conflict';
-    if (f.has('type') && scalarValue(f.get('type')) !== 'stdio') return 'conflict';
-    const args = f.has('args') ? listValue(f.get('args')!) : [];
-    const entry = { command: scalarValue(f.get('command')), args };
-    if (!isCanonicalLocalEntry(entry, { localIsDefault: o.localIsDefault, platform: o.platform, host: 'mcpServers' })) return 'conflict';
-    verdict = 'present';
+    const name = f ? scalarValue(f.get('name')) : null;
+    if (name === 'align') {
+      if (f && !mentions(item) && canonicalItem(f, o)) alignIsOurs = true;
+      else if (mentions(item)) return 'conflict';
+      continue;
+    }
+    if (!mentions(item)) continue;
+    if (!f || name !== 'align-local' || !canonicalItem(f, o)) return 'conflict';
+    local = 'present';
   }
-  return verdict;
+  return local === 'present' || alignIsOurs ? 'present' : 'absent';
+}
+
+/** An `mcpServers` item that is exactly Align's own local server, and carries nothing else. */
+function canonicalItem(f: Map<string, Field>, o: { localIsDefault: boolean; platform: string }): boolean {
+  for (const key of f.keys()) if (!ALLOWED.has(key)) return false;
+  if (f.has('type') && scalarValue(f.get('type')) !== 'stdio') return false;
+  const args = f.has('args') ? listValue(f.get('args')!) : [];
+  return isCanonicalLocalEntry({ command: scalarValue(f.get('command')), args }, { localIsDefault: o.localIsDefault, platform: o.platform, host: 'mcpServers' });
 }
 
 /**
@@ -83,12 +92,18 @@ function dotenvGlobalDir(file: string): string | undefined {
   return value;
 }
 
-/** A `--config` value cn treats as a file (decodePackageIdentifier: `.`, `/`, `~`, `file://`; or a path that exists). */
+/**
+ * The file a `--config` value names, by cn's own rule (cn 1.5.47 configLoader.ts isFilePath):
+ * a value starting `.`, `/` or `~`, a Windows drive or UNC path, or one containing `.yaml`,
+ * `.yml` or `.json` is a file; anything else is a hub slug, even if a file of that name exists.
+ * null for a slug, which align cannot read.
+ */
 function configPath(v: string, cwd: string, home: string): string | null {
+  const isFile = v.startsWith('.') || v.startsWith('/') || v.startsWith('~') || /^[A-Za-z]:[/\\]/.test(v) || v.startsWith('\\\\') || v.includes('.yaml') || v.includes('.yml') || v.includes('.json');
+  if (!isFile) return null;
   if (v.startsWith('file://')) return v.slice(7);
   if (v.startsWith('~')) return path.join(home, v.slice(1));
-  if (v.startsWith('.') || path.isAbsolute(v) || existsSync(path.resolve(cwd, v))) return path.resolve(cwd, v);
-  return null;
+  return path.resolve(cwd, v);
 }
 
 /**

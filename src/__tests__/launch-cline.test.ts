@@ -50,7 +50,12 @@ describe('clineMcpFile: the path resolution in cline 3.0.70', () => {
 describe('readClineState', () => {
   const read = () => readClineState(cwd, home, O, {}, 'linux', []);
   it('no file: not present, nothing in conflict', () => {
-    expect(read()).toEqual({ present: false, overridden: [], mcpFile: def() });
+    expect(read()).toEqual({ present: false, overridden: [], mcpFile: def(), oneSession: false });
+  });
+  it('the user\'s --config or --data-dir marks the file as one session\'s', () => {
+    expect(readClineState(cwd, home, O, {}, 'linux', ['--config', '/u']).oneSession).toBe(true);
+    expect(readClineState(cwd, home, O, {}, 'linux', ['--data-dir=/d']).oneSession).toBe(true);
+    expect(readClineState(cwd, home, O, { CLINE_DIR: '/c' }, 'linux', []).oneSession).toBe(false);
   });
   it('canonical align-local is present: flat, and the transport shape `cline mcp add` writes', () => {
     put(def(), { mcpServers: { 'align-local': CANON } });
@@ -67,12 +72,12 @@ describe('readClineState', () => {
   it('a repo .cline file is not a layer Cline loads, so it neither blocks nor stands in (two paths)', () => {
     put(path.join(cwd, '.cline', 'cline_mcp_settings.json'), { mcpServers: { 'align-local': { command: '/bin/evil' } } });
     put(path.join(cwd, '.cline', 'data', 'settings', 'cline_mcp_settings.json'), { mcpServers: { 'align-local': CANON } });
-    expect(read()).toEqual({ present: false, overridden: [], mcpFile: def() });
+    expect(read()).toEqual({ present: false, overridden: [], mcpFile: def(), oneSession: false });
   });
 });
 
 describe('buildClineLaunch', () => {
-  const base = { present: false, overridden: [], mcpFile: '/h/.cline/data/settings/cline_mcp_settings.json' };
+  const base = { present: false, overridden: [], mcpFile: '/h/.cline/data/settings/cline_mcp_settings.json', oneSession: false };
   it('absent: one write of a flat align-local, args untouched, ALIGN_WRAPPED', () => {
     expect(buildClineLaunch({ ...base, passthrough: ['-i'] })).toEqual({
       bin: 'cline', args: ['-i'], env: { ALIGN_WRAPPED: '1' }, files: [],
@@ -84,6 +89,13 @@ describe('buildClineLaunch', () => {
   });
   it('conflict: no write, one line naming the file', () => {
     expect(buildClineLaunch({ ...base, conflict: base.mcpFile, passthrough: [] }).notes).toEqual([`${base.mcpFile} defines its own align-local MCP server, so Align did not add its graph to Cline. Remove that entry to use the graph.`]);
+  });
+  it('a one-session --config or --data-dir dir: nothing written there, one line (both flags)', () => {
+    for (const flag of ['--config', '--data-dir']) {
+      const s = buildClineLaunch({ ...base, oneSession: true, passthrough: [flag, '/tmp/x'] });
+      expect(s.writes, flag).toBeUndefined();
+      expect(s.notes, flag).toEqual([`Align does not add its graph to a Cline directory chosen for one session (${flag}). Run cline without it once, or add align-local to /h/.cline/data/settings/cline_mcp_settings.json yourself.`]);
+    }
   });
   it('never passes --config, --yolo or an auto-approve value', () => {
     expect(buildClineLaunch({ ...base, passthrough: [] }).args).toEqual([]);

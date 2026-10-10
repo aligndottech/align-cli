@@ -1,4 +1,5 @@
 import { buildClineLaunch } from '../../adapters/cline.js';
+import { clineMcpFile } from '../../cline-state.js';
 import type { AgentSpec } from '../types.js';
 
 export const cline: AgentSpec = {
@@ -8,5 +9,9 @@ export const cline: AgentSpec = {
   injection: 'written-once',
   supported: true,
   install: { kind: 'npm', argv: ['npm', 'i', '-g', 'cline'] },
-  build: (d, base) => buildClineLaunch({ passthrough: base.passthrough, ...d.readClineState!(d.cwd, d.home, d.env, d.platform, base.passthrough) }),
+  build: (d, base) => buildClineLaunch({
+    passthrough: base.passthrough,
+    ...d.readClineState!(d.cwd, d.home, d.env, d.platform, base.passthrough),
+    defaultMcpFile: clineMcpFile(d.home, d.env, []),
+  }),
 };

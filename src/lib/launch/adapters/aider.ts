@@ -1,9 +1,6 @@
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
-export interface AiderLaunchContext extends Pick<LaunchContext, 'passthrough' | 'cachePath'> {
-  /** A `--read` file of the user's already carries Align's block. */
-  readHasBlock: boolean;
-}
+export type AiderLaunchContext = Pick<LaunchContext, 'passthrough' | 'cachePath'>;
 
 const FILE = 'aider-align-instructions.md';
 
@@ -27,11 +24,12 @@ you cannot query Align yourself.
 /**
  * Aider, per session, instructions only (aider 0.86.2, `aider --help`): `--read FILE` loads a
  * read-only file into the chat, and can be given more than once, so the user's own `--read`
- * files are kept. The flag goes first, where a user's `--` cannot turn it into a file name.
+ * files are kept. It is added even when one of those carries Align's general block (AGENTS.md):
+ * that block tells the model to call MCP tools Aider does not have, and this file corrects it.
+ * The flag goes first, where a user's `--` cannot turn it into a file name.
  * Nothing else is passed: no `--lint-cmd` (plan Open Question 8), no `--yes-always`.
  */
 export function buildAiderLaunch(c: AiderLaunchContext): LaunchSpec {
   const spec: LaunchSpec = { bin: 'aider', args: [...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [] };
-  if (c.readHasBlock) return spec;
   return { ...spec, args: ['--read', c.cachePath(FILE), ...c.passthrough], files: [{ name: FILE, content: AIDER_INSTRUCTIONS }] };
 }

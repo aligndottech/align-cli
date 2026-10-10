@@ -96,6 +96,16 @@ describe('buildAuggieLaunch', () => {
     expect(s.writes).toBeUndefined();
     expect(s.notes).toEqual(['/h/.augment/settings.json has comments, and Align does not rewrite a file it would strip them from. Add the graph yourself: auggie mcp add align-local --command align --args "mcp --env local"']);
   });
+  it('the user\'s own --mcp-config replaces Auggie\'s settings servers for the session: one line says the graph is off, the written config is unchanged', () => {
+    const s = buildAuggieLaunch({ ...base, present: true, passthrough: ['--mcp-config', 'x.json'] });
+    expect(s.writes).toBeUndefined();
+    expect(s.args).toEqual(['--mcp-config', 'x.json']);
+    expect(s.notes).toEqual(["--mcp-config replaces the MCP servers in Auggie's settings for this session, so Align's graph is not loaded. Add align-local to that config to use it here."]);
+    expect(buildAuggieLaunch({ ...base, present: true, passthrough: ['--mcp-config={}'] }).notes).toHaveLength(1);
+  });
+  it('without --mcp-config, no such line', () => {
+    expect(buildAuggieLaunch({ ...base, present: true, passthrough: ['--resume'] }).notes).toBeUndefined();
+  });
   it('never passes --mcp-config (it would drop the user\'s own servers) or a permission flag', () => {
     expect(buildAuggieLaunch({ ...base, passthrough: [] }).args.join(' ')).not.toMatch(/--mcp-config|--permission|--allow-indexing/);
   });

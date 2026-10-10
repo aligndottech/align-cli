@@ -29,5 +29,10 @@ export function buildAuggieLaunch(c: AuggieLaunchContext): LaunchSpec {
   } else if (!c.present) {
     writes.push({ kind: 'mcp-entry', file: c.settingsFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: alignServerEntry('mcpServers', 'local') });
   }
+  // The user's own --mcp-config replaces the settings servers for this session (see above), so
+  // whatever is in the settings file, the graph is not loaded. Say so; the file is left as it is.
+  if (c.passthrough.some((a) => a === '--mcp-config' || a.startsWith('--mcp-config='))) {
+    notes.push("--mcp-config replaces the MCP servers in Auggie's settings for this session, so Align's graph is not loaded. Add align-local to that config to use it here.");
+  }
   return { bin: 'auggie', args: [...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [], ...(writes.length > 0 ? { writes } : {}), ...(notes.length > 0 ? { notes } : {}) };
 }
