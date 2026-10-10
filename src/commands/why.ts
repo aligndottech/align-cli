@@ -168,9 +168,13 @@ export function registerAskCommand(program: Command): void {
         // prose. Empty is an empty array, never the human "build your graph" hint below.
         if (opts.json) {
           spinner.stop();
-          process.stdout.write(`${JSON.stringify({ query, scope: results.scope ?? null, widened_from: widenedFrom, results: results.results })}\n`);
+          for (const note of results.notes ?? []) process.stderr.write(`${note}\n`);
+          process.stdout.write(`${JSON.stringify({ query, scope: results.scope ?? null, widened_from: widenedFrom, results: results.results, ...(results.notes ? { notes: results.notes } : {}) })}\n`);
           return;
         }
+
+        // LM: a decision a person's marks kept out of this answer is named, so a silence is never unexplained.
+        for (const note of results.notes ?? []) console.error(chalk.dim(`  ${note}`));
 
         // The spinner's lifetime is the lifetime of the WORK, not of the first search.
         // It used to stop here, so the first synthesis - seconds on a local model - ran

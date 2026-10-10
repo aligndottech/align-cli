@@ -66,13 +66,13 @@ describe('attribution through a real handshake', () => {
   });
   it('a second registry agent is recorded under its own id (codex-mcp-client -> codex)', async () => {
     const s = await connect('codex-mcp-client');
-    await s.call({ decision_id: ids.alpha, kind: 'not_a_decision' });
+    await s.call({ decision_id: ids.alpha, kind: 'note', text: 'n' });
     expect(rows()).toMatchObject([{ via: 'mcp', agent_id: 'codex' }]);
     await s.close();
   });
   it('an unknown client name is stored as unknown and the raw name is nowhere in the file', async () => {
     const s = await connect('my-agent 9.9');
-    await s.call({ decision_id: ids.alpha, kind: 'not_a_decision' });
+    await s.call({ decision_id: ids.alpha, kind: 'note', text: 'n' });
     expect(rows()).toMatchObject([{ via: 'mcp', agent_id: 'unknown' }]);
     await s.close();
     expect(fs.readFileSync(dbPath).includes('my-agent')).toBe(false);
@@ -100,26 +100,30 @@ describe('shapes', () => {
     await expect(call({ decision_id: ids.alpha, verdict: 'false', check_files: [] })).rejects.toThrow(/check hit.*stored conflict/s);
   });
   it('an unknown decision id is a tool error naming it', async () => {
-    await expect(call({ decision_id: 'nope-123', kind: 'not_a_decision' })).rejects.toThrow(/nope-123/);
+    await expect(call({ decision_id: 'nope-123', verdict: 'real', check_files: ['x.ts'] })).rejects.toThrow(/nope-123/);
     expect(rows()).toEqual([]);
   });
-  it('supersede writes the judgement and the link; the same call twice leaves one of each', async () => {
-    await call({ decision_id: ids.alpha, kind: 'supersede', counterpart_id: ids.bravo });
-    await call({ decision_id: ids.alpha, kind: 'supersede', counterpart_id: ids.bravo });
-    expect(rows()).toHaveLength(1);
-    expect(rows(`SELECT * FROM decision_links WHERE relation = 'supersedes'`)).toHaveLength(1);
-    await expect(call({ decision_id: ids.alpha, kind: 'supersede' })).rejects.toThrow(/counterpart_id/);
+  it('not_a_decision, supersede and ratify are refused with the exact command for the person, and store nothing (F1, F2, F3)', async () => {
+    await expect(call({ decision_id: ids.alpha, kind: 'not_a_decision' })).rejects.toThrow(`align mark ${ids.alpha} not-a-decision`);
+    await expect(call({ decision_id: ids.alpha, kind: 'supersede', counterpart_id: ids.bravo })).rejects.toThrow(`align mark ${ids.alpha} replaces ${ids.bravo}`);
+    await expect(call({ decision_id: ids.alpha, kind: 'ratify' })).rejects.toThrow(`align ratify ${ids.alpha}`);
+    expect(rows()).toEqual([]);
+    expect(rows('SELECT * FROM decision_links')).toEqual([]);
+  });
+  it('an id the agent supplies cannot smuggle text into the command it is told to relay', async () => {
+    await expect(call({ decision_id: 'x; rm -rf ~', kind: 'not_a_decision' })).rejects.toThrow('align mark <id> not-a-decision');
   });
   it('a note appends: two calls, two rows; a note needs text', async () => {
     await call({ decision_id: ids.alpha, kind: 'note', text: 'one' });
     await call({ decision_id: ids.alpha, kind: 'note', text: 'two' });
     expect(rows().map((r) => r['note'])).toEqual(['one', 'two']);
     await expect(call({ decision_id: ids.alpha, kind: 'note' })).rejects.toThrow(/text/);
-    await expect(call({ decision_id: ids.alpha, kind: 'note', text: 'x'.repeat(2001) })).rejects.toThrow(/at most 2000/);
+    await expect(call({ decision_id: ids.alpha, kind: 'note', text: 'x'.repeat(501) })).rejects.toThrow(/at most 500/);
+    await expect(call({ decision_id: ids.alpha, kind: 'note', text: 'line one\nline two' })).rejects.toThrow(/control characters/);
   });
   it('a property that does not belong to the kind is refused (verdict on a note)', async () => {
     await expect(call({ decision_id: ids.alpha, kind: 'note', text: 't', verdict: 'false' })).rejects.toThrow(/does not take "verdict"/);
-    await expect(call({ decision_id: ids.alpha, kind: 'not_a_decision', text: 't' })).rejects.toThrow(/does not take "text"/);
+    await expect(call({ decision_id: ids.alpha, kind: 'verdict', verdict: 'real', check_files: ['x.ts'], text: 't' })).rejects.toThrow(/"text" only with kind "note"/);
   });
 });
 
@@ -127,7 +131,7 @@ describe('what an agent may not do', () => {
   it('a token or key is refused by name, its value is never echoed, and nothing is stored (two examples)', async () => {
     for (const bad of [{ token: 'ghp_SECRETVALUE0123456789' }, { api_key: 'sk-ant-SECRETVALUE' }]) {
       let message = '';
-      try { await runMarkTool({ decision_id: ids.alpha, kind: 'not_a_decision', ...bad }, env, { judge }); } catch (e) { message = (e as Error).message; }
+      try { await runMarkTool({ decision_id: ids.alpha, kind: 'note', text: 'n', ...bad }, env, { judge }); } catch (e) { message = (e as Error).message; }
       expect(message).toContain(`"${Object.keys(bad)[0]}"`);
       expect(message).not.toContain('SECRETVALUE');
     }
@@ -140,10 +144,10 @@ describe('what an agent may not do', () => {
   });
   it('a hosted server refuses (the judgement belongs to the local graph)', async () => {
     const hosted = { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't', tenantId: null } as EnvironmentConfig;
-    await expect(runMarkTool({ decision_id: ids.alpha, kind: 'not_a_decision' }, hosted, { judge })).rejects.toThrow(/hosted/);
+    await expect(runMarkTool({ decision_id: ids.alpha, kind: 'note', text: 'n' }, hosted, { judge })).rejects.toThrow(/hosted/);
   });
   it('a frozen server (--created-before) refuses to record', async () => {
-    await expect(dispatchTool(MARK_TOOL, { decision_id: ids.alpha, kind: 'not_a_decision' }, {} as never, env, '2026-01-01')).rejects.toThrow(/frozen/);
+    await expect(dispatchTool(MARK_TOOL, { decision_id: ids.alpha, kind: 'note', text: 'n' }, {} as never, env, '2026-01-01')).rejects.toThrow(/frozen/);
     expect(rows()).toEqual([]);
   });
 });
@@ -158,27 +162,13 @@ describe('an agent cannot replace a mark the person made', () => {
     await expect(asAgent({ decision_id: ids.bravo, counterpart_id: ids.alpha, verdict: 'false' })).rejects.toThrow(/You marked this yourself; run `align mark conflict .* to change it/);
     expect(rows()).toMatchObject([{ value: 'real', via: 'cli', agent_id: null }]);
   });
-  it('refuses a check verdict and a not_a_decision over the person\'s (two more kinds)', async () => {
+  it('refuses a check verdict over the person\'s (and a different set of files, another judge and a note are not blocked)', async () => {
     asPerson({ action: 'check', id: ids.alpha, verdict: 'real', files: ['x.ts'] });
-    asPerson({ action: 'not-a-decision', id: ids.bravo });
     await expect(asAgent({ decision_id: ids.alpha, verdict: 'false', check_files: ['x.ts'] })).rejects.toThrow(/marked this yourself/);
-    await expect(asAgent({ decision_id: ids.bravo, kind: 'not_a_decision' })).rejects.toThrow(/marked this yourself/);
-    expect(rows().map((r) => [r['value'], r['via']])).toEqual([['real', 'cli'], [null, 'cli']]);
-  });
-  it('the refusal comes before the supersedes link is written', async () => {
-    const d = new DatabaseSync(dbPath);
-    d.prepare(`INSERT INTO local_judgements (id, decision_id, counterpart_id, kind, judge_id, via, judged_at) VALUES ('h1', ?, ?, 'supersede', 'inst-me', 'cli', '2026-10-01T00:00:00.000Z')`).run(ids.alpha, ids.bravo);
-    d.close();
-    await expect(asAgent({ decision_id: ids.alpha, kind: 'supersede', counterpart_id: ids.bravo })).rejects.toThrow(/marked this yourself/);
-    expect(rows(`SELECT * FROM decision_links`)).toEqual([]);
-  });
-  it('a different set of files, another judge\'s mark and a note are not blocked', async () => {
-    asPerson({ action: 'check', id: ids.alpha, verdict: 'real', files: ['x.ts'] });
-    asPerson({ action: 'not-a-decision', id: ids.bravo }, 'inst-someone-else');
+    expect(rows().map((r) => [r['value'], r['via']])).toEqual([['real', 'cli']]);
     await asAgent({ decision_id: ids.alpha, verdict: 'false', check_files: ['other.ts'] });
-    await asAgent({ decision_id: ids.bravo, kind: 'not_a_decision' });
     await asAgent({ decision_id: ids.alpha, kind: 'note', text: 'agent note' });
-    expect(rows().filter((r) => r['via'] === 'mcp')).toHaveLength(3);
+    expect(rows().filter((r) => r['via'] === 'mcp')).toHaveLength(2);
   });
   it('an agent may replace an agent, and the person may replace the agent', async () => {
     await asAgent({ decision_id: ids.alpha, counterpart_id: ids.bravo, verdict: 'false' });
@@ -218,7 +208,12 @@ describe('the tool is advertised', () => {
     expect(tool!.inputSchema.additionalProperties).toBe(false);
     expect(tool!.inputSchema.required).toEqual(['decision_id']);
     expect(tool!.description).toContain('Was that a real conflict?');
-    expect(tool!.description).toContain('align ratify');
+    expect(tool!.description).toContain('ratify');
+    expect((tool as unknown as { annotations: { destructiveHint: boolean } }).annotations.destructiveHint).toBe(true);
+  });
+  it('is not offered by a hosted server', () => {
+    const hosted = { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't', tenantId: null } as EnvironmentConfig;
+    expect(toolSchemasFor(hosted).map((t) => t.name)).not.toContain(MARK_TOOL);
   });
   it('is not routed to the gateway client: dispatch reaches the local handler', async () => {
     const spy = vi.fn();

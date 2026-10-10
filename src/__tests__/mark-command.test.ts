@@ -22,7 +22,7 @@ let dbPath: string;
 let out: string[];
 let err: string[];
 let ids: Record<string, string>;
-let last: { files: string[] } | null;
+let last: { files: string[]; decision_ids: string[]; cwd: string } | null;
 
 const ME = { judgeId: 'inst-me', judgeLabel: 'me@example.com' };
 
@@ -32,6 +32,7 @@ function deps(over: Partial<MarkCommandDeps> = {}): MarkCommandDeps {
     graphPath: () => dbPath,
     judge: async () => ME,
     lastCheck: () => last,
+    isTty: () => true,
     ...over,
   };
 }
@@ -93,7 +94,7 @@ describe('align mark check', () => {
   });
 
   it('uses the last check\'s files when --files is absent', async () => {
-    last = { files: ['a/b.ts'] };
+    last = { files: ['a/b.ts'], decision_ids: [ids.alpha], cwd: process.cwd() };
     expect(await run(['check', ids.alpha, 'real'])).toBe(0);
     expect(rows('SELECT context_key FROM local_judgements')).toEqual([{ context_key: contextKeyFor(['a/b.ts']) }]);
   });
@@ -105,7 +106,7 @@ describe('align mark check', () => {
   });
 
   it('--files given wins over the last check\'s files', async () => {
-    last = { files: ['old.ts'] };
+    last = { files: ['old.ts'], decision_ids: [ids.alpha], cwd: process.cwd() };
     await run(['check', ids.alpha, 'false'], { files: ['new.ts'] });
     expect(rows('SELECT context_key FROM local_judgements')).toEqual([{ context_key: contextKeyFor(['new.ts']) }]);
   });
@@ -140,8 +141,8 @@ describe('not-a-decision and note', () => {
   });
   it('an empty or over-long note is exit 2', async () => {
     expect(await run([ids.alpha, 'note', '   '])).toBe(2);
-    expect(await run([ids.alpha, 'note', 'x'.repeat(2001)])).toBe(2);
-    expect(await run([ids.alpha, 'note', 'x'.repeat(2000)])).toBe(0);
+    expect(await run([ids.alpha, 'note', 'x'.repeat(501)])).toBe(2);
+    expect(await run([ids.alpha, 'note', 'x'.repeat(500)])).toBe(0);
   });
 });
 

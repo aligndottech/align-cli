@@ -207,6 +207,8 @@ export interface SearchResults {
    * (undefined) when deciding whether to print "answering from X".
    */
   scope?: string | null;
+  /** LM, local only: decisions a person's marks kept out of this answer, with who marked each and when. */
+  notes?: string[];
 }
 
 /**
@@ -281,6 +283,8 @@ export interface AlignmentResult {
     id: string; title: string; summary: string; similarity: number; url?: string;
     // ALI-831: local mode always; cloud once ALI-832 labels check output.
     decider_kind?: 'human' | 'agent' | 'unknown'; ratified?: boolean; ratified_at?: string | null; ratified_by?: string | null;
+    /** LM, local only: a decision a person marked as replaced, with the one that replaces it. */
+    status?: 'superseded'; successor?: { id: string; title: string; source_url?: string; relation: string };
   }>;
   conflicts?: Array<{
     decision_id: string;

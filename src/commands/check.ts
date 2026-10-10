@@ -23,6 +23,7 @@ import {
 } from '../lib/advisory-verdict.js';
 import { CHECK_DEPTHS, type CheckDepth } from '../lib/check-depth.js';
 import { lastCheckFor, writeLastCheck } from '../lib/curation/last-check.js';
+import { quote } from '../lib/curation/text.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
 // execFile timeout in the pi and OpenCode shims). Adjudication measured ~11s whenever
@@ -227,6 +228,8 @@ export function registerCheckCommand(program: Command): void {
       if (opts.ci) {
         try {
           const result = await client.checkAlignment(diff, branch, checkOpts);
+          // LM: stdout is the machine contract (notes ride in the JSON); a person reading the CI log sees them on stderr.
+          for (const note of result.notes ?? []) process.stderr.write(`${note}\n`);
           process.stdout.write(`${JSON.stringify(result)}\n`);
           if (result.status === 'conflicting') process.exit(EXIT_CONFLICT);
           // CI is where a silent green costs the most: a check that could not run
@@ -258,7 +261,7 @@ export function registerCheckCommand(program: Command): void {
         if (result.status === 'aligned') {
           console.log(chalk.green('\n  Aligned with decision graph.\n'));
           for (const d of result.relevant_decisions.slice(0, 3)) {
-            console.log(`  ${chalk.green('+')} ${chalk.bold(d.title)}`);
+            console.log(`  ${chalk.green('+')} ${chalk.bold(d.title)}${d.successor ? chalk.yellow(` (superseded by ${quote(d.successor.title)})`) : ''}`);
             if (d.summary) {
               const snippet = d.summary.slice(0, 120).replace(/\n/g, ' ');
               console.log(chalk.dim(`    "${snippet}${d.summary.length > 120 ? '...' : ''}"`));
@@ -439,6 +442,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // the LLM runs whenever retrieval returns anything, so no tenant was getting a verdict
     // through the hook - the fast path measured 0.8s only because it was `no-context`.
     let found: RelatedDecision[] | null = null;
+    let markNotes: string[] = [];
     try {
       const result = await Promise.race([
         // The SAME embedding retrieval `align check` uses, minus the adjudication. Plain
@@ -448,6 +452,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
         new Promise<null>((resolve) => setTimeout(() => resolve(null), RETRIEVAL_TIMEOUT_MS)),
       ]);
       found = result === null ? null : (result.relevant_decisions ?? []);
+      markNotes = result?.notes ?? [];
     } catch {
       found = null;
     }
@@ -457,6 +462,9 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       emit(buildUnknownOutput(renderOpts));
       process.exit(0);
     }
+
+    // LM: what a person's marks left out or an agent's marks changed, on stderr beside the hook JSON on stdout.
+    for (const note of markNotes) process.stderr.write(`${note}\n`);
 
     // Genuinely nothing related: a real answer, so staying quiet is honest here.
     if (!found.length) process.exit(0);

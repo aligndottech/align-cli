@@ -17,16 +17,22 @@ import type { EnvironmentConfig } from '../config.js';
 import { agentIdFrom, cliCommandFor, jsonSchemaOf, strictInput, type StrictSpec } from './tool-rules.js';
 
 export const MARK_TOOL = 'align_mark';
-export const MARK_KINDS = ['verdict', 'supersede', 'not_a_decision', 'note'] as const;
+/** What an agent may record. Hiding a decision, declaring one replaced and ratifying are the person's. */
+export const MARK_KINDS = ['verdict', 'note'] as const;
+const PERSON_ONLY: Readonly<Record<string, (id: string, other: string) => string>> = {
+  not_a_decision: (id) => `align mark ${id} not-a-decision`,
+  supersede: (id, other) => `align mark ${id} replaces ${other}`,
+  ratify: (id) => cliCommandFor('ratify', id),
+};
 
 const SPEC: StrictSpec = {
   tool: MARK_TOOL,
   required: ['decision_id'],
   properties: {
     decision_id: { type: 'string', description: 'The decision the user is judging (its id from the check or from align_get_conflicts)', maxLength: 200 },
-    kind: { type: 'string', description: 'verdict (default), supersede, not_a_decision or note', enum: MARK_KINDS },
+    kind: { type: 'string', description: 'verdict (default) or note', enum: MARK_KINDS },
     verdict: { type: 'string', description: 'With a verdict: real, or false (a false alarm), as the USER answered', enum: ['real', 'false'] },
-    counterpart_id: { type: 'string', description: 'A stored conflict: the other decision of the pair. With supersede: the decision being replaced', maxLength: 200 },
+    counterpart_id: { type: 'string', description: 'A stored conflict: the other decision of the pair. ', maxLength: 200 },
     check_files: { type: 'array', description: 'A check hit: the files the check covered, exactly as the check result listed them', maxItems: MAX_CHECK_FILES, itemMaxLength: 1024 },
     text: { type: 'string', description: 'With note: the note', maxLength: MAX_NOTE_CHARS },
   },
@@ -34,14 +40,14 @@ const SPEC: StrictSpec = {
 
 export const MARK_TOOL_SCHEMA = {
   name: MARK_TOOL,
-  annotations: { readOnlyHint: false, destructiveHint: false },
+  annotations: { readOnlyHint: false, destructiveHint: true },
   description:
     'Record the USER\'s judgement in the local graph on this machine. After a conflict from align_check_alignment or align_get_conflicts, ASK the user "Was that a real conflict?" and pass their answer; never decide for them. ' +
     'For a check hit: decision_id + verdict (real or false) + check_files (the files the check covered, as the check result lists them); a false verdict hides that decision only for a later check of the same files. ' +
     'For a stored conflict: decision_id + counterpart_id + verdict. ' +
-    'Also kind supersede (counterpart_id is the decision being replaced), not_a_decision (hides it from ask and check) and note (text). ' +
-    'Each is recorded as passed on by you, under your agent name. Nothing is shared or sent; sharing is a separate step the user confirms. ' +
-    'It cannot ratify: that is the user\'s own act, so give them `align ratify <id>`. It cannot replace a mark the user made themselves; it is refused and the user changes it with `align mark`. It never takes a token or key. The user can list or undo marks with `align mark --list` and `--undo`.',
+    'Also kind note (text: one line of plain text, 500 characters at most). ' +
+    'Each is recorded as passed on by you, under your agent name; the user sees it labelled that way, a hit you hide is shown as hidden by you, and every check says so. Nothing is shared or sent; sharing is a separate step the user confirms. ' +
+    'You cannot hide a decision (not_a_decision), mark one replaced (supersede) or ratify: those are the user\'s own acts, and asking for one returns the exact `align mark` or `align ratify` command to give them. You cannot replace a mark the user made themselves. It never takes a token or key. The user can list or undo marks with `align mark --list` and `--undo`.',
   inputSchema: jsonSchemaOf(SPEC),
 } as const;
 
@@ -71,17 +77,6 @@ function actionFrom(input: Record<string, unknown>): MarkAction {
         ? { action: 'conflict', a: id, b: counterpart, verdict }
         : { action: 'check', id, verdict, files: files ?? [] };
     }
-    case 'supersede': {
-      if (counterpart === undefined) throw new MarkError('usage', `${MARK_TOOL} kind supersede needs "counterpart_id", the decision being replaced.`);
-      const other = stray(['verdict', 'check_files', 'text']);
-      if (other) throw new MarkError('usage', `${MARK_TOOL} kind supersede does not take "${other}".`);
-      return { action: 'replaces', newer: id, older: counterpart };
-    }
-    case 'not_a_decision': {
-      const other = stray(['verdict', 'check_files', 'text', 'counterpart_id']);
-      if (other) throw new MarkError('usage', `${MARK_TOOL} kind not_a_decision does not take "${other}".`);
-      return { action: 'not-a-decision', id };
-    }
     default: {
       const text = input['text'];
       if (typeof text !== 'string' || text.trim() === '') throw new MarkError('usage', `${MARK_TOOL} kind note needs "text".`);
@@ -93,10 +88,11 @@ function actionFrom(input: Record<string, unknown>): MarkAction {
 }
 
 export async function runMarkTool(args: Record<string, unknown> | undefined, env: EnvironmentConfig, ctx: MarkToolContext = {}): Promise<MarkToolResult> {
-  // A friendly refusal ahead of the closed enum: ratify is a different act, not a typo.
-  if (args?.['kind'] === 'ratify') {
-    const id = typeof args['decision_id'] === 'string' ? args['decision_id'].slice(0, 80) : '<id>';
-    throw new Error(`${MARK_TOOL} cannot ratify: ratifying is the user standing behind a decision, and only they do it. Ask them to run: ${cliCommandFor('ratify', id)}`);
+  // A friendly refusal ahead of the closed enum: these are the person's acts, not typos.
+  const kind = args?.['kind'];
+  if (typeof kind === 'string' && Object.prototype.hasOwnProperty.call(PERSON_ONLY, kind)) {
+    const clip = (v: unknown): string => (typeof v === 'string' && /^[\w.:-]{1,80}$/.test(v) ? v : '<id>');
+    throw new Error(`${MARK_TOOL} cannot do ${kind}: only the person can, not an agent. Ask the user to run: ${PERSON_ONLY[kind](clip(args?.['decision_id']), clip(args?.['counterpart_id']))}`);
   }
   const input = strictInput(SPEC, args);
   if (env.mode !== 'local-embedded' || !env.localDbPath) {

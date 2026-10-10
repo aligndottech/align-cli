@@ -126,7 +126,7 @@ align sync [sources]          Bring connected sources up to date in your local g
 # Mark a conflict real or false, a replacement, or not a decision (local)
 
 align mark [args]             Record your judgement on what the guardrail shows: a conflict real or false, a replacement, "not a decision", a note. Stays on this machine.
-                              flags: --files --undo --list
+                              flags: --files --undo --force --list
 
 # Removed in 0.40.0 - use align connect
 

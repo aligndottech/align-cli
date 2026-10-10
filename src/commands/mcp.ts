@@ -140,14 +140,15 @@ export function instructionsFor(env: EnvironmentConfig): string {
  */
 export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
   const local = env.mode === 'local-embedded';
-  // ALI-1063 follow-up: local-embedded search cannot report whether a matched decision has
-  // been superseded (see local-gateway-client.ts - decision_links only ever holds an untyped
-  // 'relates' edge locally, never a typed supersedes/contradicts one). Rather than staying
-  // silent about that gap, tell the agent what to do instead: when two results cover the
+  // ALI-1063 follow-up: local-embedded search reports a decision as superseded only when a
+  // supersedes link exists (one a person recorded with `align mark ... replaces`, or a typed
+  // link); most decisions have none. Rather than staying silent about that gap, tell the agent
+  // what to do instead: when two results cover the
   // same topic, the newer decided_at/created_at is the one more likely to still hold.
   const suffix = local
     ? ' Searches the LOCAL decision graph on this machine, not a hosted Align tenant. ' +
-      "This local graph does not track whether a decision has been superseded - if two " +
+      'This local graph shows a decision as superseded only when a supersedes link exists (a person ' +
+      'recorded one with align mark, or a typed link); most decisions have no status, so if two ' +
       'results cover the same topic, prefer the one with the most recent decided_at or ' +
       'created_at. That is a heuristic, not a verified status.'
     : ` Searches the hosted Align graph at ${env.gatewayUrl}.`;
@@ -163,7 +164,8 @@ export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
   const cloudOnly = local
     ? ' NOT AVAILABLE IN LOCAL MODE: this local graph has no implementation for it, so the call will fail. Use align_ask to search the local graph instead, or a cloud environment for this tool.'
     : '';
-  return TOOL_SCHEMAS.map(tool => {
+  // LM: align_mark writes to the local graph; a hosted server has nothing to write to, so it is not offered.
+  return TOOL_SCHEMAS.filter((tool) => local || tool.name !== MARK_TOOL).map(tool => {
     if (tool.name === 'align_ask' || tool.name === 'align_search') {
       return { ...tool, description: tool.description + suffix };
     }

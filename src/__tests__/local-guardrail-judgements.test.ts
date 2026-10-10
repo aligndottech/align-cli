@@ -18,6 +18,7 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { classifyRelationship } from '../lib/local-relationship-classifier.js';
 import { applyJudgement, contextKeyFor } from '../lib/curation/mark.js';
+import { DatabaseSync } from 'node:sqlite';
 import { checkVerdictFor } from '../lib/curation/judgements-db.js';
 
 /**
@@ -186,5 +187,143 @@ describe('local guardrail honours local judgements', () => {
   it('the key a check verdict is stored under is the hash of the sorted file list', async () => {
     mark({ action: 'check', id: a, verdict: 'false', files: ['y.ts', 'x.ts'] });
     expect(checkVerdictFor(dbPath, 'me', a, contextKeyFor(['x.ts', 'y.ts'])).here?.value).toBe('false');
+  });
+
+  // A row written the way an older build let an agent write it (the tool refuses these now).
+  const legacyAgentRow = (kind: string, decisionId: string, extra: Record<string, string | null> = {}) => {
+    const d = new DatabaseSync(dbPath);
+    const row = { id: `legacy-${kind}-${decisionId}`, decision_id: decisionId, kind, judge_id: 'me', via: 'mcp', agent_id: 'claude-code', judged_at: '2026-10-01T00:00:00.000Z', counterpart_id: null, context_key: null, value: null, ...extra };
+    const cols = Object.keys(row);
+    d.prepare(`INSERT INTO local_judgements (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...Object.values(row));
+    d.close();
+  };
+
+  describe('a mark that drops a decision is never silent (F1, F11)', () => {
+    it('a check whose only candidates were dropped is no-context WITH the reason, never plain no-context', async () => {
+      mark({ action: 'not-a-decision', id: a });
+      mark({ action: 'not-a-decision', id: b });
+      const r = await client.checkAlignment(diffOf('db.ts'));
+      expect(r.status).toBe('no-context');
+      expect(r.notes).toContain('2 related decisions are hidden by your marks (run `align mark --list`)');
+      expect(r.message).toContain('2 related decisions are hidden by your marks');
+      expect(r.notes?.join('\n')).toMatch(/"Use Postgres for persistence" was left out of this check: marked not a decision by you on \d{4}-\d{2}-\d{2}/);
+    });
+    it('one decision dropped: the singular summary, and the other hit still blocks', async () => {
+      mark({ action: 'not-a-decision', id: a });
+      const r = await client.checkAlignment(diffOf('db.ts'));
+      expect(r.status).toBe('conflicting');
+      expect(hitIds(r)).toEqual([b]);
+      expect(r.notes?.join('\n')).toContain('"Use Postgres for persistence" was left out of this check');
+      mark({ action: 'not-a-decision', id: b });
+      expect((await client.checkAlignment(diffOf('db.ts'))).notes).toContain('2 related decisions are hidden by your marks (run `align mark --list`)');
+    });
+    it('names an agent that did it (an older row), by name and via MCP', async () => {
+      legacyAgentRow('not_a_decision', a);
+      const r = await client.checkAlignment(diffOf('db.ts'));
+      expect(r.notes?.join('\n')).toContain('marked not a decision by claude-code via MCP on 2026-10-01');
+    });
+    it('F11: a person\'s real verdict on a file set does not make a hidden decision invisible', async () => {
+      mark({ action: 'check', id: a, verdict: 'real', files: ['src/db.ts'] });
+      mark({ action: 'not-a-decision', id: a });
+      mark({ action: 'not-a-decision', id: b });
+      const r = await client.checkAlignment(diffOf('src/db.ts'));
+      expect(r.status).toBe('no-context');
+      expect(r.notes?.join('\n')).toContain('2 related decisions are hidden by your marks');
+    });
+    it('a decision that would not have made the top five is not reported as left out', async () => {
+      const db = (await import('../lib/local-db.js')).createLocalDb(dbPath);
+      const extra = Array.from({ length: 6 }, (_, i) => db.insertDecision({ title: `filler ${i}`, summary: 'f', sourceUrl: `https://example.com/f${i}`, platform: 'cli' }));
+      db.close();
+      for (const id of extra) mark({ action: 'not-a-decision', id });
+      const r = await client.checkAlignment(diffOf('db.ts'));
+      expect(r.notes?.join('\n') ?? '').not.toContain('filler 5');
+    });
+    it('the retrieval-only path (the hook) carries the note too', async () => {
+      mark({ action: 'not-a-decision', id: a });
+      const r = await client.checkAlignment(diffOf('db.ts'), undefined, { depth: 'related' });
+      expect(r.status).toBe('retrieved');
+      expect(r.notes?.join('\n')).toContain('was left out of this check');
+    });
+    it('ask names what a mark kept out of its answer', async () => {
+      mark({ action: 'not-a-decision', id: a });
+      const r = await client.searchDecisions('Postgres persistence', 5);
+      expect(r.results.map((x) => x.id)).toEqual([b]);
+      expect(r.notes?.join('\n')).toContain('"Use Postgres for persistence" was left out');
+    });
+    it('a title carrying a terminal escape is printed escaped in the note', async () => {
+      const esc = (await client.captureDecision('Evil \u001b[8mhidden title', 'cli')).id;
+      mark({ action: 'not-a-decision', id: esc });
+      const r = await client.checkAlignment(diffOf('db.ts'));
+      expect(r.notes?.join('\n')).toContain('\\u001b[8m');
+      expect(r.notes?.join('')).not.toContain('\u001b');
+    });
+  });
+
+  describe('every check says while an agent\'s marks shape it (banner)', () => {
+    it('no banner while only the person has marked', async () => {
+      mark({ action: 'check', id: a, verdict: 'false', files: ['x.ts'] });
+      expect((await client.checkAlignment(diffOf('z.ts'))).notes?.join('\n')).not.toMatch(/by agents/);
+    });
+    it('an agent\'s false verdict puts the banner on a check that does not touch its file set, and counts correctly (two rows)', async () => {
+      applyJudgement({ dbPath, judge: me, origin: { via: 'mcp', agentId: 'claude-code' } }, { action: 'check', id: a, verdict: 'false', files: ['x.ts'] });
+      const one = await client.checkAlignment(diffOf('z.ts'));
+      expect(one.notes?.[0]).toMatch(/^1 mark by agents since \d{4}-\d{2}-\d{2} affects this check \(align mark --list\)$/);
+      legacyAgentRow('not_a_decision', b);
+      const two = await client.checkAlignment(diffOf('z.ts'));
+      expect(two.notes?.[0]).toMatch(/^2 marks by agents since .* affect this check \(align mark --list\)$/);
+    });
+    it('an agent\'s real verdict, conflict verdict or note does not change a check, so it brings no banner', async () => {
+      applyJudgement({ dbPath, judge: me, origin: { via: 'mcp', agentId: 'claude-code' } }, { action: 'check', id: a, verdict: 'real', files: ['x.ts'] });
+      applyJudgement({ dbPath, judge: me, origin: { via: 'mcp', agentId: 'claude-code' } }, { action: 'note', id: a, text: 'n' });
+      expect((await client.checkAlignment(diffOf('z.ts'))).notes?.join('\n') ?? '').not.toMatch(/by agents/);
+    });
+    it('it rides on a check that found nothing at all', async () => {
+      applyJudgement({ dbPath, judge: me, origin: { via: 'mcp', agentId: 'claude-code' } }, { action: 'check', id: a, verdict: 'false', files: ['x.ts'] });
+      vi.mocked((await import('../lib/local-embeddings.js')).cosineSimilarity).mockReturnValue(0);
+      const r = await client.checkAlignment(diffOf('z.ts'));
+      expect(r.status).toBe('no-context');
+      expect(r.notes?.[0]).toMatch(/by agents/);
+      vi.mocked((await import('../lib/local-embeddings.js')).cosineSimilarity).mockReturnValue(0.75);
+    });
+  });
+
+  describe('a person\'s replacement is shown in the check (F2)', () => {
+    it('names the older decision as superseded by the newer, who marked it, and when', async () => {
+      mark({ action: 'replaces', newer: b, older: a });
+      const r = await client.checkAlignment(diffOf('db.ts'));
+      expect(r.notes?.join('\n')).toMatch(/"Use Postgres for persistence" is superseded by "Use MySQL for the reporting store": marked by you on \d{4}-\d{2}-\d{2}/);
+    });
+    it('a supersedes link nobody marked produces no mark note', async () => {
+      const db = (await import('../lib/local-db.js')).createLocalDb(dbPath);
+      db.insertLink({ sourceId: b, targetId: a, relation: 'supersedes', confidence: 0.9 });
+      db.close();
+      const r = await client.checkAlignment(diffOf('db.ts'));
+      expect((r.relevant_decisions.find((d) => d.id === a) as { status?: string }).status).toBe('superseded');
+      expect(r.notes?.join('\n') ?? '').not.toContain('is superseded by');
+    });
+  });
+
+  it('the MCP check_alignment reply carries the notes, so an agent cannot read a green it was not given', async () => {
+    mark({ action: 'not-a-decision', id: a });
+    mark({ action: 'not-a-decision', id: b });
+    const { dispatchTool, serializeMcpResult } = await import('../commands/mcp.js');
+    const reply = JSON.parse(serializeMcpResult(await dispatchTool('align_check_alignment', { diff: diffOf('db.ts') }, client as never, { mode: 'local-embedded', gatewayUrl: '' } as never)));
+    expect(reply.status).toBe('no-context');
+    expect(reply.notes).toContain('2 related decisions are hidden by your marks (run `align mark --list`)');
+  });
+
+  it('F4: more than 500 files hides nothing, and the check says why', async () => {
+    const base = Array.from({ length: 500 }, (_, i) => `a/${String(i).padStart(4, '0')}.ts`);
+    mark({ action: 'check', id: a, verdict: 'false', files: base });
+    const r = await client.checkAlignment(diffOf(...base, ...Array.from({ length: 100 }, (_, i) => `z/${i}.ts`)));
+    expect(hitIds(r)).toEqual([a, b].sort());
+    expect(r.notes?.join('\n')).toContain('covers 600 files, more than 500');
+    expect(r.checked_files).toBeUndefined();
+  });
+
+  it('F6: the hint to show a hidden hit again carries the exact files', async () => {
+    mark({ action: 'check', id: a, verdict: 'false', files: ['src/db.ts', 'src/my file.ts'] });
+    const r = await client.checkAlignment(diffOf('src/my file.ts', 'src/db.ts'));
+    expect(r.notes?.join('\n')).toContain(`align mark check ${a} real --files src/db.ts 'src/my file.ts'`);
   });
 });

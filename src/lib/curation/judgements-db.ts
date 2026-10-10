@@ -5,6 +5,10 @@
  * only identity a local graph has (Decision 11). A judge's later judgement replaces THEIR OWN
  * earlier one on the same key and never touches another judge's row; notes append.
  *
+ * `context_key` (a hash of the files a check covered) is REVERSIBLE for a small set: hash the likely
+ * paths of a repo and compare. It stays on this machine. Nothing the share phase reads may include it
+ * or any file path.
+ *
  * Ratification is not here: it stays in `decisions.ratified_by` (Decision 14), because storing it
  * twice would give one fact two writers.
  *
@@ -102,30 +106,36 @@ export function agentWouldOverrideHuman(dbPath: string, w: JudgementWrite, judge
  * same call twice leaves one row). Delete then insert inside one IMMEDIATE transaction, rather than
  * ON CONFLICT, because the unique index is on an expression and a partial predicate.
  */
-export function upsertJudgement(dbPath: string, w: JudgementWrite, judge: Judge, origin: Origin, now = new Date()): { replaced: boolean } {
+export function upsertJudgement(dbPath: string, w: JudgementWrite, judge: Judge, origin: Origin, now = new Date()): { replaced: boolean; id: string } {
   return withDb(dbPath, (db) => {
     db.exec('BEGIN IMMEDIATE');
     try {
       let replaced = false;
+      let id: string = randomUUID();
       // A prompt-injected agent must not silence a verdict a person recorded. Checked inside the
       // transaction so a CLI mark landing in between cannot be overwritten.
       if (w.kind !== 'note' && origin.via === 'mcp' && humanRowExists(db, w, judge)) throw new HumanMarkError();
       if (w.kind !== 'note') {
-        const gone = db.prepare(
-          `DELETE FROM local_judgements WHERE kind = ? AND judge_id = ? AND decision_id = ?
-             AND COALESCE(counterpart_id, context_key, decision_id) = ?`,
-        ).run(w.kind, judge.judgeId, w.decisionId, keyOf(w));
-        replaced = Number(gone.changes) > 0;
+        const sel = `FROM local_judgements WHERE kind = ? AND judge_id = ? AND decision_id = ?
+             AND COALESCE(counterpart_id, context_key, decision_id) = ?`;
+        // The row keeps its id when it is replaced: a supersedes link is owned by `mark:<id>`, so a
+        // re-mark and its --undo must still find it.
+        const before = db.prepare(`SELECT id ${sel}`).get(w.kind, judge.judgeId, w.decisionId, keyOf(w)) as { id: string } | undefined;
+        if (before) {
+          id = before.id;
+          replaced = true;
+          db.prepare(`DELETE ${sel}`).run(w.kind, judge.judgeId, w.decisionId, keyOf(w));
+        }
       }
       db.prepare(
         `INSERT INTO local_judgements (id, decision_id, counterpart_id, context_key, kind, value, note, judge_id, judge_label, via, agent_id, judged_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
-        randomUUID(), w.decisionId, w.counterpartId ?? null, w.contextKey ?? null, w.kind, w.value ?? null, w.note ?? null,
+        id, w.decisionId, w.counterpartId ?? null, w.contextKey ?? null, w.kind, w.value ?? null, w.note ?? null,
         judge.judgeId, judge.judgeLabel, origin.via, origin.via === 'mcp' ? origin.agentId : null, now.toISOString(),
       );
       db.exec('COMMIT');
-      return { replaced };
+      return { replaced, id };
     } catch (e) {
       db.exec('ROLLBACK');
       throw e;
@@ -133,13 +143,16 @@ export function upsertJudgement(dbPath: string, w: JudgementWrite, judge: Judge,
   });
 }
 
-/** Remove this judge's own row for the key (never another judge's). Returns how many rows went. */
-export function removeJudgement(dbPath: string, w: Omit<JudgementWrite, 'value' | 'note'>, judge: Judge): number {
+/** Remove this judge's own row for the key (never another judge's). Returns the ids of the rows that went. */
+export function removeJudgement(dbPath: string, w: Omit<JudgementWrite, 'value' | 'note'>, judge: Judge): string[] {
   if (w.kind === 'note') throw new Error('Notes append and are not removed by key.');
-  return withDb(dbPath, (db) => Number(db.prepare(
-    `DELETE FROM local_judgements WHERE kind = ? AND judge_id = ? AND decision_id = ?
-       AND COALESCE(counterpart_id, context_key, decision_id) = ?`,
-  ).run(w.kind, judge.judgeId, w.decisionId, keyOf(w)).changes));
+  return withDb(dbPath, (db) => {
+    const sel = `FROM local_judgements WHERE kind = ? AND judge_id = ? AND decision_id = ?
+       AND COALESCE(counterpart_id, context_key, decision_id) = ?`;
+    const gone = (db.prepare(`SELECT id ${sel}`).all(w.kind, judge.judgeId, w.decisionId, keyOf(w)) as Array<{ id: string }>).map((r) => r.id);
+    db.prepare(`DELETE ${sel}`).run(w.kind, judge.judgeId, w.decisionId, keyOf(w));
+    return gone;
+  });
 }
 
 /** Every row of this judge, newest first, optionally only those that name one decision. */
@@ -148,14 +161,6 @@ export function listJudgements(dbPath: string, judgeId: string, decisionId?: str
     `SELECT * FROM local_judgements WHERE judge_id = ?1 AND (?2 IS NULL OR decision_id = ?2 OR counterpart_id = ?2)
      ORDER BY judged_at DESC, rowid DESC`,
   ).all(judgeId, decisionId ?? null) as unknown as JudgementRow[]);
-}
-
-/** This judge's verdict on a stored conflict pair, whichever order the ids come in (the pair is stored lower id first). */
-export function pairVerdictFor(dbPath: string, judgeId: string, a: string, b: string): { value: Verdict; judged_at: string; agent_id: string | null } | null {
-  const [lo, hi] = a < b ? [a, b] : [b, a];
-  return readDb<{ value: Verdict; judged_at: string; agent_id: string | null } | null>(dbPath, null, (db) => (db.prepare(
-    `SELECT value, judged_at, agent_id FROM local_judgements WHERE kind = 'conflict_verdict' AND judge_id = ? AND decision_id = ? AND counterpart_id = ?`,
-  ).get(judgeId, lo, hi) as { value: Verdict; judged_at: string; agent_id: string | null } | undefined) ?? null);
 }
 
 export interface CheckVerdictLookup {
@@ -180,11 +185,47 @@ export function checkVerdictFor(dbPath: string, judgeId: string, decisionId: str
   });
 }
 
-/** Decisions this judge excluded from ask and check retrieval. */
-export function notADecisionIds(dbPath: string, judgeId: string): Set<string> {
-  return readDb<Set<string>>(dbPath, new Set(), (db) => new Set(
-    (db.prepare(`SELECT decision_id FROM local_judgements WHERE kind = 'not_a_decision' AND judge_id = ?`).all(judgeId) as Array<{ decision_id: string }>)
-      .map((r) => r.decision_id),
+export interface MarkMeta { agent_id: string | null; judged_at: string }
+
+/** Decisions this judge excluded from ask and check retrieval, with who marked each and when. */
+export function notADecisionMarks(dbPath: string, judgeId: string): Map<string, MarkMeta> {
+  return readDb<Map<string, MarkMeta>>(dbPath, new Map(), (db) => new Map(
+    (db.prepare(`SELECT decision_id, agent_id, judged_at FROM local_judgements WHERE kind = 'not_a_decision' AND judge_id = ?`).all(judgeId) as unknown as Array<{ decision_id: string } & MarkMeta>)
+      .map((r) => [r.decision_id, { agent_id: r.agent_id, judged_at: r.judged_at }] as const),
+  ));
+}
+
+/** The newest supersede mark this judge made about `olderId` being replaced, with the newer decision's id. */
+export function supersedeMarkFor(dbPath: string, judgeId: string, olderId: string): (MarkMeta & { newer: string }) | null {
+  return readDb<(MarkMeta & { newer: string }) | null>(dbPath, null, (db) => {
+    const r = db.prepare(
+      `SELECT decision_id AS newer, agent_id, judged_at FROM local_judgements WHERE kind = 'supersede' AND judge_id = ? AND counterpart_id = ?
+       ORDER BY judged_at DESC, rowid DESC LIMIT 1`,
+    ).get(judgeId, olderId) as (MarkMeta & { newer: string }) | undefined;
+    return r ?? null;
+  });
+}
+
+/**
+ * Marks an AGENT made that change what a check returns: a false check verdict hides a hit, and
+ * not-a-decision / supersede (refused from agents now, but older rows may exist) reshape retrieval.
+ * Every check says so, so a suppression by an agent is never invisible.
+ */
+export function agentRetrievalMarks(dbPath: string, judgeId: string): { count: number; since: string } | null {
+  return readDb<{ count: number; since: string } | null>(dbPath, null, (db) => {
+    const r = db.prepare(
+      `SELECT COUNT(*) AS n, MIN(judged_at) AS since FROM local_judgements
+        WHERE judge_id = ? AND via = 'mcp' AND ((kind = 'check_verdict' AND value = 'false') OR kind IN ('not_a_decision', 'supersede'))`,
+    ).get(judgeId) as { n: number; since: string | null };
+    return r.n > 0 && r.since ? { count: r.n, since: r.since } : null;
+  });
+}
+
+/** Every conflict verdict this judge gave, keyed by `lowerId|higherId`: one read for a whole list of pairs. */
+export function pairVerdictsFor(dbPath: string, judgeId: string): Map<string, { value: Verdict; judged_at: string; agent_id: string | null }> {
+  return readDb(dbPath, new Map(), (db) => new Map(
+    (db.prepare(`SELECT decision_id, counterpart_id, value, judged_at, agent_id FROM local_judgements WHERE kind = 'conflict_verdict' AND judge_id = ?`).all(judgeId) as Array<{ decision_id: string; counterpart_id: string; value: Verdict; judged_at: string; agent_id: string | null }>)
+      .map((r) => [`${r.decision_id}|${r.counterpart_id}`, { value: r.value, judged_at: r.judged_at, agent_id: r.agent_id }] as const),
   ));
 }
 
