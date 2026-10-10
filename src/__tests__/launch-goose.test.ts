@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildGooseLaunch } from '../lib/launch/adapters/goose.js';
+import { alignServerEntry } from '../lib/mcp-setup.js';
 import { gooseAlignLocal, gooseConfigFile, gooseRecipeMentions, isGooseBin, readGooseState } from '../lib/launch/goose-state.js';
 import { yamlUnreadable as gooseUnreadable } from '../lib/launch/yaml-scan.js';
 
@@ -14,7 +15,12 @@ import { yamlUnreadable as gooseUnreadable } from '../lib/launch/yaml-scan.js';
  * extension in config.yaml makes goose refuse to start ("extension name 'align-local' is already
  * in use"), a disabled one does not, so the reader must find one before Align adds its own.
  */
-const EXT = 'align-local:align mcp --env local';
+/**
+ * What the WRITER puts in an entry on this host: `align` on POSIX, `cmd /c align` on Windows
+ * (mcp-setup alignSpawn). Reader fixtures pass an explicit platform and keep the POSIX form.
+ */
+const ENTRY = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };
+const EXT = `align-local:${[ENTRY.command, ...ENTRY.args].join(' ')}`;
 const O = { localIsDefault: false, platform: 'linux' };
 
 let root: string, home: string;

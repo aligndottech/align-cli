@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildContinueLaunch } from '../lib/launch/adapters/continue.js';
 import { continueAlignLocal, isContinueBin, readContinueState } from '../lib/launch/continue-state.js';
 import { mcpChildEnv } from '../lib/launch/mcp-child-env.js';
+import { alignServerEntry } from '../lib/mcp-setup.js';
 
 /*
  * Continue CLI (`cn`), per session (cn 1.5.47, binary-verified in a sandbox against a stub model):
@@ -185,7 +186,10 @@ describe('buildContinueLaunch', () => {
     expect(s.env).toEqual({ ALIGN_WRAPPED: '1' });
     const content = s.files[0]!.content;
     expect(s.files.map((f) => f.name)).toEqual(['continue-align-local.yaml']);
-    expect(content.startsWith('name: align-local\nversion: 0.0.1\nschema: v1\nmcpServers:\n  - name: align-local\n    command: "align"\n    args: ["mcp", "--env", "local"]\n    env:\n')).toBe(true);
+    // The writer's spawn form on this host (`cmd /c align` on Windows), JSON-quoted as the file writes it.
+    const entry = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };
+    const head = `name: align-local\nversion: 0.0.1\nschema: v1\nmcpServers:\n  - name: align-local\n    command: ${JSON.stringify(entry.command)}\n    args: [${entry.args.map((x) => JSON.stringify(x)).join(', ')}]\n    env:\n`;
+    expect(content.slice(0, head.length)).toBe(head);
     // Every key of the block, each as one `KEY: "value"` line (JSON quoting is valid YAML).
     const block = Object.fromEntries([...content.matchAll(/^ {6}([A-Za-z0-9_]+): (".*")$/gm)].map((m) => [m[1]!, JSON.parse(m[2]!) as string]));
     expect(block).toEqual(mcpChildEnv({ ALIGN_ENV: 'local' }));

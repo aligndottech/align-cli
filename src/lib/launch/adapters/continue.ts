@@ -15,7 +15,10 @@ const FILE = 'continue-align-local.yaml';
  * Continue CLI (`cn`), per session, nothing written to the user's config (cn 1.5.47): `--mcp`
  * takes a local block when the value is a path (`/`, `.`, `~` or `file://`), and cn merges it into
  * whatever config it loaded. Verified against a stub model: the request carried the user's server
- * and align-local. `file://` is used because it is the form that also reads a Windows path.
+ * and align-local. `file://` + the raw path is used because it is the form that also reads a
+ * Windows path: cn's decodePackageIdentifier strips the first 7 characters of a `file://` value and
+ * uses the rest as the path, so `file://C:\\...` gives `C:\\...`. pathToFileURL would give
+ * `file:///C:/...`, which cn decodes to `/C:/...`, a path that does not exist on Windows.
  *
  * The flag goes first: `--mcp` is a root option, and cn accepted it in front of a subcommand
  * (`cn --mcp f ls --help`). When the loaded config.yaml already defines align-local, nothing is

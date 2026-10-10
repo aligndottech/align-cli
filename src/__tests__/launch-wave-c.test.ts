@@ -134,7 +134,8 @@ describe('wave C: each launches with Align wired in', () => {
     writeFileSync(path.join(cwd, 'AGENTS.md'), `# x\n${ALIGN_NUDGE_START}\nuse align_check_alignment\n`);
     const h = harness({ stored: 'aider', bins: { aider: '/usr/bin/aider' }, argv: ['node', 'align', '--', '--read', 'AGENTS.md'] });
     await launchIfChosen(h.deps);
-    expect(h.runAgentMock.mock.calls[0]![0].args).toEqual(['--read', path.join(root, 'cache', 'aider-align-instructions.md'), '--read', 'AGENTS.md']);
+    // The launcher joins cache paths as `${dir}/${name}` on every host.
+    expect(h.runAgentMock.mock.calls[0]![0].args).toEqual(['--read', `${path.join(root, 'cache')}/aider-align-instructions.md`, '--read', 'AGENTS.md']);
   });
 
   it('an ALIGN_WRAPPED session never launches another (nested align)', async () => {
@@ -251,8 +252,10 @@ describe('written once, against FAKE auggie and cline binaries (real pipeline)',
     record = path.join(root, 'record.json');
     const body = '{argv: args, wrapped: env.ALIGN_WRAPPED ?? null, anthropic: env.ANTHROPIC_API_KEY ?? null, openai: env.OPENAI_API_KEY ?? null}';
     for (const b of ['auggie', 'cline']) writeFakeAgent(bin, b, { record, recordBody: body, exitCode: 0 });
-    // Goose only counts from Block's install place, so its fake lives there.
-    writeFakeAgent(gooseDir(), HOST === 'win32' ? 'goose' : 'goose', { record, recordBody: body, exitCode: 0 });
+    // Goose only counts from Block's install place, so its fake lives there. The outer beforeEach
+    // put an empty goose.exe in that dir; on Windows PATHEXT finds .EXE before the fake's .CMD.
+    rmSync(goosePath, { force: true });
+    writeFakeAgent(gooseDir(), 'goose', { record, recordBody: body, exitCode: 0 });
     manifest = {};
     lines = [];
     refused = new Set();

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildAuggieLaunch } from '../lib/launch/adapters/auggie.js';
 import { readAuggieState } from '../lib/launch/auggie-state.js';
+import { alignServerEntry } from '../lib/mcp-setup.js';
 
 /*
  * Auggie, written ONCE (auggie 0.36.0, binary-verified in a sandbox). Not `--mcp-config`: its own
@@ -16,6 +17,12 @@ import { readAuggieState } from '../lib/launch/auggie-state.js';
  */
 const O = { localIsDefault: false };
 const CANON = { command: 'align', args: ['mcp', '--env', 'local'] };
+/**
+ * What the WRITER puts in an entry on this host: `align` on POSIX, `cmd /c align` on Windows
+ * (mcp-setup alignSpawn). Reader fixtures pass an explicit platform and keep the POSIX form.
+ */
+const ENTRY = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };
+
 
 let root: string, home: string, cwd: string;
 beforeEach(() => {
@@ -94,7 +101,7 @@ describe('buildAuggieLaunch', () => {
   it('absent: one mcp-entry write of align-local into the user file, args untouched, ALIGN_WRAPPED', () => {
     expect(buildAuggieLaunch({ ...base, passthrough: ['--resume'] })).toEqual({
       bin: 'auggie', args: ['--resume'], env: { ALIGN_WRAPPED: '1' }, files: [],
-      writes: [{ kind: 'mcp-entry', file: '/h/.augment/settings.json', topKey: 'mcpServers', name: 'align-local', entry: CANON }],
+      writes: [{ kind: 'mcp-entry', file: '/h/.augment/settings.json', topKey: 'mcpServers', name: 'align-local', entry: ENTRY }],
     });
   });
   it('present: no write, no note', () => {

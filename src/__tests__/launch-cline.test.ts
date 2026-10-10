@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildClineLaunch } from '../lib/launch/adapters/cline.js';
 import { mcpChildEnv } from '../lib/launch/mcp-child-env.js';
+import { alignServerEntry } from '../lib/mcp-setup.js';
 import { clineMcpFile, clinePins, readClineState } from '../lib/launch/cline-state.js';
 
 /*
@@ -18,6 +19,12 @@ import { clineMcpFile, clinePins, readClineState } from '../lib/launch/cline-sta
  */
 const O = { localIsDefault: false };
 const CANON = { command: 'align', args: ['mcp', '--env', 'local'] };
+/**
+ * What the WRITER puts in an entry on this host: `align` on POSIX, `cmd /c align` on Windows
+ * (mcp-setup alignSpawn). Reader fixtures pass an explicit platform and keep the POSIX form.
+ */
+const ENTRY = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };
+
 
 let root: string, home: string, cwd: string;
 beforeEach(() => {
@@ -110,7 +117,7 @@ describe('buildClineLaunch', () => {
   it('absent: one write of a flat align-local with its env block (Cline\'s MCP children inherit a repo .env otherwise), args untouched', () => {
     expect(buildClineLaunch({ ...base, passthrough: ['-i'], env: { ALIGN_ENV: 'local' } })).toEqual({
       bin: 'cline', args: ['-i'], env: { ALIGN_WRAPPED: '1' }, files: [],
-      writes: [{ kind: 'mcp-entry', file: base.mcpFile, topKey: 'mcpServers', name: 'align-local', entry: { ...CANON, env: mcpChildEnv({ ALIGN_ENV: 'local' }) } }],
+      writes: [{ kind: 'mcp-entry', file: base.mcpFile, topKey: 'mcpServers', name: 'align-local', entry: { ...ENTRY, env: mcpChildEnv({ ALIGN_ENV: 'local' }) } }],
     });
   });
   it('present: no write and no duplicate', () => {
@@ -118,7 +125,7 @@ describe('buildClineLaunch', () => {
   });
   it('stale: one REPLACE write of Align\'s own entry (the writer\'s refresh), no other note', () => {
     const s = buildClineLaunch({ ...base, stale: true, passthrough: [], env: {} });
-    expect(s.writes).toEqual([{ kind: 'mcp-entry', file: base.mcpFile, topKey: 'mcpServers', name: 'align-local', entry: { ...CANON, env: mcpChildEnv({}) }, replace: true }]);
+    expect(s.writes).toEqual([{ kind: 'mcp-entry', file: base.mcpFile, topKey: 'mcpServers', name: 'align-local', entry: { ...ENTRY, env: mcpChildEnv({}) }, replace: true }]);
     expect(s.notes).toBeUndefined();
   });
   it('an env conflict: no write, and wording about the env value (not "defines its own")', () => {
