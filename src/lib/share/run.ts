@@ -182,7 +182,7 @@ function initialRow(ctx: ShareContext, prep: Prepared, it: Item): PromotionWrite
   const { p, outcome } = it;
   const base = { localId: p.localId, env: ctx.envName, tenantId: prep.tenantId, contentHash: p.fullHash, clientKey: p.item.client_key, sent: [...it.stored], confirmPending: it.confirmPending };
   switch (outcome.kind) {
-    case 'created': return { ...base, remoteId: outcome.remoteId, matched: false };
+    case 'created': return { ...base, remoteId: outcome.remoteId, matched: outcome.uncertain };
     case 'updated': return { ...base, remoteId: outcome.remoteId, matched: it.live ? it.prior!.matched : true };
     case 'matched': return { ...base, remoteId: outcome.remoteId, matched: true };
     case 'skipped': return { ...base, remoteId: outcome.remoteId, matched: true };
@@ -204,6 +204,7 @@ export async function send(ctx: ShareContext, prep: Prepared, hooks: SendHooks =
       if ('judgements' in outcome && outcome.judgements === null && p.item.judgements.length > 0) {
         it.warnings.push(`this gateway did not report what happened to your ${p.item.judgements.map((j) => j.kind).join(', ')}: they were not stored as far as can be told, so they stay unsent here and your ratify was not stored by this gateway. Check your team graph.`);
       }
+      if (outcome.kind === 'created' && outcome.uncertain) it.warnings.push('this gateway cannot tell new from existing (it is older than share matching), so this is recorded as not yours to retract.');
       if (outcome.kind === 'updated' && !live) it.warnings.push('the gateway answered this as an existing team decision, so it is recorded as not yours to retract.');
       if (outcome.kind === 'matched') it.confirmPending = outcome.needsConfirmation.length > 0;
       return it;

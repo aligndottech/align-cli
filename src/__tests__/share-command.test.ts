@@ -559,3 +559,22 @@ describe('a failure after the first response', () => {
     expect(await run(f, { retract: id })).toBe(1);
   });
 });
+
+/** L9 second review, item 5: a gateway that cannot say new from existing is never trusted with a retract. */
+describe('an older gateway (no request_index, no is_new)', () => {
+  it('records the share as not yours, warns, and --retract refuses; the control with both fields is retractable', async () => {
+    const old = fixture(); const a = seed({ title: 'old gateway' });
+    old.reply.current = { snapshots: [{ id: 'MAYBE-THEIRS' }], judgements: [{ request_index: 0, decision_id: 'x', results: [{ ok: true, stored: true }] }] };
+    await run(old, { ids: [a] });
+    expect(text(old)).toContain('cannot tell new from existing');
+    expect(getPromotion(dbPath, a, 'prod', 'T1')).toMatchObject({ remoteId: 'MAYBE-THEIRS', matched: true });
+    expect(await run(old, { retract: a })).toBe(1);
+    expect(old.archived).toEqual([]);
+    const ok = fixture(); const b = seed({ title: 'modern gateway' });
+    ok.reply.current = { snapshots: [{ id: 'MINE', request_index: 0, is_new: true }], judgements: [{ request_index: 0, decision_id: 'MINE', results: [{ ok: true, stored: true }] }] };
+    await run(ok, { ids: [b] });
+    expect(getPromotion(dbPath, b, 'prod', 'T1')).toMatchObject({ remoteId: 'MINE', matched: false });
+    expect(await run(ok, { retract: b })).toBe(0);
+    expect(ok.archived).toEqual(['MINE']);
+  });
+});

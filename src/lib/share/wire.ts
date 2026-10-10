@@ -33,7 +33,7 @@ interface Common {
 }
 
 export type ItemOutcome =
-  | (Common & { kind: 'created'; remoteId: string; ambiguous: boolean })
+  | (Common & { kind: 'created'; remoteId: string; ambiguous: boolean; uncertain: boolean })
   | (Common & { kind: 'updated'; remoteId: string })
   | (Common & { kind: 'matched'; remoteId: string; status: string; teamTextHash: string | null; needsConfirmation: Array<{ kind: string; judgement_index: number }> })
   | (Common & { kind: 'skipped'; remoteId: string; reason: string })
@@ -71,9 +71,14 @@ export function readOutcomes(sent: number, res: BatchResponse): ItemOutcome[] {
   snapshots.forEach((s, k) => {
     const index = s.request_index ?? (aligned ? k : undefined);
     if (index === undefined || out.has(index)) return;
+    // `created` is only believed when the gateway said so in so many words: a request_index AND is_new === true.
+    // A gateway before share matching (self-host older than 0.46.0) sends neither, so a row it REUSED at that
+    // source looks identical to a new one. Retracting it would archive somebody else's decision, so it is
+    // `uncertain` and recorded as not ours.
+    const sure = s.request_index !== undefined && s.is_new === true;
     out.set(index, s.is_new === false
       ? { kind: 'updated', index, remoteId: s.id, judgements: reportFor(index) }
-      : { kind: 'created', index, remoteId: s.id, ambiguous: ambiguous.has(index), judgements: reportFor(index) });
+      : { kind: 'created', index, remoteId: s.id, ambiguous: ambiguous.has(index), uncertain: !sure, judgements: reportFor(index) });
   });
   return Array.from({ length: sent }, (_, index) => out.get(index) ?? { kind: 'unknown' as const, index });
 }

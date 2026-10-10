@@ -62,4 +62,11 @@ describe('readOutcomes', () => {
     expect(readOutcomes(2, {}).map((o) => o.kind)).toEqual(['unknown', 'unknown']);
     expect(readOutcomes(0, {})).toEqual([]);
   });
+  it('believes `created` only with a request_index AND is_new true; anything less is uncertain (an older gateway)', () => {
+    const sure = readOutcomes(1, { snapshots: [{ id: 'A', request_index: 0, is_new: true }] })[0]!;
+    expect(sure).toMatchObject({ kind: 'created', uncertain: false });
+    expect(readOutcomes(1, { snapshots: [{ id: 'A', request_index: 0 }] })[0]).toMatchObject({ kind: 'created', uncertain: true });
+    expect(readOutcomes(1, { snapshots: [{ id: 'A', is_new: true }] })[0]).toMatchObject({ kind: 'created', uncertain: true });
+    expect(readOutcomes(1, { snapshots: [{ id: 'A' }] })[0]).toMatchObject({ kind: 'created', uncertain: true });
+  });
 });
