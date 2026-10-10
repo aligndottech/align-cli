@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import { createLocalDb } from '../local-db.js';
 import {
-  existingTitles, type Judge, type Origin,
+  agentWouldOverrideHuman, existingTitles, HumanMarkError, type Judge, type JudgementWrite, type Origin,
   removeJudgement, upsertJudgement, type Verdict,
 } from './judgements-db.js';
 
@@ -27,7 +27,7 @@ export type MarkAction =
 
 /** `code` picks the exit status: a usage problem is 2, a decision that is not in the graph is 1. */
 export class MarkError extends Error {
-  constructor(readonly code: 'usage' | 'unknown-id', message: string) {
+  constructor(readonly code: 'usage' | 'unknown-id' | 'refused', message: string) {
     super(message);
     this.name = 'MarkError';
   }
@@ -128,7 +128,43 @@ function same(a: string, b: string, what: string): void {
   if (a === b) throw new MarkError('usage', `${what} must name two different decisions.`);
 }
 
+/** The command a person runs to change a mark themselves. */
+function commandFor(m: MarkAction): string {
+  switch (m.action) {
+    case 'conflict': return `align mark conflict ${m.a} ${m.b} real|false`;
+    case 'check': return `align mark check ${m.id} real|false --files <file>...`;
+    case 'replaces': return `align mark ${m.newer} replaces ${m.older} [--undo]`;
+    case 'not-a-decision': return `align mark ${m.id} not-a-decision --undo`;
+    case 'note': return `align mark ${m.id} note "<text>"`;
+  }
+}
+
+function writeOf(m: MarkAction): JudgementWrite | null {
+  switch (m.action) {
+    case 'conflict': { const [lo, hi] = m.a < m.b ? [m.a, m.b] : [m.b, m.a]; return { kind: 'conflict_verdict', decisionId: lo, counterpartId: hi }; }
+    case 'check': { const k = contextKeyFor(m.files); return k === null ? null : { kind: 'check_verdict', decisionId: m.id, contextKey: k }; }
+    case 'replaces': return { kind: 'supersede', decisionId: m.newer, counterpartId: m.older };
+    case 'not-a-decision': return { kind: 'not_a_decision', decisionId: m.id };
+    case 'note': return null;
+  }
+}
+
 export function applyJudgement(ctx: ApplyContext, m: MarkAction, opts: { undo?: boolean } = {}): MarkOutcome {
+  const refuse = (): never => { throw new MarkError('refused', `You marked this yourself; run \`${commandFor(m)}\` to change it. Nothing was stored.`); };
+  // Before any side effect (the supersedes link below is written ahead of the row).
+  if (ctx.origin.via === 'mcp' && !opts.undo) {
+    const w = writeOf(m);
+    if (w && agentWouldOverrideHuman(ctx.dbPath, w, ctx.judge)) refuse();
+  }
+  try {
+    return applyChecked(ctx, m, opts);
+  } catch (e) {
+    if (e instanceof HumanMarkError) return refuse();
+    throw e;
+  }
+}
+
+function applyChecked(ctx: ApplyContext, m: MarkAction, opts: { undo?: boolean }): MarkOutcome {
   const { dbPath, judge, origin, now } = ctx;
   const undo = opts.undo === true;
   switch (m.action) {

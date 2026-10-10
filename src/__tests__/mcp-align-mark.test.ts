@@ -148,6 +148,58 @@ describe('what an agent may not do', () => {
   });
 });
 
+describe('an agent cannot replace a mark the person made', () => {
+  const asAgent = (args: Record<string, unknown>, who = 'claude-code') => runMarkTool(args, env, { clientInfo: { name: who }, judge });
+  const asPerson = (m: Parameters<typeof applyJudgement>[1], judgeId = 'inst-me') =>
+    applyJudgement({ dbPath, judge: { judgeId, judgeLabel: null }, origin: { via: 'cli' } }, m);
+
+  it('refuses a conflict verdict over the person\'s, says how to change it, and leaves the row as it was', async () => {
+    asPerson({ action: 'conflict', a: ids.alpha, b: ids.bravo, verdict: 'real' });
+    await expect(asAgent({ decision_id: ids.bravo, counterpart_id: ids.alpha, verdict: 'false' })).rejects.toThrow(/You marked this yourself; run `align mark conflict .* to change it/);
+    expect(rows()).toMatchObject([{ value: 'real', via: 'cli', agent_id: null }]);
+  });
+  it('refuses a check verdict and a not_a_decision over the person\'s (two more kinds)', async () => {
+    asPerson({ action: 'check', id: ids.alpha, verdict: 'real', files: ['x.ts'] });
+    asPerson({ action: 'not-a-decision', id: ids.bravo });
+    await expect(asAgent({ decision_id: ids.alpha, verdict: 'false', check_files: ['x.ts'] })).rejects.toThrow(/marked this yourself/);
+    await expect(asAgent({ decision_id: ids.bravo, kind: 'not_a_decision' })).rejects.toThrow(/marked this yourself/);
+    expect(rows().map((r) => [r['value'], r['via']])).toEqual([['real', 'cli'], [null, 'cli']]);
+  });
+  it('the refusal comes before the supersedes link is written', async () => {
+    const d = new DatabaseSync(dbPath);
+    d.prepare(`INSERT INTO local_judgements (id, decision_id, counterpart_id, kind, judge_id, via, judged_at) VALUES ('h1', ?, ?, 'supersede', 'inst-me', 'cli', '2026-10-01T00:00:00.000Z')`).run(ids.alpha, ids.bravo);
+    d.close();
+    await expect(asAgent({ decision_id: ids.alpha, kind: 'supersede', counterpart_id: ids.bravo })).rejects.toThrow(/marked this yourself/);
+    expect(rows(`SELECT * FROM decision_links`)).toEqual([]);
+  });
+  it('a different set of files, another judge\'s mark and a note are not blocked', async () => {
+    asPerson({ action: 'check', id: ids.alpha, verdict: 'real', files: ['x.ts'] });
+    asPerson({ action: 'not-a-decision', id: ids.bravo }, 'inst-someone-else');
+    await asAgent({ decision_id: ids.alpha, verdict: 'false', check_files: ['other.ts'] });
+    await asAgent({ decision_id: ids.bravo, kind: 'not_a_decision' });
+    await asAgent({ decision_id: ids.alpha, kind: 'note', text: 'agent note' });
+    expect(rows().filter((r) => r['via'] === 'mcp')).toHaveLength(3);
+  });
+  it('an agent may replace an agent, and the person may replace the agent', async () => {
+    await asAgent({ decision_id: ids.alpha, counterpart_id: ids.bravo, verdict: 'false' });
+    await asAgent({ decision_id: ids.alpha, counterpart_id: ids.bravo, verdict: 'real' }, 'codex');
+    expect(rows()).toMatchObject([{ value: 'real', via: 'mcp', agent_id: 'codex' }]);
+    asPerson({ action: 'conflict', a: ids.alpha, b: ids.bravo, verdict: 'false' });
+    expect(rows()).toMatchObject([{ value: 'false', via: 'cli', agent_id: null }]);
+    await expect(asAgent({ decision_id: ids.alpha, counterpart_id: ids.bravo, verdict: 'real' })).rejects.toThrow(/marked this yourself/);
+  });
+});
+
+describe('the store itself refuses an agent over a person (a CLI mark landing between the check and the write)', () => {
+  it('upsertJudgement throws and stores nothing', async () => {
+    const { upsertJudgement, HumanMarkError } = await import('../lib/curation/judgements-db.js');
+    const w = { kind: 'not_a_decision' as const, decisionId: ids.alpha };
+    upsertJudgement(dbPath, w, { judgeId: 'inst-me', judgeLabel: null }, { via: 'cli' });
+    expect(() => upsertJudgement(dbPath, w, { judgeId: 'inst-me', judgeLabel: null }, { via: 'mcp', agentId: 'codex' })).toThrow(HumanMarkError);
+    expect(rows()).toMatchObject([{ via: 'cli', agent_id: null }]);
+  });
+});
+
 describe('one writer for the CLI and the tool', () => {
   it('the same mark through each surface is the same row but for via, agent_id, id and time', async () => {
     applyJudgement({ dbPath, judge: { judgeId: 'cli-judge', judgeLabel: null }, origin: { via: 'cli' } }, { action: 'conflict', a: ids.alpha, b: ids.bravo, verdict: 'false' });

@@ -63,12 +63,28 @@ describe('local guardrail honours local judgements', () => {
 
     const same = await client.checkAlignment(diffOf('y.ts', 'x.ts'));
     expect(hitIds(same)).toEqual([b]);
-    expect(same.notes?.join('\n')).toMatch(/hidden.*false alarm/i);
+    expect(same.notes?.join('\n')).toMatch(/hidden.*marked false by you/i);
 
     const elsewhere = await client.checkAlignment(diffOf('z.ts'));
     expect(hitIds(elsewhere)).toEqual([a, b].sort());
     expect(elsewhere.notes?.join('\n')).toContain('you marked this a false alarm once');
     expect(elsewhere.notes?.join('\n')).toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+
+  it('a verdict an agent relayed hides only the same file set, and says so with the agent\'s name', async () => {
+    applyJudgement({ dbPath, judge: me, origin: { via: 'mcp', agentId: 'claude-code' } }, { action: 'check', id: a, verdict: 'false', files: ['x.ts'] });
+    const same = await client.checkAlignment(diffOf('x.ts'));
+    expect(hitIds(same)).toEqual([b]);
+    expect(same.notes?.join('\n')).toContain('marked false by claude-code via MCP');
+    const elsewhere = await client.checkAlignment(diffOf('z.ts'));
+    expect(hitIds(elsewhere)).toEqual([a, b].sort());
+    expect(elsewhere.notes?.join('\n')).toContain('marked false by claude-code via MCP');
+    expect(elsewhere.notes?.join('\n')).not.toContain('you marked');
+  });
+
+  it('a hit hidden by the person is never described as the agent\'s (the attribution is per row)', async () => {
+    mark({ action: 'check', id: a, verdict: 'false', files: ['x.ts'] });
+    expect((await client.checkAlignment(diffOf('x.ts'))).notes?.join('\n')).not.toContain('MCP');
   });
 
   it('a hit with no verdict at all carries no notes (the annotation is not blanket)', async () => {
@@ -156,6 +172,15 @@ describe('local guardrail honours local judgements', () => {
     expect(ab.marked_by_you).toMatchObject({ verdict: 'false' });
     expect(ab.marked_by_you?.note).toContain('marked false alarm by you');
     expect(ac.marked_by_you).toBeUndefined();
+  });
+
+  it('getConflicts names the agent that marked a pair', async () => {
+    const db = (await import('../lib/local-db.js')).createLocalDb(dbPath);
+    db.insertLink({ sourceId: a, targetId: b, relation: 'conflicts_with', confidence: 0.9 });
+    db.close();
+    applyJudgement({ dbPath, judge: me, origin: { via: 'mcp', agentId: 'codex' } }, { action: 'conflict', a, b, verdict: 'false' });
+    const links = (await client.getConflicts()).links as Array<{ marked_by_you?: { note: string } }>;
+    expect(links[0].marked_by_you?.note).toContain('marked false alarm by codex via MCP');
   });
 
   it('the key a check verdict is stored under is the hash of the sorted file list', async () => {

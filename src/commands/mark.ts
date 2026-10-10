@@ -37,7 +37,8 @@ const LABEL: Record<string, string> = {
 function describe(r: JudgementRow, titles: Map<string, string>): string {
   const name = (id: string) => `"${titles.get(id) ?? id}"`;
   const day = r.judged_at.slice(0, 10);
-  const who = r.via === 'mcp' ? `via ${r.agent_id}` : 'by you';
+  // An agent's mark is always said so, with its verdict: a hit hidden by an agent is never invisible.
+  const who = r.via === 'mcp' ? `marked ${r.value ?? r.kind.replace(/_/g, ' ')} by ${r.agent_id} via MCP` : 'by you';
   const what =
     r.kind === 'conflict_verdict' ? `${name(r.decision_id)} and ${name(r.counterpart_id ?? '')}: ${r.value === 'false' ? 'false alarm' : 'real conflict'}`
     : r.kind === 'check_verdict' ? `${name(r.decision_id)}: ${r.value === 'false' ? 'false alarm' : 'real conflict'} for one set of files`
@@ -79,7 +80,7 @@ export async function runMarkCommand(args: string[], opts: MarkCommandOptions, d
   } catch (e) {
     if (e instanceof MarkError) {
       deps.err(e.message);
-      return e.code === 'unknown-id' ? 1 : 2;
+      return e.code === 'usage' ? 2 : 1;
     }
     throw e;
   }

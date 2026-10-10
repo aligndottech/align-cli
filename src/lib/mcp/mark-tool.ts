@@ -41,7 +41,7 @@ export const MARK_TOOL_SCHEMA = {
     'For a stored conflict: decision_id + counterpart_id + verdict. ' +
     'Also kind supersede (counterpart_id is the decision being replaced), not_a_decision (hides it from ask and check) and note (text). ' +
     'Each is recorded as passed on by you, under your agent name. Nothing is shared or sent; sharing is a separate step the user confirms. ' +
-    'It cannot ratify: that is the user\'s own act, so give them `align ratify <id>`. It never takes a token or key. The user can list or undo marks with `align mark --list` and `--undo`.',
+    'It cannot ratify: that is the user\'s own act, so give them `align ratify <id>`. It cannot replace a mark the user made themselves; it is refused and the user changes it with `align mark`. It never takes a token or key. The user can list or undo marks with `align mark --list` and `--undo`.',
   inputSchema: jsonSchemaOf(SPEC),
 } as const;
 

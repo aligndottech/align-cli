@@ -31,6 +31,8 @@ export function anyJudgements(dbPath: string): boolean {
 }
 
 const day = (iso: string): string => iso.slice(0, 10);
+/** Who made a mark, in words. A mark an agent relayed is always said so: a hit hidden by an agent is never invisible. */
+const byWhom = (agentId: string | null): string => (agentId === null ? 'you' : `${agentId} via MCP`);
 
 /** Drop hits this judge marked false for exactly this file set; annotate hits they marked false for another set. */
 export function reviewConflicts<C extends CheckConflict>(
@@ -41,11 +43,13 @@ export function reviewConflicts<C extends CheckConflict>(
   for (const c of conflicts) {
     const v = checkVerdictFor(dbPath, judgeId, c.decision_id, contextKey);
     if (v.here?.value === 'false') {
-      notes.push(`"${c.title}" is hidden: you marked it a false alarm for this set of files on ${day(v.here.judged_at)}. Show it again with: align mark check ${c.decision_id} real`);
+      notes.push(`"${c.title}" is hidden: marked false by ${byWhom(v.here.agent_id)} for this set of files on ${day(v.here.judged_at)}. Show it again with: align mark check ${c.decision_id} real`);
       continue;
     }
     if (v.elsewhereFalse && v.here === null) {
-      const note = `you marked this a false alarm once, on ${day(v.elsewhereFalse.judged_at)}, for a different set of files; it still shows here`;
+      const note = v.elsewhereFalse.agent_id === null
+        ? `you marked this a false alarm once, on ${day(v.elsewhereFalse.judged_at)}, for a different set of files; it still shows here`
+        : `marked false by ${byWhom(v.elsewhereFalse.agent_id)} once, on ${day(v.elsewhereFalse.judged_at)}, for a different set of files; it still shows here`;
       notes.push(`"${c.title}": ${note}.`);
       kept.push({ ...c, note });
       continue;
@@ -60,7 +64,8 @@ export function annotatePairs<L extends { sourceId: string; targetId: string }>(
   return links.map((l) => {
     const v = pairVerdictFor(dbPath, judgeId, l.sourceId, l.targetId);
     if (!v) return l;
-    const note = v.value === 'false' ? `marked false alarm by you on ${day(v.judged_at)}` : `marked a real conflict by you on ${day(v.judged_at)}`;
+    const who = v.agent_id === null ? 'you' : `${v.agent_id} via MCP`;
+    const note = v.value === 'false' ? `marked false alarm by ${who} on ${day(v.judged_at)}` : `marked a real conflict by ${who} on ${day(v.judged_at)}`;
     return { ...l, marked_by_you: { verdict: v.value, judged_at: v.judged_at, note } };
   });
 }

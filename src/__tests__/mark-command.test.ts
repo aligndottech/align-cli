@@ -171,13 +171,15 @@ describe('align mark --list', () => {
     // An agent-relayed row, written the way the MCP tool writes it.
     const d = new DatabaseSync(dbPath);
     d.prepare(`INSERT INTO local_judgements (id, decision_id, kind, judge_id, via, agent_id, judged_at) VALUES ('m1', ?, 'not_a_decision', 'inst-me', 'mcp', 'claude-code', '2999-01-01T00:00:00.000Z')`).run(ids.charlie);
+    d.prepare(`INSERT INTO local_judgements (id, decision_id, counterpart_id, kind, value, judge_id, via, agent_id, judged_at) VALUES ('m2', ?, ?, 'conflict_verdict', 'false', 'inst-me', 'mcp', 'claude-code', '2998-01-01T00:00:00.000Z')`).run(...[ids.alpha, ids.charlie].sort());
     d.prepare(`INSERT INTO local_judgements (id, decision_id, kind, judge_id, via, judged_at) VALUES ('x1', ?, 'not_a_decision', 'inst-other', 'cli', '2999-02-01T00:00:00.000Z')`).run(ids.alpha);
     d.close();
     out = [];
     expect(await run([], { list: true })).toBe(0);
     const text = out.join('\n');
     expect(text).toContain('charlie decision');
-    expect(text).toContain('via claude-code');
+    expect(text).toContain('marked not a decision by claude-code via MCP');
+    expect(text).toContain('marked false by claude-code via MCP');
     expect(text.indexOf('charlie decision')).toBeLessThan(text.indexOf('alpha decision'));
     expect(text).not.toContain('inst-other');
     expect(out.filter((l) => l.includes('not a decision'))).toHaveLength(1);

@@ -76,6 +76,27 @@ function keyOf(w: JudgementWrite): string {
   return w.counterpartId ?? w.contextKey ?? w.decisionId;
 }
 
+/** Thrown when an agent's write would replace a mark the person made themselves. Nothing was stored. */
+export class HumanMarkError extends Error {
+  constructor() {
+    super('The person marked this themselves, and an agent cannot replace a person\'s mark.');
+    this.name = 'HumanMarkError';
+  }
+}
+
+function humanRowExists(db: DatabaseSync, w: JudgementWrite, judge: Judge): boolean {
+  return db.prepare(
+    `SELECT 1 AS x FROM local_judgements WHERE kind = ? AND judge_id = ? AND decision_id = ?
+       AND COALESCE(counterpart_id, context_key, decision_id) = ? AND via = 'cli' LIMIT 1`,
+  ).get(w.kind, judge.judgeId, w.decisionId, keyOf(w)) !== undefined;
+}
+
+/** Whether an agent's write of `w` would be refused. Lets a caller refuse BEFORE any side effect (the supersedes link). */
+export function agentWouldOverrideHuman(dbPath: string, w: JudgementWrite, judge: Judge): boolean {
+  if (w.kind === 'note') return false;
+  return readDb(dbPath, false, (db) => humanRowExists(db, w, judge));
+}
+
 /**
  * Store a judgement. Returns whether it REPLACED an earlier one of this judge's (idempotent: the
  * same call twice leaves one row). Delete then insert inside one IMMEDIATE transaction, rather than
@@ -86,6 +107,9 @@ export function upsertJudgement(dbPath: string, w: JudgementWrite, judge: Judge,
     db.exec('BEGIN IMMEDIATE');
     try {
       let replaced = false;
+      // A prompt-injected agent must not silence a verdict a person recorded. Checked inside the
+      // transaction so a CLI mark landing in between cannot be overwritten.
+      if (w.kind !== 'note' && origin.via === 'mcp' && humanRowExists(db, w, judge)) throw new HumanMarkError();
       if (w.kind !== 'note') {
         const gone = db.prepare(
           `DELETE FROM local_judgements WHERE kind = ? AND judge_id = ? AND decision_id = ?
@@ -127,29 +151,32 @@ export function listJudgements(dbPath: string, judgeId: string, decisionId?: str
 }
 
 /** This judge's verdict on a stored conflict pair, whichever order the ids come in (the pair is stored lower id first). */
-export function pairVerdictFor(dbPath: string, judgeId: string, a: string, b: string): { value: Verdict; judged_at: string } | null {
+export function pairVerdictFor(dbPath: string, judgeId: string, a: string, b: string): { value: Verdict; judged_at: string; agent_id: string | null } | null {
   const [lo, hi] = a < b ? [a, b] : [b, a];
-  return readDb<{ value: Verdict; judged_at: string } | null>(dbPath, null, (db) => (db.prepare(
-    `SELECT value, judged_at FROM local_judgements WHERE kind = 'conflict_verdict' AND judge_id = ? AND decision_id = ? AND counterpart_id = ?`,
-  ).get(judgeId, lo, hi) as { value: Verdict; judged_at: string } | undefined) ?? null);
+  return readDb<{ value: Verdict; judged_at: string; agent_id: string | null } | null>(dbPath, null, (db) => (db.prepare(
+    `SELECT value, judged_at, agent_id FROM local_judgements WHERE kind = 'conflict_verdict' AND judge_id = ? AND decision_id = ? AND counterpart_id = ?`,
+  ).get(judgeId, lo, hi) as { value: Verdict; judged_at: string; agent_id: string | null } | undefined) ?? null);
 }
 
 export interface CheckVerdictLookup {
-  /** This judge's verdict for exactly this file set, if any. */
-  here: { value: Verdict; judged_at: string } | null;
+  /** This judge's verdict for exactly this file set, if any. `agent_id` is set when an agent relayed it. */
+  here: { value: Verdict; judged_at: string; agent_id: string | null } | null;
   /** The newest `false` this judge gave for a DIFFERENT file set: annotates, never hides. */
-  elsewhereFalse: { judged_at: string } | null;
+  elsewhereFalse: { judged_at: string; agent_id: string | null } | null;
 }
 
 export function checkVerdictFor(dbPath: string, judgeId: string, decisionId: string, contextKey: string | null): CheckVerdictLookup {
   return readDb<CheckVerdictLookup>(dbPath, { here: null, elsewhereFalse: null }, (db) => {
     const rows = db.prepare(
-      `SELECT context_key, value, judged_at FROM local_judgements WHERE kind = 'check_verdict' AND judge_id = ? AND decision_id = ?
+      `SELECT context_key, value, judged_at, agent_id FROM local_judgements WHERE kind = 'check_verdict' AND judge_id = ? AND decision_id = ?
        ORDER BY judged_at DESC, rowid DESC`,
-    ).all(judgeId, decisionId) as unknown as Array<{ context_key: string; value: Verdict; judged_at: string }>;
+    ).all(judgeId, decisionId) as unknown as Array<{ context_key: string; value: Verdict; judged_at: string; agent_id: string | null }>;
     const here = contextKey === null ? undefined : rows.find((r) => r.context_key === contextKey);
     const other = rows.find((r) => r.context_key !== contextKey && r.value === 'false');
-    return { here: here ? { value: here.value, judged_at: here.judged_at } : null, elsewhereFalse: other ? { judged_at: other.judged_at } : null };
+    return {
+      here: here ? { value: here.value, judged_at: here.judged_at, agent_id: here.agent_id } : null,
+      elsewhereFalse: other ? { judged_at: other.judged_at, agent_id: other.agent_id } : null,
+    };
   });
 }
 
