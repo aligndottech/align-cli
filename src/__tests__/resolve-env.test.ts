@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../lib/config.js', () => ({ createConfigStore: vi.fn() }));
 
-import { resolveEnv, resolveImportEnv } from '../lib/resolve-env.js';
+import { resolveEnv, resolveImportEnv, UnknownEnvError } from '../lib/resolve-env.js';
 import { createConfigStore } from '../lib/config.js';
 
 type EnvShape = { mode: string; authToken: string | null };
@@ -81,5 +81,82 @@ describe('resolveImportEnv (ALI-675: imports are local-servable, so they get the
   it('an explicit --env flag always wins', () => {
     mockConfig({ defaultEnv: 'prod', local: { mode: 'local-embedded' }, cloud: { authToken: null } });
     expect(resolveImportEnv('preview')).toBe('preview');
+  });
+});
+
+describe('resolveEnv fails closed on an unknown name (join plan C1, S6)', () => {
+  const orig = process.env['ALIGN_ENV'];
+  afterEach(() => {
+    vi.clearAllMocks();
+    if (orig === undefined) delete process.env['ALIGN_ENV'];
+    else process.env['ALIGN_ENV'] = orig;
+  });
+
+  function mockWithDestinations(saved: string[], defaultEnv = 'prod') {
+    (createConfigStore as ReturnType<typeof vi.fn>).mockReturnValue({
+      getDefaultEnv: () => defaultEnv,
+      hasTeamDestination: (n: string) => saved.includes(n),
+      listTeamDestinationNames: () => saved,
+      getEnvironment: () => ({ mode: 'auth', authToken: null }),
+    });
+  }
+
+  it('--env with no such destination throws and names the valid choices', () => {
+    delete process.env['ALIGN_ENV'];
+    mockWithDestinations([]);
+    expect(() => resolveEnv('acme')).toThrow(UnknownEnvError);
+    expect(() => resolveEnv('acme')).toThrow(/local, preview, prod/);
+  });
+
+  it('a near-miss of a builtin (prodd) throws instead of falling back to prod', () => {
+    delete process.env['ALIGN_ENV'];
+    mockWithDestinations([]);
+    expect(() => resolveEnv('prodd')).toThrow(UnknownEnvError);
+  });
+
+  it('lists the saved destinations in the message', () => {
+    delete process.env['ALIGN_ENV'];
+    mockWithDestinations(['beta']);
+    expect(() => resolveEnv('acme')).toThrow(/beta/);
+  });
+
+  it('an unknown ALIGN_ENV throws, a builtin ALIGN_ENV still resolves', () => {
+    mockWithDestinations([]);
+    process.env['ALIGN_ENV'] = 'acme';
+    expect(() => resolveEnv()).toThrow(UnknownEnvError);
+    process.env['ALIGN_ENV'] = 'preview';
+    expect(resolveEnv()).toBe('preview');
+  });
+
+  it('a saved destination resolves from --env and from ALIGN_ENV', () => {
+    mockWithDestinations(['acme']);
+    delete process.env['ALIGN_ENV'];
+    expect(resolveEnv('acme')).toBe('acme');
+    process.env['ALIGN_ENV'] = 'acme';
+    expect(resolveEnv()).toBe('acme');
+  });
+
+  it('an empty ALIGN_ENV is unset, not unknown', () => {
+    mockWithDestinations([]);
+    process.env['ALIGN_ENV'] = '';
+    expect(resolveEnv()).toBe('prod');
+  });
+
+  it('an explicit --env wins over an unknown ALIGN_ENV', () => {
+    mockWithDestinations([]);
+    process.env['ALIGN_ENV'] = 'garbage';
+    expect(resolveEnv('preview')).toBe('preview');
+  });
+});
+
+describe('UnknownEnvError message', () => {
+  it('strips control characters and caps the echoed name', () => {
+    const esc = String.fromCharCode(27);
+    const e = new UnknownEnvError(`ac${esc}[31mme${'x'.repeat(100)}`, []);
+    expect(e.message.includes(esc)).toBe(false);
+    expect(e.message.length).toBeLessThan(120);
+  });
+  it('a plain name is echoed as typed', () => {
+    expect(new UnknownEnvError('acme', []).message).toContain('"acme"');
   });
 });

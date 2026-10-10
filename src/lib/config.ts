@@ -6,7 +6,11 @@ import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 import { STORABLE_PROVIDERS, type StoredProviderId } from './llm-providers.js';
 import type { ActiveScope, StoredScope } from './scope-values.js';
 
-export type EnvName = 'local' | 'preview' | 'prod';
+import type { TeamDestinationName } from './destination-name.js';
+
+export type BuiltinEnv = 'local' | 'preview' | 'prod';
+/** A builtin, or the name of a team destination saved by `align join`. */
+export type EnvName = BuiltinEnv | TeamDestinationName;
 
 export interface EnvironmentConfig {
   gatewayUrl: string;
@@ -15,9 +19,11 @@ export interface EnvironmentConfig {
   ngrokUrl?: string;
   mode: 'demo' | 'auth' | 'local-embedded';
   localDbPath?: string;
+  /** 'team' for a destination saved by `align join`; absent for the three builtins. */
+  kind?: 'builtin' | 'team';
 }
 
-const DEFAULTS: Record<EnvName, EnvironmentConfig> = {
+const DEFAULTS: Record<BuiltinEnv, EnvironmentConfig> = {
   local:   { gatewayUrl: 'http://localhost:8080',          authToken: null, tenantId: null, mode: 'demo' },
   preview: { gatewayUrl: 'https://api.preview.align.tech', authToken: null, tenantId: null, mode: 'auth' },
   prod:    { gatewayUrl: 'https://api.align.tech',          authToken: null, tenantId: null, mode: 'auth' },
@@ -155,7 +161,7 @@ export function createConfigStore() {
 
   return {
     getEnvironment(env: EnvName): EnvironmentConfig {
-      const base = { ...DEFAULTS[env], ...(getEnvs()[env] ?? {}) };
+      const base = { ...DEFAULTS[env as BuiltinEnv], ...(getEnvs()[env] ?? {}) } as EnvironmentConfig;
       // Env var overrides - useful for CI and self-hosted deployments
       if (!base.authToken && process.env['ALIGN_TOKEN']) {
         base.authToken = process.env['ALIGN_TOKEN'];
@@ -179,6 +185,13 @@ export function createConfigStore() {
     setNgrokUrl(url: string) {
       const envs = getEnvs();
       store.set('environments', { ...envs, local: { ...(envs['local'] ?? {}), ngrokUrl: url } });
+    },
+    /** True only for a destination `align join` saved. A builtin name is never one. */
+    hasTeamDestination(name: string): boolean {
+      return Object.hasOwn(getEnvs(), name) && getEnvs()[name]?.kind === 'team';
+    },
+    listTeamDestinationNames(): string[] {
+      return Object.entries(getEnvs()).filter(([, e]) => e?.kind === 'team').map(([n]) => n).sort();
     },
     setDefaultEnv(env: EnvName) { store.set('defaultEnv', env); },
     getDefaultEnv(): EnvName { return store.get('defaultEnv') as EnvName; },
