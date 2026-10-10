@@ -17,8 +17,12 @@
  * - `local_judgements`: a person's verdict on a decision, with judge, time and cli|mcp origin.
  *   No foreign key to `decisions`, like C7's `promotions`: a purge must not erase a record the
  *   user may still want to share. Ratification is not here (Decision 14).
- * - `decisions_merged_backup`: every row the twin merge deletes, so the merge can be undone
- *   with an INSERT ... SELECT back.
+ * - `decisions_merged_backup`, `decision_embeddings_merged_backup`, `decision_refs_merged_backup`:
+ *   every decision row the twin merge deletes, with that row's vector and refs. That is what a
+ *   restore can recover (INSERT ... SELECT the three back). It is NOT a full undo: links, audit
+ *   rows, local judgements and promotions that named a loser were RE-POINTED at the survivor
+ *   (a link between two twins, and a duplicate link's lower confidence, were dropped), and are
+ *   not copied anywhere. A restored loser comes back without them.
  *
  * Twin merge (Decision 3). v6 keyed rows on (source_url, title), so an edited PR or issue title
  * wrote a second row for the same item. Rows sharing a source_key are merged: the survivor is
@@ -133,6 +137,8 @@ export function absorbLoser(db: DatabaseSync, loserId: string, survivorId: strin
   const hasJudgements = tableExists(db, 'local_judgements');
   const hasPromotions = tableExists(db, 'promotions');
   db.prepare('INSERT INTO decisions_merged_backup SELECT * FROM decisions WHERE id = ?').run(loserId);
+  db.prepare('INSERT INTO decision_embeddings_merged_backup SELECT * FROM decision_embeddings WHERE decision_id = ?').run(loserId);
+  db.prepare('INSERT INTO decision_refs_merged_backup SELECT * FROM decision_refs WHERE decision_id = ?').run(loserId);
   repoint(db, 'decision_audit', 'decision_id', loserId, survivorId);
   repointLinks(db, loserId, survivorId, group);
   repoint(db, 'decision_refs', 'decision_id', loserId, survivorId);
@@ -213,6 +219,8 @@ export function migrateV7(db: DatabaseSync): void {
   db.exec(V7_TABLES);
   // After the ALTERs, so the backup carries every column a row can hold.
   db.exec('CREATE TABLE IF NOT EXISTS decisions_merged_backup AS SELECT * FROM decisions WHERE 0');
+  db.exec('CREATE TABLE IF NOT EXISTS decision_embeddings_merged_backup AS SELECT * FROM decision_embeddings WHERE 0');
+  db.exec('CREATE TABLE IF NOT EXISTS decision_refs_merged_backup AS SELECT * FROM decision_refs WHERE 0');
 
   // Only rows that look like connector imports are keyed. A v6 row cannot say how it was
   // written, and `align capture <PR url>` wrote platform github too, so the rule is on the

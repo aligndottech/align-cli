@@ -78,6 +78,19 @@ describe('twin merge', () => {
     expect(JSON.parse(note[0]!.detail as string)).toEqual({ title: 'Revert: do not use Postgres', summary: 'opposite text' });
   });
 
+  it('the backup also holds the loser\'s vector and refs; links, audit and judgements are re-pointed, not copied', () => {
+    const v6 = createV6Graph(dbPath);
+    v6.insertDecision({ id: 'old', title: 'T1', summary: '1', sourceUrl: PR, platform: 'github' });
+    v6.insertDecision({ id: 'new', title: 'T2', summary: '2', sourceUrl: PR, platform: 'github' });
+    v6.setEmbedding('old', 0.3);
+    v6.insertRef('old', 'ALI-9', 'jira');
+    v6.close();
+    createLocalDb(dbPath).close();
+    expect(rows(`SELECT decision_id FROM decision_embeddings_merged_backup`)).toEqual([{ decision_id: 'old' }]);
+    expect(rows(`SELECT decision_id, ref FROM decision_refs_merged_backup`)).toEqual([{ decision_id: 'old', ref: 'ALI-9' }]);
+    expect(rows(`SELECT ref FROM decision_refs WHERE decision_id = 'new'`)).toEqual([{ ref: 'ALI-9' }]); // re-pointed
+  });
+
   it('a confirmed (not ratified) older twin also keeps its text', () => {
     const v6 = createV6Graph(dbPath);
     v6.insertDecision({ id: 'old', title: 'Use Postgres', summary: 'confirmed text', sourceUrl: PR, platform: 'github' });
