@@ -1,9 +1,13 @@
+import { existsSync as fileExists } from 'node:fs';
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { createConfigStore } from '../lib/config.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { getLocalDbPath, initLocalMode, LOCAL_DB_SUFFIXES } from '../lib/local-mode.js';
 import { localValueRollup, renderValueReadout } from '../lib/value-rollup.js';
+import { forgetSourceData } from '../lib/sync/forget.js';
+import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
+import { refreshSummary } from '../lib/sync/summary.js';
 
 export function registerLocalCommand(program: Command): void {
   const local = program
@@ -58,21 +62,46 @@ export function registerLocalCommand(program: Command): void {
   local
     .command('forget [connector]')
     .description('Remove saved read-only tokens (all, or one named connector)')
-    .action((connector?: string) => {
+    .option('--purge', 'Also delete the items imported from that connector, except any you ratified, confirmed, acted on or judged')
+    .action((connector: string | undefined, opts: { purge?: boolean }) => {
       const config = createConfigStore();
+      const env = config.getEnvironment('local');
+      const dbPath = env.mode === 'local-embedded' ? env.localDbPath : undefined;
+      // The launch summary lists connected sources; forgetting one must not leave it there.
+      const refresh = (): void => {
+        if (dbPath && fileExists(dbPath)) refreshSummary(dbPath, (id) => Boolean(config.getConnectorFields('local', id)?.['token']));
+      };
       if (!connector) {
+        if (opts.purge) {
+          // A purge across every source in one word is not a thing to do by accident.
+          console.error('align local forget: --purge needs a connector name, for example: align local forget slack --purge');
+          process.exitCode = 2;
+          return;
+        }
         config.forgetAllConnectors('local');
+        for (const id of BACKFILL_SOURCES) forgetSourceData(dbPath, id, { purge: false });
+        refresh();
         console.log('Removed every saved read-only token. Setup will ask again next time.');
         return;
       }
       // Distinguish "removed it" from "there was nothing there": silence on a no-op reads as
       // success, and leaves someone believing a credential is gone that was never stored.
-      if (!config.getConnectorFields('local', connector)) {
+      const had = Boolean(config.getConnectorFields('local', connector));
+      if (!had && !opts.purge) {
         console.log(`Nothing saved for ${connector}.`);
         return;
       }
-      config.forgetConnector('local', connector);
-      console.log(`Removed the saved token for ${connector}. Revoke it at the provider too if you are done with it.`);
+      if (had) config.forgetConnector('local', connector);
+      const r = forgetSourceData(dbPath, connector, { purge: opts.purge === true });
+      refresh();
+      console.log(had
+        ? `Removed the saved token for ${connector}. Revoke it at the provider too if you are done with it.`
+        : `Nothing saved for ${connector}.`);
+      if (r.purged) {
+        console.log(`Deleted ${r.purged.deleted} ${connector} items nobody had vouched for, and kept ${r.purged.kept} (ratified, confirmed, acted on or judged).`);
+      } else if (r.staying > 0) {
+        console.log(`${r.staying} ${connector} items stay in your graph. To delete the ones nobody has vouched for: align local forget ${connector} --purge`);
+      }
     });
 
   local

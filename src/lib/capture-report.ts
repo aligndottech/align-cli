@@ -68,9 +68,9 @@ function windowedLine(s: CaptureSource, window: string): string {
   const { count, failed } = storedNote(s);
   const head = `${s.label}: imported ${count} ${s.unit}${failed}`;
   // Said as a count, and promising nothing: the items the request budget did not reach stay thin
-  // until `align sync` exists to finish them (L5).
+  // until `align sync` finishes them. Until the background refresh exists (L6) the person runs it.
   const tail = s.discussionPending !== undefined && s.discussionPending > 0 && s.discussionTotal !== undefined
-    ? `; discussion fetched for ${s.discussionTotal - s.discussionPending} of ${s.discussionTotal}, the rest stay thin until align sync (not available yet)`
+    ? `; discussion fetched for ${s.discussionTotal - s.discussionPending} of ${s.discussionTotal}, the rest stay thin until align sync reads them (run it now)`
     : '';
   if (s.complete !== false) return `${head} from ${window}${tail}`;
   const cut = s.skips.find((k) => k.kind !== undefined && (INCOMPLETE_SKIP_KINDS as ReadonlySet<string>).has(k.kind));
