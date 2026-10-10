@@ -389,6 +389,14 @@ export function createConfigStore() {
       store.set('funnelStagesRecorded', [...existing, stage]);
       return true;
     },
+    // The undo of claimFunnelStage, for a claimed send that was not delivered: removes the stage
+    // only if it is there, re-reading the store, so the next run can claim it again.
+    releaseFunnelStage(stage: string): boolean {
+      const existing = store.get('funnelStagesRecorded') ?? [];
+      if (!existing.includes(stage)) return false;
+      store.set('funnelStagesRecorded', existing.filter((s) => s !== stage));
+      return true;
+    },
     markFunnelStageRecorded(stage: string): void {
       const existing = store.get('funnelStagesRecorded') ?? [];
       if (!existing.includes(stage)) store.set('funnelStagesRecorded', [...existing, stage]);

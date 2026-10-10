@@ -73,6 +73,39 @@ async function postWithTimeout(url: string, init: NonNullable<Parameters<typeof 
   }
 }
 
+/**
+ * The hard cap on the one send that is awaited: the first-run install beacon. Once per install,
+ * so ordinary runs never pay it.
+ */
+export const INSTALL_BEACON_CAP_MS = 800;
+
+/**
+ * POST and report whether it was DELIVERED - any HTTP response counts, since the gateway
+ * received it; a refused connection, a network error or the cap does not. Never throws, never
+ * prints, and never takes longer than `capMs`: the abort signal ends the request, and the timer
+ * wins the race even if a transport ignores the signal.
+ */
+async function postDelivered(url: string, init: NonNullable<Parameters<typeof fetch>[1]>, capMs: number): Promise<boolean> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const capped = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(false);
+    }, capMs);
+  });
+  try {
+    return await Promise.race([
+      fetch(url, { ...init, signal: controller.signal }).then(() => true, () => false),
+      capped,
+    ]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface TelemetryStatus {
   enabled: boolean;
   reason: string;
@@ -464,14 +497,29 @@ export async function recordInstallBeacon(commandPath: string): Promise<boolean>
     // one duplicate install row, in the overcount direction, and only on a racing first run.
     if (!config.claimFunnelStage('install')) return false;
 
-    await postAnonymous({
-      installId: config.getInstallId(),
-      command: 'align',
-      cliVersion: pkg.version,
-      stage: 'install',
-      os: process.platform,
-    });
-    return true;
+    // Awaited, unlike every other send: the stage is once-only and already claimed, so a request
+    // that never left (the command exited first, `align status` does) would lose this install
+    // from the funnel forever. Capped at INSTALL_BEACON_CAP_MS; if it is not delivered in that
+    // time the claim is released, so the next run retries. A request the gateway received but did
+    // not answer in time may then arrive twice - an overcount of one, never a lost install.
+    const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
+    const delivered = await postDelivered(
+      `${target}/telemetry/anonymous`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          installId: config.getInstallId(),
+          command: 'align',
+          cliVersion: pkg.version,
+          stage: 'install',
+          os: process.platform,
+        }),
+      },
+      INSTALL_BEACON_CAP_MS,
+    );
+    if (!delivered) config.releaseFunnelStage('install');
+    return delivered;
   } catch {
     // Telemetry must never fail or delay a command; the funnel loses one row.
     return false;
@@ -553,15 +601,13 @@ export async function recordInvocationUsage(
 
 /**
  * C6: what runs before every command (cli.ts's preAction): the one-time notice, then the
- * install beacon. The notice is awaited, so it prints before the command's own output and
- * before any send; the beacon is handed back unawaited so cli.ts can fire and forget it - the
- * command never waits on the network. `hook` is the invocation's own flags (`check --hook` /
+ * install beacon, both awaited. On every run but the first, the beacon returns after a config
+ * read and sends nothing. On the first run it is the one send that is awaited, capped at
+ * INSTALL_BEACON_CAP_MS (see recordInstallBeacon), so the command cannot exit before it is
+ * delivered. Every other event stays fire-and-forget. `hook` is the invocation's own flags (`check --hook` /
  * `--advisory`), marked here because the command's action, which also marks it, runs later.
  */
-export async function beginInvocationTelemetry(
-  commandPath: string,
-  opts: { hook: boolean },
-): Promise<{ beaconSent: Promise<boolean> }> {
+export async function beginInvocationTelemetry(commandPath: string, opts: { hook: boolean }): Promise<boolean> {
   if (opts.hook) markHookContext();
   try {
     const { createConfigStore } = await import('./config.js');
@@ -572,5 +618,5 @@ export async function beginInvocationTelemetry(
   } catch {
     // Telemetry must never fail a command. No notice means nothing that waits on it sends.
   }
-  return { beaconSent: recordInstallBeacon(commandPath) };
+  return recordInstallBeacon(commandPath);
 }

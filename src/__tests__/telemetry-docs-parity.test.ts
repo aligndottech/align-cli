@@ -40,6 +40,7 @@ vi.mock('../lib/config.js', () => ({
       markFunnelStageRecorded(s);
       return true;
     },
+    releaseFunnelStage: vi.fn(),
     getEnvironment,
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,

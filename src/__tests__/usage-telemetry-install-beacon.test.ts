@@ -20,6 +20,7 @@ const getInstallId = vi.fn();
 const wasFunnelStageRecorded = vi.fn();
 const markFunnelStageRecorded = vi.fn();
 const getEnvironment = vi.fn();
+const releaseFunnelStage = vi.fn();
 const INSTALL_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
 
@@ -37,6 +38,7 @@ vi.mock('../lib/config.js', () => ({
       markFunnelStageRecorded(s);
       return true;
     },
+    releaseFunnelStage,
     getEnvironment,
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
@@ -73,6 +75,7 @@ describe('recordInstallBeacon', () => {
     getInstallId.mockReset().mockReturnValue(INSTALL_ID);
     wasFunnelStageRecorded.mockReset().mockReturnValue(false);
     markFunnelStageRecorded.mockReset();
+    releaseFunnelStage.mockReset();
     getEnvironment.mockReset().mockReturnValue(freshEnv);
   });
 
@@ -208,9 +211,19 @@ describe('recordInstallBeacon', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('resolves true even when the gateway rejects - one lost row, never a re-send', async () => {
+  // The first-run beacon is awaited (usage-telemetry-install-delivery.test.ts): a send that
+  // never arrived releases the stage so the next run retries, rather than losing the install.
+  it('a refused connection resolves false and releases the stage for the next run', async () => {
     mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
 
+    await expect(recordInstallBeacon('align')).resolves.toBe(false);
+    expect(releaseFunnelStage).toHaveBeenCalledWith('install');
+  });
+
+  it('a gateway that answers with an error status received it: true, and the stage is kept (never a re-send)', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 500 });
+
     await expect(recordInstallBeacon('align')).resolves.toBe(true);
+    expect(releaseFunnelStage).not.toHaveBeenCalled();
   });
 });

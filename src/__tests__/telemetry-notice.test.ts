@@ -34,6 +34,11 @@ vi.mock('../lib/config.js', () => ({
       state.stages.push(s);
       return true;
     },
+    releaseFunnelStage: (s: string) => {
+      const had = state.stages.includes(s);
+      state.stages = state.stages.filter((x) => x !== s);
+      return had;
+    },
     getEnvironment: () => state.env,
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
@@ -70,8 +75,7 @@ function restoreTTY(): void {
 
 /** What cli.ts's preAction does on any run: the notice, then the install beacon. */
 async function runCommand(commandPath = 'ask', hook = false): Promise<void> {
-  const { beaconSent } = await beginInvocationTelemetry(commandPath, { hook });
-  await beaconSent;
+  await beginInvocationTelemetry(commandPath, { hook });
 }
 
 function noticeWrites(): string[] {
