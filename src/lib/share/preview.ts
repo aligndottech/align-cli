@@ -84,6 +84,6 @@ export function renderPreview(payloads: readonly SharePayload[], dest: Destinati
     lines.push('');
   });
   // The destination is the LAST thing printed, directly above the question, so it is what is read last.
-  lines.push('Nothing is sent until you say yes.', `To: ${visible(dest.workspace)} (${visible(dest.env)}) as ${visible(dest.email)}${dest.gateway ? `, via ${visible(dest.gateway)} (not the default for ${visible(dest.env)})` : ''}`);
+  lines.push(visible("A shared decision stays with your team, as the team's record. If you leave and your account is erased, your name and your judgements are removed from it and the decision stays."), 'Nothing is sent until you say yes.', `To: ${visible(dest.workspace)} (${visible(dest.env)}) as ${visible(dest.email)}${dest.gateway ? `, via ${visible(dest.gateway)} (not the default for ${visible(dest.env)})` : ''}`);
   return lines.join('\n');
 }

@@ -88,6 +88,10 @@ reading the content on the page defends against a request you did not mean to ma
 > - A share is always attributed to the signed-in user. It can usually be retracted with
 >   `align share --retract`, but not always: a share that matched an existing team decision, or was recorded as
 >   not yours, cannot be retracted from here, and the judgements it carried stay on the team graph.
+> - A share stays on the team graph after you leave. If an admin erases your account, Align removes your name and
+>   your judgements from every decision you shared. The decisions stay as the team's record and other people's
+>   judgements on them stay. Erasure does not edit the decision text; if it names you or holds your personal data,
+>   ask your admin for a separate content removal, which does not exist yet.
 
 Only items that carry a `client_key` are staged (every share item does), so a request can never be a plain
 capture that overwrites a teammate's row.
