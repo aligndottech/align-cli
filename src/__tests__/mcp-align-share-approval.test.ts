@@ -63,6 +63,14 @@ describe('align_share with browser approval', () => {
     expect(gw.completes).toHaveLength(0); expect(batches).toBe(0);
     expect(r.code).toBeUndefined();   // no older one-time code in this mode
   });
+  it('tells the agent to show a clickable link, say it opens on a phone, and name the command that re-shows it', async () => {
+    const r = await runShareTool({ id }, env, ctx());
+    const rid = String(r['request_id']);
+    expect(r.text).toMatch(/as a clickable link/);
+    expect(r.text).toMatch(/on their phone/);
+    expect(r.text).toContain(`align share --open ${rid}`);
+    expect(r.text).toMatch(/Face ID or a fingerprint/);
+  });
   it('never sends the key to the gateway, and the browser way of opening the envelope gives the staged request', async () => {
     const r = await runShareTool({ id }, env, ctx());
     const staged = gw.staged[0]!;
