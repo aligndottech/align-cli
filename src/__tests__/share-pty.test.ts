@@ -42,6 +42,15 @@ describe.skipIf(!posix)('with no person at a terminal', () => {
   });
 });
 
+describe.skipIf(!posix)('inside an agent align launched', () => {
+  it('ALIGN_WRAPPED makes the real binary refuse with a pointer to a normal terminal and no request', async () => {
+    const r = await h.plain([h.ids[0]!], { ALIGN_WRAPPED: '1' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('normal terminal');
+    expect(h.posts).toHaveLength(0);
+  });
+});
+
 describe.skipIf(!posix)('an unknown --env', () => {
   it('is refused with exit 2 and no request, never falling back to the default environment', async () => {
     for (const env of ['prd', 'local', '']) {

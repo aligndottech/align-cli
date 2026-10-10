@@ -46,17 +46,32 @@ describe('align_share', () => {
     const r = await runShareTool({ id }, env, ctx());
     expect(r.text).toContain('To: Acme (prod) as me@co.com');
     expect(r.text).toContain('Use sqlite');
-    expect(r.text).toContain(`align share --confirm ${r.code}`);
+    expect(r.text).toContain(r.code as string);
+    // the result is not a runnable command line for the agent: no `align share ... --confirm <code>` anywhere
+    expect(r.text).not.toMatch(/align share\b.*--confirm/);
+    expect(r.text).not.toContain('--confirm');
+    expect(r.text).toMatch(/must not run it/);
     expect(r.text).toContain('NOTHING HAS BEEN SENT');
     expect(lookupCode(r.code as string).ok).toBe(true);
     expect(calls.shareBatch).toBe(0);
   });
-  it('a second call issues a new code and the old one is invalidated', async () => {
+  it('asking again for the same payload returns the SAME live code; a changed payload issues a new one and the old one stops working', async () => {
     const a = await runShareTool({ id }, env, ctx());
+    const again = await runShareTool({ id }, env, ctx());
+    expect(again.code).toBe(a.code);
+    expect(lookupCode(a.code as string).ok).toBe(true);
+    const { upsertJudgement } = await import('../lib/curation/judgements-db.js');
+    upsertJudgement(dbPath, { kind: 'note', decisionId: id, note: 'new' }, { judgeId: 'i', judgeLabel: null }, { via: 'cli' });
     const b = await runShareTool({ id }, env, ctx());
     expect(b.code).not.toBe(a.code);
     expect(lookupCode(a.code as string)).toEqual({ ok: false, reason: 'unknown' });
     expect(lookupCode(b.code as string).ok).toBe(true);
+  });
+  it('is annotated honestly: not read-only (it writes pending files), not destructive', () => {
+    const t = TOOL_SCHEMAS.find((x) => x.name === SHARE_TOOL)!;
+    expect(t.annotations).toEqual({ readOnlyHint: false, destructiveHint: false });
+    expect(t.description).toMatch(/must not run that command/);
+    expect(t.description).not.toContain('--confirm');
   });
   it('records which agent asked', async () => {
     const r = await runShareTool({ id }, env, ctx());
@@ -111,7 +126,7 @@ describe('no sequence of tool calls sends a share', () => {
   it('the positive control: the human path through runShare does call it', async () => {
     const r = await runShareTool({ id }, env, ctx());
     const out: string[] = [];
-    const deps: ShareDeps = { cloudEnv: cloud, salt: 'salt-1', defaultGatewayUrl: 'https://x', localDbPath: dbPath, client: () => client, judge: async () => ({ judgeId: 'i', judgeLabel: null }), owner: async () => 'me@co.com', ttyConfirm: async () => true, out: (l) => out.push(l), err: (l) => out.push(l) };
+    const deps: ShareDeps = { cloudEnv: cloud, salt: 'salt-1', defaultGatewayUrl: 'https://x', localDbPath: dbPath, client: () => client, judge: async () => ({ judgeId: 'i', judgeLabel: null }), owner: async () => 'me@co.com', ttyConfirm: async () => true, wrapped: false, out: (l) => out.push(l), err: (l) => out.push(l) };
     const code = await runShare({ ids: [], envName: 'prod', confirm: r.code as string }, deps);
     expect(code).toBe(0);
     expect(calls.shareBatch).toBe(1);

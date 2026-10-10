@@ -36,6 +36,8 @@ export interface ShareDeps {
   judge: () => Promise<Judge>;
   /** The person's own git identity: `--all-ratified` shares only what they ratified. */
   owner: () => Promise<string>;
+  /** True inside an agent that `align` launched (ALIGN_WRAPPED): a share is then refused, as a speed bump. */
+  wrapped: boolean;
   /** Show `shown` and ask on the controlling terminal; null when there is no interactive terminal. */
   ttyConfirm: (shown: string, question: string) => Promise<boolean | null>;
   out: (line: string) => void;
@@ -46,6 +48,10 @@ const NO_TERMINAL = 'Confirm this in your own terminal: there is no interactive 
 
 export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<number> {
   const { out, err } = deps;
+  if (deps.wrapped) {
+    err('align share is not run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.');
+    return 1;
+  }
   if (deps.cloudEnv.mode === 'demo') {
     err('align share needs a team account, and this environment is in demo mode. Run: align login');
     return 1;

@@ -62,6 +62,7 @@ function fixture(): Fx {
       archiveDecision: async (id) => { f.archived.push(id); },
     }),
     judge: async () => judge, owner: async () => ME,
+    wrapped: false,
     ttyConfirm: async (shown, q) => { f.asks.push(q); f.shown.push(shown); return f.tty.queue.length ? f.tty.queue.shift()! : f.tty.answer; },
     out: (l) => f.out.push(l), err: (l) => f.err.push(l),
   };
@@ -455,5 +456,21 @@ describe('what is scanned', () => {
     expect(t).toContain('note 2 looks like <GITHUB_TOKEN>'); // the ratify is judgement 1 and the clean note is note 1
     expect(t).not.toContain('hunter2');
     expect(f.sent).toHaveLength(0);
+  });
+});
+
+describe('inside an agent that align launched (ALIGN_WRAPPED): a speed bump, not a lock', () => {
+  it('refuses a share, a --confirm and a retract with a pointer to a normal terminal, and sends nothing', async () => {
+    const f = fixture(); const id = seed(); f.deps.wrapped = true;
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(text(f)).toContain('normal terminal');
+    expect(await run(f, { confirm: 'abcdefghij' })).toBe(1);
+    expect(await run(f, { retract: id })).toBe(1);
+    expect(f.sent).toHaveLength(0); expect(f.whoamiCalls.n).toBe(0); expect(f.asks).toHaveLength(0);
+  });
+  it('the control: the same share outside such an agent goes', async () => {
+    const f = fixture(); const id = seed();
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.sent).toHaveLength(1);
   });
 });

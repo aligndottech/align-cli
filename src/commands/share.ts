@@ -54,6 +54,7 @@ export function registerShareCommand(program: Command): void {
         judge: defaultJudge,
         owner: resolveLocalIdentity,
         ttyConfirm,
+        wrapped: (process.env['ALIGN_WRAPPED'] ?? '') !== '',
         out: (l) => console.log(l),
         err: (l) => console.error(chalk.red(l)),
       } satisfies ShareDeps);

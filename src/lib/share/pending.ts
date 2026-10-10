@@ -52,20 +52,27 @@ function read(file: string): PendingShare | null {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) as PendingShare; } catch { return null; }
 }
 
-/** Issue a code; every earlier code that names any of the same decisions is invalidated. */
+/**
+ * Issue a code. A live code for the SAME payload and destination is returned as it is (re-asking must not
+ * invalidate the one the person may already be typing); any other earlier code that names one of the same
+ * decisions is invalidated.
+ */
 export function issueCode(payloads: readonly SharePayload[], meta: { agentId: string; envName: string; preview: string; to: Binding }, now = new Date()): string | null {
   const dir = dirOf();
   if (dir === null) return null;
   const ids = payloads.map((p) => p.localId);
+  const hash = combinedHash(payloads, meta.to);
   for (const f of fs.readdirSync(dir)) {
     const old = read(path.join(dir, f));
-    if (old && old.localIds.some((i) => ids.includes(i))) fs.rmSync(path.join(dir, f), { force: true });
+    if (!old || !old.localIds.some((i) => ids.includes(i))) continue;
+    if (old.hash === hash && old.envName === meta.envName && Date.parse(old.expiresAt) > now.getTime()) return old.code;
+    fs.rmSync(path.join(dir, f), { force: true });
   }
   const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
   const code = Array.from(randomBytes(10), (b) => alphabet[b % 32]).join('');
   const rec: PendingShare = {
     code, expiresAt: new Date(now.getTime() + PENDING_TTL_MS).toISOString(), agentId: meta.agentId, envName: meta.envName,
-    hash: combinedHash(payloads, meta.to), localIds: ids, preview: meta.preview,
+    hash, localIds: ids, preview: meta.preview,
   };
   fs.writeFileSync(path.join(dir, `${code}.json`), JSON.stringify(rec), { mode: 0o600 });
   return code;

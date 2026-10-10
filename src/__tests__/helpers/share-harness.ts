@@ -18,7 +18,7 @@ export interface Harness {
   env: Record<string, string | undefined>;
   base: string;
   /** Plain spawn, own session (no controlling terminal), stdin from /dev/null. */
-  plain(args: string[]): Promise<{ code: number | null; out: string }>;
+  plain(args: string[], extraEnv?: Record<string, string>): Promise<{ code: number | null; out: string }>;
   /** A real pty: type `send` once `expect` appears. */
   pty(args: string[], steps: Array<[string, string]>): Promise<{ code: number; out: string }>;
   /** Like pty but for any align subcommand (args are the whole command line after `align`). */
@@ -57,8 +57,8 @@ export async function startHarness(seed: (db: ReturnType<typeof createLocalDb>) 
       let out = ''; p.stdout.on('data', (b) => (out += b));
       p.on('close', () => resolve(JSON.parse(out.trim().split('\n').pop()!)));
     }),
-    plain: (args) => new Promise((resolve) => {
-      const p = spawn(cmd[0]!, [...cmd.slice(1), ...args], { detached: true, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    plain: (args, extraEnv) => new Promise((resolve) => {
+      const p = spawn(cmd[0]!, [...cmd.slice(1), ...args], { detached: true, env: { ...env, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
       let out = ''; p.stdout!.on('data', (b) => (out += b)); p.stderr!.on('data', (b) => (out += b));
       p.on('close', (code) => resolve({ code, out }));
     }),
