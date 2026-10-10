@@ -102,6 +102,25 @@ export function recordPromotion(dbPath: string, p: PromotionWrite): void {
   });
 }
 
+const UPSERT = `INSERT INTO promotions (local_id, env, tenant_id, remote_id, content_hash, matched, client_key, sent, confirm_pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (local_id, env, tenant_id) DO UPDATE SET
+         remote_id = excluded.remote_id, content_hash = excluded.content_hash, matched = excluded.matched,
+         client_key = excluded.client_key, sent = excluded.sent, confirm_pending = excluded.confirm_pending,
+         shared_at = datetime('now'), retracted_at = NULL`;
+
+/** Several rows in ONE transaction: all of them land or none do. */
+export function recordPromotions(dbPath: string, rows: readonly PromotionWrite[]): void {
+  if (rows.length === 0) return;
+  withDb(dbPath, (db) => {
+    const up = db.prepare(UPSERT);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const p of rows) up.run(p.localId, p.env, p.tenantId, p.remoteId, p.contentHash, p.matched ? 1 : 0, p.clientKey, JSON.stringify([...new Set(p.sent)]), p.confirmPending ? 1 : 0);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  });
+}
+
 export function markRetracted(dbPath: string, localId: string, env: string, tenantId: string): void {
   withDb(dbPath, (db) => {
     db.prepare(`UPDATE promotions SET retracted_at = datetime('now') WHERE local_id = ? AND env = ? AND tenant_id = ?`).run(localId, env, tenantId);

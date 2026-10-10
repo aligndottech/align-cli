@@ -10,7 +10,7 @@
  */
 import { existingTitles, type Judge, listJudgements } from '../curation/judgements-db.js';
 import { createLocalDb, type DecisionRow } from '../local-db.js';
-import { getLegacyPromotion, getPromotion, listPromotions, markRetracted, type Promotion, recordPromotion } from './ledger.js';
+import { getLegacyPromotion, getPromotion, listPromotions, markRetracted, type Promotion, type PromotionWrite, recordPromotion, recordPromotions } from './ledger.js';
 import { visible } from './visible.js';
 import { buildSharePayload, clientKeyFor, type SharePayload } from './payload.js';
 import { type Destination, renderPreview } from './preview.js';
@@ -160,68 +160,84 @@ function storedHashes(p: SharePayload, results: JudgementResult[] | null): strin
   return p.shown.flatMap((s, i) => (results[i]?.ok === true ? [s.hash] : []));
 }
 
+interface Item {
+  p: SharePayload;
+  outcome: ItemOutcome;
+  live: boolean;
+  prior: Promotion | null;
+  stored: Set<string>;
+  warnings: string[];
+  confirmPending: boolean;
+  failures: Array<{ index: number; error: string }>;
+}
+
+/**
+ * The ledger row an outcome implies, from the FIRST response alone, or null when nothing was written
+ * (refused, unknown). Matched and skipped rows are `matched` (not ours to archive); an update of something
+ * this machine never shared is treated the same way, with a warning.
+ */
+function initialRow(ctx: ShareContext, prep: Prepared, it: Item): PromotionWrite | null {
+  const { p, outcome } = it;
+  const base = { localId: p.localId, env: ctx.envName, tenantId: prep.tenantId, contentHash: p.fullHash, clientKey: p.item.client_key, sent: [...it.stored], confirmPending: it.confirmPending };
+  switch (outcome.kind) {
+    case 'created': return { ...base, remoteId: outcome.remoteId, matched: false };
+    case 'updated': return { ...base, remoteId: outcome.remoteId, matched: it.live ? it.prior!.matched : true };
+    case 'matched': return { ...base, remoteId: outcome.remoteId, matched: true };
+    case 'skipped': return { ...base, remoteId: outcome.remoteId, matched: true };
+    default: return null;
+  }
+}
+
 export async function send(ctx: ShareContext, prep: Prepared, hooks: SendHooks = {}): Promise<RowResult[]> {
   const results: RowResult[] = [];
   for (let at = 0; at < prep.payloads.length; at += SHARE_BATCH_ITEMS) {
     const batch = prep.payloads.slice(at, at + SHARE_BATCH_ITEMS);
     const outcomes = await postBatch(ctx, batch);
-    for (const [k, p] of batch.entries()) {
+    const items: Item[] = batch.map((p, k) => {
       const outcome = outcomes[k]!;
       const prior = prep.priors.get(p.localId) ?? null;
       const live = prior !== null && prior.retractedAt === null;
-      const stored = new Set(live ? prior.sent : []);
-      const warnings: string[] = [];
-      const note = (reports: JudgementResult[] | null, forPayload: SharePayload) => { for (const h of storedHashes(forPayload, reports)) stored.add(h); };
-      let confirmPending = false;
-      let failures = 'judgements' in outcome ? failedJudgements(outcome.judgements) : [];
-
+      const it: Item = { p, outcome, live, prior, stored: new Set(live ? prior.sent : []), warnings: [], confirmPending: false, failures: 'judgements' in outcome ? failedJudgements(outcome.judgements) : [] };
+      if ('judgements' in outcome) for (const h of storedHashes(p, outcome.judgements)) it.stored.add(h);
       if ('judgements' in outcome && outcome.judgements === null && p.item.judgements.length > 0) {
-        warnings.push(`this gateway did not report what happened to your ${p.item.judgements.map((j) => j.kind).join(', ')}: they were not stored as far as can be told, so they stay unsent here and your ratify was not stored by this gateway. Check your team graph.`);
+        it.warnings.push(`this gateway did not report what happened to your ${p.item.judgements.map((j) => j.kind).join(', ')}: they were not stored as far as can be told, so they stay unsent here and your ratify was not stored by this gateway. Check your team graph.`);
       }
-      if (outcome.kind === 'matched') {
-        note(outcome.judgements, p);
-        if (outcome.needsConfirmation.length > 0) {
-          confirmPending = true;
-          let team: TeamDecision | null = null;
-          if (outcome.teamTextHash && hooks.confirmTeamText) team = await ctx.client.getDecision(outcome.remoteId).catch(() => null);
-          if (team !== null && !('decision_json' in team)) {
-            warnings.push('the team\'s full text could not be read from this gateway, so your ratify was not confirmed.');
-            team = null;
-          }
-          const agreed = team !== null && await hooks.confirmTeamText!({ localId: p.localId, title: p.item.title, team });
-          if (agreed) {
-            // Re-post ONLY what waited: a note or check verdict already stored must not be posted a second time.
-            const need = new Set(outcome.needsConfirmation.map((n) => n.judgement_index));
-            const hash = outcome.teamTextHash;
-            const waiting = p.shown.filter((_, i) => need.has(i));
-            const again: SharePayload = { ...p, shown: waiting, item: { ...p.item, judgements: waiting.map((s) => ({ ...s.wire, confirm_team_text_hash: hash! })) } };
-            const second = (await postBatch(ctx, [again]))[0]!;
-            if (second.kind === 'matched') {
-              note(second.judgements, again);
-              const left = failedJudgements(second.judgements);
-              confirmPending = left.length > 0;
-              failures = left;
-            }
+      if (outcome.kind === 'updated' && !live) it.warnings.push('the gateway answered this as an existing team decision, so it is recorded as not yours to retract.');
+      if (outcome.kind === 'matched') it.confirmPending = outcome.needsConfirmation.length > 0;
+      return it;
+    });
+    // Record EVERY item the first response named, in ONE write, before anything that can throw (the team-text
+    // fetch, the confirmation re-post, a later batch): a 502 or a kill after this point cannot orphan a
+    // decision that now exists on the team graph and is retractable only through this row.
+    recordPromotions(ctx.dbPath, items.flatMap((it) => { const r = initialRow(ctx, prep, it); return r ? [r] : []; }));
+
+    for (const it of items) {
+      const { p, outcome } = it;
+      if (outcome.kind === 'matched' && outcome.needsConfirmation.length > 0) {
+        let team: TeamDecision | null = null;
+        if (outcome.teamTextHash && hooks.confirmTeamText) team = await ctx.client.getDecision(outcome.remoteId).catch(() => null);
+        if (team !== null && !('decision_json' in team)) {
+          it.warnings.push('the team\'s full text could not be read from this gateway, so your ratify was not confirmed.');
+          team = null;
+        }
+        const agreed = team !== null && await hooks.confirmTeamText!({ localId: p.localId, title: p.item.title, team });
+        if (agreed) {
+          // Re-post ONLY what waited: a note or check verdict already stored must not be posted a second time.
+          const need = new Set(outcome.needsConfirmation.map((n) => n.judgement_index));
+          const waiting = p.shown.filter((_, i) => need.has(i));
+          const again: SharePayload = { ...p, shown: waiting, item: { ...p.item, judgements: waiting.map((s) => ({ ...s.wire, confirm_team_text_hash: outcome.teamTextHash! })) } };
+          const second = (await postBatch(ctx, [again]))[0]!;
+          if (second.kind === 'matched') {
+            for (const h of storedHashes(again, second.judgements)) it.stored.add(h);
+            it.failures = failedJudgements(second.judgements);
+            it.confirmPending = it.failures.length > 0;
+            const row = initialRow(ctx, prep, it);
+            if (row) recordPromotion(ctx.dbPath, row);
           }
         }
-        failures = failures.filter((f) => f.error !== 'needs_confirmation' || confirmPending);
-      } else if ('judgements' in outcome) {
-        note(outcome.judgements, p);
       }
-
-      results.push({ localId: p.localId, title: p.item.title, outcome, judgementFailures: failures, warnings });
-      const base = { localId: p.localId, env: ctx.envName, tenantId: prep.tenantId, contentHash: p.fullHash, clientKey: p.item.client_key, sent: [...stored], confirmPending };
-      if (outcome.kind === 'created') {
-        recordPromotion(ctx.dbPath, { ...base, remoteId: outcome.remoteId, matched: false });
-      } else if (outcome.kind === 'updated') {
-        // An update of a decision this machine never shared: a gateway without share matching reuses the team's
-        // row at that source. It is not ours to archive, so it is recorded as matched, and the person is told.
-        if (!live) warnings.push('the gateway answered this as an existing team decision, so it is recorded as not yours to retract.');
-        recordPromotion(ctx.dbPath, { ...base, remoteId: outcome.remoteId, matched: live ? prior.matched : true });
-      } else if (outcome.kind === 'matched') {
-        // Recorded once the judgements that need no confirmation are stored; the confirmation is tracked separately.
-        recordPromotion(ctx.dbPath, { ...base, remoteId: outcome.remoteId, matched: true });
-      }
+      if (outcome.kind === 'matched') it.failures = it.failures.filter((f) => f.error !== 'needs_confirmation' || it.confirmPending);
+      results.push({ localId: p.localId, title: p.item.title, outcome, judgementFailures: it.failures, warnings: it.warnings });
     }
   }
   return results;

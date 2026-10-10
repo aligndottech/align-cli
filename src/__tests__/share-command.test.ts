@@ -518,3 +518,44 @@ describe('output that a stranger can influence', () => {
     expect(f.sent).toHaveLength(0);
   });
 });
+
+/** L9 second review, item 3: every item the first response named is recorded before anything that can throw. */
+describe('a failure after the first response', () => {
+  const batchReply = (): BatchResponse => ({
+    matched: [{ request_index: 0, existing_id: 'TEAM1', status: 'active', team_text_hash: 'a'.repeat(64), needs_confirmation: [{ kind: 'ratify', judgement_index: 0 }] }],
+    snapshots: [{ id: 'CREATED1', request_index: 1, is_new: true }],
+    judgements: [
+      { request_index: 0, decision_id: 'TEAM1', results: [{ ok: false, error: 'needs_confirmation' }] },
+      { request_index: 1, decision_id: 'CREATED1', results: [{ ok: true, stored: true }] },
+    ],
+  });
+  it('a 502 on the confirmation re-post does not orphan the created item: it has a ledger row and can be retracted', async () => {
+    const f = fixture(); const a = seed({ title: 'matched one' }); const b = seed({ title: 'created one' });
+    f.reply.current = (items, n) => { if (n === 1) return batchReply(); throw new Error('Gateway returned 502'); };
+    const base = f.deps.client();
+    f.deps.client = () => ({ ...base, shareBatch: async (items) => { f.sent.push(items); if (f.sent.length === 1) return batchReply(); throw new Error('Gateway returned 502'); } });
+    expect(await run(f, { ids: [a, b] })).toBe(1);
+    expect(f.sent).toHaveLength(2);
+    expect(getPromotion(dbPath, b, 'prod', 'T1')).toMatchObject({ remoteId: 'CREATED1', matched: false });
+    expect(getPromotion(dbPath, a, 'prod', 'T1')).toMatchObject({ remoteId: 'TEAM1', matched: true, confirmPending: true });
+    f.deps.client = () => base;
+    expect(await run(f, { retract: b })).toBe(0);
+    expect(f.archived).toEqual(['CREATED1']);
+  });
+  it('the control: with no failure the created item is recorded the same way', async () => {
+    const f = fixture(); const a = seed({ title: 'matched one' }); const b = seed({ title: 'created one' });
+    const base = f.deps.client();
+    f.deps.client = () => ({ ...base, shareBatch: async (items) => { f.sent.push(items); return f.sent.length === 1 ? batchReply() : { matched: [{ request_index: 0, existing_id: 'TEAM1', status: 'active' }], judgements: [{ request_index: 0, decision_id: 'TEAM1', results: [{ ok: true, stored: true }] }] }; } });
+    expect(await run(f, { ids: [a, b] })).toBe(0);
+    expect(getPromotion(dbPath, b, 'prod', 'T1')).toMatchObject({ remoteId: 'CREATED1', matched: false });
+  });
+  it('a skipped outcome keeps the hashes of the judgements the gateway did store, and is not retractable', async () => {
+    const f = fixture(); const id = seed(); note(id, 'kept');
+    f.reply.current = { skipped: [{ index: 0, reason: 'archived_in_team', existing_id: 'ARCH1' }], judgements: [{ request_index: 0, decision_id: 'ARCH1', results: [{ ok: true, stored: true }, { ok: true, stored: true }] }] };
+    await run(f, { ids: [id] });
+    const row = getPromotion(dbPath, id, 'prod', 'T1')!;
+    expect(row).toMatchObject({ remoteId: 'ARCH1', matched: true });
+    expect(row.sent).toHaveLength(2);
+    expect(await run(f, { retract: id })).toBe(1);
+  });
+});
