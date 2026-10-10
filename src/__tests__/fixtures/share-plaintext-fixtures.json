@@ -1,0 +1,133 @@
+[
+  {
+    "name": "minimal-share",
+    "kind": "share",
+    "tenant_id": "tenant-fixture-1",
+    "user_id": "user-fixture-1",
+    "envelope_id": "00000000-0000-4000-8000-000000000901",
+    "plaintext_json": "{\"v\":1,\"kind\":\"share\",\"tenant_id\":\"tenant-fixture-1\",\"gateway_url\":\"https://api.align.test\",\"decisions\":[{\"source_url\":\"align-local://decision/2fe13142bd64b7705bd198646b086426\",\"platform\":\"cli\",\"title\":\"Decision 1\",\"summary\":\"Summary of decision 1.\",\"raw_text\":\"Summary of decision 1.\",\"client_key\":\"2201d122-e605-5026-a1a9-2f0159209004\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}]}],\"display\":[{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]}]}",
+    "plaintext_sha256": "a83d49a11fd34c22a4a505156ebd7eb72af0d1c433ea0879d0a43d974c5788c5",
+    "expected_item_fields": [
+      "client_key",
+      "judgements",
+      "platform",
+      "raw_text",
+      "source_url",
+      "summary",
+      "title"
+    ],
+    "expected_judgement_fields": [
+      "judged_at",
+      "kind",
+      "origin"
+    ],
+    "expected_top_level_fields": [
+      "decisions",
+      "display",
+      "gateway_url",
+      "kind",
+      "tenant_id",
+      "v"
+    ]
+  },
+  {
+    "name": "rich-share",
+    "kind": "share",
+    "tenant_id": "tenant-fixture-1",
+    "user_id": "user-fixture-1",
+    "envelope_id": "00000000-0000-4000-8000-000000000902",
+    "plaintext_json": "{\"v\":1,\"kind\":\"share\",\"tenant_id\":\"tenant-fixture-1\",\"gateway_url\":\"https://api.align.test\",\"decisions\":[{\"source_url\":\"https://github.com/o/r/pull/2\",\"platform\":\"github\",\"title\":\"Decision 2\",\"summary\":\"Summary of decision 2.\",\"raw_text\":\"Summary of decision 2.\",\"client_key\":\"abb5b3fe-5fa3-5169-a1c7-ab192994de6f\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"},{\"kind\":\"note\",\"note\":\"Because it ships with node.\",\"judged_at\":\"2026-09-04T10:00:00.000Z\",\"origin\":\"local_share_mcp\",\"agent\":\"claude-code\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"}],\"display\":[{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null},{\"via\":\"mcp\",\"agent\":\"claude-code\",\"counterpart_title\":null}],\"left_local\":[{\"kind\":\"conflict_verdict\",\"why\":\"counterpart_not_shared\",\"counterpart_title\":\"Title of 07\"},{\"kind\":\"supersede\",\"why\":\"counterpart_not_shared\",\"counterpart_title\":\"Title of 08\"}]}]}",
+    "plaintext_sha256": "16396e119ecae2bb4c4c2cf07efeb455b8854adeda0588facd9c93d38dd08614",
+    "expected_item_fields": [
+      "client_key",
+      "decided_at",
+      "judgements",
+      "platform",
+      "raw_text",
+      "source_url",
+      "summary",
+      "title"
+    ],
+    "expected_judgement_fields": [
+      "agent",
+      "judged_at",
+      "kind",
+      "note",
+      "origin"
+    ],
+    "expected_top_level_fields": [
+      "decisions",
+      "display",
+      "gateway_url",
+      "kind",
+      "tenant_id",
+      "v"
+    ]
+  },
+  {
+    "name": "confirm-team-text",
+    "kind": "confirm_team_text",
+    "tenant_id": "tenant-fixture-1",
+    "user_id": "user-fixture-1",
+    "envelope_id": "00000000-0000-4000-8000-000000000903",
+    "plaintext_json": "{\"v\":1,\"kind\":\"confirm_team_text\",\"tenant_id\":\"tenant-fixture-1\",\"gateway_url\":\"https://api.align.test\",\"confirm\":{\"decision_id\":\"00000000-0000-4000-8000-000000000500\",\"team_text_hash\":\"643bc2b9cadf52f65f678bc716534d9ab23fb516b5586334963d15fce6d0d104\"},\"decisions\":[{\"source_url\":\"https://github.com/o/r/pull/3\",\"platform\":\"github\",\"title\":\"Decision 3\",\"summary\":\"Summary of decision 3.\",\"raw_text\":\"Summary of decision 3.\",\"client_key\":\"f39b8ee4-4d4e-5b50-ab55-69d374283310\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\",\"confirm_team_text_hash\":\"643bc2b9cadf52f65f678bc716534d9ab23fb516b5586334963d15fce6d0d104\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"}],\"display\":[{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]}]}",
+    "plaintext_sha256": "75380673f0689a8d243b11fadbc0d240ebfa5fae7f539b04a55eb03f63777e3b",
+    "expected_item_fields": [
+      "client_key",
+      "decided_at",
+      "judgements",
+      "platform",
+      "raw_text",
+      "source_url",
+      "summary",
+      "title"
+    ],
+    "expected_judgement_fields": [
+      "confirm_team_text_hash",
+      "judged_at",
+      "kind",
+      "origin"
+    ],
+    "expected_top_level_fields": [
+      "confirm",
+      "decisions",
+      "display",
+      "gateway_url",
+      "kind",
+      "tenant_id",
+      "v"
+    ]
+  },
+  {
+    "name": "ten-item-share",
+    "kind": "share",
+    "tenant_id": "tenant-fixture-1",
+    "user_id": "user-fixture-1",
+    "envelope_id": "00000000-0000-4000-8000-000000000904",
+    "plaintext_json": "{\"v\":1,\"kind\":\"share\",\"tenant_id\":\"tenant-fixture-1\",\"gateway_url\":\"https://api.align.test\",\"decisions\":[{\"source_url\":\"https://github.com/o/r/pull/20\",\"platform\":\"github\",\"title\":\"Decision 20\",\"summary\":\"Summary of decision 20.\",\"raw_text\":\"Summary of decision 20.\",\"client_key\":\"2ed604a5-368d-5532-af3b-1438282df885\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"},{\"source_url\":\"https://github.com/o/r/pull/21\",\"platform\":\"github\",\"title\":\"Decision 21\",\"summary\":\"Summary of decision 21.\",\"raw_text\":\"Summary of decision 21.\",\"client_key\":\"bec9a231-4b5d-56b2-a114-6a51d0eb742a\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"},{\"source_url\":\"https://github.com/o/r/pull/22\",\"platform\":\"github\",\"title\":\"Decision 22\",\"summary\":\"Summary of decision 22.\",\"raw_text\":\"Summary of decision 22.\",\"client_key\":\"c4811f54-6d99-5e8d-aa7f-7919384806a5\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"},{\"source_url\":\"https://github.com/o/r/pull/23\",\"platform\":\"github\",\"title\":\"Decision 23\",\"summary\":\"Summary of decision 23.\",\"raw_text\":\"Summary of decision 23.\",\"client_key\":\"1d7b6575-1df8-5d1b-ae07-eda8c3c7fcef\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"},{\"source_url\":\"https://github.com/o/r/pull/24\",\"platform\":\"github\",\"title\":\"Decision 24\",\"summary\":\"Summary of decision 24.\",\"raw_text\":\"Summary of decision 24.\",\"client_key\":\"b14c5ccd-63fb-5463-a517-53ea5eff7d84\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"},{\"source_url\":\"https://github.com/o/r/pull/25\",\"platform\":\"github\",\"title\":\"Decision 25\",\"summary\":\"Summary of decision 25.\",\"raw_text\":\"Summary of decision 25.\",\"client_key\":\"dc4959ef-eddb-5bb1-a3de-fe0a142aa7bc\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"},{\"source_url\":\"https://github.com/o/r/pull/26\",\"platform\":\"github\",\"title\":\"Decision 26\",\"summary\":\"Summary of decision 26.\",\"raw_text\":\"Summary of decision 26.\",\"client_key\":\"41bf66a1-b93e-5a47-ac6a-7304ea6e1d3d\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"},{\"source_url\":\"https://github.com/o/r/pull/27\",\"platform\":\"github\",\"title\":\"Decision 27\",\"summary\":\"Summary of decision 27.\",\"raw_text\":\"Summary of decision 27.\",\"client_key\":\"2aa18506-2773-5891-a7c0-b871d6461d81\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"},{\"source_url\":\"https://github.com/o/r/pull/28\",\"platform\":\"github\",\"title\":\"Decision 28\",\"summary\":\"Summary of decision 28.\",\"raw_text\":\"Summary of decision 28.\",\"client_key\":\"d5bdb53a-f464-532e-ab49-c5fd53a022e5\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"},{\"source_url\":\"https://github.com/o/r/pull/29\",\"platform\":\"github\",\"title\":\"Decision 29\",\"summary\":\"Summary of decision 29.\",\"raw_text\":\"Summary of decision 29.\",\"client_key\":\"b7bd7d09-9189-5886-ae8d-c24021bc340a\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"}],\"display\":[{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]},{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]},{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]},{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]},{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]},{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]},{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]},{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]},{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]},{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]}]}",
+    "plaintext_sha256": "f24930ad81e418a39538308da054fc0c5dc0a6ed70ea2cc3d96ea96a265e7808",
+    "expected_item_fields": [
+      "client_key",
+      "decided_at",
+      "judgements",
+      "platform",
+      "raw_text",
+      "source_url",
+      "summary",
+      "title"
+    ],
+    "expected_judgement_fields": [
+      "judged_at",
+      "kind",
+      "origin"
+    ],
+    "expected_top_level_fields": [
+      "decisions",
+      "display",
+      "gateway_url",
+      "kind",
+      "tenant_id",
+      "v"
+    ]
+  }
+]

@@ -4,7 +4,11 @@
  */
 import type { Command } from 'commander';
 import chalk from 'chalk';
+import os from 'node:os';
 import { createConfigStore, defaultGatewayUrlFor, type EnvName } from '../lib/config.js';
+import { resolveAppUrl } from '../lib/env-resolver.js';
+import { tryOpenUrl } from '../lib/open-url.js';
+import { abortableSleep } from '../lib/share/approval.js';
 import { defaultJudge } from '../lib/curation/judge.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveLocalIdentity } from '../lib/git.js';
@@ -24,9 +28,11 @@ export function registerShareCommand(program: Command): void {
     .option('--all-ratified', 'Share every decision you ratified')
     .option('--since <window>', 'With --all-ratified or alone: only decisions ratified in this window (30d, 2w, 6m)')
     .option('--yes', 'Not accepted: a share always needs your own answer at a terminal')
-    .option('--confirm <code>', 'Finish a share your agent previewed (needs your own terminal)')
+    .option('--confirm <code>', 'Finish a share your agent previewed (needs your own terminal; not used when shares are approved in the browser)')
+    .option('--no-open', 'Print the approval link without opening a browser')
+    .option('--typed', 'Answer at this terminal instead of approving in the browser (not accepted where the workspace requires browser approval)')
     .option('--retract <id>', 'Archive what you shared for this decision on your team graph')
-    .action(async (ids: string[], opts: { env?: EnvName; allRatified?: boolean; since?: string; yes?: boolean; confirm?: string; retract?: string }) => {
+    .action(async (ids: string[], opts: { env?: EnvName; allRatified?: boolean; since?: string; yes?: boolean; confirm?: string; retract?: string; typed?: boolean; open?: boolean }) => {
       if (opts.yes) {
         console.error(chalk.red('align share has no --yes: a share always needs your own answer, typed at a terminal. Nothing was sent.'));
         process.exit(2);
@@ -44,7 +50,7 @@ export function registerShareCommand(program: Command): void {
       const local = config.getEnvironment('local');
       const cloudEnv = config.getEnvironment(envName);
       const code = await runShare({
-        ids, allRatified: opts.allRatified, confirm: opts.confirm, retract: opts.retract, envName,
+        ids, allRatified: opts.allRatified, confirm: opts.confirm, retract: opts.retract, typed: opts.typed, envName,
         sinceIso: opts.since === undefined ? undefined : sinceFromFlag(opts.since).since,
       }, {
         cloudEnv,
@@ -56,6 +62,19 @@ export function registerShareCommand(program: Command): void {
         owner: resolveLocalIdentity,
         ttyConfirm,
         wrapped: (process.env['ALIGN_WRAPPED'] ?? '') !== '',
+        approval: {
+          appUrl: resolveAppUrl(cloudEnv),
+          label: os.hostname(),
+          ...(opts.open === false ? {} : { openUrl: (url: string) => tryOpenUrl(url) }),
+          sleep: abortableSleep,
+          now: () => Date.now(),
+          guard: async (run) => {
+            const ac = new AbortController();
+            const onSigint = (): void => ac.abort();
+            process.once('SIGINT', onSigint);
+            try { return await run(ac.signal); } finally { process.removeListener('SIGINT', onSigint); }
+          },
+        },
         out: (l) => console.log(l),
         err: (l) => console.error(chalk.red(l)),
       } satisfies ShareDeps);

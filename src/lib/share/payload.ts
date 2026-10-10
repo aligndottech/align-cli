@@ -210,3 +210,13 @@ export function buildSharePayload(input: BuildInput): SharePayload {
   const item: WireItem = { ...base, judgements: sending.map((x) => x.wire) };
   return { localId: row.id, item, shown: sending, leftLocal, deferredPairs, hash: hashItem(item), fullHash: hashItem({ ...base, judgements: everything }) };
 }
+
+/**
+ * The `decisions` array of POST /ingest/batch for share items: verbatim except the one rename `created_at` ->
+ * `decided_at` (the gateway's schema takes the second and strips the first). The ONE place that rename happens
+ * for a share: `shareBatch` (the typed path) and the sealed request (the browser path) both call it, so the
+ * bytes a person approves are the bytes the gateway ingests.
+ */
+export function toBatchDecisions(items: ReadonlyArray<Record<string, unknown> & { created_at?: string }>): Array<Record<string, unknown>> {
+  return items.map(({ created_at, ...rest }) => ({ ...rest, ...(created_at ? { decided_at: created_at } : {}) }));
+}

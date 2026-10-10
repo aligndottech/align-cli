@@ -49,7 +49,9 @@ describe('the local MCP tool list leads with the check (ALI-139)', () => {
     expect(names).toContain('align_mark');
     // L9 appended align_share (it only previews and issues a code, so it is not a write).
     expect(names).toContain('align_share');
-    expect(names).toHaveLength(16);
+    // ALI-1540 appended align_share_status (once the user approves in a browser, it completes the share, so it is a write).
+    expect(names).toContain('align_share_status');
+    expect(names).toHaveLength(17);
   });
 });
 
