@@ -97,8 +97,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     });
     await run(['connect', 'git']);
     const printed = logSpy.mock.calls.flat().join('\n');
-    // L3: a windowed read states its window instead of "of up to N requested".
-    expect(printed).toContain('Git: imported 3 commits from the last 6 months');
+    expect(printed).toContain('Git: 3 commits');
     expect(printed).toContain('2 commits stated no reason beyond the subject');
     expect(printed).toContain('5 commits with a mechanical');            // 10 - 3 - 2
     expect(printed).not.toContain('7 commits');                         // the conflated number
@@ -114,8 +113,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     });
     await run(['connect', 'git', '--limit', '10']);
     const printed = logSpy.mock.calls.flat().join('\n');
-    // L3: the scan hit its bound, so the line says the read is not the whole window and why.
-    expect(printed).toContain('Git: imported 3 commits, read stopped early (not the last 6 months): stopped at the ceiling of 10');
+    expect(printed).toContain('Git: 3 commits of up to 10 requested');
   });
 
   // ALI-829: the row's decided_at comes from the commit's own date, so the command has to
@@ -141,8 +139,41 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     });
     await run(['connect', 'git']);
     const printed = logSpy.mock.calls.flat().join('\n');
-    expect(printed).toContain('Git: imported 8 commits from the last 6 months');
+    expect(printed).toContain('Git: 8 commits');
     expect(printed).not.toContain('stated no reason');
     expect(printed).not.toContain('mechanical subject');
+  });
+
+  // L3 review 7: git stays what it was (the newest 500, however old) unless --since is passed.
+  describe('the window is opt-in for git', () => {
+    const repoOldNewest = { commits: [commit], scanned: 1, rejectedByRationale: 0 };
+
+    it('by default asks git for the newest 500 with no lower bound, so a repo whose newest commit is 400 days old still imports', async () => {
+      vi.mocked(getCommitHistoryDetailed).mockResolvedValue({ ...repoOldNewest, commits: [{ ...commit, date: '2025-09-05T00:00:00Z' }] });
+      await run(['connect', 'git']);
+      const asked = vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0];
+      expect(asked.limit).toBe(500);
+      expect(asked.from).toBeUndefined();
+      const printed = logSpy.mock.calls.flat().join('\n');
+      expect(printed).toContain('Git: 1 commits');
+      expect(printed).not.toMatch(/from the last/);
+    });
+
+    it('with --since 30d it sends the lower bound, lifts the scan bound to the ceiling, and says the window', async () => {
+      vi.mocked(getCommitHistoryDetailed).mockResolvedValue(repoOldNewest);
+      await run(['connect', 'git', '--since', '30d']);
+      const asked = vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0];
+      expect(asked.limit).toBe(5000);
+      expect(Math.round((Date.now() - Date.parse(asked.from!)) / 86_400_000)).toBe(30);
+      expect(logSpy.mock.calls.flat().join('\n')).toContain('Git: imported 1 commits from the last 30 days');
+    });
+
+    it('an explicit --limit wins over the ceiling, and an explicit --from over --since', async () => {
+      vi.mocked(getCommitHistoryDetailed).mockResolvedValue(repoOldNewest);
+      await run(['connect', 'git', '--since', '30d', '--limit', '40', '--from', '2025-01-01']);
+      const asked = vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0];
+      expect(asked.limit).toBe(40);
+      expect(asked.from).toBe('2025-01-01');
+    });
   });
 });

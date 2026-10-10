@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  GIT_DEFAULT_LIMIT,
   GITHUB_DISCUSSION_BUDGET,
   SYNC_CEILINGS,
   SYNC_TIME_BUDGET_MS,
@@ -38,9 +39,9 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
       const src = readFileSync(path.join(IMPORT_DIR, `${id}.ts`), 'utf8');
       // The default is either the table reference or a quoted literal; capturing both
       // forms is what lets a literal FAIL the equality below rather than not match at all.
-      const m = src.match(/\.option\('--limit <n>', '[^']*', (String\(SYNC_CEILINGS\.\w+\)|'[^']*')\)/);
+      const m = src.match(/\.option\('--limit <n>', '[^']*', (String\((?:SYNC_CEILINGS\.\w+|GIT_DEFAULT_LIMIT)\)|'[^']*')\)/);
       expect(m, `${id}.ts declares --limit`).not.toBeNull();
-      expect(m![1], `${id}.ts --limit default`).toBe(`String(SYNC_CEILINGS.${id})`);
+      expect(m![1], `${id}.ts --limit default`).toBe(id === 'git' ? 'String(GIT_DEFAULT_LIMIT)' : `String(SYNC_CEILINGS.${id})`);
     }
   });
 
@@ -56,9 +57,11 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
     // nothing for `align setup`'s cloud/local onboarding to wire up, so it is exempt from
     // this loop the same way docs is, rather than forcing a fetch-shaped entry that would
     // not fire.
-    for (const id of commandIds.filter((c) => c !== 'docs' && c !== 'sessions')) {
+    for (const id of commandIds.filter((c) => c !== 'docs' && c !== 'sessions' && c !== 'git')) {
       expect(buildSources, `setup reads SYNC_CEILINGS.${id} through fetchWindow`).toContain(`fetchWindow('${id}'`);
     }
+    // git is unwindowed by default (L3 review 7): it reads GIT_DEFAULT_LIMIT, not the window table.
+    expect(buildSources).toContain('limit: GIT_DEFAULT_LIMIT');
     // Both docs sites (the local value phase and cloud setup), and no literal anywhere in
     // the file - `toContain` alone is satisfied while the other site regresses.
     expect(src.match(/fetchDocsItems\(\{ limit: SYNC_CEILINGS\.docs \}\)/g)).toHaveLength(2);
@@ -75,6 +78,7 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
     expect(SYNC_WINDOW_DEFAULT_DAYS).toBe(180);
     expect(SYNC_TIME_BUDGET_MS).toBe(8 * 60_000);
     expect(GITHUB_DISCUSSION_BUDGET).toBe(600);
+    expect(GIT_DEFAULT_LIMIT).toBe(500);
   });
 
   it('marks exactly the ceilings P0 could not measure as PROVISIONAL, and says why on the line', () => {

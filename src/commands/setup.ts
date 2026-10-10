@@ -18,7 +18,7 @@ import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
 import { createCaptureCollector, toCaptureSource } from '../lib/capture-report.js';
 import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
-import { SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
+import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
 import { fetchWindow, parseSince, type SyncWindow, windowLabel } from '../lib/since.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { loginInteractive } from '../lib/login-flow.js';
@@ -89,9 +89,10 @@ function buildSources(gitAvailable: boolean): SetupSource[] {
       id: 'git',
       ...CAPTURE_SOURCES.git,
       description: 'Commit history from this repo - no token needed',
-      fetch: async (_t, w = parseSince(undefined)) => {
+      fetch: async () => {
         const { fetchGitItems } = await import('../lib/fetchers/git.js');
-        return fetchGitItems({ ...fetchWindow('git', w) });
+        // The newest commits however old, as before the window (GIT_DEFAULT_LIMIT); only --since changes it.
+        return fetchGitItems({ limit: GIT_DEFAULT_LIMIT });
       },
     });
   }
@@ -601,7 +602,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     try {
       const gitSource = buildSources(true).find(s => s.id === 'git')!;
       const fetched = await gitSource.fetch({});
-      capture.add(toCaptureSource(gitSource, fetched, windowLabel(SYNC_WINDOW_DEFAULT_DAYS)));
+      capture.add(toCaptureSource(gitSource, fetched));
       const { items } = fetched;
       if (items.length) {
         gitSpinner.stop(`Found ${items.length} commits worth importing`);
@@ -1326,7 +1327,7 @@ async function runCloudSetup(ctx: {
     try {
       const gitSource = buildSources(true).find(s => s.id === 'git')!;
       const fetched = await gitSource.fetch({});
-      capture.add(toCaptureSource(gitSource, fetched, windowLabel(SYNC_WINDOW_DEFAULT_DAYS)));
+      capture.add(toCaptureSource(gitSource, fetched));
       const { items } = fetched;
       // Stop the scan spinner before runPersonalImport - it starts its own
       // progress spinner, and two animated spinners on one line flicker.

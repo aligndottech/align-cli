@@ -33,10 +33,15 @@ export const SYNC_CEILINGS = {
   notion: 1_000,     // PROVISIONAL: 2+ calls per page at about 3 req/s; 1,000 pages is about 11 min, so the time budget binds.
   teams: 1_000,      // PROVISIONAL: token dead in P0.
   zoom: 200,         // PROVISIONAL: one transcript download per meeting.
-  git: 5_000,        // scan bound for `git log`; the window narrows it (`from`), so it rarely binds.
+  git: 5_000,        // scan bound for `git log` WHEN --since is given; the default is GIT_DEFAULT_LIMIT.
   docs: 500,         // repo ADRs and doc sections; not a windowed read.
   sessions: 250,     // review candidates per run; not a windowed read.
 } as const satisfies Record<SourceId, number>;
+
+/** Git is the one source whose default is NOT the window: the newest 500 commits however old, as
+ *  before L3. A window is opt-in (`--since`), and only then does the scan bound rise to
+ *  SYNC_CEILINGS.git. (A 400-day-old repo would otherwise import nothing by default.) */
+export const GIT_DEFAULT_LIMIT = 500;
 
 /** The SDK's own Slack budget (`SLACK_TIME_BUDGET_MS`), applied to every windowed source: the
  *  journey-2 promise is that the full window finishes within 8 minutes, or says what it cut. */
