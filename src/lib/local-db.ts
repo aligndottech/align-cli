@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } from './local-db-migrate.js';
 import type { DeciderKind } from './decider-kind.js';
+import { bumpRowSetEpoch, rowSetEpoch } from './local-db-epoch.js';
 import { foldKeylessTwin } from './local-db-v7.js';
 import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
 
@@ -174,6 +175,7 @@ export function createLocalDb(dbPath: string) {
     ).run(randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
   }
 
+  let dataVersionStmt: ReturnType<typeof db.prepare> | undefined;
   const api = {
     /**
      * Insert, or refresh the decision that already carries this `source_url`, returning the id
@@ -335,23 +337,15 @@ export function createLocalDb(dbPath: string) {
      * one. Adopt it as the keyed row, or fold it with the row that already holds the key (the
      * attested one survives). ingestOne calls this BEFORE it looks the item up, so the text it
      * protects and embeds is the survivor's. No-op for an unkeyed call.
-     *
-     * Returns true when a row was DELETED (folded into its holder): a caller holding a copy of
-     * the graph's embeddings (ingestBatch's matrix) must drop it, because the twin's vector is
-     * gone. Adopting the twin as the keyed row deletes nothing and returns false.
      */
-    foldPendingTwin(sourceUrl: string | null, title: string, platform: string, keyed?: boolean): boolean {
+    foldPendingTwin(sourceUrl: string | null, title: string, platform: string, keyed?: boolean): void {
       const key = keyed ? connectorItemKey(platform, sourceUrl) : undefined;
-      if (key === undefined) return false;
+      if (key === undefined) return;
       const twin = db.prepare(`SELECT id FROM decisions WHERE source_url = ? AND title = ? AND source_key IS NULL`).get(sourceUrl, title) as { id: string } | undefined;
-      if (!twin) return false;
+      if (!twin) return;
       const holder = db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined;
-      if (!holder) {
-        db.prepare(`UPDATE decisions SET source_key = ? WHERE id = ?`).run(key, twin.id);
-        return false;
-      }
-      foldKeylessTwin(db, twin.id, holder.id, key);
-      return true;
+      if (holder) foldKeylessTwin(db, twin.id, holder.id, key);
+      else db.prepare(`UPDATE decisions SET source_key = ? WHERE id = ?`).run(key, twin.id);
     },
 
     /** A capture of a URL a connector already imported: audit it, change nothing, return the row. */
@@ -471,14 +465,13 @@ export function createLocalDb(dbPath: string) {
      * newer fetcher DROPS (bot output only) is never re-imported and so is never reconciled
      * here; that residue is noise, not a duplicate, and the sweep is what catches it.
      */
-    deleteSlackTombstoneTwin(sourceUrl: string | null): boolean {
+    deleteSlackTombstoneTwin(sourceUrl: string | null): void {
       const identity = identifyingSourceUrl(sourceUrl);
-      if (identity === null) return false;
+      if (identity === null) return;
       const twins = db.prepare(
         `SELECT id FROM decisions WHERE platform = 'slack' AND source_url = ? AND title = ?`,
       ).all(identity, SLACK_TOMBSTONE_TITLE) as Array<{ id: string }>;
       for (const { id } of twins) deleteDecisionWithDependents(db, id);
-      return twins.length > 0;
     },
 
     /** Distinct repo identities known to this graph, for resolving a `--repo <name>` argument
@@ -529,6 +522,9 @@ export function createLocalDb(dbPath: string) {
      * (local-gateway-client.ts's ingestOne) always passes EMBEDDING_MODEL_ID.
      */
     setEmbedding(decisionId: string, embedding: Float32Array, model?: string): void {
+      // Replacing a vector changes what a copy of the embeddings should hold; a first write
+      // only adds a row, which the writer appends itself. (rowSetEpoch's contract.)
+      if (db.prepare('SELECT 1 FROM decision_embeddings WHERE decision_id = ?').get(decisionId)) bumpRowSetEpoch(db);
       db.prepare(
         `INSERT OR REPLACE INTO decision_embeddings (decision_id, embedding, model) VALUES (?, ?, ?)`
       ).run(decisionId, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength), model ?? null);
@@ -748,7 +744,28 @@ export function createLocalDb(dbPath: string) {
       // decision_refs listed explicitly: SQLite leaves foreign_keys OFF unless asked,
       // so the schema's ON DELETE CASCADE never fires (same fact the v2 migration
       // documents above).
+      bumpRowSetEpoch(db);
       db.exec(`DELETE FROM decision_refs; DELETE FROM decision_links; DELETE FROM decision_embeddings; DELETE FROM decisions;`);
+    },
+
+    /** Goes up whenever a decision is deleted or re-id'd or an embedding is deleted or replaced
+     *  on this connection (see local-db-epoch.ts). A holder of a copy of the embeddings
+     *  compares it to the value it built at. */
+    rowSetEpoch(): number {
+      return rowSetEpoch(db);
+    },
+
+    /** SQLite's data_version: changes when ANOTHER connection commits (another process, an
+     *  MCP server, a second CLI), never for this connection's own writes. The cross-process
+     *  half of "has the graph moved under my copy of it". */
+    dataVersion(): number {
+      return (dataVersionStmt ??= db.prepare('PRAGMA data_version')).get()!['data_version'] as number;
+    },
+
+    /** Stored embeddings of every model: an upper bound on what a matrix would hold, read
+     *  before building one so a huge graph is never loaded just to be refused. */
+    countEmbeddings(): number {
+      return (db.prepare('SELECT COUNT(*) AS n FROM decision_embeddings').get() as { n: number }).n;
     },
 
     close(): void {

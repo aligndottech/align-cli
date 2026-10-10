@@ -52,4 +52,22 @@ describe('ingestBatch reads stored embeddings once', () => {
     expect(spies[0]).toHaveBeenCalledTimes(1);
     client.close();
   });
+
+  it('falls back to the per-item scan, reading the table each item, once the graph passes the row cap', async () => {
+    const client = createLocalGatewayClient(dbPath, { matrixMaxRows: 5 });
+    await client.ingestBatch(items(8, 'seed'), { classify: false, keyed: true });
+    spies[0]!.mockClear();
+    await client.ingestBatch(items(6, 'next'), { classify: false, keyed: true });
+    expect(spies[0]).toHaveBeenCalledTimes(6);   // 8 stored > cap 5: streaming, one read per item
+    client.close();
+  });
+
+  it('keeps the matrix at or under the cap', async () => {
+    const client = createLocalGatewayClient(dbPath, { matrixMaxRows: 9 });
+    await client.ingestBatch(items(8, 'seed'), { classify: false, keyed: true });
+    spies[0]!.mockClear();
+    await client.ingestBatch(items(6, 'next'), { classify: false, keyed: true });
+    expect(spies[0]).toHaveBeenCalledTimes(1);   // 8 stored plus the item being linked is 9, cap 9: the matrix is still allowed
+    client.close();
+  });
 });

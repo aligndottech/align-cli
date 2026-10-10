@@ -3,7 +3,7 @@ import { type ClassificationOutcome, classifyRelationship } from './local-relati
 import { hasConfiguredProvider } from './local-llm.js';
 import { selectForClassification } from './local-ingest.js';
 import { RELATED_FLOOR, RELATED_TOP_K, SIMILARITY_THRESHOLD } from './local-thresholds.js';
-import type { EmbeddingMatrix } from './similarity/embedding-matrix.js';
+import type { Ranker } from './similarity/embedding-matrix.js';
 
 type LocalDb = ReturnType<typeof createLocalDb>;
 
@@ -11,10 +11,10 @@ type LocalDb = ReturnType<typeof createLocalDb>;
  *  write the edges. Returns the candidates it linked.
  *
  *  Moved out of local-gateway-client.ts (LB) so that file stays under its size limit; the
- *  ranking itself now reads `matrix`, the in-memory copy of every stored embedding, instead
- *  of re-reading the table per item. */
+ *  ranking itself goes through `ranker`: the in-memory matrix of every stored embedding, or
+ *  the streaming scan on a graph too large for one. */
 export async function linkPass(
-  db: LocalDb, matrix: EmbeddingMatrix,
+  db: LocalDb, ranker: Ranker,
   id: string, embedding: Float32Array, title: string, summary: string, classify: boolean | undefined,
 ): Promise<Array<{ decisionId: string; score: number }>> {
   // One ranked pass, two rules united. Absolute (>= SIMILARITY_THRESHOLD, cap 10)
@@ -22,7 +22,7 @@ export async function linkPass(
   // the cross-tool edges live between those two lines (see RELATED_FLOOR's note).
   // If the top-K are all absolute matches the relative rule adds nothing, which is
   // the correct degenerate case rather than a special one.
-  const ranked = matrix.topK(embedding, 10, { excludeId: id, threshold: 0 });
+  const ranked = await ranker.topK(embedding, 10, { excludeId: id, threshold: 0 });
   const candidates = ranked.filter(
     (c, i) => c.score >= SIMILARITY_THRESHOLD || (i < RELATED_TOP_K && c.score >= RELATED_FLOOR),
   );

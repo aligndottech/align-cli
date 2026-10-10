@@ -17,6 +17,23 @@
 
 export interface Scored { decisionId: string; score: number }
 
+/** Anything that can rank the graph against a query: the matrix, or the streaming scan that
+ *  stands in for it on a graph too large to hold in memory. */
+export interface Ranker {
+  topK(query: Float32Array, k: number, opts?: { excludeId?: string; threshold?: number }): Scored[] | Promise<Scored[]>;
+}
+
+/**
+ * Above this many stored embeddings ingest does not build a matrix and ranks by streaming the
+ * table per item, as it did before the matrix existed. Memory: a 384-dim row is 1,536 bytes of
+ * Float32 plus its id and norm, so about 1.5 KB per row, i.e. roughly 230 MB at 150,000 rows.
+ * Building reads every row out of SQLite first, so the transient peak is about 2.5x the
+ * matrix (the decoded rows, the contiguous copy, and growth headroom) until the rows are
+ * released. The cap keeps that peak near 600 MB. Measured graphs are in the thousands of rows;
+ * this is a guard for the pathological case, not a tuning knob.
+ */
+export const MATRIX_MAX_ROWS = 150_000;
+
 /** The one writer of the "different model" error, shared with cosineSimilarity. */
 export function embeddingLengthMismatch(a: number, b: number): Error {
   return new Error(
@@ -27,7 +44,7 @@ export function embeddingLengthMismatch(a: number, b: number): Error {
 
 const INITIAL_ROWS = 256;
 
-export class EmbeddingMatrix {
+export class EmbeddingMatrix implements Ranker {
   private dim = -1;
   private data = new Float32Array(0);
   private sqrtNorms = new Float64Array(0);

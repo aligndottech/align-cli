@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EmbeddingMatrix } from '../lib/similarity/embedding-matrix.js';
+import { EmbeddingMatrix, MATRIX_MAX_ROWS } from '../lib/similarity/embedding-matrix.js';
 import { cosineSimilarity } from '../lib/local-embeddings.js';
 
 // Deterministic, NOT unit-length on purpose: the matrix must score exactly like the legacy
@@ -73,6 +73,21 @@ describe('EmbeddingMatrix.topK', () => {
   });
 });
 
+describe('EmbeddingMatrix NaN scores', () => {
+  // A stored vector holding NaN scores NaN. The old scan dropped it (`NaN >= threshold` is
+  // false); `score < threshold` would keep it, because that is false too. Pinned both ways.
+  it('drops a NaN-score row whether or not a threshold is given', () => {
+    const m = EmbeddingMatrix.fromRows([
+      { decisionId: 'nan', embedding: Float32Array.from([NaN, 1]) },
+      { decisionId: 'ok', embedding: Float32Array.from([1, 1]) },
+    ]);
+    const q = Float32Array.from([1, 1]);
+    expect(m.topK(q, 5).map(r => r.decisionId)).toEqual(['ok']);
+    expect(m.topK(q, 5, { threshold: 0 }).map(r => r.decisionId)).toEqual(['ok']);
+    expect(m.topK(q, 5, { threshold: -Infinity }).map(r => r.decisionId)).toEqual(['ok']);
+  });
+});
+
 describe('EmbeddingMatrix.add', () => {
   it('makes a row found by the next query, with no reload', () => {
     const m = EmbeddingMatrix.fromRows(rows(5));
@@ -109,5 +124,11 @@ describe('EmbeddingMatrix length mismatch', () => {
     expect(() => EmbeddingMatrix.fromRows([
       { decisionId: 'a', embedding: vec(4) }, { decisionId: 'b', embedding: vec(5) },
     ])).toThrow(/Embedding length mismatch/);
+  });
+});
+
+describe('MATRIX_MAX_ROWS', () => {
+  it('is the documented 150,000-row guard', () => {
+    expect(MATRIX_MAX_ROWS).toBe(150_000);
   });
 });

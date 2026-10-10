@@ -35,7 +35,13 @@ export interface IngestOptions {
 
 /** State shared by the ingests of ONE run (ingestBatch). `matrix` is the graph's embeddings,
  *  loaded on first use. Absent for a single capture, which then loads its own. */
-export interface IngestSession { matrix?: EmbeddingMatrix }
+export interface IngestSession {
+  matrix?: EmbeddingMatrix;
+  /** db.rowSetEpoch() and db.dataVersion() when `matrix` was built (or last brought current by
+   *  this run's own write). Either one moving means the graph changed under the copy. */
+  epoch?: number;
+  dataVersion?: number;
+}
 
 export interface LocalBatchItem {
   source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string;

@@ -1,4 +1,4 @@
-import { createLocalDb, type DecisionRow, type LinkRow, normaliseDecidedAt } from './local-db.js';
+import { createLocalDb, type DecisionRow, identifyingSourceUrl, type LinkRow, normaliseDecidedAt } from './local-db.js';
 import { deriveDeciderKind } from './decider-kind.js';
 import { currentRepoIdentity, repoFromSourceUrl } from './repo-identity.js';
 import { cosineSimilarity, EMBEDDING_MODEL_ID, getEmbedding } from './local-embeddings.js';
@@ -9,7 +9,7 @@ import { localCitationFor } from './commit-cite.js';
 import { extractRefs, refIdentityFor } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
 import { linkPass } from './local-link-pass.js';
-import { EmbeddingMatrix } from './similarity/embedding-matrix.js';
+import { EmbeddingMatrix, MATRIX_MAX_ROWS, type Ranker } from './similarity/embedding-matrix.js';
 import { captureFieldsForUrl, type IngestOptions, type IngestResult, type IngestSession, ingestStep, type LocalBatchItem, type LocalBatchOptions } from './local-ingest.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
@@ -42,7 +42,7 @@ function provenanceOf(row: Pick<DecisionRow, 'deciderKind' | 'ratifiedBy' | 'rat
   };
 }
 
-export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: string } = {}) {
+export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: string; matrixMaxRows?: number } = {}) {
   const db = createLocalDb(dbPath);
 
   // Memoized: every retrieval call in one command invocation (a single `align ask`, one
@@ -218,11 +218,26 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     return {};
   }
 
-  /** The graph's embeddings as one in-memory matrix, read from SQLite on first use and then
-   *  kept for the run (`session`), so ranking N items reads the table once, not N times.
+  /** What ranks a new item against the graph. Normally the in-memory matrix of every stored
+   *  embedding, read from SQLite on first use and kept for the run (`session`) so N items read
+   *  the table once. A kept matrix is trusted only while nothing under it moved: rowSetEpoch
+   *  (this connection deleted or replaced rows, whichever code path did it) and dataVersion
+   *  (ANOTHER connection committed) must both match what it was built at, else it is rebuilt.
+   *  Above the row cap there is no matrix and each item streams the table, as before.
    *  Model-filtered exactly as findSimilar is: a stale-model vector must not be scored. */
-  function matrixFor(session: IngestSession): EmbeddingMatrix {
-    return (session.matrix ??= EmbeddingMatrix.fromRows(db.getAllEmbeddings({ model: EMBEDDING_MODEL_ID })));
+  function rankerFor(session: IngestSession): Ranker {
+    const epoch = db.rowSetEpoch();
+    const dataVersion = db.dataVersion();
+    if (session.matrix === undefined || session.epoch !== epoch || session.dataVersion !== dataVersion) {
+      session.matrix = undefined;
+      if (db.countEmbeddings() > (clientOpts.matrixMaxRows ?? MATRIX_MAX_ROWS)) {
+        return { topK: (q, k, o) => findSimilar(q, k, o?.threshold ?? 0, o?.excludeId) };
+      }
+      session.matrix = EmbeddingMatrix.fromRows(db.getAllEmbeddings({ model: EMBEDDING_MODEL_ID }));
+      session.epoch = epoch;
+      session.dataVersion = dataVersion;
+    }
+    return session.matrix;
   }
 
   async function ingestOne(
@@ -274,12 +289,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // an older fetcher may have written for the same source_url (see local-db.ts). Removed
     // BEFORE the lookup: L2 finds a Slack thread by its source_key, which the tombstone shares.
     //
-    // A deleted twin takes its vector with it, so the run's matrix is dropped and reloaded on
-    // the next use rather than left holding an id that no longer exists (LB). Rare: it needs
-    // an old binary's twin to be present.
-    const tombstoned = platform === 'slack' && db.deleteSlackTombstoneTwin(sourceUrl);
-    const folded = opts.keyed === true && db.foldPendingTwin(sourceUrl, title, platform, true);
-    if (tombstoned || folded) session.matrix = undefined;
+    // One normalisation, used by both folds: the tombstone delete and insertDecision's own fold
+    // already trim, and a raw url here made the two disagree about which twin they were looking at.
+    const identity = identifyingSourceUrl(sourceUrl);
+    if (platform === 'slack') db.deleteSlackTombstoneTwin(identity);
+    if (opts.keyed) db.foldPendingTwin(identity, title, platform, true);
     const existingId = db.findIdBySource(sourceUrl, title, platform, opts.keyed);
     if (opts.keyed && existingId !== null) ({ title, summary } = db.keepProtectedText(existingId, title, summary));
     const created = existingId === null;
@@ -298,7 +312,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       if (stored !== null) {
         db.replaceRefs(existingId, refs);
         db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
-        const related = step === 'relink' ? await linkPass(db, matrixFor(session), existingId, stored, title, summary, opts.classify) : [];
+        const related = step === 'relink' ? await linkPass(db, rankerFor(session), existingId, stored, title, summary, opts.classify) : [];
         if (step === 'relink') db.markEnriched(existingId);
         return { id: existingId, title, summary, sourceUrl, platform, related, created: false, changed: false };
       }
@@ -318,9 +332,17 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // link now that the cited item has arrived. Harmless no-op for platforms with no
     // citable identity (refIdentityFor returns [] for a plain git/slack/cli capture).
     db.resolveRefs(id, refIdentityFor(platform, sourceUrl));
+    const epochBefore = db.rowSetEpoch();
     db.setEmbedding(id, embedding, EMBEDDING_MODEL_ID);
-    const candidates = await linkPass(db, matrixFor(session), id, embedding, title, summary, opts.classify);
-    session.matrix?.add(id, embedding);
+    // This run's own write: the matrix learns it by append, so the bump setEmbedding makes when
+    // it REPLACES a vector is not a graph that moved under the copy. But only a matrix that was
+    // current before the write may absorb it; one the insert's own fold already outdated is
+    // left alone and rebuilt by rankerFor.
+    if (session.matrix !== undefined && session.epoch === epochBefore) {
+      session.matrix.add(id, embedding);
+      session.epoch = db.rowSetEpoch();
+    }
+    const candidates = await linkPass(db, rankerFor(session), id, embedding, title, summary, opts.classify);
     // L2, Decision 30: the LAST write. Only now is the ingest done.
     db.markEnriched(id);
     return { id, title, summary, sourceUrl, platform, related: candidates, created, changed: true };
