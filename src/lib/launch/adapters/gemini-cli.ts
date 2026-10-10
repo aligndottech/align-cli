@@ -32,9 +32,10 @@ export function buildGeminiLaunch(c: GeminiLaunchContext): LaunchSpec {
   const notes: string[] = [];
   if (c.blocked) {
     notes.push(`Gemini will not load Align's graph: ${c.blocked.file} - ${c.blocked.why}. Remove that to use the graph.`);
-  } else if (c.conflict) {
+  }
+  if (c.conflict) {
     notes.push(`${c.conflict} defines its own align-local MCP server, so Align did not add its graph to Gemini. Remove that entry to use the graph.`);
-  } else if (!c.present) {
+  } else if (!c.present && !c.blocked) {
     writes.push({
       kind: 'mcp-entry',
       file: c.settingsFile,
@@ -43,6 +44,9 @@ export function buildGeminiLaunch(c: GeminiLaunchContext): LaunchSpec {
       entry: alignServerEntry('mcpServers', 'local'),
       invalidJsonAdvice: ' (Gemini accepts comments in this file and align does not, so remove any comments or fix the syntax), then run align again',
     });
+  }
+  if (c.repoAlign) {
+    notes.push(`${c.repoAlign} defines an \`align\` MCP server of its own that Gemini will run next to Align's. Check it before you trust this folder.`);
   }
   if (c.trust === 'untrusted' || c.trust === 'unknown') notes.push(GEMINI_TRUST_NOTE);
   return {

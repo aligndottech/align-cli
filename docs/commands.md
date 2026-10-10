@@ -247,8 +247,14 @@ Known limits:
   treats such a file as loaded. UNVERIFIED: not run on Windows.
 - **`~/.gemini/mcp-server-enablement.json` is not read.** Its format was not checked, so a server
   disabled there is not reported. UNVERIFIED.
-- Align reports (one line, naming the file) when `mcp.excluded`, `mcp.allowed`,
-  `admin.mcp.enabled` or `--allowed-mcp-server-names` would stop Gemini loading `align-local`.
+- Align reports (one line, naming the file) when `mcp.excluded`, `mcp.allowed` or
+  `--allowed-mcp-server-names` would stop a live Gemini session loading `align-local`, using the
+  rules a real session applies (exact-case names, an empty allowlist allows all, the flag replaces
+  the allowlist and drops `excluded`). `admin.mcp.enabled` in user or workspace settings does NOT
+  block a live session (measured), so it is not reported. A system-tier `admin.mcp.enabled` is
+  UNVERIFIED and not read.
+- A repo `.gemini/settings.json` that defines an `align` server is reported once, because Gemini
+  runs it next to Align's.
 - A settings file with comments is left alone, with a line saying so.
 
 ## Local graph

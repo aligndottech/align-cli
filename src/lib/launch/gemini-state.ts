@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { geminiSystemFileRejection } from './gemini-system-file.js';
 import { geminiDir, geminiFolderTrust, geminiSystemDefaultsPath, geminiSystemSettingsPath, type GeminiTrust } from './gemini-trust.js';
-import { type AlignLocalState, foldLayers, type Layer, parseJsonc } from './strict-entry.js';
+import { type AlignLocalState, foldLayers, isCanonicalLocalEntry, type Layer, parseJsonc } from './strict-entry.js';
 
 export interface GeminiProjectState extends Pick<AlignLocalState, 'present' | 'conflict'> {
   /** The user settings file align adds its entry to: $GEMINI_CLI_HOME/.gemini or ~/.gemini, settings.json. */
@@ -10,6 +10,8 @@ export interface GeminiProjectState extends Pick<AlignLocalState, 'present' | 'c
   trust: GeminiTrust;
   /** Gemini would not load align-local even with the entry present: where that is set, and what it says. */
   blocked?: { file: string; why: string };
+  /** A repo file defines an `align` server of its own, with no user `align` behind it: Gemini runs it next to ours. */
+  repoAlign?: string;
 }
 
 /**
@@ -31,47 +33,56 @@ function readText(file: string): string | null {
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const NAME = 'align-local';
-const names = (v: unknown): string[] | null => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase().trim()) : null);
-const FLAG = '--allowed-mcp-server-names';
+const names = (v: unknown): string[] | null => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : null);
+const FLAGS = ['--allowed-mcp-server-names', '--allowedMcpServerNames'];
 
-/** The user's own flag: Gemini takes it over every settings allowlist (`argv.allowedMcpServerNames ?? settings`). */
-function flagBlock(passthrough: string[]): GeminiProjectState['blocked'] {
+/**
+ * The user's own --allowed-mcp-server-names. It REPLACES every settings allowlist and DROPS
+ * excluded (measured, 0.63.0). `--flag=a,b` gives both names; the space form gives only the FIRST
+ * value (`--flag other align-local` blocked align-local). null when the flag is absent.
+ */
+function flagList(passthrough: string[]): { flag: string; list: string[] } | null {
   const end = passthrough.indexOf('--');
   const args = end < 0 ? passthrough : passthrough.slice(0, end);
-  const given: string[] = [];
-  let seen = false;
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
-    if (a === FLAG) {
-      seen = true;
-      for (i++; i < args.length && !args[i]!.startsWith('-'); i++) given.push(...args[i]!.split(',').map((x) => x.toLowerCase().trim()));
-      i--;
-    } else if (a.startsWith(`${FLAG}=`)) {
-      seen = true;
-      given.push(...a.slice(FLAG.length + 1).split(',').map((x) => x.toLowerCase().trim()));
-    }
-  }
-  return seen && !given.includes(NAME) ? { file: FLAG, why: 'it does not list align-local' } : undefined;
+  let found: { flag: string; list: string[] } | null = null;
+  args.forEach((a, i) => {
+    const hit = FLAGS.find((f) => a === f || a.startsWith(`${f}=`));
+    if (!hit) return;
+    const raw = a === hit ? args[i + 1] : a.slice(hit.length + 1);
+    found = { flag: hit, list: raw === undefined || (a === hit && raw.startsWith('-')) ? [] : raw.split(',') };
+  });
+  return found;
 }
 
 /**
- * Settings that make Gemini drop align-local even when the entry is there (0.63.0): mcp.excluded
- * is a union over the loaded layers, mcp.allowed an intersection, admin.mcp.enabled=false turns
- * every server off. NOT read: ~/.gemini/mcp-server-enablement.json (its format was not checked).
+ * Settings that make a live Gemini session drop align-local although the entry is there, copied
+ * from McpClientManager.isBlockedBySettings (0.63.0, NOT `gemini mcp list`, which disagrees):
+ * EXACT-case matching, no trimming; excluded is a union over the loaded layers; allowed is an
+ * intersection across layers and an EMPTY result allows all. Not a blocker for a live session
+ * (measured): admin.mcp.enabled in user or workspace settings. NOT read: the system tier's
+ * admin.mcp.enabled and ~/.gemini/mcp-server-enablement.json - UNVERIFIED.
  */
 function blockedBy(files: Array<{ file: string; settings: Json | null }>, passthrough: string[]): GeminiProjectState['blocked'] {
-  const flag = flagBlock(passthrough);
-  if (flag) return flag;
-  for (const { file, settings } of files) {
-    const mcp = settings?.['mcp'];
-    if (isObject(mcp) && names(mcp['excluded'])?.includes(NAME)) return { file, why: 'mcp.excluded lists align-local' };
-    const admin = settings?.['admin'];
-    if (isObject(admin) && isObject(admin['mcp']) && admin['mcp']['enabled'] === false) return { file, why: 'admin.mcp.enabled is false' };
+  const flag = flagList(passthrough);
+  if (flag) {
+    return flag.list.length === 0 || flag.list.includes(NAME) ? undefined : { file: flag.flag, why: 'it does not list align-local' };
   }
   for (const { file, settings } of files) {
     const mcp = settings?.['mcp'];
-    const allowed = isObject(mcp) ? names(mcp['allowed']) : null;
-    if (allowed && !allowed.includes(NAME)) return { file, why: 'mcp.allowed does not list align-local' };
+    if (isObject(mcp) && names(mcp['excluded'])?.includes(NAME)) return { file, why: 'mcp.excluded lists align-local' };
+  }
+  let allowed: string[] | null = null;
+  let from = '';
+  for (const { file, settings } of files) {
+    const mcp = settings?.['mcp'];
+    const list = isObject(mcp) ? names(mcp['allowed']) : null;
+    if (!list) continue;
+    allowed = allowed === null ? list : allowed.filter((x) => list.includes(x));
+    from = file;
+  }
+  if (allowed !== null && allowed.length > 0 && !allowed.includes(NAME)) {
+    // Name the layer that narrowed it last; with one layer that is the only one.
+    return { file: from, why: 'mcp.allowed does not list align-local' };
   }
   return undefined;
 }
@@ -116,6 +127,12 @@ export function readGeminiState(
   const layers: Layer[] = parsed.map((s) => ({ file: s.file, servers: s.json?.['mcpServers'] }));
   const o = { ...opts, platform, host: 'mcpServers' as const };
   const { present, conflict } = foldLayers(layers, o, () => false, { lastWins: true, countsAsPresent: (f) => f !== workspacePath || workspaceLoads });
+  // The effective `align` is the last layer that names it. From a LOADED workspace, and not
+  // already the conflict, it is something the repo chose and the user did not.
+  const aligns = layers.filter((l) => isObject(l.servers) && 'align' in l.servers);
+  const effective = aligns[aligns.length - 1];
+  const repoAlign = workspaceLoads && effective?.file === workspacePath && conflict !== workspacePath
+    && !isCanonicalLocalEntry((effective.servers as Json)['align'], o) ? workspacePath : undefined;
   const blocked = blockedBy(parsed.filter((s) => s.live).map((s) => ({ file: s.file, settings: s.json })), passthrough);
-  return { present, ...(conflict !== undefined ? { conflict } : {}), settingsFile, trust, ...(blocked ? { blocked } : {}) };
+  return { present, ...(conflict !== undefined ? { conflict } : {}), settingsFile, trust, ...(blocked ? { blocked } : {}), ...(repoAlign ? { repoAlign } : {}) };
 }

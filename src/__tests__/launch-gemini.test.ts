@@ -78,6 +78,20 @@ describe('buildGeminiLaunch: injection', () => {
     expect(spec.notes).toEqual(['Gemini will not load Align\'s graph: /home/u/.gemini/settings.json - mcp.excluded lists align-local. Remove that to use the graph.']);
   });
 
+  it('a blocker AND a conflict: both are reported, two lines', () => {
+    const spec = buildGeminiLaunch(ctx({ blocked: { file: '/repo/.gemini/settings.json', why: 'mcp.excluded lists align-local' }, conflict: '/repo/.gemini/settings.json' }));
+    expect(spec.writes ?? []).toEqual([]);
+    expect(spec.notes).toHaveLength(2);
+    expect(spec.notes![0]).toContain('will not load');
+    expect(spec.notes![1]).toContain('defines its own align-local');
+  });
+
+  it('a repo-defined `align` gets one plain line naming the file, and the entry is still written', () => {
+    const spec = buildGeminiLaunch(ctx({ repoAlign: '/repo/.gemini/settings.json' }));
+    expect(spec.writes).toHaveLength(1);
+    expect(spec.notes).toEqual(['/repo/.gemini/settings.json defines an `align` MCP server of its own that Gemini will run next to Align\'s. Check it before you trust this folder.']);
+  });
+
   it('on win32 the server goes through cmd /c', () => {
     setPlatform('win32');
     expect(buildGeminiLaunch(ctx()).writes![0]!.entry).toEqual({ command: 'cmd', args: ['/c', 'align', 'mcp', '--env', 'local'] });
@@ -240,47 +254,76 @@ describe('readGeminiState', () => {
     expect(state({ env: { ...sysEnv(), GEMINI_RESTRICTED_MODE: 'true', GEMINI_CLI_TRUST_WORKSPACE: 'true' } }).trust).toBe('untrusted');
   });
 
-  describe('MCP blockers Gemini applies silently', () => {
-    const FILE = () => userFile();
-    it('mcp.excluded naming align-local (any case) in a loaded layer blocks it', () => {
-      userSettings({ mcp: { excluded: ['Align-Local'] } });
-      expect(state().blocked).toEqual({ file: FILE(), why: 'mcp.excluded lists align-local' });
-    });
-    it('excluded is a union: a trusted workspace can add to it', () => {
+  /*
+   * Table of the REAL Gemini 0.63.0 behaviour, measured with a headless session (not `gemini mcp
+   * list`, which uses canLoadServer: lowercased, empty allowlist = allow none). A live session uses
+   * McpClientManager.isBlockedBySettings: EXACT-case includes, an empty allowlist allows all,
+   * allowlists intersect across layers (an empty result allows all), and --allowed-mcp-server-names
+   * replaces the allowlist and drops excluded. The expected column is what the real session did
+   * on 2026-10-10 (rt.sh: SPAWNED or not). A wrong "blocked" here is expensive: it stops align
+   * writing its entry at all.
+   */
+  describe('MCP blockers: the same verdict as a real Gemini session', () => {
+    type Row = { name: string; user?: unknown; ws?: unknown; flags?: string[]; blocked: boolean };
+    const rows: Row[] = [
+      { name: 'allowed: [] allows all', user: { mcp: { allowed: [] } }, blocked: false },
+      { name: 'user allowed [a] + workspace allowed [b]: empty intersection allows all', user: { mcp: { allowed: ['a'] } }, ws: { mcp: { allowed: ['b'] } }, blocked: false },
+      { name: "excluded ['ALIGN-LOCAL'] is exact-case: spawned", ws: { mcp: { excluded: ['ALIGN-LOCAL'] } }, blocked: false },
+      { name: "excluded ['align-local'] blocks", ws: { mcp: { excluded: ['align-local'] } }, blocked: true },
+      { name: 'flag listing align-local drops settings excluded', ws: { mcp: { excluded: ['align-local'] } }, flags: ['--allowed-mcp-server-names=align-local'], blocked: false },
+      { name: 'admin.mcp.enabled false (workspace) does not block a live session', ws: { admin: { mcp: { enabled: false } } }, blocked: false },
+      { name: 'admin.mcp.enabled false (user) does not block a live session', user: { admin: { mcp: { enabled: false } } }, blocked: false },
+      { name: "allowed ['ALIGN-LOCAL'] blocks (exact case)", ws: { mcp: { allowed: ['ALIGN-LOCAL'] } }, blocked: true },
+      { name: "allowed [' align-local '] blocks (no trimming)", ws: { mcp: { allowed: [' align-local '] } }, blocked: true },
+      { name: 'flag ALIGN-LOCAL blocks', flags: ['--allowed-mcp-server-names=ALIGN-LOCAL'], blocked: true },
+      { name: 'camelCase flag other blocks', flags: ['--allowedMcpServerNames=other'], blocked: true },
+      { name: 'space form counts only the FIRST value: "other align-local" blocks', flags: ['--allowed-mcp-server-names', 'other', 'align-local'], blocked: true },
+      { name: '=other,align-local spawns', flags: ['--allowed-mcp-server-names=other,align-local'], blocked: false },
+      { name: 'allowed [align-local] spawns', ws: { mcp: { allowed: ['align-local'] } }, blocked: false },
+      { name: 'no mcp settings at all spawns', blocked: false },
+    ];
+    it.each(rows)('$name', ({ user, ws, flags, blocked }) => {
       trustProj();
-      workspace({ mcp: { excluded: ['align-local'] } });
-      expect(state().blocked?.file).toBe(wsFile());
+      if (user) userSettings(user);
+      if (ws) workspace(ws);
+      const st = readGeminiState(proj, home, { localIsDefault: false }, sysEnv(), 'linux', () => 'x', flags ?? []);
+      expect(st.blocked !== undefined).toBe(blocked);
     });
-    it('mcp.allowed without align-local blocks it; with it, or absent, does not', () => {
-      userSettings({ mcp: { allowed: ['other'] } });
-      expect(state().blocked).toEqual({ file: FILE(), why: 'mcp.allowed does not list align-local' });
-      userSettings({ mcp: { allowed: ['other', 'ALIGN-LOCAL'] } });
-      expect(state().blocked).toBeUndefined();
-      userSettings({ ui: {} });
-      expect(state().blocked).toBeUndefined();
-    });
-    it('allowed lists intersect: one layer that omits it blocks it even if another lists it', () => {
+    it('names the file that blocks it', () => {
       trustProj();
-      userSettings({ mcp: { allowed: ['align-local'] } });
-      workspace({ mcp: { allowed: ['x'] } });
-      expect(state().blocked?.file).toBe(wsFile());
+      workspace({ mcp: { allowed: ['ALIGN-LOCAL'] } });
+      expect(state().blocked).toEqual({ file: wsFile(), why: 'mcp.allowed does not list align-local' });
     });
-    it('admin.mcp.enabled=false blocks every MCP server', () => {
-      userSettings({ admin: { mcp: { enabled: false } } });
-      expect(state().blocked).toEqual({ file: FILE(), why: 'admin.mcp.enabled is false' });
-    });
-    it('an excluded entry in a system file Gemini rejects is ignored', () => {
+    it('a blocker in a system file Gemini rejects is ignored', () => {
       writeFileSync(sysFile(), JSON.stringify({ mcp: { excluded: ['align-local'] } }));
       expect(state().blocked).toBeUndefined();
       expect(state({ systemLoads: true }).blocked?.file).toBe(sysFile());
     });
-    it('--allowed-mcp-server-names in the passthrough without align-local blocks it; with it, not', () => {
-      const s = (pt: string[]) => readGeminiState(proj, home, { localIsDefault: false }, sysEnv(), 'linux', () => 'x', pt);
-      expect(s(['--allowed-mcp-server-names', 'other']).blocked).toEqual({ file: '--allowed-mcp-server-names', why: 'it does not list align-local' });
-      expect(s(['--allowed-mcp-server-names=other']).blocked?.file).toBe('--allowed-mcp-server-names');
-      expect(s(['--allowed-mcp-server-names', 'other', 'align-local']).blocked).toBeUndefined();
-      expect(s(['-p', 'hi']).blocked).toBeUndefined();
+    it('nothing after `--` is a flag of Gemini\'s', () => {
+      const st = readGeminiState(proj, home, { localIsDefault: false }, sysEnv(), 'linux', () => 'x', ['--', '--allowed-mcp-server-names=other']);
+      expect(st.blocked).toBeUndefined();
     });
+  });
+
+  it('a repo `align` with no user `align` behind it is reported (it is not the user\'s choice); the user\'s own is not', () => {
+    trustProj();
+    workspace({ mcpServers: { align: { command: 'sh', args: ['-c', 'x'] } } });
+    expect(state().repoAlign).toBe(wsFile());
+    rmSync(wsFile());
+    userSettings({ mcpServers: { align: { command: 'align', args: ['mcp', '--env', 'prod'] } } });
+    expect(state().repoAlign).toBeUndefined();
+  });
+
+  it('...not when the folder is untrusted (Gemini would not run it), not when it is canonical, and not twice when it is already the conflict', () => {
+    workspace({ mcpServers: { align: { command: 'sh' } } });
+    expect(state().repoAlign).toBeUndefined();
+    trustProj();
+    workspace({ mcpServers: { align: CANON } });
+    expect(state().repoAlign).toBeUndefined();
+    userSettings({ mcpServers: { align: CANON } });
+    workspace({ mcpServers: { align: { command: 'sh' } } });
+    expect(state()).toMatchObject({ conflict: wsFile() });
+    expect(state().repoAlign).toBeUndefined();
   });
 
   it('carries the folder trust verdict', () => {
