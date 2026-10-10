@@ -24,12 +24,44 @@ export interface Harness {
   /** Like pty but for any align subcommand (args are the whole command line after `align`). */
   ptyAlign(args: string[], steps: Array<[string, string]>): Promise<{ code: number; out: string }>;
   dbPath: string;
+  /** The product's own private state directory under the child's env (holds share-salt, pending-shares). */
+  stateDir: string;
   close(): Promise<void>;
 }
 
-export async function startHarness(seed: (db: ReturnType<typeof createLocalDb>) => string[]): Promise<Harness> {
+export interface HarnessOptions {
+  /** Child sees the macOS layout: XDG_* unset, process.platform = darwin (a path-layout simulation only). */
+  simulateMac?: boolean;
+  /** TEST OF THE TEST: seed where Linux XDG would put the graph instead of asking the product. */
+  seedAtXdgGuess?: boolean;
+}
+
+/** The scratch home and the env every child gets. HOME and USERPROFILE point at it so env-paths resolves inside it. */
+export function childEnv(dir: string, opts: HarnessOptions = {}): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env, HOME: dir, USERPROFILE: dir, XDG_STATE_HOME: path.join(dir, 'state'), ALIGN_TELEMETRY: '0', DO_NOT_TRACK: '1' };
+  if (opts.simulateMac) {
+    delete env['XDG_CONFIG_HOME']; delete env['XDG_DATA_HOME'];
+    env['NODE_OPTIONS'] = `${process.env['NODE_OPTIONS'] ?? ''} --require ${path.join(__dirname, 'fake-darwin.cjs')}`.trim();
+  } else {
+    env['XDG_CONFIG_HOME'] = path.join(dir, 'cfg'); env['XDG_DATA_HOME'] = path.join(dir, 'data');
+  }
+  return env;
+}
+
+/** Where the PRODUCT puts its graph, config and state under `env`: asked of the product, in a child, never guessed. */
+export function productPaths(env: Record<string, string | undefined>): { dbPath: string; configDir: string; stateDir: string } {
+  const r = spawnSync(path.join(ROOT, 'node_modules/.bin/tsx'), [path.join(__dirname, 'print-paths.ts')], { env, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`print-paths failed: ${r.stderr}`);
+  const parsed = JSON.parse(r.stdout.trim().split('\n').pop()!) as { dbPath: string; configDir: string; stateDir: string | null };
+  if (!parsed.stateDir) throw new Error('the product has no private state directory under this env');
+  return { dbPath: parsed.dbPath, configDir: parsed.configDir, stateDir: parsed.stateDir };
+}
+
+export async function startHarness(seed: (db: ReturnType<typeof createLocalDb>) => string[], opts: HarnessOptions = {}): Promise<Harness> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-share-pty-'));
-  const cfg = path.join(dir, 'cfg', 'align-cli');
+  const base0 = childEnv(dir, opts);
+  const found = productPaths(base0);
+  const cfg = opts.seedAtXdgGuess ? path.join(dir, 'cfg', 'align-cli') : found.configDir;
   fs.mkdirSync(cfg, { recursive: true });
   const dbPath = path.join(cfg, 'local.db');
   const db = createLocalDb(dbPath); const ids = seed(db); db.close();
@@ -48,10 +80,10 @@ export async function startHarness(seed: (db: ReturnType<typeof createLocalDb>) 
   }).listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  const env: Record<string, string | undefined> = { ...process.env, XDG_CONFIG_HOME: path.join(dir, 'cfg'), XDG_STATE_HOME: path.join(dir, 'state'), HOME: dir, ALIGN_ENV: 'prod', ALIGN_TOKEN: 'tok', ALIGN_TENANT_ID: 'T1', ALIGN_GATEWAY_URL: base, ALIGN_TELEMETRY: '0', DO_NOT_TRACK: '1' };
+  const env: Record<string, string | undefined> = { ...base0, ALIGN_ENV: 'prod', ALIGN_TOKEN: 'tok', ALIGN_TENANT_ID: 'T1', ALIGN_GATEWAY_URL: base };
   const cmd = [path.join(ROOT, 'node_modules/.bin/tsx'), path.join(ROOT, 'src/index.ts'), 'share'];
   return {
-    ...h, ids, dir, env, base, dbPath,
+    ...h, ids, dir, env, base, dbPath, stateDir: found.stateDir,
     ptyAlign: (args, steps) => new Promise((resolve) => {
       const p = spawn('python3', [path.join(__dirname, 'pty-run.py'), JSON.stringify([...cmd.slice(0, 2), ...args]), JSON.stringify(steps)], { env });
       let out = ''; p.stdout.on('data', (b) => (out += b));
