@@ -61,6 +61,9 @@ describe('attribution through a real handshake', () => {
     const s = await connect('claude-code');
     const r = await s.call({ decision_id: ids.alpha, counterpart_id: ids.bravo, verdict: 'false' });
     expect(r['recorded']).toBe(true);
+    // The reply must not say "nothing was sent": a command-name usage ping can go out when telemetry is on.
+    expect(JSON.stringify(r)).toContain('Recorded on this machine only; the mark itself is not shared.');
+    expect(JSON.stringify(r)).not.toMatch(/nothing was (shared|sent)|or sent/i);
     expect(rows()).toMatchObject([{ kind: 'conflict_verdict', value: 'false', via: 'mcp', agent_id: 'claude-code', judge_id: 'inst-me' }]);
     await s.close();
   });

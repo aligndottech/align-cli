@@ -163,7 +163,9 @@ describe('ids, graph and output', () => {
   it('every success says the mark stayed on this machine', async () => {
     await run([ids.alpha, 'note', 'a note']);
     await run(['conflict', ids.alpha, ids.bravo, 'false']);
-    expect(out.filter((l) => /nothing was shared/i.test(l))).toHaveLength(2);
+    expect(out.filter((l) => l.includes('Recorded on this machine only; the mark itself is not shared.'))).toHaveLength(2);
+    // A {"command":"mark"} usage ping may go out when telemetry is on, so "nothing was sent" would be false.
+    expect(out.join('\n')).not.toMatch(/nothing was (shared|sent)|or sent/i);
   });
 });
 

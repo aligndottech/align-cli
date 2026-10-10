@@ -16,6 +16,7 @@ vi.mock('../lib/config.js', () => ({
     setTelemetryConsent,
     getTelemetryConsent,
     getTelemetryNoticeShownAt: () => noticeShownAt,
+    getTelemetryOffByEnv: () => undefined,
     getEnvironment: () => ({ gatewayUrl: 'http://localhost:8080', authToken: null, tenantId: null, mode: 'local-embedded' }),
   }),
 }));

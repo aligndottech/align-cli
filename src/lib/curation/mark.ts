@@ -181,11 +181,11 @@ export interface MarkOutcome {
   /** True when this person's earlier answer on the same key was replaced. */
   replaced: boolean;
   undone?: boolean;
-  /** Plain words for the person or agent. Always says nothing was shared. */
+  /** Plain words for the person or agent. Says the mark itself is not shared (a command-name usage ping may still go out when telemetry is on). */
   text: string;
 }
 
-const LOCAL_ONLY = 'Recorded on this machine only; nothing was shared or sent.';
+const LOCAL_ONLY = 'Recorded on this machine only; the mark itself is not shared.';
 
 function requireDecisions(dbPath: string, ids: string[]): Map<string, string> {
   const titles = existingTitles(dbPath, ids);

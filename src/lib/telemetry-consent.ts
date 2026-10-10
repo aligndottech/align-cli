@@ -74,3 +74,31 @@ export function maybeShowTelemetryNotice(
     return false;
   }
 }
+
+/** The slice of the config store a sticky env opt-out needs. */
+export interface EnvOptOutStore {
+  getTelemetryConsent(): TelemetryConsent | undefined;
+  setTelemetryOffByEnv(via: string): void;
+}
+
+/**
+ * An explicit env opt-out (DO_NOT_TRACK, ALIGN_TELEMETRY) is made STICKY: stored as 'off' with
+ * its reason, so a process that does not inherit the variable still honours it. An MCP server
+ * started by an agent gets a trimmed environment, and the detached sync child inherits from that
+ * server, so the variable alone never reached them. Bare CI is not a user choice and is never
+ * stored (it is checked per process). A stored 'off' or 'declined' is left as it is. Called
+ * before anything in this process can send, and not subject to the terminal or hook rules above:
+ * a hook run that sees the variable stores it too. Never throws.
+ */
+export function storeEnvOptOut(config: EnvOptOutStore): boolean {
+  try {
+    const via = telemetryDisabledByEnv();
+    if (via === undefined) return false;
+    const stored = config.getTelemetryConsent();
+    if (stored === 'off' || stored === 'declined') return false;
+    config.setTelemetryOffByEnv(via);
+    return true;
+  } catch {
+    return false;
+  }
+}

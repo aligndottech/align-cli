@@ -69,7 +69,7 @@ export const CHILD_ENV_NOT_PINNED: Record<string, string> = {
   NO_COLOR: 'output colour only',
   COLORTERM: 'output colour only',
   COLORFGBG: 'output colour only',
-  DO_NOT_TRACK: 'can only turn telemetry off',
+  DO_NOT_TRACK: 'can only turn telemetry off; not pinned because the first align run that sees it stores the opt-out (storeEnvOptOut), so a trimmed MCP env needs no copy',
   COPILOT_ALLOW_ALL: 'read by the launcher about Copilot, not by align mcp',
   GEMINI_RESTRICTED_MODE: 'read by the launcher about Gemini folder trust, not by align mcp',
   ...Object.fromEntries([

@@ -49,6 +49,8 @@ export interface SourceOutcome {
   message?: string;
   /** Set when this run's hole has now come back PERSISTENT_HOLE_RUNS times in a row. */
   persistentHole?: string;
+  /** Whose items this run read, once the scope was decided. Absent for a source that never got that far (locked, not connected). Only the telemetry reads it. */
+  scope?: 'yours' | 'team';
 }
 
 export interface SyncEnv {
@@ -149,7 +151,7 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
   // A new scope inherits the depth the person asked for on this source ("all" stays all).
   const row = beginRun(env.dbPath, key, inheritedWindowSince(rows, now), nowIso);
   if (row.status === 'needs_reauth') {
-    return none(source, 'needs_reauth', `${source} needs the person to re-authenticate. Run: align connect ${source}`);
+    return { ...none(source, 'needs_reauth', `${source} needs the person to re-authenticate. Run: align connect ${source}`), scope: scope.scope };
   }
 
   const win = nextWindow(row, now);
@@ -245,7 +247,7 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
     if (drain.skips.length > 0) persist(drain.skips);
   }
   return {
-    source, state: fin.status, read: items.length, created, updated, skips: [...skips, ...(drain?.skips ?? [])],
+    source, state: fin.status, read: items.length, created, updated, skips: [...skips, ...(drain?.skips ?? [])], scope: scope.scope,
     ...(win.since !== undefined ? { since: win.since } : {}),
     ...(cut && report.oldestReached !== undefined ? { reachedBack: report.oldestReached } : {}),
     ...(drain ? { drain } : {}),
@@ -312,9 +314,9 @@ function failed(
   if (isAuthExpiry(e)) {
     markNeedsReauth(env.dbPath, key, window, env.now().toISOString());
     saveRun(env.dbPath, key, { status: 'needs_reauth', high_water: row?.high_water ?? null, pending_until: row?.pending_until ?? null, cycle_top: row?.cycle_top ?? null, hole_sig: row?.hole_sig ?? null, hole_streak: row?.hole_streak ?? 0, attemptAt: env.now().toISOString(), items: 0, skips: [{ kind: 'auth', count: 1, detail: message }] });
-    return { ...none(source, 'needs_reauth', `${source} refused the saved token (${message}). Run: align connect ${source}`), skips: [{ kind: 'auth', count: 1, detail: message }] };
+    return { ...none(source, 'needs_reauth', `${source} refused the saved token (${message}). Run: align connect ${source}`), skips: [{ kind: 'auth', count: 1, detail: message }], scope: key.scope };
   }
   const skip: CaptureSkip = { kind: 'error', count: 1, detail: message };
   saveRun(env.dbPath, key, { status: 'error', high_water: row?.high_water ?? null, pending_until: row?.pending_until ?? null, cycle_top: row?.cycle_top ?? null, hole_sig: row?.hole_sig ?? null, hole_streak: row?.hole_streak ?? 0, attemptAt: env.now().toISOString(), items: partial?.read ?? 0, skips: [skip] });
-  return { source, state: 'error', read: partial?.read ?? 0, created: partial?.created ?? 0, updated: partial?.updated ?? 0, skips: [skip], message };
+  return { source, state: 'error', read: partial?.read ?? 0, created: partial?.created ?? 0, updated: partial?.updated ?? 0, skips: [skip], message, scope: key.scope };
 }
