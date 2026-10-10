@@ -90,7 +90,7 @@ describe('available: the person approves in a browser', () => {
     expect(f.gw.completes[0]!.id).toBe(rowId);
     expect(f.asks).toEqual([]);          // never prompted on a terminal
     expect(f.batches).toBe(0);           // never called shareBatch
-    expect(say(f)).toContain('To: Acme (prod) as me@co.com');   // the destination, as before
+    expect(say(f)).toContain('To: "Acme" (as claimed by api.align.test) via api.align.test, as me@co.com');   // the destination, host named
     expect(say(f)).toContain('Code: KJ4M-9XQT');
     expect(say(f)).toMatch(/expires in 1[45] minutes/);
     expect(say(f)).toContain('Approved in your browser. Sending...');
@@ -488,5 +488,65 @@ describe('no silent downgrade to the typed answer', () => {
     const f = fixture({ mode: 'available' }); const id = seed();
     await run(f, { ids: [id], typed: true });
     expect(f.out.join('\n')).not.toMatch(/browser approval/);
+  });
+});
+
+
+describe('which web app the approval link opens on (C4, S15)', () => {
+  const ACME_APP = 'https://align.acme.example';
+  const link = (f: Fx) => urlIn(f.out);
+
+  it('a team destination opens its saved web app, not the guess', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.teamAppUrl = ACME_APP;
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(link(f).startsWith(`${ACME_APP}/share/approve/`)).toBe(true);
+    expect(f.opened).toEqual([link(f)]);
+  });
+
+  it('a team destination whose gateway now names another web app stops before anything is staged, naming both', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.teamAppUrl = ACME_APP;
+    f.gw.appUrl = 'https://align.evil.example';
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(f.gw.staged).toHaveLength(0);
+    expect(f.opened).toEqual([]);
+    expect(say(f)).toContain('align.acme.example');
+    expect(say(f)).toContain('align.evil.example');
+    expect(say(f)).not.toContain('/share/approve/');
+  });
+
+  it('a team destination whose gateway agrees (trailing slash apart) proceeds', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.teamAppUrl = ACME_APP;
+    f.gw.appUrl = `${ACME_APP}/`;
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.gw.staged).toHaveLength(1);
+  });
+
+  it('a builtin uses the gateway\'s app_url when it gives one, and the guess when it does not', async () => {
+    const withUrl = fixture(); const id = seed();
+    withUrl.gw.appUrl = 'https://app.selfhost.example';
+    expect(await run(withUrl, { ids: [id] })).toBe(0);
+    expect(link(withUrl).startsWith('https://app.selfhost.example/share/approve/')).toBe(true);
+
+    const without = fixture();
+    expect(await run(without, { ids: [seed('another', 2)] })).toBe(0);
+    expect(link(without).startsWith('https://app.align.test/share/approve/')).toBe(true);
+  });
+
+  it('a builtin whose app_url is unusable is refused rather than replaced by the guess', async () => {
+    const f = fixture(); const id = seed();
+    f.gw.appUrl = 'http://app.selfhost.example';
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(f.gw.staged).toHaveLength(0);
+  });
+
+  it('the typed flow (browser approval off) never looks at app_url', async () => {
+    const f = fixture({ mode: 'off' }); const id = seed();
+    f.deps.teamAppUrl = ACME_APP;
+    f.gw.appUrl = 'https://align.evil.example';
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(say(f)).not.toContain('align.evil.example');
   });
 });

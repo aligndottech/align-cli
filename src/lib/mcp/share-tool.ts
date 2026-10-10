@@ -23,12 +23,12 @@ import { defaultJudge } from '../curation/judge.js';
 import type { Judge } from '../curation/judgements-db.js';
 import { resolveAppUrl } from '../env-resolver.js';
 import { createGatewayClient } from '../gateway-client.js';
-import { resolveEnv } from '../resolve-env.js';
 import { approveUrl, stageRequest } from '../share/approval.js';
 import { buildPlaintext, PlaintextTooLargeError, UnkeyedItemError } from '../share/envelope.js';
 import { combinedHash, deleteRequest, findLiveRequest, issueCode, type PendingRequest, saveRequest, sweepPending } from '../share/pending.js';
 import { visible } from '../share/visible.js';
 import { shareSalt } from '../share/salt.js';
+import { resolveApprovalAppUrl, resolveShareEnv } from '../share/target.js';
 import { prepare, type Prepared, secretRefusal, type ShareClient, ShareError } from '../share/run.js';
 import { teamCtaLine } from '../team-cta.js';
 import { agentIdFrom, jsonSchemaOf, strictInput, type StrictSpec, UNKNOWN_AGENT } from './tool-rules.js';
@@ -62,12 +62,12 @@ export interface ShareToolContext {
   clientInfo?: { name?: unknown };
   judge?: () => Promise<Judge>;
   /** Test seam: the destination and the client. Production resolves the user's default cloud env. */
-  share?: { cloudEnv: EnvironmentConfig; envName: string; client: ShareClient; salt?: string; appUrl?: string; label?: string };
+  share?: { cloudEnv: EnvironmentConfig; envName: string; client: ShareClient; salt?: string; appUrl?: string; label?: string; teamAppUrl?: string };
 }
 
 export interface ShareToolResult { text: string; code?: string; [k: string]: unknown }
 
-export interface ShareTarget { cloudEnv: EnvironmentConfig; envName: string; client: ShareClient; salt: string; appUrl: string; label: string }
+export interface ShareTarget { cloudEnv: EnvironmentConfig; envName: string; client: ShareClient; salt: string; appUrl: string; label: string; /** Set for a team destination: the web app saved at join time. */ teamAppUrl?: string }
 
 /** The local graph this server reads, and the cloud environment a share goes to. Shared with align_share_status. */
 export function resolveShareTarget(env: EnvironmentConfig, ctx: ShareToolContext, tool: string): ShareTarget {
@@ -78,9 +78,13 @@ export function resolveShareTarget(env: EnvironmentConfig, ctx: ShareToolContext
     return { ...ctx.share, salt: ctx.share.salt ?? shareSalt(), appUrl: ctx.share.appUrl ?? resolveAppUrl(ctx.share.cloudEnv), label: ctx.share.label ?? os.hostname() };
   }
   const config = createConfigStore();
-  const envName = resolveEnv();
+  // The same rule as `align share` with no flags: the saved share destination wins over the ambient environment.
+  const envName = resolveShareEnv({}, config);
   const cloudEnv = config.getEnvironment(envName);
-  return { cloudEnv, envName, client: createGatewayClient(cloudEnv) as unknown as ShareClient, salt: shareSalt(), appUrl: resolveAppUrl(cloudEnv), label: os.hostname() };
+  return {
+    cloudEnv, envName, client: createGatewayClient(cloudEnv) as unknown as ShareClient, salt: shareSalt(), appUrl: resolveAppUrl(cloudEnv), label: os.hostname(),
+    ...(cloudEnv.kind === 'team' && cloudEnv.appUrl ? { teamAppUrl: cloudEnv.appUrl } : {}),
+  };
 }
 
 export const NO_LOGIN = (): string => `Sharing needs a team login, and none is set up. Ask the user to run: align login\n${teamCtaLine()}`;
@@ -156,7 +160,12 @@ export async function runShareTool(args: Record<string, unknown> | undefined, en
     const agentId = agentIdFrom(ctx.clientInfo);
     // The gateway decides who approves. A 404 is an older gateway (the single-use code); any other failure is an error, never a fallback.
     const cfg = await client.shareRequestsConfig();
-    if (cfg !== null && cfg.mode !== 'off') return await stageForApproval(prep, target, agentId);
+    if (cfg !== null && cfg.mode !== 'off') {
+      // Where the link opens is settled before anything is staged: it carries the share's key.
+      const app = resolveApprovalAppUrl({ stored: target.teamAppUrl ?? null, cfgAppUrl: cfg.appUrl, guessed: target.appUrl });
+      if (!app.ok) return { shared: false, text: app.message };
+      return await stageForApproval(prep, { ...target, appUrl: app.appUrl }, agentId);
+    }
     const code = issueCode(prep.payloads, { agentId, envName, preview: prep.preview, to: { tenantId: prep.tenantId, gatewayUrl: prep.gatewayUrl } });
     if (code === null) return { text: 'Could not store a confirmation code safely on this machine, so nothing was prepared.', shared: false };
     return {

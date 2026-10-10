@@ -20,7 +20,7 @@ const row: DecisionRow = {
   id: '11111111-1111-4111-8111-111111111111', title: 'Use sqlite', summary: 'because node', sourceUrl: 'https://github.com/o/r/pull/1', platform: 'github',
   createdAt: '2026-09-01T00:00:00.000Z', decidedAt: null, repo: null, deciderKind: 'human', confirmedBy: null, confirmedAt: null, ratifiedBy: 'me@x', ratifiedAt: '2026-09-03T10:00:00.000Z',
 };
-const preview = renderPreview([buildSharePayload({ row, judgements: [], remoteIdOf: () => undefined, titleOf: () => null, clientKey: 'k', salt: 's', alreadySent: new Set() })], { workspace: 'Acme', env: 'prod', email: 'me@x' });
+const preview = renderPreview([buildSharePayload({ row, judgements: [], remoteIdOf: () => undefined, titleOf: () => null, clientKey: 'k', salt: 's', alreadySent: new Set() })], { workspace: 'Acme', env: 'prod', email: 'me@x', gatewayHost: 'api.align.tech' });
 
 describe('the preview', () => {
   it('says a share stays with the team, once, directly above "Nothing is sent until you say yes."', () => {
@@ -28,7 +28,7 @@ describe('the preview', () => {
     expect(lines.filter((l) => l === visible(LINE))).toHaveLength(1);
     const at = lines.indexOf(visible(LINE));
     expect(lines[at + 1]).toBe('Nothing is sent until you say yes.');
-    expect(lines[lines.length - 1]).toMatch(/^To: Acme \(prod\) as me@x$/);
+    expect(lines[lines.length - 1]).toMatch(/^To: "Acme" \(as claimed by api\.align\.tech\) via api\.align\.tech, as me@x$/);
   });
 });
 

@@ -19,6 +19,7 @@ import { type EnvironmentConfig } from '../config.js';
 import { teamCtaLine } from '../team-cta.js';
 import { runBrowserShare } from './browser-flow.js';
 import { combinedHash, consumeCode, lookupCode, sweepPending } from './pending.js';
+import { resolveApprovalAppUrl } from './target.js';
 import { prepare, type Prepared, ratifiedRows, renderResults, renderTeamText, retract, secretRefusal, send, type ShareClient, ShareError } from './run.js';
 import type { Judge } from '../curation/judgements-db.js';
 
@@ -52,6 +53,8 @@ export interface ApprovalDeps {
 
 export interface ShareDeps {
   cloudEnv: EnvironmentConfig;
+  /** Set for a team destination: the web app saved when it was joined. Approval links use it, and a gateway that disagrees stops the share. */
+  teamAppUrl?: string;
   /** This install's salt for the opaque client_key. */
   salt: string;
   /** The environment's default gateway URL: anything else is shown in the preview. */
@@ -116,6 +119,9 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
       return 1;
     }
     if (!browser && deps.wrapped) { err(WRAPPED); return 1; }
+    // Where the approval link opens is settled before anything is prepared or staged: the link carries the share's key.
+    const appChoice = browser ? resolveApprovalAppUrl({ stored: deps.teamAppUrl ?? null, cfgAppUrl: cfg?.appUrl ?? null, guessed: deps.approval.appUrl }) : null;
+    if (appChoice && !appChoice.ok) { err(appChoice.message); return 1; }
     // No silent downgrade: when the typed flow runs because the gateway has no browser approval, say so.
     if (!browser && !opts.typed) out(cfg === null ? 'This gateway does not offer browser approval (it has no such route), so this uses the typed answer at your terminal.' : 'This gateway has browser approval turned off, so this uses the typed answer at your terminal.');
 
@@ -152,7 +158,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
       out(prep.preview);
       const { guard, ...rest } = deps.approval;
       const maxWaitMs = ((cfg?.pendingTtlS ?? 900) + (cfg?.completeTtlS ?? 600)) * 1000;
-      return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, signal, maxWaitMs, client: c.client, out, err, ...(deps.wrapped ? { agent: 'wrapped' } : {}) }));
+      return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, appUrl: appChoice?.ok ? appChoice.appUrl : rest.appUrl, signal, maxWaitMs, client: c.client, out, err, ...(deps.wrapped ? { agent: 'wrapped' } : {}) }));
     }
 
     if (pendingCode !== undefined) {

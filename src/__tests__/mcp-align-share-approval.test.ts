@@ -56,7 +56,7 @@ describe('align_share with browser approval', () => {
     expect(r.text).toContain(String(r['request_id']));
     expect(r.text).toMatch(/do not try to approve it yourself/);
     expect(r.text).toContain(SHARE_STATUS_TOOL);
-    expect(r.text).toContain('To: Acme (prod) as me@co.com');
+    expect(r.text).toContain('To: "Acme" (as claimed by api.align.test) via api.align.test, as me@co.com');
     expect(new URL(urlOf(r)).hash).toMatch(/^#k=[A-Za-z0-9_-]{43}$/);
     expect(gw.staged).toHaveLength(1);
     expect(gw.staged[0]).toMatchObject({ kind: 'share', requester_label: 'tom-laptop', agent: 'claude-code' });
@@ -327,5 +327,31 @@ describe('the older one-time code says it is the older flow', () => {
     const r = await runShareTool({ id }, env, ctx());
     expect(r.text).toContain('does not offer browser approval');
     expect(r.code).toMatch(/^[a-z2-7]{10}$/);
+  });
+});
+
+
+describe('align_share and the web app the link opens on (C4, S15)', () => {
+  const ACME_APP = 'https://align.acme.example';
+  const teamCtx = () => { const c = ctx(); return { ...c, share: { ...c.share, teamAppUrl: ACME_APP } }; };
+
+  it('a team destination hands the user a link on its saved web app', async () => {
+    const r = await runShareTool({ id }, env, teamCtx());
+    expect(urlOf(r).startsWith(`${ACME_APP}/share/approve/`)).toBe(true);
+  });
+
+  it('a gateway naming another web app stops it: nothing staged, no link, both addresses named', async () => {
+    gw.appUrl = 'https://align.evil.example';
+    const r = await runShareTool({ id }, env, teamCtx());
+    expect(gw.staged).toHaveLength(0);
+    expect(r['approve_url']).toBeUndefined();
+    expect(r.text).toContain('align.acme.example');
+    expect(r.text).toContain('align.evil.example');
+  });
+
+  it('a builtin follows the gateway\'s app_url when it gives one', async () => {
+    gw.appUrl = 'https://app.selfhost.example';
+    const r = await runShareTool({ id }, env, ctx());
+    expect(urlOf(r).startsWith('https://app.selfhost.example/share/approve/')).toBe(true);
   });
 });

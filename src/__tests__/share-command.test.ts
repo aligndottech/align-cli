@@ -15,7 +15,7 @@ import { approvalDeps, noShareRequests } from './helpers/share-requests-fake.js'
 /**
  * L9 Test List, `align share`:
  * - no team login: the CTA and exit 1, no call at all. Unratified / unknown id: refusal, no send.
- * - exact preview + "To: <workspace> (<env>) as <email>" before a default-No question; No sends nothing; Yes sends once, and the
+ * - exact preview + "To: \"<workspace>\" (as claimed by <host>) via <host>, as <email>" before a default-No question; No sends nothing; Yes sends once, and the
  *   previewed JSON is the sent item. No interactive terminal: exit 1, nothing sent. There is no --yes.
  * - a credential in the text: exit 1 naming the placeholder and field, the match never printed, nothing sent.
  * - ledger: a created share is recorded (remote id, tenant, hash); an unchanged re-share says "Already shared" and calls nothing;
@@ -104,7 +104,7 @@ describe('preview, confirmation and the send', () => {
   it('previews text and destination, and sends nothing on No', async () => {
     const f = fixture(); const id = seed(); f.tty.answer = false;
     expect(await run(f, { ids: [id] })).toBe(0);
-    expect(text(f)).toContain('To: Acme (prod) as me@co.com');
+    expect(text(f)).toContain('To: "Acme" (as claimed by x) via x, as me@co.com');
     expect(text(f)).toContain('Use sqlite for the cache');
     expect(f.asks).toHaveLength(1);
     expect(f.sent).toHaveLength(0);
@@ -413,14 +413,24 @@ describe('the client_key', () => {
 });
 
 describe('where it goes', () => {
-  it('names the gateway when it is not the default for the environment, and not otherwise', async () => {
+  it('always names the gateway host, and says so when a builtin is pointed away from its default', async () => {
     const f = fixture(); const id = seed();
     await run(f, { ids: [id] });
-    expect(f.shown.join('\n')).not.toContain('via ');
+    expect(f.shown.join('\n')).toContain('via x, as me@co.com');
+    expect(f.shown.join('\n')).not.toContain('not the default');
     const g = fixture(); const id2 = seed({ title: 'two' });
     g.deps.defaultGatewayUrl = 'https://api.align.tech';
     await run(g, { ids: [id2] });
-    expect(g.shown.join('\n')).toContain('via https://x (not the default for prod)');
+    expect(g.shown.join('\n')).toContain('via x, as me@co.com (this gateway is not the default for prod)');
+  });
+  it('a team destination (no default gateway) names its host and never claims to be "not the default"', async () => {
+    const f = fixture(); const id = seed({ title: 'team' });
+    f.deps.defaultGatewayUrl = '';
+    f.deps.cloudEnv = { ...f.deps.cloudEnv, gatewayUrl: 'https://api.acme.example', kind: 'team' };
+    await run(f, { ids: [id], envName: 'acme' });
+    const shown = f.shown.join('\n');
+    expect(shown).toContain('To: "Acme" (as claimed by api.acme.example) via api.acme.example, as me@co.com');
+    expect(shown).not.toContain('not the default');
   });
   it('refuses a code when the workspace changed (Acme -> Other Corp) or the gateway changed, and sends nothing', async () => {
     const f = fixture(); const id = seed();

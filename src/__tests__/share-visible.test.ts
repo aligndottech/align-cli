@@ -60,7 +60,7 @@ describe('a hostile preview', () => {
     judgements: [{ id: 'j', decision_id: '11111111-1111-4111-8111-111111111111', counterpart_id: null, context_key: null, kind: 'note', value: null, note: `n${ESC}[31m`, judge_id: 'i', judge_label: null, via: 'mcp', agent_id: `ag${ESC}`, judged_at: '2026-09-04T10:00:00.000Z' }],
     remoteIdOf: () => undefined, titleOf: () => null, clientKey: 'k', salt: 's', alreadySent: new Set(),
   });
-  const text = renderPreview([p], { workspace: `Acme${ESC}[2J`, env: 'prod', email: `me${RLO}@x` });
+  const text = renderPreview([p], { workspace: `Acme${ESC}[2J`, env: 'prod', email: `me${RLO}@x`, gatewayHost: 'api.align.tech' });
   it('holds no escape, carriage return or bidi control, and shows the escapes instead', () => {
     expect(text).not.toMatch(BAD);
     expect(text).toContain('\\x1b[2J');
@@ -70,7 +70,7 @@ describe('a hostile preview', () => {
   });
   it('ends with the destination line, the last thing read before the question', () => {
     const lines = text.split('\n');
-    expect(lines[lines.length - 1]).toMatch(/^To: Acme\\x1b\[2J \(prod\) as me\\u202e@x$/);
+    expect(lines[lines.length - 1]).toMatch(/^To: "Acme\\x1b\[2J" \(as claimed by api\.align\.tech\) via api\.align\.tech, as me\\u202e@x$/);
     expect(lines[lines.length - 2]).toBe('Nothing is sent until you say yes.');
   });
   it('results and refusals are sanitised too', () => {
