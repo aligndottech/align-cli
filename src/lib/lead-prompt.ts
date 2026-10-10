@@ -177,14 +177,14 @@ export async function maybeAskLead(d: LeadDeps): Promise<'skipped-by-gate' | 'no
     }
     if (sent.kind === 'unavailable') {
       // Permanent: keep the asked mark, or every share on this server would ask again and fail the same way.
-      d.out('Email sign-up is not available from this server yet; nothing was sent.');
+      d.out('Email sign-up is not available from this server yet. Nothing was sent.');
       return 'skipped';
     }
     // A timeout or a 5xx may mean the server already took the address; a later share asking again is absorbed by
     // the server's one-confirmation-per-24-hours rule, so the person gets no second email inside a day.
     // Nothing reached the server's list: forget that we asked, so a later share can offer it again.
     d.store.clearLeadPromptShown();
-    d.out(sent.kind === 'rate-limited' ? 'Too many requests just now; nothing was sent. Try again later.' : 'Could not reach the server; nothing was sent.');
+    d.out(sent.kind === 'rate-limited' ? 'Too many requests just now. Nothing was sent. Try again later.' : 'Could not reach the server. Nothing was sent.');
     return 'not-sent';
   } catch {
     return 'skipped-by-gate';

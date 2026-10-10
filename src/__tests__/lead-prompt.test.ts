@@ -176,7 +176,7 @@ describe('the prompt', () => {
   it('a failed send says nothing was sent and forgets the ask', async () => {
     const f = fixture(['a@b.co'], { kind: 'failed' });
     expect(await maybeAskLead(f.deps)).toBe('not-sent');
-    expect(f.out).toEqual(['Could not reach the server; nothing was sent.']);
+    expect(f.out).toEqual(['Could not reach the server. Nothing was sent.']);
     expect(f.state.shownAt).toBeUndefined();
     expect(f.state.submittedAt).toBeUndefined();
     expect(await maybeAskLead({ ...f.deps, ask: async (_s, _q, on) => { on(); return ''; } })).toBe('skipped');
@@ -187,7 +187,7 @@ describe('the prompt', () => {
     expect(f.state.shownAt).toBeDefined();
     expect(f.state.outcome).toBe('skipped');
     expect(f.state.submittedAt).toBeUndefined();
-    expect(f.out).toEqual(['Email sign-up is not available from this server yet; nothing was sent.']);
+    expect(f.out).toEqual(['Email sign-up is not available from this server yet. Nothing was sent.']);
     expect(await maybeAskLead(f.deps)).toBe('skipped-by-gate');
   });
   it.each([['failed' as const], ['rate-limited' as const]])('a %s send still forgets the ask (a later share may ask again)', async (kind) => {

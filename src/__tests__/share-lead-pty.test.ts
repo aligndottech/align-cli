@@ -121,7 +121,7 @@ describe.skipIf(!canPty)('a person on a real terminal with no team login', () =>
   it('a redirect from the server is refused, nothing is marked, and the next share asks again', async () => {
     rig.reply.status = 307; rig.reply.location = `${rig.base}/elsewhere`;
     const r = await pty([['Work email', `${ADDRESS}\r`], ['nothing was sent', '']]);
-    expect(r.out).toContain('Could not reach the server; nothing was sent.');
+    expect(r.out).toContain('Could not reach the server. Nothing was sent.');
     expect(rig.other).toEqual([]); // the redirect target was never requested
     expect(config()['leadEmailSubmittedAt']).toBeUndefined();
     expect(config()['leadPromptShownAt']).toBeUndefined();
