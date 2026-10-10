@@ -67,7 +67,8 @@ is listed on its own page, and a test keeps that page true.
   `align context inject`). `align mcp`, or a run inside an agent `align` opened, does not show the notice, so it
   sends nothing until the notice has printed in your own terminal.
 - If an earlier version asked you at the end of setup and you said No, that stands as off:
-  nothing is sent, the two counts included, until you run `align telemetry on`.
+  nothing is sent, in either mode, the two counts included, until you run
+  `align telemetry on`.
 - **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.** `ALIGN_TELEMETRY=0` does the
   same. All three win, in both modes, over everything else including a prior
   `align telemetry on`. Set the env var before your first run and the install count is never

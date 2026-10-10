@@ -42,8 +42,9 @@ Nothing about your repo, your decisions, your files or you is ever sent.
 | `align telemetry on` | Turns usage on (and undoes `align telemetry off`). | command |
 
 Earlier versions asked a consent question at the end of setup. If you answered No there, that
-answer stands, and it now means off: nothing is sent in local-only mode, the two counts below
-included. `align telemetry on` turns it back on.
+answer stands, and it now means off, exactly like `align telemetry off`: nothing is sent, in
+either mode, the two counts below and cloud-mode events included. `align telemetry on` turns it
+back on.
 
 ## Sent always, unless turned off (the two counts)
 
@@ -132,9 +133,10 @@ None of these, and no `cli.command`, is ever sent from inside an agent hook.
 
 Unchanged by the notice above. A cloud user is already on an authenticated connection to
 Align's gateway, so usage events are on by default and `ALIGN_TELEMETRY=0` or
-`DO_NOT_TRACK=1` turns them off, and so does `align telemetry off`. Nothing is sent from CI in
-cloud mode either. They go to `POST <gateway>/telemetry/ingest` with your login token and
-tenant, and land in your tenant's own `telemetry_events` table.
+`DO_NOT_TRACK=1` turns them off, and so do `align telemetry off` and a No to the old consent
+question. Nothing is sent from CI in cloud mode either. They go to
+`POST <gateway>/telemetry/ingest` with your login token and tenant, and land in your tenant's
+own `telemetry_events` table.
 
 ### `cli.command` (cloud mode)
 

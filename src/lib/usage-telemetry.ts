@@ -31,15 +31,24 @@ function telemetryOptedOut(): boolean {
 }
 
 /**
- * Whether the user ran `align telemetry off`. That stored 'off' stops cloud events too, not only
- * local ones (review of e794c6e): the privacy page lists `align telemetry off` as a way to turn
- * the CLI's telemetry off, with no mode attached. A store that cannot be read counts as off -
- * the direction that sends nothing.
+ * THE one predicate for "a stored answer forbids sending anything", read by every send path:
+ * local usage, local stages and beacons (localTierAllows), the install beacon's first-run
+ * consumption, cloud cli.command and cloud funnel stages, and `align telemetry status`.
+ * 'off' is `align telemetry off`; 'declined' is a No to the pre-C6 setup question. The privacy
+ * page promises "if you turned telemetry off earlier, it stays off", with no mode attached, so
+ * both stop everything in both modes (review of e794c6e, then the coordinator's call that a
+ * declined cloud user is off too).
  */
-async function storedOff(): Promise<boolean> {
+export function storedAnswerForbidsSending(consent: TelemetryConsent | undefined): boolean {
+  return consent === 'off' || consent === 'declined';
+}
+
+/** The predicate above, read from the store. A store that cannot be read forbids - the direction
+ *  that sends nothing. */
+async function storedAnswerForbidsSendingNow(): Promise<boolean> {
   try {
     const { createConfigStore } = await import('./config.js');
-    return createConfigStore().getTelemetryConsent() === 'off';
+    return storedAnswerForbidsSending(createConfigStore().getTelemetryConsent());
   } catch {
     return true;
   }
@@ -134,8 +143,9 @@ export function getTelemetryStatus(
   if (inCi()) {
     return { enabled: false, reason: 'off: running in CI - nothing is sent' };
   }
-  if (env.mode !== 'local-embedded' && localConsent === 'off') {
-    return { enabled: false, reason: 'off: you ran `align telemetry off` - nothing is sent, cloud events included' };
+  if (env.mode !== 'local-embedded' && storedAnswerForbidsSending(localConsent)) {
+    const why = localConsent === 'declined' ? 'you declined when asked' : 'you ran `align telemetry off`';
+    return { enabled: false, reason: `off: ${why} - nothing is sent, cloud events included` };
   }
   if (env.mode === 'local-embedded') {
     if (localConsent === 'granted') {
@@ -176,7 +186,7 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
     return;
   }
   if (!env.authToken || !env.tenantId) return;
-  if (await storedOff()) return;
+  if (await storedAnswerForbidsSendingNow()) return;
 
   await postWithTimeout(`${env.gatewayUrl}/telemetry/ingest`, {
     method: 'POST',
@@ -355,7 +365,7 @@ export async function recordFunnelStage(
     const isLocal = env.mode === 'local-embedded';
     const canSend = isLocal
       ? localTierAllows(config.getTelemetryConsent(), stage, noticeShownOn(config))
-      : Boolean(env.authToken && env.tenantId) && config.getTelemetryConsent() !== 'off';
+      : Boolean(env.authToken && env.tenantId) && !storedAnswerForbidsSending(config.getTelemetryConsent());
     if (!canSend) return false;
     if (stage === 'first_useful_decision') config.markFunnelStageRecorded(stage);
 
@@ -424,7 +434,7 @@ function localTierAllows(
   stage: FunnelStage | 'install' | 'command',
   noticeShown: boolean,
 ): boolean {
-  if (consent === 'off' || consent === 'declined') return false;
+  if (storedAnswerForbidsSending(consent)) return false;
   return consent === 'granted' || noticeShown;
 }
 
@@ -484,7 +494,7 @@ export async function recordInstallBeacon(commandPath: string): Promise<boolean>
     // A decision that says "never" consumes the first run, so the beacon is never sent later
     // either: an env switch, `align telemetry off`, or a stored No.
     const consent = config.getTelemetryConsent();
-    if (telemetryOptedOut() || consent === 'off' || consent === 'declined') {
+    if (telemetryOptedOut() || storedAnswerForbidsSending(consent)) {
       config.markFunnelStageRecorded('install');
       return false;
     }

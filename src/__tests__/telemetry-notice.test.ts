@@ -45,7 +45,7 @@ vi.mock('../lib/config.js', () => ({
 }));
 vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn().mockReturnValue('prod') }));
 
-import { beginInvocationTelemetry, recordCommandUsage, recordFunnelStage } from '../lib/usage-telemetry.js';
+import { beginInvocationTelemetry, recordCommandUsage, recordFunnelStage, storedAnswerForbidsSending } from '../lib/usage-telemetry.js';
 import { TELEMETRY_NOTICE } from '../lib/telemetry-consent.js';
 import { isHookInvocation, markHookContext, resetHookContextForTests } from '../lib/hook-context.js';
 
@@ -225,12 +225,21 @@ describe('the one-time telemetry notice', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it.each([['off', true], ['declined', true], ['granted', false], [undefined, false]] as const)(
+    'storedAnswerForbidsSending(%s) is %s',
+    (consent, expected) => {
+      expect(storedAnswerForbidsSending(consent)).toBe(expected);
+    },
+  );
+
   describe('a stored decision in cloud mode', () => {
     const cloudEnv: EnvironmentConfig = { gatewayUrl: 'https://gw.example', authToken: 'tok', tenantId: 't1', mode: 'auth' };
     const ingestCalls = () => fetchSpy.mock.calls.filter((c) => String(c[0]).endsWith('/telemetry/ingest'));
 
-    it('`align telemetry off` stops cloud events too: no POST to /telemetry/ingest', async () => {
-      state.consent = 'off';
+    // One predicate decides "may send anything" for both stored answers (privacy page: "if you
+    // turned telemetry off earlier, it stays off"), so both get the same cloud test.
+    it.each([['off'], ['declined']] as const)('stored %s stops cloud events too: no POST to /telemetry/ingest', async (consent) => {
+      state.consent = consent;
       await recordCommandUsage(cloudEnv, 'ask');
       await expect(recordFunnelStage(cloudEnv, 'first_useful_decision', 'ask')).resolves.toBe(false);
       expect(ingestCalls()).toHaveLength(0);

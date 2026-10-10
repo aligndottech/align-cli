@@ -121,6 +121,11 @@ describe('getTelemetryStatus', () => {
       expect(getTelemetryStatus(cloudEnv, 'granted').enabled).toBe(true);
     });
 
+    it('cloud mode, declined at the old prompt: off too, and says why', () => {
+      expect(getTelemetryStatus(cloudEnv, 'declined')).toEqual({ enabled: false, reason: expect.stringContaining('declined') });
+      expect(getTelemetryStatus(cloudEnv, undefined).enabled).toBe(true);
+    });
+
 
     it('local mode, `align telemetry off`: off, and nothing sends - distinct from a decline', () => {
       vi.stubEnv('ALIGN_TELEMETRY', '');
