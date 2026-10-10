@@ -242,6 +242,7 @@ jobs:
   # Same gate on the newest Node (not a required context). 22.16 is the floor and the
   # required `test` job covers it, so the value here is the OTHER end of the range.
   test-node24:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
