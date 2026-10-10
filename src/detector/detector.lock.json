@@ -1,10 +1,10 @@
 {
-  "note": "sha256 of the P3 detector files align-stack vendors next to the contract (brain: prompt and resolver vectors; packages/llm-eval: all). Regenerate the JSON files with scripts/gen-resolver-vectors.py and scripts/extract-shared-prompt.py, then update this lock.",
+  "note": "sha256 of the P3 detector files align-stack vendors (brain: the shared prompt sections and the resolver vectors; packages/llm-eval: all of them). A separate lock from contract.lock.json because these files belong to the detector, not the parse contract. It does NOT keep the contract bytes still: the contract revision moved r1 -> r2 when relationship-prompt.v1.txt joined contract.lock.json, so align-stack must re-sync its vendored contract copy. Regenerate resolver-vectors.json (python 3.14, the brain image's interpreter) and relationship-prompt.v1.json with the scripts in scripts/, then update this lock.",
   "files": {
     "relationship-prompt.v1.json": "eb7c944293e061e991095b5001b528c0e8bb3b083a22d318a84d5278eec2408a",
-    "resolver-vectors.json": "1e5efd312b3312e10625e21110004b58dd199c97c5f802010a1eb288aeb415ef",
-    "resolve-pair.ts": "cdbb2e42278e0fcf2b38de9877f1acbafc85b28d2cbbea12b6e852740fb1d4b8",
+    "resolver-vectors.json": "c6df02f7e4c03443e6c263fff3f1b9925c02bce5bf66b3b8b88ff70643fe8828",
+    "resolve-pair.ts": "61fa23002c28fee6a26c08fa809055f92fc45a62c60fb4bdc900a9623a6f1a46",
     "similar-item.ts": "ef4b4bb831ee476440d1913e8539e8646953fc264148e9c7125de8f2fe47c887",
-    "__tests__/resolve-pair.test.ts": "87f6ad0d59fae2179b19943b0d6793f053dcef0510c10c965b369dd17a82ed25"
+    "__tests__/resolve-pair.test.ts": "7fd925f6da57aa3283fc888ebd70e862927bcc79662c0386db5a5f52c0641881"
   }
 }

@@ -41,7 +41,10 @@ export function buildV1SystemPrompt(): string {
   return `${HEAD}${itemSchema}${TAIL}${rules}\n\n${types}`;
 }
 
-const day = (value: string | null | undefined): string | null => parseDecidedAt(value)?.toISOString().slice(0, 10) ?? null;
+const day = (value: string | null | undefined): string | null => {
+  const us = parseDecidedAt(value);
+  return us === null ? null : new Date(Number(us / 1000n)).toISOString().slice(0, 10);
+};
 
 /** max(n * 512, 2048), capped at 8192 - the brain's formula (plan Decision 6). */
 export function v1MaxTokens(candidateCount: number): number {

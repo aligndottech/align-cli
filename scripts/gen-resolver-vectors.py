@@ -4,6 +4,10 @@
 The TypeScript port in src/detector/resolve-pair.ts is checked against these vectors, so the
 port is measured against the function the hosted product runs, not against a reading of it.
 
+Run it with the interpreter the brain image runs (services/brain/Dockerfile: python:3.14),
+because datetime.fromisoformat differs between versions (24:00 is accepted from 3.12 on in the
+C implementation but differed in earlier review runs); the file records the version used.
+
 Usage (no network, pure stdlib; the brain module imports only dataclasses and datetime):
   git -C <align-stack> show origin/main:services/brain/app/relationship_type_rules.py > /tmp/rtr.py
   python3 scripts/gen-resolver-vectors.py --source /tmp/rtr.py --commit <align-stack sha> > src/detector/resolver-vectors.json
@@ -87,6 +91,49 @@ CASES = [
      side("a", T0, "Dana"), side("b", "2026-01-03T00:00:00Z", "Dana"), None),
     ("no standing on the later side vs a human earlier side -> conflicts_with",
      side("a", T0, "Dana", standing="human"), side("b", "2026-01-03T00:00:00Z", "Dana"), None),
+    # Review F4 (2026-10-11): inputs where a hand-written port can drift from CPython's own
+    # datetime.fromisoformat, str.strip, str.lower and dict.get.
+    ("equal timestamps, claim names b -> conflicts_with", side("a", T0, "D"), side("b", T0, "D"), "b"),
+    ("both dates missing", side("a"), side("b"), "b"),
+    ("leading space in decided_at is not trimmed", side("a", " 2026-01-01T00:00:00Z", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("trailing newline in decided_at is not trimmed", side("a", "2026-01-01T00:00:00Z\n", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("offset without colon", side("a", "2026-01-01T00:00:00+0100", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("lowercase z", side("a", "2026-01-01T00:00:00z", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("basic format", side("a", "20260101T000000Z", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("hour only", side("a", "2026-01-01T05", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("year 0050", side("a", "0050-01-01", "D"), side("b", "2026-01-05", "D"), None),
+    ("year 0001 vs 0002", side("a", "0001-01-01", "D"), side("b", "0002-01-01", "D"), None),
+    ("7 fraction digits", side("a", "2026-01-01T00:00:00.1234567Z", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("sub-millisecond gap just past 24h", side("a", "2026-01-01T00:00:00.000000Z", "D"), side("b", "2026-01-02T00:00:00.000400Z", "D"), None),
+    ("one microsecond past 24h", side("a", "2026-01-01T00:00:00Z", "D"), side("b", "2026-01-02T00:00:00.000001Z", "D"), None),
+    ("offset with seconds", side("a", "2026-01-01T00:00:00+01:00:30", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("Z and +00:00 are the same instant", side("a", "2026-01-01T00:00:00+00:00", "D"), side("b", "2026-01-01T00:00:00Z", "D"), None),
+    ("week date", side("a", "2026-W01-1", "D"), side("b", "2026-02-05", "D"), None),
+    ("compact week date", side("a", "2026W011", "D"), side("b", "2026-02-05", "D"), None),
+    ("24:00 is midnight of the next day", side("a", "2026-01-01T24:00:00", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("24:00 boundary: 24:00 vs next day +24h exactly", side("a", "2026-01-01T24:00:00Z", "D"), side("b", "2026-01-03T00:00:00Z", "D"), None),
+    ("24:01 is invalid", side("a", "2026-01-01T24:01:00", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("second 60 is invalid", side("a", "2026-01-01T00:00:60", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("29 February in a non-leap year is invalid", side("a", "2025-02-29", "D"), side("b", "2025-03-05", "D"), None),
+    ("any single character separates date and time", side("a", "2026-01-01X00:00:00", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("comma fraction separator", side("a", "2026-01-01T00:00:00,5", "D"), side("b", "2026-01-02T00:00:00,6", "D"), None),
+    ("offset of 24 hours is invalid", side("a", "2026-01-01T00:00:00+24:00", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("negative offset moves the instant later", side("a", "2026-01-01T00:00:00-02:00", "D"), side("b", "2026-01-02T01:00:00Z", "D"), None),
+    ("standing __proto__ later vs human earlier, claim", side("a", T0, None, standing="human"), side("b", "2026-01-05T00:00:00Z", None, standing="__proto__"), "b"),
+    ("standing toString later vs human earlier, same author", side("a", T0, "D", standing="human"), side("b", "2026-01-05T00:00:00Z", "D", standing="toString"), None),
+    ("standing HUMAN in upper case is unknown", side("a", T0, "D", standing="ratified_agent"), side("b", "2026-01-05T00:00:00Z", "D", standing="HUMAN"), None),
+    ("exempt and retired", side("a", T0, "D", status="superseded", excepted_by=("b",)), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("exemption naming itself does not exempt the pair", side("a", T0, "D", excepted_by=("a",)), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("claim with a U+FEFF prefix is not stripped", side("a", T0), side("b", "2026-01-05T00:00:00Z"), "\ufeffb"),
+    ("claim with a no-break space is stripped", side("a", T0), side("b", "2026-01-05T00:00:00Z"), "\u00a0b"),
+    ("claim with a U+001F prefix is stripped (Python whitespace)", side("a", T0), side("b", "2026-01-05T00:00:00Z"), "\u001fb"),
+    ("author with a no-break space", side("a", T0, "\u00a0Dana"), side("b", "2026-01-05T00:00:00Z", "dana"), None),
+    ("author: STRASSE vs strasse-with-eszett differ", side("a", T0, "STRASSE"), side("b", "2026-01-05T00:00:00Z", "stra\u00dfe"), None),
+    ("author: dotted capital I lowers to i plus combining dot", side("a", T0, "\u0130lker"), side("b", "2026-01-05T00:00:00Z", "i\u0307lker"), None),
+    ("author with a U+001F prefix is stripped (Python whitespace, not JS)", side("a", T0, "\u001fDana"), side("b", "2026-01-05T00:00:00Z", "dana"), None),
+    ("author with a U+FEFF prefix is not stripped", side("a", T0, "\ufeffDana"), side("b", "2026-01-05T00:00:00Z", "dana"), None),
+    ("week date in a year starting on Friday: 2027-W01-1 is 4 January", side("a", "2027-W01-1", "D"), side("b", "2027-01-04T12:00:00", "D"), None),
+    ("status Superseded in title case is not retired", side("a", T0, "D", status="Superseded"), side("b", "2026-01-05T00:00:00Z", "D"), None),
 ]
 
 
@@ -117,6 +164,7 @@ def main() -> None:
         "sourceCommit": args.commit,
         "sourceSha256": hashlib.sha256(raw).hexdigest(),
         "concurrentWindowHours": mod.CONCURRENT_WINDOW_HOURS,
+        "python": sys.version.split()[0],
         "cases": out,
     }, indent=2))
 

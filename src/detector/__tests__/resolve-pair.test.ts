@@ -28,20 +28,28 @@ describe('resolveIncompatiblePair matches the brain', () => {
   });
 });
 
-describe('parseDecidedAt', () => {
+const iso = (us: bigint | null): string | null => (us === null ? null : new Date(Number(us / 1000n)).toISOString());
+
+describe('parseDecidedAt (microseconds since the epoch, as Python sees it)', () => {
   it('reads a naive time as UTC, not as the machine local zone', () => {
-    expect(parseDecidedAt('2026-01-01T10:00:00')?.toISOString()).toBe('2026-01-01T10:00:00.000Z');
-    expect(parseDecidedAt('2026-01-01 10:00:00')?.toISOString()).toBe('2026-01-01T10:00:00.000Z');
+    expect(iso(parseDecidedAt('2026-01-01T10:00:00'))).toBe('2026-01-01T10:00:00.000Z');
+    expect(iso(parseDecidedAt('2026-01-01 10:00:00'))).toBe('2026-01-01T10:00:00.000Z');
   });
 
   it('reads an offset as an instant', () => {
-    expect(parseDecidedAt('2026-01-01T10:00:00+02:00')?.toISOString()).toBe('2026-01-01T08:00:00.000Z');
-    expect(parseDecidedAt('2026-01-01T10:00:00Z')?.toISOString()).toBe('2026-01-01T10:00:00.000Z');
+    expect(iso(parseDecidedAt('2026-01-01T10:00:00+02:00'))).toBe('2026-01-01T08:00:00.000Z');
+    expect(iso(parseDecidedAt('2026-01-01T10:00:00Z'))).toBe('2026-01-01T10:00:00.000Z');
   });
 
-  it('treats garbage and non-strings as missing', () => {
+  it('keeps microseconds', () => {
+    expect(parseDecidedAt('1970-01-01T00:00:00.000001Z')).toBe(1n);
+    expect(parseDecidedAt('1970-01-01T00:00:00.0000019Z')).toBe(1n);
+  });
+
+  it('treats garbage, whitespace and non-strings as missing', () => {
     expect(parseDecidedAt('yesterday')).toBeNull();
     expect(parseDecidedAt('2026-13-45')).toBeNull();
+    expect(parseDecidedAt(' 2026-01-01')).toBeNull();
     expect(parseDecidedAt(null)).toBeNull();
     expect(parseDecidedAt(42)).toBeNull();
   });

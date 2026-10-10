@@ -16,7 +16,8 @@
 /** Within this window two decisions are concurrent and a supersession is refused. */
 export const CONCURRENT_WINDOW_HOURS = 24;
 
-const STANDING_RANK: Record<string, number> = { human: 3, ratified_agent: 2, unratified_agent: 1 };
+// A Map, not an object literal: `__proto__` or `toString` must read as unknown (0), as dict.get does.
+const STANDING_RANK = new Map<string, number>([['human', 3], ['ratified_agent', 2], ['unratified_agent', 1]]);
 const AUTHOR_SENTINELS = new Set(['unknown']);
 const RETIRED_STATUSES = new Set(['superseded', 'archived', 'corrected']);
 
@@ -37,37 +38,179 @@ export interface Resolution {
   toId: string;
 }
 
-// YYYY-MM-DD, optionally T or space, HH:MM[:SS[.fff]], optionally Z or +HH:MM / -HH:MM.
-const ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?(Z|[+-]\d{2}:\d{2})?)?$/;
+// ---- A port of CPython's datetime.fromisoformat (3.14, the brain image's interpreter) ----------
+// Python's parse_decided_at is `fromisoformat(value.replace("Z", "+00:00"))`, naive read as UTC,
+// and any ValueError is MISSING. Ported structurally (Lib/_pydatetime.py) with digits checked as
+// strictly as the C implementation does, and microsecond precision kept, so the port and the
+// brain agree on every vector in resolver-vectors.json. No trimming: Python does not trim.
 
-/**
- * Python's `parse_decided_at` for the ISO shapes the local graph stores. A value with no offset
- * is UTC (JavaScript's own Date.parse would read it as the machine's local zone). Anything else,
- * including an impossible calendar date, is null.
- */
-export function parseDecidedAt(value: unknown): Date | null {
+const isDigit = (c: string | undefined): boolean => c !== undefined && c >= '0' && c <= '9';
+
+function digits(s: string): number {
+  if (s.length === 0 || ![...s].every((c) => isDigit(c))) throw new Error('not digits');
+  return Number(s);
+}
+
+function isLeap(y: number): boolean { return y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0); }
+const DAYS_IN_MONTH = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+function daysInMonth(y: number, m: number): number { return m === 2 && isLeap(y) ? 29 : DAYS_IN_MONTH[m]!; }
+function daysBeforeYear(y: number): number { const p = y - 1; return p * 365 + Math.floor(p / 4) - Math.floor(p / 100) + Math.floor(p / 400); }
+/** Proleptic Gregorian ordinal, 0001-01-01 = 1 (Python's _ymd2ord). */
+function ymd2ord(y: number, m: number, d: number): number {
+  let before = 0;
+  for (let k = 1; k < m; k++) before += daysInMonth(y, k);
+  return daysBeforeYear(y) + before + d;
+}
+
+function separatorAt(s: string): number {
+  if (s.length === 7) return 7;
+  if (s[4] === '-') {
+    if (s[5] === 'W') {
+      if (s.length > 8 && s[8] === '-') {
+        if (s.length === 9) throw new Error('bad');
+        if (s.length > 10 && isDigit(s[10])) return 8;
+        return 10;
+      }
+      return 8;
+    }
+    return 10;
+  }
+  if (s[4] === 'W') {
+    let idx = 7;
+    while (idx < s.length && isDigit(s[idx])) idx++;
+    if (idx < 9) return idx;
+    return idx % 2 === 0 ? 7 : 8;
+  }
+  return 8;
+}
+
+/** [year, month, day] or, for a week date, the ordinal; throws on anything Python rejects. */
+function parseDate(d: string): { y: number; m: number; day: number } | { ord: number; y: number } {
+  if (![7, 8, 10].includes(d.length)) throw new Error('bad length');
+  const y = digits(d.slice(0, 4));
+  const hasSep = d[4] === '-';
+  let pos = 4 + (hasSep ? 1 : 0);
+  if (d.slice(pos, pos + 1) === 'W') {
+    pos += 1;
+    const week = digits(d.slice(pos, pos + 2));
+    pos += 2;
+    let dayno = 1;
+    if (d.length > pos) {
+      if ((d.slice(pos, pos + 1) === '-') !== hasSep) throw new Error('dash');
+      pos += hasSep ? 1 : 0;
+      dayno = digits(d.slice(pos, pos + 1));
+    }
+    if (y < 1 || y > 9999) throw new Error('year');
+    if (!(week > 0 && week < 53)) {
+      const firstWeekday = ymd2ord(y, 1, 1) % 7;
+      if (!(week === 53 && (firstWeekday === 4 || (firstWeekday === 3 && isLeap(y))))) throw new Error('week');
+    }
+    if (!(dayno > 0 && dayno < 8)) throw new Error('weekday');
+    const first = ymd2ord(y, 1, 1);
+    const firstWd = (first + 6) % 7;
+    let week1Monday = first - firstWd;
+    if (firstWd > 3) week1Monday += 7;
+    return { ord: week1Monday + (week - 1) * 7 + (dayno - 1), y };
+  }
+  const m = digits(d.slice(pos, pos + 2));
+  pos += 2;
+  if ((d.slice(pos, pos + 1) === '-') !== hasSep) throw new Error('dash');
+  pos += hasSep ? 1 : 0;
+  return { y, m, day: digits(d.slice(pos, pos + 2)) };
+}
+
+/** HH[:?MM[:?SS[{.,}f+]]] -> [h, m, s, us], Python's _parse_hh_mm_ss_ff. */
+function parseHms(t: string): [number, number, number, number] {
+  const comps: [number, number, number, number] = [0, 0, 0, 0];
+  let pos = 0;
+  let hasSep = false;
+  for (let comp = 0; comp < 3; comp++) {
+    if (t.length - pos < 2) throw new Error('incomplete');
+    comps[comp] = digits(t.slice(pos, pos + 2));
+    pos += 2;
+    const next = t.slice(pos, pos + 1);
+    if (comp === 0) hasSep = next === ':';
+    if (!next || comp >= 2) break;
+    if (hasSep && next !== ':') throw new Error('sep');
+    pos += hasSep ? 1 : 0;
+  }
+  if (pos < t.length) {
+    if (t[pos] !== '.' && t[pos] !== ',') throw new Error('frac sep');
+    pos += 1;
+    const frac = t.slice(pos);
+    digits(frac);
+    comps[3] = Number(frac.slice(0, 6).padEnd(6, '0'));
+  }
+  return comps;
+}
+
+/** Microseconds since 1970-01-01T00:00:00Z, or null where Python's parse_decided_at gives None. */
+export function parseDecidedAt(value: unknown): bigint | null {
   if (typeof value !== 'string') return null;
-  const m = ISO.exec(value.trim());
-  if (!m) return null;
-  const [, y, mo, d, h = '00', mi = '00', s = '00', frac = '', zone] = m;
-  const ms = Number(`${frac}000`.slice(0, 3));
-  const utc = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s), ms);
-  const check = new Date(utc);
-  if (check.getUTCFullYear() !== Number(y) || check.getUTCMonth() !== Number(mo) - 1 || check.getUTCDate() !== Number(d)
-    || check.getUTCHours() !== Number(h) || check.getUTCMinutes() !== Number(mi) || check.getUTCSeconds() !== Number(s)) {
+  const s = value.replaceAll('Z', '+00:00');
+  try {
+    if (s.length < 7) return null;
+    const sepAt = separatorAt(s);
+    const date = parseDate(s.slice(0, sepAt));
+    const t = s.slice(sepAt + 1);
+    let [h, mi, se, us] = [0, 0, 0, 0];
+    let offsetUs = 0n;
+    let nextDay = false;
+    if (t) {
+      if (t.length < 2) return null;
+      const tzMinus = t.indexOf('-') + 1;
+      const tzPos = tzMinus || t.indexOf('+') + 1 || t.indexOf('Z') + 1;
+      [h, mi, se, us] = parseHms(tzPos > 0 ? t.slice(0, tzPos - 1) : t);
+      if (h === 24) {
+        if (mi !== 0 || se !== 0 || us !== 0) return null;
+        h = 0;
+        nextDay = true;
+      }
+      if (tzPos > 0) {
+        const tz = t.slice(tzPos);
+        if ([0, 1, 3].includes(tz.length) || t[tzPos - 1] === 'Z') return null;
+        const [th, tm, ts, tus] = parseHms(tz);
+        const sign = t[tzPos - 1] === '-' ? -1n : 1n;
+        offsetUs = sign * (BigInt(th) * 3_600_000_000n + BigInt(tm) * 60_000_000n + BigInt(ts) * 1_000_000n + BigInt(tus));
+        if (offsetUs >= 86_400_000_000n || offsetUs <= -86_400_000_000n) return null;
+      }
+    }
+    let ord: number;
+    if ('ord' in date) {
+      ord = date.ord;
+      if (nextDay) ord += 1;
+    } else {
+      let { y, m, day } = date;
+      if (nextDay && m >= 1 && m <= 12 && day <= daysInMonth(y, m)) {
+        day += 1;
+        if (day > daysInMonth(y, m)) { day = 1; m += 1; if (m > 12) { m = 1; y += 1; } }
+      }
+      if (y < 1 || y > 9999 || m < 1 || m > 12 || day < 1 || day > daysInMonth(y, m)) return null;
+      ord = ymd2ord(y, m, day);
+    }
+    if (h > 23 || mi > 59 || se > 59) return null;
+    const EPOCH_ORD = 719163; // ymd2ord(1970, 1, 1)
+    const local = BigInt(ord - EPOCH_ORD) * 86_400_000_000n + BigInt(h) * 3_600_000_000n + BigInt(mi) * 60_000_000n + BigInt(se) * 1_000_000n + BigInt(us);
+    return local - offsetUs;
+  } catch {
     return null;
   }
-  let offsetMinutes = 0;
-  if (zone && zone !== 'Z') {
-    const sign = zone.startsWith('-') ? -1 : 1;
-    offsetMinutes = sign * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(4, 6)));
-  }
-  return new Date(utc - offsetMinutes * 60_000);
+}
+
+/** Python's str.isspace set, so strip() here removes exactly what Python's does (JS trim also strips U+FEFF). */
+const PY_WHITESPACE = new Set([0x9, 0xa, 0xb, 0xc, 0xd, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x85, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003,
+  0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000]);
+export function pyStrip(s: string): string {
+  let a = 0;
+  let b = s.length;
+  while (a < b && PY_WHITESPACE.has(s.charCodeAt(a))) a++;
+  while (b > a && PY_WHITESPACE.has(s.charCodeAt(b - 1))) b--;
+  return s.slice(a, b);
 }
 
 export function normalizeAuthor(value: unknown): string | null {
   if (typeof value !== 'string') return null;
-  const normalized = value.trim().toLowerCase();
+  const normalized = pyStrip(value).toLowerCase();
   if (!normalized || AUTHOR_SENTINELS.has(normalized)) return null;
   return normalized;
 }
@@ -76,7 +219,7 @@ export function isRetired(status: string | null | undefined): boolean {
   return status !== null && status !== undefined && RETIRED_STATUSES.has(status);
 }
 
-const rank = (standing: string | null | undefined): number => (standing ? STANDING_RANK[standing] ?? 0 : 0);
+const rank = (standing: string | null | undefined): number => (typeof standing === 'string' ? STANDING_RANK.get(standing) ?? 0 : 0);
 const conflict = (a: PairSide, b: PairSide): Resolution => ({ type: 'conflicts_with', fromId: a.id, toId: b.id });
 
 /** The edge for an incompatible pair, or null for no edge at all. */
@@ -89,12 +232,12 @@ export function resolveIncompatiblePair(a: PairSide, b: PairSide, explicitReplac
   if (aAt === null || bAt === null) return conflict(a, b);
 
   // Python's sorted() is stable, so on a tie `a` stays first.
-  const [first, second, firstAt, secondAt] = bAt.getTime() < aAt.getTime() ? [b, a, bAt, aAt] : [a, b, aAt, bAt];
-  if (secondAt.getTime() - firstAt.getTime() <= CONCURRENT_WINDOW_HOURS * 3_600_000) return conflict(a, b);
+  const [first, second, firstAt, secondAt] = bAt < aAt ? [b, a, bAt, aAt] : [a, b, aAt, bAt];
+  if (secondAt - firstAt <= BigInt(CONCURRENT_WINDOW_HOURS) * 3_600_000_000n) return conflict(a, b);
 
   const aAuthor = normalizeAuthor(a.author);
   const sameAuthor = aAuthor !== null && aAuthor === normalizeAuthor(b.author);
-  const claimAgreesWithClock = explicitReplacementBy !== null && explicitReplacementBy.trim() === second.id;
+  const claimAgreesWithClock = explicitReplacementBy !== null && pyStrip(explicitReplacementBy) === second.id;
   if (sameAuthor || claimAgreesWithClock) {
     if (rank(second.standing) < rank(first.standing)) return conflict(a, b);
     return { type: 'supersedes', fromId: second.id, toId: first.id };
