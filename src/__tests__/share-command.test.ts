@@ -590,3 +590,16 @@ describe('a decision with no source URL', () => {
     expect(f.sent[0]![0]!['source_url']).toMatch(/^align-local:\/\/decision\/[0-9a-f]{32}$/);
   });
 });
+
+describe('a ledger row from an earlier build that never stored its key', () => {
+  it('refuses to re-share (it could mint a twin), names retract, and retract still works', async () => {
+    const f = fixture(); const id = seed();
+    const { recordPromotion } = await import('../lib/share/ledger.js');
+    recordPromotion(dbPath, { localId: id, env: 'prod', tenantId: 'T1', remoteId: 'OLD1', contentHash: 'x', matched: false, clientKey: '', sent: [], confirmPending: false });
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(text(f)).toContain('align share --retract');
+    expect(f.sent).toHaveLength(0);
+    expect(await run(f, { retract: id })).toBe(0);
+    expect(f.archived).toEqual(['OLD1']);
+  });
+});

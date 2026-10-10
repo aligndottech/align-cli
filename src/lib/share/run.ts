@@ -108,6 +108,11 @@ export async function prepare(ctx: ShareContext, ids: string[]): Promise<Prepare
     const prior = getPromotion(ctx.dbPath, row.id, ctx.envName, tenantId);
     priors.set(row.id, prior);
     const live = prior !== null && prior.retractedAt === null;
+    // A live row with no stored key came from an earlier test build of this branch, whose key was derived another
+    // way. Re-deriving it now could mint a SECOND team decision, so the share stops and names the way out.
+    if (live && prior.clientKey === '') {
+      throw new ShareError(`${visible(row.id)} was shared by an earlier build that did not record its key, so sharing it again could create a second copy.\n  Retract the old one, then share again: align share --retract ${visible(row.id)}`);
+    }
     const p = buildSharePayload({
       row, judgements: mine, remoteIdOf, titleOf: (id) => titles.get(id) ?? null,
       // The key is minted ONCE and reused, so a twin fold (a new local id) cannot create a second team decision.
