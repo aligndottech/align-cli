@@ -166,17 +166,17 @@ describe('client_key', () => {
 
 describe('the secret scan', () => {
   const TOKENS: Array<[string, string]> = [
-    ['<GITHUB_TOKEN>', 'ghp_' + 'x'.repeat(36)],
-    ['<AWS_ACCESS_KEY>', 'AKIA' + 'B'.repeat(16)],
-    ['<ANTHROPIC_KEY>', 'sk-ant-' + 'a'.repeat(96)],
-    ['<SLACK_TOKEN>', 'xoxb-' + '1'.repeat(11) + '-' + '2'.repeat(11) + '-' + 'z'.repeat(24)],
+    ['<GITHUB_TOKEN>', `ghp_${  'x'.repeat(36)}`],
+    ['<AWS_ACCESS_KEY>', `AKIA${  'B'.repeat(16)}`],
+    ['<ANTHROPIC_KEY>', `sk-ant-${  'a'.repeat(96)}`],
+    ['<SLACK_TOKEN>', `xoxb-${  '1'.repeat(11)  }-${  '2'.repeat(11)  }-${  'z'.repeat(24)}`],
     ['<URL_CREDENTIALS>', 'https://user:hunter2@example.com/x'],
   ];
   it.each(TOKENS)('finds %s by name', (placeholder, token) => {
     expect(secretsIn(`the key is ${token} ok`)).toContain(placeholder);
   });
   it('names the field and the placeholder, and never returns the match', () => {
-    const found = scanForSecrets([{ field: 'summary', text: 'key ' + 'ghp_' + 'x'.repeat(36) }, { field: 'title', text: 'Use sqlite' }]);
+    const found = scanForSecrets([{ field: 'summary', text: `key ` + `ghp_${  'x'.repeat(36)}` }, { field: 'title', text: 'Use sqlite' }]);
     expect(found).toEqual([{ field: 'summary', placeholder: '<GITHUB_TOKEN>' }]);
     expect(JSON.stringify(found)).not.toContain('xxxx');
   });
@@ -184,7 +184,7 @@ describe('the secret scan', () => {
     expect(scanForSecrets([{ field: 'summary', text: 'We chose sqlite for the cache' }, { field: 'note', text: '' }, { field: 'x', text: null }])).toEqual([]);
   });
   it('treats a bare 40 character mixed string as an AWS secret only near the word aws', () => {
-    const bare = 'aB3'.repeat(13) + 'Z';
+    const bare = `${'aB3'.repeat(13)  }Z`;
     expect(bare).toHaveLength(40);
     expect(secretsIn(`value ${bare}`)).not.toContain('<AWS_SECRET_KEY>');
     expect(secretsIn(`aws account value ${bare}`)).toContain('<AWS_SECRET_KEY>');

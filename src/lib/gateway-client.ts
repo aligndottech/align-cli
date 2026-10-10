@@ -384,6 +384,9 @@ export interface BatchIngestResult {
   }>;
 }
 
+export type { BatchResponse as ShareBatchResponse } from './share/wire.js';
+import type { BatchResponse as ShareBatchResponse } from './share/wire.js';
+
 export class GatewayError extends Error {
   constructor(message: string, public readonly statusCode: number) {
     super(message);
@@ -971,6 +974,23 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
         method: 'POST',
         body: JSON.stringify({ decisions, ...(opts?.deferEnrichment ? { defer_enrichment: true } : {}) }),
       });
+    },
+
+    /**
+     * L9: send SHARES (items carrying `client_key` and `judgements`) and return the gateway's answer
+     * whole. Not `ingestBatch`: that method's callers read one snapshot per item, and a share's answer
+     * is `snapshots` (written, tagged with `request_index`) plus `matched`, `skipped`, `refused`,
+     * `match_ambiguous` and `judgements`. share/wire.ts reads it. Items go verbatim except the one
+     * rename `created_at` -> `decided_at` ingestBatch also makes.
+     */
+    async shareBatch(items: Array<Record<string, unknown> & { created_at?: string }>): Promise<ShareBatchResponse> {
+      const decisions = items.map(({ created_at, ...rest }) => ({ ...rest, ...(created_at ? { decided_at: created_at } : {}) }));
+      return request<ShareBatchResponse>('/ingest/batch', { method: 'POST', body: JSON.stringify({ decisions }) });
+    },
+
+    /** L9: retract a share (the existing archive route; it is the only undo the server has). */
+    async archiveDecision(id: string): Promise<void> {
+      await request(`/decisions/${encodePathSegment(id)}/archive`, { method: 'POST', body: '{}' });
     },
 
     getStreamUrl(jobId: string): string {

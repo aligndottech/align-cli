@@ -7,7 +7,7 @@
  * Judgements an agent relayed are listed under their own heading, so the person sees them before
  * they leave. What stays local is named, so a missing verdict is a visible choice and not a surprise.
  */
-import type { LeftLocal, ShownJudgement, SharePayload } from './payload.js';
+import type { LeftLocal, SharePayload, ShownJudgement } from './payload.js';
 
 export interface Destination {
   /** The workspace name from the token's tenant. */
@@ -64,7 +64,7 @@ export function renderPreview(payloads: readonly SharePayload[], dest: Destinati
     lines.push(`   Source: ${p.item.source_url} (${p.item.platform})`);
     if (p.item.created_at) lines.push(`   Decided: ${day(p.item.created_at)}`);
     if (opts.legacy?.has(p.localId)) {
-      lines.push('   This was pushed before Align tracked shares, so sharing again may create a second copy. Retract the old one: align share --retract ' + p.localId);
+      lines.push(`   This was pushed before Align tracked shares, so sharing again may create a second copy. Retract the old one: align share --retract ${  p.localId}`);
     }
     if (ownJudgements.length) {
       lines.push('   Goes with it:');

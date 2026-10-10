@@ -56,7 +56,7 @@ describe('L2 schema bump on a v6 file', () => {
 
     expect(tables()).toEqual(expect.arrayContaining(['source_sync', 'local_judgements', 'decisions_merged_backup']));
     expect(columnsOf(dbPath, 'decisions')).toEqual(expect.arrayContaining(['source_key', 'detail_pending', 'enriched_at']));
-    expect(SCHEMA_VERSION).toBe(9);
+    expect(SCHEMA_VERSION).toBe(10);
     expect(userVersion()).toBe(SCHEMA_VERSION);
   });
 

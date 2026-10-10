@@ -32,3 +32,21 @@ This repository is the open-source Align CLI and MCP server (`@aligndottech/cli`
 
 We support the latest published version on npm. Please upgrade to the latest
 release before reporting, in case the issue is already fixed.
+
+## Sharing from inside a coding agent (`align_share`)
+
+`align share` sends decisions from your local graph, and your judgements on them, to your team's
+graph. It prints exactly what leaves the machine, names the workspace and account, and asks first.
+Nothing is sent without a yes. A credential-shaped string in a title, summary, URL or note is
+refused on this machine, and again by the server.
+
+`align_share` (the MCP tool) only PREPARES a share: it returns the preview and a one-time code, and
+cannot send. You finish it with `align share --confirm <code>` in your own terminal, where the preview
+is shown again and the answer defaults to No. The code works once, expires after 10 minutes, and is
+refused if the decision or its judgements changed after the preview.
+
+> An agent-initiated share is confirmed on the machine the agent runs on, in a terminal. An agent
+> with shell access could allocate a pseudo-terminal and answer the terminal prompt itself. This
+> stops accidental or tool-only shares, not a determined agent with a shell. Every share is still
+> previewed, attributed to the signed-in user, and retractable (`align share --retract`). The
+> follow-up, browser confirmation on the team graph, closes the gap.

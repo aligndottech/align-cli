@@ -165,7 +165,7 @@ describe('ALI-1070: the timeline trio is dispatched', () => {
 });
 
 describe('ALI-1070: the published surface', () => {
-  it('registers 15 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4) and align_mark (LM)', () => {
+  it('registers 16 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4), align_mark (LM) and align_share (L9)', () => {
     const names = TOOL_SCHEMAS.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
     expect([...names].sort()).toEqual(
@@ -184,6 +184,7 @@ describe('ALI-1070: the published surface', () => {
         'align_mark',
         'align_scope',
         'align_search',
+        'align_share',
         'align_sync',
       ].sort(),
     );
