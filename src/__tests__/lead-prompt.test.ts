@@ -181,6 +181,20 @@ describe('the prompt', () => {
     expect(f.state.submittedAt).toBeUndefined();
     expect(await maybeAskLead({ ...f.deps, ask: async (_s, _q, on) => { on(); return ''; } })).toBe('skipped');
   });
+  it('a server without the route (404 or 405) keeps the asked mark: not asked again, and says nothing was sent', async () => {
+    const f = fixture(['a@b.co'], { kind: 'unavailable' });
+    expect(await maybeAskLead(f.deps)).toBe('skipped');
+    expect(f.state.shownAt).toBeDefined();
+    expect(f.state.outcome).toBe('skipped');
+    expect(f.state.submittedAt).toBeUndefined();
+    expect(f.out).toEqual(['Email sign-up is not available from this server yet; nothing was sent.']);
+    expect(await maybeAskLead(f.deps)).toBe('skipped-by-gate');
+  });
+  it.each([['failed' as const], ['rate-limited' as const]])('a %s send still forgets the ask (a later share may ask again)', async (kind) => {
+    const f = fixture(['a@b.co'], { kind });
+    expect(await maybeAskLead(f.deps)).toBe('not-sent');
+    expect(f.state.shownAt).toBeUndefined();
+  });
   it('a rate-limited send says so, sent nothing as submitted, and forgets the ask', async () => {
     const f = fixture(['a@b.co'], { kind: 'rate-limited' });
     expect(await maybeAskLead(f.deps)).toBe('not-sent');
@@ -254,9 +268,17 @@ describe('what goes over the wire', () => {
     Object.defineProperty(process, 'platform', { value: 'freebsd', configurable: true });
     try { expect(Object.keys(leadBody('a@b.co'))).not.toContain('os'); } finally { Object.defineProperty(process, 'platform', real); }
   });
-  it.each([[202, 'accepted'], [422, 'invalid'], [429, 'rate-limited'], [500, 'failed'], [404, 'failed'], [200, 'failed']])('status %i is %s', async (status, kind) => {
+  it.each([[202, 'accepted'], [422, 'invalid'], [429, 'rate-limited'], [500, 'failed'], [502, 'failed'], [200, 'failed']])('status %i is %s', async (status, kind) => {
     reply = (_q, r) => { r.statusCode = status; r.end('{}'); };
     expect(await postLead('a@b.co', base)).toEqual({ kind });
+  });
+  it.each([['a trailing slash', '/'], ['several trailing slashes', '///']])('a base URL with %s still reaches /leads/team-interest exactly', async (_n, tail) => {
+    expect(await postLead('a@b.co', `${base}${tail}`)).toEqual({ kind: 'accepted' });
+    expect(seen.map((x) => x.url)).toEqual(['/leads/team-interest']);
+  });
+  it.each([[404], [405]])('status %i is unavailable: the server does not offer the route', async (status) => {
+    reply = (_q, r) => { r.statusCode = status; r.end('{}'); };
+    expect(await postLead('a@b.co', base)).toEqual({ kind: 'unavailable' });
   });
   it('refuses a redirect and never follows it', async () => {
     reply = (q, r) => { if (q.url === '/leads/team-interest') { r.statusCode = 307; r.setHeader('location', `${base}/elsewhere`); r.end(); } else { r.statusCode = 202; r.end('{}'); } };

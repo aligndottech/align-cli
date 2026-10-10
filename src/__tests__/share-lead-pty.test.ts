@@ -93,6 +93,10 @@ describe.skipIf(!canPty)('a person on a real terminal with no team login', () =>
       expect(text, f).not.toContain('pat.unique');
     }
   });
+  it('STATED LIMIT: a process on its own pseudo-terminal with no ALIGN_WRAPPED sees the prompt, exactly like a person (the server double opt-in is the backstop)', async () => {
+    const r = await pty([['Work email', '\r']]);
+    expect(r.out).toContain('Work email');
+  });
   it('asks once: a second share from the same install does not prompt and sends nothing more', async () => {
     await pty([['Work email', `${ADDRESS}\r`], ['confirmation email', '']]);
     const again = await pty([]);

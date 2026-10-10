@@ -8,7 +8,9 @@
  * stored anywhere on this machine: the config keeps a timestamp and an outcome word, not the address.
  *
  * `align_share` and `align_share_status` (the MCP tools) never import this module: an agent must not
- * collect an email on a person's behalf (share-lead-mcp.test.ts holds that).
+ * collect an email on a person's behalf. Honest limit: an agent that opens its OWN pseudo-terminal passes every
+ * terminal check here and can see the prompt; the server's double opt-in (nothing is stored as confirmed until the
+ * address's owner clicks) is the backstop, the same stated limit as the typed share confirmation in SECURITY.md (share-lead-wiring.test.ts holds that: "the MCP tool modules do not import the prompt at all").
  */
 import { type LeadPromptOutcome, type LeadState } from './config.js';
 import { visible } from './share/visible.js';
@@ -73,7 +75,7 @@ export function normaliseEmail(raw: string): string | null {
   return `${local}@${domain.toLowerCase()}`;
 }
 
-export type LeadSendOutcome = { kind: 'accepted' } | { kind: 'invalid' } | { kind: 'rate-limited' } | { kind: 'failed' };
+export type LeadSendOutcome = { kind: 'accepted' } | { kind: 'invalid' } | { kind: 'rate-limited' } | { kind: 'unavailable' } | { kind: 'failed' };
 
 export interface LeadBody { email: string; source: 'cli-share'; consent_version: string; cli_version?: string; os?: 'darwin' | 'linux' | 'win32' }
 
@@ -93,7 +95,7 @@ export async function postLead(email: string, baseUrl: string, capMs: number = C
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), capMs);
   try {
-    const res = await fetch(`${baseUrl}/leads/team-interest`, {
+    const res = await fetch(`${baseUrl.trim().replace(/\/+$/, '')}/leads/team-interest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(leadBody(email)),
@@ -112,6 +114,8 @@ export async function postLead(email: string, baseUrl: string, capMs: number = C
     if (res.status === 202) return { kind: 'accepted' };
     if (res.status === 422) return { kind: 'invalid' };
     if (res.status === 429) return { kind: 'rate-limited' };
+    // The server does not offer the route (an older gateway): permanent for this install, so not a retry.
+    if (res.status === 404 || res.status === 405) return { kind: 'unavailable' };
     return { kind: 'failed' };
   } catch {
     return { kind: 'failed' };
@@ -171,6 +175,13 @@ export async function maybeAskLead(d: LeadDeps): Promise<'skipped-by-gate' | 'no
       d.out('The server did not accept that address, so nothing was saved.');
       return 'skipped';
     }
+    if (sent.kind === 'unavailable') {
+      // Permanent: keep the asked mark, or every share on this server would ask again and fail the same way.
+      d.out('Email sign-up is not available from this server yet; nothing was sent.');
+      return 'skipped';
+    }
+    // A timeout or a 5xx may mean the server already took the address; a later share asking again is absorbed by
+    // the server's one-confirmation-per-24-hours rule, so the person gets no second email inside a day.
     // Nothing reached the server's list: forget that we asked, so a later share can offer it again.
     d.store.clearLeadPromptShown();
     d.out(sent.kind === 'rate-limited' ? 'Too many requests just now; nothing was sent. Try again later.' : 'Could not reach the server; nothing was sent.');
