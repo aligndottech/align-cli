@@ -136,14 +136,17 @@ export async function classifyRelationship(
     // candidate's attempt and nothing else. `hasConfiguredProvider()` is still the
     // tiebreak for no_provider, because it is env-only and so is the only thing that
     // can tell "keys exist but every one was rejected" from "nothing is configured".
-    const reason: ClassifierFailureReason =
-      result.failure.kind === 'unrecognised_local_models' ? 'unvetted_local_model'
-        : result.failure.kind === 'provider_stopped' ? 'classifier_error'
-          : hasConfiguredProvider() ? 'classifier_error' : 'no_llm_key';
-    return { ok: false, reason, failure: result.failure };
+    return { ok: false, reason: failureReason(result.failure), failure: result.failure };
   }
   const relationship = parseRelationship(result.text);
   return relationship ? { ok: true, relationship } : { ok: false, reason: 'classifier_unparseable' };
+}
+
+/** A failed call's reason, read from the failure it returned. Shared by the v0 and v1 classifiers. */
+export function failureReason(failure: LlmFailure): ClassifierFailureReason {
+  return failure.kind === 'unrecognised_local_models' ? 'unvetted_local_model'
+    : failure.kind === 'provider_stopped' ? 'classifier_error'
+      : hasConfiguredProvider() ? 'classifier_error' : 'no_llm_key';
 }
 
 function parseRelationship(text: string): ClassifiedRelationship | null {
