@@ -16,6 +16,7 @@
  */
 import type { EnvironmentConfig } from './config.js';
 import { type ScopeDeps, ScopeRefusal, type SetInput, setScope, viewScopes } from './scope.js';
+import { UNKNOWN_AGENT } from './mcp/tool-rules.js';
 import { realScopeDeps } from './scope-real.js';
 import { SCOPED_SOURCES } from './scope-values.js';
 
@@ -23,8 +24,6 @@ export const SCOPE_TOOL = 'align_scope';
 export const SCOPE_ACTIONS = ['view', 'set'] as const;
 /** Every source that can be connected, so Zoom gets its own honest refusal instead of "unknown source". */
 export const SCOPE_SOURCES = ['github', 'jira', 'confluence', 'slack', 'teams', 'gitlab', 'linear', 'notion', 'zoom'] as const;
-/** The agent id until the client's `clientInfo.name` is mapped onto the registry's closed list (Decision 16). The closed value, never free text. */
-const UNKNOWN_AGENT = 'unknown';
 
 /** The one value property each source takes for a team scope. */
 const VALUE_PROPERTY = { github: 'repo', jira: 'projects', linear: 'teams', gitlab: 'gitlab_project', confluence: 'spaces' } as const;

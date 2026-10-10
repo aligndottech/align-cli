@@ -17,6 +17,8 @@ import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
 import { BACKFILL_TOOL, BACKFILL_TOOL_SCHEMA, runBackfill } from '../lib/mcp-backfill.js';
 import { runScopeTool, SCOPE_TOOL, SCOPE_TOOL_SCHEMA } from '../lib/mcp-scope.js';
 import { runSyncTool, SYNC_TOOL, SYNC_TOOL_SCHEMA } from '../lib/mcp-sync.js';
+import { MARK_TOOL, MARK_TOOL_SCHEMA, type MarkToolContext, runMarkTool } from '../lib/mcp/mark-tool.js';
+import { agentIdFrom } from '../lib/mcp/tool-rules.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
 import {
   createAsOfGuard,
@@ -140,14 +142,15 @@ export function instructionsFor(env: EnvironmentConfig): string {
  */
 export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
   const local = env.mode === 'local-embedded';
-  // ALI-1063 follow-up: local-embedded search cannot report whether a matched decision has
-  // been superseded (see local-gateway-client.ts - decision_links only ever holds an untyped
-  // 'relates' edge locally, never a typed supersedes/contradicts one). Rather than staying
-  // silent about that gap, tell the agent what to do instead: when two results cover the
+  // ALI-1063 follow-up: local-embedded search reports a decision as superseded only when a
+  // supersedes link exists (one a person recorded with `align mark ... replaces`, or a typed
+  // link); most decisions have none. Rather than staying silent about that gap, tell the agent
+  // what to do instead: when two results cover the
   // same topic, the newer decided_at/created_at is the one more likely to still hold.
   const suffix = local
     ? ' Searches the LOCAL decision graph on this machine, not a hosted Align tenant. ' +
-      "This local graph does not track whether a decision has been superseded - if two " +
+      'This local graph shows a decision as superseded only when a supersedes link exists (a person ' +
+      'recorded one with align mark, or a typed link); most decisions have no status, so if two ' +
       'results cover the same topic, prefer the one with the most recent decided_at or ' +
       'created_at. That is a heuristic, not a verified status.'
     : ` Searches the hosted Align graph at ${env.gatewayUrl}.`;
@@ -163,7 +166,8 @@ export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
   const cloudOnly = local
     ? ' NOT AVAILABLE IN LOCAL MODE: this local graph has no implementation for it, so the call will fail. Use align_ask to search the local graph instead, or a cloud environment for this tool.'
     : '';
-  return TOOL_SCHEMAS.map(tool => {
+  // LM: align_mark writes to the local graph; a hosted server has nothing to write to, so it is not offered.
+  return TOOL_SCHEMAS.filter((tool) => local || tool.name !== MARK_TOOL).map(tool => {
     if (tool.name === 'align_ask' || tool.name === 'align_search') {
       return { ...tool, description: tool.description + suffix };
     }
@@ -193,6 +197,7 @@ export async function dispatchTool(
   client: ReturnType<typeof createGatewayClient>,
   env: EnvironmentConfig,
   createdBefore?: string,
+  toolCtx?: MarkToolContext,
 ): Promise<unknown> {
   // A required argument that never arrived used to reach the implementation and fail
   // from wherever the undefined landed: a missing `diff` surfaced as the tokenizer's
@@ -220,7 +225,7 @@ export async function dispatchTool(
   // that does. Scoped to decisions on purpose: align_check_drift and align_check_alignment stay
   // available, and both send the cutoff so the gateway records no check event or drift row for
   // them (ALI-1429, ALI-1438).
-  if (createdBefore && (name === 'align_capture' || name === BACKFILL_TOOL || (name === SYNC_TOOL && args?.['action'] === 'run'))) {
+  if (createdBefore && (name === 'align_capture' || name === BACKFILL_TOOL || name === MARK_TOOL || (name === SYNC_TOOL && args?.['action'] === 'run'))) {
     throw new Error(
       name === 'align_capture'
         ? `align_capture adds a decision to the graph, and this server is frozen as of ${createdBefore}, ` +
@@ -289,7 +294,11 @@ export async function dispatchTool(
       return runSyncTool(args, env);
     // L4: never takes a credential; `set` goes through the same setScope as `align connect --scope`.
     case SCOPE_TOOL:
-      return runScopeTool(args, env);
+      // The agent id is the MCP client's own `clientInfo.name`, mapped onto the closed registry list (LM's rule), never free text.
+      return runScopeTool(args, env, undefined, { agent: agentIdFrom(toolCtx?.clientInfo) });
+    // LM: records the USER's judgement on this machine only; attributed to the calling agent, never takes a credential.
+    case MARK_TOOL:
+      return runMarkTool(args, env, toolCtx);
     case 'align_check_alignment': {
       // ALI-1420: the gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
       // gateway that predates the parameter. No cutoff keeps the two-argument call.
@@ -409,15 +418,35 @@ export function createCallToolHandler(
   client: ReturnType<typeof createGatewayClient>,
   env: EnvironmentConfig,
   createdBefore?: string,
+  ctx: { clientInfo?: () => MarkToolContext['clientInfo']; judge?: MarkToolContext['judge'] } = {},
 ): (request: { params: { name: string; arguments?: Record<string, unknown> } }) => Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   return async (request) => {
     const { name, arguments: args } = request.params;
-    const result = await dispatchTool(name, args, client, env, createdBefore);
+    // Read per call: clientInfo only exists once the client has initialized.
+    const result = await dispatchTool(name, args, client, env, createdBefore, { clientInfo: ctx.clientInfo?.(), judge: ctx.judge });
     if (isFirstUsefulToolResult(name, result)) {
       void recordFunnelStage(env, 'first_useful_decision', 'mcp');
     }
     return { content: [{ type: 'text', text: serializeMcpResult(result) }] };
   };
+}
+
+/**
+ * Installs the CallTool handler on `server`. The one place the MCP `initialize` request's
+ * `clientInfo` is read, so a tool that attributes its writes to the calling agent (align_mark)
+ * gets it from the protocol and not from anything the agent could type into an argument.
+ */
+export function wireCallTool(
+  server: Server,
+  client: ReturnType<typeof createGatewayClient>,
+  env: EnvironmentConfig,
+  createdBefore?: string,
+  judge?: MarkToolContext['judge'],
+): void {
+  server.setRequestHandler(
+    CallToolRequestSchema,
+    createCallToolHandler(client, env, createdBefore, { clientInfo: () => server.getClientVersion(), judge }),
+  );
 }
 
 // Order is the ranking an agent reads off tools/list, so the pre-flight check leads (ALI-139,
@@ -600,6 +629,8 @@ export const TOOL_SCHEMAS = [
   BACKFILL_TOOL_SCHEMA,
   SYNC_TOOL_SCHEMA,
   SCOPE_TOOL_SCHEMA,
+  // LM: appended, so the ranking an agent reads off tools/list is unchanged.
+  MARK_TOOL_SCHEMA,
 ];
 
 /**
@@ -713,7 +744,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
 
       server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolSchemasFor(env) }));
 
-      server.setRequestHandler(CallToolRequestSchema, createCallToolHandler(client, env, opts.createdBefore));
+      wireCallTool(server, client, env, opts.createdBefore);
 
       // MCP protocol requires clean stdout; log startup to stderr
       // ALI-1082: the cutoff is named in the banner whenever one is set, so a benchmark

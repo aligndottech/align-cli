@@ -27,6 +27,7 @@ import { registerUseCommand } from './use.js';
 import { registerAgentsCommand } from './agents.js';
 import { registerAiCommand } from './ai.js';
 import { registerSyncCommand } from './sync.js';
+import { registerMarkCommand } from './mark.js';
 
 /**
  * ALI-951: the one list of top-level commands. `align --help` shows the `visible` ones and
@@ -72,6 +73,8 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['capture'], visible: false, summary: 'Capture one decision from a URL', register: registerCaptureCommand },
   // L5: refresh what was connected. Hidden like capture and push: `connect` is the everyday verb.
   { names: ['sync'], visible: false, summary: 'Bring connected sources up to date in your local graph', register: registerSyncCommand },
+  // LM: judge what the guardrail shows. Hidden until the help surface is decided (C8), like sync and capture.
+  { names: ['mark'], visible: false, summary: 'Mark a conflict real or false, a replacement, or not a decision (local)', register: registerMarkCommand },
   {
     names: ['connect'],
     visible: true,

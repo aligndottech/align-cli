@@ -80,7 +80,10 @@ describe('the retrieval tools say which graph they search', () => {
   });
 
   it('keeps the tool set identical across modes, so only wording differs', () => {
-    expect(toolSchemasFor(localEnv).map(t => t.name)).toEqual(toolSchemasFor(cloudEnv).map(t => t.name));
+    // LM: align_mark records into the local graph, so a hosted server does not offer it.
+    expect(toolSchemasFor(localEnv).map(t => t.name).filter(n => n !== 'align_mark')).toEqual(toolSchemasFor(cloudEnv).map(t => t.name));
+    expect(toolSchemasFor(localEnv).map(t => t.name)).toContain('align_mark');
+    expect(toolSchemasFor(cloudEnv).map(t => t.name)).not.toContain('align_mark');
   });
 });
 

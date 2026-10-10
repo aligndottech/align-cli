@@ -75,7 +75,9 @@ describe('estimateClassify', () => {
   it('items with a typed edge, or with only a weak relates edge, are not unclassified', () => {
     seed(2);
     const db = createLocalDb(dbPath);
-    const ids = db.listDecisions().filter((d) => d.title.startsWith('item'));
+    // By title, not by list position: listDecisions orders by a one-second created_at, so rows seeded in the same second tie.
+    const all = db.listDecisions();
+    const ids = ['item 0', 'item 1'].map((t) => all.find((d) => d.title === t)!);
     db.replaceLink({ sourceId: ids[0]!.id, targetId: db.listDecisions().find((d) => d.title === 'old 0')!.id, relation: 'supersedes', confidence: 0.8 });
     const weak = db.insertDecision({ title: 'weak', summary: 'w', sourceUrl: 'https://github.com/o/r/pull/99', platform: 'github' });
     db.insertLink({ sourceId: weak, targetId: ids[1]!.id, relation: 'relates', confidence: 0.4 });

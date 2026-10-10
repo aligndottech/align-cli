@@ -45,7 +45,7 @@ beforeEach(() => {
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
 describe('align_scope on the published surface', () => {
-  it('is listed once, as a write, in both modes, with a closed schema', () => {
+  it('is listed once, as a write, in both modes (like align_sync: a hosted server answers with the reason), with a closed schema', () => {
     for (const e of [env, cloudEnv]) {
       const matches = toolSchemasFor(e).filter((t) => t.name === 'align_scope');
       expect(matches).toHaveLength(1);
@@ -59,6 +59,21 @@ describe('align_scope on the published surface', () => {
   it('leaves the server instructions inside the 2,048-byte budget (the guidance is in the tool description)', () => {
     expect(Buffer.byteLength(instructionsFor(env), 'utf8')).toBeLessThanOrEqual(2048);
     expect(TOOL_SCHEMAS.find((t) => t.name === 'align_scope')!.description).toContain('re-reads');
+  });
+});
+
+describe('who made the change', () => {
+  const attributed = async (clientName: unknown): Promise<string | null> => {
+    store.scopes = {};
+    await dispatchTool('align_scope', { action: 'set', source: 'jira', scope: 'yours' }, client, env, undefined, { clientInfo: { name: clientName } });
+    const { readRows } = await import('../lib/sync/sync-state.js');
+    return readRows(env.localDbPath!, 'jira').find((r) => r.scope_key === 'yours')?.changed_by_agent ?? null;
+  };
+
+  it('is the MCP client\'s own name mapped onto the closed agent list (LM\'s rule); an unlisted or non-text name is "unknown", never stored as given (three clients)', async () => {
+    expect(await attributed('claude-code')).toBe('claude-code');
+    expect(await attributed('my-agent 9.9')).toBe('unknown');
+    expect(await attributed(42)).toBe('unknown');
   });
 });
 
