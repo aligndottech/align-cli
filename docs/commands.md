@@ -221,6 +221,72 @@ queue; `.align/decisions.md` and the local MCP server both label an unratified c
 terminal - and `align push <id>` promotes one ratified local decision to the shared graph,
 per item, never bulk.
 
+`align use --undo` puts back a file Align wrote for a written-once agent (Auggie, Cline, Amp,
+Kiro, Grok Build, pi, Cursor). The restore is exact only while nobody else has touched the file.
+If the agent rewrote it afterwards (for example `auggie mcp add`), undo takes out only Align's own
+entry and leaves your changes. If Align's entry itself was edited, undo leaves it in place and
+tells you to remove it by hand, rather than guessing.
+
+Continue CLI (`cn`) runs hooks from the repository's `.claude/settings.json` and
+`.continue/settings*.json`. That is cn's own trust decision about the repo, and Align does not
+control it.
+
+Some agents load a `.env` file from the repository you open them in. A repo could use that to
+point the agent at its own MCP config, or to change the environment of the MCP servers the agent
+starts, Align's own included. For those agents, Align sets the config-location variables itself
+when it launches them, and leaves alone any variable you exported. Their `align-local` entry also
+carries an `env` block. It names these classes of variable, so a repo's value for any of them
+does not reach Align's server:
+
+- every variable `align` reads (`ALIGN_*`, `OLLAMA_HOST`, `OLLAMA_CONTEXT_LENGTH`, the `XDG_*`
+  directories, and the provider key and model variables);
+- where Node sends traffic and what it trusts: `HTTP(S)_PROXY`, `ALL_PROXY`, `NO_PROXY` (both
+  spellings), `NODE_USE_ENV_PROXY`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR`;
+- code loading: `NODE_OPTIONS`, `NODE_PATH`, `NODE_REPL_EXTERNAL_MODULE`, `LD_PRELOAD`,
+  `LD_LIBRARY_PATH`, `DYLD_INSERT_LIBRARIES`, `DYLD_LIBRARY_PATH`, `DYLD_FRAMEWORK_PATH`, and
+  `NODE_TLS_REJECT_UNAUTHORIZED`.
+
+**A variable not named there still reaches Align's server from a repo `.env`.** Your own proxy,
+`NO_PROXY` and an absolute CA path are kept. The code-loading names are always empty. A URL with
+a user name, a password or a query string is treated as a secret and left empty, as are all keys.
+
+| Agent | Loads a repo `.env`? | Align sets |
+|---|---|---|
+| Cline | yes (checked) | `CLINE_DIR`, `CLINE_DATA_DIR`, `CLINE_MCP_SETTINGS_PATH`; without `--data-dir`, `CLINE_SANDBOX`, `CLINE_SANDBOX_DATA_DIR`, `CLINE_PROVIDER_SETTINGS_PATH`, `CLINE_GLOBAL_SETTINGS_PATH`, `CLINE_SESSION_DATA_DIR`, `CLINE_DB_DATA_DIR` empty; the `env` block |
+| Continue CLI | yes (checked) | `CONTINUE_GLOBAL_DIR`, `CONTINUE_API_BASE`, `CONTINUE_USE_BEDROCK`; the `env` block |
+| Codex, Copilot, Gemini CLI, Qwen Code, OpenCode, Goose, Claude Code | no (checked) | nothing |
+| pi, Auggie | no loader in the shipped code | nothing |
+| Aider | yes (its own feature) | nothing: Align passes its file on the command line, and Aider runs no MCP server |
+| Amp, Factory Droid, Kiro CLI, Grok Build, Cursor | UNVERIFIED (not installable here) | nothing: no evidence they load a repo `.env` |
+
+Cline variables Align does not set (known limits): `CLINE_TEAM_DATA_DIR`, the connector and cron
+paths, and `CLINE_HOOKS_LOG_PATH`. A repo `.env` can still move those for Cline itself.
+
+What the `env` block costs: it holds your own values from when Align wrote it. Cline keeps the
+entry in its settings file, so on each launch Align compares the block with today's values and
+refreshes its own entry when they differ, or when a newer Align names more variables. It prints
+one line when it does, and `align use --undo` still restores the file. An `align-local` entry
+whose `env` holds something Align never writes is left alone, with a line saying so. API keys
+are never written into the block: under Cline and Continue CLI, Align's server uses the keys you
+saved with Align, not ones exported in your shell.
+
+Cline's `--config <dir>` and `--data-dir <dir>` each choose a directory for that run. Align reads
+the MCP file there and points Cline at it, but adds nothing to it.
+
+`align` ignores a relative `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` or `XDG_STATE_HOME`
+(the XDG spec calls one invalid), and any under `/proc` or `/dev/fd`. It never copies its local
+database into the directory it was started in (compared as real paths, so a link into it does not
+count as elsewhere), unless that is your home directory or above it.
+
+Align reads Goose's and Continue CLI's YAML config with a deliberately narrow reader. Where a
+YAML value starts, a tag (`!`), an anchor or alias (`&`, `*`), a merge key (`<<`), a quoted value
+that spans lines, or an escaped double-quoted value that could spell `align-local` means Align
+cannot be sure what the file says. It then adds nothing for that session and prints which line,
+and why. The same characters inside plain text, and multi-line `|`/`>` text blocks, are fine.
+
+Known limit: every MCP entry Align adds runs a bare `align`. The agent resolves `align`
+through its own PATH, so it runs whichever `align` comes first on the PATH the agent sees.
+
 ## Agent wiring
 
 ```

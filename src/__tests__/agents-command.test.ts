@@ -78,7 +78,7 @@ describe('align agents --json', () => {
     expect(parsed).toHaveLength(AGENT_REGISTRY.length + 1);
     expect(parsed.find((a) => a['label'] === 'Codex')).toEqual({
       id: 'codex', label: 'Codex', bin: 'codex', installed: true, path: '/usr/bin/codex', supported: true,
-      connects: 'per-session', install: { kind: 'npm', argv: ['npm', 'i', '-g', '@openai/codex'] }, installCommand: 'npm i -g @openai/codex',
+      connects: 'per-session', graph: true, install: { kind: 'npm', argv: ['npm', 'i', '-g', '@openai/codex'] }, installCommand: 'npm i -g @openai/codex',
     });
     expect(parsed.find((a) => a['label'] === 'Zephyr Test Agent')).toMatchObject({
       installed: false, path: null, connects: 'written-once', install: { kind: 'docs', url: 'https://zephyr.example/install' }, installCommand: 'https://zephyr.example/install',

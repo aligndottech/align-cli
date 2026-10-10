@@ -12,11 +12,11 @@ const installedSet = (...bins: string[]) => (a: LaunchAgent) => bins.includes(a.
 describe('pickerOptions: order', () => {
   it('puts the installed agents first, sorted by label, then every other agent sorted by label', () => {
     const opts = pickerOptions(LAUNCH_AGENTS, installedSet('opencode', 'claude'));
-    expect(opts.map((o) => o.value)).toEqual(['claude-code', 'opencode', 'amp', 'codex', 'cursor', 'droid', 'gemini-cli', 'copilot', 'grok-build', 'kiro', 'qwen', 'pi']);
+    expect(opts.map((o) => o.value)).toEqual(['claude-code', 'opencode', 'aider', 'amp', 'auggie', 'cline', 'codex', 'continue', 'cursor', 'droid', 'gemini-cli', 'copilot', 'goose', 'grok-build', 'kiro', 'qwen', 'pi']);
   });
   it('a different installed set reorders (two examples): pi and Codex installed come first', () => {
     const opts = pickerOptions(LAUNCH_AGENTS, installedSet('pi', 'codex'));
-    expect(opts.map((o) => o.value)).toEqual(['codex', 'pi', 'amp', 'claude-code', 'cursor', 'droid', 'gemini-cli', 'copilot', 'grok-build', 'kiro', 'opencode', 'qwen']);
+    expect(opts.map((o) => o.value)).toEqual(['codex', 'pi', 'aider', 'amp', 'auggie', 'claude-code', 'cline', 'continue', 'cursor', 'droid', 'gemini-cli', 'copilot', 'goose', 'grok-build', 'kiro', 'opencode', 'qwen']);
   });
   it('lists every agent it is given, so a new registry spec appears without editing the picker', () => {
     const fake: LaunchAgent = { name: 'codex', label: 'Aardvark Agent', bin: 'aardvark', injection: 'per-session', supported: true, install: 'npm i -g aardvark' };

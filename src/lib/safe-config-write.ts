@@ -864,6 +864,17 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       };
       left.push(...removeOwned(parsed, entry.owned, originalOf, backupPath));
       next = JSON.stringify(parsed, null, 2) + (cur.endsWith('\n') ? '\n' : '');
+      // Once align's entries are out, a file that means exactly what the original meant gets the
+      // original's bytes back (align's own refreshes made the whole-file path unavailable, and a
+      // re-serialisation would change the user's formatting).
+      const original = snapText(0);
+      if (original !== null && left.length === 0) {
+        try {
+          if (JSON.stringify(JSON.parse(original)) === JSON.stringify(parsed)) next = original;
+        } catch {
+          // the original is not JSON: keep the re-serialised text
+        }
+      }
     } else {
       report.skipped.push(`${file}: align has no record of what it added here. Remove its entries by hand${mention}`);
       continue;

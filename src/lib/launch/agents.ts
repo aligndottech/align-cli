@@ -29,11 +29,13 @@ export const supportedAgents = (): LaunchAgent[] => LAUNCH_AGENTS.filter((a) => 
  * --approve). The agents launchable before wave A keep their old order, Claude Code first, so a
  * scripted first run picks what it picked before; the wave A agents come after them.
  */
-export const PICK_PRIORITY: readonly LaunchAgentId[] = ['claude-code', 'cursor', 'opencode', 'pi', 'codex', 'copilot', 'gemini-cli', 'amp', 'droid', 'grok-build', 'kiro', 'qwen'];
+export const PICK_PRIORITY: readonly LaunchAgentId[] = ['claude-code', 'cursor', 'opencode', 'pi', 'codex', 'copilot', 'gemini-cli', 'amp', 'droid', 'grok-build', 'kiro', 'qwen', 'goose', 'auggie', 'continue', 'cline', 'aider'];
 /** The agents launchable before wave A. */
 export const PRE_WAVE_A: ReadonlySet<LaunchAgentId> = new Set(['claude-code', 'cursor', 'opencode', 'pi']);
 /** The agents launchable before wave B (wave A included). */
 export const PRE_WAVE_B: ReadonlySet<LaunchAgentId> = new Set([...PRE_WAVE_A, 'codex', 'copilot', 'gemini-cli']);
+/** The agents launchable before wave C (waves A and B included). */
+export const PRE_WAVE_C: ReadonlySet<LaunchAgentId> = new Set([...PRE_WAVE_B, 'amp', 'droid', 'grok-build', 'kiro', 'qwen']);
 
 export function byPriority(agents: LaunchAgent[]): LaunchAgent[] {
   const rank = (a: LaunchAgent): number => {

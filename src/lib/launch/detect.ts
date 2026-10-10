@@ -13,7 +13,9 @@ export function findOnPath(bin: string, env: Record<string, string | undefined>,
   const exts = win ? (env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [''];
   const names = win && path.extname(bin) ? [bin] : exts.map((e) => bin + (win ? e.toLowerCase() : e));
   for (const dir of raw.split(win ? ';' : ':')) {
-    if (!dir) continue;
+    // Only absolute entries. A relative one (`.`, `node_modules/.bin`) resolves against the cwd,
+    // so a repo could put its own `cn` or `goose` there and have it taken for the real agent.
+    if (!dir || !(win ? path.win32.isAbsolute(dir) : path.posix.isAbsolute(dir))) continue;
     for (const name of names) {
       // Absolute, so what was checked here is what gets spawned whatever the cwd is by then.
       const candidate = path.resolve(dir, name);
