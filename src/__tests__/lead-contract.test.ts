@@ -8,7 +8,7 @@ import { LEAD_CONSENT_VERSION, leadBody } from '../lib/lead-prompt.js';
  * The lead route's contract is owned by align-stack. This repo keeps a vendored copy and builds its request from it.
  */
 const FILE = path.join(__dirname, 'fixtures', 'lead-contract.json');
-const PIN = 'c66503d794e46e13afd271c936b95d5d2835c8571e2725f69200f8de728f43c6';
+const PIN = '80cd14221f3a4c165013b7dae27ddd7d0344cd24e7014b7cd5cf2f17a76323b9';
 
 describe('the vendored lead contract', () => {
   it('has not been edited by hand', () => {

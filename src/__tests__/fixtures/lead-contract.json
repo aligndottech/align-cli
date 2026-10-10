@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "endpoint": "POST /leads/team-interest",
   "auth": "none (public, no cookies, JSON only, no CORS headers)",
   "request": {
@@ -10,13 +10,21 @@
     "os": "darwin | linux | win32, optional"
   },
   "responses": {
-    "202": {"status": "pending_confirmation"},
-    "422": {"error": "invalid_email | invalid_body"},
-    "429": {"error": "rate_limited", "retry_after_s": "integer"}
+    "202": {
+      "status": "pending_confirmation"
+    },
+    "422": {
+      "error": "invalid_email | invalid_body"
+    },
+    "429": {
+      "error": "rate_limited",
+      "retry_after_s": "integer"
+    }
   },
   "notes": [
     "202 is identical for new, duplicate, confirmed, unsubscribed and suppressed addresses (no enumeration oracle)",
     "One double opt-in confirmation email is sent; nothing is confirmed or notified until the owner clicks",
-    "GET /leads/confirm?token= and GET|POST /leads/unsubscribe?token= are for people, not the CLI"
+    "GET|POST /leads/confirm and GET|POST /leads/unsubscribe (token in the query) are for people and mail clients, not the CLI",
+    "Confirmation is scanner-safe (v2): GET /leads/confirm?token= only shows a page with one Confirm button and changes nothing; POST /leads/confirm?token= (form-encoded, empty body is fine) confirms and notifies once. Unknown or expired token: 404 neutral page on both verbs."
   ]
 }
