@@ -9,6 +9,7 @@ import type { FetcherItem } from '@aligndottech/connector-core';
 import { createLocalGatewayClient } from '../../lib/local-gateway-client.js';
 import type { CaptureFetchReport } from '../../lib/fetchers/capture.js';
 import { acquireLock } from '../../lib/sync/lock.js';
+import { rmDir } from './rm-dir.js';
 import type { SyncEnv } from '../../lib/sync/run-source.js';
 import type { SourceWindow } from '../../lib/sync/sources.js';
 
@@ -58,7 +59,7 @@ export function harness(over: Partial<SyncEnv> = {}, opts: { alive?: (pid: numbe
     dir, dbPath, lockDir, env, fetchCalls,
     script: (...results) => { scripted = results; call = 0; },
     close: () => client.close(),
-    cleanup: () => { client.close(); fs.rmSync(dir, { recursive: true, force: true }); },
+    cleanup: () => { client.close(); rmDir(dir); },
   };
 }
 

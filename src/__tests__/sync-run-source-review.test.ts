@@ -50,6 +50,11 @@ function setup(over: Parameters<typeof harness>[0] = {}): void {
   };
 }
 afterEach(() => h?.cleanup());
+/** The one stored summary, read through a handle that is closed again (Windows cannot delete an open db). */
+function summaryOf(): { summary: string } {
+  const db = new DatabaseSync(h.dbPath);
+  try { return db.prepare('SELECT summary FROM decisions').get() as { summary: string }; } finally { db.close(); }
+}
 const ids = (): string[] => {
   const db = new DatabaseSync(h.dbPath);
   try { return (db.prepare('SELECT source_url FROM decisions ORDER BY source_url').all() as Array<{ source_url: string }>).map((r) => r.source_url.split('/').pop()!); } finally { db.close(); }
@@ -268,7 +273,7 @@ describe('a partial Slack thread whose last message was EDITED', () => {
     const whole = slackThread('C1', T, 'q?\nbob: agreed (edited)\ncarol: ship it', '2026-10-09T00:00:00.000Z');
     const fetchWhole = vi.fn(async () => whole);
     await syncSource('slack', { ...h.env, fetchWhole });
-    const text = new DatabaseSync(h.dbPath).prepare('SELECT summary FROM decisions').get() as { summary: string };
+    const text = summaryOf();
     expect(text.summary).toBe('[#eng] Thread:\nq?\nbob: agreed (edited)\ncarol: ship it');
     expect(fetchWhole).toHaveBeenCalledTimes(1);
   });
@@ -281,7 +286,7 @@ describe('a partial Slack thread whose last message was EDITED', () => {
     h.env.fetch = async () => ({ items: [partial], report: { scanned: 1, skips: [], complete: true } });
     await syncSource('slack', { ...h.env, fetchWhole: async () => ({ ...partial, partial: true }) });
     await syncSource('slack', { ...h.env, fetchWhole: async () => { throw new Error('net'); } });
-    const text = new DatabaseSync(h.dbPath).prepare('SELECT summary FROM decisions').get() as { summary: string };
+    const text = summaryOf();
     expect(text.summary).toBe('[#eng] Thread:\nq?\nbob: agreed\ncarol: ship it');
   });
 });
