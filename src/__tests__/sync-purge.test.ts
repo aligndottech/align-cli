@@ -101,11 +101,9 @@ describe('purgePlatform', () => {
     expect(sql(`SELECT 1 FROM decisions WHERE id IN ('${ids['counterpart']}', '${ids['judged']}')`)).toHaveLength(2);
   });
 
-  it('a promotion protects its row, by the shape its owner defines: promotions.local_id', () => {
+  it('a promotion protects its row, through the ledger the schema (v10) now owns: promotions.local_id', () => {
     const ids = seed();
-    exec(`CREATE TABLE promotions (local_id TEXT NOT NULL, env TEXT NOT NULL, tenant_id TEXT NOT NULL, remote_id TEXT NOT NULL,
-      content_hash TEXT NOT NULL, shared_at TEXT NOT NULL DEFAULT (datetime('now')), retracted_at TEXT, PRIMARY KEY (local_id, env, tenant_id));
-      INSERT INTO promotions (local_id, env, tenant_id, remote_id, content_hash) VALUES ('${ids['plain2']}', 'prod', 't1', 'r1', 'h');`);
+    exec(`INSERT INTO promotions (local_id, env, tenant_id, remote_id, content_hash) VALUES ('${ids['plain2']}', 'prod', 't1', 'r1', 'h');`);
     expect(purgePlatform(dbPath, 'slack').deleted).toBe(2);
     expect(titles('slack')).toContain('plain2');
   });

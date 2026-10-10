@@ -165,7 +165,7 @@ describe('ALI-1070: the timeline trio is dispatched', () => {
 });
 
 describe('ALI-1070: the published surface', () => {
-  it('registers 15 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4) and align_mark (LM)', () => {
+  it('registers 16 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4), align_mark (LM) and align_share (L9)', () => {
     const names = TOOL_SCHEMAS.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
     expect([...names].sort()).toEqual(
@@ -184,16 +184,17 @@ describe('ALI-1070: the published surface', () => {
         'align_mark',
         'align_scope',
         'align_search',
+        'align_share',
         'align_sync',
       ].sort(),
     );
   });
 
-  it('keeps the write set at the known six (L3 align_backfill, L5 align_sync, L4 align_scope, LM align_mark): all three trio tools are READS', () => {
+  it('keeps the write set at the known seven (L3 align_backfill, L5 align_sync, L4 align_scope, LM align_mark, L9 align_share): all three trio tools are READS', () => {
     const writes = TOOL_SCHEMAS.filter((t) => t.annotations?.readOnlyHint === false)
       .map((t) => t.name)
       .sort();
-    expect(writes).toEqual(['align_backfill', 'align_capture', 'align_check_drift', 'align_mark', 'align_scope', 'align_sync']);
+    expect(writes).toEqual(['align_backfill', 'align_capture', 'align_check_drift', 'align_mark', 'align_scope', 'align_share', 'align_sync']);
   });
 
   /**

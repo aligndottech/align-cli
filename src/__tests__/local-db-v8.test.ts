@@ -35,8 +35,8 @@ const version = () => sql<{ user_version: number }>('PRAGMA user_version')[0]!.u
 describe('a fresh graph', () => {
   it('is at the current version with the v8 columns and tables', () => {
     createLocalDb(dbPath).close();
-    expect(SCHEMA_VERSION).toBe(9);
-    expect(version()).toBe(9);
+    expect(SCHEMA_VERSION).toBe(10);
+    expect(version()).toBe(10);
     expect(cols('source_sync')).toEqual(expect.arrayContaining(['hole_sig', 'hole_streak']));
     expect(cols('source_sync')).toEqual(expect.arrayContaining(['cycle_top', 'last_attempt_at']));
     expect(cols('sync_item_state')).toEqual(['decision_id', 'scope_key', 'platform', 'updated_at']);

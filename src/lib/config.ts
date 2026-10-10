@@ -23,6 +23,11 @@ const DEFAULTS: Record<EnvName, EnvironmentConfig> = {
   prod:    { gatewayUrl: 'https://api.align.tech',          authToken: null, tenantId: null, mode: 'auth' },
 };
 
+/** The gateway URL an environment uses when nothing overrides it (ALIGN_GATEWAY_URL, a saved value). */
+export function defaultGatewayUrlFor(env: string): string {
+  return (DEFAULTS as Record<string, EnvironmentConfig | undefined>)[env]?.gatewayUrl ?? '';
+}
+
 /**
  * ALI-618: local-embedded mode never makes an HTTP call for its own operations (it reads a
  * local embedded DB - see gateway-client.ts's `createLocalGatewayClient` branch), so the

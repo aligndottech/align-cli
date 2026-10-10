@@ -32,3 +32,33 @@ This repository is the open-source Align CLI and MCP server (`@aligndottech/cli`
 
 We support the latest published version on npm. Please upgrade to the latest
 release before reporting, in case the issue is already fixed.
+
+## Sharing from inside a coding agent (`align_share`)
+
+`align share` sends decisions from your local graph, and your judgements on them, to your team's
+graph. It prints exactly what leaves the machine, names the workspace and account, and asks first.
+Nothing is sent without a yes. A credential-shaped string in a title, summary, URL or note is
+refused on this machine, and again by the server.
+
+There is no `--yes`: a share needs an answer typed at a terminal. Every path (a plain `align share`, and
+`align share --confirm <code>`) shows the preview on the controlling terminal (`/dev/tty`, or `CONIN$` on
+Windows, which must pass an is-a-terminal check) and asks with a default of No. A process with no
+controlling terminal, such as an agent's shell tool, a hook or a pipe, is refused and sends nothing.
+`align share` also refuses when `ALIGN_WRAPPED` is set (you are inside an agent that `align` launched) and
+points you to a normal terminal. **That check is a speed bump, not a lock**: an agent can unset the variable.
+
+`align_share` (the MCP tool) only PREPARES a share: it returns the preview and a one-time code, and
+cannot send. Its result does not hand the agent a command line; it tells the agent that the person must run
+the share in their own terminal and that the agent must not. The code works once, expires after 10 minutes,
+and is refused if the decision, its judgements, the workspace or the gateway changed after the preview.
+Asking again for the same payload returns the same live code.
+
+> **What this does NOT stop.** An agent that can run commands as you can allocate its own pseudo-terminal
+> (for example with `script`), read the preview from it and type the answer, so it can complete a share
+> without you. No control inside a local CLI can prevent that, because the agent controls both ends of the
+> terminal. Until the planned browser (out-of-band) confirmation on the team graph exists, **the remaining
+> control is your agent harness's own approval prompt for shell commands**: do not auto-approve
+> commands that run `align share` or open a pseudo-terminal. A share is always previewed and attributed to
+> the signed-in user. It can usually be retracted with `align share --retract`, but not always: a share that
+> matched an existing team decision, or was recorded as not yours, cannot be retracted from here, and the
+> judgements it carried stay on the team graph.

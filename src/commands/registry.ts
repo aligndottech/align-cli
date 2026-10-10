@@ -6,7 +6,7 @@ import { registerSearchCommand } from './search.js';
 import { registerCheckCommand } from './check.js';
 import { registerAdjudicateCommand } from './adjudicate.js';
 import { registerRatifyCommand } from './ratify.js';
-import { registerPushCommand } from './push.js';
+import { registerShareCommand } from './share.js';
 import { registerMcpCommand } from './mcp.js';
 import { registerLocalCommand } from './local.js';
 import { registerDecisionsCommand } from './decisions/index.js';
@@ -115,7 +115,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['adjudicate'], visible: false, summary: 'Answer a check the judge declined to rule on', register: registerAdjudicateCommand },
   // ALI-831: agent decisions as claims - the human act, and the per-item promotion after it.
   { names: ['ratify'], visible: false, summary: 'Stand behind an agent-made decision', register: registerRatifyCommand },
-  { names: ['push'], visible: false, summary: 'Promote one ratified local decision to the shared graph', register: registerPushCommand },
+  { names: ['share'], visible: false, summary: 'Share ratified decisions, with your judgements, with your team (alias: push)', register: registerShareCommand },
 
   // Customer: MCP server
   { names: ['mcp'], visible: true, summary: 'Serve the graph to your agent (--setup wires it)', register: registerMcpCommand },
