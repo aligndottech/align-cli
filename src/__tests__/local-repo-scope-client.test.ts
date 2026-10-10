@@ -25,6 +25,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // score out of the stored embedding's first element, rather than trusting the real MiniLM
 // model to rank "database choice" above SEARCH_THRESHOLD against "Use Postgres for the API
 // service", is what keeps that one test's fixture deterministic instead of coincidental.
+// Ranking is driven by the mocked cosineSimilarity below; see helpers/mocked-cosine-matrix.ts.
+vi.mock('../lib/similarity/embedding-matrix.js', async () =>
+  (await import('./helpers/mocked-cosine-matrix.js')).mockedCosineMatrixModule());
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0)),
   cosineSimilarity: vi.fn((_q: Float32Array, stored: Float32Array) => stored[0]),

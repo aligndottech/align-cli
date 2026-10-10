@@ -335,15 +335,23 @@ export function createLocalDb(dbPath: string) {
      * one. Adopt it as the keyed row, or fold it with the row that already holds the key (the
      * attested one survives). ingestOne calls this BEFORE it looks the item up, so the text it
      * protects and embeds is the survivor's. No-op for an unkeyed call.
+     *
+     * Returns true when a row was DELETED (folded into its holder): a caller holding a copy of
+     * the graph's embeddings (ingestBatch's matrix) must drop it, because the twin's vector is
+     * gone. Adopting the twin as the keyed row deletes nothing and returns false.
      */
-    foldPendingTwin(sourceUrl: string | null, title: string, platform: string, keyed?: boolean): void {
+    foldPendingTwin(sourceUrl: string | null, title: string, platform: string, keyed?: boolean): boolean {
       const key = keyed ? connectorItemKey(platform, sourceUrl) : undefined;
-      if (key === undefined) return;
+      if (key === undefined) return false;
       const twin = db.prepare(`SELECT id FROM decisions WHERE source_url = ? AND title = ? AND source_key IS NULL`).get(sourceUrl, title) as { id: string } | undefined;
-      if (!twin) return;
+      if (!twin) return false;
       const holder = db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined;
-      if (holder) foldKeylessTwin(db, twin.id, holder.id, key);
-      else db.prepare(`UPDATE decisions SET source_key = ? WHERE id = ?`).run(key, twin.id);
+      if (!holder) {
+        db.prepare(`UPDATE decisions SET source_key = ? WHERE id = ?`).run(key, twin.id);
+        return false;
+      }
+      foldKeylessTwin(db, twin.id, holder.id, key);
+      return true;
     },
 
     /** A capture of a URL a connector already imported: audit it, change nothing, return the row. */
@@ -463,13 +471,14 @@ export function createLocalDb(dbPath: string) {
      * newer fetcher DROPS (bot output only) is never re-imported and so is never reconciled
      * here; that residue is noise, not a duplicate, and the sweep is what catches it.
      */
-    deleteSlackTombstoneTwin(sourceUrl: string | null): void {
+    deleteSlackTombstoneTwin(sourceUrl: string | null): boolean {
       const identity = identifyingSourceUrl(sourceUrl);
-      if (identity === null) return;
+      if (identity === null) return false;
       const twins = db.prepare(
         `SELECT id FROM decisions WHERE platform = 'slack' AND source_url = ? AND title = ?`,
       ).all(identity, SLACK_TOMBSTONE_TITLE) as Array<{ id: string }>;
       for (const { id } of twins) deleteDecisionWithDependents(db, id);
+      return twins.length > 0;
     },
 
     /** Distinct repo identities known to this graph, for resolving a `--repo <name>` argument
