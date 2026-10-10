@@ -87,3 +87,29 @@ describe('status, cancel, complete', () => {
     expect(f.mock.calls).toHaveLength(5);
   });
 });
+
+describe('deadlines, aborts and size caps', () => {
+  it('passes the caller\'s abort signal to fetch, so Ctrl-C ends a call that is hanging', async () => {
+    let seen: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: { signal?: AbortSignal }) => new Promise<Response>((_res, rej) => { seen = init.signal; init.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')), { once: true }); })));
+    const ac = new AbortController();
+    const p = client().getShareRequest(ID, ac.signal);
+    ac.abort();
+    await expect(p).rejects.toThrow();
+    expect(seen?.aborted).toBe(true);
+  });
+  it('every call has a deadline of its own even with no caller signal (a gateway that never answers cannot hold the process)', async () => {
+    const f = answer({ mode: 'off' });
+    vi.stubGlobal('fetch', f);
+    await client().shareRequestsConfig();
+    const signal = (f.mock.calls[0] as unknown as [string, { signal?: AbortSignal }])[1].signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal!.aborted).toBe(false);
+  });
+  it('refuses an answer over the size cap without reading it all, and reads one under it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ state: 'pending', pad: 'x'.repeat(70 * 1024) }), { status: 200 })));
+    await expect(client().getShareRequest(ID)).rejects.toThrow(/larger than 65536 bytes/);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ state: 'pending', pad: 'x'.repeat(10 * 1024) }), { status: 200 })));
+    expect((await client().getShareRequest(ID)).state).toBe('pending');
+  });
+});

@@ -95,5 +95,17 @@ capture that overwrites a teammate's row.
 `align_share` (the MCP tool) never sends. On a gateway without browser approval it returns the preview and a
 one-time code the person completes with `align share --confirm`, and it tells the agent not to run that. The
 code works once, expires after 10 minutes, and is refused if the decision, its judgements, the workspace or
-the gateway changed after the preview. Staged browser requests are kept 0600 in the CLI's private state
-directory (they hold the key and the sealed text) and deleted when the request ends.
+the gateway changed after the preview. Staged browser requests (MCP path only) are kept 0600 in the CLI's private state
+directory, because they hold the key and the sealed text. A file is deleted when `align_share_status` finds the
+request declined, expired, cancelled, failed or completed; when `align_share` is asked again and finds the earlier
+request ended; and by a sweep that runs at the start of each `align share`, `align_share` and `align_share_status`
+and removes any file more than 11 minutes past its request's expiry. A request nobody ever checks therefore
+stays on disk until one of those runs, and at most 24 hours in any case. The `align share` command keeps the key in
+memory and writes no such file.
+
+When the gateway has no browser approval (no route, or mode `off`), `align share` says so on one line before it asks
+at the terminal: it does not downgrade silently. A run inside an agent that `align` launched marks its request with
+the agent label `wrapped`, so the page can tell it from a person's run (a label the CLI claims, like the machine
+name). Every call to the share-request routes has a 15 second deadline (30 for the completion), a size cap on the
+answer, and an abort that Ctrl-C reaches; the wait is clamped to the gateway's own lifetimes however far off it
+says a request expires.

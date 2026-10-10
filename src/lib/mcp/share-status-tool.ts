@@ -11,10 +11,13 @@
  *
  * Input: one string, the request id. No token or key can be passed.
  */
+import { createHash } from 'node:crypto';
 import { defaultJudge } from '../curation/judge.js';
 import { defaultGatewayUrlFor } from '../config.js';
 import type { EnvironmentConfig } from '../config.js';
 import { completeRequest, CompletionError } from '../share/approval.js';
+import { buildPlaintext } from '../share/envelope.js';
+import { getPromotion } from '../share/ledger.js';
 import { claimRequest, combinedHash, deleteRequest, loadRequest, sweepPending } from '../share/pending.js';
 import { REQUEST_ID_RE } from '../share/requests-client.js';
 import { prepare, renderResults, send, ShareError } from '../share/run.js';
@@ -60,7 +63,14 @@ export async function runShareStatusTool(args: Record<string, unknown> | undefin
       case 'expired': return ended('The request expired before it was approved. Nothing was sent. Call align_share again to start a new one.', state);
       case 'cancelled': return ended('The request was cancelled. Nothing was sent.', state);
       case 'failed': return ended('The gateway marked the request as failed. Nothing was sent. Call align_share again to start a new one.', state);
-      case 'completed': return ended('That share was already completed.', state);
+      case 'completed': {
+        // Completed by this process (the answer was lost) or by another. If this machine has no ledger row for what it staged,
+        // say so: a later retract cannot find an unrecorded share, and "already completed" alone would read as fully done.
+        const unrecorded = rec.localIds.filter((l) => getPromotion(env.localDbPath!, l, rec.envName, rec.tenantId) === null);
+        return ended(unrecorded.length === 0
+          ? 'That share was already completed, and this machine has the record of it.'
+          : 'The gateway says that share was completed (by this machine, whose answer was lost, or by another process). This machine has NO record of the result, so it is not in the local ledger and `align share --retract` cannot find it. Check the team graph. Sharing the same decision again is safe (it will not make a second copy) and records it here.', state);
+      }
       case 'completing': return { text: 'The gateway is finishing that share now. Check again in a moment.', shared: false, state, request_id: id };
       case 'approved': break;
     }
@@ -70,7 +80,14 @@ export async function runShareStatusTool(args: Record<string, unknown> | undefin
     try {
       const shareCtx = { dbPath: env.localDbPath!, envName: t.envName, client: t.client, judge: await (ctx.judge ?? defaultJudge)(), salt: t.salt, gatewayUrl: t.cloudEnv.gatewayUrl, defaultGatewayUrl: defaultGatewayUrlFor(t.envName) };
       const prep = await prepare(shareCtx, claim.request.localIds);
-      if (prep.secrets.length || prep.payloads.length === 0 || combinedHash(prep.payloads, prep) !== claim.request.hash || claim.request.envName !== t.envName) {
+      // Rebuild what would be sent NOW and require it to be byte-for-byte what was approved, with the hash and the decisions this record names.
+      // A pending file edited to point at other decisions (or a stale copy) can never record one decision's share under another's id.
+      const rebuilt = prep.payloads.length === 0 ? null : buildPlaintext({ kind: 'share', tenantId: prep.tenantId, gatewayUrl: prep.gatewayUrl, payloads: prep.payloads });
+      const unchanged = rebuilt !== null
+        && rebuilt.equals(Buffer.from(claim.request.bytesB64, 'base64'))
+        && createHash('sha256').update(rebuilt).digest('hex') === claim.request.sha256
+        && prep.payloads.map((p) => p.localId).join('\n') === claim.request.localIds.join('\n');
+      if (prep.secrets.length || !unchanged || combinedHash(prep.payloads, prep) !== claim.request.hash || claim.request.envName !== t.envName) {
         // What the user approved is no longer what this machine would send: do not send it.
         await t.client.cancelShareRequest(id).catch(() => undefined);
         claim.finish();

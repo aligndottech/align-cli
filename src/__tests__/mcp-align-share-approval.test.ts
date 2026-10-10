@@ -228,3 +228,104 @@ describe('what the tools are, and what an agent can reach', () => {
     await expect(dispatchTool(SHARE_STATUS_TOOL, { request_id: 'x' }, {} as never, env, '2026-01-01T00:00:00.000Z')).rejects.toThrow(/frozen/);
   });
 });
+
+/**
+ * Security review fixes (ALI-1540), the MCP side:
+ * - a status call rebuilds the bytes: a pending file edited to name another decision's hash and ids is cancelled and sends nothing.
+ * - a completed request this machine has no ledger row for says so (a lost completion answer), and a recorded one says it has it.
+ * - asking again while the earlier request cannot be checked (a temporary error) keeps its file and stages nothing new.
+ * - request files are swept once past their expiry plus the completion window, and not before.
+ * - the older one-time code says it is the older flow.
+ */
+describe('a pending file edited to point at something else', () => {
+  it('stage X and Y, copy Y\'s hash and ids into X\'s file: status on X is refused, cancelled, and records nothing under Y', async () => {
+    const db = createLocalDb(dbPath);
+    const y = db.insertDecision({ title: 'Y decision', summary: 'y', sourceUrl: 'https://github.com/o/r/pull/77', platform: 'github' });
+    db.markRatified(y, 'me@co.com'); db.close();
+    const x = await staged(); const yy = await staged(y);
+    const dirOf = path.join(dir, 'state', 'align-cli', 'pending-requests');
+    const xFile = path.join(dirOf, `${x.id}.json`);
+    const xRec = JSON.parse(fs.readFileSync(xFile, 'utf8')); const yRec = JSON.parse(fs.readFileSync(path.join(dirOf, `${yy.id}.json`), 'utf8'));
+    fs.writeFileSync(xFile, JSON.stringify({ ...xRec, hash: yRec.hash, localIds: yRec.localIds }));
+    gw.states = ['approved'];
+    const r = await runShareStatusTool({ request_id: x.id }, env, ctx());
+    expect(r.text).toContain('changed since the user was shown it');
+    expect(gw.completes).toHaveLength(0);
+    expect(gw.cancels).toEqual([x.id]);
+    const { getPromotion } = await import('../lib/share/ledger.js');
+    expect(getPromotion(dbPath, y, 'prod', 'T1')).toBeNull();
+  });
+  it('a file whose bytes were swapped but whose hash and ids are left alone is refused too', async () => {
+    const x = await staged();
+    const f = path.join(dir, 'state', 'align-cli', 'pending-requests', `${x.id}.json`);
+    const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
+    fs.writeFileSync(f, JSON.stringify({ ...rec, bytesB64: Buffer.from(Buffer.from(rec.bytesB64, 'base64').toString().replace('Use sqlite', 'Use mongodb')).toString('base64') }));
+    gw.states = ['approved'];
+    expect((await runShareStatusTool({ request_id: x.id }, env, ctx())).text).toContain('changed since the user was shown it');
+    expect(gw.completes).toHaveLength(0);
+  });
+});
+
+describe('a lost completion answer', () => {
+  it('a 502, then the gateway says completed: the text says this machine has NO record, and that sharing again records it', async () => {
+    const s = await staged(); gw.states = ['approved'];
+    gw.completeError = Object.assign(new Error('Gateway returned 502'), { statusCode: 502 });
+    await expect(runShareStatusTool({ request_id: s.id }, env, ctx())).rejects.toThrow(/may have been sent/);
+    gw.completeError = undefined; gw.states = ['completed'];
+    const r = await runShareStatusTool({ request_id: s.id }, env, ctx());
+    expect(r.text).toContain('NO record');
+    expect(r.text).toContain('retract');
+    expect(r.text).not.toContain('already completed, and this machine has the record');
+    expect(loadRequest(s.id)).toBeNull();
+  });
+  it('a completed request whose ledger row exists says it has the record', async () => {
+    const s = await staged();
+    const { recordPromotion } = await import('../lib/share/ledger.js');
+    recordPromotion(dbPath, { localId: id, env: 'prod', tenantId: 'T1', contentHash: 'f', clientKey: 'k', sent: [], confirmPending: false, remoteId: 'R0', matched: false });
+    gw.states = ['completed'];
+    expect((await runShareStatusTool({ request_id: s.id }, env, ctx())).text).toContain('this machine has the record');
+  });
+  it('409 already_completing says it may have been sent and keeps the file (the same bytes may be sent again)', async () => {
+    const s = await staged(); gw.states = ['approved'];
+    gw.completeError = Object.assign(new Error('Gateway returned 409 for /x: already_completing'), { statusCode: 409 });
+    await expect(runShareStatusTool({ request_id: s.id }, env, ctx())).rejects.toThrow(/may have been sent/);
+    expect(loadRequest(s.id)).not.toBeNull();
+  });
+});
+
+describe('asking again while the earlier request cannot be checked', () => {
+  it('a temporary error keeps the local file and stages nothing new; a 404 (the gateway forgot it) stages a fresh one', async () => {
+    const r = await runShareTool({ id }, env, ctx());
+    const c = ctx(); const real = c.share.client;
+    c.share.client = { ...real, getShareRequest: async () => { throw Object.assign(new Error('Gateway returned 502'), { statusCode: 502 }); } };
+    await expect(runShareTool({ id }, env, c)).rejects.toThrow(/no new one was staged/);
+    expect(gw.staged).toHaveLength(1);
+    expect(loadRequest(String(r['request_id']))).not.toBeNull();
+    c.share.client = { ...real, getShareRequest: async () => { throw Object.assign(new Error('Gateway returned 404'), { statusCode: 404 }); } };
+    const again = await runShareTool({ id }, env, c);
+    expect(again['request_id']).not.toBe(r['request_id']);
+    expect(gw.staged).toHaveLength(2);
+  });
+});
+
+describe('request files do not outlive their usefulness', () => {
+  it('are swept 11 minutes past their expiry, and kept inside that window', async () => {
+    const { saveRequest, sweepPending } = await import('../lib/share/pending.js');
+    const mk = (n: number, expiresAt: string) => ({ requestId: `0b9f3c1e-5d2a-4f8e-9a77-3c1d2e4f5a6${n}`, kind: 'share' as const, envName: 'prod', tenantId: 'T1', gatewayUrl: 'g', keyB64Url: 'k', bytesB64: 'b', sha256: 's', hash: 'h', localIds: ['l'], agentId: 'a', userCode: 'KJ4M-9XQT', expiresAt });
+    const expiry = new Date('2026-10-10T12:00:00.000Z');
+    expect(saveRequest(mk(1, expiry.toISOString()))).toBe(true); expect(saveRequest(mk(2, expiry.toISOString()))).toBe(true);
+    expect(sweepPending(new Date(expiry.getTime() + 10 * 60_000))).toBe(0);                  // still inside the completion window: kept
+    expect(loadRequest(mk(1, '').requestId)).not.toBeNull();
+    expect(sweepPending(new Date(expiry.getTime() + 11 * 60_000 + 1000))).toBe(2);          // past it: gone, no 24 h wait
+    expect(loadRequest(mk(1, '').requestId)).toBeNull();
+  });
+});
+
+describe('the older one-time code says it is the older flow', () => {
+  it('on a gateway with no browser approval the text says so', async () => {
+    gw.mode = null;
+    const r = await runShareTool({ id }, env, ctx());
+    expect(r.text).toContain('does not offer browser approval');
+    expect(r.code).toMatch(/^[a-z2-7]{10}$/);
+  });
+});

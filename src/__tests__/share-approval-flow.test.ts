@@ -9,6 +9,7 @@ import { groupForApproval } from '../lib/share/browser-flow.js';
 import { runShare, type ShareDeps, type ShareOptions } from '../lib/share/command.js';
 import { getPromotion } from '../lib/share/ledger.js';
 import type { SharePayload } from '../lib/share/payload.js';
+import { buildPlaintext, MAX_PLAINTEXT_BYTES } from '../lib/share/envelope.js';
 import { SHARE_BATCH_ITEMS, ShareError } from '../lib/share/run.js';
 import type { BatchResponse } from '../lib/share/wire.js';
 import { fakeRequests, type FakeRequests, keyOf, openInBrowserWay, urlIn } from './helpers/share-requests-fake.js';
@@ -350,5 +351,142 @@ describe('groupForApproval', () => {
   it('refuses a single decision that cannot be sealed alone, naming it and sending nothing', () => {
     expect(() => groupForApproval([big(1, 10), big(2, 300)], to)).toThrow(ShareError);
     expect(() => groupForApproval([big(2, 300)], to)).toThrow(/"T2" is too large/);
+  });
+});
+
+/**
+ * Security review fixes (ALI-1540):
+ * - a failure in the SECOND (confirm) request is a warning: the first share is still reported and recorded, and nothing says "nothing sent".
+ * - an item is sized by the larger of its share and its confirm request.
+ * - a hung status read does not outlive Ctrl-C; a far-future expiry cannot keep the poll alive.
+ * - 409 already_completing says it may have been sent; a plain 409 still says nothing was sent.
+ * - an agent's run says so (agent 'wrapped'); a person's does not.
+ * - a tenant or user id that could make the AAD ambiguous is refused before staging.
+ * - the typed fallback says it is the fallback.
+ */
+describe('a failure in the confirmation step is not a report that nothing happened', () => {
+  const matchedReply = (): BatchResponse => ({
+    matched: [{ request_index: 0, existing_id: 'TEAM1', status: 'active', team_text_hash: TH, needs_confirmation: [{ kind: 'ratify', judgement_index: 0 }] }],
+    judgements: [{ request_index: 0, decision_id: 'TEAM1', results: [{ ok: false, error: 'needs_confirmation' }] }],
+  });
+  const failSecondStage = (f: Fx, message: string): void => {
+    const real = f.deps.client; let stages = 0;
+    f.deps.client = () => ({ ...real(), stageShareRequest: async (b, s) => { if (++stages === 2) throw Object.assign(new Error(message), { statusCode: 429 }); return f.gw.api.stageShareRequest(b, s); } });
+  };
+  it('a 429 staging the second request: the first result is printed and recorded, the warning names the confirmation, stderr never says nothing was sent', async () => {
+    const f = fixture(); const id = seed(); f.gw.replies.push(matchedReply());
+    failSecondStage(f, 'Gateway returned 429 for /share-requests: too_many_open_share_requests');
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.out.join('\n')).toContain('matched an existing team decision');
+    expect(f.err.join('\n')).toContain('did not finish');
+    expect(f.err.join('\n')).toContain('already went through');
+    expect(f.err.join('\n')).not.toMatch(/nothing (is|was) sent/i);
+    expect(getPromotion(dbPath, id, 'prod', 'T1')).toMatchObject({ remoteId: 'TEAM1', confirmPending: true });
+  });
+  it('three failed status reads while waiting on the second request: the same, and the poll message does not claim anything about sending', async () => {
+    const f = fixture({ states: ['approved'] }); const id = seed(); f.gw.replies.push(matchedReply());
+    f.gw.getError = () => (f.gw.staged.length >= 2 ? new Error('Cannot reach gateway') : undefined);
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.err.join('\n')).toContain('3 times in a row');
+    expect(f.err.join('\n')).not.toMatch(/nothing (is|was) sent/i);
+    expect(getPromotion(dbPath, id, 'prod', 'T1')).toMatchObject({ confirmPending: true });
+  });
+  it('a refused second completion says the share went through, not that nothing was sent', async () => {
+    const f = fixture(); const id = seed(); f.gw.replies.push(matchedReply());
+    const real = f.gw.api.completeShareRequest; let n = 0;
+    f.gw.api.completeShareRequest = async (i, b) => { if (++n === 2) throw Object.assign(new Error('Gateway returned 409 for /x: payload_mismatch'), { statusCode: 409 }); return real(i, b); };
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.err.join('\n')).toContain('the gateway refused it');
+    expect(f.err.join('\n')).not.toMatch(/nothing (is|was) sent/i);
+  });
+  it('the second request is part of an item\'s size: an item whose share fits but whose confirmation would not is refused up front', () => {
+    const to = { tenantId: 'T', userId: 'U', gatewayUrl: 'https://g' };
+    const judgements = Array.from({ length: 50 }, (_, i) => ({ kind: 'note' as const, note: `n${i}`, judged_at: '2026-09-04T10:00:00.000Z', origin: 'local_share' as const }));
+    const mk = (kb: number): SharePayload => ({ localId: 'l', hash: 'h', fullHash: 'f', deferredPairs: [], shown: [], leftLocal: [], item: { source_url: 'u', platform: 'github', title: 'T', summary: 's', raw_text: 'x'.repeat(kb), client_key: 'k', judgements } });
+    const shareSize = (n: number): number => buildPlaintext({ kind: 'share', ...to, payloads: [mk(n)] }).length;
+    const fill = MAX_PLAINTEXT_BYTES - shareSize(0) - 100;   // the share fits with 100 bytes to spare; the confirm shape adds ~5 kB
+    expect(shareSize(fill)).toBeLessThanOrEqual(MAX_PLAINTEXT_BYTES);
+    expect(() => groupForApproval([mk(fill)], to)).toThrow(/too large to approve/);
+    expect(groupForApproval([mk(fill - 8000)], to)).toHaveLength(1);
+  });
+});
+
+describe('Ctrl-C and a hostile gateway', () => {
+  it('a status read that hangs does not outlive Ctrl-C: exit 130 inside a second, and the request is cancelled', async () => {
+    const f = fixture({ states: ['pending'] }); const id = seed();
+    const real = f.deps.client;
+    f.deps.client = () => ({ ...real(), getShareRequest: (_id: string, signal?: AbortSignal) => new Promise<never>((_r, reject) => { signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true }); }) });
+    setTimeout(() => f.abort.abort(), 50);
+    const t0 = Date.now();
+    expect(await run(f, { ids: [id] })).toBe(130);
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(f.gw.cancels).toHaveLength(1);
+    expect(f.gw.completes).toHaveLength(0);
+  });
+  it('an abort before the next group is staged stops there', async () => {
+    const f = fixture(); const ids = Array.from({ length: 11 }, (_, i) => seed(`D${i}`, i + 1));
+    const real = f.gw.api.completeShareRequest;
+    f.gw.api.completeShareRequest = async (i, b) => { const r = await real(i, b); f.abort.abort(); return r; };
+    expect(await run(f, { ids })).toBe(130);
+    expect(f.gw.staged).toHaveLength(1);
+    expect(f.err.join('\n')).toContain('Cancelled before it was staged');
+  });
+  it('a far-future expires_at is clamped to the config lifetimes (25 minutes): the poll ends, it does not run for years', async () => {
+    const f = fixture({ states: ['pending'] }); const id = seed();
+    f.gw.expiresAt = '2099-01-01T00:00:00.000Z';
+    f.deps.approval.sleep = async (ms) => { f.sleeps.push(ms); clock += 5 * 60_000; };
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(say(f)).toContain('expired');
+    expect(f.gw.gets).toBeLessThan(12);
+  });
+});
+
+describe('what the completion errors say', () => {
+  it('409 already_completing says it MAY have been sent, and that this machine has no record, never "Nothing was sent"', async () => {
+    const f = fixture(); const id = seed();
+    f.gw.completeError = Object.assign(new Error('Gateway returned 409 for /x: already_completing'), { statusCode: 409 });
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(say(f)).toContain('may have been sent');
+    expect(say(f)).toContain('no record');
+    expect(say(f)).not.toContain('Nothing was sent.');
+  });
+  it('a plain 409 (not approved) still says nothing was sent', async () => {
+    const f = fixture(); const id = seed();
+    f.gw.completeError = Object.assign(new Error('Gateway returned 409 for /x: not_approved'), { statusCode: 409 });
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(say(f)).toContain('Nothing was sent.');
+  });
+});
+
+describe('who the request says staged it, and what it is sealed to', () => {
+  it('inside an agent align launched the request carries agent "wrapped"; a person\'s run carries none', async () => {
+    const f = fixture(); const id = seed(); f.deps.wrapped = true;
+    await run(f, { ids: [id] });
+    expect(f.gw.staged[0]!.agent).toBe('wrapped');
+    const g = fixture(); const id2 = seed('Two', 2);
+    await run(g, { ids: [id2] });
+    expect(g.gw.staged[0]).not.toHaveProperty('agent');
+  });
+  it.each([['tenant', 'T|1', 'U1'], ['user', 'T1', 'U|1'], ['user with a space', 'T1', 'U 1'], ['user with a newline', 'T1', 'U\n1']])('a %s id that could make the AAD ambiguous is refused before anything is staged', async (_n, tenant, user) => {
+    const f = fixture(); const id = seed();
+    const real = f.deps.client;
+    f.deps.client = () => ({ ...real(), whoami: async () => ({ user: { email: ME, id: user }, tenant: { id: tenant, name: 'Acme' } }) });
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(say(f)).toContain('not a plain identifier');
+    expect(f.gw.staged).toHaveLength(0);
+  });
+});
+
+describe('no silent downgrade to the typed answer', () => {
+  it.each([['no route (404)', null, /does not offer browser approval/], ['mode off', 'off' as const, /turned off/]])('%s: one line says why this asks at the terminal', async (_n, mode, re) => {
+    const f = fixture({ mode }); const id = seed();
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.out.join('\n')).toMatch(re);
+    expect(f.asks).toHaveLength(1);
+  });
+  it('an explicit --typed in available mode needs no such line (the person chose it)', async () => {
+    const f = fixture({ mode: 'available' }); const id = seed();
+    await run(f, { ids: [id], typed: true });
+    expect(f.out.join('\n')).not.toMatch(/browser approval/);
   });
 });

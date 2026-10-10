@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { aadFor, buildPlaintext, ENVELOPE_OVERHEAD_BYTES, MAX_ENVELOPE_BYTES, MAX_PLAINTEXT_BYTES, PlaintextTooLargeError, seal } from '../lib/share/envelope.js';
+import { aadFor, BINDING_PART_RE, buildPlaintext, ENVELOPE_OVERHEAD_BYTES, InvalidBindingError, MAX_ENVELOPE_BYTES, MAX_PLAINTEXT_BYTES, PlaintextTooLargeError, seal } from '../lib/share/envelope.js';
 import type { SharePayload } from '../lib/share/payload.js';
 import { openInBrowserWay } from './helpers/share-requests-fake.js';
 
@@ -67,6 +67,23 @@ const payload = (over: Partial<SharePayload['item']> = {}): SharePayload => ({
   item: { source_url: 'https://github.com/o/r/pull/1', platform: 'github', title: 'Use sqlite', summary: 's', raw_text: 's', client_key: 'k', created_at: '2026-09-02T09:00:00.000Z', judgements: [{ kind: 'ratify', judged_at: '2026-09-03T00:00:00.000Z', origin: 'local_share_mcp', agent: 'codex' }], ...over },
   shown: [{ wire: { kind: 'ratify', judged_at: '2026-09-03T00:00:00.000Z', origin: 'local_share_mcp', agent: 'codex' }, hash: 'x', via: 'mcp', agentId: 'codex', counterpartTitle: 'Other' }],
   leftLocal: [{ kind: 'conflict_verdict', why: 'counterpart_not_shared', counterpartTitle: 'Local only' }],
+});
+
+describe('the ids bound into the AAD', () => {
+  it('accepts UUIDs and plain tokens, and refuses the separator, whitespace, controls and empty before sealing', () => {
+    for (const ok of ['0b9f3c1e-5d2a-4f8e-9a77-3c1d2e4f5a6b', 'T1', 'tenant-AUTH', 'a.b_c:d']) {
+      expect(BINDING_PART_RE.test(ok), ok).toBe(true);
+      expect(() => seal(bytes, { ...B, tenantId: ok })).not.toThrow();
+    }
+    for (const bad of ['T|U', 'U|', '|', '', ' T', 'T U', 'T\nU', 'T\u0000', 'x'.repeat(129)]) {
+      expect(() => seal(bytes, { ...B, tenantId: bad }), JSON.stringify(bad)).toThrow(InvalidBindingError);
+      expect(() => seal(bytes, { ...B, userId: bad }), JSON.stringify(bad)).toThrow(InvalidBindingError);
+    }
+  });
+  it('would otherwise be ambiguous: a tenant of T|U with user V and a tenant of T with user U|V give the same AAD bytes', () => {
+    const loose = (t: string, u: string): string => `v1|${ID}|${t}|${u}|share`;
+    expect(loose('T|U', 'V')).toBe(loose('T', 'U|V'));
+  });
 });
 
 describe('buildPlaintext', () => {
