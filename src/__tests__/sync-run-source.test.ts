@@ -176,9 +176,11 @@ describe('a refused token', () => {
     expect(h.fetchCalls).toHaveLength(0);
   });
 
-  it('an auth skip and NOTHING read is the token: needs_reauth', async () => {
-    h.script({ items: [], report: { complete: false, skips: [{ kind: 'auth', count: 3, detail: 'channels where Teams refused the token' }] } });
-    expect((await syncSource('github', h.env)).state).toBe('needs_reauth');
+  it('an auth skip with NOTHING read is a skip of that scope, not a dead token (W4 in unit form)', async () => {
+    h.script({ items: [], report: { complete: false, skips: [{ kind: 'auth', count: 3, detail: 'repository not searched' }] } });
+    const out = await syncSource('github', h.env);
+    expect(out.state).toBe('partial');
+    expect(row().status).toBe('partial');
   });
 
   it('an auth skip BESIDE real items is a repo the token cannot see: a partial read, the token is fine', async () => {

@@ -22,6 +22,8 @@ export interface SummarySource {
   backgroundEligible: boolean;
   status: SyncStatus | 'never';
   lastSuccessAt?: string;
+  /** Any run, complete or not: the launch hook spaces its attempts by this, so a source that is always partial is not retried on every launch. */
+  lastAttemptAt?: string;
 }
 
 export interface SyncSummary { version: 1; generated_at: string; sources: SummarySource[] }
@@ -41,7 +43,12 @@ export function buildSummary(dbPath: string, isConnected: (id: string) => boolea
       if (r.last_success_at === null || Number.isNaN(Date.parse(r.last_success_at))) continue;
       if (last === undefined || Date.parse(r.last_success_at) > Date.parse(last)) last = r.last_success_at;
     }
-    sources.push({ id, backgroundEligible: id !== 'teams', status, ...(last !== undefined ? { lastSuccessAt: last } : {}) });
+    let attempt: string | undefined;
+    for (const r of rows) {
+      if (r.last_attempt_at === null || Number.isNaN(Date.parse(r.last_attempt_at))) continue;
+      if (attempt === undefined || Date.parse(r.last_attempt_at) > Date.parse(attempt)) attempt = r.last_attempt_at;
+    }
+    sources.push({ id, backgroundEligible: id !== 'teams', status, ...(last !== undefined ? { lastSuccessAt: last } : {}), ...(attempt !== undefined ? { lastAttemptAt: attempt } : {}) });
   }
   return { version: 1, generated_at: now.toISOString(), sources };
 }

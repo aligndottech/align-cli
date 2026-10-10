@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createLocalDb } from '../lib/local-db.js';
+import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
 import {
-  advanceHighWater, beginRun, clearNeedsReauth, deleteSource, markNeedsReauth, newestActivity, pendingDetailCount,
+  advanceHighWater, beginRun, clearNeedsReauth, deleteSource, markNeedsReauth, pendingDetailCount,
   readRows, recordActivity, saveRun, threadRows, unfinishedCount,
 } from '../lib/sync/sync-state.js';
 
@@ -29,6 +29,7 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const KEY = { source: 'github', scopeKey: 'yours', scope: 'yours' as const };
 const NOW = '2026-10-10T12:00:00.000Z';
+const NOW_D = new Date(NOW);
 function sql<T = Record<string, unknown>>(q: string, ...args: Array<string | number>): T[] {
   const db = new DatabaseSync(dbPath);
   try { return db.prepare(q).all(...args) as T[]; } finally { db.close(); }
@@ -53,29 +54,60 @@ describe('beginRun', () => {
 describe('saveRun', () => {
   it('stores the outcome, the count and the skips as JSON', () => {
     beginRun(dbPath, KEY, '2026-04-13T12:00:00.000Z', NOW);
-    saveRun(dbPath, KEY, { status: 'partial', high_water: null, pending_until: '2026-08-01T00:00:00.000Z', items: 120, skips: [{ kind: 'page_cap', count: 3, detail: 'cap' }], successAt: NOW });
+    saveRun(dbPath, KEY, { attemptAt: '2026-10-10T12:00:00.000Z', status: 'partial', high_water: null, pending_until: '2026-08-01T00:00:00.000Z', items: 120, skips: [{ kind: 'page_cap', count: 3, detail: 'cap' }], successAt: NOW });
     const [row] = readRows(dbPath, 'github');
     expect(row).toMatchObject({ status: 'partial', pending_until: '2026-08-01T00:00:00.000Z', items_last_run: 120, last_success_at: NOW });
     expect(JSON.parse(row!.skips_last_run!)).toEqual([{ kind: 'page_cap', count: 3, detail: 'cap' }]);
   });
 
+  it('every run stamps last_attempt_at; only a run given successAt moves last_success_at', () => {
+    beginRun(dbPath, KEY, null, NOW);
+    saveRun(dbPath, KEY, { attemptAt: '2026-10-09T00:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 1, skips: [], successAt: '2026-10-09T00:00:00.000Z' });
+    saveRun(dbPath, KEY, { attemptAt: '2026-10-10T00:00:00.000Z', status: 'partial', high_water: null, pending_until: null, cycle_top: '2026-10-08T00:00:00.000Z', items: 1, skips: [] });
+    expect(readRows(dbPath, 'github')[0]).toMatchObject({ last_attempt_at: '2026-10-10T00:00:00.000Z', last_success_at: '2026-10-09T00:00:00.000Z', cycle_top: '2026-10-08T00:00:00.000Z' });
+  });
+
   it('a run with no successAt (an error) keeps the earlier last_success_at', () => {
     beginRun(dbPath, KEY, '2026-04-13T12:00:00.000Z', NOW);
-    saveRun(dbPath, KEY, { status: 'ok', high_water: null, pending_until: null, items: 1, skips: [], successAt: '2026-10-09T00:00:00.000Z' });
-    saveRun(dbPath, KEY, { status: 'error', high_water: null, pending_until: null, items: 0, skips: [] });
+    saveRun(dbPath, KEY, { attemptAt: '2026-10-10T12:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 1, skips: [], successAt: '2026-10-09T00:00:00.000Z' });
+    saveRun(dbPath, KEY, { attemptAt: '2026-10-10T12:00:00.000Z', status: 'error', high_water: null, pending_until: null, items: 0, skips: [] });
     expect(readRows(dbPath, 'github')[0]).toMatchObject({ status: 'error', last_success_at: '2026-10-09T00:00:00.000Z' });
   });
 });
 
+describe('the schema guard', () => {
+  it('every sync-state function refuses a graph written by a newer CLI, before touching it', () => {
+    exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    const msg = /written by a newer Align CLI/;
+    expect(() => beginRun(dbPath, KEY, null, NOW)).toThrow(msg);
+    expect(() => saveRun(dbPath, KEY, { attemptAt: NOW, status: 'ok', high_water: null, pending_until: null, items: 0, skips: [] })).toThrow(msg);
+    expect(() => advanceHighWater(dbPath, KEY, '2026-10-01T00:00:00.000Z', NOW_D)).toThrow(msg);
+    expect(() => markNeedsReauth(dbPath, KEY, null, NOW)).toThrow(msg);
+    expect(() => clearNeedsReauth(dbPath, 'github')).toThrow(msg);
+    expect(() => deleteSource(dbPath, 'github')).toThrow(msg);
+    expect(() => recordActivity(dbPath, 'yours', [{ decisionId: 'a', platform: 'slack', updatedAt: NOW }])).toThrow(msg);
+    expect(() => readRows(dbPath)).toThrow(msg);
+    expect(sql('SELECT * FROM source_sync')).toEqual([]);
+  });
+});
+
 describe('advanceHighWater', () => {
+  it('refuses a stamp more than a day ahead of now, and accepts one within a day (clock skew)', () => {
+    beginRun(dbPath, KEY, null, NOW);
+    advanceHighWater(dbPath, KEY, '2099-01-01T00:00:00.000Z', NOW_D);
+    expect(readRows(dbPath, 'github')[0]!.high_water).toBeNull();
+    advanceHighWater(dbPath, KEY, '2026-10-11T00:00:00.000Z', NOW_D);
+    expect(readRows(dbPath, 'github')[0]!.high_water).toBe('2026-10-11T00:00:00.000Z');
+  });
+
   it('moves forward, never back, and ignores a stamp it cannot read', () => {
     beginRun(dbPath, KEY, '2026-04-13T12:00:00.000Z', NOW);
-    advanceHighWater(dbPath, KEY, '2026-10-01T00:00:00.000Z');
+    advanceHighWater(dbPath, KEY, '2026-10-01T00:00:00.000Z', NOW_D);
     expect(readRows(dbPath, 'github')[0]!.high_water).toBe('2026-10-01T00:00:00.000Z');
-    advanceHighWater(dbPath, KEY, '2026-09-01T00:00:00.000Z');
-    advanceHighWater(dbPath, KEY, 'garbage');
+    advanceHighWater(dbPath, KEY, '2026-09-01T00:00:00.000Z', NOW_D);
+    advanceHighWater(dbPath, KEY, 'garbage', NOW_D);
     expect(readRows(dbPath, 'github')[0]!.high_water).toBe('2026-10-01T00:00:00.000Z');
-    advanceHighWater(dbPath, KEY, '2026-10-05T00:00:00.000Z');
+    advanceHighWater(dbPath, KEY, '2026-10-05T00:00:00.000Z', NOW_D);
     expect(readRows(dbPath, 'github')[0]!.high_water).toBe('2026-10-05T00:00:00.000Z');
   });
 });
@@ -130,29 +162,20 @@ describe('activity', () => {
     exec(`INSERT INTO decisions (id, title, summary, source_url, platform) VALUES ('${id}', 't${id}', 's', '${url}', '${platform}')`);
   }
 
-  it('newestActivity is the latest stamp of that platform only, compared as dates', () => {
-    recordActivity(dbPath, [
-      { decisionId: 'a', platform: 'slack', updatedAt: '2026-10-01T00:00:00.000Z' },
-      { decisionId: 'b', platform: 'slack', updatedAt: '2026-10-03T00:00:00+00:00' },
-      { decisionId: 'c', platform: 'jira', updatedAt: '2026-12-01T00:00:00.000Z' },
+  it('recording again replaces the stamp for that scope (a thread got a newer reply); another scope keeps its own', () => {
+    recordActivity(dbPath, 'yours', [{ decisionId: 'a', platform: 'slack', updatedAt: '2026-10-01T00:00:00.000Z' }]);
+    recordActivity(dbPath, 'yours', [{ decisionId: 'a', platform: 'slack', updatedAt: '2026-10-08T00:00:00.000Z' }]);
+    recordActivity(dbPath, 'repo:o/r', [{ decisionId: 'a', platform: 'slack', updatedAt: '2026-09-01T00:00:00.000Z' }]);
+    expect(sql('SELECT scope_key, updated_at FROM sync_item_state ORDER BY scope_key')).toEqual([
+      { scope_key: 'repo:o/r', updated_at: '2026-09-01T00:00:00.000Z' }, { scope_key: 'yours', updated_at: '2026-10-08T00:00:00.000Z' },
     ]);
-    expect(newestActivity(dbPath, 'slack')).toBe('2026-10-03T00:00:00+00:00');
-    expect(newestActivity(dbPath, 'jira')).toBe('2026-12-01T00:00:00.000Z');
-    expect(newestActivity(dbPath, 'github')).toBeUndefined();
-  });
-
-  it('recording again replaces the stamp (a thread got a newer reply)', () => {
-    recordActivity(dbPath, [{ decisionId: 'a', platform: 'slack', updatedAt: '2026-10-01T00:00:00.000Z' }]);
-    recordActivity(dbPath, [{ decisionId: 'a', platform: 'slack', updatedAt: '2026-10-08T00:00:00.000Z' }]);
-    expect(newestActivity(dbPath, 'slack')).toBe('2026-10-08T00:00:00.000Z');
-    expect(sql('SELECT * FROM sync_item_state')).toHaveLength(1);
   });
 
   it('threadRows joins stored items to their activity; an item nobody recorded reads null', () => {
     seedDecision('a', 'slack', 'https://slack.com/archives/C1/p1700000001000001');
     seedDecision('b', 'slack', 'https://slack.com/archives/C1/p1700000002000001');
     seedDecision('c', 'github', 'https://github.com/o/r/pull/1');
-    recordActivity(dbPath, [{ decisionId: 'a', platform: 'slack', updatedAt: '2026-10-01T00:00:00.000Z' }]);
+    recordActivity(dbPath, 'yours', [{ decisionId: 'a', platform: 'slack', updatedAt: '2026-10-01T00:00:00.000Z' }]);
     expect(threadRows(dbPath, 'slack').sort((x, y) => (x.source_url < y.source_url ? -1 : 1))).toEqual([
       { source_url: 'https://slack.com/archives/C1/p1700000001000001', last_activity: '2026-10-01T00:00:00.000Z' },
       { source_url: 'https://slack.com/archives/C1/p1700000002000001', last_activity: null },

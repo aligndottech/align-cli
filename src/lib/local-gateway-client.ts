@@ -416,10 +416,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
      * re-ingested from its own stored text. A row with no URL and no embedding cannot be
      * re-ingested without inserting a twin, so it is counted and left. Never classifies.
      */
-    async relinkUnfinished(rows: Array<{ id: string; keyed: boolean }>): Promise<{ linked: number; embedded: number; skipped: number }> {
+    async relinkUnfinished(rows: Array<{ id: string; keyed: boolean; pending?: boolean }>): Promise<{ linked: number; embedded: number; skipped: number }> {
       const session: IngestSession = {};
       const out = { linked: 0, embedded: 0, skipped: 0 };
-      for (const { id, keyed } of rows) {
+      for (const { id, keyed, pending } of rows) {
         const row = db.getDecisionById(id);
         if (!row) continue;
         const stored = db.getEmbeddingModel(id) === EMBEDDING_MODEL_ID ? db.getEmbedding(id) : null;
@@ -430,7 +430,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         } else if (row.sourceUrl === null) {
           out.skipped += 1;
         } else {
-          await ingestOne(row.summary, row.platform, { titleOverride: row.title, sourceUrlOverride: row.sourceUrl, createdAt: row.decidedAt ?? undefined, classify: false, keyed }, session);
+          await ingestOne(row.summary, row.platform, { titleOverride: row.title, sourceUrlOverride: row.sourceUrl, createdAt: row.decidedAt ?? undefined, classify: false, keyed,
+            // The stored flag, passed through: a re-ingest that says nothing resets a row still waiting for its discussion.
+            detailPending: pending === true }, session);
           out.embedded += 1;
         }
       }

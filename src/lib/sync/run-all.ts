@@ -10,6 +10,8 @@ export interface SyncRunResult {
   outcomes: SourceOutcome[];
   /** Absent when another process holds the re-link lock (it is doing that work). */
   relink?: RelinkResult & { timedOut: boolean };
+  /** The re-link queue failed. The sources were already synced and recorded; this is reported, not thrown. */
+  relinkError?: string;
 }
 
 export async function runSync(
@@ -29,6 +31,8 @@ export async function runSync(
   try {
     const relink = await relinkAll(env.dbPath, env.client, { deadlineAt: started + SYNC_TIME_BUDGET_MS, now: () => env.now().getTime() });
     return { outcomes, relink };
+  } catch (e) {
+    return { outcomes, relinkError: (e instanceof Error ? e.message : String(e)).slice(0, 200) };
   } finally {
     lock.release();
   }

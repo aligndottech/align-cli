@@ -15,6 +15,11 @@ const DAY = 86_400_000;
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY).toISOString();
 
 describe('nextWindow', () => {
+  it('a stored watermark from the future is ignored: the read widens to the window (two examples)', () => {
+    expect(nextWindow({ window_since: ago(180), high_water: '2099-01-01T00:00:00.000Z', pending_until: null }, NOW)).toEqual({ since: ago(180) });
+    expect(nextWindow({ window_since: '2025-10-10T12:00:00.000Z', high_water: '2026-10-12T00:00:00.000Z', pending_until: null }, NOW)).toEqual({ since: '2025-10-10T12:00:00.000Z' });
+  });
+
   it('no row at all: the default window back from now, no upper bound', () => {
     expect(nextWindow(undefined, NOW)).toEqual({ since: ago(SYNC_WINDOW_DEFAULT_DAYS) });
   });
@@ -84,25 +89,37 @@ describe('finishRun', () => {
   });
 
   it('incomplete: high_water does not move and pending_until is the oldest item seen', () => {
-    expect(finishRun(prev, { complete: false, highWater: '2026-10-09T00:00:00.000Z', oldestReached: '2026-09-15T00:00:00.000Z' }))
+    expect(finishRun(prev, { complete: false, cut: true, highWater: '2026-10-09T00:00:00.000Z', oldestReached: '2026-09-15T00:00:00.000Z' }))
       .toEqual({ high_water: prev.high_water, pending_until: '2026-09-15T00:00:00.000Z', status: 'partial' });
   });
 
   it('incomplete again inside a cycle: pending_until only moves DOWN (never re-reads what a run already covered)', () => {
     const mid = { high_water: prev.high_water, pending_until: '2026-09-15T00:00:00.000Z' };
-    expect(finishRun(mid, { complete: false, oldestReached: '2026-09-01T00:00:00.000Z' }).pending_until).toBe('2026-09-01T00:00:00.000Z');
-    expect(finishRun(mid, { complete: false, oldestReached: '2026-09-20T00:00:00.000Z' }).pending_until).toBe('2026-09-15T00:00:00.000Z');
+    expect(finishRun(mid, { complete: false, cut: true, oldestReached: '2026-09-01T00:00:00.000Z' }).pending_until).toBe('2026-09-01T00:00:00.000Z');
+    expect(finishRun(mid, { complete: false, cut: true, oldestReached: '2026-09-20T00:00:00.000Z' }).pending_until).toBe('2026-09-15T00:00:00.000Z');
   });
 
   it('incomplete with nothing seen keeps the pending bound it had', () => {
     const mid = { high_water: null, pending_until: '2026-09-15T00:00:00.000Z' };
-    expect(finishRun(mid, { complete: false })).toEqual({ high_water: null, pending_until: '2026-09-15T00:00:00.000Z', status: 'partial' });
+    expect(finishRun(mid, { complete: false, cut: true })).toEqual({ high_water: null, pending_until: '2026-09-15T00:00:00.000Z', status: 'partial' });
   });
 
   it('the final run of a cycle reports a highWater clamped to its until; the cycle newest keeps high_water at the true top', () => {
     const mid = { high_water: null, pending_until: '2026-09-15T00:00:00.000Z' };
     const done = finishRun(mid, { complete: true, highWater: '2026-09-14T00:00:00.000Z', cycleNewest: '2026-10-09T00:00:00.000Z' });
     expect(done).toEqual({ high_water: '2026-10-09T00:00:00.000Z', pending_until: null, status: 'ok' });
+  });
+
+  it('a HOLE (incomplete, but not a date-ordered cut) sets no pending_until and clears a stale one: nothing pins the next run', () => {
+    expect(finishRun(prev, { complete: false, highWater: '2026-10-09T00:00:00.000Z', oldestReached: '2026-09-15T00:00:00.000Z' }))
+      .toEqual({ high_water: prev.high_water, pending_until: null, status: 'partial' });
+    expect(finishRun({ high_water: prev.high_water, pending_until: '2026-09-15T00:00:00.000Z' }, { complete: false, cut: false }))
+      .toEqual({ high_water: prev.high_water, pending_until: null, status: 'partial' });
+  });
+
+  it('a stored high_water from the future is repaired, not carried (and not kept by "later")', () => {
+    expect(finishRun({ high_water: '2099-01-01T00:00:00.000Z', pending_until: null }, { complete: true, highWater: '2026-10-09T00:00:00.000Z', now: NOW }).high_water).toBe('2026-10-09T00:00:00.000Z');
+    expect(finishRun({ high_water: '2099-01-01T00:00:00.000Z', pending_until: null }, { complete: false, now: NOW }).high_water).toBeNull();
   });
 
   it('a stamp from the future (a vendor bug, a wrong clock) never becomes the watermark', () => {
@@ -132,6 +149,11 @@ describe('batch order', () => {
     const input = [it1, it2];
     ascendingByUpdated(input);
     expect(input.map((i) => i.id)).toEqual(['c', 'a']);
+  });
+  it('newestUpdated skips a stamp more than a day ahead of now when told what now is', () => {
+    const now = new Date('2026-10-10T12:00:00.000Z');
+    expect(newestUpdated([it2, { updated_at: '2099-01-01T00:00:00.000Z' }, it1], now)).toBe('2026-10-03T00:00:00.000Z');
+    expect(newestUpdated([{ updated_at: '2099-01-01T00:00:00.000Z' }], now)).toBeUndefined();
   });
   it('newestUpdated is the latest stamp of the batch, undefined when none carries one', () => {
     expect(newestUpdated([it2, it1, it3, bare])).toBe('2026-10-03T00:00:00.000Z');

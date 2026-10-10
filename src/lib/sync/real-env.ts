@@ -10,7 +10,7 @@ import { createLocalGatewayClient } from '../local-gateway-client.js';
 import { getLocalDbPath } from '../local-mode.js';
 import { acquireLock, lockHolder } from './lock.js';
 import type { SyncEnv } from './run-source.js';
-import { fetchSource, scopeOf } from './sources.js';
+import { fetchSource, fetchWhole, scopeOf } from './sources.js';
 import type { StatusDeps } from './status.js';
 
 /** The local graph this machine syncs into, or undefined when local mode is not set up. Never creates it. */
@@ -27,6 +27,7 @@ export function realSyncEnv(dbPath: string, config = createConfigStore()): SyncE
     tokens: (source) => config.getConnectorFields('local', source),
     scopeOf,
     fetch: fetchSource,
+    fetchWhole,
     client: createLocalGatewayClient(dbPath),
     lock: (name) => acquireLock(name),
     backfillRunning: (source) => dir !== null && liveBackfills(dir).some((s) => s.source === source),

@@ -87,12 +87,16 @@ A sync reads only what changed since the last one (it starts a day before the la
 so a late edit is not missed) and stores it the same way a connect does. It reads, it never writes
 to a source, and it makes no AI calls. Specifically:
 
-- **It never moves its bookmark past data it did not read.** A read that a ceiling or time budget
-  cut short says so, keeps where it got to, and the next sync finishes the older part before it
-  moves on.
+- **It never moves its bookmark past data it did not read.** A read a ceiling cut short in date order
+  says so and the next sync finishes the older part before it moves on. A read with a hole in it (a
+  channel that would not open, a repo the token cannot see) keeps the bookmark where the last complete
+  read left it and reads again from there, so one stubborn skip never stops newer items arriving. The
+  status separates "last complete sync" from "last tried" and says what was not read.
 - **GitHub comments and reviews** arrive over several runs, newest first, 600 requests a run.
-- **A refused token is recorded, never deleted.** The source shows as needing you to reconnect
-  (`align connect <source>`), and a successful reconnect clears it. Nothing here asks for a token.
+- **A refused token is recorded, never deleted.** Only a refusal of the token itself marks a source as
+  needing you to reconnect (`align connect <source>`); a successful reconnect clears it. One repo or
+  channel the token cannot see is a skip of that scope, shown in the status, and blocks nothing.
+  Nothing here asks for a token.
 - **Slack replies to older threads** are picked up for threads that had a reply in the last 30 days.
 - **Teams is manual** (its token lasts about an hour): `align sync teams`, or `align connect teams`.
 - One sync per source at a time, across terminals and agents. A second one says "already syncing".
@@ -109,8 +113,13 @@ From inside a coding agent, `align_sync` can show the status, start the same bac
 and estimate the classification cost. It cannot classify, and it never takes a token.
 
 `align local forget <source>` drops the token and the source's sync state and leaves what it
-imported. Add `--purge` to delete the imported items too; items you ratified, confirmed, acted on
-or judged are kept, and the line tells you how many were deleted and kept.
+imported. Add `--purge` to delete the imported items too, for a connected source only (`github`,
+`slack`, ...; never `git`, `cli` or a typo, which are refused). It shows the count and asks first
+(`--yes` when there is no terminal). It deletes only items a connector import wrote and nobody has
+handled: items you ratified, confirmed, captured by hand, acted on or judged are kept, as is
+anything with no import identity. Deleted items are copied into the graph file first
+(`decisions_purged_backup`), and the whole forget is one transaction, so a failure leaves the token
+and every item as they were.
 
 ## Git
 

@@ -25,9 +25,9 @@ export async function relinkAll(
   const seen = new Set<string>();
   for (;;) {
     if (o.deadlineAt !== undefined && now() >= o.deadlineAt) { total.timedOut = true; break; }
-    const rows = unfinishedRows(dbPath, EMBEDDING_MODEL_ID, o.batch ?? BATCH).filter((r) => !seen.has(r.id));
-    // A row that was handed over and is still unfinished (a skip, or a step that did not stamp it)
-    // must not be handed over again, or the loop never ends.
+    // Ask for enough to step over what was already handed over, or a long run of handled-but-unstamped rows
+    // at the head of the queue would end it early with rows still waiting behind them.
+    const rows = unfinishedRows(dbPath, EMBEDDING_MODEL_ID, (o.batch ?? BATCH) + seen.size).filter((r) => !seen.has(r.id)).slice(0, o.batch ?? BATCH);
     if (rows.length === 0) break;
     for (const r of rows) seen.add(r.id);
     const r = await client.relinkUnfinished(rows);

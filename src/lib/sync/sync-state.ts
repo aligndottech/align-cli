@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import type { CaptureSkip } from '../fetchers/capture.js';
+import { assertSchemaSupported } from '../local-db-migrate.js';
 
 export type SyncStatus = 'ok' | 'partial' | 'needs_reauth' | 'error';
 
@@ -28,6 +29,10 @@ export interface SyncRow {
   status: SyncStatus;
   last_started_at: string | null;
   last_success_at: string | null;
+  /** Every run stamps this; last_success_at is stamped only by a complete one. */
+  last_attempt_at: string | null;
+  /** The newest updated_at seen across a pending cycle, in THIS scope's own row. */
+  cycle_top: string | null;
   items_last_run: number | null;
   skips_last_run: string | null;
   changed_via: 'cli' | 'mcp' | null;
@@ -40,6 +45,8 @@ function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA busy_timeout = 30000');
+    // A newer CLI's file is not ours to read or write: the same refusal migrate() makes.
+    assertSchemaSupported((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
     return fn(db);
   } finally {
     db.close();
@@ -57,15 +64,6 @@ function readDb<T>(dbPath: string, fallback: T, fn: (db: DatabaseSync) => T): T 
       throw e;
     }
   });
-}
-
-function ensureItemState(db: DatabaseSync): void {
-  db.exec(`CREATE TABLE IF NOT EXISTS sync_item_state (
-    decision_id TEXT PRIMARY KEY,
-    platform    TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-  )`);
-  db.exec('CREATE INDEX IF NOT EXISTS idx_sync_item_state_platform ON sync_item_state(platform)');
 }
 
 /** Rows of one source (every scope), or of all sources. A file that has no `source_sync` yet reads as empty. */
@@ -93,29 +91,34 @@ export interface RunResult {
   status: SyncStatus;
   high_water: string | null;
   pending_until: string | null;
+  /** The cycle's newest stamp while a cycle is pending; null once it ends. */
+  cycle_top?: string | null;
+  /** Stamped as last_attempt_at on every run. */
+  attemptAt: string;
   items: number;
   skips: readonly CaptureSkip[];
-  /** Stamped as last_success_at, or left as it was when absent (an error is not a success). */
+  /** Stamped as last_success_at, or left as it was when absent: only a COMPLETE run is a success. */
   successAt?: string;
 }
 
 export function saveRun(dbPath: string, key: ScopeKey, r: RunResult): void {
   withDb(dbPath, (db) => {
     db.prepare(
-      `UPDATE source_sync SET status = ?, high_water = ?, pending_until = ?, items_last_run = ?, skips_last_run = ?,
-         last_success_at = COALESCE(?, last_success_at)
+      `UPDATE source_sync SET status = ?, high_water = ?, pending_until = ?, cycle_top = ?, items_last_run = ?, skips_last_run = ?,
+         last_attempt_at = ?, last_success_at = COALESCE(?, last_success_at)
        WHERE source_id = ? AND scope_key = ?`,
-    ).run(r.status, r.high_water, r.pending_until, r.items, JSON.stringify(r.skips), r.successAt ?? null, key.source, key.scopeKey);
+    ).run(r.status, r.high_water, r.pending_until, r.cycle_top ?? null, r.items, JSON.stringify(r.skips), r.attemptAt, r.successAt ?? null, key.source, key.scopeKey);
   });
 }
 
 /** Move the watermark FORWARD only, from inside a run: called after a batch has committed. */
-export function advanceHighWater(dbPath: string, key: ScopeKey, to: string): void {
+export function advanceHighWater(dbPath: string, key: ScopeKey, to: string, now: Date): void {
   withDb(dbPath, (db) => {
     const row = db.prepare('SELECT high_water FROM source_sync WHERE source_id = ? AND scope_key = ?').get(key.source, key.scopeKey) as { high_water: string | null } | undefined;
     const stored = row?.high_water ? Date.parse(row.high_water) : Number.NaN;
     const next = Date.parse(to);
-    if (Number.isNaN(next)) return;
+    // A stamp more than a day ahead of now (a vendor bug, a wrong clock) would hide every later change.
+    if (Number.isNaN(next) || next > now.getTime() + 86_400_000) return;
     if (!Number.isNaN(stored) && stored >= next) return;
     db.prepare('UPDATE source_sync SET high_water = ? WHERE source_id = ? AND scope_key = ?').run(to, key.source, key.scopeKey);
   });
@@ -161,34 +164,21 @@ export function deleteSource(dbPath: string, source: string): number {
   });
 }
 
-export function recordActivity(dbPath: string, entries: ReadonlyArray<{ decisionId: string; platform: string; updatedAt: string }>): void {
+export function recordActivity(dbPath: string, scopeKey: string, entries: ReadonlyArray<{ decisionId: string; platform: string; updatedAt: string }>): void {
   if (entries.length === 0) return;
   withDb(dbPath, (db) => {
-    ensureItemState(db);
     const put = db.prepare(
-      `INSERT INTO sync_item_state (decision_id, platform, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(decision_id) DO UPDATE SET updated_at = excluded.updated_at, platform = excluded.platform`,
+      `INSERT INTO sync_item_state (decision_id, scope_key, platform, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(decision_id, scope_key) DO UPDATE SET updated_at = excluded.updated_at, platform = excluded.platform`,
     );
     db.exec('BEGIN');
     try {
-      for (const e of entries) put.run(e.decisionId, e.platform, e.updatedAt);
+      for (const e of entries) put.run(e.decisionId, scopeKey, e.platform, e.updatedAt);
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
       throw err;
     }
-  });
-}
-
-export function newestActivity(dbPath: string, platform: string): string | undefined {
-  return readDb<string | undefined>(dbPath, undefined, (db) => {
-    const rows = db.prepare('SELECT updated_at FROM sync_item_state WHERE platform = ?').all(platform) as Array<{ updated_at: string }>;
-    let best: string | undefined;
-    for (const r of rows) {
-      const t = Date.parse(r.updated_at);
-      if (!Number.isNaN(t) && (best === undefined || t > Date.parse(best))) best = r.updated_at;
-    }
-    return best;
   });
 }
 
@@ -201,7 +191,7 @@ export function threadRows(dbPath: string, platform: string): Array<{ source_url
   // The activity table may not exist yet (nothing has been synced): then no thread has a known activity.
   return readDb(dbPath, plain, (db) => db.prepare(
     `SELECT d.source_url AS source_url, s.updated_at AS last_activity FROM decisions d
-     LEFT JOIN sync_item_state s ON s.decision_id = d.id
+     LEFT JOIN sync_item_state s ON s.decision_id = d.id AND s.scope_key = 'yours'
      WHERE d.platform = ? AND d.source_url IS NOT NULL`,
   ).all(platform) as Array<{ source_url: string; last_activity: string | null }>);
 }
@@ -224,15 +214,15 @@ export function unfinishedCount(dbPath: string, currentModel: string): number {
  * current-model embedding, or it has a URL to re-ingest from (see relinkUnfinished). `keyed`
  * says whether the row carries a source_key, so a re-ingest keeps its identity.
  */
-export function unfinishedRows(dbPath: string, currentModel: string, limit: number): Array<{ id: string; keyed: boolean }> {
-  return readDb<Array<{ id: string; keyed: boolean }>>(dbPath, [], (db) => {
+export function unfinishedRows(dbPath: string, currentModel: string, limit: number): Array<{ id: string; keyed: boolean; pending: boolean }> {
+  return readDb<Array<{ id: string; keyed: boolean; pending: boolean }>>(dbPath, [], (db) => {
     const rows = db.prepare(
-      `SELECT d.id AS id, d.source_key AS source_key FROM decisions d
+      `SELECT d.id AS id, d.source_key AS source_key, d.detail_pending AS pending FROM decisions d
        LEFT JOIN decision_embeddings e ON e.decision_id = d.id
        WHERE d.enriched_at IS NULL AND (e.model = ? OR d.source_url IS NOT NULL)
        ORDER BY d.created_at ASC, d.rowid ASC LIMIT ?`,
-    ).all(currentModel, limit) as Array<{ id: string; source_key: string | null }>;
-    return rows.map((r) => ({ id: r.id, keyed: r.source_key !== null }));
+    ).all(currentModel, limit) as Array<{ id: string; source_key: string | null; pending: number }>;
+    return rows.map((r) => ({ id: r.id, keyed: r.source_key !== null, pending: r.pending === 1 }));
   });
 }
 
@@ -267,4 +257,38 @@ export function clearDetailPending(dbPath: string, ids: readonly string[]): void
 /** The stored text of the one-item-per-URL row a fetched item belongs to, for merging a partial read into it. */
 export function storedByKey(dbPath: string, sourceKey: string): { title: string; summary: string } | undefined {
   return withDb(dbPath, (db) => db.prepare('SELECT title, summary FROM decisions WHERE source_key = ?').get(sourceKey) as { title: string; summary: string } | undefined);
+}
+
+/** Run `fn` in one IMMEDIATE transaction on its own handle: all of it commits, or none of it does. */
+export function transact<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
+  return withDb(dbPath, (db) => {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const out = fn(db);
+      db.exec('COMMIT');
+      return out;
+    } catch (e) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw e;
+    }
+  });
+}
+
+/**
+ * A run died before it could say why (a database error, the re-link queue). Record it on each
+ * source's rows so the next foreground moment and `align_sync` status can tell the person, instead of
+ * the background child vanishing without a trace. Watermarks are untouched; a source with no row gets one.
+ */
+export function recordRunError(dbPath: string, sources: readonly string[], message: string, nowIso: string, defaultWindowSince: string): void {
+  if (sources.length === 0) return;
+  const skips = JSON.stringify([{ kind: 'error', count: 1, detail: message.slice(0, 200) }]);
+  transact(dbPath, (db) => {
+    for (const source of sources) {
+      const has = db.prepare('SELECT 1 AS hit FROM source_sync WHERE source_id = ? LIMIT 1').get(source) !== undefined;
+      if (!has) {
+        db.prepare(`INSERT INTO source_sync (source_id, scope_key, scope, window_since) VALUES (?, 'yours', 'yours', ?)`).run(source, defaultWindowSince);
+      }
+      db.prepare(`UPDATE source_sync SET status = CASE WHEN status = 'needs_reauth' THEN status ELSE 'error' END, skips_last_run = ?, last_attempt_at = ? WHERE source_id = ?`).run(skips, nowIso, source);
+    }
+  });
 }

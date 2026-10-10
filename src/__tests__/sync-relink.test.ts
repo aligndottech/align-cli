@@ -124,6 +124,35 @@ describe('relinkAll', () => {
     expect(new Set(handed).size).toBe(handed.length);
   }, 5_000);
 
+  it('a row still waiting for its discussion keeps that flag through the full re-ingest (it was reset to 0 before)', async () => {
+    await seed(2);
+    const id = sql<{ id: string }>(`SELECT id FROM decisions WHERE title = 'PR 1'`)[0]!.id;
+    exec(`UPDATE decisions SET enriched_at = NULL, detail_pending = 1 WHERE id = '${id}'; DELETE FROM decision_embeddings WHERE decision_id = '${id}'`);
+    const c = createLocalGatewayClient(dbPath);
+    expect(await relinkAll(dbPath, c)).toMatchObject({ embedded: 1 });
+    c.close();
+    expect(sql<{ detail_pending: number }>(`SELECT detail_pending FROM decisions WHERE id = '${id}'`)[0]!.detail_pending).toBe(1);
+    expect(sql<{ detail_pending: number }>(`SELECT detail_pending FROM decisions WHERE title = 'PR 2'`)[0]!.detail_pending).toBe(0);
+  });
+
+  it('a long run of handled-but-unstamped rows at the head of the queue does not end it early (batch 2, 6 rows, the first 4 never get stamped)', async () => {
+    await seed(6);
+    exec('UPDATE decisions SET enriched_at = NULL');
+    const handed: string[] = [];
+    const real = createLocalGatewayClient(dbPath);
+    const stubborn = new Set(sql<{ id: string }>('SELECT id FROM decisions ORDER BY created_at, rowid LIMIT 4').map((r) => r.id));
+    const client = {
+      relinkUnfinished: async (rows: Array<{ id: string; keyed: boolean; pending?: boolean }>) => {
+        handed.push(...rows.map((r) => r.id));
+        return real.relinkUnfinished(rows.filter((r) => !stubborn.has(r.id)));
+      },
+    };
+    await relinkAll(dbPath, client, { batch: 2 });
+    real.close();
+    expect(new Set(handed).size).toBe(6);
+    expect(sql('SELECT 1 FROM decisions WHERE enriched_at IS NULL')).toHaveLength(4);
+  });
+
   it('oldest first: with a one-row batch the first row handled is the oldest', async () => {
     await seed(3);
     exec(`UPDATE decisions SET enriched_at = NULL, created_at = '2026-01-0' || (CAST(substr(title, 4) AS INTEGER)) || ' 00:00:00'`);

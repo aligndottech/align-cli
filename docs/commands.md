@@ -196,7 +196,7 @@ align local start             Initialize local decision graph
 align local status            Show local graph statistics
 align local forget [connector]
                               Remove saved read-only tokens (all, or one named connector)
-                              flags: --purge
+                              flags: --purge --yes
 align local reset             Wipe local graph and reset config
 ```
 <!-- commands:end -->

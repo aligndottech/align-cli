@@ -26,10 +26,10 @@ describe('buildSummary', () => {
   it('lists connected sources only, with status and last success', () => {
     const key = { source: 'github', scopeKey: 'yours', scope: 'yours' as const };
     beginRun(dbPath, key, null, NOW.toISOString());
-    saveRun(dbPath, key, { status: 'ok', high_water: null, pending_until: null, items: 1, skips: [], successAt: '2026-10-10T11:00:00.000Z' });
+    saveRun(dbPath, key, { attemptAt: '2026-10-10T12:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 1, skips: [], successAt: '2026-10-10T11:00:00.000Z' });
     const s = buildSummary(dbPath, (id) => ['github', 'jira', 'teams'].includes(id), NOW);
     expect(s.sources).toEqual([
-      { id: 'github', backgroundEligible: true, status: 'ok', lastSuccessAt: '2026-10-10T11:00:00.000Z' },
+      { id: 'github', backgroundEligible: true, status: 'ok', lastSuccessAt: '2026-10-10T11:00:00.000Z', lastAttemptAt: '2026-10-10T12:00:00.000Z' },
       { id: 'jira', backgroundEligible: true, status: 'never' },
       { id: 'teams', backgroundEligible: false, status: 'never' },
     ]);
@@ -40,8 +40,8 @@ describe('buildSummary', () => {
     const b = { source: 'github', scopeKey: 'repo:o/r', scope: 'team' as const };
     beginRun(dbPath, a, null, NOW.toISOString());
     beginRun(dbPath, b, null, NOW.toISOString());
-    saveRun(dbPath, a, { status: 'ok', high_water: null, pending_until: null, items: 1, skips: [], successAt: '2026-10-01T00:00:00.000Z' });
-    saveRun(dbPath, b, { status: 'partial', high_water: null, pending_until: null, items: 1, skips: [], successAt: '2026-10-09T00:00:00.000Z' });
+    saveRun(dbPath, a, { attemptAt: '2026-10-10T12:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 1, skips: [], successAt: '2026-10-01T00:00:00.000Z' });
+    saveRun(dbPath, b, { attemptAt: '2026-10-10T12:00:00.000Z', status: 'partial', high_water: null, pending_until: null, items: 1, skips: [], successAt: '2026-10-09T00:00:00.000Z' });
     expect(buildSummary(dbPath, (id) => id === 'github', NOW).sources[0]).toMatchObject({ status: 'partial', lastSuccessAt: '2026-10-09T00:00:00.000Z' });
     markNeedsReauth(dbPath, a, null, NOW.toISOString());
     expect(buildSummary(dbPath, (id) => id === 'github', NOW).sources[0]!.status).toBe('needs_reauth');
@@ -50,7 +50,7 @@ describe('buildSummary', () => {
   it('an unreadable last_success_at is ignored, not compared', () => {
     const key = { source: 'github', scopeKey: 'yours', scope: 'yours' as const };
     beginRun(dbPath, key, null, NOW.toISOString());
-    saveRun(dbPath, key, { status: 'ok', high_water: null, pending_until: null, items: 1, skips: [], successAt: 'garbage' });
+    saveRun(dbPath, key, { attemptAt: '2026-10-10T12:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 1, skips: [], successAt: 'garbage' });
     expect(buildSummary(dbPath, () => true, NOW).sources.find((s) => s.id === 'github')).not.toHaveProperty('lastSuccessAt');
   });
 });

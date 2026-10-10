@@ -33,7 +33,7 @@ describe('collectStatus', () => {
   it('reports scope, last success, items, skip counts and discussion pending for a synced GitHub', () => {
     const key = { source: 'github', scopeKey: 'repo:o/r', scope: 'team' as const };
     beginRun(dbPath, key, null, '2026-10-10T11:00:00.000Z');
-    saveRun(dbPath, key, { status: 'partial', high_water: null, pending_until: '2026-09-20T00:00:00.000Z', items: 120, skips: [{ kind: 'vendor_cap', count: 2, detail: 'x' }, { kind: 'vendor_cap', count: 1, detail: 'y' }, { kind: 'shape', count: 4, detail: 'z' }], successAt: '2026-10-10T11:00:00.000Z' });
+    saveRun(dbPath, key, { attemptAt: '2026-10-10T12:00:00.000Z', status: 'partial', high_water: null, pending_until: '2026-09-20T00:00:00.000Z', items: 120, skips: [{ kind: 'vendor_cap', count: 2, detail: 'x' }, { kind: 'vendor_cap', count: 1, detail: 'y' }, { kind: 'shape', count: 4, detail: 'z' }], successAt: '2026-10-10T11:00:00.000Z' });
     exec(`INSERT INTO decisions (id, title, summary, platform, detail_pending) VALUES ('a', 'a', 's', 'github', 1), ('b', 'b', 's', 'github', 1), ('c', 'c', 's', 'github', 0)`);
     const gh = collectStatus(deps(['github'])).sources.find((s) => s.id === 'github')!;
     expect(gh).toMatchObject({
@@ -86,6 +86,32 @@ describe('collectStatus', () => {
   });
 });
 
+describe('a partial source says what is actually missing', () => {
+  const key = { source: 'slack', scopeKey: 'yours', scope: 'yours' as const };
+  it('a hole is listed in the fetcher\'s words, with the last COMPLETE sync and the last attempt apart, and no "older history" claim', () => {
+    beginRun(dbPath, key, null, 'x');
+    saveRun(dbPath, key, { attemptAt: '2026-10-09T10:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 5, skips: [], successAt: '2026-10-09T10:00:00.000Z' });
+    saveRun(dbPath, key, { attemptAt: '2026-10-10T10:00:00.000Z', status: 'partial', high_water: null, pending_until: null, items: 3, skips: [{ kind: 'error', count: 2, detail: 'channels the token could not read' }, { kind: 'shape', count: 9, detail: 'threads with no human message' }] });
+    const s = collectStatus(deps(['slack'])).sources.find((x) => x.id === 'slack')!;
+    expect(s).toMatchObject({ status: 'partial', last_success_at: '2026-10-09T10:00:00.000Z', last_attempt_at: '2026-10-10T10:00:00.000Z', missing: ['your own items: 2 channels the token could not read'] });
+    expect(s.reached_back_to).toBeUndefined();
+    const text = renderStatus(collectStatus(deps(['slack'])));
+    expect(text).toContain('last complete sync 2026-10-09 10:00 UTC');
+    expect(text).toContain('last tried 2026-10-10 10:00 UTC');
+    expect(text).toContain('not read last time: your own items: 2 channels the token could not read');
+    expect(text).not.toContain('older history');
+  });
+
+  it('a date-ordered cut says how far back it got; a refused repo names its scope, not the others', () => {
+    const team = { source: 'github', scopeKey: 'repo:upstream/oss', scope: 'team' as const };
+    beginRun(dbPath, team, null, 'x');
+    saveRun(dbPath, team, { attemptAt: 'x', status: 'partial', high_water: null, pending_until: '2026-09-01T00:00:00.000Z', items: 0, skips: [{ kind: 'auth', count: 1, detail: 'repository not searched' }] });
+    const s = collectStatus(deps(['github'])).sources.find((x) => x.id === 'github')!;
+    expect(s.reached_back_to).toBe('2026-09-01T00:00:00.000Z');
+    expect(s.missing).toEqual(['upstream/oss: 1 repository not searched']);
+  });
+});
+
 describe('renderStatus', () => {
   it('connected sources only, one line each, with the next step beneath', () => {
     const text = renderStatus(collectStatus(deps(['teams'])));
@@ -108,8 +134,8 @@ describe('renderStatus', () => {
   it('a synced source reads as one honest sentence', () => {
     const key = { source: 'github', scopeKey: 'yours', scope: 'yours' as const };
     beginRun(dbPath, key, null, 'x');
-    saveRun(dbPath, key, { status: 'ok', high_water: null, pending_until: null, items: 12, skips: [], successAt: '2026-10-10T11:58:00.000Z' });
-    expect(renderStatus(collectStatus(deps(['github'])))).toBe('GitHub (your own items): ok; last synced 2026-10-10 11:58 UTC; 12 items read last run.');
+    saveRun(dbPath, key, { attemptAt: '2026-10-10T12:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 12, skips: [], successAt: '2026-10-10T11:58:00.000Z' });
+    expect(renderStatus(collectStatus(deps(['github'])))).toBe('GitHub (your own items): ok; last complete sync 2026-10-10 11:58 UTC; 12 items read last run.');
   });
 });
 

@@ -20,13 +20,18 @@ export interface SourceStatus {
   /** Whose items it reads: "your own items", "everyone's items in o/r". */
   scope: string;
   status: SyncStatus | 'never' | 'not_connected';
+  /** Stamped only by a COMPLETE run. */
   last_success_at?: string;
+  /** Stamped by every run, complete or not. */
+  last_attempt_at?: string;
   items_last_run?: number;
   /** GitHub only: items still waiting for their comments and reviews. */
   discussion_pending?: number;
   /** Skip kinds from the last run with how many objects each covered. Never the details, never content. */
   skips: Record<string, number>;
-  /** An incomplete read: the date it reached, and that older history is still to come. */
+  /** What the last run could not read, in the fetcher's own words, by scope. Never item content or a URL. */
+  missing?: string[];
+  /** A read a ceiling cut in date order: how far back it got. Older history is still to come. */
   reached_back_to?: string;
   running?: 'sync' | 'backfill';
   /** The command or note the person needs, when there is one. */
@@ -54,6 +59,26 @@ function scopeText(rows: readonly SyncRow[]): string {
   return team.map((r) => `everyone's items in ${r.scope_key.replace(/^repo:/, '')}`).join('; ');
 }
 
+function scopeLabelOf(r: SyncRow): string {
+  return r.scope === 'team' ? r.scope_key.replace(/^repo:/, '') : 'your own items';
+}
+
+/** The skips that mean something was NOT read (everything but `shape`, which is a note), with which scope they hit. */
+function missingOf(rows: readonly SyncRow[]): string[] {
+  const out: string[] = [];
+  for (const r of rows) {
+    if (r.skips_last_run === null) continue;
+    let parsed: unknown;
+    try { parsed = JSON.parse(r.skips_last_run); } catch { continue; }
+    if (!Array.isArray(parsed)) continue;
+    for (const s of parsed as Array<{ kind?: unknown; count?: unknown; detail?: unknown }>) {
+      if (typeof s.kind !== 'string' || s.kind === 'shape' || typeof s.count !== 'number' || typeof s.detail !== 'string') continue;
+      out.push(`${scopeLabelOf(r)}: ${s.count} ${s.detail.slice(0, 160)}`);
+    }
+  }
+  return out.slice(0, 5);
+}
+
 function skipCounts(rows: readonly SyncRow[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of rows) {
@@ -76,6 +101,9 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
     const worst = rows.reduce<SyncStatus | undefined>((w, r) => (w === undefined || RANK[r.status] > RANK[w] ? r.status : w), undefined);
     const lasts = rows.map((r) => r.last_success_at).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t)));
     const last = lasts.sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+    const attempts = rows.map((r) => r.last_attempt_at).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t)));
+    const attempt = attempts.sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+    const missing = missingOf(rows);
     const items = rows.find((r) => r.items_last_run !== null)?.items_last_run ?? undefined;
     const pending = rows.map((r) => r.pending_until).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t))).sort()[0];
     const bf = d.backfill(id);
@@ -84,6 +112,8 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
       status: !connected ? 'not_connected' : (worst ?? 'never'),
       skips: skipCounts(rows),
       ...(last !== undefined ? { last_success_at: last } : {}),
+      ...(attempt !== undefined ? { last_attempt_at: attempt } : {}),
+      ...(missing.length > 0 ? { missing } : {}),
       ...(items !== undefined ? { items_last_run: items } : {}),
       ...(pending !== undefined ? { reached_back_to: pending } : {}),
       ...(connected && d.syncRunning(id) ? { running: 'sync' as const } : bf && d.backfillAlive(bf) ? { running: 'backfill' as const } : {}),
@@ -106,10 +136,13 @@ export function renderStatus(r: { sources: SourceStatus[]; rows_awaiting_relink:
     const bits: string[] = [];
     bits.push(s.status === 'never' ? 'not synced yet' : s.status);
     if (s.running) bits.push(s.running === 'sync' ? 'syncing now' : 'a backfill is running');
-    if (s.last_success_at) bits.push(`last synced ${s.last_success_at.slice(0, 16).replace('T', ' ')} UTC`);
+    const when = (iso: string): string => `${iso.slice(0, 16).replace('T', ' ')} UTC`;
+    if (s.last_success_at) bits.push(`last complete sync ${when(s.last_success_at)}`);
+    if (s.last_attempt_at && s.last_attempt_at !== s.last_success_at && s.status !== 'ok') bits.push(`last tried ${when(s.last_attempt_at)}`);
     if (s.items_last_run !== undefined) bits.push(`${s.items_last_run} items read last run`);
     if (s.discussion_pending) bits.push(`${s.discussion_pending} still waiting for their discussion`);
     if (s.reached_back_to) bits.push(`older history still to read (reached ${s.reached_back_to.slice(0, 10)})`);
+    if (s.missing) bits.push(`not read last time: ${s.missing.join('; ')}`);
     const skips = Object.entries(s.skips).map(([k, n]) => `${k} ${n}`);
     if (skips.length) bits.push(`skipped last run: ${skips.join(', ')}`);
     lines.push(`${s.label} (${s.scope}): ${bits.join('; ')}.`);

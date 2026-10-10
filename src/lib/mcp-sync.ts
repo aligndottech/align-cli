@@ -16,7 +16,7 @@
  * - Connecting or re-authenticating needs a token only the person can supply: nothing here takes
  *   one. The input schema is closed, so a `token` or `api_key` property is refused before anything runs.
  */
-import { backfillDir, liveBackfills, pidAlive, readStatus, statusPath } from './backfill-state.js';
+import { backfillDir, liveBackfills, pidAlive, readStatus, reserveSlot, statusPath } from './backfill-state.js';
 import type { EnvironmentConfig } from './config.js';
 import { createConfigStore } from './config.js';
 import { BACKFILL_SOURCES } from './mcp-backfill.js';
@@ -58,6 +58,9 @@ export interface SyncToolDeps {
   needsReauth(source: string): boolean;
   syncRunning(source: string): boolean;
   backfillRunning(source: string): boolean;
+  /** Take a slot per source SYNCHRONOUSLY, before the child exists (MCP does not queue calls, so parallel `run`s would all pass
+   *  the lock check and start a child each). All or none: a refusal names the sources that are taken. */
+  reserve?(sources: string[]): { ok: true; release(): void } | { ok: false; busy: string[] };
   start(sources: string[]): Promise<{ ok: boolean; pid?: number }>;
   estimate: typeof estimateClassify;
 }
@@ -81,6 +84,17 @@ export function defaultSyncDeps(env: EnvironmentConfig): SyncToolDeps {
     needsReauth: (id) => readRows(dbPath, id).some((r) => r.status === 'needs_reauth'),
     syncRunning: status.syncRunning,
     backfillRunning: (id) => dir !== null && liveBackfills(dir).some((s) => s.source === id),
+    reserve: (sources) => {
+      const dir = backfillDir();
+      if (dir === null) return { ok: false, busy: sources };
+      const taken: Array<{ release(): void }> = [];
+      for (const s of sources) {
+        const r = reserveSlot(dir, s);
+        if (!r.ok) { for (const t of taken) t.release(); return { ok: false, busy: [s] }; }
+        taken.push(r);
+      }
+      return { ok: true, release: () => { for (const t of taken) t.release(); } };
+    },
     start: (sources) => startSyncChild(sources),
     estimate: estimateClassify,
   };
@@ -162,7 +176,16 @@ async function runAction(source: string | undefined, d: SyncToolDeps): Promise<S
   if (reauth.length) notes.push(`${reauth.join(', ')} ${reauth.length === 1 ? 'needs' : 'need'} the person to re-authenticate (the provider refused the saved token); ask them to run: ${reauth.map((s) => `align connect ${s}`).join(' ; ')}.`);
   if (busy.length) notes.push(`${busy.join(', ')} ${busy.length === 1 ? 'is' : 'are'} already syncing or being backfilled, so nothing new was started for ${busy.length === 1 ? 'it' : 'them'}.`);
   if (go.length === 0) return { started: false, text: notes.join(' ') };
-  const started = await d.start(go);
+  const slot = d.reserve?.(go) ?? { ok: true as const, release: () => {} };
+  if (!slot.ok) {
+    return { started: false, text: `${slot.busy.join(', ')} ${slot.busy.length === 1 ? 'is' : 'are'} already being started or backfilled, so nothing new was started. ${notes.join(' ')}`.trim() };
+  }
+  let started: { ok: boolean; pid?: number };
+  try {
+    started = await d.start(go);
+  } finally {
+    slot.release();
+  }
   if (!started.ok) {
     return { started: false, text: `The background process could not start, so nothing was started. The person can run it themselves: align sync ${go.join(' ')}`.trim() };
   }

@@ -10,6 +10,8 @@ import { runSync } from '../lib/sync/run-all.js';
 import type { SyncEnv } from '../lib/sync/run-source.js';
 import { collectStatus, renderStatus, type StatusDeps, TEAMS_NOTE } from '../lib/sync/status.js';
 import { refreshSummary } from '../lib/sync/summary.js';
+import { nextWindow } from '../lib/sync/window.js';
+import { recordRunError } from '../lib/sync/sync-state.js';
 
 /** A background run waits this long before its first request, so it does not compete with the agent's own start-up. */
 export const BACKGROUND_DELAY_SECONDS = 20;
@@ -36,6 +38,7 @@ export interface SyncCommandDeps {
   confirm(message: string): Promise<boolean>;
   sleep(ms: number): Promise<void>;
   refresh(dbPath: string): void;
+  now?(): Date;
   estimate: typeof estimateClassify;
   classify: typeof classifyUnclassified;
   classifyLock(): ReturnType<typeof acquireLock>;
@@ -79,11 +82,27 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
   const env = d.env(dbPath);
   try {
     const trigger = opts.background ? 'background' as const : 'cli' as const;
-    const result = await runSync(targets, env, {
-      trigger,
-      onOutcome: (o) => { if (!opts.background) for (const line of renderOutcome(o)) d.out(line); },
-    });
+    let result: Awaited<ReturnType<typeof runSync>>;
+    try {
+      result = await runSync(targets, env, {
+        trigger,
+        onOutcome: (o) => { if (!opts.background) for (const line of renderOutcome(o)) d.out(line); },
+      });
+    } catch (e) {
+      // A background child has nobody to tell: record why it stopped where the next foreground moment will see it.
+      if (!opts.background) { d.refresh(dbPath); throw e; }
+      const now = (d.now ?? (() => new Date()))();
+      try { recordRunError(dbPath, targets, e instanceof Error ? e.message : String(e), now.toISOString(), nextWindow(undefined, now).since!); } catch { /* nothing further can be done */ }
+      d.refresh(dbPath);
+      return 0;
+    }
     d.refresh(dbPath);
+    if (result.relinkError) {
+      if (opts.background) {
+        const now = (d.now ?? (() => new Date()))();
+        try { recordRunError(dbPath, targets, `finishing links failed: ${result.relinkError}`, now.toISOString(), nextWindow(undefined, now).since!); } catch { /* as above */ }
+      } else d.err(`align sync: finishing the links failed: ${result.relinkError}. The sources above were synced; the next sync tries again.`);
+    }
     const r = result.relink;
     if (!opts.background && r && r.linked + r.embedded > 0) d.out(`Finished the links for ${r.linked + r.embedded} stored items (on this machine, no AI calls).`);
     if (!opts.background && r?.timedOut) d.out('Stopped finishing links when the time budget ran out; the next sync continues.');

@@ -68,14 +68,16 @@ describe('runSync', () => {
     expect(r.relink?.linked).toBe(1);
   });
 
-  it('the re-link lock is released afterwards, even when the queue throws', async () => {
+  it('a re-link queue that throws is REPORTED, not thrown: the sources already synced stay recorded, and the lock is released', async () => {
     h.script({ items: [] });
     const boom = { ...h.env, client: { ...h.env.client, relinkUnfinished: async () => { throw new Error('boom'); } } };
     unfinish();
     const db = new DatabaseSync(h.dbPath);
     db.exec(`INSERT INTO decisions (id, title, summary, platform, source_url) VALUES ('x', 'x', 's', 'github', 'https://github.com/o/r/pull/5')`);
     db.close();
-    await expect(runSync([], boom)).rejects.toThrow('boom');
+    const r = await runSync([], boom);
+    expect(r.relinkError).toBe('boom');
+    expect(r.relink).toBeUndefined();
     expect(acquireLock('sync-relink', { dir: h.lockDir, alive: () => true }).ok).toBe(true);
   });
 });

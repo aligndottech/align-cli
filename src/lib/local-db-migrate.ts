@@ -7,6 +7,7 @@ import { bumpRowSetEpoch } from './local-db-epoch.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { repoFromSourceUrl } from './repo-identity.js';
 import { migrateV7 } from './local-db-v7.js';
+import { migrateV8 } from './local-db-v8.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -66,7 +67,7 @@ CREATE TABLE IF NOT EXISTS decision_refs (
  * `migrate` from the source and compares it here, because forgetting the bump leaves the new
  * branch running destructively on every open with nothing to stop it.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /** The title connector-core 0.5.0 gave every Slack thread whose root was deleted. The 0.6.0
  *  fetcher titles such a thread from its first human message, or drops it; either way this
@@ -164,17 +165,22 @@ export function deleteDecisionWithDependents(db: DatabaseSync, id: string): void
   db.prepare('DELETE FROM decisions WHERE id = ?').run(id);
 }
 
-export function migrate(db: DatabaseSync): void {
-  const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-  // A newer CLI migrated this file. Running this build's older code against the newer tables
-  // (a v6 binary inserting rows without a source_key beside keyed ones) corrupts identity, so
-  // refuse before touching anything.
+/** The one downgrade guard: migrate() and every other writer of this file (the sync state, purge) call it. */
+export function assertSchemaSupported(version: number): void {
   if (version > SCHEMA_VERSION) {
     throw new Error(
       `This local graph was written by a newer Align CLI (schema v${version}; this CLI supports up to v${SCHEMA_VERSION}). ` +
       'Upgrade the CLI (npm install -g @aligndottech/cli@latest) before opening it.',
     );
   }
+}
+
+export function migrate(db: DatabaseSync): void {
+  const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+  // A newer CLI migrated this file. Running this build's older code against the newer tables
+  // (a v6 binary inserting rows without a source_key beside keyed ones) corrupts identity, so
+  // refuse before touching anything.
+  assertSchemaSupported(version);
   if (version < 1) {
     db.exec(`UPDATE decision_links SET relation = 'relates' WHERE relation = 'conflicts_with'`);
   }
@@ -389,6 +395,21 @@ export function migrate(db: DatabaseSync): void {
       if (current < 7) {
         migrateV7(db);
         db.exec('PRAGMA user_version = 7');
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+  if (version < 8) {
+    // L5 review: sync cycle state, last_attempt_at, sync_item_state and the purge backups.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+      if (current < 8) {
+        migrateV8(db);
+        db.exec('PRAGMA user_version = 8');
       }
       db.exec('COMMIT');
     } catch (err) {

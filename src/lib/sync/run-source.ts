@@ -21,11 +21,11 @@ import { drainGitHub, type DrainResult } from './drain.js';
 import type { Lock } from './lock.js';
 import type { SourceWindow, SyncScope } from './sources.js';
 import {
-  advanceHighWater, beginRun, markNeedsReauth, newestActivity, readRows, recordActivity, saveRun, storedByKey, type SyncStatus,
+  advanceHighWater, beginRun, markNeedsReauth, readRows, recordActivity, saveRun, storedByKey, type SyncStatus,
   threadRows,
 } from './sync-state.js';
 import { HOT_THREAD_DAYS, mergePartialThread, selectHotThreads } from './threads.js';
-import { ascendingByUpdated, finishRun, newestUpdated, nextWindow } from './window.js';
+import { ascendingByUpdated, finishRun, later, newestUpdated, nextWindow, plausible } from './window.js';
 
 export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'not_connected' | 'manual';
 
@@ -56,11 +56,17 @@ export interface SyncEnv {
   lock(name: string): Lock;
   backfillRunning(source: string): boolean;
   batchSize?: number;
+  /** Re-read ONE item whole by its URL (a Slack thread), or undefined when that is not possible. */
+  fetchWhole?: (source: string, tokens: Record<string, string>, url: string) => Promise<CaptureFetchResult['items'][number] | undefined>;
   /** The GitHub discussion drain; defaults to the real one over `client`. A seam for tests. */
   drain?: (token: string, deadlineMs: number) => Promise<DrainResult>;
 }
 
 const BATCH = 50;
+/** Sources whose listing is ONE newest-first stream: a cut in it leaves a date line, everything newer than the oldest item read
+ *  is read. Slack walks channel by channel and Zoom is not known to be ordered, so any incompleteness there is a hole. */
+const DATE_ORDERED = new Set(['github', 'gitlab', 'jira', 'linear', 'confluence', 'notion', 'teams']);
+const CUT_KINDS = new Set(['vendor_cap', 'page_cap', 'time_budget']);
 /** Platforms whose partial items are threads of messages that merge by appending (Slack hot threads, Teams reply caps). */
 const MERGEABLE = new Set(['slack', 'teams']);
 
@@ -118,63 +124,72 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
     return failed(source, key, row.window_since, env, e);
   }
   const { items, report } = fetched;
-  // A refusal that covered the whole read is the token. A refusal of one repo or one channel is a skip.
-  if (items.length === 0 && report.skips.some((k) => k.kind === 'auth')) {
-    markNeedsReauth(env.dbPath, key, row.window_since, nowIso);
-    saveRun(env.dbPath, key, { status: 'needs_reauth', high_water: row.high_water, pending_until: row.pending_until, items: 0, skips: report.skips });
-    return { ...none(source, 'needs_reauth', `${source} refused the saved token for everything it tried to read. Run: align connect ${source}`), skips: report.skips };
-  }
+  // Only a THROWN refusal of the token (above) marks a source needs_reauth. An auth SKIP is one repo, one channel or one
+  // project the token cannot see: it stays a skip of this scope and blocks nothing else.
   skips.push(...report.skips);
 
   const complete = report.complete === true;
+  const cut = !complete && DATE_ORDERED.has(source) && report.oldestReached !== undefined && report.skips.some((k) => k.kind !== undefined && CUT_KINDS.has(k.kind));
+  const lostLock = (): SourceOutcome => none(source, 'locked', 'stopped: another sync took over this source while this one was paused. Nothing more was written.');
   const size = env.batchSize ?? BATCH;
   const ordered = ascendingByUpdated(items);
   let created = 0;
   let updated = 0;
   try {
     for (let at = 0; at < ordered.length; at += size) {
+      // A holder that slept past the lock's lifetime may no longer be THE holder: check before every batch.
+      if (!lock.owned()) return lostLock();
       const batch = ordered.slice(at, at + size);
-      const { snapshots } = await env.client.ingestBatch(batch.map((item) => ({
-        source_url: item.source_url, platform: item.platform, ...prepared(env.dbPath, item),
+      const texts = await Promise.all(batch.map((item) => prepared(env, tokens, item)));
+      const { snapshots } = await env.client.ingestBatch(batch.map((item, i) => ({
+        source_url: item.source_url, platform: item.platform, ...texts[i]!,
         ...(item.created_at !== undefined ? { created_at: item.created_at } : {}),
         ...(item.detail_pending === true ? { detail_pending: true } : {}),
       })), { classify: false, keyed: true });
       for (const s of snapshots) { if (s.created) created += 1; else if (s.changed) updated += 1; }
-      recordActivity(env.dbPath, batch.flatMap((item, i) => (item.updated_at !== undefined && snapshots[i] ? [{ decisionId: snapshots[i]!.id, platform: item.platform, updatedAt: item.updated_at }] : [])));
+      recordActivity(env.dbPath, key.scopeKey, batch.flatMap((item, i) => (plausible(item.updated_at, now) !== undefined && snapshots[i] ? [{ decisionId: snapshots[i]!.id, platform: item.platform, updatedAt: item.updated_at! }] : [])));
       // Oldest first, so every older item is committed: this stamp is safe to resume from. Only a
       // complete read may move it; an incomplete one is settled by finishRun once the cycle ends.
-      const committed = newestUpdated(batch);
-      if (complete && committed !== undefined) advanceHighWater(env.dbPath, key, committed);
+      const committed = newestUpdated(batch, now);
+      if (complete && committed !== undefined) advanceHighWater(env.dbPath, key, committed, now);
       lock.touch();
     }
   } catch (e) {
     return failed(source, key, row.window_since, env, e, { created, updated, read: items.length });
   }
 
-  const platform = items[0]?.platform ?? source;
+  if (!lock.owned()) return lostLock();
   // The row as it stands now: batches of a complete read have moved high_water already.
   const current = readRows(env.dbPath, source).find((r) => r.scope_key === key.scopeKey) ?? row;
   const fin = finishRun({ high_water: current.high_water, pending_until: row.pending_until }, {
-    complete,
+    complete, cut,
     ...(report.highWater !== undefined ? { highWater: report.highWater } : {}),
     ...(report.oldestReached !== undefined ? { oldestReached: report.oldestReached } : {}),
-    // The last run of a cycle a ceiling split: its own highWater is clamped to its `until`.
-    ...(row.pending_until !== null ? { cycleNewest: newestActivity(env.dbPath, platform) } : {}),
+    // The last run of a cycle a ceiling split: its own highWater is clamped to its `until`, so the
+    // cycle's top comes from THIS scope's own row, never from another scope's items.
+    ...(row.pending_until !== null && row.cycle_top !== null ? { cycleNewest: row.cycle_top } : {}),
     now,
   });
-  saveRun(env.dbPath, key, { ...fin, items: items.length, skips, successAt: env.now().toISOString() });
+  const cycleTop = cut ? later(row.cycle_top, plausible(report.highWater, now)) : null;
+  const persist = (more: readonly CaptureSkip[]): void => saveRun(env.dbPath, key, {
+    ...fin, cycle_top: cycleTop, items: items.length, skips: [...skips, ...more],
+    attemptAt: env.now().toISOString(),
+    // Success is a COMPLETE read. A partial one is an attempt, and must not make the source look freshly synced.
+    ...(fin.status === 'ok' ? { successAt: env.now().toISOString() } : {}),
+  });
+  persist([]);
 
   let drain: DrainResult | undefined;
   if (source === 'github') {
     const elapsed = env.now().getTime() - now.getTime();
     const deadlineMs = Math.max(30_000, SYNC_TIME_BUDGET_MS - elapsed);
     drain = await (env.drain ? env.drain(tokens['token']!, deadlineMs) : drainGitHub(env.dbPath, env.client, tokens['token']!, { deadlineMs }));
-    if (drain.skips.length > 0) saveRun(env.dbPath, key, { ...fin, items: items.length, skips: [...skips, ...drain.skips], successAt: env.now().toISOString() });
+    if (drain.skips.length > 0) persist(drain.skips);
   }
   return {
     source, state: fin.status, read: items.length, created, updated, skips: [...skips, ...(drain?.skips ?? [])],
     ...(win.since !== undefined ? { since: win.since } : {}),
-    ...(fin.status === 'partial' && report.oldestReached !== undefined ? { reachedBack: report.oldestReached } : {}),
+    ...(cut && report.oldestReached !== undefined ? { reachedBack: report.oldestReached } : {}),
     ...(drain ? { drain } : {}),
     ...(report.scopeNote ? { scopeNote: report.scopeNote } : {}),
   };
@@ -185,13 +200,17 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
  * the stored thread and keeps the stored title (its own was taken from whichever message the re-read
  * began with); anything else goes in as fetched.
  */
-function prepared(dbPath: string, item: CaptureFetchResult['items'][number]): { raw_text: string; title: string | undefined } {
+async function prepared(env: SyncEnv, tokens: Record<string, string>, item: CaptureFetchResult['items'][number]): Promise<{ raw_text: string; title: string | undefined }> {
   if (item.partial !== true || !MERGEABLE.has(item.platform)) return { raw_text: item.raw_text, title: item.title };
   const key = item.source_key ?? connectorItemKey(item.platform, item.source_url);
-  const stored = key === undefined ? undefined : storedByKey(dbPath, key.startsWith(`${item.platform}|`) ? key : `${item.platform}|${key}`);
-  return stored === undefined
-    ? { raw_text: item.raw_text, title: item.title }
-    : { raw_text: mergePartialThread(stored.summary, item.raw_text), title: stored.title };
+  const stored = key === undefined ? undefined : storedByKey(env.dbPath, key.startsWith(`${item.platform}|`) ? key : `${item.platform}|${key}`);
+  if (stored === undefined) return { raw_text: item.raw_text, title: item.title };
+  // The text carries no message times or authors, so an EDITED message cannot be told from a new one by
+  // comparing lines. When the thread can be read whole (one or two requests), the whole thread replaces the
+  // stored one; only a thread that cannot be read whole is merged by appending.
+  const whole = await env.fetchWhole?.(item.platform, tokens, item.source_url).catch(() => undefined);
+  if (whole !== undefined && whole.partial !== true) return { raw_text: whole.raw_text, title: stored.title };
+  return { raw_text: mergePartialThread(stored.summary, item.raw_text), title: stored.title };
 }
 
 function failed(
@@ -202,10 +221,10 @@ function failed(
   const row = readRows(env.dbPath, source).find((r) => r.scope_key === key.scopeKey);
   if (isAuthExpiry(e)) {
     markNeedsReauth(env.dbPath, key, window, env.now().toISOString());
-    saveRun(env.dbPath, key, { status: 'needs_reauth', high_water: row?.high_water ?? null, pending_until: row?.pending_until ?? null, items: 0, skips: [{ kind: 'auth', count: 1, detail: message }] });
+    saveRun(env.dbPath, key, { status: 'needs_reauth', high_water: row?.high_water ?? null, pending_until: row?.pending_until ?? null, cycle_top: row?.cycle_top ?? null, attemptAt: env.now().toISOString(), items: 0, skips: [{ kind: 'auth', count: 1, detail: message }] });
     return { ...none(source, 'needs_reauth', `${source} refused the saved token (${message}). Run: align connect ${source}`), skips: [{ kind: 'auth', count: 1, detail: message }] };
   }
   const skip: CaptureSkip = { kind: 'error', count: 1, detail: message };
-  saveRun(env.dbPath, key, { status: 'error', high_water: row?.high_water ?? null, pending_until: row?.pending_until ?? null, items: partial?.read ?? 0, skips: [skip] });
+  saveRun(env.dbPath, key, { status: 'error', high_water: row?.high_water ?? null, pending_until: row?.pending_until ?? null, cycle_top: row?.cycle_top ?? null, attemptAt: env.now().toISOString(), items: partial?.read ?? 0, skips: [skip] });
   return { source, state: 'error', read: partial?.read ?? 0, created: partial?.created ?? 0, updated: partial?.updated ?? 0, skips: [skip], message };
 }

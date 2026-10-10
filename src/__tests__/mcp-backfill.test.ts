@@ -44,6 +44,19 @@ function deps(over: Partial<BackfillDeps> = {}, running: BackfillStatus[] = []):
 }
 const text = (r: { text: string }) => r.text;
 
+describe('a sync of the same source is running', () => {
+  it('nothing starts, and the reply says why; a sync of another source does not block it', async () => {
+    const d = deps({ syncRunning: (s) => s === 'github' });
+    const r = await runBackfill({ source: 'github', since: '1y' }, localEnv, d);
+    expect(r.started).toBe(false);
+    expect(r.text).toContain('A sync of github is running');
+    expect(d.spawned).toEqual([]);
+    expect(d.recorded).toEqual([]);
+    const other = await runBackfill({ source: 'jira', since: '1y' }, localEnv, d);
+    expect(other.started).toBe(true);
+  });
+});
+
 describe('a connected, healthy source', () => {
   it('records the window and starts one detached connect for exactly that source and window', async () => {
     const d = deps();

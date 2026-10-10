@@ -44,7 +44,9 @@ export function minusDays(iso: string, days: number): string {
  */
 export function nextWindow(s: WindowState | undefined, now: Date): { since?: string; until?: string } {
   if (s === undefined) return { since: new Date(now.getTime() - SYNC_WINDOW_DEFAULT_DAYS * DAY_MS).toISOString() };
-  const hw = parse(s.high_water) === undefined ? undefined : s.high_water!;
+  // A stored watermark from the future (written by an older build, or by a clock that was wrong) is
+  // repaired by ignoring it: the read widens to the window, and the run's own result replaces it.
+  const hw = plausible(s.high_water ?? undefined, now) === undefined ? undefined : s.high_water!;
   const floor = hw !== undefined ? minusDays(hw, OVERLAP_DAYS) : parse(s.window_since) === undefined ? undefined : s.window_since!;
   const until = parse(s.pending_until) === undefined ? undefined : s.pending_until!;
   return { ...(floor !== undefined ? { since: floor } : {}), ...(until !== undefined ? { until } : {}) };
@@ -52,6 +54,14 @@ export function nextWindow(s: WindowState | undefined, now: Date): { since?: str
 
 export interface RunFinish {
   complete: boolean;
+  /**
+   * Incomplete BECAUSE the listing was cut in date order (a vendor ceiling, an item ceiling or a
+   * time budget on a newest-first listing): everything newer than `oldestReached` was read, so the
+   * next run can finish the older part with `until`. Any other incompleteness is a HOLE (a channel
+   * that would not open, a refused repo, a thread read that hit its page cap): no date line
+   * separates read from unread, so no `until` is set and the next run re-reads from the watermark.
+   */
+  cut?: boolean;
   highWater?: string;
   oldestReached?: string;
   /** The newest `updated_at` stored for this source across the whole cycle, for the final run of
@@ -62,7 +72,7 @@ export interface RunFinish {
   now?: Date;
 }
 
-function later(a: string | null | undefined, b: string | null | undefined): string | null {
+export function later(a: string | null | undefined, b: string | null | undefined): string | null {
   const pa = parse(a);
   const pb = parse(b);
   if (pa === undefined) return pb === undefined ? null : b!;
@@ -78,7 +88,7 @@ function earlier(a: string | null | undefined, b: string | null | undefined): st
   return pb < pa ? b! : a!;
 }
 
-function plausible(iso: string | undefined, now: Date | undefined): string | undefined {
+export function plausible(iso: string | undefined, now: Date | undefined): string | undefined {
   const t = parse(iso);
   if (t === undefined) return undefined;
   return now !== undefined && t > now.getTime() + DAY_MS ? undefined : iso;
@@ -88,11 +98,12 @@ export function finishRun(
   prev: Pick<WindowState, 'high_water' | 'pending_until'>,
   r: RunFinish,
 ): { high_water: string | null; pending_until: string | null; status: 'ok' | 'partial' } {
-  const prevHigh = parse(prev.high_water) === undefined ? null : prev.high_water;
+  const prevHigh = plausible(prev.high_water ?? undefined, r.now) === undefined ? null : prev.high_water;
   if (r.complete) {
     return { high_water: later(later(prevHigh, plausible(r.highWater, r.now)), plausible(r.cycleNewest, r.now)), pending_until: null, status: 'ok' };
   }
-  return { high_water: prevHigh, pending_until: earlier(prev.pending_until, r.oldestReached), status: 'partial' };
+  if (r.cut === true) return { high_water: prevHigh, pending_until: earlier(prev.pending_until, r.oldestReached), status: 'partial' };
+  return { high_water: prevHigh, pending_until: null, status: 'partial' };
 }
 
 /** Oldest first. A kill after batch N then leaves every older item committed, so a watermark equal
@@ -104,8 +115,8 @@ export function ascendingByUpdated<T extends { updated_at?: string }>(items: rea
     .map((e) => e.item);
 }
 
-export function newestUpdated(items: ReadonlyArray<{ updated_at?: string }>): string | undefined {
+export function newestUpdated(items: ReadonlyArray<{ updated_at?: string }>, now?: Date): string | undefined {
   let best: string | undefined;
-  for (const i of items) if (i.updated_at !== undefined && parse(i.updated_at) !== undefined) best = later(best, i.updated_at) ?? best;
+  for (const i of items) if (plausible(i.updated_at, now) !== undefined) best = later(best, i.updated_at) ?? best;
   return best;
 }

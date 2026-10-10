@@ -173,3 +173,31 @@ describe('classify_estimate', () => {
     expect(r.text).toContain('Nothing to classify');
   });
 });
+
+describe('run reserves a slot before it starts the child', () => {
+  it('two calls in flight at once start ONE child: the second finds the slot taken and starts nothing', async () => {
+    const taken = new Set<string>();
+    const reserve = (sources: string[]) => {
+      if (sources.some((s) => taken.has(s))) return { ok: false as const, busy: sources.filter((s) => taken.has(s)) };
+      sources.forEach((s) => taken.add(s));
+      return { ok: true as const, release: () => sources.forEach((s) => taken.delete(s)) };
+    };
+    const starts: string[][] = [];
+    const slow = async (sources: string[]) => { starts.push(sources); await new Promise((r) => setTimeout(r, 20)); return { ok: true, pid: 1 }; };
+    const d = deps({ reserve, start: slow });
+    const [a, b] = await Promise.all([runSyncTool({ action: 'run', source: 'github' }, localEnv, d), runSyncTool({ action: 'run', source: 'github' }, localEnv, d)]);
+    expect([a.started, b.started].sort()).toEqual([false, true]);
+    expect(starts).toEqual([['github']]);
+    expect([a, b].find((r) => !r.started)!.text).toContain('already being started');
+  });
+
+  it('the slot is released once the child started or failed to start (a later call can go)', async () => {
+    let released = 0;
+    const d = deps({ reserve: () => ({ ok: true, release: () => { released += 1; } }), start: async () => ({ ok: false }) });
+    await runSyncTool({ action: 'run', source: 'github' }, localEnv, d);
+    expect(released).toBe(1);
+    const e = deps({ reserve: () => ({ ok: true, release: () => { released += 1; } }) });
+    await runSyncTool({ action: 'run', source: 'github' }, localEnv, e);
+    expect(released).toBe(2);
+  });
+});

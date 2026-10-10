@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
 import { FetcherAuthError } from '@aligndottech/connector-core';
 
 vi.mock('../lib/local-embeddings.js', () => ({
@@ -230,5 +231,47 @@ describe('--classify', () => {
     const d = deps({ classify: vi.fn(async () => ({ items: 2, calls: 5, typed: 3, unparsed: 0, stopped: 'the AI provider stopped answering (a bad key, no credit or a rate limit)' })) });
     expect(await runSyncCommand([], { classify: true, yes: true }, d)).toBe(1);
     expect(err.join('\n')).toContain('The rest stay untyped');
+  });
+});
+
+describe('a run that dies', () => {
+  const throwingLock = (d: SyncCommandDeps): SyncCommandDeps => ({ ...d, env: (p) => ({ ...d.env(p), lock: () => { throw new Error('EACCES: cannot create the lock'); } }) });
+
+  it('in the background: exit 0, the summary is still refreshed, and the reason is recorded on the source for the next foreground moment', async () => {
+    const code = await runSyncCommand(['github'], { background: true, delay: '0' }, throwingLock(deps()));
+    expect(code).toBe(0);
+    expect(refreshes).toBe(1);
+    expect(out).toEqual([]);
+    const row = readRows(h.dbPath, 'github')[0]!;
+    expect(row.status).toBe('error');
+    expect(JSON.parse(row.skips_last_run!)[0]).toMatchObject({ kind: 'error', detail: 'EACCES: cannot create the lock' });
+    expect(tokens.get('github')).toEqual({ token: 'tok' });
+  });
+
+  it('a re-link failure in the background is recorded too (the sources before it already synced)', async () => {
+    h.script({ items: [] });
+    const d = deps();
+    const failing: SyncCommandDeps = { ...d, env: (p) => ({ ...d.env(p), client: { ingestBatch: h.env.client.ingestBatch, relinkUnfinished: async () => { throw new Error('disk full'); } } }) };
+    const db = new DatabaseSync(h.dbPath);
+    db.exec(`INSERT INTO decisions (id, title, summary, platform, source_url) VALUES ('x', 'x', 's', 'github', 'https://github.com/o/r/pull/5')`);
+    db.close();
+    expect(await runSyncCommand(['github'], { background: true, delay: '0' }, failing)).toBe(0);
+    expect(JSON.parse(readRows(h.dbPath, 'github')[0]!.skips_last_run!)[0].detail).toContain('finishing links failed: disk full');
+  });
+
+  it('in the foreground it still throws (the fatal handler prints it), and the summary is refreshed first', async () => {
+    await expect(runSyncCommand(['github'], {}, throwingLock(deps()))).rejects.toThrow('EACCES');
+    expect(refreshes).toBe(1);
+  });
+
+  it('a foreground re-link failure is printed, not thrown', async () => {
+    h.script({ items: [] });
+    const d = deps();
+    const failing: SyncCommandDeps = { ...d, env: (p) => ({ ...d.env(p), client: { ingestBatch: h.env.client.ingestBatch, relinkUnfinished: async () => { throw new Error('disk full'); } } }) };
+    const db = new DatabaseSync(h.dbPath);
+    db.exec(`INSERT INTO decisions (id, title, summary, platform, source_url) VALUES ('x', 'x', 's', 'github', 'https://github.com/o/r/pull/5')`);
+    db.close();
+    expect(await runSyncCommand(['github'], {}, failing)).toBe(0);
+    expect(err.join('\n')).toContain('finishing the links failed: disk full');
   });
 });
