@@ -15,6 +15,7 @@
  */
 import { type ChildProcess, spawn as nodeSpawn } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 type Platform = typeof process.platform;
 import { checkApproveLink } from './approve-link.js';
 import { tryOpenUrl } from '../open-url.js';
@@ -75,9 +76,14 @@ export function currentDeliveryEnv(): DeliveryEnv {
 }
 
 /** One executable and its arguments. The link is exactly one argument. */
-export function browserLaunch(platform: Platform, url: string): { command: string; args: string[] } {
+export function browserLaunch(platform: Platform, url: string, env: Record<string, string | undefined> = process.env): { command: string; args: string[] } {
   if (platform === 'darwin') return { command: 'open', args: [url] };
-  if (platform === 'win32') return { command: 'rundll32', args: ['url.dll,FileProtocolHandler', url] };
+  if (platform === 'win32') {
+    // An absolute path: a bare `rundll32` is searched for in the working directory first on Windows, so a rundll32.exe in a
+    // cloned repo would run. SystemRoot is used only when it is absolute (a relative value would be the cwd again).
+    const root = env['SystemRoot'] !== undefined && path.win32.isAbsolute(env['SystemRoot']) && /^[A-Za-z]:\\/.test(env['SystemRoot']) ? env['SystemRoot'] : 'C:\\Windows';
+    return { command: path.win32.join(root, 'System32', 'rundll32.exe'), args: ['url.dll,FileProtocolHandler', url] };
+  }
   return { command: 'xdg-open', args: [url] };
 }
 
@@ -85,12 +91,13 @@ export interface OpenDeps {
   platform?: Platform;
   spawn?: typeof nodeSpawn;
   graceMs?: number;
+  env?: Record<string, string | undefined>;
 }
 
 /** False without spawning anything when the link does not pass the allowlist. */
 export async function openApprovalLink(url: string, appUrl: string, deps: OpenDeps = {}): Promise<boolean> {
   if (!checkApproveLink(url, appUrl).ok) return false;
-  const { command, args } = browserLaunch(deps.platform ?? process.platform, url);
+  const { command, args } = browserLaunch(deps.platform ?? process.platform, url, deps.env);
   const spawnFn = deps.spawn ?? nodeSpawn;
   const opener = async (): Promise<ChildProcess> => {
     const child = spawnFn(command, args, { stdio: 'ignore', detached: true, windowsHide: true });

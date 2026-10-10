@@ -49,16 +49,30 @@ describe('decideDelivery: who gets the link opened for them, and who gets a QR c
   });
 });
 
+describe('browserLaunch on Windows: an absolute launcher, so a rundll32.exe in the working directory can never run', () => {
+  const cmd = (env: Record<string, string | undefined>): string => browserLaunch('win32', LINK, env).command;
+  it('is absolute and ends in System32\\rundll32.exe, built from SystemRoot', () => {
+    expect(cmd({ SystemRoot: 'D:\\WINNT' })).toBe('D:\\WINNT\\System32\\rundll32.exe');
+    expect(cmd({ SystemRoot: 'C:\\Windows' })).toBe('C:\\Windows\\System32\\rundll32.exe');
+  });
+  it('falls back to C:\\Windows when SystemRoot is unset, empty or not absolute (a relative value would be the cwd again)', () => {
+    for (const bad of [undefined, '', 'Windows', '.\\evil', '..\\x', 'System32']) expect(cmd({ SystemRoot: bad }), String(bad)).toBe('C:\\Windows\\System32\\rundll32.exe');
+  });
+  it('the other platforms are unaffected', () => {
+    expect(browserLaunch('linux', LINK, { SystemRoot: 'D:\\x' }).command).toBe('xdg-open');
+  });
+});
+
 describe('browserLaunch: one executable and an argument vector per OS, never a shell string', () => {
   it('macOS uses open, Linux xdg-open, Windows rundll32 (not cmd, not PowerShell)', () => {
     expect(browserLaunch('darwin', LINK)).toEqual({ command: 'open', args: [LINK] });
     expect(browserLaunch('linux', LINK)).toEqual({ command: 'xdg-open', args: [LINK] });
-    expect(browserLaunch('win32', LINK)).toEqual({ command: 'rundll32', args: ['url.dll,FileProtocolHandler', LINK] });
+    expect(browserLaunch('win32', LINK, { SystemRoot: 'C:\\Windows' })).toEqual({ command: 'C:\\Windows\\System32\\rundll32.exe', args: ['url.dll,FileProtocolHandler', LINK] });
   });
   it('never names a shell, and never puts the link inside the command', () => {
     for (const p of ['darwin', 'linux', 'win32'] as const) {
-      const { command, args } = browserLaunch(p, LINK);
-      expect(command).toMatch(/^[a-z0-9-]+$/);
+      const { command, args } = browserLaunch(p, LINK, { SystemRoot: 'C:\\Windows' });
+      expect(command).toMatch(p === 'win32' ? /^C:\\Windows\\System32\\rundll32\.exe$/ : /^[a-z0-9-]+$/);
       expect(command).not.toMatch(/sh$|cmd|powershell|start/i);
       expect(args.filter((a) => a === LINK || a.endsWith(LINK))).toHaveLength(1);
       expect(args.every((a) => !/[;&|`$]/.test(a.replace(LINK, '')))).toBe(true);
@@ -101,8 +115,8 @@ describe('openApprovalLink: checks the link, then spawns with an argument vector
   });
   it('spawn is called with an array even on Windows, where a string would be handed to a shell', async () => {
     const f = fakeSpawn(0);
-    await openApprovalLink(LINK, APP, { platform: 'win32', spawn: f.spawn, graceMs: 20 });
-    expect(f.calls[0]).toMatchObject({ command: 'rundll32', args: ['url.dll,FileProtocolHandler', LINK] });
+    await openApprovalLink(LINK, APP, { platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, spawn: f.spawn, graceMs: 20 });
+    expect(f.calls[0]).toMatchObject({ command: 'C:\\Windows\\System32\\rundll32.exe', args: ['url.dll,FileProtocolHandler', LINK] });
     expect(f.calls[0]!.options['windowsHide']).toBe(true);
   });
 });
