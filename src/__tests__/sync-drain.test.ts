@@ -22,9 +22,11 @@ vi.mock('../lib/local-embeddings.js', () => ({
 import type { FetcherItem } from '@aligndottech/connector-core';
 import { MockAgent, setGlobalDispatcher } from 'undici';
 import { GITHUB_DISCUSSION_BUDGET } from '../lib/import-defaults.js';
+import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { drainGitHub } from '../lib/sync/drain.js';
 import { PR_URL, realShapes } from './helpers/github-real-shapes.js';
+import { rmDir } from './helpers/rm-dir.js';
 
 /**
  * L5 Test List (discussion drain, Decision 27):
@@ -42,21 +44,26 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l5-drain-'));
   dbPath = path.join(dir, 'graph.db');
 });
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => rmDir(dir));
 
 function sql<T = Record<string, unknown>>(q: string, ...a: Array<string | number>): T[] {
   const db = new DatabaseSync(dbPath);
   try { return db.prepare(q).all(...a) as T[]; } finally { db.close(); }
 }
 
+// Seeds the pending rows straight into the graph. Going through ingestBatch would embed, link and refs-resolve each
+// row in its own commit (about 54 ms a row on Linux, minutes on Windows' fsync) and this test is about the DRAIN, not about ingest.
 async function seedPending(n: number): Promise<void> {
-  const c = createLocalGatewayClient(dbPath);
-  await c.ingestBatch(Array.from({ length: n }, (_, i) => ({
-    source_url: PR_URL(i + 1), platform: 'github', title: `PR ${i + 1}`, raw_text: `PR ${i + 1}\n\nbody ${i + 1}\n\nStatus: open\nRepo: o/r`,
-    // newer number = newer date, so "newest first" is highest number first
-    created_at: new Date(Date.UTC(2026, 8, 1) + i * 3_600_000).toISOString(), detail_pending: true,
-  })), { classify: false, keyed: true });
-  c.close();
+  const db = createLocalDb(dbPath);
+  try {
+    for (let i = 0; i < n; i++) {
+      db.insertDecision({
+        title: `PR ${i + 1}`, summary: `PR ${i + 1}\n\nbody ${i + 1}\n\nStatus: open\nRepo: o/r`, sourceUrl: PR_URL(i + 1), platform: 'github',
+        // newer number = newer date, so "newest first" is highest number first
+        decidedAt: new Date(Date.UTC(2026, 8, 1) + i * 3_600_000).toISOString(), keyed: true, detailPending: true,
+      });
+    }
+  } finally { db.close(); }
 }
 
 /** A fake SDK drain with the SDK's cost model (4 requests an item) and its stop rule (an item is started only when it fits). */
@@ -96,7 +103,7 @@ describe('drainGitHub', () => {
     expect(sql(`SELECT 1 FROM decisions WHERE detail_pending = 1`)).toHaveLength(150);
     expect(sql<{ summary: string }>(`SELECT summary FROM decisions WHERE title = 'PR 300'`)[0]!.summary).toContain('we chose Postgres');
     expect(r.skips.some((k) => k.kind === 'page_cap')).toBe(true); // and it says the budget ran out
-  });
+  }, 180_000); // 150 real ingests, each several commits: about 5 s on Linux, and the Windows runner is an order slower
 
   it('a second run picks up where the first stopped (pending rows keep their place)', async () => {
     await seedPending(8);
