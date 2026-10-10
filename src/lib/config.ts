@@ -109,6 +109,9 @@ export function createConfigStore() {
     installId?: string;
     telemetryConsent?: TelemetryConsent;
     telemetryNoticeShownAt?: string;
+    telemetryOffReason?: 'env';
+    telemetryOffVia?: string;
+    telemetryOffAt?: string;
     agent?: string;
     launchOff?: boolean;
     refusedWrites?: string[];
@@ -385,8 +388,25 @@ export function createConfigStore() {
     getTelemetryConsent(): TelemetryConsent | undefined {
       return store.get('telemetryConsent');
     },
+    // Any explicit choice clears a sticky env opt-out: `align telemetry on` must really turn it back on.
     setTelemetryConsent(value: TelemetryConsent) {
       store.set('telemetryConsent', value);
+      store.delete('telemetryOffReason');
+      store.delete('telemetryOffVia');
+      store.delete('telemetryOffAt');
+    },
+    // A DO_NOT_TRACK / ALIGN_TELEMETRY opt-out, made sticky: stored as 'off' so processes that do
+    // not inherit the variable (an MCP server with a trimmed env, the background sync child) honour it.
+    setTelemetryOffByEnv(via: string, now: Date = new Date()) {
+      store.set('telemetryConsent', 'off');
+      store.set('telemetryOffReason', 'env');
+      store.set('telemetryOffVia', via);
+      store.set('telemetryOffAt', now.toISOString());
+    },
+    getTelemetryOffByEnv(): { via: string; at: string } | undefined {
+      const via = store.get('telemetryOffVia');
+      const at = store.get('telemetryOffAt');
+      return store.get('telemetryOffReason') === 'env' && via && at ? { via, at } : undefined;
     },
     // C6: when the one-time telemetry notice printed (telemetry-consent.ts). Its presence is the
     // disclosure local-mode sends wait on; the timestamp says when, for `align telemetry status`.

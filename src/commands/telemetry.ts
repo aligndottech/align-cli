@@ -46,7 +46,7 @@ export function registerTelemetryCommand(program: Command): void {
       // actual local consent - the exact honesty gap this command exists to close. A
       // fresh-context review caught this.
       const env = config.getEnvironment(resolveEnv(undefined, { preferLocalEmbedded: true }));
-      const status = getTelemetryStatus(env, config.getTelemetryConsent(), config.getTelemetryNoticeShownAt() !== undefined);
+      const status = getTelemetryStatus(env, config.getTelemetryConsent(), config.getTelemetryNoticeShownAt() !== undefined, config.getTelemetryOffByEnv());
       console.log(status.reason);
     });
 }

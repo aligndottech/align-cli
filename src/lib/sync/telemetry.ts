@@ -26,6 +26,10 @@ export function syncMeasurementOf(o: SourceOutcome, trigger: ReportedTrigger): S
   };
 }
 
+/** Each source's ping waits at most this long, and `align sync` waits at most SYNC_TELEMETRY_TOTAL_MS for all of them together. */
+export const SOURCE_PING_CAP_MS = 1_000;
+export const SYNC_TELEMETRY_TOTAL_MS = 1_500;
+
 /** One `source_synced` ping for one outcome, local graph only. Never throws and never prints. */
 export async function recordSourceSynced(o: SourceOutcome, trigger: ReportedTrigger): Promise<void> {
   try {
@@ -33,7 +37,7 @@ export async function recordSourceSynced(o: SourceOutcome, trigger: ReportedTrig
     if (m === undefined) return;
     const { createConfigStore } = await import('../config.js');
     const { recordFunnelStage } = await import('../usage-telemetry.js');
-    await recordFunnelStage(createConfigStore().getEnvironment('local'), 'source_synced', 'sync', m);
+    await recordFunnelStage(createConfigStore().getEnvironment('local'), 'source_synced', 'sync', m, { capMs: SOURCE_PING_CAP_MS });
   } catch {
     // Telemetry never fails a sync.
   }

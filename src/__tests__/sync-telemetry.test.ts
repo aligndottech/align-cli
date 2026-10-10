@@ -71,3 +71,29 @@ describe('the sync command reports each source', () => {
     expect(report).not.toHaveBeenCalled();
   });
 });
+
+describe('the whole telemetry wait in `align sync`', () => {
+  it('N sources whose pings never finish cost about 1.5 s in total, not N times a cap', async () => {
+    vi.useFakeTimers();
+    try {
+      const outcomes = ['github', 'jira', 'gitlab', 'linear'].map((source) => outcome({ source }));
+      const never = vi.fn(() => new Promise<void>(() => {}));
+      const d = {
+        out: () => {}, err: () => {}, graphPath: () => '/tmp/none.db', env: () => ({ client: {} } as never),
+        statusDeps: () => ({} as never), isConnected: () => true, isTty: () => true, confirm: async () => false,
+        sleep: async () => {}, refresh: () => {}, estimate: vi.fn(), classify: vi.fn(), classifyLock: vi.fn(),
+        report: never, run: async (_t: unknown, _e: unknown, o: { onOutcome?: (x: SourceOutcome) => void }) => { for (const x of outcomes) o.onOutcome?.(x); return { outcomes }; },
+      } as unknown as SyncCommandDeps;
+      let done = false;
+      const p = runSyncCommand(['github'], {}, d).then((c) => { done = true; return c; });
+      await vi.advanceTimersByTimeAsync(1_400);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(done).toBe(true);
+      expect(await p).toBe(0);
+      expect(never).toHaveBeenCalledTimes(4); // all four started together, none waited for another
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

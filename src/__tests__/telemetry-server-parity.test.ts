@@ -19,7 +19,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildProgram } from '../cli.js';
-import { FUNNEL_STAGES, SYNC_OUTCOMES, SYNC_SCOPES, SYNC_SOURCES, SYNC_TRIGGERS } from '../lib/usage-telemetry.js';
+import { FUNNEL_STAGES, SUBCOMMAND_PARENTS, SYNC_OUTCOMES, SYNC_SCOPES, SYNC_SOURCES, SYNC_TRIGGERS } from '../lib/usage-telemetry.js';
 
 const THERE = 'services/gateway/src/routes/telemetryAnonymousRoutes.ts';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -32,6 +32,7 @@ const SERVER_COMMANDS = [
   'env', 'export', 'import', 'invite', 'links', 'login', 'logout', 'mark', 'mcp', 'push', 'ratify',
   'search', 'setup', 'share', 'spaces', 'status', 'sync', 'telemetry', 'use', 'whoami',
 ];
+const SERVER_SUBCOMMAND_PARENTS = ['connect', 'context', 'decisions', 'env', 'import', 'links', 'spaces', 'telemetry'];
 const SERVER_STAGES = [
   'install', 'setup_started', 'setup_completed', 'import_completed', 'mcp_wired',
   'first_useful_decision', 'teammate_requested', 'agent_launched',
@@ -73,6 +74,9 @@ describe('the CLI mirror of the gateway telemetry contract (pinned)', () => {
     const missing = names.filter((n) => !NOT_SENT.has(n) && !SERVER_COMMANDS.includes(n));
     expect(sorted(missing)).toEqual(KNOWN_DRIFT);
   });
+  it('the command groups that may carry a second word are exactly the gateway\'s (connect included: v0.46.0 accepts it)', () => {
+    expect(sorted([...SUBCOMMAND_PARENTS])).toEqual(sorted(SERVER_SUBCOMMAND_PARENTS));
+  });
   it('sync and mark are on the list (the pings this slice sends)', () => {
     expect(SERVER_COMMANDS).toContain('sync');
     expect(SERVER_COMMANDS).toContain('mark');
@@ -81,8 +85,8 @@ describe('the CLI mirror of the gateway telemetry contract (pinned)', () => {
 
 /** The quoted strings of `const NAME = [ ... ]`, with `...OTHER` spreads resolved from the same file. */
 function listOf(src: string, name: string): string[] {
-  const m = new RegExp(`const ${name}\\s*=\\s*\\[([\\s\\S]*?)\\]\\s*as const`).exec(src);
-  if (!m) throw new Error(`${THERE} has no "const ${name} = [...] as const" - the parse is stale, not the lists equal`);
+  const m = new RegExp(`const ${name}\\s*=\\s*(?:new Set\\()?\\[([\\s\\S]*?)\\]\\s*(?:as const|\\))`).exec(src);
+  if (!m) throw new Error(`${THERE} has no "const ${name} = [...] as const" or new Set([...]) - the parse is stale, not the lists equal`);
   const out: string[] = [];
   for (const part of m[1]!.split(',')) {
     const t = part.replace(/\/\/.*$/gm, '').trim();
@@ -115,6 +119,7 @@ describe.skipIf(!other.ok)(`the CLI mirror against ${THERE} on ${ref} (live)`, (
     expect(sorted(listOf(src, 'SYNC_OUTCOME_VALUES'))).toEqual(sorted(SERVER_OUTCOMES));
     expect(sorted(listOf(src, 'SCOPE_VALUES'))).toEqual(sorted(SERVER_SCOPES));
     expect(sorted(listOf(src, 'SYNC_TRIGGER_VALUES'))).toEqual(sorted(SERVER_TRIGGERS));
+    expect(sorted(listOf(src, 'SUBCOMMAND_PARENTS'))).toEqual(sorted(SERVER_SUBCOMMAND_PARENTS));
   });
   it('every stage, enum value and registered command the CLI can send is accepted by the live file', () => {
     expect(sorted(listOf(src, 'FUNNEL_STAGES'))).toEqual(sorted([...FUNNEL_STAGES, 'install']));

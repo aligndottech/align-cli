@@ -2,7 +2,7 @@ import { ALIGN_HOSTED_GATEWAY_URL, type EnvironmentConfig, type TelemetryConsent
 import { telemetryDisabledByEnv } from './telemetry-env.js';
 import { inHookContext, markHookContext } from './hook-context.js';
 import { inCi } from './telemetry-ci.js';
-import { maybeShowTelemetryNotice } from './telemetry-consent.js';
+import { maybeShowTelemetryNotice, storeEnvOptOut } from './telemetry-consent.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -61,7 +61,7 @@ async function storedAnswerForbidsSendingNow(): Promise<boolean> {
  * waiting even if the transport ignores the signal. Shared by the cloud and local-embedded send
  * paths below, which were two copies of this exact race before extraction (fresh-context review).
  */
-async function postWithTimeout(url: string, init: NonNullable<Parameters<typeof fetch>[1]>): Promise<void> {
+async function postWithTimeout(url: string, init: NonNullable<Parameters<typeof fetch>[1]>, capMs: number = TELEMETRY_TIMEOUT_MS): Promise<void> {
   const controller = new AbortController();
   let giveUp: () => void = () => {};
   const abandoned = new Promise<void>((resolve) => {
@@ -70,10 +70,10 @@ async function postWithTimeout(url: string, init: NonNullable<Parameters<typeof 
   const timer = setTimeout(() => {
     controller.abort();
     giveUp();
-  }, TELEMETRY_TIMEOUT_MS);
+  }, capMs);
 
   try {
-    await Promise.race([fetch(url, { ...init, signal: controller.signal }), abandoned]);
+    await Promise.race([fetch(url, { ...init, redirect: 'error', signal: controller.signal }), abandoned]);
   } catch {
     // Telemetry must never fail a command - see "resolves when the gateway rejects" and
     // "gives up rather than hanging" in usage-telemetry.test.ts / usage-telemetry-anonymous.test.ts.
@@ -109,7 +109,7 @@ async function postDelivered(url: string, init: NonNullable<Parameters<typeof fe
   });
   try {
     return await Promise.race([
-      fetch(url, { ...init, signal: controller.signal }).then(
+      fetch(url, { ...init, redirect: 'error', signal: controller.signal }).then(
         (): DeliveryOutcome => 'delivered',
         (): DeliveryOutcome => 'failed',
       ),
@@ -139,6 +139,7 @@ export function getTelemetryStatus(
   env: EnvironmentConfig,
   localConsent: TelemetryConsent | undefined,
   noticeShown = false,
+  offByEnv?: { via: string; at: string },
 ): TelemetryStatus {
   const envSwitch = telemetryDisabledByEnv();
   if (envSwitch === 'DO_NOT_TRACK') {
@@ -149,6 +150,9 @@ export function getTelemetryStatus(
   }
   if (inCi()) {
     return { enabled: false, reason: 'off: running in CI - nothing is sent' };
+  }
+  if (localConsent === 'off' && offByEnv !== undefined) {
+    return { enabled: false, reason: `off (${offByEnv.via} was set on ${offByEnv.at.slice(0, 10)}); turn it back on with: align telemetry on` };
   }
   if (env.mode !== 'local-embedded' && storedAnswerForbidsSending(localConsent)) {
     const why = localConsent === 'declined' ? 'you declined when asked' : 'you ran `align telemetry off`';
@@ -174,7 +178,7 @@ export function getTelemetryStatus(
   return { enabled: true, reason: 'on: cloud mode, opt-out default' };
 }
 
-export async function recordCommandUsage(env: EnvironmentConfig, command: string): Promise<void> {
+export async function recordCommandUsage(env: EnvironmentConfig, command: string, opts: { capMs?: number } = {}): Promise<void> {
   if (telemetryOptedOut()) return;
   // C6: an agent hook runs on the agent's clock, many times a session, with nobody watching -
   // a usage ping from there counts an editing loop, not a person running a command.
@@ -189,7 +193,7 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
   // can be in scope without cloud consent: ALIGN_TOKEN exported into the shell, or a
   // logged-in default env resolved by the caller.
   if (env.mode === 'local-embedded') {
-    await recordAnonymousCommandUsage(command);
+    await recordAnonymousCommandUsage(command, opts.capMs);
     return;
   }
   if (!env.authToken || !env.tenantId) return;
@@ -208,7 +212,7 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
       platform: 'cli',
       properties: { command },
     }),
-  });
+  }, opts.capMs);
 }
 
 /**
@@ -225,12 +229,12 @@ export async function recordCommandUsage(env: EnvironmentConfig, command: string
  * `http://localhost:8080`, silently discarded, for every user who had not separately stood up
  * a local dev gateway.
  */
-async function recordAnonymousCommandUsage(command: string): Promise<void> {
+async function recordAnonymousCommandUsage(command: string, capMs?: number): Promise<void> {
   const { createConfigStore } = await import('./config.js');
   const config = createConfigStore();
   if (!localTierAllows(config.getTelemetryConsent(), 'command', noticeShownOn(config))) return;
 
-  await postAnonymous({ installId: config.getInstallId(), command: commandPathOf(command), cliVersion: pkg.version });
+  await postAnonymous({ installId: config.getInstallId(), command: commandPathOf(command), cliVersion: pkg.version }, capMs);
 }
 
 /**
@@ -239,7 +243,9 @@ async function recordAnonymousCommandUsage(command: string): Promise<void> {
  * agree or pings silently 400. A query-taking command (ask, search, capture...) sends its
  * top-level word only, so a user's one-word query can never ride the command field.
  */
-const SUBCOMMAND_PARENTS = new Set(['context', 'decisions', 'env', 'import', 'links', 'spaces', 'telemetry']);
+export const SUBCOMMAND_PARENTS: ReadonlySet<string> = new Set([
+  'connect', 'context', 'decisions', 'env', 'import', 'links', 'spaces', 'telemetry',
+]);
 
 /** "import git" stays whole (activation-by-source is the point); "ask <anything>" and
  *  every non-group command collapse to the top-level word. */
@@ -393,6 +399,7 @@ export async function recordFunnelStage(
   stage: FunnelStage,
   command: string,
   measurement?: FunnelMeasurement | AgentMeasurement | SyncMeasurement,
+  opts: { capMs?: number } = {},
 ): Promise<boolean> {
   // The whole body is guarded: telemetry must never fail or delay a command (the same
   // invariant postWithTimeout enforces for the network half, extended to the config
@@ -457,7 +464,7 @@ export async function recordFunnelStage(
         // Spread rather than set: the gateway's schema is `.strict()`, and an explicit
         // undefined key is still a key.
         ...measured,
-      });
+      }, opts.capMs);
       return true;
     }
 
@@ -509,13 +516,13 @@ function noticeShownOn(config: { getTelemetryNoticeShownAt(): string | undefined
  * The anonymous payload, the one place its shape is spelled. Targets ALIGN_HOSTED_GATEWAY_URL,
  * never a `gatewayUrl` off the env - see recordAnonymousCommandUsage for why.
  */
-async function postAnonymous(payload: Record<string, string | number>): Promise<void> {
+async function postAnonymous(payload: Record<string, string | number>, capMs?: number): Promise<void> {
   const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
   await postWithTimeout(`${target}/telemetry/anonymous`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, capMs);
 }
 
 /**
@@ -667,7 +674,7 @@ export function envFlagOf(cmd: { optsWithGlobals(): Record<string, unknown> }): 
 export async function recordInvocationUsage(
   envFlag: string | undefined,
   command: string,
-  opts: { background?: boolean } = {},
+  opts: { background?: boolean; capMs?: number } = {},
 ): Promise<void> {
   // L7: the detached `align sync --background` child is a machine running a refresh, not a person
   // running a command (its per-source `source_synced` pings are the measurement). Decided from the
@@ -677,7 +684,7 @@ export async function recordInvocationUsage(
   const { resolveEnv } = await import('./resolve-env.js');
   const config = createConfigStore();
   if (command === 'setup' && config.getEnvironment('local').mode === 'local-embedded') return;
-  await recordCommandUsage(config.getEnvironment(resolveEnv(envFlag, { preferLocalEmbedded: true })), command);
+  await recordCommandUsage(config.getEnvironment(resolveEnv(envFlag, { preferLocalEmbedded: true })), command, opts.capMs === undefined ? {} : { capMs: opts.capMs });
 }
 
 /**
@@ -694,6 +701,8 @@ export async function beginInvocationTelemetry(commandPath: string, opts: { hook
     const { createConfigStore } = await import('./config.js');
     const { resolveEnv } = await import('./resolve-env.js');
     const config = createConfigStore();
+    // Before the notice and before anything can send: an env opt-out becomes a stored one.
+    storeEnvOptOut(config);
     const env = config.getEnvironment(resolveEnv(undefined, { preferLocalEmbedded: true }));
     maybeShowTelemetryNotice(config, { command: commandPath, hook: opts.hook, cloudSignedIn: Boolean(env.authToken) });
   } catch {

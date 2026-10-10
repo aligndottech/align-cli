@@ -22,7 +22,12 @@ The short version, for local-only mode:
   output piped or sent to `/dev/null`, a hook, cron, systemd, `docker build`, an agent's shell
   tool - shows no notice and sends nothing, and it does not count as the first run: the notice
   waits for your next run in a terminal.
-- **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.**
+- **`align telemetry off` or `DO_NOT_TRACK=1` stops all of it.** An environment opt-out
+  (`DO_NOT_TRACK` or `ALIGN_TELEMETRY=0`) is also remembered: the first align run that sees it
+  stores "off" on this machine (with the variable's name and the date), so processes that never
+  see the variable - an agent's `align mcp` server with a trimmed environment, the background
+  sync - stay silent too. `align telemetry status` says so, and `align telemetry on` clears it.
+  Bare CI is not remembered; it is checked on every run.
 - **Nothing is sent from CI**, and the notice is not shown there. Nothing is ever sent by the
   commands align's installed hooks run (`align check --hook`, `align check --advisory`,
   `align context inject`). `align mcp`, and a run inside an agent `align` launched, show no
@@ -35,7 +40,7 @@ Nothing about your repo, your decisions, your files or you is ever sent.
 
 | Switch | What it stops | Where |
 |---|---|---|
-| `DO_NOT_TRACK=1` | Everything, both tiers, both modes. Set before the first run and the install count is never sent, even if you unset it later. The [consoledonottrack.com](https://consoledonottrack.com) convention. | environment |
+| `DO_NOT_TRACK=1` | Everything, both tiers, both modes. Remembered once any align run has seen it (see above). Set before the first run and the install count is never sent, even if you unset it later. The [consoledonottrack.com](https://consoledonottrack.com) convention. | environment |
 | `ALIGN_TELEMETRY=0` | Same as above. Any value other than `1`, `true`, `yes` or `on` counts as off. | environment |
 | `align telemetry off` | Everything, in both modes: local events and cloud-mode events. Stored on this machine. | command |
 | Running in CI | Everything. Detected the way [ci-info](https://github.com/watson/ci-info) does (`CI`, `GITHUB_ACTIONS` and the other CI providers' variables). A CI run does not count as an install. | automatic |
@@ -60,8 +65,12 @@ added server-side.
 Sent once per install, on the first run that shows the notice, before any prompt. Never again
 for that install id once it has been sent. That first run waits for it, for at most 0.8
 seconds. If the connection fails outright, the next run tries again; if the gateway does not
-answer in time, it is not retried, so it is sent at most once. Every other event is sent without
-waiting. Not sent when the first run already holds a cloud login token (cloud
+answer in time, it is not retried, so it is sent at most once. Other events do not hold up the
+work you asked for: a command ping is sent after the command's own output, and waits at most 2
+seconds (`align sync`'s own ping, 0.5). The `source_synced` pings from a sync you ran are sent
+together and waited for at most 1.5 seconds in all, so a gateway that never answers costs a sync
+about 2 seconds. No request follows a redirect: a gateway that answers with one is treated as a
+failure and the body goes nowhere else. Not sent when the first run already holds a cloud login token (cloud
 mode has its own, authenticated events) and not sent when the first command is
 `align telemetry ...`.
 
@@ -101,12 +110,13 @@ One per command you run.
 |---|---|
 | `installId` | The same random UUID. |
 | `cliVersion` | The CLI version. |
-| `command` | The command's name, at most two words: `align` (opening your coding agent), `ask`, `use`, `sync`, `mark`, `import git`, `decisions list`. Never its arguments, never the query you typed, never a path. `align mark` sends the word `mark` and nothing about what you marked: no kind, no id, no text. |
+| `command` | The command's name, at most two words: `align` (opening your coding agent), `ask`, `use`, `sync`, `mark`, `connect git`, `decisions list`. Never its arguments, never the query you typed, never a path. `align mark` sends the word `mark` and nothing about what you marked: no kind, no id, no text. |
 
-`align sync` sends this ping only when you run it yourself. The background refresh that `align`
-starts at launch (and that your agent starts with `align_sync`) runs `align sync --background`,
-which sends no `cli.command` at all. `align_mark` over MCP is not a command you ran and sends
-nothing.
+`align sync` sends this ping when you run it yourself. A background sync started by
+`align_sync run` (and, once the background refresh at launch ships, by that refresh) runs
+`align sync --background`, which sends no `cli.command` at all. The same goes for `align sync
+--background` typed by a person: no `cli.command`, and its `source_synced` pings report trigger
+`background`. `align_mark` over MCP is not a command you ran and sends nothing.
 
 ### `cli.funnel.<stage>` (local mode)
 
@@ -158,7 +168,7 @@ refreshed by hand) sends nothing. Local-only mode sends it; cloud mode does not.
 | `source` | Which kind of source, from a fixed list: `git`, `docs`, `github`, `jira`, `confluence`, `slack`, `teams`, `zoom`, `gitlab`, `linear`, `notion`. Never a repo, a site, a space, a channel or a project name. |
 | `outcome` | How it went: `ok`, `partial` (stopped early, the next sync continues), `needs_reauth` (the source refused the saved token) or `error`. |
 | `scope` | `yours` (your own items) or `team` (a repo you are inside, read for everyone). |
-| `trigger` | What started it: `manual` (you ran `align sync`) or `background` (the refresh at launch, or your agent's `align_sync`). The gateway also accepts `connect`; the CLI does not send it yet. |
+| `trigger` | What started it: `manual` (you ran `align sync`) or `background` (a background sync: your agent's `align_sync run`, or `align sync --background`; the launch refresh will too once it ships). The gateway also accepts `connect`; the CLI does not send it yet. |
 
 No title, URL, repo, organisation, author or id is ever in this body: it is built from these
 five fields and nothing else.

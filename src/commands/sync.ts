@@ -8,7 +8,7 @@ import { classifyUnclassified, estimateClassify } from '../lib/sync/classify.js'
 import { localGraphPath, realStatusDeps, realSyncEnv } from '../lib/sync/real-env.js';
 import { renderOutcome } from '../lib/sync/report.js';
 import { runSync } from '../lib/sync/run-all.js';
-import { recordSourceSynced, type ReportedTrigger } from '../lib/sync/telemetry.js';
+import { recordSourceSynced, type ReportedTrigger, SYNC_TELEMETRY_TOTAL_MS } from '../lib/sync/telemetry.js';
 import type { SourceOutcome, SyncEnv } from '../lib/sync/run-source.js';
 import { collectStatus, renderStatus, type StatusDeps, TEAMS_NOTE } from '../lib/sync/status.js';
 import { refreshSummary } from '../lib/sync/summary.js';
@@ -103,9 +103,9 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
           if (d.report) pings.push(d.report(o, reportTrigger).catch(() => {}));
         },
       });
-      await Promise.all(pings);
+      await settle(pings);
     } catch (e) {
-      await Promise.all(pings);
+      await settle(pings);
       // A background child has nobody to tell: record why it stopped where the next foreground moment will see it.
       if (!opts.background) { d.refresh(dbPath); throw e; }
       const now = (d.now ?? (() => new Date()))();
@@ -128,6 +128,14 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
   } finally {
     (env.client as unknown as { close?: () => void }).close?.();
   }
+}
+
+/** Waits for the pings, started together, for at most SYNC_TELEMETRY_TOTAL_MS in all. */
+async function settle(pings: Array<Promise<unknown>>): Promise<void> {
+  if (pings.length === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cap = new Promise<void>((resolve) => { timer = setTimeout(resolve, SYNC_TELEMETRY_TOTAL_MS); });
+  try { await Promise.race([Promise.all(pings), cap]); } finally { clearTimeout(timer); }
 }
 
 async function classifyFlow(dbPath: string, max: number, opts: SyncCommandOptions, d: SyncCommandDeps): Promise<number> {

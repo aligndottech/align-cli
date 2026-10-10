@@ -128,6 +128,9 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
     // `sync` alone.
     await recordInvocationUsage(envFlagOf(actionCommand), invocationCommandPath(actionCommand), {
       background: actionCommand.opts()['background'] === true,
+      // `sync` ends with its own ping on top of the per-source ones (capped 1.5 s together), so
+      // this one waits at most half a second: a hung gateway costs a sync about 2 s in all.
+      ...(invocationCommandPath(actionCommand) === 'sync' ? { capMs: 500 } : {}),
     });
   });
 
