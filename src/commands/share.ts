@@ -2,10 +2,7 @@
  * `align share` - promote ratified local decisions, with the judgements you made about them, to your
  * team graph. `align push` is the old name and stays as an alias. The flow lives in lib/share/command.ts.
  */
-import fs from 'node:fs';
-import readline from 'node:readline';
 import type { Command } from 'commander';
-import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { defaultJudge } from '../lib/curation/judge.js';
@@ -15,19 +12,7 @@ import { resolveEnv } from '../lib/resolve-env.js';
 import { sinceFromFlag } from '../lib/since-flag.js';
 import { runShare, type ShareDeps } from '../lib/share/command.js';
 import type { ShareClient } from '../lib/share/run.js';
-
-/** Ask on the controlling terminal, not stdin: an agent's shell tool has none. Null when there is none. */
-export async function ttyConfirm(question: string): Promise<boolean | null> {
-  const dev = process.platform === 'win32' ? ['CONIN$', 'CONOUT$'] : ['/dev/tty', '/dev/tty'];
-  let inFd: number; let outFd: number;
-  try { inFd = fs.openSync(dev[0]!, 'r'); outFd = fs.openSync(dev[1]!, 'w'); } catch { return null; }
-  try {
-    const rl = readline.createInterface({ input: fs.createReadStream('', { fd: inFd, autoClose: false }), output: fs.createWriteStream('', { fd: outFd, autoClose: false }) });
-    const answer = await new Promise<string>((resolve) => rl.question(`${question} [y/N] `, resolve));
-    rl.close();
-    return /^y(es)?$/i.test(answer.trim());
-  } finally { fs.closeSync(inFd); fs.closeSync(outFd); }
-}
+import { ttyConfirm } from '../lib/share/tty.js';
 
 export function registerShareCommand(program: Command): void {
   program
@@ -37,17 +22,28 @@ export function registerShareCommand(program: Command): void {
     .option('--env <env>', 'Which team environment to share to (prod, preview)')
     .option('--all-ratified', 'Share every decision you ratified')
     .option('--since <window>', 'With --all-ratified or alone: only decisions ratified in this window (30d, 2w, 6m)')
-    .option('--yes', 'Skip the question (needed when there is no terminal)')
+    .option('--yes', 'Not accepted: a share always needs your own answer at a terminal')
     .option('--confirm <code>', 'Finish a share your agent previewed (needs your own terminal)')
     .option('--retract <id>', 'Archive what you shared for this decision on your team graph')
     .action(async (ids: string[], opts: { env?: EnvName; allRatified?: boolean; since?: string; yes?: boolean; confirm?: string; retract?: string }) => {
+      if (opts.yes) {
+        console.error(chalk.red('align share has no --yes: a share always needs your own answer, typed at a terminal. Nothing was sent.'));
+        process.exit(2);
+        return;
+      }
       if (process.argv[2] === 'push') console.error(chalk.dim('align push is now align share.'));
+      // A mistyped --env must not fall back to the default: the destination is the one thing a share must get right.
+      if (opts.env !== undefined && opts.env !== 'prod' && opts.env !== 'preview') {
+        console.error(chalk.red(`Unknown environment "${String(opts.env).slice(0, 20)}". Use --env prod or --env preview. Nothing was sent.`));
+        process.exit(2);
+        return;
+      }
       const config = createConfigStore();
       const envName = resolveEnv(opts.env);
       const local = config.getEnvironment('local');
       const cloudEnv = config.getEnvironment(envName);
       const code = await runShare({
-        ids, allRatified: opts.allRatified, yes: opts.yes, confirm: opts.confirm, retract: opts.retract, envName,
+        ids, allRatified: opts.allRatified, confirm: opts.confirm, retract: opts.retract, envName,
         sinceIso: opts.since === undefined ? undefined : sinceFromFlag(opts.since).since,
       }, {
         cloudEnv,
@@ -55,9 +51,7 @@ export function registerShareCommand(program: Command): void {
         client: () => createGatewayClient(cloudEnv) as unknown as ShareClient,
         judge: defaultJudge,
         owner: resolveLocalIdentity,
-        stdinIsTty: process.stdin.isTTY === true,
         ttyConfirm,
-        ask: async (q) => { const a = await p.confirm({ message: q, initialValue: false }); return a === true; },
         out: (l) => console.log(l),
         err: (l) => console.error(chalk.red(l)),
       } satisfies ShareDeps);

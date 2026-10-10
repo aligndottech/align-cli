@@ -1,0 +1,82 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { canPty, type Harness, startHarness } from './helpers/share-harness.js';
+
+/**
+ * L9 security review, item 1 and 6: who can complete a share.
+ * - `align share <id> --yes` with stdin from /dev/null exits non-zero and makes ZERO POSTs (--yes does not exist).
+ * - With no controlling terminal (own session, stdin /dev/null) a plain `align share <id>` exits 1, zero POSTs.
+ * - POSITIVE CONTROL: on a real pty, typing y sends exactly once and the process exits 0 with no EBADF; typing n sends nothing.
+ * - The team-text question is its own question: the first y does not answer it; a second n leaves one POST, a second y makes two.
+ *   The process exits cleanly even though the terminal's input is left open.
+ */
+vi.setConfig({ testTimeout: 90_000 });
+let h: Harness;
+beforeAll(async () => {
+  if (!posix) return;
+  h = await startHarness((db) => {
+    const id = db.insertDecision({ title: 'Use sqlite for the cache', summary: 'sqlite ships with node', sourceUrl: 'https://github.com/o/r/pull/12', platform: 'github' });
+    db.markRatified(id, 'me@acme.test');
+    const id2 = db.insertDecision({ title: 'Second decision', summary: 'another one', sourceUrl: 'https://github.com/o/r/pull/13', platform: 'github' });
+    db.markRatified(id2, 'me@acme.test');
+    return [id, id2];
+  });
+});
+afterAll(async () => { await h?.close(); });
+
+// POSIX only: the harness spawns the tsx shim and a python pty. The Windows console path is unit-tested in share-tty.test.ts.
+const posix = process.platform !== 'win32';
+
+describe.skipIf(!posix)('with no person at a terminal', () => {
+  it('--yes is not accepted: non-zero exit, zero POSTs', async () => {
+    const r = await h.plain([h.ids[0]!, '--yes']);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain('no --yes');
+    expect(h.posts).toHaveLength(0);
+  });
+  it('a plain share with no controlling terminal exits 1 and sends nothing', async () => {
+    const r = await h.plain([h.ids[0]!]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('Confirm this in your own terminal');
+    expect(h.posts).toHaveLength(0);
+  });
+});
+
+describe.skipIf(!posix)('an unknown --env', () => {
+  it('is refused with exit 2 and no request, never falling back to the default environment', async () => {
+    for (const env of ['prd', 'local', '']) {
+      const r = await h.plain([h.ids[0]!, '--env', env]);
+      expect(r.code).toBe(2);
+      expect(r.out).toContain('Unknown environment');
+    }
+    expect(h.posts).toHaveLength(0);
+  });
+});
+
+describe.skipIf(!canPty)('on a real pseudo-terminal', () => {
+  it('n sends nothing; y sends once and exits 0 with no EBADF', async () => {
+    const no = await h.pty([h.ids[0]!], [['[y/N]', 'n\n']]);
+    expect(no.code).toBe(0);
+    expect(h.posts).toHaveLength(0);
+    const yes = await h.pty([h.ids[0]!], [['[y/N]', 'y\n']]);
+    expect(yes.code).toBe(0);
+    expect(yes.out).not.toMatch(/EBADF/);
+    expect(yes.out).toContain('To: Acme');
+    expect(h.posts).toHaveLength(1);
+  });
+  it('the team-text question gets its own answer', async () => {
+    const matched = (needs: boolean) => ({
+      matched: [{ request_index: 0, existing_id: 'TEAM1', status: 'active', team_text_hash: 'a'.repeat(64), ...(needs ? { needs_confirmation: [{ kind: 'ratify', judgement_index: 0 }] } : {}) }],
+      judgements: [{ request_index: 0, decision_id: 'TEAM1', results: [{ ok: !needs, ...(needs ? { error: 'needs_confirmation' } : { stored: true }) }] }],
+    });
+    h.posts.length = 0;
+    h.reply.batch = () => matched(h.posts.length === 1);
+    const decline = await h.pty([h.ids[1]!], [['[y/N]', 'y\n'], ['stand behind the team', 'n\n']]);
+    expect(decline.code).toBe(0);
+    expect(decline.out).not.toMatch(/EBADF/);
+    expect(h.posts).toHaveLength(1);
+    h.posts.length = 0;
+    const agree = await h.pty([h.ids[1]!], [['[y/N]', 'y\n'], ['stand behind the team', 'y\n']]);
+    expect(agree.code).toBe(0);
+    expect(h.posts).toHaveLength(2);
+  });
+});

@@ -2,10 +2,11 @@
  * L9: `align share` as a function of injected dependencies, returning an exit code. The commander
  * wrapper (commands/share.ts) wires the real config, gateway client and prompts; tests wire fakes.
  *
- * Who may complete a share: a person. The normal path needs a TTY on stdin and a "yes" (default No),
- * or `--yes`. `--confirm <code>` finishes a share an agent previewed and needs a CONTROLLING terminal
- * (`/dev/tty`), which an agent's shell tool does not have; `--yes` is refused with it. The known gap
- * (an agent that allocates its own pseudo-terminal) is stated in SECURITY.md.
+ * Who may complete a share: a person at a terminal. EVERY path (a plain `align share` and
+ * `align share --confirm <code>`) shows the preview on the CONTROLLING terminal and needs a typed
+ * yes there (default No). There is no `--yes`: a flag is exactly what an agent would pass. A caller
+ * with no controlling terminal is refused. The known gap (an agent that allocates its own
+ * pseudo-terminal) is stated in SECURITY.md.
  */
 import { type EnvironmentConfig } from '../config.js';
 import { teamCtaLine } from '../team-cta.js';
@@ -18,7 +19,6 @@ export interface ShareOptions {
   allRatified?: boolean;
   /** An already-parsed lower bound (ISO), for --since. */
   sinceIso?: string;
-  yes?: boolean;
   confirm?: string;
   retract?: string;
   envName: string;
@@ -31,22 +31,21 @@ export interface ShareDeps {
   judge: () => Promise<Judge>;
   /** The person's own git identity: `--all-ratified` shares only what they ratified. */
   owner: () => Promise<string>;
-  stdinIsTty: boolean;
-  /** Ask on the controlling terminal; null when there is none. */
-  ttyConfirm: (question: string) => Promise<boolean | null>;
-  /** Ask on stdin (only reached when stdinIsTty). */
-  ask: (question: string) => Promise<boolean>;
+  /** Show `shown` and ask on the controlling terminal; null when there is no interactive terminal. */
+  ttyConfirm: (shown: string, question: string) => Promise<boolean | null>;
   out: (line: string) => void;
   err: (line: string) => void;
 }
 
+const NO_TERMINAL = 'Confirm this in your own terminal: there is no interactive terminal here (an agent shell, a pipe and a hook have none). Nothing was sent.';
+
 export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<number> {
   const { out, err } = deps;
-  if (opts.confirm !== undefined && opts.yes) {
-    err('--yes cannot be combined with --confirm: the confirmation is the person\'s own answer.');
-    return 2;
+  if (deps.cloudEnv.mode === 'demo') {
+    err('align share needs a team account, and this environment is in demo mode. Run: align login');
+    return 1;
   }
-  if (deps.cloudEnv.mode === 'local-embedded' || (!deps.cloudEnv.authToken && deps.cloudEnv.mode !== 'demo')) {
+  if (deps.cloudEnv.mode === 'local-embedded' || !deps.cloudEnv.authToken) {
     err(`align share sends decisions from your local graph to your team's.\n  ${teamCtaLine()}\n  Already have a team? Run: align login`);
     return 1;
   }
@@ -100,29 +99,20 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
         err('What would be shared has changed since your agent previewed it (a decision, a judgement or the destination). Nothing was sent. Ask your agent to start again.');
         return 1;
       }
-      out(prep.preview);
-      const yes = await deps.ttyConfirm(`Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${prep.dest.workspace}?`);
-      if (yes === null) { err('Confirm this in your own terminal: there is no controlling terminal here. Nothing was sent.'); return 1; }
+      const yes = await deps.ttyConfirm(prep.preview, `Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${prep.dest.workspace}?`);
+      if (yes === null) { err(NO_TERMINAL); return 1; }
       if (!yes) { out('Nothing was sent.'); return 0; }
       if (!consumeCode(pendingCode)) { err('That code was already used. Nothing was sent.'); return 1; }
-    } else if (opts.yes) {
-      out(prep.preview);
-    } else if (!deps.stdinIsTty) {
-      err(prep.preview);
-      err('\nNot a terminal and no --yes, so nothing was sent. Run this in your own terminal, or add --yes.');
-      return 1;
     } else {
-      out(prep.preview);
-      if (!(await deps.ask(`Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${prep.dest.workspace}?`))) { out('Nothing was sent.'); return 0; }
+      const yes = await deps.ttyConfirm(prep.preview, `Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${prep.dest.workspace}?`);
+      if (yes === null) { err(NO_TERMINAL); return 1; }
+      if (!yes) { out('Nothing was sent.'); return 0; }
     }
 
-    const interactive = pendingCode !== undefined || (deps.stdinIsTty && !opts.yes);
     const results = await send(c, prep, {
       confirmTeamText: async (i) => {
-        if (!interactive) return false;
-        out(`\n"${i.title}" is already on your team graph, as:\n  ${i.teamTitle}\n  ${i.teamSummary}\nYour ratification would put your name on THAT text, not on yours.`);
-        const q = 'Do you stand behind the team\'s text?';
-        return pendingCode !== undefined ? (await deps.ttyConfirm(q)) === true : deps.ask(q);
+        const shown = `"${i.title}" is already on your team graph, as:\n  ${i.teamTitle}\n  ${i.teamSummary}\nYour ratification would put your name on THAT text, not on yours.`;
+        return (await deps.ttyConfirm(shown, 'Do you stand behind the team\'s text?')) === true;
       },
     });
     out(`\n${renderResults(results)}`);

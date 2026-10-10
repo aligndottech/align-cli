@@ -40,13 +40,18 @@ graph. It prints exactly what leaves the machine, names the workspace and accoun
 Nothing is sent without a yes. A credential-shaped string in a title, summary, URL or note is
 refused on this machine, and again by the server.
 
+There is no `--yes`: a share always needs an answer typed by a person at a real terminal. Every path
+(a plain `align share`, and `align share --confirm <code>`) shows the preview on the controlling
+terminal (`/dev/tty`, or `CONIN$` on Windows, and it must pass an is-a-terminal check) and asks with a
+default of No. A process with no controlling terminal, such as an agent's shell tool, a hook or a pipe,
+is refused and sends nothing.
+
 `align_share` (the MCP tool) only PREPARES a share: it returns the preview and a one-time code, and
 cannot send. You finish it with `align share --confirm <code>` in your own terminal, where the preview
 is shown again and the answer defaults to No. The code works once, expires after 10 minutes, and is
-refused if the decision or its judgements changed after the preview.
+refused if the decision, its judgements, the workspace or the gateway changed after the preview.
 
-> An agent-initiated share is confirmed on the machine the agent runs on, in a terminal. An agent
-> with shell access could allocate a pseudo-terminal and answer the terminal prompt itself. This
-> stops accidental or tool-only shares, not a determined agent with a shell. Every share is still
-> previewed, attributed to the signed-in user, and retractable (`align share --retract`). The
-> follow-up, browser confirmation on the team graph, closes the gap.
+> Known limit, and not one this CLI can close on its own: a process that can run commands as you can
+> allocate its own pseudo-terminal and type the answer. Any local CLI has this limit. A share is
+> still previewed, attributed to the signed-in user, and retractable (`align share --retract`). The
+> follow-up, browser confirmation on the team graph where the CLI's own token cannot confirm, closes it.
