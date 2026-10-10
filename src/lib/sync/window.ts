@@ -33,6 +33,16 @@ function parse(iso: string | null | undefined): number | undefined {
   return Number.isNaN(ms) ? undefined : ms;
 }
 
+/**
+ * The window a NEW scope row starts with: the one the person asked for on this source, which is the `yours` row's (L3 records
+ * `since: all` as NULL there, and "all" stays all). A source with no `yours` row yet starts at the default window.
+ * The one writer: the sync's first run on a scope and a scope change from `align connect` or `align_scope` both call it.
+ */
+export function inheritedWindowSince(rows: ReadonlyArray<{ scope_key: string; window_since: string | null }>, now: Date): string | null {
+  const yours = rows.find((r) => r.scope_key === 'yours');
+  return yours ? yours.window_since : nextWindow(undefined, now).since!;
+}
+
 export function minusDays(iso: string, days: number): string {
   const ms = parse(iso);
   if (ms === undefined) throw new Error(`Cannot read "${iso.slice(0, 40)}" as a date.`);

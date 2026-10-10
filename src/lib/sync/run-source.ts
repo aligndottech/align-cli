@@ -25,7 +25,7 @@ import {
   threadRows,
 } from './sync-state.js';
 import { HOT_THREAD_DAYS, mergePartialThread, selectHotThreads } from './threads.js';
-import { ascendingByUpdated, finishRun, later, newestUpdated, nextWindow, PERSISTENT_HOLE_RUNS, plausible } from './window.js';
+import { ascendingByUpdated, finishRun, inheritedWindowSince, later, newestUpdated, nextWindow, PERSISTENT_HOLE_RUNS, plausible } from './window.js';
 
 export type SourceState = SyncStatus | 'locked' | 'backfill_running' | 'not_connected' | 'manual';
 
@@ -124,9 +124,8 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
   const scope = await env.scopeOf(source);
   const key = { source, scopeKey: scope.scopeKey, scope: scope.scope };
   const rows = readRows(env.dbPath, source);
-  const yours = rows.find((r) => r.scope_key === 'yours');
   // A new scope inherits the depth the person asked for on this source ("all" stays all).
-  const row = beginRun(env.dbPath, key, yours ? yours.window_since : nextWindow(undefined, now).since!, nowIso);
+  const row = beginRun(env.dbPath, key, inheritedWindowSince(rows, now), nowIso);
   if (row.status === 'needs_reauth') {
     return none(source, 'needs_reauth', `${source} needs the person to re-authenticate. Run: align connect ${source}`);
   }

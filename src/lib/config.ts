@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 import { STORABLE_PROVIDERS, type StoredProviderId } from './llm-providers.js';
+import type { StoredScope } from './scope-values.js';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -116,6 +117,7 @@ export function createConfigStore() {
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
     llm?: LlmPreference;
     askKeyOfferDismissed?: boolean;
+    teamScopeDisclosedFor?: string[];
   }>({
     projectName: 'align-cli',
     // conf's own default is 'nodejs' (node_modules/conf/dist/source/index.js), which
@@ -237,6 +239,40 @@ export function createConfigStore() {
     setConnectorSiteBase(env: EnvName, connectorKey: string, siteBase: string) {
       const tokens = store.get('connectorTokens') as Record<string, string>;
       store.set('connectorTokens', { ...tokens, [`${env}:${connectorKey}:siteBase`]: siteBase });
+    },
+    /**
+     * L4: what the person chose to read for a source, kept beside its token under `<env>:<source>:scope` so forgetting the
+     * connector removes it too. Non-secret, and not a `:field:` key, so no fetch is ever handed it as a credential.
+     * A damaged entry reads as null, which every caller treats as the narrower "yours".
+     */
+    getConnectorScope(env: EnvName, connectorKey: string): StoredScope | null {
+      const raw = getTokens()[`${env}:${connectorKey}:scope`];
+      if (raw === undefined) return null;
+      try {
+        const v = JSON.parse(raw) as { kind?: unknown; values?: unknown; labels?: unknown };
+        if (v.kind === 'yours') return { kind: 'yours' };
+        const strings = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.every((e) => typeof e === 'string');
+        if (v.kind === 'team' && strings(v.values) && strings(v.labels)) return { kind: 'team', values: v.values, labels: v.labels };
+      } catch { /* damaged: no choice */ }
+      return null;
+    },
+    setConnectorScope(env: EnvName, connectorKey: string, scope: StoredScope) {
+      store.set('connectorTokens', { ...getTokens(), [`${env}:${connectorKey}:scope`]: JSON.stringify(scope) });
+    },
+    clearConnectorScope(env: EnvName, connectorKey: string) {
+      const { [`${env}:${connectorKey}:scope`]: _gone, ...kept } = getTokens();
+      store.set('connectorTokens', kept);
+    },
+    // L4: the one-time team-scope disclosure, remembered per source so it prints before the FIRST team read and not again.
+    getTeamScopeDisclosedFor(): string[] {
+      return store.get('teamScopeDisclosedFor') ?? [];
+    },
+    isTeamScopeDisclosed(source: string): boolean {
+      return (store.get('teamScopeDisclosedFor') ?? []).includes(source);
+    },
+    markTeamScopeDisclosed(source: string): void {
+      const existing = store.get('teamScopeDisclosedFor') ?? [];
+      if (!existing.includes(source)) store.set('teamScopeDisclosedFor', [...existing, source]);
     },
     setLocalMode(dbPath: string) {
       const envs = getEnvs();
