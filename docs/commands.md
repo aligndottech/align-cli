@@ -246,6 +246,8 @@ code and you finish it with `align share --confirm <code>` in your own terminal.
 lock: an agent that can read your mailbox or your browser's cookies can still get a session, and it stays
 that way until a passkey or other step-up credential exists (see SECURITY.md).
 
+The CLI never collects your email on its own. When you try to share and have no team login, it may ask once for an optional work email. It is separate from usage telemetry, you can skip it, and we only email you after you confirm. It asks only at your own terminal, never inside an agent, in CI or from a pipe, and only when the CLI is talking to Align's hosted service. The address is sent once and is not kept on your machine; the config stores only when you were asked and what you chose. Set `ALIGN_NO_LEAD_PROMPT=1` to never be asked.
+
 `align use --undo` puts back a file Align wrote for a written-once agent (Auggie, Cline, Amp,
 Kiro, Grok Build, pi, Cursor). The restore is exact only while nobody else has touched the file.
 If the agent rewrote it afterwards (for example `auggie mcp add`), undo takes out only Align's own
