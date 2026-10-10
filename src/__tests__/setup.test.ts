@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type * as McpSetup from '../lib/mcp-setup.js';
 import { Command } from 'commander';
 import { AuthExpiredError } from '../lib/errors.js';
@@ -289,6 +290,8 @@ function makeProgram(): Command {
 
 describe('align setup', () => {
   beforeEach(() => {
+    // C6: CI vars, ALIGN_WRAPPED and ALIGN_TOKEN/ALIGN_ENV change what this suite does; clear them.
+    clearTelemetryEnv();
     vi.stubGlobal('setTimeout', (fn: () => void) => { fn(); return 0; });
     vi.clearAllMocks();
     mockWhoami.mockResolvedValue({ user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } });
@@ -310,6 +313,7 @@ describe('align setup', () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('registers the setup command without throwing', () => {

@@ -9,6 +9,7 @@
  * call, the way the real Conf store is, without touching ~/.config/align-cli.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type { EnvironmentConfig, TelemetryConsent } from '../lib/config.js';
 
 const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
@@ -57,11 +58,10 @@ function noticeWrites(): string[] {
 
 describe('the one-time telemetry notice', () => {
   beforeEach(() => {
-    // The CI runner sets CI=true and GITHUB_ACTIONS=true. Both are inputs here, so both are
-    // cleared, and the two env switches with them, rather than inherited (tdd.md).
-    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY', 'ALIGN_WRAPPED', 'ALIGN_GATEWAY_URL']) {
-      vi.stubEnv(k, undefined);
-    }
+    // Every CI variable, the env switches, ALIGN_WRAPPED and the ALIGN_* token/env vars are
+    // inputs here, so they are cleared rather than inherited (tdd.md).
+    clearTelemetryEnv();
+    vi.stubEnv('ALIGN_GATEWAY_URL', undefined);
     state.consent = undefined;
     state.noticeShownAt = undefined;
     state.stages = [];

@@ -7,6 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 
 const getTelemetryConsent = vi.fn();
@@ -49,9 +50,9 @@ function sentBody(): Record<string, unknown> {
 describe('recordCommandUsage - local-embedded anonymous ping', () => {
   beforeEach(() => {
     noticeShownAt = undefined;
-    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
-    // are cleared here rather than inherited, with the two env switches.
-    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
+    // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+    // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+    clearTelemetryEnv();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     getTelemetryConsent.mockReset();

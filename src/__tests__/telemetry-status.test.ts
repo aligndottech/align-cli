@@ -6,6 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 import { getTelemetryStatus } from '../lib/usage-telemetry.js';
 
@@ -13,7 +14,7 @@ import { getTelemetryStatus } from '../lib/usage-telemetry.js';
 // must not decide these tests, so it is cleared here and set only by the tests about it.
 // C6: so are CI and GITHUB_ACTIONS, which the CI runner exports and which now turn telemetry off.
 beforeEach(() => {
-  for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
+  clearTelemetryEnv();
 });
 afterEach(() => vi.unstubAllEnvs());
 

@@ -5,6 +5,7 @@
  * is skipped in live in telemetry-notice.test.ts; this file pins the function's own contract.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import { maybeShowTelemetryNotice, TELEMETRY_NOTICE, type TelemetryNoticeStore } from '../lib/telemetry-consent.js';
 
 function fakeStore(consent?: 'granted' | 'declined' | 'off', shownAt?: string): TelemetryNoticeStore & { marks: number } {
@@ -25,7 +26,7 @@ const ctx = { command: 'ask', hook: false, cloudSignedIn: false };
 
 describe('maybeShowTelemetryNotice', () => {
   beforeEach(() => {
-    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY', 'ALIGN_WRAPPED']) vi.stubEnv(k, undefined);
+    clearTelemetryEnv();
   });
   afterEach(() => vi.unstubAllEnvs());
 

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 
 let consent: 'granted' | 'declined' | 'off' | undefined = 'granted';
 // C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
@@ -24,11 +25,12 @@ beforeEach(() => {
 
   noticeShownAt = undefined;
 
-  // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
+  // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
 
-  // are cleared here rather than inherited, with the two env switches.
+  // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
 
-  for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
+  clearTelemetryEnv();
+
   fetchMock.mockReset().mockResolvedValue(new Response('{}', { status: 200 }));
   vi.stubGlobal('fetch', fetchMock);
   consent = 'granted';

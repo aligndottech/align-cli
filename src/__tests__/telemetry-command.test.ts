@@ -4,6 +4,7 @@
  * command stores 'off', not 'declined', and `on` clears it back to 'granted'.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import { Command } from 'commander';
 
 const setTelemetryConsent = vi.fn();
@@ -32,9 +33,9 @@ describe('align telemetry', () => {
   afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     noticeShownAt = undefined;
-    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
-    // are cleared here rather than inherited, with the two env switches.
-    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
+    // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+    // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+    clearTelemetryEnv();
     setTelemetryConsent.mockReset();
     getTelemetryConsent.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});

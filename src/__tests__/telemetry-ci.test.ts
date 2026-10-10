@@ -10,25 +10,12 @@ import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inCi } from '../lib/telemetry-ci.js';
+import { CI_ENV_KEYS } from './helpers/telemetry-env.js';
 
 const require = createRequire(import.meta.url);
 const CI_INFO = require.resolve('ci-info');
-const vendors = require('ci-info/vendors.json') as Array<{ env: unknown }>;
-
-/** Every variable ci-info can read, so each case starts from a clean slate. */
-const GENERIC = ['CI', 'BUILD_ID', 'BUILD_NUMBER', 'CI_APP_ID', 'CI_BUILD_ID', 'CI_BUILD_NUMBER', 'CI_NAME', 'CONTINUOUS_INTEGRATION', 'RUN_ID'];
-function namesIn(e: unknown): string[] {
-  if (typeof e === 'string') return [e];
-  if (Array.isArray(e)) return e.flatMap(namesIn);
-  if (e && typeof e === 'object') {
-    const o = e as Record<string, unknown>;
-    if ('env' in o && typeof o['env'] === 'string') return [o['env']];
-    if ('any' in o && Array.isArray(o['any'])) return o['any'] as string[];
-    return Object.keys(o);
-  }
-  return [];
-}
-const ALL_KEYS = [...new Set([...GENERIC, ...vendors.flatMap((v) => namesIn(v.env))])];
+const vendors = require('ci-info/vendors.json') as unknown[];
+const ALL_KEYS = CI_ENV_KEYS as string[];
 
 function ciInfoSays(extra: Record<string, string>): boolean {
   const env: Record<string, string> = {};

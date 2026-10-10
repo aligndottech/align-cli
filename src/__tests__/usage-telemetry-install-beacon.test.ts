@@ -12,6 +12,7 @@
  * run that already holds a cloud token skips the beacon.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 
 const getTelemetryConsent = vi.fn();
@@ -58,9 +59,9 @@ describe('recordInstallBeacon', () => {
     // C6: the beacon follows the one-time notice (cli.ts prints it first), so this suite's
     // default is "the notice has printed"; the one test about the notice's absence unsets it.
     noticeShownAt = '2026-10-10T00:00:00.000Z';
-    // The CI runner exports CI and GITHUB_ACTIONS; both now turn telemetry off (C6), so both
-    // are cleared here rather than inherited, with the two env switches.
-    for (const k of ['CI', 'GITHUB_ACTIONS', 'DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
+    // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+    // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+    clearTelemetryEnv();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     getTelemetryConsent.mockReset().mockReturnValue(undefined);
