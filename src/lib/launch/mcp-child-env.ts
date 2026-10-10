@@ -71,7 +71,7 @@ export const CHILD_ENV_NOT_PINNED: Record<string, string> = {
   COLORFGBG: 'output colour only',
   DO_NOT_TRACK: 'can only turn telemetry off; not pinned because the first align run that sees it stores the opt-out (storeEnvOptOut), so a trimmed MCP env needs no copy',
   ...Object.fromEntries([
-    'GITHUB_ACTIONS', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT', 'CODESPACES', 'REMOTE_CONTAINERS', 'DISPLAY', 'WAYLAND_DISPLAY', 'TERM', 'LC_ALL', 'LC_CTYPE', 'LANG',
+    'GITHUB_ACTIONS', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_CLIENT', 'CODESPACES', 'REMOTE_CONTAINERS', 'DISPLAY', 'WAYLAND_DISPLAY', 'TERM', 'LC_ALL', 'LC_CTYPE', 'LANG', 'SystemRoot',
   ].map((v) => [v, 'read by `align share` to decide whether to open a browser or draw a QR code at the person\'s terminal; the MCP server never does either'])),
   COPILOT_ALLOW_ALL: 'read by the launcher about Copilot, not by align mcp',
   GEMINI_RESTRICTED_MODE: 'read by the launcher about Gemini folder trust, not by align mcp',
