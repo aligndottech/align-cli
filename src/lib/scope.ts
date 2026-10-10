@@ -21,7 +21,7 @@ import {
   listLinearTeams, ScopeLookupError,
 } from './scope-choices.js';
 import {
-  describeScopeKey, disclosureText, fetchOptsFor, FIXED_SCOPES, normaliseScopeValues, SCOPED_SOURCES, type ScopedSource, type ScopeFetchOpts,
+  type ActiveScope, describeScopeKey, disclosureText, fetchOptsFor, FIXED_SCOPES, normaliseScopeValues, SCOPED_SOURCES, type ScopedSource, type ScopeFetchOpts,
   scopeKeyOf, ScopeValueError, type StoredScope, YOURS_KEY,
 } from './scope-values.js';
 import { adoptScope, readRows } from './sync/sync-state.js';
@@ -34,8 +34,21 @@ export interface ScopeStore {
   clearScope(source: string): void;
   /** The saved connector fields (token, email, domain), or null when the source is not connected. */
   fields(source: string): Record<string, string> | null;
-  isDisclosed(source: string): boolean;
-  markDisclosed(source: string): void;
+  /** Told for THIS scope of the source (per source and scope: a wider scope set later is announced again). */
+  isDisclosed(source: string, scopeKey: string): boolean;
+  markDisclosed(source: string, scopeKey: string): void;
+}
+
+/**
+ * The disclosure was shown to a person for this scope: remember it, and if an agent's choice of exactly this scope was waiting
+ * for that, it is active now. The one place a pending scope becomes active.
+ */
+export function markTold(store: ScopeStore, source: string, scopeKey: string): void {
+  store.markDisclosed(source, scopeKey);
+  const s = store.getScope(source);
+  if (s?.kind === 'team' && s.pending && isScoped(source) && scopeKeyOf(source, s.labels) === scopeKey) {
+    store.saveScope(source, { kind: 'team', values: s.values, labels: s.labels });
+  }
 }
 
 export interface ScopeDeps {
@@ -43,6 +56,8 @@ export interface ScopeDeps {
   /** The local graph, or undefined when there is none yet. Never created from here. */
   dbPath: string | undefined;
   now(): Date;
+  /** Is a person at a terminal? Only then is a waiting team scope shown its disclosure and activated. */
+  isTty(): boolean;
   /** `owner/repo` when the folder's remote is on GitHub. */
   cwdRepo(): Promise<string | undefined>;
   /** `group/project` when the folder's remote is on gitlab.com. */
@@ -68,6 +83,8 @@ export interface ResolvedScope {
   blocked?: string;
   /** One line worth saying about this scope: why it is only yours, or how to widen it. */
   note?: string;
+  /** True when an agent's team choice for this source is waiting for a person; this result is the scope that stays in force meanwhile. */
+  pendingConfirm?: boolean;
   /** Set for a FOREGROUND team read the person has not been told about yet. The caller prints it, then marks it disclosed. */
   disclosure?: string;
 }
@@ -85,7 +102,7 @@ function team(source: ScopedSource, values: string[], labels: string[], origin: 
   return {
     scope: 'team', scopeKey, extras: fetchOptsFor(source, values), label: describeScopeKey(source, scopeKey, 'team'), origin,
     ...(source === 'github' ? { repo: values[0]! } : {}),
-    ...(foreground && !deps.store.isDisclosed(source) ? { disclosure: disclosureText(source, labels) } : {}),
+    ...(foreground && !deps.store.isDisclosed(source, scopeKey) ? { disclosure: disclosureText(source, labels) } : {}),
   };
 }
 
@@ -106,6 +123,20 @@ const WIDEN_FLAG: Record<string, string> = { jira: '--projects KEYS', linear: '-
 export async function resolveScope(source: string, deps: ScopeDeps, o: { foreground: boolean }): Promise<ResolvedScope> {
   if (!isScoped(source)) return yours('default');
   const stored = deps.store.getScope(source);
+  if (stored?.kind === 'team' && stored.pending) {
+    const key = scopeKeyOf(source, stored.labels);
+    // Only a person at a terminal sees the disclosure and activates an agent's choice. Anything else keeps what was in force.
+    if (o.foreground && deps.isTty()) {
+      if (deps.store.isDisclosed(source, key)) deps.store.saveScope(source, { kind: 'team', values: stored.values, labels: stored.labels });
+      return team(source, stored.values, stored.labels, 'chosen', deps, true);
+    }
+    const kept = await resolveFrom(source, stored.pending.previous, deps, o);
+    return { ...kept, pendingConfirm: true, note: `Team scope for ${source} is waiting for you to confirm: run \`align sync ${source}\` (it will show what it reads)` };
+  }
+  return resolveFrom(source, stored, deps, o);
+}
+
+async function resolveFrom(source: ScopedSource, stored: StoredScope | ActiveScope | null, deps: ScopeDeps, o: { foreground: boolean }): Promise<ResolvedScope> {
   if (stored?.kind === 'team') return team(source, stored.values, stored.labels, 'chosen', deps, o.foreground);
   if (source === 'confluence') {
     return {
@@ -128,7 +159,7 @@ async function autoDetected(source: 'github' | 'gitlab', deps: ScopeDeps, foregr
       : "Reading only your own merge requests (this folder is not a GitLab project). To read everyone's in a project: align connect --source gitlab --gitlab-project group/project");
   }
   // A background run must not widen by itself: until the person has been told what a team read is, it stays at yours.
-  if (!foreground && !deps.store.isDisclosed(source)) return yours('default');
+  if (!foreground && !deps.store.isDisclosed(source, scopeKeyOf(source, [place]))) return yours('default');
   const fields = deps.store.fields(source);
   const seen = fields?.['token']
     ? source === 'github' ? await githubRepoVisibility(fields['token'], place, deps.fetch) : await gitlabProjectVisibility(fields, place, deps.fetch)
@@ -159,6 +190,8 @@ export interface SetScopeResult {
   label: string;
   /** True when this scope had no `source_sync` row before: its first sync reads the whole window. */
   newRow: boolean;
+  /** True when an agent set a team scope: it waits for a person to confirm at a terminal and is not read until then. */
+  pending?: boolean;
   /** What changed and what it costs, in words. */
   text: string;
   /** The plain-words team disclosure, for a team scope. Always returned: the person may not be at the terminal. */
@@ -264,15 +297,25 @@ export async function chooseScope(deps: ScopeDeps, source: string, input: SetInp
 }
 
 /** Write a checked choice: the stored preference, and the scope's own `source_sync` row (the source's window, no watermark). Deletes nothing. */
-export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choice, by: ChangedBy): { newRow: boolean; row?: { high_water: string | null; window_since: string | null } } {
-  if (choice.scope === 'team') deps.store.saveScope(source, { kind: 'team', values: choice.values, labels: choice.labels });
+export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choice, by: ChangedBy): { newRow: boolean; pending: boolean; row?: { high_water: string | null; window_since: string | null } } {
+  if (choice.scope === 'team') {
+    // An AGENT's team choice waits for a person (the disclosure at a terminal); what was in force stays in force until then.
+    // Re-choosing the scope that is already active is not a change, so it needs no confirmation.
+    const current = deps.store.getScope(source);
+    const active: ActiveScope | null = current === null ? null : current.kind === 'team' && current.pending ? current.pending.previous : current.kind === 'team' ? { kind: 'team', values: current.values, labels: current.labels } : current;
+    const same = active?.kind === 'team' && scopeKeyOf(source, active.labels) === choice.scopeKey;
+    deps.store.saveScope(source, by.via === 'mcp' && !same
+      ? { kind: 'team', values: choice.values, labels: choice.labels, pending: { previous: active } }
+      : { kind: 'team', values: choice.values, labels: choice.labels });
+  }
   // "Yours" is written down for every source that has one: otherwise GitHub and GitLab widen again from the folder's remote, and Jira
   // and Linear from the keys local decisions cite, as if nothing had been chosen.
   else deps.store.saveScope(source, { kind: 'yours' });
-  if (deps.dbPath === undefined || !fs.existsSync(deps.dbPath)) return { newRow: true };
+  const pending = deps.store.getScope(source)?.kind === 'team' && (deps.store.getScope(source) as { pending?: unknown }).pending !== undefined;
+  if (deps.dbPath === undefined || !fs.existsSync(deps.dbPath)) return { newRow: true, pending };
   const window = inheritedWindowSince(readRows(deps.dbPath, source), deps.now());
   const adopted = adoptScope(deps.dbPath, { source, scopeKey: choice.scopeKey, scope: choice.scope }, window, { via: by.via, agent: by.via === 'mcp' ? by.agent : null });
-  return { newRow: adopted.created, row: adopted.row };
+  return { newRow: adopted.created, pending, row: adopted.row };
 }
 
 /**
@@ -282,7 +325,7 @@ export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choic
  */
 export async function setScope(deps: ScopeDeps, source: string, input: SetInput, by: ChangedBy): Promise<SetScopeResult> {
   const choice = await chooseScope(deps, source, input, deps.store.fields(source));
-  const { newRow: created, row } = commitScope(deps, choice.source, choice, by);
+  const { newRow: created, pending, row } = commitScope(deps, choice.source, choice, by);
   const name = labelOf(choice.source);
   const result: SetScopeResult = { source: choice.source, scope: choice.scope, scopeKey: choice.scopeKey, label: choice.label, newRow: created, text: '' };
   if (choice.scope === 'yours') {
@@ -297,6 +340,10 @@ export async function setScope(deps: ScopeDeps, source: string, input: SetInput,
     ? `${name} now reads ${choice.label}. This scope has not been read before, so the next sync re-reads ${name} ${reach} for it. That can take a few minutes and uses part of your ${name} rate limit. Nothing already imported is deleted.`
     : `${name} now reads ${choice.label}. This scope was read before, so the next sync catches up since ${back}. Nothing already imported is deleted.`;
   result.disclosure = disclosureText(choice.source, choice.labels);
+  if (pending) {
+    result.pending = true;
+    result.text = `${name} will read ${choice.label} once the person confirms it. It is waiting for the person: nothing reads it in the background, or when an agent runs a sync, until they run \`align sync ${choice.source}\` at a terminal, which shows what it reads first. Until then ${name} keeps its current scope. When confirmed, the first sync re-reads ${name} ${reach} for this scope (a few minutes, some of its rate limit). Nothing already imported is deleted.`;
+  }
   return result;
 }
 
@@ -315,6 +362,8 @@ export interface ScopeView {
   /** Whether `setScope` can change it. False for Zoom, Slack, Notion and Teams. */
   can_set: boolean;
   origin: 'chosen' | 'detected' | 'default' | 'fixed';
+  /** An agent's team choice waiting for a person to confirm it at a terminal, in words. Not in force. */
+  waiting?: string;
 }
 
 const VIEW_ORDER = ['github', 'jira', 'confluence', 'slack', 'teams', 'gitlab', 'linear', 'notion', 'zoom'] as const;
@@ -332,16 +381,21 @@ export async function viewScopes(deps: ScopeDeps): Promise<ScopeView[]> {
       out.push({ source, kind: fixed.scope, scope_key: YOURS_KEY, label: fixed.text, can_set: false, origin: 'fixed' });
       continue;
     }
-    const stored = deps.store.getScope(source);
+    const raw = deps.store.getScope(source);
+    // A waiting agent choice is not in force: show what is, and what is waiting.
+    const waitingKey = raw?.kind === 'team' && raw.pending ? raw : undefined;
+    const stored: StoredScope | ActiveScope | null = waitingKey ? waitingKey.pending!.previous : raw;
+    const waiting = waitingKey ? { waiting: describeScopeKey(source, scopeKeyOf(source as ScopedSource, waitingKey.labels), 'team') } : {};
+    const push = (v: ScopeView): void => { out.push({ ...v, ...waiting }); };
     if (stored?.kind === 'team') {
-      out.push({ source, kind: 'team', scope_key: scopeKeyOf(source as ScopedSource, stored.labels), label: describeScopeKey(source, scopeKeyOf(source as ScopedSource, stored.labels), 'team'), values: stored.labels, can_set: true, origin: 'chosen' });
+      push({ source, kind: 'team', scope_key: scopeKeyOf(source as ScopedSource, stored.labels), label: describeScopeKey(source, scopeKeyOf(source as ScopedSource, stored.labels), 'team'), values: stored.labels, can_set: true, origin: 'chosen' });
     } else if (source === 'confluence') {
-      out.push({ source, kind: 'unset', scope_key: YOURS_KEY, label: 'no spaces chosen, so nothing is read', can_set: true, origin: 'default' });
+      push({ source, kind: 'unset', scope_key: YOURS_KEY, label: 'no spaces chosen, so nothing is read', can_set: true, origin: 'default' });
     } else if (stored?.kind === 'yours') {
-      out.push({ source, kind: 'yours', scope_key: YOURS_KEY, label: YOURS_LABEL, can_set: true, origin: 'chosen' });
+      push({ source, kind: 'yours', scope_key: YOURS_KEY, label: YOURS_LABEL, can_set: true, origin: 'chosen' });
     } else {
       const place = source === 'github' ? await deps.cwdRepo() : source === 'gitlab' ? await deps.cwdGitlabProject() : undefined;
-      out.push(place !== undefined
+      push(place !== undefined
         ? { source, kind: 'team', scope_key: scopeKeyOf(source as ScopedSource, [place]), label: describeScopeKey(source, scopeKeyOf(source as ScopedSource, [place]), 'team'), values: [place], can_set: true, origin: 'detected' }
         : { source, kind: 'yours', scope_key: YOURS_KEY, label: YOURS_LABEL, can_set: true, origin: 'default' });
     }

@@ -38,6 +38,8 @@ export interface SourceStatus {
   /** A read a ceiling cut in date order: how far back it got. Older history is still to come. */
   reached_back_to?: string;
   running?: 'sync' | 'backfill';
+  /** Scopes this source was read under before, kept in the graph and not read now. Absent when there are none. */
+  older_scopes?: number;
   /** The command or note the person needs, when there is one. */
   next_step?: string;
 }
@@ -50,6 +52,10 @@ export interface StatusDeps {
   /** The latest backfill status file for the source, if any. */
   backfill(id: string): BackfillStatus | null;
   backfillAlive(s: BackfillStatus): boolean;
+  /** The `source_sync.scope_key` in force for the source, when the caller can tell (the stored choice). Absent: the most recently started row. */
+  activeScopeKey?(id: string): string | undefined;
+  /** An agent's team choice waiting for a person to confirm it, in words, or undefined. */
+  pendingScope?(id: string): string | undefined;
 }
 
 export const TEAMS_NOTE = 'Teams: refresh manually with `align connect teams` (its token lasts about an hour). Only yours until then.';
@@ -101,8 +107,14 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
   const all = readRows(d.dbPath);
   const sources: SourceStatus[] = BACKFILL_SOURCES.map((id): SourceStatus => {
     const connected = d.isConnected(id);
-    const rows = all.filter((r) => r.source_id === id);
-    const worst = rows.reduce<SyncStatus | undefined>((w, r) => (w === undefined || RANK[r.status] > RANK[w] ? r.status : w), undefined);
+    const everyScope = all.filter((r) => r.source_id === id);
+    // Only the scope in force is described; the others are counted. (A refused token is refused for the whole source, so it is read off every row.)
+    const wanted = d.activeScopeKey?.(id);
+    const active = everyScope.find((r) => r.scope_key === wanted)
+      ?? [...everyScope].sort((a, b) => Date.parse(b.last_started_at ?? '') - Date.parse(a.last_started_at ?? ''))[0];
+    const rows = active ? [active] : [];
+    const older = everyScope.length - rows.length;
+    const worst = everyScope.some((r) => r.status === 'needs_reauth') ? 'needs_reauth' as SyncStatus : rows.reduce<SyncStatus | undefined>((w, r) => (w === undefined || RANK[r.status] > RANK[w] ? r.status : w), undefined);
     const lasts = rows.map((r) => r.last_success_at).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t)));
     const last = lasts.sort((a, b) => Date.parse(b) - Date.parse(a))[0];
     const attempts = rows.map((r) => r.last_attempt_at).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t)));
@@ -121,6 +133,7 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
       ...(missing.length > 0 ? { missing } : {}),
       ...(stuck ? { persistent_hole: `${stuck.hole_sig} (${stuck.hole_streak} runs in a row)` } : {}),
       ...(items !== undefined ? { items_last_run: items } : {}),
+      ...(older > 0 ? { older_scopes: older } : {}),
       ...(pending !== undefined ? { reached_back_to: pending } : {}),
       ...(connected && d.syncRunning(id) ? { running: 'sync' as const } : bf && d.backfillAlive(bf) ? { running: 'backfill' as const } : {}),
     };
@@ -128,6 +141,8 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
     if (!connected) s.next_step = `Not connected. Ask the person to run: align connect ${id}`;
     else if (s.status === 'needs_reauth') s.next_step = `The provider refused the saved token. Ask the person to run: align connect ${id}`;
     else if (id === 'teams') s.next_step = TEAMS_NOTE;
+    const waiting = connected ? d.pendingScope?.(id) : undefined;
+    if (waiting !== undefined) s.next_step = `Team scope for ${id} is waiting for you to confirm (${waiting}): run \`align sync ${id}\` (it will show what it reads)`;
     return s;
   });
   return { sources, rows_awaiting_relink: unfinishedCount(d.dbPath, EMBEDDING_MODEL_ID) };
@@ -152,6 +167,7 @@ export function renderStatus(r: { sources: SourceStatus[]; rows_awaiting_relink:
     if (s.persistent_hole) bits.push(`persistent hole: ${s.persistent_hole}; the sync reads the rest and no longer waits for it, so fix the access or leave it`);
     const skips = Object.entries(s.skips).map(([k, n]) => `${k} ${n}`);
     if (skips.length) bits.push(`skipped last run: ${skips.join(', ')}`);
+    if (s.older_scopes) bits.push(`${s.older_scopes} older scope${s.older_scopes === 1 ? '' : 's'} kept (not read)`);
     lines.push(`${s.label} (${s.scope}): ${bits.join('; ')}.`);
     if (s.next_step) lines.push(`  ${s.next_step}`);
   }

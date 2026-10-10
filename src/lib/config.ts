@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mergeWrittenConfig, type WrittenConfig } from './safe-config-write.js';
 import { STORABLE_PROVIDERS, type StoredProviderId } from './llm-providers.js';
-import type { StoredScope } from './scope-values.js';
+import type { ActiveScope, StoredScope } from './scope-values.js';
 
 export type EnvName = 'local' | 'preview' | 'prod';
 
@@ -253,7 +253,15 @@ export function createConfigStore() {
         const v = JSON.parse(raw) as { kind?: unknown; values?: unknown; labels?: unknown };
         if (v.kind === 'yours') return { kind: 'yours' };
         const strings = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.every((e) => typeof e === 'string');
-        if (v.kind === 'team' && strings(v.values) && strings(v.labels)) return { kind: 'team', values: v.values, labels: v.labels };
+        if (v.kind === 'team' && strings(v.values) && strings(v.labels)) {
+          const p = (v as { pending?: { previous?: unknown } }).pending;
+          if (p === undefined) return { kind: 'team', values: v.values, labels: v.labels };
+          // A waiting team scope whose "previous" cannot be read stays waiting on yours: never an active team read.
+          const prev = p.previous as { kind?: unknown; values?: unknown; labels?: unknown } | null | undefined;
+          const previous: ActiveScope | null = prev === null || prev === undefined ? null
+            : prev.kind === 'team' && strings(prev.values) && strings(prev.labels) ? { kind: 'team', values: prev.values, labels: prev.labels } : { kind: 'yours' };
+          return { kind: 'team', values: v.values, labels: v.labels, pending: { previous } };
+        }
       } catch { /* damaged: falls through to yours */ }
       return { kind: 'yours' };
     },
@@ -264,16 +272,18 @@ export function createConfigStore() {
       const { [`${env}:${connectorKey}:scope`]: _gone, ...kept } = getTokens();
       store.set('connectorTokens', kept);
     },
-    // L4: the one-time team-scope disclosure, remembered per source so it prints before the FIRST team read and not again.
+    // L4: the one-time team-scope disclosure, remembered per source and scope so it prints before the FIRST team read of each.
     getTeamScopeDisclosedFor(): string[] {
       return store.get('teamScopeDisclosedFor') ?? [];
     },
-    isTeamScopeDisclosed(source: string): boolean {
-      return (store.get('teamScopeDisclosedFor') ?? []).includes(source);
+    // Per (source, scope): told about repo A is not told about a wider scope set later.
+    isTeamScopeDisclosed(source: string, scopeKey: string): boolean {
+      return (store.get('teamScopeDisclosedFor') ?? []).includes(`${source}|${scopeKey}`);
     },
-    markTeamScopeDisclosed(source: string): void {
+    markTeamScopeDisclosed(source: string, scopeKey: string): void {
       const existing = store.get('teamScopeDisclosedFor') ?? [];
-      if (!existing.includes(source)) store.set('teamScopeDisclosedFor', [...existing, source]);
+      const entry = `${source}|${scopeKey}`;
+      if (!existing.includes(entry)) store.set('teamScopeDisclosedFor', [...existing, entry]);
     },
     setLocalMode(dbPath: string) {
       const envs = getEnvs();

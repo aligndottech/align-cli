@@ -56,6 +56,44 @@ describe('collectStatus', () => {
     expect(r.sources.find((s) => s.id === 'confluence')!.scope).toBe("everyone's items in Confluence space ENG");
   });
 
+  describe('L4: only the scope in force is described; older scopes are counted, not listed', () => {
+    const team = { source: 'jira', scopeKey: 'jira:OPS', scope: 'team' as const };
+    const yours = { source: 'jira', scopeKey: 'yours', scope: 'yours' as const };
+    beforeEach(() => {
+      beginRun(dbPath, yours, null, '2026-10-01T00:00:00.000Z');
+      saveRun(dbPath, yours, { attemptAt: '2026-10-01T01:00:00.000Z', status: 'partial', high_water: null, pending_until: null, items: 7, skips: [{ kind: 'error', count: 3, detail: 'old trouble' }], successAt: '2026-10-01T01:00:00.000Z' });
+      beginRun(dbPath, team, null, '2026-10-09T00:00:00.000Z');
+      saveRun(dbPath, team, { attemptAt: '2026-10-09T01:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 40, skips: [], successAt: '2026-10-09T01:00:00.000Z' });
+    });
+
+    it('the active scope (given by the caller) is the only one described, its numbers are its own, and the rest are counted', () => {
+      const j = collectStatus(deps(['jira'], { activeScopeKey: () => 'jira:OPS' })).sources.find((s) => s.id === 'jira')!;
+      expect(j).toMatchObject({ scope: "everyone's items in Jira project OPS", status: 'ok', items_last_run: 40, older_scopes: 1 });
+      expect(j.missing).toBeUndefined();
+      expect(j.skips).toEqual({});
+      expect(renderStatus({ sources: [j], rows_awaiting_relink: 0 })).toContain('1 older scope kept (not read)');
+    });
+
+    it('going back to yours makes the other row the older one', () => {
+      const j = collectStatus(deps(['jira'], { activeScopeKey: () => 'yours' })).sources.find((s) => s.id === 'jira')!;
+      expect(j).toMatchObject({ scope: 'your own items', items_last_run: 7, older_scopes: 1 });
+      expect(j.missing).toEqual(['your own items: 3 old trouble']);
+    });
+
+    it('with no answer from the caller, the scope most recently started is the active one; a single scope has no older line', () => {
+      const j = collectStatus(deps(['jira'])).sources.find((s) => s.id === 'jira')!;
+      expect(j.scope).toBe("everyone's items in Jira project OPS");
+      const only = collectStatus(deps(['github'])).sources.find((s) => s.id === 'github')!;
+      expect(only.older_scopes).toBeUndefined();
+      expect(renderStatus({ sources: [only], rows_awaiting_relink: 0 })).not.toContain('older scope');
+    });
+
+    it('an agent-chosen scope waiting for a person is said, with the command', () => {
+      const j = collectStatus(deps(['jira'], { pendingScope: () => "everyone's items in Jira project BETA" })).sources.find((s) => s.id === 'jira')!;
+      expect(j.next_step).toBe("Team scope for jira is waiting for you to confirm (everyone's items in Jira project BETA): run `align sync jira` (it will show what it reads)");
+    });
+  });
+
   it('a refused token carries the exact re-auth command', () => {
     markNeedsReauth(dbPath, { source: 'jira', scopeKey: 'yours', scope: 'yours' }, null, '2026-10-10T11:00:00.000Z');
     expect(collectStatus(deps(['jira'])).sources.find((s) => s.id === 'jira')).toMatchObject({ status: 'needs_reauth', next_step: 'The provider refused the saved token. Ask the person to run: align connect jira' });

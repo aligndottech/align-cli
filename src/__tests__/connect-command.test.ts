@@ -438,7 +438,7 @@ describe('align connect (ALI-951)', () => {
       await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI']);
       expect(mockFetchJira).toHaveBeenCalledWith(expect.objectContaining({ projects: ['ALI'] }));
       expect((log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n')).toContain('Importing items from everyone in Jira project ALI that your token can read. They stay on this machine.');
-      expect(mockMarkDisclosed).toHaveBeenCalledWith('jira');
+      expect(mockMarkDisclosed).toHaveBeenCalledWith('jira', 'jira:ALI');
       expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', { kind: 'team', values: ['ALI'], labels: ['ALI'] });
     });
 
@@ -449,8 +449,19 @@ describe('align connect (ALI-951)', () => {
       await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI', '--json']);
       expect((log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n')).not.toContain('Importing items from everyone');
       expect(mockMarkDisclosed).not.toHaveBeenCalled();
-      const out = JSON.parse(stdout[stdout.length - 1]!) as { sources: Array<{ reads?: string }> };
+      const out = JSON.parse(stdout[stdout.length - 1]!) as { sources: Array<{ reads?: string; disclosure_pending?: boolean }> };
       expect(out.sources[0]!.reads).toBe("everyone's items in Jira project ALI, as far as your token can see");
+      expect(out.sources[0]).toMatchObject({ disclosure_pending: true });
+    });
+
+    it('a plain (not --json) team connect owes nothing: the result carries no disclosure_pending', async () => {
+      savedAtlassian();
+      await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI', '--json', '--scope', 'team']);
+      const quiet = JSON.parse(stdout[stdout.length - 1]!) as { sources: Array<{ disclosure_pending?: boolean }> };
+      expect(quiet.sources[0]!.disclosure_pending).toBe(true);
+      stdout.length = 0;
+      await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI']);
+      expect(stdout.join('\n')).not.toContain('disclosure_pending');
     });
 
     it('--scope yours on GitHub reads no repo even inside one, and writes the choice down', async () => {

@@ -92,13 +92,15 @@ describe('connector scope storage', () => {
 });
 
 describe('team scope disclosure', () => {
-  it('is false until marked, then true for that source only, and marking twice stores it once', () => {
+  it('is false until marked, then true for that source and scope only, and marking twice stores it once', () => {
     const c = createConfigStore();
-    expect(c.isTeamScopeDisclosed('github')).toBe(false);
-    c.markTeamScopeDisclosed('github');
-    c.markTeamScopeDisclosed('github');
-    expect(c.isTeamScopeDisclosed('github')).toBe(true);
-    expect(c.isTeamScopeDisclosed('jira')).toBe(false);
-    expect(c.getTeamScopeDisclosedFor()).toEqual(['github']);
+    expect(c.isTeamScopeDisclosed('github', 'repo:o/r')).toBe(false);
+    c.markTeamScopeDisclosed('github', 'repo:o/r');
+    c.markTeamScopeDisclosed('github', 'repo:o/r');
+    expect(c.isTeamScopeDisclosed('github', 'repo:o/r')).toBe(true);
+    // Per (source, scope): another repo, and another source, are not told yet.
+    expect(c.isTeamScopeDisclosed('github', 'repo:o/other')).toBe(false);
+    expect(c.isTeamScopeDisclosed('jira', 'repo:o/r')).toBe(false);
+    expect(c.getTeamScopeDisclosedFor()).toEqual(['github|repo:o/r']);
   });
 });

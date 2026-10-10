@@ -100,12 +100,15 @@ describe('set', () => {
     beginRun(dbPath, { source: 'jira', scopeKey: 'yours', scope: 'yours' }, '2026-04-12T12:00:00.000Z', '2026-10-10T12:00:00.000Z');
     const deps = d({ table: [jiraProjects('ALI', 'OPS')] });
     const r = await runScopeTool({ action: 'set', source: 'jira', projects: ['OPS'] }, localEnv, deps, { agent: 'claude-code' });
-    expect(deps.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'] });
+    // An agent's team choice WAITS for a person: stored as pending, with what stays in force meanwhile.
+    expect(deps.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'], pending: { previous: null } });
     expect(readRows(dbPath, 'jira').find((x) => x.scope_key === 'jira:OPS')).toMatchObject({ scope: 'team', changed_via: 'mcp', changed_by_agent: 'claude-code', high_water: null });
     expect(r.text).toContain('Importing items from everyone in Jira project OPS that your token can read. They stay on this machine.');
     expect(r.text).toContain('re-reads Jira back to 2026-04-12');
     expect(r.text).toContain('Nothing already imported is deleted');
-    expect(r).toMatchObject({ source: 'jira', scope: 'team', scope_key: 'jira:OPS', new_scope: true });
+    expect(r.text).toContain('waiting for the person');
+    expect(r.text).toContain('align sync jira');
+    expect(r).toMatchObject({ source: 'jira', scope: 'team', scope_key: 'jira:OPS', new_scope: true, pending: true });
   });
 
   it('attributes to "unknown" when the client did not identify itself', async () => {

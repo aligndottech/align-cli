@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { configScopeStore, gitlabPlaceOf, realScopeDeps } from '../lib/scope-real.js';
+import { configScopeStore, gitlabPlaceOf, realScopeDeps, scopeStatusHooks } from '../lib/scope-real.js';
 
 const resolveRepo = vi.hoisted(() => vi.fn());
 vi.mock('../lib/fetchers/github.js', () => ({ resolveGitHubRepoScope: resolveRepo }));
@@ -44,6 +44,26 @@ describe('configScopeStore', () => {
     s.markDisclosed('github');
     expect(s.isDisclosed('github')).toBe(true);
     expect(s.isDisclosed('gitlab')).toBe(false);
+  });
+});
+
+describe('scopeStatusHooks', () => {
+  it('the active scope key and the waiting scope come from the stored choice: team, yours, waiting over nothing, waiting over a team', () => {
+    const c = configScopeStore();
+    const h = scopeStatusHooks();
+    expect(h.activeScopeKey('slack')).toBeUndefined();
+    c.saveScope('jira', { kind: 'team', values: ['ALI', 'OPS'], labels: ['ALI', 'OPS'] });
+    expect(h.activeScopeKey('jira')).toBe('jira:ALI,OPS');
+    expect(h.pendingScope('jira')).toBeUndefined();
+    c.saveScope('github', { kind: 'yours' });
+    expect(h.activeScopeKey('github')).toBe('yours');
+    c.saveScope('linear', { kind: 'team', values: ['i'], labels: ['ENG'], pending: { previous: null } });
+    expect(h.activeScopeKey('linear')).toBeUndefined();
+    expect(h.pendingScope('linear')).toBe("everyone's items in Linear team ENG");
+    c.saveScope('gitlab', { kind: 'team', values: ['g/p'], labels: ['g/p'], pending: { previous: { kind: 'team', values: ['a/b'], labels: ['a/b'] } } });
+    expect(h.activeScopeKey('gitlab')).toBe('gitlab:a/b');
+    c.saveScope('confluence', { kind: 'team', values: ['ENG'], labels: ['ENG'], pending: { previous: { kind: 'yours' } } });
+    expect(h.activeScopeKey('confluence')).toBe('yours');
   });
 });
 

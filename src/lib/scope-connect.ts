@@ -18,7 +18,7 @@
 import * as p from '@clack/prompts';
 import type { createConfigStore } from './config.js';
 import type { CaptureFetchResult } from './fetchers/capture.js';
-import { type Choice, chooseScope, commitScope, type ResolvedScope, resolveScope, type ScopeDeps, type SetInput } from './scope.js';
+import { type Choice, chooseScope, commitScope, markTold, type ResolvedScope, resolveScope, type ScopeDeps, type SetInput } from './scope.js';
 import { citedProjectKeys } from './scope-defaults.js';
 import { realScopeDeps } from './scope-real.js';
 import { listConfluenceSpaces, listJiraProjects, listLinearTeams, ScopeLookupError } from './scope-choices.js';
@@ -49,6 +49,8 @@ export interface ScopeDecision {
   extras: FetchExtras;
   scope: 'yours' | 'team';
   label: string;
+  /** True when this is a team read the person could not be told about (quiet): the disclosure is still owed. */
+  readonly disclosurePending?: boolean;
   /** Write the choice. Called once, after the fetch succeeded. */
   commit(): void;
 }
@@ -99,29 +101,29 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     return { extras: {}, scope: 'yours', label: 'your own items', commit() {} };
   }
   // The store, with this source's fields replaced by the ones in hand: a first connect has nothing saved to read.
-  const deps: ScopeDeps = { ...ctx.deps, store: { ...ctx.deps.store, fields: (s) => (s === source ? tokens : ctx.deps.store.fields(s)) } };
+  const deps: ScopeDeps = { ...ctx.deps, isTty: () => ctx.interactive, store: { ...ctx.deps.store, fields: (s) => (s === source ? tokens : ctx.deps.store.fields(s)) } };
+  // A team read whose disclosure could not be shown (--json): the result says so, and it stays un-marked for the next foreground run.
+  let disclosurePending = false;
   const blocked = (reason: string): Error => new Error(reason);
 
-  const told = (labels: string[], team: boolean): void => {
-    if (!team || deps.store.isDisclosed(source)) return;
-    tell(disclosureText(source, labels));
-    if (!ctx.quiet) deps.store.markDisclosed(source);
+  const told = (scopeKey: string, text: string): void => {
+    if (deps.store.isDisclosed(source, scopeKey)) return;
+    if (ctx.quiet) { disclosurePending = true; return; }
+    tell(text);
+    markTold(deps.store, source, scopeKey);
   };
   const fromChoice = (c: Choice): ScopeDecision => {
-    told(c.labels, c.scope === 'team');
+    if (c.scope === 'team') told(c.scopeKey, disclosureText(source, c.labels));
     const extras: FetchExtras = c.scope === 'yours'
       ? { resolved: true }
       : { resolved: true, ...(source === 'github' ? { repo: c.values[0]!, team: true } : fetchOptsFor(source, c.values)) };
-    return { extras, scope: c.scope, label: c.label, commit: () => { commitScope(deps, source, c, { via: 'cli' }); } };
+    return { extras, scope: c.scope, label: c.label, get disclosurePending() { return disclosurePending; }, commit: () => { commitScope(deps, source, c, { via: 'cli' }); } };
   };
   const fromResolved = (r: ResolvedScope): ScopeDecision => {
     if (r.blocked !== undefined) throw blocked(r.blocked);
-    if (r.disclosure !== undefined) {
-      tell(r.disclosure);
-      if (!ctx.quiet) deps.store.markDisclosed(source);
-    }
+    if (r.disclosure !== undefined) told(r.scopeKey, r.disclosure);
     if (r.note !== undefined) tell(r.note);
-    return { extras: { resolved: true, ...(r.repo ? { repo: r.repo, team: true } : {}), ...r.extras }, scope: r.scope, label: r.label, commit() {} };
+    return { extras: { resolved: true, ...(r.repo ? { repo: r.repo, team: true } : {}), ...r.extras }, scope: r.scope, label: r.label, get disclosurePending() { return disclosurePending; }, commit() {} };
   };
   const resolved = async (): Promise<ScopeDecision> => fromResolved(await resolveScope(source, deps, { foreground: true }));
   const list = async (): Promise<Array<{ key: string; name: string }> | undefined> => {
@@ -196,6 +198,7 @@ export async function fetchUnderScope(
   if (decision.scope === 'team' && fetched.report.scopeNote === undefined) {
     fetched.report.scopeNote = `${decision.label}, as far as your token can see`;
   }
+  if (decision.disclosurePending) fetched.report.disclosurePending = true;
   return fetched;
 }
 

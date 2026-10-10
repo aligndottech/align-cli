@@ -58,7 +58,7 @@ export interface SyncEnv {
   /** L4: print the one-time team-scope disclosure. Wired only for a foreground run; nobody is there to read it in the background. */
   announce?(source: string, line: string): void;
   /** L4: remember the disclosure was told. Called only after `announce`. */
-  markDisclosed?(source: string): void;
+  markDisclosed?(source: string, scopeKey: string): void;
   fetch(source: string, tokens: Record<string, string>, win: SourceWindow, scope: SyncScope): Promise<CaptureFetchResult>;
   client: Pick<ReturnType<typeof createLocalGatewayClient>, 'ingestBatch' | 'relinkUnfinished'>;
   lock(name: string): Lock;
@@ -132,7 +132,7 @@ async function run(source: string, tokens: Record<string, string>, env: SyncEnv,
   if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
   if (scope.disclosure !== undefined && env.announce) {
     env.announce(source, scope.disclosure);
-    env.markDisclosed?.(source);
+    env.markDisclosed?.(source, scope.scopeKey);
   }
   const key = { source, scopeKey: scope.scopeKey, scope: scope.scope };
   const rows = readRows(env.dbPath, source);

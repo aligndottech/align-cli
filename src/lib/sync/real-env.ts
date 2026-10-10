@@ -10,7 +10,8 @@ import { createLocalGatewayClient } from '../local-gateway-client.js';
 import { getLocalDbPath } from '../local-mode.js';
 import { acquireLock, lockHolder } from './lock.js';
 import type { SyncEnv } from './run-source.js';
-import { realScopeDeps } from '../scope-real.js';
+import { markTold } from '../scope.js';
+import { configScopeStore, realScopeDeps, scopeStatusHooks } from '../scope-real.js';
 import { fetchSource, fetchWhole, scopeOf } from './sources.js';
 import type { StatusDeps } from './status.js';
 
@@ -27,7 +28,7 @@ export function realSyncEnv(dbPath: string, config = createConfigStore()): SyncE
     now: () => new Date(),
     tokens: (source) => config.getConnectorFields('local', source),
     scopeOf: (source, o) => scopeOf(source, o, realScopeDeps(dbPath, { config })),
-    markDisclosed: (source) => config.markTeamScopeDisclosed(source),
+    markDisclosed: (source, scopeKey) => markTold(configScopeStore(config), source, scopeKey),
     fetch: fetchSource,
     fetchWhole,
     client: createLocalGatewayClient(dbPath),
@@ -38,7 +39,7 @@ export function realSyncEnv(dbPath: string, config = createConfigStore()): SyncE
 
 export function realStatusDeps(dbPath: string, config = createConfigStore()): StatusDeps {
   return {
-    dbPath,
+    dbPath, ...scopeStatusHooks(config),
     isConnected: (id) => Boolean(config.getConnectorFields('local', id)?.['token']),
     syncRunning: (id) => lockHolder(`sync-${id}`) !== undefined,
     backfill: (id) => {

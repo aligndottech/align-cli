@@ -52,6 +52,8 @@ export interface CaptureFetchReport {
   discussionTotal?: number;
   /** L3: one line saying whose items a team-scope read covered ("everyone's PRs and issues in o/r"). */
   scopeNote?: string;
+  /** L4: a team read that --json could not tell the person about; the disclosure is still owed and shows at the next foreground run. */
+  disclosurePending?: boolean;
 }
 
 /** L3: what every windowed fetch is given on top of its limit (see fetchWindow in since.ts). */

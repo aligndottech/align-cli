@@ -35,11 +35,11 @@ export const SCOPE_TOOL_SCHEMA = {
   annotations: { readOnlyHint: false, destructiveHint: false },
   description:
     'See, or change, what the sources the user has ALREADY connected read into the local graph on this machine: only their own items, or everyone\'s in one named GitHub repo, Jira project, Linear team, GitLab project or Confluence space that their token can see. ' +
-    'action "view" lists each connected source\'s scope; use it when the user asks what is being read or why teammates\' items are missing. ' +
+    'action "view" lists each connected source\'s scope (and any change waiting for the person); use it when asked what is read or why teammates\' items are missing. ' +
     'action "set" changes one source; offer it when the user asks to include their team\'s items, or to go back to only their own. ' +
-    'Widening is a new scope: the next sync re-reads that source\'s history for it, which takes a few minutes and some of its rate limit (the reply says how far back). ' +
-    'It reads other people\'s items onto this machine only, and deletes nothing. After a team change, tell the user the disclosure sentence from the reply in your own plain words, then offer align_sync with action "run". ' +
-    'Zoom is only the user\'s own. Slack, Notion and Teams already read all their token can see. ' +
+    'Widening re-reads that source\'s history on its next sync (a few minutes; the reply says how far back). ' +
+    'It deletes nothing and reads other people\'s items onto this machine only. A team change you make WAITS for the person: it is not read, by a background sync or by align_sync, until they run `align sync <source>` at a terminal, which shows them what it reads first. Tell them so, with the reply\'s disclosure sentence in your own words; do not start it yourself. Narrowing to their own items is immediate. ' +
+    'Zoom is only the user\'s own; Slack, Notion and Teams already read all their token can see. ' +
     'It never takes a token or key: for a source that is not connected, or whose saved token was refused, the reply gives the exact `align connect <source>` command for the user to run themselves. Do not ask the user to paste a token into the chat.',
   inputSchema: {
     type: 'object',
@@ -144,7 +144,7 @@ async function set(input: Record<string, unknown>, deps: ScopeDeps, agent: strin
     const r = await setScope(deps, source, change, { via: 'mcp', agent });
     return {
       text: [r.text, r.disclosure].filter((x) => x !== undefined && x !== '').join(' '),
-      source: r.source, scope: r.scope, scope_key: r.scopeKey, new_scope: r.newRow,
+      source: r.source, scope: r.scope, scope_key: r.scopeKey, new_scope: r.newRow, pending: r.pending === true,
     };
   } catch (e) {
     if (e instanceof ScopeRefusal) throw new Error(e.message);

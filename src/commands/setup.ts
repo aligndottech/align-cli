@@ -741,6 +741,7 @@ export interface ConnectedSourceResult {
   error?: string;
   /** L3: whose items a team-scope read covered, when it was one. */
   reads?: string;
+  disclosure_pending?: boolean; // L4: a team read --json could not tell the person about; still owed
 }
 
 export interface ConnectLocalSourcesOptions {
@@ -980,7 +981,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
           funnel: { env: localEnv, source: source.id },
         });
       }
-      results.push({ id: source.id, label: source.label, found: items.length, imported, ...(fetched.report.scopeNote ? { reads: fetched.report.scopeNote } : {}) });
+      results.push({ id: source.id, label: source.label, found: items.length, imported, ...(fetched.report.scopeNote ? { reads: fetched.report.scopeNote } : {}), ...(fetched.report.disclosurePending ? { disclosure_pending: true } : {}) });
     } catch (e) {
       const msg = (e as Error).message;
       // An import that threw stored an unknown amount: never leave the report saying all of it.

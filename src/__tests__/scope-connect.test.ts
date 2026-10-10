@@ -66,7 +66,7 @@ describe('GitHub', () => {
       expect(d).toMatchObject({ scope: 'team', extras: { resolved: true, repo: 'o/r', team: true }, label: "everyone's items in o/r" });
       expect(s.said).toHaveLength(1);
       expect(s.said[0]).toContain('Importing items from everyone in o/r that your token can read. They stay on this machine.');
-      expect(s.deps.store.disclosed.has('github')).toBe(true);
+      expect(s.deps.store.disclosed.has('github|repo:o/r')).toBe(true);
       expect(s.asked).toEqual([]);
     }
   });
@@ -78,14 +78,14 @@ describe('GitHub', () => {
     const quiet = setup({ quiet: true, cwdRepo: 'o/r', table: [SEARCH] });
     await decideConnectScope('github', TOKENS.github, quiet.ctx);
     expect(quiet.said).toEqual([]);
-    expect(quiet.deps.store.disclosed.has('github')).toBe(false);
+    expect(quiet.deps.store.disclosed.has('github|repo:o/r')).toBe(false);
   });
 
   it('quiet with a CHOSEN scope (a flag) prints nothing and does not mark it told either', async () => {
     const s = setup({ quiet: true, flags: { projects: 'ALI' }, table: [jiraProjects('ALI')] });
     await decideConnectScope('jira', TOKENS.jira, s.ctx);
     expect(s.said).toEqual([]);
-    expect(s.deps.store.disclosed.has('jira')).toBe(false);
+    expect(s.deps.store.disclosed.has('jira|jira:ALI')).toBe(false);
   });
 
   it('a repo the token cannot see: yours, resolved with no repo, and the line is said', async () => {
@@ -409,15 +409,21 @@ describe('one choice, three surfaces', () => {
     expect(readRows(dbPath, 'jira').map((r) => r.scope_key)).toContain('jira:ALI');
   });
 
-  it('a choice made by an agent through align_scope is what connect then keeps (non-interactive, nothing flagged) and what sync reads', async () => {
+  it('a choice made by an agent through align_scope waits: sync and a non-terminal connect keep the old scope; a person at a terminal is told, and then it is what sync reads', async () => {
     const s = setup({ table: [jiraProjects('ALI', 'OPS')] });
     const env = { mode: 'local-embedded', gatewayUrl: '', authToken: null, tenantId: null, localDbPath: dbPath } as never;
     await runScopeTool({ action: 'set', source: 'jira', projects: ['OPS'] }, env, s.deps, { agent: 'claude-code' });
-    const d = await decideConnectScope('jira', TOKENS.jira, s.ctx);
-    expect(d).toMatchObject({ scope: 'team', extras: { projects: ['OPS'] } });
+    // Not read by a background sync, nor by a connect with nobody at a terminal.
+    expect(await scopeOf('jira', { trigger: 'background' }, s.deps)).toMatchObject({ scopeKey: 'yours', note: expect.stringContaining('waiting for you to confirm') });
+    expect((await decideConnectScope('jira', TOKENS.jira, s.ctx)).scope).toBe('yours');
+    expect(s.said.join('\n')).toContain('waiting for you to confirm');
+    // A person at a terminal sees what it reads, and from then on it is the scope.
+    const person = setup({ interactive: true, picks: ['OPS'], store: s.deps.store, table: [jiraProjects('ALI', 'OPS')] });
+    person.deps.isTty = () => true;
+    const d = await decideConnectScope('jira', TOKENS.jira, person.ctx);
+    expect(d.scope).toBe('team');
+    expect(person.said.join('\n')).toContain('everyone in Jira project OPS');
     expect(await scopeOf('jira', { trigger: 'background' }, s.deps)).toMatchObject({ scopeKey: 'jira:OPS' });
-    // The disclosure the agent relayed was not the person seeing it at a terminal: connect still tells them.
-    expect(s.said.join('\n')).toContain('everyone in Jira project OPS');
   });
 
   it('narrowing back from connect (--scope yours) is what sync reads next, and the team row and its items stay', async () => {

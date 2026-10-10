@@ -26,8 +26,9 @@ export function memStore(init: { connected?: string[]; scopes?: Record<string, S
     saveScope: (s, v) => { scopes[s] = v; },
     clearScope: (s) => { delete scopes[s]; },
     fields: (s) => (connected.has(s) ? FIELDS[s] ?? null : null),
-    isDisclosed: (s) => disclosed.has(s),
-    markDisclosed: (s) => { disclosed.add(s); },
+    // An init entry of just a source id means "told for every scope of it"; marking is always per (source, scope).
+    isDisclosed: (s, key) => disclosed.has(s) || disclosed.has(`${s}|${key}`),
+    markDisclosed: (s, key) => { disclosed.add(`${s}|${key}`); },
   };
 }
 
@@ -51,7 +52,7 @@ export function makeDeps(dbPath: string | undefined, over: Partial<ScopeDeps> & 
   const r = routes(over.table ?? []);
   const store = over.store ?? memStore();
   return {
-    dbPath, now: () => NOW, cwdRepo: async () => undefined, cwdGitlabProject: async () => undefined, fetch: r.fetch, ...over, store, calls: r.calls,
+    dbPath, now: () => NOW, isTty: () => true, cwdRepo: async () => undefined, cwdGitlabProject: async () => undefined, fetch: r.fetch, ...over, store, calls: r.calls,
   } as TestDeps;
 }
 

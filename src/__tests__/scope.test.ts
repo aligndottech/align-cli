@@ -5,7 +5,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
-import { resolveScope, ScopeRefusal, setScope, viewScopes } from '../lib/scope.js';
+import type { ActiveScope } from '../lib/scope-values.js';
+import { markTold, resolveScope, ScopeRefusal, setScope, viewScopes } from '../lib/scope.js';
 import { beginRun, readRows } from '../lib/sync/sync-state.js';
 import { jiraProjects, makeDeps, memStore, type Route, TOKEN } from './helpers/scope-deps.js';
 
@@ -111,6 +112,89 @@ describe('resolveScope: GitHub', () => {
   });
 });
 
+describe('consent: a team scope an agent set waits for a person', () => {
+  const pendingJira = (previous: ActiveScope | null = null) => ({ jira: { kind: 'team' as const, values: ['OPS'], labels: ['OPS'], pending: { previous } } });
+
+  it('set by an agent (via mcp) is stored pending, with the scope it replaces remembered; set by a person (via cli) is active at once (both sides)', async () => {
+    const agent = deps({ table: [jiraProjects('OPS')] });
+    const r = await setScope(agent, 'jira', { scope: 'team', values: ['OPS'] }, { via: 'mcp', agent: 'codex' });
+    expect(agent.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'], pending: { previous: null } });
+    expect(r.pending).toBe(true);
+    expect(r.text).toContain('waiting for the person');
+    expect(r.text).toContain('align sync jira');
+    expect(r.disclosure).toContain('Jira project OPS');
+    const person = deps({ table: [jiraProjects('OPS')] });
+    const p = await setScope(person, 'jira', { scope: 'team', values: ['OPS'] }, { via: 'cli' });
+    expect(person.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'] });
+    expect(p.pending).toBeFalsy();
+  });
+
+  it('a second agent change keeps the ORIGINAL previous scope, not the first pending one', async () => {
+    const store = memStore({ scopes: { jira: { kind: 'team', values: ['ALI'], labels: ['ALI'] } } });
+    const d = deps({ store, table: [jiraProjects('ALI', 'OPS', 'BETA')] });
+    await setScope(d, 'jira', { scope: 'team', values: ['OPS'] }, { via: 'mcp', agent: 'a' });
+    await setScope(d, 'jira', { scope: 'team', values: ['BETA'] }, { via: 'mcp', agent: 'a' });
+    expect(store.scopes['jira']).toMatchObject({ values: ['BETA'], pending: { previous: { kind: 'team', values: ['ALI'], labels: ['ALI'] } } });
+  });
+
+  it('an agent narrowing to yours needs no consent and clears a waiting team scope; an agent re-setting the scope already active is not pending', async () => {
+    const store = memStore({ scopes: pendingJira() });
+    await setScope(deps({ store }), 'jira', { scope: 'yours' }, { via: 'mcp', agent: 'a' });
+    expect(store.scopes['jira']).toEqual({ kind: 'yours' });
+    const active = memStore({ scopes: { jira: { kind: 'team', values: ['OPS'], labels: ['OPS'] } } });
+    const r = await setScope(deps({ store: active, table: [jiraProjects('OPS')] }), 'jira', { scope: 'team', values: ['OPS'] }, { via: 'mcp', agent: 'a' });
+    expect(active.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'] });
+    expect(r.pending).toBeFalsy();
+  });
+
+  it('a BACKGROUND or non-terminal read keeps the previous scope and says the new one is waiting (previous yours, previous team: two cases)', async () => {
+    const waiting = await resolveScope('jira', deps({ store: memStore({ scopes: pendingJira() }) }), { foreground: false });
+    expect(waiting).toMatchObject({ scope: 'yours', scopeKey: 'yours', extras: {} });
+    expect(waiting.note).toBe('Team scope for jira is waiting for you to confirm: run `align sync jira` (it will show what it reads)');
+    expect(waiting.disclosure).toBeUndefined();
+    const prev = { kind: 'team' as const, values: ['ALI'], labels: ['ALI'] };
+    const keep = await resolveScope('jira', deps({ store: memStore({ scopes: pendingJira(prev) }) }), { foreground: false });
+    expect(keep).toMatchObject({ scope: 'team', scopeKey: 'jira:ALI', extras: { projects: ['ALI'] } });
+    expect(keep.note).toContain('waiting for you to confirm');
+  });
+
+  it('a foreground read WITHOUT a terminal (an agent running `align sync`) is also kept on the previous scope', async () => {
+    const d = deps({ store: memStore({ scopes: pendingJira() }), isTty: () => false });
+    expect(await resolveScope('jira', d, { foreground: true })).toMatchObject({ scope: 'yours', note: expect.stringContaining('waiting for you to confirm') });
+  });
+
+  it('a person at a terminal gets the new scope WITH the disclosure; marking it told (for that scope) activates it', async () => {
+    const store = memStore({ scopes: pendingJira() });
+    const r = await resolveScope('jira', deps({ store }), { foreground: true });
+    expect(r).toMatchObject({ scope: 'team', scopeKey: 'jira:OPS', extras: { projects: ['OPS'] } });
+    expect(r.disclosure).toContain('everyone in Jira project OPS');
+    expect(store.scopes['jira']).toHaveProperty('pending');
+    markTold(store, 'jira', 'jira:OPS');
+    expect(store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'] });
+    expect(await resolveScope('jira', deps({ store }), { foreground: false })).toMatchObject({ scope: 'team', scopeKey: 'jira:OPS' });
+  });
+
+  it('marking a DIFFERENT scope told does not activate the waiting one', async () => {
+    const store = memStore({ scopes: pendingJira() });
+    markTold(store, 'jira', 'jira:ALI');
+    expect(store.scopes['jira']).toHaveProperty('pending');
+  });
+
+  it('the disclosure is per (source, scope): told for one repo, a wider or different scope is announced again; the same scope is not (both sides)', async () => {
+    const store = memStore({ disclosed: ['jira|jira:ALI'], scopes: { jira: { kind: 'team', values: ['ALI', 'OPS'], labels: ['ALI', 'OPS'] } } });
+    expect((await resolveScope('jira', deps({ store }), { foreground: true })).disclosure).toContain('Jira projects ALI, OPS');
+    const same = memStore({ disclosed: ['jira|jira:ALI,OPS'], scopes: { jira: { kind: 'team', values: ['ALI', 'OPS'], labels: ['ALI', 'OPS'] } } });
+    expect((await resolveScope('jira', deps({ store: same }), { foreground: true })).disclosure).toBeUndefined();
+  });
+
+  it('view shows the active scope and the waiting one, and makes no request', async () => {
+    const d = deps({ store: memStore({ connected: ['jira'], scopes: pendingJira() }) });
+    const v = (await viewScopes(d))[0]!;
+    expect(v).toMatchObject({ kind: 'yours', scope_key: 'yours', waiting: "everyone's items in Jira project OPS" });
+    expect(d.calls).toHaveLength(0);
+  });
+});
+
 describe('resolveScope: review additions', () => {
   it('a team read in the BACKGROUND carries no disclosure, even for a stored choice (the line is for a person at a terminal)', async () => {
     const store = memStore({ scopes: { linear: { kind: 'team', values: ['id-9'], labels: ['ENG'] } } });
@@ -190,7 +274,7 @@ describe('setScope', () => {
     seedRows();
     const d = deps({ table: [jiraProjects('ALI', 'OPS')] });
     const r = await setScope(d, 'jira', { scope: 'team', values: ['ops'] }, { via: 'mcp', agent: 'claude-code' });
-    expect(d.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'] });
+    expect(d.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'], pending: { previous: null } });
     const row = readRows(dbPath, 'jira').find((x) => x.scope_key === 'jira:OPS')!;
     expect(row).toMatchObject({ scope: 'team', window_since: WINDOW, high_water: null, changed_via: 'mcp', changed_by_agent: 'claude-code' });
     expect(r).toMatchObject({ scope: 'team', scopeKey: 'jira:OPS', newRow: true });

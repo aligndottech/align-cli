@@ -174,7 +174,7 @@ describe('github: items first, whole repo when there is a repo', () => {
     resolveRepo.mockResolvedValue('o/r');
     await run('github', []);
     expect(infoLog).toHaveBeenCalledWith(expect.stringContaining('Importing items from everyone in o/r that your token can read. They stay on this machine.'));
-    expect(disclosure.mark).toHaveBeenCalledWith('github');
+    expect(disclosure.mark).toHaveBeenCalledWith('github', 'repo:o/r');
     infoLog.mockClear();
     disclosure.told.mockReturnValue(true);
     await run('github', []);

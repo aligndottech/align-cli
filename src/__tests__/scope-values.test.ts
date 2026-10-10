@@ -163,13 +163,15 @@ describe('FIXED_SCOPES', () => {
 describe('discloseTeamScope', () => {
   it('speaks the first time for a source, marks it told, and stays quiet after (two sources)', () => {
     const told = new Set<string>();
-    const store = { isTeamScopeDisclosed: (s: string) => told.has(s), markTeamScopeDisclosed: (s: string) => { told.add(s); } };
+    const store = { isTeamScopeDisclosed: (s: string, k: string) => told.has(`${s}|${k}`), markTeamScopeDisclosed: (s: string, k: string) => { told.add(`${s}|${k}`); } };
     const said: string[] = [];
     expect(discloseTeamScope(store, 'github', ['o/r'], (l) => said.push(l))).toBe(true);
     expect(discloseTeamScope(store, 'github', ['o/r'], (l) => said.push(l))).toBe(false);
     expect(discloseTeamScope(store, 'jira', ['ALI'], (l) => said.push(l))).toBe(true);
     expect(said).toHaveLength(2);
     expect(said[0]).toContain('everyone in o/r');
-    expect([...told]).toEqual(['github', 'jira']);
+    expect([...told]).toEqual(['github|repo:o/r', 'jira|jira:ALI']);
+    // a different repo is a different scope: told again
+    expect(discloseTeamScope(store, 'github', ['o/other'], (l) => said.push(l))).toBe(true);
   });
 });

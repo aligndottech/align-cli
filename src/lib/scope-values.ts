@@ -25,10 +25,18 @@ export class ScopeValueError extends Error {
 export const YOURS_KEY = 'yours';
 
 /** What a person chose for one source, kept beside its token (non-secret). Absent means "no choice": the narrower scope. */
-export type StoredScope =
+export type ActiveScope =
   | { kind: 'yours' }
   /** `values` are what the fetcher takes (Linear: team ids); `labels` are what people read (Linear: team keys). */
   | { kind: 'team'; values: string[]; labels: string[] };
+/**
+ * `pending` marks a team scope an AGENT chose (align_scope via MCP): nothing reads it in the background, or for an agent running
+ * `align sync`, until a person at a terminal has been shown the disclosure. `previous` is what stays in force until then (null: nothing
+ * was chosen before, so the source's default applies).
+ */
+export type StoredScope =
+  | { kind: 'yours' }
+  | { kind: 'team'; values: string[]; labels: string[]; pending?: { previous: ActiveScope | null } };
 const MAX_VALUES = 20;
 
 const GITHUB_REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
@@ -154,16 +162,17 @@ export function disclosureText(source: ScopedSource, labels: string[]): string {
 }
 
 /**
- * Say the team-scope disclosure the FIRST time a source is read as team, then remember it was said. For the readers that do not go
+ * Say the team-scope disclosure the FIRST time a (source, scope) is read as team, then remember it was said. For the readers that do not go
  * through scope.ts (the per-source `align connect <source>` commands). Returns whether it spoke.
  */
 export function discloseTeamScope(
-  store: { isTeamScopeDisclosed(source: string): boolean; markTeamScopeDisclosed(source: string): void },
+  store: { isTeamScopeDisclosed(source: string, scopeKey: string): boolean; markTeamScopeDisclosed(source: string, scopeKey: string): void },
   source: ScopedSource, labels: string[], say: (line: string) => void,
 ): boolean {
-  if (store.isTeamScopeDisclosed(source)) return false;
+  const key = scopeKeyOf(source, labels);
+  if (store.isTeamScopeDisclosed(source, key)) return false;
   say(disclosureText(source, labels));
-  store.markTeamScopeDisclosed(source);
+  store.markTeamScopeDisclosed(source, key);
   return true;
 }
 
