@@ -48,3 +48,39 @@ export async function ttyConfirm(shown: string, question: string, paths: TtyPath
     output.destroy();
   }
 }
+
+/**
+ * Ask for one line of text on the controlling terminal, with the same proof of a terminal as ttyConfirm.
+ * `onShown` runs after `shown` is on the terminal and before the person can answer, so a caller can record
+ * "asked" even when the answer never comes (Ctrl-C ends the readline, which reads as an empty answer here).
+ * Returns the typed line, '' for Enter, Ctrl-C or end of input, or null when there is no interactive terminal
+ * (nothing is written then, and `onShown` does not run).
+ */
+export async function ttyAsk(shown: string, question: string, onShown?: () => void, paths: TtyPaths = TTY_PATHS): Promise<string | null> {
+  let inFd = -1;
+  let outFd = -1;
+  try {
+    inFd = fs.openSync(paths[0], 'r');
+    outFd = fs.openSync(paths[1], 'w');
+    if (!tty.isatty(inFd) || !tty.isatty(outFd)) throw new Error('not an interactive terminal');
+  } catch {
+    for (const fd of [inFd, outFd]) if (fd >= 0) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+    return null;
+  }
+  const input = new tty.ReadStream(inFd);
+  const output = new tty.WriteStream(outFd);
+  const rl = readline.createInterface({ input, output, terminal: true });
+  try {
+    if (shown !== '') output.write(`${shown}\n`);
+    onShown?.();
+    return await new Promise<string>((resolve) => {
+      rl.once('close', () => resolve(''));
+      rl.once('SIGINT', () => rl.close());
+      rl.question(`${question} `, resolve);
+    });
+  } finally {
+    rl.close();
+    input.destroy();
+    output.destroy();
+  }
+}
