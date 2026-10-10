@@ -25,6 +25,8 @@ import { BOOK_CALL_URL, teamCtaLine } from '../lib/team-cta.js';
  * - --confirm: valid code + tty yes sends; no controlling tty, expired, used, changed payload, other env: exit 1 and nothing sent.
  * - --all-ratified shares only what the person ratified; no selector at all is a usage error.
  */
+// Windows runs the local DB roughly 10x slower than Linux (fsync per commit): several tests here open two or three fresh graphs.
+vi.setConfig({ testTimeout: 30_000 });
 let dir: string; let dbPath: string; let stateDir: string;
 const ME = 'me@co.com';
 const TENANT = { id: 'T1', name: 'Acme' };
