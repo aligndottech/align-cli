@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,7 +10,13 @@ import type { EnvironmentConfig } from '../lib/config.js';
  * instructions, and through the real dispatcher. Nothing here touches a real vendor, a real
  * token or the real graph: the config store, the child process and the DB are doubles or temp.
  */
-const spawnMock = vi.hoisted(() => vi.fn(() => ({ on: vi.fn(), unref: vi.fn() })));
+// A child that "starts": the 'spawn' event fires, and the pid is a live one (this process) so the
+// cap can see it.
+const spawnMock = vi.hoisted(() => vi.fn(() => ({
+  pid: process.pid,
+  on: (ev: string, cb: () => void) => { if (ev === 'spawn') queueMicrotask(cb); },
+  unref: vi.fn(),
+})));
 vi.mock('node:child_process', async (orig) => ({ ...(await orig<object>()), spawn: spawnMock }));
 const fields = vi.hoisted(() => ({ value: null as Record<string, string> | null }));
 vi.mock('../lib/config.js', async (orig) => ({
@@ -23,6 +30,7 @@ import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
 
 vi.setConfig({ testTimeout: 30_000 });
 
+const saved: Record<string, string | undefined> = {};
 let dir: string;
 let env: EnvironmentConfig;
 const cloudEnv = { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't', tenantId: null } as EnvironmentConfig;
@@ -34,8 +42,14 @@ beforeEach(() => {
   env = { mode: 'local-embedded', gatewayUrl: '', authToken: null, tenantId: null, localDbPath: dbPath };
   fields.value = { token: 'tok-in-store' };
   spawnMock.mockClear();
+  // The state directory (status files) is scratch too, and so is the home a fallback would use.
+  for (const k of ['XDG_STATE_HOME', 'HOME', 'USERPROFILE', 'LOCALAPPDATA']) saved[k] = process.env[k];
+  process.env['XDG_STATE_HOME'] = dir; process.env['HOME'] = dir; process.env['USERPROFILE'] = dir; process.env['LOCALAPPDATA'] = dir;
 });
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 describe('the tool on the list', () => {
   const tool = () => TOOL_SCHEMAS.find((t) => t.name === 'align_backfill') as unknown as {
@@ -83,9 +97,34 @@ describe('through the dispatcher', () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const call = spawnMock.mock.calls[0] as unknown as [string, string[], { detached: boolean; stdio: string }];
     expect(call[0]).toBe(process.execPath);
-    expect(call[1].slice(1)).toEqual(['connect', '--source', 'github', '--since', '1y', '--yes', '--json']);
-    expect(call[2]).toMatchObject({ detached: true, stdio: 'ignore' });
+    expect(call[1].slice(1)).toEqual(['connect', '--env', 'local', '--source', 'github', '--since', '1y', '--yes', '--json']);
+    expect(call[2]).toMatchObject({ detached: true, stdio: 'ignore', windowsHide: true });
+    // The status file the child will fill in lives in the (scratch) state directory.
+    expect((call[2] as unknown as { env: Record<string, string> }).env['ALIGN_BACKFILL_STATUS']).toBe(path.join(dir, 'align-cli', 'backfill', 'github.json'));
     expect(JSON.stringify(call)).not.toContain('tok-in-store');
+  });
+
+  it('leaves a status file for the child it started, with the pid, for align_sync to find', async () => {
+    await dispatchTool('align_backfill', { source: 'github' }, client, env);
+    const file = path.join(dir, 'align-cli', 'backfill', 'github.json');
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ source: 'github', pid: process.pid, state: 'running' });
+  });
+
+  it('a second backfill of the same source is refused while the first runs (the pid is alive)', async () => {
+    await dispatchTool('align_backfill', { source: 'github' }, client, env);
+    const r = await dispatchTool('align_backfill', { source: 'github', since: '1y' }, client, env) as { started: boolean; text: string };
+    expect(r.started).toBe(false);
+    expect(r.text).toMatch(/already running/);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a status file left by a child that died does not block the next one', async () => {
+    const stale = path.join(dir, 'align-cli', 'backfill');
+    fs.mkdirSync(stale, { recursive: true });
+    const dead = Number(spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout);
+    fs.writeFileSync(path.join(stale, 'github.json'), JSON.stringify({ source: 'github', pid: dead, started_at: '2026-10-01T00:00:00.000Z', state: 'running' }));
+    const r = await dispatchTool('align_backfill', { source: 'github' }, client, env) as { started: boolean };
+    expect(r.started).toBe(true);
   });
 
   it('records the window where L5 will read it', async () => {

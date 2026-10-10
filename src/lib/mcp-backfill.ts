@@ -4,7 +4,7 @@
  *
  * What it does, and what it cannot:
  * - A connected, healthy source: record the window in `source_sync` and start the SAME command
- *   a person would type (`align connect --source <id> --since <when> --yes --json`) as a
+ *   a person would type (`align connect --env local --source <id> --since <when> --yes --json`) as a
  *   detached child (Decision 9). A tool call never runs a bulk fetch in the MCP server's own
  *   process, and it returns inside journey 5's 500 ms.
  * - Not connected, or waiting on re-authentication: start nothing and return the exact command
@@ -14,12 +14,15 @@
  * - It never classifies. `align connect` imports with the classifier off (L1); this adds no
  *   other path.
  *
- * Not here yet (L5): the detached `align sync --background` child, the lock, and progress via
- * `align_sync`. Until then the child is `align connect`, which has no lock and writes no
- * watermark, so two backfills of one source can overlap. The import is an upsert, so overlap
- * costs time and never duplicates a row.
+ * Children are capped (one per source, three in all; backfill-state.ts) and leave a status file
+ * under the state directory, so none is silently orphaned and `align_sync` (L5) can find them.
+ * "Started" is claimed only after the OS confirmed the child, and the window is recorded after.
+ *
+ * Not here yet (L5): the `align sync --background` child, the lock and the watermark. Until then
+ * the child is `align connect --env local`. The import is an upsert, so an overlap costs time and
+ * never duplicates a row.
  */
-import { spawn } from 'node:child_process';
+import { admit, backfillDir, type BackfillStatus, liveBackfills, startBackfillChild, statusPath } from './backfill-state.js';
 import type { EnvironmentConfig } from './config.js';
 import { createConfigStore } from './config.js';
 import { SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from './import-defaults.js';
@@ -64,13 +67,24 @@ export interface BackfillDeps {
   isConnected(source: string): boolean;
   needsReauth(source: string): boolean;
   recordWindow(source: string, since: string | null, agent: string): void;
-  /** Start `align <argv>` detached. Must not wait for it. */
-  startConnect(argv: string[]): void;
+  /** Children that are running right now (status file says running AND the pid is alive). */
+  live(): BackfillStatus[];
+  /** Start `align <argv>` detached and wait briefly for the OS to confirm it exists. */
+  start(source: string, argv: string[]): Promise<{ ok: boolean; pid?: number }>;
 }
 
 export interface BackfillResult {
   started: boolean;
   text: string;
+}
+
+/**
+ * The child's arguments. `--env local` is not optional: for a logged-in user the default env is
+ * hosted, where `align connect --since` is refused with exit 2 (the hosted scan takes --from/--to)
+ * and, with stdio ignored, nobody would hear. check.ts spawns its child the same way (--env).
+ */
+export function backfillArgv(source: string, sinceArg: string): string[] {
+  return ['connect', '--env', 'local', '--source', source, '--since', sinceArg, '--yes', '--json'];
 }
 
 export function defaultBackfillDeps(env: EnvironmentConfig): BackfillDeps {
@@ -85,13 +99,14 @@ export function defaultBackfillDeps(env: EnvironmentConfig): BackfillDeps {
     isConnected: (source) => Boolean(config.getConnectorFields('local', source)?.['token']),
     needsReauth: (source) => readSyncStatus(need(), source).needsReauth,
     recordWindow: (source, since, agent) => recordWindowSince(need(), source, since, agent),
-    startConnect: (argv) => {
-      // process.argv[1] is this CLI's own entry point, however it was installed; execPath is a
-      // real executable on Windows too (check.ts spawns the deferred adjudicator the same way).
-      const child = spawn(process.execPath, [process.argv[1] ?? 'align', ...argv], { detached: true, stdio: 'ignore' });
-      // spawn reports failure asynchronously; an unhandled 'error' would take the MCP server down.
-      child.on('error', () => {});
-      child.unref();
+    live: () => {
+      const dir = backfillDir();
+      return dir ? liveBackfills(dir) : [];
+    },
+    start: async (source, argv) => {
+      const dir = backfillDir();
+      if (!dir) return { ok: false };
+      return startBackfillChild(source, argv, statusPath(dir, source));
     },
   };
 }
@@ -115,8 +130,8 @@ export async function runBackfill(
   const source = input['source'];
   if (typeof source !== 'string' || !(BACKFILL_SOURCES as readonly string[]).includes(source)) {
     throw new Error(
-      `${BACKFILL_TOOL} requires "source", one of: ${BACKFILL_SOURCES.join(', ')}. ${
-        typeof source === 'string' && source ? `Got "${source.slice(0, 40)}".` : 'Call it again with one of those.'}`,
+      // The value is never echoed: a token pasted into the wrong field fits any slice.
+      `${BACKFILL_TOOL} requires "source", one of: ${BACKFILL_SOURCES.join(', ')}. Call it again with one of those.`,
     );
   }
   if (env.mode !== 'local-embedded') {
@@ -154,13 +169,33 @@ export async function runBackfill(
     };
   }
 
+  const admission = admit(deps.live(), source);
+  if (!admission.ok) {
+    const names = [...new Set(admission.running.map((r) => r.source))].join(', ');
+    return {
+      started: false,
+      text: admission.reason === 'source'
+        ? `A backfill for ${source} is already running (started ${admission.running[0]!.started_at.slice(0, 16).replace('T', ' ')} UTC), so nothing new was started. It only reads and makes no LLM calls; ask again when it has finished.`
+        : `${admission.running.length} backfills are already running (${names}), which is the most at once, so nothing new was started. Ask again when one has finished.`,
+    };
+  }
+  const started = await deps.start(source, backfillArgv(source, sinceArg));
+  if (!started.ok) {
+    return {
+      started: false,
+      text: `The background process for ${source} could not start, so nothing was started. The person can run it themselves: align connect ${source} --since ${sinceArg}`,
+    };
+  }
+  // Only now: the window is recorded for a child that exists.
   deps.recordWindow(source, window.since ?? null, UNKNOWN_AGENT);
-  deps.startConnect(['connect', '--source', source, '--since', sinceArg, '--yes', '--json']);
   const reach = window.since === undefined
     ? `as far back as the ceiling allows (${SYNC_CEILINGS[source as BackfillSource]} items)`
     : `back to ${window.since.slice(0, 10)}`;
+  const scope = source === 'github'
+    ? " Inside a repo it reads everyone's PRs and issues in that repo, as far as their access allows; elsewhere only the person's own."
+    : '';
   return {
     started: true,
-    text: `Backfill started for ${source} ${reach}. It runs in the background on this machine, only reads, and makes no LLM calls. New items appear in align_ask as they land.`,
+    text: `Backfill started for ${source} ${reach}. It runs in the background on this machine, only reads, and makes no LLM calls.${scope} New items appear in align_ask as they land.`,
   };
 }

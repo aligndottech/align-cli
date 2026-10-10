@@ -7,6 +7,7 @@ import { initLocalMode } from '../lib/local-mode.js';
 import { createCaptureCollector } from '../lib/capture-report.js';
 import { connectLocalSources } from './setup.js';
 import { sinceFromFlag } from '../lib/since-flag.js';
+import { trackChildFromEnv } from '../lib/backfill-state.js';
 
 /**
  * ALI-951: `align import <source>` was renamed `align connect <source>` in 0.38.0 and kept as
@@ -43,6 +44,9 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
   if (envName !== 'local') return false;
   // Before any prompt or request: a window nobody meant is refused, not read and called complete.
   const window = sinceFromFlag(opts.since);
+  // Set only when `align_backfill` started this process: it records how the run ended (exit code,
+  // last line) in the state directory, so a backfill that failed is not invisible.
+  const track = trackChildFromEnv();
 
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!interactive && !opts.source) {
@@ -81,6 +85,7 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
       json: opts.json,
       window,
     });
+    track?.note(results.map((r) => (r.error ? `${r.id}: ${r.error}` : `${r.id}: found ${r.found}, imported ${r.imported}`)).join('; '));
     if (opts.json) {
       console.log(JSON.stringify({ env: 'local', graph: dbPath, sources: results }));
       return true;
@@ -94,6 +99,7 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
       p.log.info(chalk.dim('Nothing connected. Run align connect again to pick a source, or align connect --source <id>.'));
     }
   } catch (e) {
+    track?.note((e as Error).message);
     console.error(chalk.red(`align connect: ${(e as Error).message}`));
     process.exit(2);
   }
