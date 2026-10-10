@@ -6,6 +6,7 @@ import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } 
 import type { DeciderKind } from './decider-kind.js';
 import { bumpRowSetEpoch, rowSetEpoch } from './local-db-epoch.js';
 import { foldKeylessTwin } from './local-db-v7.js';
+import { discussionStart } from './github-text.js';
 import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
 
 export interface DecisionRow {
@@ -314,14 +315,18 @@ export function createLocalDb(dbPath: string) {
      * `text_revision_pending` audit note and the stored text is returned. Any other row (or an
      * unknown id) gets the incoming text back unchanged.
      */
-    keepProtectedText(id: string, title: string, summary: string, thin = false): { title: string; summary: string } {
+    keepProtectedText(id: string, title: string, summary: string, thin = false): { title: string; summary: string; keptDiscussion?: true } {
       const row = db.prepare(`SELECT title, summary, detail_pending, ratified_at, confirmed_at FROM decisions WHERE id = ?`).get(id) as
         { title: string; summary: string; detail_pending: number; ratified_at: string | null; confirmed_at: string | null } | undefined;
-      if (row && row.ratified_at === null && row.confirmed_at === null && thin && row.detail_pending === 0 && row.summary.startsWith(summary)) {
-        // L3: `thin` is an items-first arrival (discussion not fetched). The stored row already has
-        // its discussion and the arrival is its body prefix, so the BODY is kept and the arriving
-        // TITLE is not: a title carries no discussion, so a rename is as complete as it ever is.
-        return { title, summary: row.summary };
+      if (row && row.ratified_at === null && row.confirmed_at === null && thin && row.detail_pending === 0) {
+        // L3: `thin` is an items-first arrival (discussion not fetched). The stored row is complete
+        // and has a discussion block: keep the BLOCK and take everything else from the arrival
+        // (title, body, Status, Repo), so a merge, a rename or an edit still lands. The result
+        // equals the stored text when nothing changed, which makes the caller's unchanged-skip fire.
+        const keep = discussionStart(row.summary);
+        if (keep !== -1 && discussionStart(summary) === -1) {
+          return { title, summary: summary + row.summary.slice(keep), keptDiscussion: true };
+        }
       }
       if (!row || (row.ratified_at === null && row.confirmed_at === null)) return { title, summary };
       if (row.title !== title || row.summary !== summary) {

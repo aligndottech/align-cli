@@ -1,6 +1,5 @@
 // L3: a GitHub item fetched items-first (discussion: 'none') arrives with detail_pending, and the
-// local graph has to remember that, or the discussion drain has nothing to find. And an items-only
-// re-import must never overwrite the richer text of a row whose discussion is already stored.
+// local graph has to remember that, or the discussion drain has nothing to find.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
@@ -56,16 +55,4 @@ describe('detail_pending is stored from the fetched item', () => {
   });
 });
 
-describe('an items-only re-import never downgrades a row that already has its discussion', () => {
-  it('keeps the richer text and leaves the flag clear', async () => {
-    await ingest([item(PR1, 'Body only\n\nComment: we chose Postgres', false)]);
-    await ingest([item(PR1, 'Body only', true)]);
-    expect(row(PR1)).toMatchObject({ detail_pending: 0, summary: expect.stringContaining('we chose Postgres') });
-  });
-
-  it('still refreshes a row that is itself pending (nothing richer to protect)', async () => {
-    await ingest([item(PR1, 'Body only', true)]);
-    await ingest([item(PR1, 'Body edited', true)]);
-    expect(row(PR1)).toMatchObject({ detail_pending: 1, summary: expect.stringContaining('Body edited') });
-  });
-});
+// The re-import-over-a-complete-row cases live in local-ingest-keep-richer.test.ts, on the SDK's real text.
