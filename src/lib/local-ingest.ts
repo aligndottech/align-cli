@@ -53,7 +53,9 @@ export function isCaptureShaped(row: { title: string; summary: string; source_ur
   let url: URL;
   try { url = new URL(row.source_url); } catch { return false; }
   const f = captureFieldsForUrl(url);
-  return row.summary === f.summary || row.title === f.title.slice(0, 80);
+  // The title alone is not a signal: a Linear/Jira/GitHub import can be titled by the same
+  // segment (ENG-12). It counts only for a row with no summary at all.
+  return row.summary === f.summary || (row.summary === '' && row.title === f.title.slice(0, 80));
 }
 
 export interface IngestResult {

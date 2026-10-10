@@ -181,3 +181,82 @@ describe('a ratified or confirmed row keeps its text through a re-import (review
     } finally { client.close(); }
   });
 });
+
+describe('re-review: attested keyless twin, ratification conflicts, note growth (N5, N1, N4, N6)', () => {
+  const U = 'https://github.com/o/r/pull/8';
+
+  it('N5: a keyless RATIFIED row beside an unattested keyed holder survives with its ratification and text', () => {
+    const db = createLocalDb(dbPath);
+    try {
+      db.insertDecision({ title: 'Old', summary: 's1', sourceUrl: U, platform: 'github', keyed: true });
+      const raw = new DatabaseSync(dbPath);
+      raw.prepare(`INSERT INTO decisions (id,title,summary,source_url,platform,ratified_by,ratified_at) VALUES ('legacy','New','human-ratified text',?,'github','tom','2026-10-01T00:00:00Z')`).run(U);
+      raw.close();
+      const id = db.insertDecision({ title: 'New', summary: 'upstream text', sourceUrl: U, platform: 'github', keyed: true });
+      expect(id).toBe('legacy');
+      expect(rows('SELECT id, summary, ratified_by AS r, source_key FROM decisions')).toEqual([
+        { id: 'legacy', summary: 'human-ratified text', r: 'tom', source_key: `github|${U}` },
+      ]);
+      expect(rows(`SELECT actor FROM decision_audit WHERE action = 'merged'`)).toEqual([{ actor: 'sync' }]);
+    } finally { db.close(); }
+  });
+
+  it('N5: the fold is one transaction: a failure part-way leaves both rows and no backup row', () => {
+    const db = createLocalDb(dbPath);
+    try {
+      db.insertDecision({ title: 'Old', summary: 's1', sourceUrl: U, platform: 'github', keyed: true });
+      const raw = new DatabaseSync(dbPath);
+      raw.prepare(`INSERT INTO decisions (id,title,summary,source_url,platform) VALUES ('legacy','New','s2',?,'github')`).run(U);
+      raw.exec(`CREATE TRIGGER boom BEFORE DELETE ON decisions BEGIN SELECT RAISE(ABORT, 'boom'); END`);
+      raw.close();
+      expect(() => db.insertDecision({ title: 'New', summary: 's3', sourceUrl: U, platform: 'github', keyed: true })).toThrow(/boom/);
+      expect(rows('SELECT count(*) AS n FROM decisions')).toEqual([{ n: 2 }]);
+      expect(rows('SELECT count(*) AS n FROM decisions_merged_backup')).toEqual([{ n: 0 }]);
+    } finally { db.close(); }
+  });
+
+  it('N1: two ratified twins with different text: the earliest wins and the other ratification stays visible in a live table', () => {
+    const v6 = createV6Graph(dbPath);
+    v6.insertDecision({ id: 'a', title: 'Use Postgres', summary: 'ratified A', sourceUrl: PR, platform: 'github' });
+    v6.raw.prepare(`UPDATE decisions SET ratified_by = 'tom', ratified_at = '2026-01-01T00:00:00Z' WHERE id = 'a'`).run();
+    v6.insertDecision({ id: 'b', title: 'Do not use Postgres', summary: 'ratified B', sourceUrl: PR, platform: 'github' });
+    v6.raw.prepare(`UPDATE decisions SET ratified_by = 'dan', ratified_at = '2026-02-01T00:00:00Z' WHERE id = 'b'`).run();
+    v6.close();
+    createLocalDb(dbPath).close();
+    expect(rows('SELECT id, summary, ratified_by AS r FROM decisions')).toEqual([{ id: 'a', summary: 'ratified A', r: 'tom' }]);
+    const c = rows(`SELECT detail FROM decision_audit WHERE decision_id = 'a' AND action = 'ratification_conflict'`);
+    expect(c.map(x => JSON.parse(x.detail as string))).toEqual([
+      { by: 'dan', at: '2026-02-01T00:00:00Z', title: 'Do not use Postgres', summary: 'ratified B' },
+    ]);
+  });
+
+  it('N4: pending-revision notes dedupe by content and keep only the 5 newest', () => {
+    const db = createLocalDb(dbPath);
+    try {
+      const id = db.insertDecision({ title: 'T', summary: 'v0', sourceUrl: PR, platform: 'github', keyed: true });
+      db.markRatified(id, 'tom');
+      for (let i = 1; i <= 50; i++) db.keepProtectedText(id, 'T', `v0 ${i}`);
+      for (let i = 0; i < 50; i++) db.keepProtectedText(id, 'T', 'v0 50');
+      const notes = rows(`SELECT detail FROM decision_audit WHERE action = 'text_revision_pending' ORDER BY rowid`);
+      expect(notes.map(n => JSON.parse(n.detail as string).summary)).toEqual(['v0 46', 'v0 47', 'v0 48', 'v0 49', 'v0 50']);
+    } finally { db.close(); }
+  });
+
+  it('capture_seen is written once per decision per day', async () => {
+    const client = createLocalGatewayClient(dbPath);
+    try {
+      await client.ingestBatch([{ source_url: PR, platform: 'github', title: 'Adopt', raw_text: 'body' }], { classify: false, keyed: true });
+      for (let i = 0; i < 3; i++) await client.captureDecision(PR, 'github');
+      expect(rows(`SELECT count(*) AS n FROM decision_audit WHERE action = 'capture_seen'`)).toEqual([{ n: 1 }]);
+    } finally { client.close(); }
+  });
+
+  it('N6: an imported Linear row whose title equals the URL segment is keyed (its summary is not "Captured from")', () => {
+    const v6 = createV6Graph(dbPath);
+    v6.insertDecision({ id: 'z1', title: 'ENG-12', summary: 'linear body', sourceUrl: 'https://linear.app/a/issue/ENG-12', platform: 'linear' });
+    v6.insertDecision({ id: 'z2', title: 'ENG-12 retitled', summary: 'linear body 2', sourceUrl: 'https://linear.app/a/issue/ENG-12', platform: 'linear' });
+    v6.close();
+    createLocalDb(dbPath).close();
+    expect(rows('SELECT id FROM decisions')).toEqual([{ id: 'z2' }]);
+  });
+});

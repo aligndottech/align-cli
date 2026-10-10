@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } from './local-db-migrate.js';
 import type { DeciderKind } from './decider-kind.js';
-import { absorbLoser } from './local-db-v7.js';
+import { foldKeylessTwin } from './local-db-v7.js';
 import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
 
 export interface DecisionRow {
@@ -228,7 +228,7 @@ export function createLocalDb(dbPath: string) {
         const twin = db.prepare(`SELECT id FROM decisions WHERE source_url = ? AND title = ? AND source_key IS NULL`).get(sourceUrl, row.title) as { id: string } | undefined;
         const holder = twin ? db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined : undefined;
         if (twin && !holder) db.prepare(`UPDATE decisions SET source_key = ? WHERE id = ?`).run(key, twin.id);
-        else if (twin && holder) absorbLoser(db, twin.id, holder.id, new Set([twin.id, holder.id]));
+        else if (twin && holder) foldKeylessTwin(db, twin.id, holder.id, key);
       }
       const inserted = db.prepare(
         `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -314,7 +314,12 @@ export function createLocalDb(dbPath: string) {
       if (row.title !== title || row.summary !== summary) {
         const detail = JSON.stringify({ title, summary });
         const seen = db.prepare(`SELECT 1 AS hit FROM decision_audit WHERE decision_id = ? AND action = 'text_revision_pending' AND detail = ?`).get(id, detail);
-        if (!seen) api.insertAudit({ decisionId: id, action: 'text_revision_pending', actor: null, detail });
+        if (!seen) {
+          api.insertAudit({ decisionId: id, action: 'text_revision_pending', actor: null, detail });
+          // Bounded: an upstream that changes every sync would otherwise add a row per sync.
+          db.prepare(`DELETE FROM decision_audit WHERE decision_id = ? AND action = 'text_revision_pending' AND rowid NOT IN
+            (SELECT rowid FROM decision_audit WHERE decision_id = ? AND action = 'text_revision_pending' ORDER BY rowid DESC LIMIT 5)`).run(id, id);
+        }
       }
       return { title: row.title, summary: row.summary };
     },
@@ -336,7 +341,8 @@ export function createLocalDb(dbPath: string) {
     noteCaptureOfHeldItem(url: string): DecisionRow | null {
       const id = api.findKeyedIdByUrl(url);
       const row = id === null ? null : api.getDecisionById(id);
-      if (row) api.insertAudit({ decisionId: row.id, action: 'capture_seen', actor: null, detail: url });
+      const today = id === null ? undefined : db.prepare(`SELECT 1 AS hit FROM decision_audit WHERE decision_id = ? AND action = 'capture_seen' AND date(created_at) = date('now')`).get(id);
+      if (row && !today) api.insertAudit({ decisionId: row.id, action: 'capture_seen', actor: null, detail: url });
       return row;
     },
 

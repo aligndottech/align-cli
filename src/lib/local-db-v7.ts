@@ -133,7 +133,7 @@ function repointLinks(db: DatabaseSync, loser: string, survivor: string, group: 
  *  vector (a survivor that takes newer text is the newest row, which already holds that
  *  text's vector). Also used by insertDecision to absorb a keyless row written by an older
  *  binary. */
-export function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, group: Set<string>): void {
+function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, group: Set<string>, actor: string): void {
   const hasJudgements = tableExists(db, 'local_judgements');
   const hasPromotions = tableExists(db, 'promotions');
   db.prepare('INSERT INTO decisions_merged_backup SELECT * FROM decisions WHERE id = ?').run(loserId);
@@ -151,11 +151,11 @@ export function absorbLoser(db: DatabaseSync, loserId: string, survivorId: strin
   db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(loserId);
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(loserId);
   db.prepare('DELETE FROM decisions WHERE id = ?').run(loserId);
-  db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'merged', 'migration', ?)`)
-    .run(survivorId, loserId);
+  db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'merged', ?, ?)`)
+    .run(survivorId, actor, loserId);
 }
 
-interface TwinRow {
+export interface TwinRow {
   id: string; rowid: number; created_at: string; title: string; summary: string;
   ratified_by: string | null; ratified_at: string | null; confirmed_by: string | null; confirmed_at: string | null;
 }
@@ -166,49 +166,81 @@ function earliestBy(twins: TwinRow[], at: 'ratified_at' | 'confirmed_at'): TwinR
     .sort((a, b) => (a[at]! < b[at]! ? -1 : a[at]! > b[at]! ? 1 : a.rowid - b.rowid));
 }
 
+const auditInsert = `INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?)`;
+
 /**
- * Survivor: the earliest ratified row, else the earliest confirmed row, else the newest. A row
- * a person ratified or confirmed keeps ITS text and vector: the attestation covers text they
+ * Fold a set of twins of one item into one row. Survivor: the earliest ratified row, else the
+ * earliest confirmed row, else `preferred` (the keyed holder at runtime) or the newest. A row a
+ * person ratified or confirmed keeps ITS text and vector: the attestation covers text they
  * read, so newer upstream text is recorded as a `text_revision_pending` audit note instead of
- * replacing it. An unattested survivor (the newest row) holds the newest text already. Either
- * way the survivor keeps the earliest created_at and carries any ratification or confirmation
- * a loser held that it lacks.
+ * replacing it. An unattested survivor holds the newest text already. Either way the survivor
+ * keeps the earliest created_at and carries any ratification or confirmation a loser held that
+ * it lacks. A SECOND ratified twin with different text is a disagreement between two people:
+ * its ratification is kept as a `ratification_conflict` audit row (by, at, text) on the
+ * survivor. The local graph has no decision flag column or status surface for that, so the
+ * audit row is the visible record. Caller owns the transaction.
  */
-function mergeGroup(db: DatabaseSync, key: string): void {
-  const twins = db.prepare(
-    `SELECT id, rowid, created_at, title, summary, ratified_by, ratified_at, confirmed_by, confirmed_at
-     FROM decisions WHERE source_key = ? ORDER BY rowid`,
-  ).all(key) as unknown as TwinRow[];
+export function foldTwins(db: DatabaseSync, twins: TwinRow[], key: string, actor: string, preferred?: string): void {
   const newest = twins[twins.length - 1]!;
-  const ratified = earliestBy(twins, 'ratified_at')[0];
+  const ratifiedAll = earliestBy(twins, 'ratified_at');
+  const ratified = ratifiedAll[0];
   const confirmed = earliestBy(twins, 'confirmed_at')[0];
   const attested = ratified ?? confirmed;
-  const survivor = attested ?? newest;
+  const survivor = attested ?? twins.find(t => t.id === preferred) ?? newest;
   const group = new Set(twins.map(t => t.id));
   const earliestCreated = twins.map(t => t.created_at).sort()[0]!;
   const latest = db.prepare('SELECT source_url, repo, decided_at FROM decisions WHERE id = ?')
     .get(newest.id) as { source_url: string | null; repo: string | null; decided_at: string | null };
 
-  for (const loser of twins.filter(t => t.id !== survivor.id)) absorbLoser(db, loser.id, survivor.id, group);
+  for (const loser of twins.filter(t => t.id !== survivor.id)) absorbLoser(db, loser.id, survivor.id, group, actor);
 
+  const conflicts = ratifiedAll.slice(1).filter(t => t.title !== survivor.title || t.summary !== survivor.summary);
+  for (const c of conflicts) {
+    db.prepare(auditInsert).run(survivor.id, 'ratification_conflict', actor,
+      JSON.stringify({ by: c.ratified_by, at: c.ratified_at, title: c.title, summary: c.summary }));
+  }
   if (attested === undefined) {
     db.prepare('UPDATE decisions SET source_url = ?, repo = COALESCE(?, repo), decided_at = COALESCE(?, decided_at) WHERE id = ?')
       .run(latest.source_url, latest.repo, latest.decided_at, survivor.id);
   } else {
     db.prepare('UPDATE decisions SET repo = COALESCE(?, repo), decided_at = COALESCE(?, decided_at) WHERE id = ?')
       .run(latest.repo, latest.decided_at, survivor.id);
-    if (newest.id !== survivor.id && (newest.title !== survivor.title || newest.summary !== survivor.summary)) {
-      db.prepare(`INSERT INTO decision_audit (id, decision_id, action, actor, detail) VALUES (lower(hex(randomblob(16))), ?, 'text_revision_pending', 'migration', ?)`)
-        .run(survivor.id, JSON.stringify({ title: newest.title, summary: newest.summary }));
+    const covered = conflicts.some(c => c.id === newest.id);
+    if (newest.id !== survivor.id && !covered && (newest.title !== survivor.title || newest.summary !== survivor.summary)) {
+      db.prepare(auditInsert).run(survivor.id, 'text_revision_pending', actor, JSON.stringify({ title: newest.title, summary: newest.summary }));
     }
   }
   db.prepare(
-    `UPDATE decisions SET created_at = ?,
+    `UPDATE decisions SET created_at = ?, source_key = ?,
        ratified_by = COALESCE(ratified_by, ?), ratified_at = COALESCE(ratified_at, ?),
        confirmed_by = COALESCE(confirmed_by, ?), confirmed_at = COALESCE(confirmed_at, ?)
      WHERE id = ?`,
-  ).run(earliestCreated, ratified?.ratified_by ?? null, ratified?.ratified_at ?? null,
+  ).run(earliestCreated, key, ratified?.ratified_by ?? null, ratified?.ratified_at ?? null,
     confirmed?.confirmed_by ?? null, confirmed?.confirmed_at ?? null, survivor.id);
+}
+
+const TWIN_COLUMNS = 'id, rowid, created_at, title, summary, ratified_by, ratified_at, confirmed_by, confirmed_at';
+
+/** Runtime entry: fold the keyless row `twinId` into the row holding `key`, in one transaction
+ *  (no partial re-points, no duplicate backup row on a retry). */
+export function foldKeylessTwin(db: DatabaseSync, twinId: string, holderId: string, key: string): void {
+  const own = !db.isTransaction;
+  if (own) db.exec('BEGIN IMMEDIATE');
+  try {
+    const twins = db.prepare(`SELECT ${TWIN_COLUMNS} FROM decisions WHERE id IN (?, ?) ORDER BY rowid`)
+      .all(twinId, holderId) as unknown as TwinRow[];
+    foldTwins(db, twins, key, 'sync', holderId);
+    if (own) db.exec('COMMIT');
+  } catch (err) {
+    if (own && db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+function mergeGroup(db: DatabaseSync, key: string): void {
+  const twins = db.prepare(`SELECT ${TWIN_COLUMNS} FROM decisions WHERE source_key = ? ORDER BY rowid`)
+    .all(key) as unknown as TwinRow[];
+  foldTwins(db, twins, key, 'migration');
 }
 
 export function migrateV7(db: DatabaseSync): void {
@@ -237,6 +269,9 @@ export function migrateV7(db: DatabaseSync): void {
     if (key !== undefined) setKey.run(key, row.id);
   }
 
+  // Non-unique and temporary: the unique index cannot exist while twins share a key, and
+  // without any index each group's `WHERE source_key = ?` scanned the whole table.
+  db.exec('CREATE INDEX IF NOT EXISTS tmp_v7_key ON decisions(source_key)');
   const groups = db.prepare('SELECT source_key AS k FROM decisions WHERE source_key IS NOT NULL GROUP BY source_key HAVING count(*) > 1')
     .all() as Array<{ k: string }>;
   // The fold looks up links by target, audit rows and judgements by decision for every loser;
@@ -249,7 +284,7 @@ export function migrateV7(db: DatabaseSync): void {
   ];
   if (groups.length > 0) for (const ddl of temp) db.exec(ddl);
   for (const { k } of groups) mergeGroup(db, k);
-  for (const name of ['tmp_v7_links_target', 'tmp_v7_audit_decision', 'tmp_v7_judgements_counterpart']) {
+  for (const name of ['tmp_v7_key', 'tmp_v7_links_target', 'tmp_v7_audit_decision', 'tmp_v7_judgements_counterpart']) {
     db.exec(`DROP INDEX IF EXISTS ${name}`);
   }
 
