@@ -17,6 +17,9 @@ import path from 'node:path';
  * local-query-integration.test.ts. cosineSimilarity reads the score out of the stored
  * embedding's first element so a fixture can sit precisely either side of the floor.
  */
+// Ranking is driven by the mocked cosineSimilarity below; see helpers/mocked-cosine-matrix.ts.
+vi.mock('../lib/similarity/embedding-matrix.js', async () =>
+  (await import('./helpers/mocked-cosine-matrix.js')).mockedCosineMatrixModule());
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn((_q: Float32Array, stored: Float32Array) => stored[0]),

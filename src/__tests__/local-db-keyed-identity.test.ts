@@ -10,6 +10,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+// Ranking is driven by the mocked cosineSimilarity below; see helpers/mocked-cosine-matrix.ts.
+vi.mock('../lib/similarity/embedding-matrix.js', async () =>
+  (await import('./helpers/mocked-cosine-matrix.js')).mockedCosineMatrixModule());
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.1),

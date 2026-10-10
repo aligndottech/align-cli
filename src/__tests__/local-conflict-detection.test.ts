@@ -8,6 +8,9 @@ const { mockGetEmbedding, mockCosine } = vi.hoisted(() => ({
   mockCosine: vi.fn().mockReturnValue(0.0),
 }));
 
+// Ranking is driven by the mocked cosineSimilarity below; see helpers/mocked-cosine-matrix.ts.
+vi.mock('../lib/similarity/embedding-matrix.js', async () =>
+  (await import('./helpers/mocked-cosine-matrix.js')).mockedCosineMatrixModule());
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: mockGetEmbedding,
   cosineSimilarity: mockCosine,

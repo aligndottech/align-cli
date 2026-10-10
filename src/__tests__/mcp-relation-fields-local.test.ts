@@ -26,6 +26,9 @@ import path from "node:path";
 const recordFunnelStage = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock("../lib/usage-telemetry.js", () => ({ recordFunnelStage }));
 
+// Ranking is driven by the mocked cosineSimilarity below; see helpers/mocked-cosine-matrix.ts.
+vi.mock('../lib/similarity/embedding-matrix.js', async () =>
+  (await import('./helpers/mocked-cosine-matrix.js')).mockedCosineMatrixModule());
 vi.mock("../lib/local-embeddings.js", () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   // Above every retrieval floor, so the seeded rows really do come back.
