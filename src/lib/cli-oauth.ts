@@ -6,6 +6,9 @@ export interface CallbackResult {
   port: number;
 }
 
+/** The page posts a token and a nonce: well under this. Anything larger is not it. */
+const MAX_BODY_BYTES = 8 * 1024;
+
 export function waitForCallback(opts: {
   ports: number[];
   timeoutMs: number;
@@ -43,15 +46,30 @@ export function waitForCallback(opts: {
           res.writeHead(405).end();
           return;
         }
-        let body = '';
-        req.on('data', (chunk: Buffer) => { body += chunk; });
+        // Any web page can POST here (a no-cors request needs no permission), so what arrives is read under a bound and a
+        // stray request is answered and ignored. Only the right nonce ends the wait.
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let tooBig = false;
+        req.on('data', (chunk: Buffer) => {
+          if (tooBig) return;
+          size += chunk.length;
+          if (size > MAX_BODY_BYTES) {
+            tooBig = true;
+            res.writeHead(413, { Connection: 'close' }).end(() => req.destroy());
+            return;
+          }
+          chunks.push(chunk);
+        });
         req.on('end', () => {
+          if (tooBig) return;
           let parsed: Record<string, unknown>;
           try {
-            parsed = JSON.parse(body) as Record<string, unknown>;
+            const v: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new Error('not an object');
+            parsed = v as Record<string, unknown>;
           } catch {
             res.writeHead(400).end();
-            reject(new Error('Invalid JSON received in CLI OAuth callback'));
             return;
           }
           if (parsed['cli_nonce'] !== nonce) {
