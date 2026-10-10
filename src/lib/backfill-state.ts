@@ -242,14 +242,26 @@ function withoutStatusEnv(env: Record<string, string | undefined>): Record<strin
  * claimed only on that confirmation: a spawn that fails asynchronously (ENOENT, EMFILE) arrives as
  * an 'error' event, and stdio is ignored, so nothing else would ever say.
  */
-/** Set on every child an agent's tool call starts, so what the child writes can be attributed to the agent (scope-connect.ts `startedByAgent`). */
+/**
+ * Set on a child an agent's tool call starts, so what the child writes can be attributed to the agent (scope-connect.ts `startedByAgent`).
+ * The spawner NAMES its caller: 'mcp' (the default, so existing callers stay as they were) stamps it; 'launcher' (the person's own `align`
+ * launch, a background refresh nobody's agent asked for) does not, and also strips a marker inherited from this process.
+ */
+export type ChildCaller = 'mcp' | 'launcher';
 export const STARTED_BY_AGENT_ENV = 'ALIGN_STARTED_BY';
+
+/** The environment a child gets: marked as an agent's only when an agent's tool call started it. */
+export function stampCaller(env: Record<string, string | undefined>, caller: ChildCaller): Record<string, string | undefined> {
+  const { [STARTED_BY_AGENT_ENV]: _drop, ...rest } = env;
+  return caller === 'mcp' ? { ...rest, [STARTED_BY_AGENT_ENV]: 'mcp' } : rest;
+}
 
 export function startBackfillChild(
   source: string,
   argv: string[],
   file: string | undefined,
   cmd: { command: string; args: string[] } = backfillChildCommand(argv),
+  caller: ChildCaller = 'mcp',
 ): Promise<{ ok: boolean; pid?: number }> {
   const { command, args } = cmd;
   return new Promise((resolve) => {
@@ -263,7 +275,7 @@ export function startBackfillChild(
         windowsHide: true,
         // L5: a sync child has no status file (the sync lock and source_sync record it), so it must
         // not inherit one from this process either.
-        env: { ...(file === undefined ? withoutStatusEnv(process.env) : { ...process.env, [BACKFILL_STATUS_ENV]: file }), [STARTED_BY_AGENT_ENV]: 'mcp' },
+        env: stampCaller(file === undefined ? withoutStatusEnv(process.env) : { ...process.env, [BACKFILL_STATUS_ENV]: file }, caller),
       });
     } catch {
       return done({ ok: false });

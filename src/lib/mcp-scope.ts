@@ -76,10 +76,9 @@ export async function runScopeTool(
   const input = args ?? {};
   const unknownKeys = Object.keys(input).filter((k) => !KNOWN.has(k));
   if (unknownKeys.length) {
-    // Names the keys (cut), never their values: a rejected token must not be echoed into the transcript it was typed into.
-    const names = unknownKeys.slice(0, 3).map((k) => JSON.stringify(k.slice(0, 16))).join(', ');
+    // Neither the values NOR the key names: a token pasted as a property name must not be echoed into the transcript it was typed into.
     throw new Error(
-      `${SCOPE_TOOL} does not accept ${names}. It never accepts a token or key: the person connects a source themselves with \`align connect <source>\`.`,
+      `${SCOPE_TOOL} does not accept ${unknownKeys.length === 1 ? 'an unknown property' : `${unknownKeys.length} unknown properties`} (the name is not printed back). It never accepts a token or key: the person connects a source themselves with \`align connect <source>\`.`,
     );
   }
   const action = input['action'];

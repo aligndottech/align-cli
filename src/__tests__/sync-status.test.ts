@@ -111,6 +111,14 @@ describe('collectStatus', () => {
       expect(j.scope).toBe("everyone's items in Jira project OPS");
     });
 
+    it('a request that never ran is not an "older scope kept"; Confluence with no spaces is not described as "your own items" (two cosmetics)', () => {
+      exec(`INSERT INTO source_sync (source_id, scope_key, scope, window_since) VALUES ('jira', 'jira:NEVER', 'team', NULL)`);
+      const j = collectStatus(deps(['jira'], { activeScopeKey: () => 'jira:OPS' })).sources.find((s) => s.id === 'jira')!;
+      expect(j.older_scopes).toBe(1);
+      beginRun(dbPath, { source: 'confluence', scopeKey: 'yours', scope: 'yours' }, null, '2026-10-01T00:00:00.000Z');
+      expect(collectStatus(deps(['confluence'])).sources.find((s) => s.id === 'confluence')!.scope).toBe('no spaces chosen');
+    });
+
     it('an agent-chosen scope waiting for a person is said, with the command', () => {
       const j = collectStatus(deps(['jira'], { pendingScope: () => "everyone's items in Jira project BETA" })).sources.find((s) => s.id === 'jira')!;
       expect(j.next_step).toBe("Team scope for jira is waiting for you to confirm (everyone's items in Jira project BETA): run `align sync jira` (it will show what it reads)");

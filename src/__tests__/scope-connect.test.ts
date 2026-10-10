@@ -486,6 +486,7 @@ describe('consent: only a person widens (security review)', () => {
     d.commit();
     expect(un.deps.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'], pending: { previous: null } });
     expect(un.said.join('\n')).toContain('once you confirm it');
+    expect(un.said).toHaveLength(1);
     const quiet = setup({ interactive: true, quiet: true, flags: { projects: 'OPS' }, table: [jiraProjects('OPS')] });
     const q = await decideConnectScope('jira', TOKENS.jira, quiet.ctx);
     q.commit();

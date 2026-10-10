@@ -85,7 +85,7 @@ describe('through the real dispatcher', () => {
   });
 
   it('refuses an unknown property before anything else, naming it and not its value', async () => {
-    await expect(dispatchTool('align_scope', { action: 'view', token: 'ghp_SECRETVALUE0123456789' }, client, env)).rejects.toThrow(/"token"/);
+    await expect(dispatchTool('align_scope', { action: 'view', token: 'ghp_SECRETVALUE0123456789' }, client, env)).rejects.toThrow(/an unknown property/);
     try { await dispatchTool('align_scope', { action: 'view', token: 'ghp_SECRETVALUE0123456789' }, client, env); } catch (e) { expect((e as Error).message).not.toContain('SECRETVALUE'); }
   });
 

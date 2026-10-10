@@ -14,7 +14,7 @@ import { commandIntro } from '../../lib/brand.js';
 import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
 import { fetchWindow, windowLabel } from '../../lib/since.js';
 import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
-import { discloseTeamScope } from '../../lib/scope-values.js';
+import { discloseTeamScope, scopeKeyOf } from '../../lib/scope-values.js';
 import { activeStoredScope } from '../../lib/scope-real.js';
 
 interface GitHubImportOpts {
@@ -74,12 +74,16 @@ export function registerImportGitHubCommand(importCmd: Command): void {
         // L4: on the local graph the choice already made (`align connect --source github --scope ...`, or `align_scope`) is honoured here too,
         // unless --repo/--all says otherwise: a stored "yours" is not widened by the folder, and a stored repo is read wherever this runs.
         const chosen = env.mode === 'local-embedded' && opts.repo === undefined && !opts.all ? activeStoredScope('github', config) : null;
-        const repo = chosen?.kind === 'team' ? chosen.values[0] : chosen?.kind === 'yours' ? undefined : flagged;
+        // Nobody at a terminal (a script, an agent's shell) is not a person who can be told: the FOLDER does not widen for it. It reads team only
+        // for an explicit --repo, a stored choice, or a folder scope already told for that repo, and it never marks anything told.
+        const attended = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+        const folderOk = env.mode !== 'local-embedded' || opts.repo !== undefined || attended || (flagged !== undefined && config.isTeamScopeDisclosed('github', scopeKeyOf('github', [flagged])));
+        const repo = chosen?.kind === 'team' ? chosen.values[0] : chosen?.kind === 'yours' ? undefined : folderOk ? flagged : undefined;
         // Team scope only on the LOCAL graph, and only inside a repo; a hosted env keeps `yours`.
         // The status text says what is read, because it is not "your" items.
         const team = Boolean(repo) && env.mode === 'local-embedded';
         // L4: the person is told what a team read covers before it happens, once. A hosted env never reads team scope.
-        if (team) discloseTeamScope(config, 'github', [repo!], (line) => p.log.info(line));
+        if (team && attended) discloseTeamScope(config, 'github', [repo!], (line) => p.log.info(line));
         spinner.start(
           repo
             ? team

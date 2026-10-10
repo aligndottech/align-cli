@@ -39,9 +39,8 @@ export function strictInput(spec: StrictSpec, args: Record<string, unknown> | un
   const known = Object.keys(spec.properties);
   const unknown = Object.keys(input).filter((k) => !known.includes(k));
   if (unknown.length) {
-    const names = unknown.slice(0, 3).map((k) => JSON.stringify(k.slice(0, 16))).join(', ');
     throw new Error(
-      `${spec.tool} takes only ${known.map((k) => `"${k}"`).join(', ')}, and does not accept ${names}. ` +
+      `${spec.tool} takes only ${known.map((k) => `"${k}"`).join(', ')}, and does not accept ${unknown.length === 1 ? 'an unknown property' : `${unknown.length} unknown properties`} (the name is not printed back). ` +
       'No tool accepts a token or key: the person connects a source or adds a key themselves with the align command.',
     );
   }

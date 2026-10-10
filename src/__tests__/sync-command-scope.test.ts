@@ -81,6 +81,23 @@ describe('the disclosure in align sync', () => {
     expect(marked).toEqual([]);
   });
 
+  it('a terminal nobody answers: the question is No after 60 s, the source is read under what was in force, and the lock is released', async () => {
+    vi.useFakeTimers();
+    try {
+      h.script({ items: [] });
+      const never = { ...deps({ disclosure: DISCLOSURE, activates: true }), isTty: () => true, confirm: () => new Promise<boolean>(() => {}) };
+      let code: number | undefined;
+      const run = runSyncCommand(['jira'], {}, never).then((c) => { code = c; });
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(code).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await run;
+      expect(code).toBe(0);
+      expect(marked).toEqual([]);
+      expect(acquireLock('sync-jira', { dir: h.lockDir, alive: () => true }).ok).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('a foreground run with no disclosure to give prints none', async () => {
     h.script({ items: [] });
     await runSyncCommand(['jira'], {}, deps({}));

@@ -90,6 +90,8 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
+const tty = (on: boolean): void => { Object.defineProperty(process.stdin, 'isTTY', { value: on, configurable: true }); Object.defineProperty(process.stdout, 'isTTY', { value: on, configurable: true }); };
+
 describe.each(SOURCES)('align connect %s --since', (id) => {
   it('defaults to the last 180 days, the source ceiling and the shared time budget', async () => {
     await run(id, []);
@@ -150,6 +152,33 @@ describe('slack keeps --days-back as a deprecated spelling of --since', () => {
 });
 
 describe('github: items first, whole repo when there is a repo', () => {
+  const inTty = process.stdin.isTTY, outTty = process.stdout.isTTY;
+  beforeEach(() => tty(true));
+  afterEach(() => tty(Boolean(inTty) && Boolean(outTty)));
+
+  it('review: with NO terminal the folder does not widen and nothing is marked told; --repo is read but still not marked; a folder already told is read (four cases)', async () => {
+    tty(false);
+    envMode.value = 'local-embedded';
+    resolveRepo.mockResolvedValue('acme/folder');
+    await run('github', []);
+    expect('repo' in opts('github')).toBe(false);
+    expect('scope' in opts('github')).toBe(false);
+    expect(disclosure.mark).not.toHaveBeenCalled();
+    expect(infoLog).not.toHaveBeenCalled();
+    resolveRepo.mockImplementation(async (o: { repo?: string }) => o.repo ?? 'acme/folder');
+    await run('github', ['--repo', 'acme/explicit']);
+    expect(opts('github')).toMatchObject({ repo: 'acme/explicit', scope: 'team' });
+    expect(disclosure.mark).not.toHaveBeenCalled();
+    disclosure.told.mockReturnValue(true);
+    await run('github', []);
+    expect(opts('github')).toMatchObject({ repo: 'acme/folder', scope: 'team' });
+    expect(disclosure.mark).not.toHaveBeenCalled();
+    tty(true);
+    disclosure.told.mockReturnValue(false);
+    await run('github', []);
+    expect(disclosure.mark).toHaveBeenCalledWith('github', 'repo:acme/folder');
+  });
+
   it('leaves the items-first-then-budgeted-discussion split to fetchGitHubItems: the command passes no discussion mode', async () => {
     await run('github', []);
     expect('discussion' in opts('github')).toBe(false);

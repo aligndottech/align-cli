@@ -120,7 +120,8 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
       ?? [...everyScope].filter((r) => !Number.isNaN(started(r))).sort((a, b) => started(b) - started(a))[0]
       ?? everyScope[0];
     const rows = active ? [active] : [];
-    const older = everyScope.length - rows.length;
+    // A scope that never started (an agent's request waiting for a person) was never read, so it is not an "older scope kept".
+    const older = everyScope.filter((r) => !rows.includes(r) && r.last_started_at !== null).length;
     const worst = everyScope.some((r) => r.status === 'needs_reauth') ? 'needs_reauth' as SyncStatus : rows.reduce<SyncStatus | undefined>((w, r) => (w === undefined || RANK[r.status] > RANK[w] ? r.status : w), undefined);
     const lasts = rows.map((r) => r.last_success_at).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t)));
     const last = lasts.sort((a, b) => Date.parse(b) - Date.parse(a))[0];
@@ -132,7 +133,7 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
     const pending = rows.map((r) => r.pending_until).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t))).sort()[0];
     const bf = d.backfill(id);
     const s: SourceStatus = {
-      id, label: label(id), connected, scope: scopeText(rows),
+      id, label: label(id), connected, scope: id === 'confluence' && !rows.some((r) => r.scope === 'team') ? 'no spaces chosen' : scopeText(rows),
       status: !connected ? 'not_connected' : worst === 'needs_reauth' || d.blockedScope?.(id) === undefined ? (worst ?? 'never') : 'blocked',
       skips: skipCounts(rows),
       ...(last !== undefined ? { last_success_at: last } : {}),

@@ -15,6 +15,7 @@
  * The team-scope disclosure is printed here, before the fetch, once per source. `quiet` (`--json`) prints nothing and does not mark
  * it told, so the next foreground run still tells the person.
  */
+import { askWithTimeout } from './confirm-timeout.js';
 import * as p from '@clack/prompts';
 import { STARTED_BY_AGENT_ENV } from './backfill-state.js';
 import type { createConfigStore } from './config.js';
@@ -137,7 +138,7 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
   };
   /** What is in force without the agent's waiting choice: the same answer a background run gets. */
   const kept = (): Promise<ResolvedScope> => resolveScope(source, { ...deps, isTty: () => false }, { foreground: false });
-  const fromResolved = async (r: ResolvedScope): Promise<ScopeDecision> => {
+  const fromResolved = async (r: ResolvedScope, o: { note?: boolean } = {}): Promise<ScopeDecision> => {
     if (r.blocked !== undefined) throw blocked(r.blocked);
     if (r.activates) {
       // An agent's waiting scope, offered to a person: the disclosure every time, and only an explicit Yes makes it active.
@@ -146,12 +147,12 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
       if (!yes) return fromResolved(await kept());
       markTold(deps.store, source, r.scopeKey);
     } else if (r.disclosure !== undefined) told(r.scopeKey, r.disclosure);
-    if (r.note !== undefined) tell(r.note);
+    if (r.note !== undefined && o.note !== false) tell(r.note);
     // A team scope read with nobody to tell (--json, no terminal) that was never told for this scope: the disclosure is still owed.
     if (r.scope === 'team' && !person && !deps.store.isDisclosed(source, r.scopeKey)) disclosurePending = true;
     return decision({ resolved: true, ...(r.repo ? { repo: r.repo, team: true } : {}), ...r.extras }, r.scope, r.label, () => {});
   };
-  const resolved = async (): Promise<ScopeDecision> => fromResolved(await resolveScope(source, deps, { foreground: true }));
+  const resolved = async (o: { note?: boolean } = {}): Promise<ScopeDecision> => fromResolved(await resolveScope(source, deps, { foreground: true }), o);
   const list = async (): Promise<Array<{ key: string; name: string }> | undefined> => {
     try {
       const r = await LISTERS[source]!(tokens, deps.fetch, deps.listMax !== undefined ? { max: deps.listMax } : {});
@@ -171,7 +172,8 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     if (c.scope === 'yours' || person) return fromChoice(c);
     // Unattended widening: read what is in force now, and save the request for a person to confirm at a terminal.
     let k: ScopeDecision;
-    try { k = await resolved(); } catch (e) {
+    // One line for the person, not two: the "will read ... once you confirm" line below replaces the default scope's own hint.
+    try { k = await resolved({ note: false }); } catch (e) {
       // Confluence with nothing chosen yet: the request is still saved for the person, and the refusal says so.
       commitScope(deps, source, c, by, ctx.flags.windowSince);
       throw new Error(`${(e as Error).message} Your request for ${c.label} is saved and waiting for you to confirm: run \`align sync ${source}\` at a terminal.`);
@@ -249,8 +251,7 @@ export function clackScopePrompts(): ScopePrompts {
       return p.isCancel(answer) ? null : (answer as string[]);
     },
     async confirm(message) {
-      const answer = await p.confirm({ message, initialValue: false });
-      return answer === true;
+      return askWithTimeout(async () => (await p.confirm({ message, initialValue: false })) === true);
     },
   };
 }

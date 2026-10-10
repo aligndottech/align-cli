@@ -1,5 +1,6 @@
 import { type Command, Option } from 'commander';
 import chalk from 'chalk';
+import { askWithTimeout } from '../lib/confirm-timeout.js';
 import { createConfigStore } from '../lib/config.js';
 import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
 import { acquireLock } from '../lib/sync/lock.js';
@@ -81,7 +82,7 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
   if (delay > 0) await d.sleep(delay * 1000);
   const base = d.env(dbPath);
   // L4: a person at the terminal is told, before the first request, what a team scope reads. A background run has nobody to tell.
-  const env: SyncEnv = opts.background ? base : { ...base, announce: (_source, line) => d.out(line), confirm: async (_source, message) => d.isTty() && (await d.confirm(message)) };
+  const env: SyncEnv = opts.background ? base : { ...base, announce: (_source, line) => d.out(line), confirm: async (_source, message) => d.isTty() && (await askWithTimeout(() => d.confirm(message))) };
   try {
     const trigger = opts.background ? 'background' as const : 'cli' as const;
     let result: Awaited<ReturnType<typeof runSync>>;

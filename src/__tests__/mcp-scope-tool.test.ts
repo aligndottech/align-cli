@@ -57,11 +57,14 @@ describe('schema', () => {
     expect(t.length).toBeLessThan(1700);
   });
 
-  it('refuses a token or key before anything runs, naming the property and never the value (two examples)', async () => {
+  it('refuses a token or key before anything runs, naming neither the property nor the value (two examples)', async () => {
     const deps = d({ table: [jiraProjects('ALI')] });
-    await expect(runScopeTool({ action: 'set', source: 'jira', projects: ['ALI'], token: 'ghp_SECRETVALUE0123456789' }, localEnv, deps)).rejects.toThrow(/"token"/);
-    await expect(runScopeTool({ action: 'view', api_key: 'sk-ant-SECRETVALUE' }, localEnv, deps)).rejects.toThrow(/"api_key"/);
+    await expect(runScopeTool({ action: 'set', source: 'jira', projects: ['ALI'], token: 'ghp_SECRETVALUE0123456789' }, localEnv, deps)).rejects.toThrow(/an unknown property \(the name is not printed back\)/);
+    await expect(runScopeTool({ action: 'view', api_key: 'sk-ant-SECRETVALUE' }, localEnv, deps)).rejects.toThrow(/an unknown property/);
     try { await runScopeTool({ action: 'view', token: 'ghp_SECRETVALUE0123456789' }, localEnv, deps); } catch (e) { expect((e as Error).message).not.toContain('SECRETVALUE'); }
+    // A token pasted AS a property name is not echoed either.
+    const err = await runScopeTool({ action: 'view', ghp_PASTEDASANAME0123456789: 1 }, localEnv, deps).catch((e: Error) => e);
+    expect((err as Error).message).not.toContain('ghp_');
     expect(deps.calls).toHaveLength(0);
     expect(deps.store.scopes).toEqual({});
   });

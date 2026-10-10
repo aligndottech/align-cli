@@ -128,11 +128,13 @@ describe('shapes', () => {
 });
 
 describe('what an agent may not do', () => {
-  it('a token or key is refused by name, its value is never echoed, and nothing is stored (two examples)', async () => {
+  it('a token or key is refused, neither its name nor its value is echoed, and nothing is stored (two examples)', async () => {
     for (const bad of [{ token: 'ghp_SECRETVALUE0123456789' }, { api_key: 'sk-ant-SECRETVALUE' }]) {
       let message = '';
       try { await runMarkTool({ decision_id: ids.alpha, kind: 'note', text: 'n', ...bad }, env, { judge }); } catch (e) { message = (e as Error).message; }
-      expect(message).toContain(`"${Object.keys(bad)[0]}"`);
+      expect(message).toContain('an unknown property');
+      expect(message).not.toContain('api_key');
+      expect(message).not.toContain('ghp_');
       expect(message).not.toContain('SECRETVALUE');
     }
     expect(rows()).toEqual([]);

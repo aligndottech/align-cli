@@ -8,9 +8,11 @@
  * Lives in its own module so the consent prompt can ask the same question without importing
  * the emitter (setup.test.ts mocks usage-telemetry.js down to one function).
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { telemetryDisabledByEnv } from '../lib/telemetry-env.js';
 
+// The environment is an input: an exported DO_NOT_TRACK or ALIGN_TELEMETRY must not decide a test that does not set it itself.
+beforeEach(() => { vi.stubEnv('DO_NOT_TRACK', undefined); vi.stubEnv('ALIGN_TELEMETRY', undefined); });
 afterEach(() => vi.unstubAllEnvs());
 
 describe('telemetryDisabledByEnv', () => {
