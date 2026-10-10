@@ -75,6 +75,42 @@ From inside a coding agent, `align_backfill` does the same for a source you alre
 never takes a token: for a source that is not connected it hands back the `align connect` command
 for you to run. At most one backfill per source and three at once run at a time.
 
+## Whose items: yours, or your team's
+
+Each source reads either **your own items** or **everyone's items in one place you name**, as far
+as your token can see. There is no "everything": a team read always has a name.
+
+| Source | What you can name | Without a name |
+|--------|-------------------|----------------|
+| GitHub | a repo (`--repo owner/repo`), or the repo you are in | your own items |
+| GitLab | a project (`--gitlab-project group/project`), or the project you are in | your own merge requests |
+| Jira | project keys (`--projects ALI,OPS`) | your own issues |
+| Linear | team keys (`--teams ENG`) | your own issues |
+| Confluence | space keys (`--spaces ENG,OPS`) | **nothing is read**: pick at least one space |
+| Slack, Notion, Teams | nothing to pick | everything your token can see (Slack: the channels it is in) |
+| Zoom | nothing to pick | only your own cloud recordings; the whole account needs an admin token, which Align does not ask for |
+
+```bash
+align connect --source jira --projects ALI,OPS --yes   # no questions
+align connect --source jira --scope yours --yes        # back to only your own
+align connect                                          # at a terminal: pickers, with the keys your decisions cite preselected
+```
+
+The first time a source is read as a team, one line says what that means: "Importing items from
+everyone in ... that your token can read. They stay on this machine." Nothing leaves your machine
+unless you share a decision yourself. A repo your token cannot see (a private repo, a token with no
+repo access) is not read as a team: it says so and reads only your items. A choice you make is
+checked against what your token can see before anything is fetched, and a value that fails is
+refused without being printed back.
+
+Widening is a new scope, so the next sync reads the whole window again for it (a few minutes, and
+some of the source's rate limit). Going back to a scope you read before only catches up. Changing
+scope never deletes an imported item; items from the wider scope stay and are no longer refreshed.
+
+From inside a coding agent, `align_scope` shows each connected source's scope (`view`) and changes it
+(`set`), through the same code the command uses. It records that an agent made the change. It never
+takes a token: a source that is not connected gets the `align connect` command back for you to run.
+
 ## Keeping it up to date: `align sync`
 
 ```bash

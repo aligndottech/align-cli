@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
+import { runScopeTool } from '../lib/mcp-scope.js';
+import { scopeOf } from '../lib/sync/sources.js';
 import { checkScopeFlags, type ConnectScopeCtx, decideConnectScope, fetchUnderScope, type PickOption, type ScopeFlags } from '../lib/scope-connect.js';
 import { readRows } from '../lib/sync/sync-state.js';
 import { FIELDS, jiraProjects, makeDeps, memStore, type Route } from './helpers/scope-deps.js';
@@ -77,6 +79,13 @@ describe('GitHub', () => {
     await decideConnectScope('github', TOKENS.github, quiet.ctx);
     expect(quiet.said).toEqual([]);
     expect(quiet.deps.store.disclosed.has('github')).toBe(false);
+  });
+
+  it('quiet with a CHOSEN scope (a flag) prints nothing and does not mark it told either', async () => {
+    const s = setup({ quiet: true, flags: { projects: 'ALI' }, table: [jiraProjects('ALI')] });
+    await decideConnectScope('jira', TOKENS.jira, s.ctx);
+    expect(s.said).toEqual([]);
+    expect(s.deps.store.disclosed.has('jira')).toBe(false);
   });
 
   it('a repo the token cannot see: yours, resolved with no repo, and the line is said', async () => {
@@ -341,6 +350,39 @@ describe('checkScopeFlags', () => {
   it('a source with no scope to set refuses the flags by name (Zoom says why)', () => {
     expect(check('zoom', { scope: 'team' })).toContain('only your own');
     expect(check('slack', { scope: 'yours' })).toContain('channels your token is in');
+  });
+});
+
+describe('one choice, three surfaces', () => {
+  const report = { scanned: 0, skips: [] as never[] };
+
+  it('a choice made at connect is what the next sync reads (background too), under the key its row carries', async () => {
+    const s = setup({ flags: { projects: 'ALI' }, table: [jiraProjects('ALI')] });
+    await fetchUnderScope({ id: 'jira', fetch: vi.fn(async () => ({ items: [], report: { ...report } })) }, TOKENS.jira, undefined, s.ctx);
+    for (const trigger of ['cli', 'background'] as const) {
+      const sc = await scopeOf('jira', { trigger }, s.deps);
+      expect(sc).toMatchObject({ scope: 'team', scopeKey: 'jira:ALI', extras: { projects: ['ALI'] } });
+    }
+    expect(readRows(dbPath, 'jira').map((r) => r.scope_key)).toContain('jira:ALI');
+  });
+
+  it('a choice made by an agent through align_scope is what connect then keeps (non-interactive, nothing flagged) and what sync reads', async () => {
+    const s = setup({ table: [jiraProjects('ALI', 'OPS')] });
+    const env = { mode: 'local-embedded', gatewayUrl: '', authToken: null, tenantId: null, localDbPath: dbPath } as never;
+    await runScopeTool({ action: 'set', source: 'jira', projects: ['OPS'] }, env, s.deps, { agent: 'claude-code' });
+    const d = await decideConnectScope('jira', TOKENS.jira, s.ctx);
+    expect(d).toMatchObject({ scope: 'team', extras: { projects: ['OPS'] } });
+    expect(await scopeOf('jira', { trigger: 'background' }, s.deps)).toMatchObject({ scopeKey: 'jira:OPS' });
+    // The disclosure the agent relayed was not the person seeing it at a terminal: connect still tells them.
+    expect(s.said.join('\n')).toContain('everyone in Jira project OPS');
+  });
+
+  it('narrowing back from connect (--scope yours) is what sync reads next, and the team row and its items stay', async () => {
+    const store = memStore({ scopes: { jira: { kind: 'team', values: ['OPS'], labels: ['OPS'] } } });
+    const s = setup({ flags: { scope: 'yours' }, store });
+    await fetchUnderScope({ id: 'jira', fetch: vi.fn(async () => ({ items: [], report: { ...report } })) }, TOKENS.jira, undefined, s.ctx);
+    expect(await scopeOf('jira', { trigger: 'cli' }, s.deps)).toMatchObject({ scope: 'yours', scopeKey: 'yours' });
+    expect(readRows(dbPath, 'jira').find((r) => r.scope_key === 'yours')).toBeDefined();
   });
 });
 
