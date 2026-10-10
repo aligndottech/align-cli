@@ -24,6 +24,7 @@ and there is a section for them below.
 | `align_capture` | Capture a decision from a URL (raw text too, in local-only mode) |
 | `align_backfill` | Local only. Import more history from a source you already connected (`since`: `30d`, `6m`, `1y`, `all`). Never takes a token |
 | `align_sync` | Local only. `status` of the background refresh per source, `run` it now, or `classify_estimate` what typing imported items would cost (it cannot start that). Never takes a token |
+| `align_mark` | Local only. Records the user's own judgement: a conflict real or false (for a stored pair or a check hit, scoped to the files it covered), one decision replaces another, not a decision, or a note. Recorded under the calling agent's name, on this machine only. Cannot ratify, never takes a token. `align mark --list` and `--undo` show and take marks back |
 | `align_check_alignment` | Check a proposed change for conflicts with prior decisions |
 | `align_check_drift` | Check whether code or config has drifted from a decision |
 | `align_get_related_decisions` | Decisions related to a file or module |

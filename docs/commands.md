@@ -123,6 +123,11 @@ align capture <url>           Capture a decision from a URL (Slack/Jira/GitHub/C
 align sync [sources]          Bring connected sources up to date in your local graph (reads only, no AI calls)
                               flags: --status --classify --max --yes --background --delay
 
+# Mark a conflict real or false, a replacement, or not a decision (local)
+
+align mark [args]             Record your judgement on what the guardrail shows: a conflict real or false, a replacement, "not a decision", a note. Stays on this machine.
+                              flags: --files --undo --list
+
 # Removed in 0.40.0 - use align connect
 
 align import [args]           removed in 0.40.0 - use align connect

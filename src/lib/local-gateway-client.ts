@@ -16,6 +16,10 @@ import { captureFieldsForUrl, type IngestOptions, type IngestResult, type Ingest
 // (ask/search/check) work identically in local mode.
 import type { AlignmentResult, SearchResults } from './gateway-client.js';
 import type { CheckDepth } from './check-depth.js';
+import { annotatePairs, anyJudgements, reviewConflicts } from './curation/guardrail.js';
+import { defaultJudge } from './curation/judge.js';
+import { notADecisionIds } from './curation/judgements-db.js';
+import { contextKeyFor, filesFromDiff } from './curation/mark.js';
 
 import {
   DRIFT_THRESHOLD, RELATED_FLOOR, RELATED_TOP_K, RELATES_THRESHOLD, RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD,
@@ -42,7 +46,7 @@ function provenanceOf(row: Pick<DecisionRow, 'deciderKind' | 'ratifiedBy' | 'rat
   };
 }
 
-export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: string; matrixMaxRows?: number } = {}) {
+export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: string; matrixMaxRows?: number; judgeId?: string } = {}) {
   const db = createLocalDb(dbPath);
 
   // Memoized: every retrieval call in one command invocation (a single `align ask`, one
@@ -56,6 +60,14 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       cachedCurrentRepo = await currentRepoIdentity(clientOpts);
     }
     return cachedCurrentRepo;
+  }
+
+  /** LM: whose marks apply. Resolved only when the file holds any judgement, so a graph nobody marked never touches config. */
+  let cachedJudgeId: string | undefined;
+  async function activeJudge(): Promise<string | undefined> {
+    if (!anyJudgements(dbPath)) return undefined;
+    cachedJudgeId ??= clientOpts.judgeId ?? (await defaultJudge()).judgeId;
+    return cachedJudgeId;
   }
 
   /**
@@ -590,7 +602,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const { dbFilter, effectiveRepo } = await resolveScope(scope);
       const boundedFilter = { ...dbFilter, createdBefore };
       const embedding = await getEmbedding(query);
-      let similar = await findSimilar(embedding, limit, SEARCH_THRESHOLD, undefined, boundedFilter);
+      // LM: decisions this person marked not-a-decision are skipped, so ask for that many extra.
+      const judge = await activeJudge();
+      const hidden = judge ? notADecisionIds(dbPath, judge) : new Set<string>();
+      const visible = (rows: Awaited<ReturnType<typeof findSimilar>>) => rows.filter((s) => !hidden.has(s.decisionId)).slice(0, limit);
+      let similar = visible(await findSimilar(embedding, limit + hidden.size, SEARCH_THRESHOLD, undefined, boundedFilter));
       // A natural-language question embeds less densely than its subject does, so on a
       // small graph it can miss a decision that its own content words hit. Retry once,
       // only on an empty result, mirroring the gateway's own keyword-to-semantic
@@ -599,7 +615,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       if (!similar.length) {
         const reduced = contentWordQuery(query);
         if (reduced) {
-          similar = await findSimilar(await getEmbedding(reduced), limit, SEARCH_THRESHOLD, undefined, boundedFilter);
+          similar = visible(await findSimilar(await getEmbedding(reduced), limit + hidden.size, SEARCH_THRESHOLD, undefined, boundedFilter));
         }
       }
       const results = similar
@@ -653,7 +669,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // the stricter bar. One constant could not serve both.
       const threshold = opts.depth === 'related' ? RETRIEVAL_RELATES_THRESHOLD : RELATES_THRESHOLD;
       const embedding = await getEmbedding(diff);
-      const similar = await findSimilar(embedding, 5, threshold);
+      const judge = await activeJudge();
+      const hidden = judge ? notADecisionIds(dbPath, judge) : new Set<string>();
+      const similar = (await findSimilar(embedding, 5 + hidden.size, threshold)).filter((s) => !hidden.has(s.decisionId)).slice(0, 5);
       const candidates = similar
         .map(s => {
           const row = db.getDecisionById(s.decisionId);
@@ -736,8 +754,13 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         });
       }
 
-      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, ...t.provenance }));
-      const conflicts = typed
+      // LM: a decision a person said was replaced is named as replaced, with its successor.
+      const replacedBy = (id: string) => {
+        const r = relationFieldsFor(id);
+        return r.status === 'superseded' ? { status: r.status, successor: r.successor } : {};
+      };
+      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, ...t.provenance, ...replacedBy(t.id) }));
+      const rawConflicts = typed
         .filter(t => t.relationship === 'conflicts_with' || t.relationship === 'contradicts')
         .map(t => ({
           decision_id: t.id,
@@ -748,6 +771,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           reason: t.reason ?? 'Conflicts with an existing decision in your local graph',
           severity: (t.confidence >= 0.8 ? 'critical' : 'warning') as 'critical' | 'warning',
         }));
+      // LM: this person's false-alarm marks hide a hit for exactly this set of files, or annotate it.
+      const files = filesFromDiff(diff);
+      const reviewed = judge ? reviewConflicts(dbPath, judge, rawConflicts, contextKeyFor(files)) : { conflicts: rawConflicts, notes: [] as string[] };
+      const conflicts = reviewed.conflicts;
+      const notes = reviewed.notes.length ? { notes: reviewed.notes } : {};
 
       // ALI-414: a candidate we retrieved but could not classify is exactly the case
       // where we do not know - it could be the conflict. Reporting `aligned` there is
@@ -762,6 +790,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           confidence,
           relevant_decisions,
           conflicts,
+          ...notes,
+          ...(files.length ? { checked_files: files } : {}),
           message: `This change conflicts with ${conflicts.length} existing decision(s) in your local graph - review before proceeding.`,
         };
       }
@@ -786,6 +816,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           confidence: 0,
           relevant_decisions,
           conflicts: [],
+          ...notes,
           message:
             `Could not check ${relevant_decisions.length} related decision(s) - the relationship classifier did not run. ` +
             `This is NOT a pass: treat it as unchecked and review these decisions before proceeding.${hint}`,
@@ -797,6 +828,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         confidence,
         relevant_decisions,
         conflicts,
+        ...notes,
         message: `Found ${relevant_decisions.length} related decision(s) to review.`,
       };
     },
@@ -843,7 +875,8 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         ...db.listLinks({ relation: 'conflicts_with' }),
         ...db.listLinks({ relation: 'contradicts' }),
       ];
-      return { links, conflict_count: links.length };
+      const judge = await activeJudge();
+      return { links: judge ? annotatePairs(dbPath, judge, links) : links, conflict_count: links.length };
     },
   };
 }

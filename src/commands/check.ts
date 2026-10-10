@@ -22,6 +22,7 @@ import {
   recordVerdict,
 } from '../lib/advisory-verdict.js';
 import { CHECK_DEPTHS, type CheckDepth } from '../lib/check-depth.js';
+import { lastCheckFor, writeLastCheck } from '../lib/curation/last-check.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
 // execFile timeout in the pi and OpenCode shims). Adjudication measured ~11s whenever
@@ -250,6 +251,9 @@ export function registerCheckCommand(program: Command): void {
       try {
         const result = await client.checkAlignment(diff, branch, checkOpts);
         spinner.stop();
+        // LM: what this person's marks did to the result, and the file set `align mark check` defaults to.
+        for (const note of result.notes ?? []) console.log(chalk.dim(`  ${note}`));
+        if (!opts.hook) writeLastCheck(lastCheckFor(diff, result));
 
         if (result.status === 'aligned') {
           console.log(chalk.green('\n  Aligned with decision graph.\n'));

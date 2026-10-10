@@ -1,0 +1,117 @@
+/**
+ * LM: the MCP tool `align_mark` - the USER's judgement, recorded locally, relayed by their agent.
+ *
+ * What an agent may and may not do here:
+ * - It may record a verdict, a replacement, a "not a decision" and a note the user asked it to
+ *   record. Each row carries `via = 'mcp'` and the agent's registry id (or 'unknown'), so the
+ *   person sees later which answers came through an agent, and a share lists them separately.
+ * - It may NOT ratify. Ratifying is a person standing behind a decision; `align ratify` refuses
+ *   anything that is not a terminal. `kind: "ratify"` gets the command for the user instead.
+ * - It may NOT pass a token or key: the schema is closed.
+ * - Nothing is sent anywhere and no model is asked. The tool reads and writes the local file.
+ */
+import { applyJudgement, type MarkAction, MarkError, MAX_CHECK_FILES, MAX_NOTE_CHARS } from '../curation/mark.js';
+import type { Judge } from '../curation/judgements-db.js';
+import { defaultJudge } from '../curation/judge.js';
+import type { EnvironmentConfig } from '../config.js';
+import { agentIdFrom, cliCommandFor, jsonSchemaOf, strictInput, type StrictSpec } from './tool-rules.js';
+
+export const MARK_TOOL = 'align_mark';
+export const MARK_KINDS = ['verdict', 'supersede', 'not_a_decision', 'note'] as const;
+
+const SPEC: StrictSpec = {
+  tool: MARK_TOOL,
+  required: ['decision_id'],
+  properties: {
+    decision_id: { type: 'string', description: 'The decision the user is judging (its id from the check or from align_get_conflicts)', maxLength: 200 },
+    kind: { type: 'string', description: 'verdict (default), supersede, not_a_decision or note', enum: MARK_KINDS },
+    verdict: { type: 'string', description: 'With a verdict: real, or false (a false alarm), as the USER answered', enum: ['real', 'false'] },
+    counterpart_id: { type: 'string', description: 'A stored conflict: the other decision of the pair. With supersede: the decision being replaced', maxLength: 200 },
+    check_files: { type: 'array', description: 'A check hit: the files the check covered, exactly as the check result listed them', maxItems: MAX_CHECK_FILES, itemMaxLength: 1024 },
+    text: { type: 'string', description: 'With note: the note', maxLength: MAX_NOTE_CHARS },
+  },
+};
+
+export const MARK_TOOL_SCHEMA = {
+  name: MARK_TOOL,
+  annotations: { readOnlyHint: false, destructiveHint: false },
+  description:
+    'Record the USER\'s judgement in the local graph on this machine. After a conflict from align_check_alignment or align_get_conflicts, ASK the user "Was that a real conflict?" and pass their answer; never decide for them. ' +
+    'For a check hit: decision_id + verdict (real or false) + check_files (the files the check covered, as the check result lists them); a false verdict hides that decision only for a later check of the same files. ' +
+    'For a stored conflict: decision_id + counterpart_id + verdict. ' +
+    'Also kind supersede (counterpart_id is the decision being replaced), not_a_decision (hides it from ask and check) and note (text). ' +
+    'Each is recorded as passed on by you, under your agent name. Nothing is shared or sent; sharing is a separate step the user confirms. ' +
+    'It cannot ratify: that is the user\'s own act, so give them `align ratify <id>`. It never takes a token or key. The user can list or undo marks with `align mark --list` and `--undo`.',
+  inputSchema: jsonSchemaOf(SPEC),
+} as const;
+
+export interface MarkToolResult { text: string; [k: string]: unknown }
+export interface MarkToolContext {
+  /** The MCP `initialize` clientInfo, as the SDK holds it. */
+  clientInfo?: { name?: unknown };
+  judge?: () => Promise<Judge>;
+}
+
+function actionFrom(input: Record<string, unknown>): MarkAction {
+  const id = input['decision_id'] as string;
+  const kind = (input['kind'] as string | undefined) ?? 'verdict';
+  const counterpart = input['counterpart_id'] as string | undefined;
+  const files = input['check_files'] as string[] | undefined;
+  const verdict = input['verdict'] as 'real' | 'false' | undefined;
+  const stray = (names: string[]): string | undefined => names.find((n) => input[n] !== undefined);
+  switch (kind) {
+    case 'verdict': {
+      if (verdict === undefined) throw new MarkError('usage', `${MARK_TOOL} needs "verdict" (real or false) for a verdict.`);
+      if (input['text'] !== undefined) throw new MarkError('usage', `${MARK_TOOL} takes "text" only with kind "note".`);
+      const hasFiles = files !== undefined && files.length > 0;
+      if ((counterpart !== undefined) === hasFiles) {
+        throw new MarkError('usage', `${MARK_TOOL} verdict takes one of two shapes: a check hit (decision_id + verdict + check_files), or a stored conflict (decision_id + counterpart_id + verdict).`);
+      }
+      return counterpart !== undefined
+        ? { action: 'conflict', a: id, b: counterpart, verdict }
+        : { action: 'check', id, verdict, files: files ?? [] };
+    }
+    case 'supersede': {
+      if (counterpart === undefined) throw new MarkError('usage', `${MARK_TOOL} kind supersede needs "counterpart_id", the decision being replaced.`);
+      const other = stray(['verdict', 'check_files', 'text']);
+      if (other) throw new MarkError('usage', `${MARK_TOOL} kind supersede does not take "${other}".`);
+      return { action: 'replaces', newer: id, older: counterpart };
+    }
+    case 'not_a_decision': {
+      const other = stray(['verdict', 'check_files', 'text', 'counterpart_id']);
+      if (other) throw new MarkError('usage', `${MARK_TOOL} kind not_a_decision does not take "${other}".`);
+      return { action: 'not-a-decision', id };
+    }
+    default: {
+      const text = input['text'];
+      if (typeof text !== 'string' || text.trim() === '') throw new MarkError('usage', `${MARK_TOOL} kind note needs "text".`);
+      const other = stray(['verdict', 'check_files', 'counterpart_id']);
+      if (other) throw new MarkError('usage', `${MARK_TOOL} kind note does not take "${other}".`);
+      return { action: 'note', id, text };
+    }
+  }
+}
+
+export async function runMarkTool(args: Record<string, unknown> | undefined, env: EnvironmentConfig, ctx: MarkToolContext = {}): Promise<MarkToolResult> {
+  // A friendly refusal ahead of the closed enum: ratify is a different act, not a typo.
+  if (args?.['kind'] === 'ratify') {
+    const id = typeof args['decision_id'] === 'string' ? args['decision_id'].slice(0, 80) : '<id>';
+    throw new Error(`${MARK_TOOL} cannot ratify: ratifying is the user standing behind a decision, and only they do it. Ask them to run: ${cliCommandFor('ratify', id)}`);
+  }
+  const input = strictInput(SPEC, args);
+  if (env.mode !== 'local-embedded' || !env.localDbPath) {
+    throw new Error(
+      `${MARK_TOOL} records judgements in the local graph on this machine, and this server reads a hosted Align graph. ` +
+      'Use the local Align server (align mcp --env local).',
+    );
+  }
+  const action = actionFrom(input);
+  const judge = await (ctx.judge ?? defaultJudge)();
+  try {
+    const out = applyJudgement({ dbPath: env.localDbPath, judge, origin: { via: 'mcp', agentId: agentIdFrom(ctx.clientInfo) } }, action);
+    return { recorded: true, kind: out.kind, replaced: out.replaced, text: out.text };
+  } catch (e) {
+    if (e instanceof MarkError) throw new Error(e.message);
+    throw e;
+  }
+}

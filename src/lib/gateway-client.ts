@@ -290,7 +290,13 @@ export interface AlignmentResult {
     reason: string;
     reasons?: string[];
     severity: 'warning' | 'critical';
+    /** LM, local only: this person marked this decision a false alarm once, for another set of files. */
+    note?: string;
   }>;
+  /** LM, local only: what this person's marks did to the result (a hit hidden, a hit annotated). */
+  notes?: string[];
+  /** LM, local only: the files a CONFLICTING check covered, so a verdict can be recorded for exactly that set. */
+  checked_files?: string[];
   message: string;
 }
 
