@@ -8,9 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const spinnerStart = vi.hoisted(() => vi.fn());
 const envMode = vi.hoisted(() => ({ value: 'auth' as 'auth' | 'local-embedded' }));
+const disclosure = vi.hoisted(() => ({ told: vi.fn(() => false), mark: vi.fn() }));
+const infoLog = vi.hoisted(() => vi.fn());
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(), outro: vi.fn(), cancel: vi.fn(), note: vi.fn(), confirm: vi.fn(), isCancel: () => false,
-  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), success: vi.fn() },
+  log: { info: infoLog, error: vi.fn(), warn: vi.fn(), success: vi.fn() },
   spinner: () => ({ start: spinnerStart, stop: vi.fn(), message: vi.fn() }),
 }));
 
@@ -37,6 +39,7 @@ vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn(() => ({ gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: envMode.value })),
     getConnectorToken: vi.fn(() => null), getConnectorCloudId: vi.fn(() => null), getConnectorSiteBase: vi.fn(() => null),
+    isTeamScopeDisclosed: disclosure.told, markTeamScopeDisclosed: disclosure.mark,
   })),
 }));
 
@@ -76,6 +79,9 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { out.push(a.join(' ')); });
   envMode.value = 'auth';
   spinnerStart.mockClear();
+  infoLog.mockClear();
+  disclosure.told.mockReset().mockReturnValue(false);
+  disclosure.mark.mockClear();
   resolveRepo.mockReset().mockResolvedValue(undefined);
   for (const id of SOURCES) fetchers[id].mockReset().mockResolvedValue({ items: [{ source_url: 'u', platform: id, raw_text: 't' }], report: { scanned: 1, skips: [], complete: true } });
 });
@@ -153,12 +159,26 @@ describe('github: items first, whole repo when there is a repo', () => {
     expect(opts('github')).toMatchObject({ repo: 'o/r', scope: 'team' });
   });
 
-  it('on a hosted env keeps scope yours until the L4 disclosure ships: the repo narrows, team is not asked for', async () => {
+  it('on a hosted env scope stays yours, and nothing is disclosed because nothing team is read: the repo narrows, team is not asked for', async () => {
     envMode.value = 'auth';
     resolveRepo.mockResolvedValue('o/r');
     await run('github', []);
     expect(opts('github')['repo']).toBe('o/r');
     expect('scope' in opts('github')).toBe(false);
+    expect(infoLog).not.toHaveBeenCalled();
+    expect(disclosure.mark).not.toHaveBeenCalled();
+  });
+
+  it('L4: a team read on the local graph tells the person first, once: the line, then marked told; told already, no line (two runs)', async () => {
+    envMode.value = 'local-embedded';
+    resolveRepo.mockResolvedValue('o/r');
+    await run('github', []);
+    expect(infoLog).toHaveBeenCalledWith(expect.stringContaining('Importing items from everyone in o/r that your token can read. They stay on this machine.'));
+    expect(disclosure.mark).toHaveBeenCalledWith('github');
+    infoLog.mockClear();
+    disclosure.told.mockReturnValue(true);
+    await run('github', []);
+    expect(infoLog).not.toHaveBeenCalled();
   });
 
   it('the status text says what is read: everyone\'s items under team scope, yours under yours', async () => {

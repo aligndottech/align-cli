@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { configScopeStore, githubPlaceOf, gitlabPlaceOf } from '../lib/scope-real.js';
+import { configScopeStore, gitlabPlaceOf, realScopeDeps } from '../lib/scope-real.js';
 
+const resolveRepo = vi.hoisted(() => vi.fn());
+vi.mock('../lib/fetchers/github.js', () => ({ resolveGitHubRepoScope: resolveRepo }));
 vi.mock('conf', () => {
   let store: Record<string, unknown> = {};
   return {
@@ -45,13 +47,13 @@ describe('configScopeStore', () => {
   });
 });
 
-describe('place from a folder identity', () => {
-  it('GitHub: github.com/o/r gives o/r; gitlab.com and a local path give nothing (two each way)', () => {
-    expect(githubPlaceOf('github.com/aligndottech/align-stack')).toBe('aligndottech/align-stack');
-    expect(githubPlaceOf('github.com/o/r')).toBe('o/r');
-    expect(githubPlaceOf('gitlab.com/g/p')).toBeUndefined();
-    expect(githubPlaceOf('/home/me/code/proj')).toBeUndefined();
-    expect(githubPlaceOf(null)).toBeUndefined();
+describe('place from a folder', () => {
+  it('GitHub: the folder is read by ALI-917\'s resolveGitHubRepoScope, so there is one reader of it', async () => {
+    resolveRepo.mockResolvedValueOnce('o/r');
+    expect(await realScopeDeps(undefined).cwdRepo()).toBe('o/r');
+    expect(resolveRepo).toHaveBeenLastCalledWith({});
+    resolveRepo.mockResolvedValueOnce(undefined);
+    expect(await realScopeDeps(undefined).cwdRepo()).toBeUndefined();
   });
 
   it('GitLab: gitlab.com/g/sub/p gives g/sub/p; github.com and a local path give nothing', () => {

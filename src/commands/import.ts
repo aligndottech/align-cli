@@ -22,6 +22,7 @@ import { registerImportNotionCommand } from './import/notion.js';
 import { registerImportSessionsCommand } from './import/sessions.js';
 import { runConnect } from './connect.js';
 import { SINCE_HELP } from '../lib/since-flag.js';
+import type { ScopeFlags } from '../lib/scope-connect.js';
 
 interface ProgressState {
   connector: string;
@@ -173,6 +174,19 @@ interface ConnectGroupOpts {
   env: EnvName; all: boolean; channel?: string; project?: string;
   from?: string; to?: string; approve: boolean;
   source?: string; token?: string; yes?: boolean; json?: boolean; since?: string;
+  scope?: string; repo?: string; projects?: string; teams?: string; gitlabProject?: string; spaces?: string;
+}
+
+/** The L4 scope flags that were given, as the connect flow takes them. Omitted keys stay omitted. */
+function scopeFlagsOf(o: ConnectGroupOpts): ScopeFlags {
+  const flags: ScopeFlags = {};
+  if (o.scope !== undefined) flags.scope = o.scope;
+  if (o.repo !== undefined) flags.repo = o.repo;
+  if (o.projects !== undefined) flags.projects = o.projects;
+  if (o.teams !== undefined) flags.teams = o.teams;
+  if (o.gitlabProject !== undefined) flags.gitlabProject = o.gitlabProject;
+  if (o.spaces !== undefined) flags.spaces = o.spaces;
+  return flags;
 }
 
 /**
@@ -227,6 +241,12 @@ export function registerImportCommand(program: Command): void {
     .option('--yes', 'Answer yes to every confirm (re-use a saved token, import what was found)')
     .option('--json', 'Print one JSON summary instead of the report (with --source)')
     .option('--since <when>', SINCE_HELP)
+    .option('--scope <scope>', 'With --source: yours (only your own items) or team (everyone\'s in what you name below, as far as your token can see)')
+    .option('--repo <owner/repo>', 'With --source github: read everyone\'s PRs and issues in this repo')
+    .option('--projects <keys>', 'With --source jira: read everyone\'s issues in these project keys (ALI,OPS)')
+    .option('--teams <keys>', 'With --source linear: read everyone\'s issues in these team keys (ENG)')
+    .option('--gitlab-project <project>', 'With --source gitlab: read everyone\'s merge requests in this project (id or group/project)')
+    .option('--spaces <keys>', 'With --source confluence: the spaces to read (ENG,OPS)')
     .option('--all', 'Scan all connected connectors')
     .option('--channel <id>', 'Slack channel ID (single-connector only)')
     .option('--project <key>', 'Project key (Jira prefix or GitHub org/repo)')
@@ -240,17 +260,28 @@ export function registerImportCommand(program: Command): void {
         console.error(chalk.red(`align connect ${subcommand.name()} does not take --json. Use: align connect --source ${subcommand.name()} --json`));
         process.exit(2);
       }
+      // L4: the scope flags belong to the local picker path. A subcommand would ignore them and read its default, so refuse by name.
+      // (`--repo` is also github's own flag, and --since is shared the same way.)
+      const given = Object.keys(scopeFlagsOf(thisCommand.opts<ConnectGroupOpts>())).filter((k) => !(k === 'repo' && subcommand.name() === 'github'));
+      if (given.length > 0) {
+        console.error(chalk.red(`align connect ${subcommand.name()} does not take --${given[0] === 'gitlabProject' ? 'gitlab-project' : given[0]}. Use: align connect --source ${subcommand.name()} --${given[0] === 'gitlabProject' ? 'gitlab-project' : given[0]} ...`));
+        process.exit(2);
+      }
     })
     .action(async (connectors: string[], opts: ConnectGroupOpts) => {
       if (!opts.all && !connectors.length) {
         // The local picker (or its --source bypass). False means a cloud env: fall through
         // to the connector scan bare `import` always ran there.
-        if (await runConnect({ source: opts.source, token: opts.token, yes: opts.yes, json: opts.json, since: opts.since, env: opts.env })) return;
+        if (await runConnect({ source: opts.source, token: opts.token, yes: opts.yes, json: opts.json, since: opts.since, scopeFlags: scopeFlagsOf(opts), env: opts.env })) return;
       }
       // The hosted scan reads a date range (--from/--to), not a look-back. Ignoring --since here
       // would run an unbounded scan under a flag that promised a bound.
       if (opts.since !== undefined && (opts.all || !connectors.length)) {
         console.error(chalk.red('align connect: --since applies to a local connect or to one source (align connect <source> --since 30d). The hosted scan takes --from and --to.'));
+        process.exit(2);
+      }
+      if (Object.keys(scopeFlagsOf(opts)).length > 0 && (opts.all || !connectors.length)) {
+        console.error(chalk.red('align connect: scope flags apply to a local connect: align connect --source <id> --projects ALI,OPS. The hosted scan reads what its connectors are set up to read.'));
         process.exit(2);
       }
       const config = createConfigStore();

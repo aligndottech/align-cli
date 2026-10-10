@@ -14,6 +14,7 @@ import { commandIntro } from '../../lib/brand.js';
 import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
 import { fetchWindow, windowLabel } from '../../lib/since.js';
 import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
+import { discloseTeamScope } from '../../lib/scope-values.js';
 
 interface GitHubImportOpts {
   token?: string;
@@ -69,9 +70,11 @@ export function registerImportGitHubCommand(importCmd: Command): void {
         // file, not this one, and this call must not be the one thing standing outside
         // the safety net if it ever changes.
         const repo = await resolveGitHubRepoScope(opts);
-        // Team scope only on the LOCAL graph, and only inside a repo; a hosted env keeps `yours` until
-        // the L4 disclosure ships. The status text says what is read, because it is not "your" items.
+        // Team scope only on the LOCAL graph, and only inside a repo; a hosted env keeps `yours`.
+        // The status text says what is read, because it is not "your" items.
         const team = Boolean(repo) && env.mode === 'local-embedded';
+        // L4: the person is told what a team read covers before it happens, once. A hosted env never reads team scope.
+        if (team) discloseTeamScope(config, 'github', [repo!], (line) => p.log.info(line));
         spinner.start(
           repo
             ? team

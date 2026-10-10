@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  describeScopeKey, disclosureText, fetchOptsFor, FIXED_SCOPES, labelOfScopeKey, normaliseScopeValues, SCOPED_SOURCES, scopeKeyOf, scopeLabel, ScopeValueError,
+  describeScopeKey, discloseTeamScope, disclosureText, fetchOptsFor, FIXED_SCOPES, labelOfScopeKey, normaliseScopeValues, SCOPED_SOURCES, scopeKeyOf, scopeLabel, ScopeValueError,
 } from '../lib/scope-values.js';
 
 /**
@@ -130,10 +130,10 @@ describe('disclosureText', () => {
     const gh = disclosureText('github', ['aligndottech/align-stack']);
     expect(gh).toContain('Importing items from everyone in aligndottech/align-stack that your token can read.');
     expect(gh).toContain('They stay on this machine.');
-    expect(gh).toContain('align connect github --scope yours');
+    expect(gh).toContain('align connect --source github --scope yours');
     const jira = disclosureText('jira', ['ALI', 'OPS']);
     expect(jira).toContain('everyone in Jira projects ALI, OPS');
-    expect(jira).toContain('align connect jira --scope yours');
+    expect(jira).toContain('align connect --source jira --scope yours');
   });
 
   it('is one line, with no em dash', () => {
@@ -157,5 +157,19 @@ describe('FIXED_SCOPES', () => {
     expect(FIXED_SCOPES['slack']!.text).toContain('channels your token is in');
     expect(FIXED_SCOPES['notion']!.text).toContain('shared with your integration');
     expect(FIXED_SCOPES['teams']!.text).toContain('teams you have joined');
+  });
+});
+
+describe('discloseTeamScope', () => {
+  it('speaks the first time for a source, marks it told, and stays quiet after (two sources)', () => {
+    const told = new Set<string>();
+    const store = { isTeamScopeDisclosed: (s: string) => told.has(s), markTeamScopeDisclosed: (s: string) => { told.add(s); } };
+    const said: string[] = [];
+    expect(discloseTeamScope(store, 'github', ['o/r'], (l) => said.push(l))).toBe(true);
+    expect(discloseTeamScope(store, 'github', ['o/r'], (l) => said.push(l))).toBe(false);
+    expect(discloseTeamScope(store, 'jira', ['ALI'], (l) => said.push(l))).toBe(true);
+    expect(said).toHaveLength(2);
+    expect(said[0]).toContain('everyone in o/r');
+    expect([...told]).toEqual(['github', 'jira']);
   });
 });

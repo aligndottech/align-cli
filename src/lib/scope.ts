@@ -107,20 +107,20 @@ export async function resolveScope(source: string, deps: ScopeDeps, o: { foregro
   if (source === 'confluence') {
     return {
       ...yours('default'),
-      blocked: 'Confluence reads only the spaces you choose, and none are chosen yet. Pick them: align connect confluence --spaces ENG,OPS',
+      blocked: 'Confluence reads only the spaces you choose, and none are chosen yet. Pick them: align connect --source confluence --spaces ENG,OPS',
     };
   }
   if (stored?.kind === 'yours') return yours('chosen');
   if (source === 'github' || source === 'gitlab') return autoDetected(source, deps, o.foreground);
-  return yours('default', `Reading only your own items. To read a team's: align connect ${source} ${WIDEN_FLAG[source] ?? ''}`.trim());
+  return yours('default', `Reading only your own items. To read a team's: align connect --source ${source} ${WIDEN_FLAG[source] ?? ''}`.trim());
 }
 
 async function autoDetected(source: 'github' | 'gitlab', deps: ScopeDeps, foreground: boolean): Promise<ResolvedScope> {
   const place = source === 'github' ? await deps.cwdRepo() : await deps.cwdGitlabProject();
   if (place === undefined) {
     return yours('default', source === 'github'
-      ? "Reading only your own GitHub items (this folder is not a GitHub repo). To read everyone's in a repo: align connect github --repo owner/repo"
-      : "Reading only your own merge requests (this folder is not a GitLab project). To read everyone's in a project: align connect gitlab --project group/project");
+      ? "Reading only your own GitHub items (this folder is not a GitHub repo). To read everyone's in a repo: align connect --source github --repo owner/repo"
+      : "Reading only your own merge requests (this folder is not a GitLab project). To read everyone's in a project: align connect --source gitlab --gitlab-project group/project");
   }
   // A background run must not widen by itself: until the person has been told what a team read is, it stays at yours.
   if (!foreground && !deps.store.isDisclosed(source)) return yours('default');
@@ -209,51 +209,65 @@ async function verify(source: ScopedSource, raw: unknown, deps: ScopeDeps, field
   }
 }
 
+/** A scope that has been checked against what the token can see, ready to be written. */
+export interface Choice {
+  scope: 'yours' | 'team';
+  scopeKey: string;
+  label: string;
+  /** What the fetcher takes (Linear: team ids). Empty for yours. */
+  values: string[];
+  /** What people read (Linear: team keys). Empty for yours. */
+  labels: string[];
+}
+
 /**
- * Set a source's scope. The ONE writer: `align connect --scope ...` and `align_scope set` both end here, with different `by`.
- * Refuses (ScopeRefusal) rather than guessing, and stores nothing on any refusal. Never deletes an item.
+ * Check a requested scope WITHOUT writing anything: refuses (ScopeRefusal) what is unknown, fixed, not connected, malformed, or not
+ * visible to the token. `fields` are the connector fields to check with - the saved ones, or the in-flight ones of a connect whose
+ * token is not saved yet.
  */
-export async function setScope(deps: ScopeDeps, source: string, input: SetInput, by: ChangedBy): Promise<SetScopeResult> {
+export async function chooseScope(deps: ScopeDeps, source: string, input: SetInput, fields: Record<string, string> | null): Promise<Choice & { source: ScopedSource }> {
   if (!isScoped(source)) {
     const fixed = FIXED_SCOPES[source];
     if (fixed) throw new ScopeRefusal(`${labelOf(source)} reads ${fixed.text}. There is no scope to choose for it.`, 'fixed');
     throw new ScopeRefusal(`Unknown source "${source.slice(0, 16)}". A scope can be set for: ${SCOPED_SOURCES.join(', ')}.`, 'unknown_source');
   }
-  const name = labelOf(source);
-  const fields = deps.store.fields(source);
   if (!fields?.['token']) {
-    throw new ScopeRefusal(`${name} is not connected, so its scope cannot be set. Connecting needs a token only the person can supply: align connect ${source}`, 'not_connected');
+    throw new ScopeRefusal(`${labelOf(source)} is not connected, so its scope cannot be set. Connecting needs a token only the person can supply: align connect ${source}`, 'not_connected');
   }
-
-  let resolved: { scope: 'yours' | 'team'; scopeKey: string; label: string; labels: string[] };
   if (input.scope === 'yours') {
     if (source === 'confluence') {
-      throw new ScopeRefusal('Confluence has no "only yours" scope: it reads the spaces you choose. Name them: align connect confluence --spaces ENG,OPS', 'no_yours');
+      throw new ScopeRefusal('Confluence has no "only yours" scope: it reads the spaces you choose. Name them: align connect --source confluence --spaces ENG,OPS', 'no_yours');
     }
-    resolved = { scope: 'yours', scopeKey: YOURS_KEY, label: YOURS_LABEL, labels: [] };
-  } else {
-    const v = await verify(source, input.values, deps, fields);
-    const scopeKey = scopeKeyOf(source, v.labels);
-    resolved = { scope: 'team', scopeKey, label: describeScopeKey(source, scopeKey, 'team'), labels: v.labels };
-    deps.store.saveScope(source, { kind: 'team', values: v.values, labels: v.labels });
+    return { source, scope: 'yours', scopeKey: YOURS_KEY, label: YOURS_LABEL, values: [], labels: [] };
   }
-  if (resolved.scope === 'yours') {
-    // GitHub (and GitLab) would otherwise widen again from the folder's remote, so "yours" is written down; the others default to it.
-    if (source === 'github' || source === 'gitlab') deps.store.saveScope(source, { kind: 'yours' });
-    else deps.store.clearScope(source);
-  }
+  const v = await verify(source, input.values, deps, fields);
+  const scopeKey = scopeKeyOf(source, v.labels);
+  return { source, scope: 'team', scopeKey, label: describeScopeKey(source, scopeKey, 'team'), values: v.values, labels: v.labels };
+}
 
-  let created = true;
-  let row: { high_water: string | null; window_since: string | null } | undefined;
-  if (deps.dbPath !== undefined && fs.existsSync(deps.dbPath)) {
-    const window = inheritedWindowSince(readRows(deps.dbPath, source), deps.now());
-    const adopted = adoptScope(deps.dbPath, { source, scopeKey: resolved.scopeKey, scope: resolved.scope }, window, { via: by.via, agent: by.via === 'mcp' ? by.agent : null });
-    created = adopted.created;
-    row = adopted.row;
-  }
+/** Write a checked choice: the stored preference, and the scope's own `source_sync` row (the source's window, no watermark). Deletes nothing. */
+export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choice, by: ChangedBy): { newRow: boolean; row?: { high_water: string | null; window_since: string | null } } {
+  if (choice.scope === 'team') deps.store.saveScope(source, { kind: 'team', values: choice.values, labels: choice.labels });
+  // GitHub and GitLab would otherwise widen again from the folder's remote, so "yours" is written down; the others default to it.
+  else if (source === 'github' || source === 'gitlab') deps.store.saveScope(source, { kind: 'yours' });
+  else deps.store.clearScope(source);
+  if (deps.dbPath === undefined || !fs.existsSync(deps.dbPath)) return { newRow: true };
+  const window = inheritedWindowSince(readRows(deps.dbPath, source), deps.now());
+  const adopted = adoptScope(deps.dbPath, { source, scopeKey: choice.scopeKey, scope: choice.scope }, window, { via: by.via, agent: by.via === 'mcp' ? by.agent : null });
+  return { newRow: adopted.created, row: adopted.row };
+}
 
-  const result: SetScopeResult = { source, scope: resolved.scope, scopeKey: resolved.scopeKey, label: resolved.label, newRow: created, text: '' };
-  if (resolved.scope === 'yours') {
+/**
+ * Set a source's scope. The ONE writer: `align_scope set` ends here, and `align connect --scope ...` ends in the same
+ * chooseScope + commitScope pair. Refuses (ScopeRefusal) rather than guessing, and stores nothing on any refusal.
+ * Never deletes an item.
+ */
+export async function setScope(deps: ScopeDeps, source: string, input: SetInput, by: ChangedBy): Promise<SetScopeResult> {
+  const choice = await chooseScope(deps, source, input, deps.store.fields(source));
+  const { newRow: created, row } = commitScope(deps, choice.source, choice, by);
+  const name = labelOf(choice.source);
+  const result: SetScopeResult = { source: choice.source, scope: choice.scope, scopeKey: choice.scopeKey, label: choice.label, newRow: created, text: '' };
+  if (choice.scope === 'yours') {
     result.text = `${name} now reads only your own items. Items already imported from the wider scope stay in your graph; they are no longer refreshed.`;
     return result;
   }
@@ -262,9 +276,9 @@ export async function setScope(deps: ScopeDeps, source: string, input: SetInput,
     ? `for all the history its ceiling allows`
     : `back to ${day(row.window_since)}`;
   result.text = created || back === undefined
-    ? `${name} now reads ${resolved.label}. This scope has not been read before, so the next sync re-reads ${name} ${reach} for it. That can take a few minutes and uses part of your ${name} rate limit. Nothing already imported is deleted.`
-    : `${name} now reads ${resolved.label}. This scope was read before, so the next sync catches up since ${back}. Nothing already imported is deleted.`;
-  result.disclosure = disclosureText(source, resolved.labels);
+    ? `${name} now reads ${choice.label}. This scope has not been read before, so the next sync re-reads ${name} ${reach} for it. That can take a few minutes and uses part of your ${name} rate limit. Nothing already imported is deleted.`
+    : `${name} now reads ${choice.label}. This scope was read before, so the next sync catches up since ${back}. Nothing already imported is deleted.`;
+  result.disclosure = disclosureText(choice.source, choice.labels);
   return result;
 }
 

@@ -75,7 +75,7 @@ describe('resolveScope: GitHub', () => {
     const r = await resolveScope('github', deps(), { foreground: true });
     expect(r).toMatchObject({ scope: 'yours', scopeKey: 'yours', origin: 'default' });
     expect(r.note).toContain('not a GitHub repo');
-    expect(r.note).toContain('align connect github --repo owner/repo');
+    expect(r.note).toContain('align connect --source github --repo owner/repo');
   });
 
   it('a stored "yours" wins over the folder and makes no probe', async () => {
@@ -119,7 +119,7 @@ describe('resolveScope: the other sources', () => {
     expect(r.disclosure).toContain('Jira projects ALI, OPS');
     const none = await resolveScope('jira', deps(), { foreground: true });
     expect(none).toMatchObject({ scope: 'yours', scopeKey: 'yours', extras: {} });
-    expect(none.note).toContain('align connect jira --projects');
+    expect(none.note).toContain('align connect --source jira --projects');
   });
 
   it('Linear keeps ids for the fetcher and keys for the key and the words', async () => {
@@ -134,7 +134,7 @@ describe('resolveScope: the other sources', () => {
     expect(await resolveScope('confluence', deps({ store }), { foreground: false })).toMatchObject({ scope: 'team', scopeKey: 'confluence:ENG', extras: { spaces: ['ENG'] } });
     for (const s of [memStore(), memStore({ scopes: { confluence: { kind: 'yours' } } })]) {
       const r = await resolveScope('confluence', deps({ store: s }), { foreground: true });
-      expect(r.blocked).toContain('align connect confluence --spaces');
+      expect(r.blocked).toContain('align connect --source confluence --spaces');
     }
   });
 

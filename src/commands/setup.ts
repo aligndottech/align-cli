@@ -22,6 +22,7 @@ import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../l
 import { type FetchExtras, fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { afterSourceConnected } from '../lib/sync/after-connect.js';
+import { connectScopeCtx, fetchUnderScope, type ScopeFlags } from '../lib/scope-connect.js';
 import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { collectTokensViaOAuth, oauthFlowLabel } from '../lib/personal-oauth.js';
@@ -757,6 +758,8 @@ export interface ConnectLocalSourcesOptions {
   json?: boolean;
   /** L3 (`align connect --since`): how far back to read. Absent means the plan's six months. */
   window?: SyncWindow;
+  /** L4 (`align connect --scope/--projects/...`): which part of a source to read. */
+  scopeFlags?: ScopeFlags;
 }
 
 /** The ids `align connect --source` accepts: every local paste-token source, in picker order. */
@@ -780,6 +783,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   const quiet = o.json === true;
   const window = o.window ?? parseSince(undefined);
   const results: ConnectedSourceResult[] = [];
+  const scopeCtx = connectScopeCtx({ config, dbPath: localEnv.localDbPath, interactive, quiet, flags: o.scopeFlags });
 
   // Connectors: local mode connects by a read-only token the user mints themselves,
   // for every connector - their personal graph, their credential. OAuth belongs to
@@ -954,7 +958,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
     spinner.start(`Fetching from ${source.label}...`);
     let sourceCs: CaptureSource | undefined;
     try {
-      const fetched = await source.fetch(tokens, window, { team: true });
+      const fetched = await fetchUnderScope(source, tokens, window, scopeCtx);
       sourceCs = capture.add(toCaptureSource(source, fetched, windowLabel(window.days)));
       const { items } = fetched;
       // Saved only once the fetch it unlocked has succeeded. A token that never worked is not

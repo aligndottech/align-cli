@@ -150,7 +150,21 @@ export function fetchOptsFor(source: ScopedSource, values: string[]): ScopeFetch
 
 /** The plain-words line shown once per source before the first team read (plan, Phase L4). */
 export function disclosureText(source: ScopedSource, labels: string[]): string {
-  return `Importing items from everyone in ${scopeLabel(source, labels)} that your token can read. They stay on this machine. To read only your own: align connect ${source} --scope yours`;
+  return `Importing items from everyone in ${scopeLabel(source, labels)} that your token can read. They stay on this machine. To read only your own: align connect --source ${source} --scope yours`;
+}
+
+/**
+ * Say the team-scope disclosure the FIRST time a source is read as team, then remember it was said. For the readers that do not go
+ * through scope.ts (the per-source `align connect <source>` commands). Returns whether it spoke.
+ */
+export function discloseTeamScope(
+  store: { isTeamScopeDisclosed(source: string): boolean; markTeamScopeDisclosed(source: string): void },
+  source: ScopedSource, labels: string[], say: (line: string) => void,
+): boolean {
+  if (store.isTeamScopeDisclosed(source)) return false;
+  say(disclosureText(source, labels));
+  store.markTeamScopeDisclosed(source);
+  return true;
 }
 
 /** Sources with no named scope to pick. Slack, Notion and Teams already read all the token can see; Zoom cannot read more. */
