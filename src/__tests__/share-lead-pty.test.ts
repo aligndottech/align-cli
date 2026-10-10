@@ -21,7 +21,7 @@ let rig: Rig;
 async function makeRig(): Promise<Rig> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-lead-pty-'));
   const env = childEnv(dir);
-  for (const k of Object.keys(env)) if (/^(CI|GITHUB_.*|RUNNER_.*|BUILD_ID|BUILD_NUMBER|RUN_ID|CONTINUOUS_INTEGRATION|ALIGN_TOKEN|ALIGN_ENV|ALIGN_TENANT_ID|ALIGN_WRAPPED|ALIGN_NO_LEAD_PROMPT)$/.test(k)) delete env[k];
+  for (const k of Object.keys(env)) if (/^(CI|GITHUB_.*|RUNNER_.*|BUILD_ID|BUILD_NUMBER|RUN_ID|CONTINUOUS_INTEGRATION|ALIGN_TOKEN|ALIGN_GATEWAY_URL|ALIGN_ENV|ALIGN_TENANT_ID|ALIGN_WRAPPED|ALIGN_NO_LEAD_PROMPT)$/.test(k)) delete env[k];
   const found = productPaths(env);
   fs.mkdirSync(found.configDir, { recursive: true });
   fs.writeFileSync(path.join(found.configDir, 'config.json'), JSON.stringify({ environments: { local: { mode: 'local-embedded', localDbPath: path.join(found.configDir, 'local.db') } }, defaultEnv: 'prod' }));
@@ -40,8 +40,9 @@ async function makeRig(): Promise<Rig> {
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const preload = path.join(__dirname, 'helpers', 'loopback-only.cjs');
-  env['ALIGN_GATEWAY_URL'] = base;
-  env['NODE_OPTIONS'] = `${process.env['NODE_OPTIONS'] ?? ''} --require ${preload}`.trim();
+  const rewrite = path.join(__dirname, 'helpers', 'hosted-rewrite.cjs');
+  env['ALIGN_TEST_HOSTED_REWRITE'] = base; // the hosted URL is the default prod gateway; the child's fetch is sent to the loopback fake
+  env['NODE_OPTIONS'] = `${process.env['NODE_OPTIONS'] ?? ''} --require ${preload} --require ${rewrite}`.trim();
   const configFile = path.join(found.configDir, 'config.json');
   return { dir, base, leads, other, reply, configFile, stateDir: found.stateDir, configDir: found.configDir, env, close: () => { server.closeAllConnections(); server.close(); fs.rmSync(dir, { recursive: true, force: true }); } };
 }
@@ -130,6 +131,16 @@ describe.skipIf(!canPty)('a person on a real terminal with no team login', () =>
       expect(r.out, JSON.stringify(extra)).not.toContain('Work email');
       expect(r.out).toContain('Book a 30-minute call');
     }
+    expect(rig.leads).toHaveLength(0);
+    expect(config()['leadPromptShownAt']).toBeUndefined();
+  });
+});
+
+describe.skipIf(!canPty)('a gateway that is not Align\'s hosted one', () => {
+  it.each([['a loopback self-host', () => rig.base], ['a self-host name', () => 'https://align.corp.example']])('%s: no prompt, no request, nothing marked', async (_n, url) => {
+    const r = await pty([], { ALIGN_GATEWAY_URL: url() });
+    expect(r.out).toContain('Book a 30-minute call');
+    expect(r.out).not.toContain('Work email');
     expect(rig.leads).toHaveLength(0);
     expect(config()['leadPromptShownAt']).toBeUndefined();
   });

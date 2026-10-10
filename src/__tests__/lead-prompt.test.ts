@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { createConfigStore, type LeadPromptOutcome, type LeadState } from '../lib/config.js';
 import {
-  LEAD_CONSENT_LINE, LEAD_CONSENT_VERSION, LEAD_INPUT_PROMPT, LEAD_QUESTION_LINE, leadBody, leadPromptDecision, maybeAskLead,
-  normaliseEmail, postLead, PRIVACY_URL, type LeadDeps, type LeadGateInput, type LeadSendOutcome,
+  LEAD_CONSENT_LINE, LEAD_CONSENT_VERSION, LEAD_INPUT_PROMPT, LEAD_QUESTION_LINE, leadBody, type LeadDeps, type LeadGateInput,
+  leadPromptDecision, type LeadSendOutcome, maybeAskLead, normaliseEmail, postLead, PRIVACY_URL,
 } from '../lib/lead-prompt.js';
 
 /**
@@ -20,7 +20,8 @@ import {
  *   map to one outcome.
  * - Disk: after a submit the address is in no file under the config or state directories.
  */
-const person: LeadGateInput = { env: {}, tty: true, hasLogin: false, inCi: false, state: {} };
+const HOSTED = 'https://api.align.tech';
+const person: LeadGateInput = { env: {}, tty: true, hasLogin: false, inCi: false, state: {}, gatewayUrl: HOSTED, hostedGatewayUrl: HOSTED };
 const asked = (over: Partial<LeadState> = {}): LeadState => ({ shownAt: '2026-10-10T10:00:00.000Z', version: LEAD_CONSENT_VERSION, outcome: 'skipped', ...over });
 
 describe('who is asked (the decision table)', () => {
@@ -40,6 +41,18 @@ describe('who is asked (the decision table)', () => {
   it('asks again when the consent version changed since the last ask', () => {
     expect(leadPromptDecision({ ...person, state: asked({ version: '2026-01-older' }) })).toBeNull();
   });
+  it('asks on the hosted gateway, also written with a trailing slash or other case', () => {
+    expect(leadPromptDecision({ ...person, gatewayUrl: 'https://API.align.tech/' })).toBeNull();
+  });
+  it.each([
+    ['a self-hosted gateway', 'https://align.corp.example'], ['localhost', 'http://localhost:8080'], ['127.0.0.1', 'http://127.0.0.1:8080'],
+    ['the preview host', 'https://api.preview.align.tech'], ['a look-alike prefix', 'https://api.align.tech.evil.example'], ['a path under the host', 'https://api.align.tech/v2'], ['empty', ''],
+  ])('never asks on %s', (_n, url) => {
+    expect(leadPromptDecision({ ...person, gatewayUrl: url })).toBe('not-hosted');
+  });
+  it('never asks when no hosted URL was supplied', () => {
+    expect(leadPromptDecision({ ...person, hostedGatewayUrl: '' })).toBe('not-hosted');
+  });
   it('an empty ALIGN_WRAPPED or ALIGN_NO_LEAD_PROMPT does not count as set', () => {
     expect(leadPromptDecision({ ...person, env: { ALIGN_WRAPPED: '', ALIGN_NO_LEAD_PROMPT: '' } })).toBeNull();
   });
@@ -56,7 +69,7 @@ describe('the address check', () => {
   });
   it.each([
     [''], ['   '], ['plain'], ['a@b'], ['a@@b.co'], ['a@b@c.co'], ['@b.co'], ['a@.co'], ['a@b..co'], ['a@b.'], ['a b@c.co'], ['a@b.co\n'.replace('\n', '\u0007')],
-    ['a@b.co‮'], ['a​@b.co'], ['a@b.co,c@d.co'], ['<a@b.co>'], ['a@b.co;x'], ['x'.repeat(65) + '@b.co'], [`a@${'x'.repeat(250)}.co`], ['a\u0000@b.co'], ['a @b.co'],
+    ['a@b.co‮'], ['a​@b.co'], ['a@b.co,c@d.co'], ['<a@b.co>'], ['a@b.co;x'], [`${'x'.repeat(65)  }@b.co`], [`a@${'x'.repeat(250)}.co`], ['a\u0000@b.co'], ['a @b.co'],
   ])('refuses %j', (raw) => {
     expect(normaliseEmail(raw)).toBeNull();
   });
@@ -80,7 +93,7 @@ function fixture(lines: Array<string | null>, send: LeadSendOutcome = { kind: 'a
       setLeadOutcome: (o: LeadPromptOutcome) => { f.calls.push(`outcome:${o}`); f.state = { ...f.state, outcome: o, ...(o === 'submitted' ? { submittedAt: 'now' } : {}) }; },
       clearLeadPromptShown: () => { f.calls.push('clear'); f.state = { ...f.state, shownAt: undefined, version: undefined, outcome: undefined }; },
     },
-    env: {}, hasLogin: false, inCi: false, tty: true,
+    env: {}, hasLogin: false, inCi: false, tty: true, gatewayUrl: HOSTED, hostedGatewayUrl: HOSTED,
     ask: async (shown, q, onShown) => { f.shown.push(shown); f.questions.push(q); if (queue.length === 0) return null; onShown(); return queue.shift()!; },
     post: async (e) => { f.posts.push(e); return send; },
     out: (l) => f.out.push(l),
@@ -190,6 +203,14 @@ describe('the prompt', () => {
     expect(f.shown).toEqual([]);
     expect(f.posts).toEqual([]);
     expect(f.calls).toEqual([]);
+  });
+  it.each([['self-hosted', 'https://align.corp.example'], ['localhost', 'http://localhost:8080'], ['preview', 'https://api.preview.align.tech']])('%s gateway: no prompt, no post, no flag, and fetch is never called', async (_n, url) => {
+    const spy = vi.spyOn(globalThis, 'fetch');
+    const f = fixture(['a@b.co'], { kind: 'accepted' }, { gatewayUrl: url, post: (e) => postLead(e, url) });
+    expect(await maybeAskLead(f.deps)).toBe('skipped-by-gate');
+    expect(f.shown).toEqual([]); expect(f.calls).toEqual([]); expect(f.state).toEqual({});
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
   it('a store that throws costs the prompt, never the command', async () => {
     const f = fixture(['a@b.co'], { kind: 'accepted' }, { store: { getLeadState: () => { throw new Error('disk'); }, markLeadPromptShown: () => undefined, setLeadOutcome: () => undefined, clearLeadPromptShown: () => undefined } });

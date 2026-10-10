@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { leadBody, LEAD_CONSENT_VERSION } from '../lib/lead-prompt.js';
+import { LEAD_CONSENT_VERSION, leadBody } from '../lib/lead-prompt.js';
 
 /**
  * The lead route's contract is owned by align-stack. This repo keeps a vendored copy and builds its request from it.

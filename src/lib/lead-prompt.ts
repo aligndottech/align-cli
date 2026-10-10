@@ -10,7 +10,7 @@
  * `align_share` and `align_share_status` (the MCP tools) never import this module: an agent must not
  * collect an email on a person's behalf (share-lead-mcp.test.ts holds that).
  */
-import { ALIGN_HOSTED_GATEWAY_URL, type LeadPromptOutcome, type LeadState } from './config.js';
+import { type LeadPromptOutcome, type LeadState } from './config.js';
 import { visible } from './share/visible.js';
 import pkg from '../../package.json' with { type: 'json' };
 
@@ -25,7 +25,7 @@ export const LEAD_INPUT_PROMPT = 'Work email (press Enter to skip):';
 const CAP_MS = 5000;
 const MAX_RESPONSE_BYTES = 4096;
 
-export type LeadSkipReason = 'wrapped' | 'ci' | 'suppressed' | 'not-a-terminal' | 'has-login' | 'already-asked';
+export type LeadSkipReason = 'not-hosted' | 'wrapped' | 'ci' | 'suppressed' | 'not-a-terminal' | 'has-login' | 'already-asked';
 
 export interface LeadGateInput {
   env: Record<string, string | undefined>;
@@ -34,12 +34,20 @@ export interface LeadGateInput {
   hasLogin: boolean;
   inCi: boolean;
   state: LeadState;
+  /** The gateway this run talks to (resolved from config, the same one the share path uses). */
+  gatewayUrl: string;
+  /** Align's own hosted gateway. Only that target may be asked for, or sent, an email. */
+  hostedGatewayUrl: string;
 }
+
+const sameUrl = (a: string, b: string): boolean => a.trim().replace(/\/+$/, '').toLowerCase() === b.trim().replace(/\/+$/, '').toLowerCase();
 
 const isSet = (v: string | undefined): boolean => v !== undefined && v !== '';
 
 /** Null means ask. Anything else is the one reason it must not. Pure, so the decision table is testable as one. */
 export function leadPromptDecision(i: LeadGateInput): LeadSkipReason | null {
+  // A self-hosted or preview gateway is not Align's list: no prompt, no send, no flag, no network.
+  if (i.hostedGatewayUrl === '' || !sameUrl(i.gatewayUrl, i.hostedGatewayUrl)) return 'not-hosted';
   if (isSet(i.env['ALIGN_WRAPPED'])) return 'wrapped';
   if (i.inCi) return 'ci';
   if (isSet(i.env['ALIGN_NO_LEAD_PROMPT'])) return 'suppressed';
@@ -81,7 +89,7 @@ export function leadBody(email: string): LeadBody {
 }
 
 /** One attempt. No retry, no redirect, a hard time cap and a size cap on what is read back. Never throws. */
-export async function postLead(email: string, baseUrl: string = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL, capMs: number = CAP_MS): Promise<LeadSendOutcome> {
+export async function postLead(email: string, baseUrl: string, capMs: number = CAP_MS): Promise<LeadSendOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), capMs);
   try {
@@ -124,10 +132,13 @@ export interface LeadDeps {
   env: Record<string, string | undefined>;
   hasLogin: boolean;
   inCi: boolean;
+  gatewayUrl: string;
+  hostedGatewayUrl: string;
   /** stdin, stdout and stderr are terminals. The controlling terminal itself is proven by `ask`. */
   tty: boolean;
   /** Show `shown` on the controlling terminal, call onShown once visible, return the typed line, or null with no terminal. */
   ask: (shown: string, question: string, onShown: () => void) => Promise<string | null>;
+  /** Posts to the resolved gateway URL, the same one the gate compared. */
   post: (email: string) => Promise<LeadSendOutcome>;
   out: (line: string) => void;
 }
@@ -137,7 +148,7 @@ const DECLINES = /^(n|no|never|no thanks|no thank you)$/i;
 /** Runs the whole prompt. Returns what happened, for tests. Never throws: a broken store costs the prompt, never the command. */
 export async function maybeAskLead(d: LeadDeps): Promise<'skipped-by-gate' | 'no-terminal' | LeadPromptOutcome | 'not-sent'> {
   try {
-    if (leadPromptDecision({ env: d.env, tty: d.tty, hasLogin: d.hasLogin, inCi: d.inCi, state: d.store.getLeadState() }) !== null) return 'skipped-by-gate';
+    if (leadPromptDecision({ env: d.env, tty: d.tty, hasLogin: d.hasLogin, inCi: d.inCi, gatewayUrl: d.gatewayUrl, hostedGatewayUrl: d.hostedGatewayUrl, state: d.store.getLeadState() }) !== null) return 'skipped-by-gate';
     const shown = `${LEAD_QUESTION_LINE}\n${LEAD_CONSENT_LINE}`;
     // Marked as soon as the person can see it, so Ctrl-C or end of input still counts as asked.
     let line = await d.ask(shown, LEAD_INPUT_PROMPT, () => d.store.markLeadPromptShown(LEAD_CONSENT_VERSION));
