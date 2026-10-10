@@ -239,7 +239,19 @@ export function migrateV7(db: DatabaseSync): void {
 
   const groups = db.prepare('SELECT source_key AS k FROM decisions WHERE source_key IS NOT NULL GROUP BY source_key HAVING count(*) > 1')
     .all() as Array<{ k: string }>;
+  // The fold looks up links by target, audit rows and judgements by decision for every loser;
+  // none of those has an index (links are indexed by source only), so 3k merges scanned the
+  // tables 3k times. Temporary, created inside the migration's transaction and dropped with it.
+  const temp: string[] = [
+    'CREATE INDEX IF NOT EXISTS tmp_v7_links_target ON decision_links(target_id)',
+    'CREATE INDEX IF NOT EXISTS tmp_v7_audit_decision ON decision_audit(decision_id)',
+    'CREATE INDEX IF NOT EXISTS tmp_v7_judgements_counterpart ON local_judgements(counterpart_id)',
+  ];
+  if (groups.length > 0) for (const ddl of temp) db.exec(ddl);
   for (const { k } of groups) mergeGroup(db, k);
+  for (const name of ['tmp_v7_links_target', 'tmp_v7_audit_decision', 'tmp_v7_judgements_counterpart']) {
+    db.exec(`DROP INDEX IF EXISTS ${name}`);
+  }
 
   db.exec(V7_INDEXES);
 }
