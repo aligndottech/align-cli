@@ -26,6 +26,11 @@ describe('the team call to action', () => {
     expect(teamCtaLine(true)).toContain(TEAM_SIGNUP_URL);
     expect(BOOK_CALL_URL.startsWith('https://')).toBe(true);
   });
+  it('describes the booking call as the 30-minute slot the link opens, and never as 20', () => {
+    const line = teamCtaLine(false);
+    expect(line).toContain('30-minute');
+    expect(line).not.toContain('20-minute');
+  });
   it('spells the booking URL in exactly one source file', () => {
     const hits: string[] = [];
     const walk = (d: string): void => {
