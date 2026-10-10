@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { piExtensionBody } from '../lib/agent-rules.js';
+import { alignServerEntry } from '../lib/mcp-setup.js';
 import { applyConfigWrite } from '../lib/launch/config-writes.js';
 import { readCursorState } from '../lib/launch/cursor-state.js';
 import { readGeminiState } from '../lib/launch/gemini-state.js';
@@ -207,7 +208,8 @@ describe('gemini against a fake binary (the real state reader, writer and undo)'
     const settings = JSON.parse(readFileSync(userFile(), 'utf8'));
     expect(settings.ui).toEqual({ theme: 'dark' });
     expect(Object.keys(settings.mcpServers).sort()).toEqual(['align-local', 'mine']);
-    expect(settings.mcpServers['align-local']).toEqual({ command: 'align', args: ['mcp', '--env', 'local'] });
+    // The host's own spawn form: bare `align` on posix, `cmd /c align` on win32 (an npm global is align.cmd).
+    expect(settings.mcpServers['align-local']).toEqual(alignServerEntry('mcpServers', 'local'));
     expect(recorded().argv).toEqual(['-p', 'hi']);
     expect(lines.filter((l) => l.startsWith('Added the align-local'))).toHaveLength(1);
     // The variable the first design relied on, and that Gemini 0.63.0 ignores for a non-root tree.
