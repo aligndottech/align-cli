@@ -57,3 +57,15 @@ describe('the login loopback callback ignores what is not the answer', () => {
     expect((await p).data).toEqual({ token: 'tok' });
   });
 });
+
+describe('the wait can be stopped', () => {
+  it('an aborted signal rejects the wait and frees the port', async () => {
+    const ac = new AbortController();
+    let bound = false;
+    const p = waitForCallback({ ports: [19926], timeoutMs: 4000, signal: ac.signal, onBound: () => { bound = true; } });
+    for (let i = 0; i < 100 && !bound; i++) await new Promise((r) => setTimeout(r, 10));
+    ac.abort();
+    await expect(p).rejects.toThrow(/cancel/i);
+    await expect(fetch('http://127.0.0.1:19926/callback', { method: 'POST', body: '{}' })).rejects.toThrow();
+  });
+});

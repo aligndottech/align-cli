@@ -95,12 +95,30 @@ describe('align logout --env <destination>', () => {
 });
 
 describe('align login --env <destination> --token', () => {
-  it('saves the token on that destination only, keeping its gateway, and prod is untouched', async () => {
+  it('without a terminal it is refused and the token is unchanged (second review N2)', async () => {
+    fresh();
+    await run(registerLoginCommands, ['login', '--env', 'acme', '--token', ['al', 'renewed', 'tok'].join('_')]);
+    const c = createConfigStore();
+    expect(c.getEnvironment('acme').authToken).toBe(ACME_TOKEN);
+    expect(lines.join('\n')).toMatch(/terminal/);
+  });
+
+  it('at a terminal, a token the destination verifies is saved with its tenant, and prod is untouched', async () => {
     fresh();
     const renewed = ['al', 'renewed', 'tok'].join('_');
-    await run(registerLoginCommands, ['login', '--env', 'acme', '--token', renewed]);
+    const ttyIn = process.stdin.isTTY; const ttyOut = process.stdout.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ user: { email: 'a@acme.example' }, tenant: { id: 'T-renewed', name: 'Acme' } }), { status: 200 })));
+    try {
+      await run(registerLoginCommands, ['login', '--env', 'acme', '--token', renewed]);
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', { value: ttyIn, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: ttyOut, configurable: true });
+      vi.unstubAllGlobals();
+    }
     const c = createConfigStore();
-    expect(c.getEnvironment('acme')).toMatchObject({ authToken: renewed, gatewayUrl: 'https://api.acme.example', kind: 'team' });
+    expect(c.getEnvironment('acme')).toMatchObject({ authToken: renewed, tenantId: 'T-renewed', gatewayUrl: 'https://api.acme.example', kind: 'team' });
     expect(c.getEnvironment('prod').authToken).toBe(PROD);
   });
 });

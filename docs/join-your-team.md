@@ -15,9 +15,12 @@ Keep the quotes. The link has `&` in it.
 
 **You have to run this yourself, in your own terminal.** It refuses when input or output is not a
 terminal, and inside an agent that `align` launched. There is no flag to get around that, on purpose: joining
-gives a server a credential and a place to send your decisions, so a person answers the questions. (An agent that
-opens its own pseudo-terminal can still get past a terminal check. That is a limit of any such check, not something
-this command solves.)
+gives a server a credential and a place to send your decisions, so a person answers the questions.
+
+Two limits, stated plainly. An agent that opens its own pseudo-terminal can still get past a terminal check and type
+the answers itself; that is a limit of any such check, not something this command solves. And anything able to write
+the CLI's config file (`~/.config/align-cli/config.json` on Linux) can add a destination directly, without
+`align join` at all.
 
 What happens, in order:
 
@@ -49,7 +52,11 @@ Joining needs a browser on the same computer. Make a token in the web app instea
 align login --env <name> --token <token>
 ```
 
-That needs the destination to exist already, so join once from a machine with a browser.
+That needs the destination to exist already, so join once from a machine with a browser. It works only at a
+terminal (not inside an agent), and the token is saved only after the destination's gateway says whose it is.
+
+If a join stops after the browser opened, the gateway may already have issued a token to this computer. The CLI did
+not save it, and it stays valid until the date the CLI prints, or until the admin revokes the invite.
 
 ### Flags
 
@@ -79,8 +86,8 @@ line says Align does not verify it.
 - A gateway or web app on plain `http`, except `localhost`.
 - A link whose gateway or web app differs from what the server says about itself.
 - Joining without a terminal, or inside an agent.
-- A link that carries a gateway the server does not confirm as its own. The join page is also told which gateway the
-  CLI expects, and refuses a link that points at another one.
+- A link that carries a gateway the server does not confirm as its own. The CLI also tells the join page which
+  gateway it expects; the Align join page also checks this once the gateway release including it is deployed.
 - An unknown `--env` name. It never falls back to prod.
 - Using `ALIGN_TOKEN`, `ALIGN_TENANT_ID` or `ALIGN_GATEWAY_URL` for a named destination. They only apply to
   the built-in environments.
