@@ -303,6 +303,28 @@ describe('written once, against FAKE auggie and cline binaries (real pipeline)',
     expect(sha(readFileSync(f, 'utf8'))).toBe(sha(original));
   });
 
+  it('cline: a changed ALIGN_ENV refreshes Align\'s own entry once, the next launch writes nothing, and --undo restores the original bytes', async () => {
+    const f = files.cline();
+    mkdirSync(path.dirname(f), { recursive: true });
+    const original = '{ "mcpServers": { "mine": { "command": "x" } } }\n';
+    writeFileSync(f, original);
+    vi.stubEnv('ALIGN_ENV', 'local');
+    await run('cline');
+    expect(JSON.parse(readFileSync(f, 'utf8')).mcpServers['align-local'].env.ALIGN_ENV).toBe('local');
+    vi.stubEnv('ALIGN_ENV', 'prod');
+    lines.length = 0;
+    await run('cline');
+    expect(lines.filter((l) => l.startsWith('Refreshed'))).toHaveLength(1);
+    expect(JSON.parse(readFileSync(f, 'utf8')).mcpServers['align-local'].env.ALIGN_ENV).toBe('prod');
+    const after = readFileSync(f, 'utf8');
+    lines.length = 0;
+    await run('cline');
+    expect(readFileSync(f, 'utf8')).toBe(after);
+    expect(lines.filter((l) => l.startsWith('Refreshed') || l.startsWith('Added'))).toEqual([]);
+    expect(undoWrittenConfigs(manifest).done).toEqual([f]);
+    expect(sha(readFileSync(f, 'utf8'))).toBe(sha(original));
+  });
+
   it.each(['auggie', 'cline'] as const)('%s: a hostile or user non-canonical align-local means no write and one line', async (agent) => {
     const f = files[agent]();
     mkdirSync(path.dirname(f), { recursive: true });

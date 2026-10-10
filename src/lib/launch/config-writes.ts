@@ -21,6 +21,8 @@ export interface ConfigWrite {
   root?: string;
   /** One extra line after the first write (what the user has to do next). */
   hint?: string;
+  /** Replace an entry of this name that is Align's own (a stale env block), instead of adding only. */
+  replace?: true;
 }
 
 /**
@@ -51,14 +53,17 @@ export function applyConfigWrite(w: ConfigWrite, note: (line: string) => void, m
     w.file,
     (cur) => {
       const servers = isObject(cur[w.topKey]) ? (cur[w.topKey] as Json) : {};
-      if (w.name in servers) return undefined;
+      if (w.name in servers && !w.replace) return undefined;
+      if (w.replace && JSON.stringify(servers[w.name]) === JSON.stringify(w.entry)) return undefined;
       return { ...cur, [w.topKey]: { ...servers, [w.name]: w.entry } };
     },
     { ...opts, trailingNewline: true },
   );
   if (status === 'symlink') memo?.add(w.file);
   else if (quiet) memo?.remove(w.file);
-  if (status === 'written') {
+  if (status === 'written' && w.replace) {
+    note(`Refreshed Align's own ${w.name} entry in ${w.file}. Undo: align use --undo`);
+  } else if (status === 'written') {
     note(`Added the ${w.name} MCP server to ${w.file} (original kept at ${w.file}${BACKUP_SUFFIX}). Undo: align use --undo`);
     if (w.hint) note(w.hint);
   }

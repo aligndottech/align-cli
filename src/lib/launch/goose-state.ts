@@ -4,9 +4,11 @@ import path from 'node:path';
 import { optionValue, readText } from './layer-files.js';
 import type { AlignLocalState } from './strict-entry.js';
 import { isCanonicalLocalEntry } from './strict-entry.js';
-import { type Field, fields, listValue, meaningfulLines, scalarValue, topLevelBlock, type YamlLine } from './yaml-scan.js';
+import { type Field, fields, listValue, scalarValue, scanYaml, topLevelBlock, type Unreadable, type YamlLine } from './yaml-scan.js';
 
 export interface GooseProjectState extends Pick<AlignLocalState, 'present' | 'conflict'> {
+  /** The config could not be read with certainty: where, and why. */
+  unreadable?: { file: string; line: number; reason: string };
   /** The config.yaml Goose reads: where a clashing extension would sit. Read only, never written. */
   configFile: string;
 }
@@ -77,23 +79,34 @@ const ALLOWED: Record<string, (f: Field) => boolean> = {
  *    local graph), with no key that could change what runs;
  *  - conflict: anything else, including any mention this reader cannot place.
  */
-export function gooseAlignLocal(text: string | null, o: { localIsDefault: boolean; platform: string }): 'absent' | 'present' | 'conflict' {
-  if (text === null) return 'absent';
-  const lines = meaningfulLines(text);
-  if (lines === null) return 'conflict';
-  const mentions = (ls: YamlLine[]) => ls.some((l) => l.text.includes('align-local'));
+export type YamlVerdict = 'absent' | 'present' | 'conflict' | 'unreadable';
+
+export function gooseAlignLocal(text: string | null, o: { localIsDefault: boolean; platform: string }): YamlVerdict {
+  return gooseVerdict(text, o).verdict;
+}
+
+/** The verdict, and for `unreadable` the line and reason. */
+function gooseVerdict(text: string | null, o: { localIsDefault: boolean; platform: string }): { verdict: YamlVerdict; detail?: Unreadable } {
+  if (text === null) return { verdict: 'absent' };
+  const scanned = scanYaml(text);
+  if ('unreadable' in scanned) return { verdict: 'unreadable', detail: scanned.unreadable };
+  const lines = scanned.lines;
+  const firstMention = (ls: YamlLine[]) => ls.find((l) => l.text.includes('align-local'));
+  const layout = (ls: YamlLine[]): { verdict: YamlVerdict; detail?: Unreadable } => {
+    const m = firstMention(ls);
+    return m ? { verdict: 'unreadable', detail: { line: m.n, reason: 'a layout Align does not read' } } : { verdict: 'absent' };
+  };
   const block = topLevelBlock(lines, 'extensions');
-  if (block === 'inline') return mentions(lines) ? 'conflict' : 'absent';
-  if (block === null) return mentions(lines) ? 'conflict' : 'absent';
+  if (block === 'inline' || block === null) return layout(lines);
   const exts = fields(block);
-  if (!exts) return mentions(block) ? 'conflict' : 'absent';
-  // A mention of align-local anywhere but its own key cannot be placed: a `name:` field may rename.
-  for (const [key, f] of exts) if (key !== 'align-local' && (mentions(f.children) || f.inline.includes('align-local'))) return 'conflict';
+  if (!exts) return layout(block);
+  // A mention of align-local anywhere but its own key: a `name:` field may rename an extension.
+  for (const [key, f] of exts) if (key !== 'align-local' && (firstMention(f.children) || f.inline.includes('align-local'))) return { verdict: 'conflict' };
   const local = exts.has('align-local') ? extension(exts.get('align-local')!, 'align-local', o) : 'absent';
-  if (local === 'conflict') return 'conflict';
+  if (local === 'conflict') return { verdict: 'conflict' };
   // An enabled, exactly-ours extension under either name already serves the graph.
   const align = exts.has('align') ? extension(exts.get('align')!, 'align', o) : 'absent';
-  return local === 'present' || align === 'present' ? 'present' : 'absent';
+  return { verdict: local === 'present' || align === 'present' ? 'present' : 'absent' };
 }
 
 /** One extension's verdict: disabled is absent, exactly Align's own is present, anything else a conflict. */
@@ -116,7 +129,8 @@ function extension(f: Field, name: string, o: { localIsDefault: boolean; platfor
 /** What Goose would already load for align: its one config.yaml (it has no project-level extension config). */
 export function readGooseState(_cwd: string, home: string, opts: { localIsDefault: boolean }, env: Record<string, string | undefined>, platform: string): GooseProjectState {
   const configFile = gooseConfigFile(home, env, platform);
-  const verdict = gooseAlignLocal(readText(configFile), { ...opts, platform });
+  const { verdict, detail } = gooseVerdict(readText(configFile), { ...opts, platform });
+  if (verdict === 'unreadable') return { present: false, configFile, unreadable: { file: configFile, ...detail! } };
   return verdict === 'conflict' ? { present: false, conflict: configFile, configFile } : { present: verdict === 'present', configFile };
 }
 

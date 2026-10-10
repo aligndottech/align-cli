@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { optionValue, readText } from './layer-files.js';
-import { isCanonicalChildEnv } from './mcp-child-env.js';
+import { classifyChildEnv } from './mcp-child-env.js';
 import { type AlignLocalState, type CanonicalOptions, isCanonicalLocalEntry, parseJsonc, unreadableMentionsAlign } from './strict-entry.js';
 
 export interface ClineProjectState extends AlignLocalState {
@@ -8,6 +8,10 @@ export interface ClineProjectState extends AlignLocalState {
   mcpFile: string;
   /** The user's --config or --data-dir chose that file for this session only: align writes nothing there. */
   oneSession: boolean;
+  /** Align's own entry, with an older key set or values that have changed since: refresh it. */
+  stale?: boolean;
+  /** The conflict is an env value Align did not write: which key. */
+  envConflictKey?: string;
 }
 
 type Json = Record<string, unknown>;
@@ -47,22 +51,38 @@ export function clineMcpFile(home: string, env: Record<string, string | undefine
  */
 export function clinePins(home: string, env: Record<string, string | undefined>, passthrough: string[]): Record<string, string> {
   const d = clineDirs(home, env, passthrough);
-  const sandboxOff: Record<string, string> = optionValue(passthrough, '--data-dir') === undefined ? { CLINE_SANDBOX: '', CLINE_SANDBOX_DATA_DIR: '', CLINE_PROVIDER_SETTINGS_PATH: '' } : {};
+  // Cline reads each one with `?.trim()` and skips it when empty (cline 3.0.70 bundled binary:
+  // the sandbox switch in Ed(), P(), lh(), Xd(), xi(), oa()), so empty is a no-op. With
+  // --data-dir, cline's own sandbox setup sets these from the flag.
+  const sandboxOff: Record<string, string> = optionValue(passthrough, '--data-dir') === undefined
+    ? { CLINE_SANDBOX: '', CLINE_SANDBOX_DATA_DIR: '', CLINE_PROVIDER_SETTINGS_PATH: '', CLINE_GLOBAL_SETTINGS_PATH: '', CLINE_SESSION_DATA_DIR: '', CLINE_DB_DATA_DIR: '' }
+    : {};
   return { CLINE_DIR: d.clineDir, CLINE_DATA_DIR: d.dataDir, CLINE_MCP_SETTINGS_PATH: d.mcpFile, ...sandboxOff };
 }
 
 /** `cline mcp add` wraps the command in `transport` (3.0.70); the flat form loads too. */
-function canonical(entry: unknown, o: CanonicalOptions): boolean {
+function unwrap(entry: unknown): unknown {
   if (isObject(entry) && Object.keys(entry).length === 1 && isObject(entry['transport'])) {
     const { type, ...rest } = entry['transport'];
-    return type === 'stdio' && canonical(rest, o);
+    return type === 'stdio' ? rest : undefined;
   }
-  // The env block Align writes (mcp-child-env.ts), exactly: any other env is not Align's own.
-  if (isObject(entry) && 'env' in entry) {
-    const { env, ...rest } = entry;
-    return isCanonicalChildEnv(env) && isCanonicalLocalEntry(rest, o);
-  }
-  return isCanonicalLocalEntry(entry, o);
+  return entry;
+}
+
+/**
+ * Align's own entry, judged with today's environment: `present` (no env block, or a current
+ * one), `stale` (Align's block from an older key set, or values that have changed: refresh it),
+ * `envConflict` (an env value Align never writes) or `foreign` (anything else).
+ */
+function judge(entry: unknown, o: CanonicalOptions, env: Record<string, string | undefined>): { kind: 'present' | 'stale' | 'foreign' } | { kind: 'envConflict'; key: string } {
+  const e = unwrap(entry);
+  if (!isObject(e)) return { kind: 'foreign' };
+  if (!('env' in e)) return isCanonicalLocalEntry(e, o) ? { kind: 'present' } : { kind: 'foreign' };
+  const { env: block, ...rest } = e;
+  if (!isCanonicalLocalEntry(rest, o)) return { kind: 'foreign' };
+  const c = classifyChildEnv(block, env);
+  if (c.kind === 'foreign') return { kind: 'envConflict', key: c.key };
+  return { kind: c.kind === 'current' ? 'present' : 'stale' };
 }
 
 /**
@@ -89,7 +109,14 @@ export function readClineState(
   if (unreadableMentionsAlign(text, parsed)) return { ...state, conflict: mcpFile };
   const servers = parsed?.['mcpServers'];
   if (!isObject(servers)) return state;
-  if (canonical(servers['align'], o) || canonical(servers['align-local'], o)) state.present = true;
-  else if ('align-local' in servers) state.conflict = mcpFile;
+  if (judge(servers['align'], o, env).kind === 'present') state.present = true;
+  if (!('align-local' in servers)) return state;
+  const v = judge(servers['align-local'], o, env);
+  if (v.kind === 'present') state.present = true;
+  else if (v.kind === 'stale') state.stale = true;
+  else {
+    state.conflict = mcpFile;
+    if (v.kind === 'envConflict') state.envConflictKey = v.key;
+  }
   return state;
 }

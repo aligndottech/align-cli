@@ -3,9 +3,11 @@ import path from 'node:path';
 import { optionValue, readText } from './layer-files.js';
 import type { AlignLocalState } from './strict-entry.js';
 import { isCanonicalLocalEntry } from './strict-entry.js';
-import { type Field, fields, listValue, meaningfulLines, scalarValue, topLevelBlock, type YamlLine } from './yaml-scan.js';
+import { type Field, fields, listValue, scalarValue, scanYaml, topLevelBlock, type Unreadable, type YamlLine } from './yaml-scan.js';
 
 export interface ContinueProjectState extends Pick<AlignLocalState, 'present' | 'conflict'> {
+  /** The config could not be read with certainty: where, and why. */
+  unreadable?: { file: string; line: number; reason: string };
   /** The local config file cn loads this session; null when it is a hub slug Align cannot read. */
   configFile: string | null;
 }
@@ -20,42 +22,53 @@ const ALLOWED = new Set(['name', 'command', 'args', 'type']);
  *  - present: exactly `align mcp --env local` (a bare `align mcp` where that reads the local graph);
  *  - conflict: anything else, including any mention this reader cannot place.
  */
-export function continueAlignLocal(text: string | null, o: { localIsDefault: boolean; platform: string }): 'absent' | 'present' | 'conflict' {
-  if (text === null) return 'absent';
-  const lines = meaningfulLines(text);
-  if (lines === null) return 'conflict';
-  const mentions = (ls: YamlLine[]) => ls.some((l) => l.text.includes('align-local'));
+export function continueAlignLocal(text: string | null, o: { localIsDefault: boolean; platform: string }): 'absent' | 'present' | 'conflict' | 'unreadable' {
+  return continueVerdict(text, o).verdict;
+}
+
+function continueVerdict(text: string | null, o: { localIsDefault: boolean; platform: string }): { verdict: 'absent' | 'present' | 'conflict' | 'unreadable'; detail?: Unreadable } {
+  if (text === null) return { verdict: 'absent' };
+  const scanned = scanYaml(text);
+  if ('unreadable' in scanned) return { verdict: 'unreadable', detail: scanned.unreadable };
+  const lines = scanned.lines;
+  const firstMention = (ls: YamlLine[]) => ls.find((l) => l.text.includes('align-local'));
+  const mentions = (ls: YamlLine[]) => firstMention(ls) !== undefined;
+  const layout = (ls: YamlLine[]) => {
+    const m = firstMention(ls);
+    return m ? { verdict: 'unreadable' as const, detail: { line: m.n, reason: 'a layout Align does not read' } } : { verdict: 'absent' as const };
+  };
   const block = topLevelBlock(lines, 'mcpServers');
-  if (block === 'inline' || block === null) return mentions(lines) ? 'conflict' : 'absent';
-  if (block.length === 0) return 'absent';
+  if (block === 'inline' || block === null) return layout(lines);
+  if (block.length === 0) return { verdict: 'absent' };
   // Each item starts `- key: value`; rewrite that line as a mapping line two columns in.
   const items: YamlLine[][] = [];
   const itemIndent = block[0]!.indent;
   for (const l of block) {
     if (l.indent === itemIndent) {
-      if (!l.text.startsWith('- ')) return 'conflict';
-      items.push([{ indent: itemIndent + 2, text: l.text.slice(2).trim() }]);
+      if (!l.text.startsWith('- ')) return layout(block);
+      items.push([{ indent: itemIndent + 2, text: l.text.slice(2).trim(), n: l.n }]);
     } else if (items.length > 0) {
       items[items.length - 1]!.push(l);
     } else {
-      return 'conflict';
+      return layout(block);
     }
   }
-  let local: 'absent' | 'present' | 'conflict' = 'absent';
+  let local = false;
   let alignIsOurs = false;
   for (const item of items) {
     const f = fields(item);
     const name = f ? scalarValue(f.get('name')) : null;
     if (name === 'align') {
       if (f && !mentions(item) && canonicalItem(f, o)) alignIsOurs = true;
-      else if (mentions(item)) return 'conflict';
+      else if (mentions(item)) return { verdict: 'conflict' };
       continue;
     }
     if (!mentions(item)) continue;
-    if (!f || name !== 'align-local' || !canonicalItem(f, o)) return 'conflict';
-    local = 'present';
+    if (!f) return layout(item);
+    if (name !== 'align-local' || !canonicalItem(f, o)) return { verdict: 'conflict' };
+    local = true;
   }
-  return local === 'present' || alignIsOurs ? 'present' : 'absent';
+  return { verdict: local || alignIsOurs ? 'present' : 'absent' };
 }
 
 /** An `mcpServers` item that is exactly Align's own local server, and carries nothing else. */
@@ -122,6 +135,7 @@ export function readContinueState(
     configFile = path.join(continueHome(home, env, cwd), 'config.yaml');
   }
   if (configFile === null) return { present: false, configFile: null };
-  const verdict = continueAlignLocal(readText(configFile), { ...opts, platform });
+  const { verdict, detail } = continueVerdict(readText(configFile), { ...opts, platform });
+  if (verdict === 'unreadable') return { present: false, configFile, unreadable: { file: configFile, ...detail! } };
   return verdict === 'conflict' ? { present: false, conflict: configFile, configFile } : { present: verdict === 'present', configFile };
 }

@@ -73,3 +73,47 @@ describe('migrateLocalDb never writes the db under the cwd', () => {
     expect(fs.existsSync(path.join(target2, 'local.db'))).toBe(true);
   });
 });
+
+describe('the guard compares REAL paths, and refuses /proc and /dev/fd (an absolute XDG_CONFIG_HOME=/proc/self/cwd/evilcfg passed a string check)', () => {
+  const legacy = () => {
+    const d = tmp();
+    fs.writeFileSync(path.join(d, 'local.db'), 'db');
+    return d;
+  };
+  it.skipIf(process.platform !== 'linux')('/proc/self/cwd/x is refused, and nothing lands in the cwd', () => {
+    const home = tmp();
+    const repo = tmp();
+    const before = process.cwd();
+    process.chdir(repo);
+    try {
+      migrateLocalDb(legacy(), '/proc/self/cwd/evilcfg/align-cli', { cwd: repo, home });
+    } finally {
+      process.chdir(before);
+    }
+    expect(fs.existsSync(path.join(repo, 'evilcfg'))).toBe(false);
+  });
+  it.skipIf(process.platform !== 'linux')('a /proc path that resolves OUTSIDE the cwd is refused too (only the /proc rule catches this one)', () => {
+    const home = tmp();
+    const other = tmp();
+    migrateLocalDb(legacy(), path.join('/proc/self/root', other, 'cfg', 'align-cli'), { cwd: tmp(), home });
+    expect(fs.existsSync(path.join(other, 'cfg'))).toBe(false);
+  });
+  it.skipIf(process.platform === 'win32')('a symlink elsewhere that points into the cwd is refused; the same link pointing elsewhere is not', () => {
+    const home = tmp();
+    const repo = tmp();
+    const other = tmp();
+    const link = path.join(tmp(), 'link');
+    fs.symlinkSync(repo, link);
+    migrateLocalDb(legacy(), path.join(link, 'evilcfg', 'align-cli'), { cwd: repo, home });
+    expect(fs.existsSync(path.join(repo, 'evilcfg'))).toBe(false);
+    const link2 = path.join(tmp(), 'link2');
+    fs.symlinkSync(other, link2);
+    migrateLocalDb(legacy(), path.join(link2, 'cfg', 'align-cli'), { cwd: repo, home });
+    expect(fs.existsSync(path.join(other, 'cfg', 'align-cli', 'local.db'))).toBe(true);
+  });
+  it.skipIf(process.platform === 'win32')('dropRelativeXdg also drops a value under /proc or /dev/fd, and absoluteXdg refuses one', () => {
+    const env: Record<string, string | undefined> = { XDG_CONFIG_HOME: '/proc/self/cwd/evilcfg', XDG_DATA_HOME: '/dev/fd/3/x', XDG_CACHE_HOME: '/home/u/.cache' };
+    expect(dropRelativeXdg(env)).toEqual(['XDG_CONFIG_HOME', 'XDG_DATA_HOME']);
+    expect(absoluteXdg({ XDG_CONFIG_HOME: '/proc/self/cwd/x' }, 'XDG_CONFIG_HOME')).toBeUndefined();
+  });
+});

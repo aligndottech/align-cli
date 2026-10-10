@@ -65,7 +65,7 @@ describe('pins: each config-location variable is pinned to what Align scanned, u
     expect(env['CLINE_DIR']).toBe(path.join(home, '.cline'));
     expect(env['CLINE_DATA_DIR']).toBe(path.join(home, '.cline', 'data'));
     // A repo .env with CLINE_SANDBOX=1 would move Cline's data dir (and its provider settings).
-    expect([env['CLINE_SANDBOX'], env['CLINE_SANDBOX_DATA_DIR'], env['CLINE_PROVIDER_SETTINGS_PATH']]).toEqual(['', '', '']);
+    expect([env['CLINE_SANDBOX'], env['CLINE_SANDBOX_DATA_DIR'], env['CLINE_PROVIDER_SETTINGS_PATH'], env['CLINE_GLOBAL_SETTINGS_PATH'], env['CLINE_SESSION_DATA_DIR'], env['CLINE_DB_DATA_DIR']]).toEqual(['', '', '', '', '', '']);
     expect((await childEnv(harness('cline', 'cline', { CLINE_SANDBOX: '1' })))['CLINE_SANDBOX']).toBeUndefined();
     expect((await childEnv(harness('cline', 'cline', { CLINE_DIR: '/c' })))['CLINE_DIR']).toBeUndefined();
     expect((await childEnv(harness('cline', 'cline', { CLINE_DATA_DIR: '/d' })))['CLINE_MCP_SETTINGS_PATH']).toBe(path.join(path.resolve('/d'), 'settings', 'cline_mcp_settings.json'));

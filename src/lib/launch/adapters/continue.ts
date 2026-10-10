@@ -1,6 +1,7 @@
 import { alignServerEntry } from '../../mcp-setup.js';
 import type { ContinueProjectState } from '../continue-state.js';
 import { mcpChildEnv } from '../mcp-child-env.js';
+import { unreadableNote } from './notes.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
 export interface ContinueLaunchContext extends Pick<LaunchContext, 'passthrough' | 'cachePath'>, ContinueProjectState {
@@ -23,6 +24,9 @@ const FILE = 'continue-align-local.yaml';
  */
 export function buildContinueLaunch(c: ContinueLaunchContext): LaunchSpec {
   const spec: LaunchSpec = { bin: 'cn', args: [...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [] };
+  if (c.unreadable) {
+    return { ...spec, notes: [unreadableNote(c.unreadable)] };
+  }
   if (c.conflict) {
     return { ...spec, notes: [`${c.conflict} defines its own align-local MCP server, so Align did not add its graph to Continue CLI. Remove that entry to use the graph.`] };
   }

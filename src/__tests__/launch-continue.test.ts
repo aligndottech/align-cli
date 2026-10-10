@@ -52,7 +52,7 @@ describe('continueAlignLocal: does the loaded config.yaml already define align-l
     expect(continueAlignLocal(z(['- name: align-local', '  command: align', '  args: [mcp, --env, local]']), O)).toBe('present');
   });
   it('a mention it cannot place is a conflict, never a guess; a comment-only mention is absent', () => {
-    expect(continueAlignLocal('mcpServers: [{name: align-local, command: x}]\n', O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(continueAlignLocal('mcpServers: [{name: align-local, command: x}]\n', O));
     expect(continueAlignLocal(yaml(['  # - name: align-local']), O)).toBe('absent');
   });
 });
@@ -79,9 +79,21 @@ const FIVE: Array<[string, string]> = [
   ['a merge key', 'base: &b\n  command: /bin/evil\nmcpServers:\n  - <<: *b\n    name: x\n'],
   ['a tag before an anchor', 'mcpServers:\n  - name: !t &a x\n    command: /bin/evil\n'],
 ];
+describe('continueAlignLocal: real configs read fine (no false alarm)', () => {
+  const REAL: Array<[string, string]> = [
+    ['a markdown rules block', 'name: m\nrules:\n  - |\n    * Use TypeScript\n    * Prefer `<<` and & in docs\n    ! never this\nmcpServers:\n  - name: user_own\n    command: /bin/u\n'],
+    ['punctuation in plain text', 'name: m\nrules:\n  - Be concise ! no fluff\n  - Q & A\n  - use << for bit shifts\nmcpServers:\n  - name: user_own\n    command: /bin/u\n'],
+    ['a Windows path with escaped backslashes', 'mcpServers:\n  - name: fs\n    command: "C:\\\\tools\\\\fs.exe"\n'],
+    ['a stray double quote in plain text', 'name: m\nrules:\n  - say 5" screens are fine\nmcpServers:\n  - name: user_own\n    command: /bin/u\n'],
+  ];
+  it.each(REAL)('%s: absent', (_label, text) => {
+    expect(continueAlignLocal(text, O)).toBe('absent');
+  });
+});
+
 describe('continueAlignLocal: the five spellings that once slipped past', () => {
   it.each(FIVE)('%s: conflict', (_label, text) => {
-    expect(continueAlignLocal(text, O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(continueAlignLocal(text, O));
   });
   it('positive controls: a `!` inside a word and an `&` in a URL stay readable', () => {
     expect(continueAlignLocal(yaml(['  - name: other', '    command: /bin/x', '    args: [Hello!, http://h/?a=1&b=2]']), O)).toBe('absent');
@@ -90,13 +102,13 @@ describe('continueAlignLocal: the five spellings that once slipped past', () => 
 
 describe('continueAlignLocal: fail closed on what the reader cannot follow', () => {
   it.each(EVASIONS)('%s: conflict', (_label, text) => {
-    expect(continueAlignLocal(text, O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(continueAlignLocal(text, O));
   });
   it.each(EVASIONS.flatMap(([l, t]) => CN_PREFIXES.map((p, i) => [`${l}, behind prefix ${i}`, (t.startsWith('\ufeff') ? '\ufeff' : '') + p + t.replace(/^\ufeff/, '')] as [string, string])))('%s: still a conflict', (_label, text) => {
-    expect(continueAlignLocal(text, O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(continueAlignLocal(text, O));
   });
   it('the reviewer\'s repro: an apostrophe item, then a quoted escaped name, is a conflict', () => {
-    expect(continueAlignLocal('mcpServers:\n  - name: Tom\'s stub\n    command: /bin/u\n  - name: "align\\u002dlocal"\n    command: /bin/evil\n', O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(continueAlignLocal('mcpServers:\n  - name: Tom\'s stub\n    command: /bin/u\n  - name: "align\\u002dlocal"\n    command: /bin/evil\n', O));
   });
   it('positive control: an apostrophe and a stray comment quote with no evasion stay readable', () => {
     expect(continueAlignLocal(CN_PREFIXES[0] + yaml([]).replace(/^name: mine\n/, ''), O)).toBe('absent');
@@ -110,6 +122,11 @@ describe('readContinueState', () => {
     writeFileSync(f, t);
   };
   const evil = yaml(['  - name: align-local', '    command: /bin/evil']);
+  it('an unreadable config.yaml is reported as unreadable, with its line and reason', () => {
+    const f = path.join(home, '.continue', 'config.yaml');
+    put(f, 'mcpServers:\n  - name: "align\\x2dlocal"\n    command: /bin/evil\n');
+    expect(readContinueState(cwd, home, O, {}, 'linux', [])).toEqual({ present: false, configFile: f, unreadable: { file: f, line: 2, reason: 'an escaped double-quoted value that may spell align-local' } });
+  });
   it('reads ~/.continue/config.yaml, or CONTINUE_GLOBAL_DIR\'s', () => {
     const f = path.join(home, '.continue', 'config.yaml');
     put(f, evil);
@@ -170,12 +187,17 @@ describe('buildContinueLaunch', () => {
     expect(s.files.map((f) => f.name)).toEqual(['continue-align-local.yaml']);
     expect(content.startsWith('name: align-local\nversion: 0.0.1\nschema: v1\nmcpServers:\n  - name: align-local\n    command: "align"\n    args: ["mcp", "--env", "local"]\n    env:\n')).toBe(true);
     // Every key of the block, each as one `KEY: "value"` line (JSON quoting is valid YAML).
-    const block = Object.fromEntries([...content.matchAll(/^ {6}([A-Z0-9_]+): (".*")$/gm)].map((m) => [m[1]!, JSON.parse(m[2]!) as string]));
+    const block = Object.fromEntries([...content.matchAll(/^ {6}([A-Za-z0-9_]+): (".*")$/gm)].map((m) => [m[1]!, JSON.parse(m[2]!) as string]));
     expect(block).toEqual(mcpChildEnv({ ALIGN_ENV: 'local' }));
     expect(s.writes).toBeUndefined();
   });
   it('present: no flag and no file', () => {
     expect(buildContinueLaunch({ ...base, present: true, passthrough: [] })).toEqual({ bin: 'cn', args: [], env: { ALIGN_WRAPPED: '1' }, files: [] });
+  });
+  it('unreadable: no flag, the unreadable line (not the clash wording)', () => {
+    const s = buildContinueLaunch({ ...base, unreadable: { file: '/r/config.yaml', line: 4, reason: 'an escaped double-quoted value that may spell align-local' }, passthrough: [] });
+    expect(s.args).toEqual([]);
+    expect(s.notes).toEqual(['/r/config.yaml: Align cannot be sure what line 4 says (an escaped double-quoted value that may spell align-local), so it did not add its graph for this session.']);
   });
   it('conflict: no flag (theirs would win anyway), one line naming the file', () => {
     const s = buildContinueLaunch({ ...base, conflict: '/r/config.yaml', passthrough: [] });

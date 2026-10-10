@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildGooseLaunch } from '../lib/launch/adapters/goose.js';
 import { gooseAlignLocal, gooseConfigFile, gooseRecipeMentions, isGooseBin, readGooseState } from '../lib/launch/goose-state.js';
+import { yamlUnreadable as gooseUnreadable } from '../lib/launch/yaml-scan.js';
 
 /*
  * Goose, per session (goose 1.54.0, binary-verified in a sandbox): `goose session
@@ -68,8 +69,8 @@ describe('gooseAlignLocal: does config.yaml already hold an align-local extensio
     expect(gooseAlignLocal(block(['  align-local:', '    enabled: false', '    cmd: /tmp/evil', '    args: []']), O)).toBe('absent');
   });
   it('a mention align cannot place (a flow map, a `name:` under another key) is a conflict, never a guess', () => {
-    expect(gooseAlignLocal('extensions: {align-local: {cmd: x}}\n', O)).toBe('conflict');
-    expect(gooseAlignLocal(block(['  other:', '    enabled: true', '    name: align-local', '    cmd: x']), O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(gooseAlignLocal('extensions: {align-local: {cmd: x}}\n', O));
+    expect(['unreadable', 'conflict']).toContain(gooseAlignLocal(block(['  other:', '    enabled: true', '    name: align-local', '    cmd: x']), O));
   });
   it('win32: the canonical command is cmd /c align', () => {
     const t = block(['  align-local:', '    enabled: true', '    cmd: cmd', '    args: [/c, align, mcp, --env, local]']);
@@ -103,9 +104,25 @@ const FIVE: Array<[string, string]> = [
   ['an alias in a flow list', 'extensions:\n  x:\n    args: [*q]\n'],
   ['a tag before an anchor', 'extensions:\n  x: !t &a\n    cmd: /bin/evil\n'],
 ];
+describe('gooseAlignLocal: real configs read fine (no false alarm)', () => {
+  const REAL: Array<[string, string]> = [
+    ['a markdown block scalar', `GOOSE_SYSTEM_PROMPT: |\n  * Use TypeScript\n  ! never\n  & << too\n${block([])}`],
+    ['punctuation in plain text', `GOOSE_MODE: Be concise ! no fluff\nNOTE: Q & A, use << for shifts\n${block([])}`],
+    ['a Windows path with escaped backslashes', block(['  fs:', '    enabled: true', '    cmd: "C:\\\\tools\\\\fs.exe"'])],
+  ];
+  it.each(REAL)('%s: absent', (_label, text) => {
+    expect(gooseAlignLocal(text, O)).toBe('absent');
+  });
+  it('an unreadable file says which line and why (gooseUnreadable)', () => {
+    expect(gooseUnreadable('extensions:\n  x:\n    name: "align\\x2dlocal"\n')).toEqual({ line: 3, reason: 'an escaped double-quoted value that may spell align-local' });
+    expect(gooseUnreadable('extensions:\n  *a :\n')).toEqual({ line: 2, reason: 'a YAML anchor, alias, tag or merge key' });
+    expect(gooseUnreadable(block([]))).toBeUndefined();
+  });
+});
+
 describe('gooseAlignLocal: the five spellings that once slipped past', () => {
   it.each(FIVE)('%s: conflict', (_label, text) => {
-    expect(gooseAlignLocal(text, O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(gooseAlignLocal(text, O));
   });
   it('positive controls: a `!` inside a word, an `&` in a URL: still readable', () => {
     expect(gooseAlignLocal(block(['  other:', '    description: Hello! It works', '    cmd: /bin/x', '    args: [http://h/?a=1&b=2]']), O)).toBe('absent');
@@ -114,19 +131,19 @@ describe('gooseAlignLocal: the five spellings that once slipped past', () => {
 
 describe('gooseAlignLocal: fail closed on what the reader cannot follow', () => {
   it.each(EVASIONS)('%s: conflict', (_label, text) => {
-    expect(gooseAlignLocal(text, O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(gooseAlignLocal(text, O));
   });
   it.each(EVASIONS.flatMap(([l, t]) => GOOSE_PREFIXES.map((p, i) => [`${l}, behind prefix ${i}`, (t.startsWith('\ufeff') ? '\ufeff' : '') + p + t.replace(/^\ufeff/, '')] as [string, string])))('%s: still a conflict', (_label, text) => {
-    expect(gooseAlignLocal(text, O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(gooseAlignLocal(text, O));
   });
   it('positive control: a plain apostrophe and a stray quote in a comment, with no evasion, stay readable', () => {
     expect(gooseAlignLocal(GOOSE_PREFIXES.join('') + block([]), O)).toBe('absent');
     expect(gooseAlignLocal(GOOSE_PREFIXES.join('') + block(['  align-local:', '    enabled: true', '    cmd: align', '    args: [mcp, --env, local]']), O)).toBe('present');
   });
   it('an anchor or alias anywhere a node starts is a conflict (after `- `, after `: `, at line start)', () => {
-    expect(gooseAlignLocal(block(['  x:', '    args: [&a mcp]']), O)).toBe('conflict');
-    expect(gooseAlignLocal(`base: &b\n  cmd: x\n${block([])}`, O)).toBe('conflict');
-    expect(gooseAlignLocal(`*x\n${block([])}`, O)).toBe('conflict');
+    expect(['unreadable', 'conflict']).toContain(gooseAlignLocal(block(['  x:', '    args: [&a mcp]']), O));
+    expect(['unreadable', 'conflict']).toContain(gooseAlignLocal(`base: &b\n  cmd: x\n${block([])}`, O));
+    expect(['unreadable', 'conflict']).toContain(gooseAlignLocal(`*x\n${block([])}`, O));
   });
 });
 
@@ -180,6 +197,11 @@ describe('buildGooseLaunch: `goose session --with-extension`', () => {
   });
   it('canonical align-local already in config.yaml: nothing added, no duplicate', () => {
     expect(buildGooseLaunch({ ...base, present: true, passthrough: [] })).toEqual({ bin: 'goose', args: [], env: { ALIGN_WRAPPED: '1' }, files: [] });
+  });
+  it('an unreadable config: nothing added, the unreadable line (not the clash wording)', () => {
+    const s = buildGooseLaunch({ ...base, unreadable: { file: '/c/config.yaml', line: 7, reason: 'a YAML anchor, alias, tag or merge key' }, passthrough: [] });
+    expect(s.args).toEqual([]);
+    expect(s.notes).toEqual(['/c/config.yaml: Align cannot be sure what line 7 says (a YAML anchor, alias, tag or merge key), so it did not add its graph for this session.']);
   });
   it('a clash: nothing added (goose would refuse to start), one line naming the file', () => {
     const s = buildGooseLaunch({ ...base, conflict: '/c/config.yaml', passthrough: ['--resume'] });

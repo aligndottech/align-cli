@@ -31,11 +31,16 @@ const clineMcpFileDefault = (c: ClineLaunchContext): string => c.defaultMcpFile 
 export function buildClineLaunch(c: ClineLaunchContext): LaunchSpec {
   const writes: ConfigWrite[] = [];
   const notes: string[] = [];
-  if (c.conflict) {
+  if (c.conflict && c.envConflictKey) {
+    notes.push(`${c.conflict}: its align-local entry carries an env value Align did not write (${c.envConflictKey}), so Align did not add its graph to Cline. Remove that entry and Align will add its own.`);
+  } else if (c.conflict) {
     notes.push(`${c.conflict} defines its own align-local MCP server, so Align did not add its graph to Cline. Remove that entry to use the graph.`);
   } else if (!c.present && c.oneSession) {
     const flag = c.passthrough.some((a) => a === '--config' || a.startsWith('--config=')) ? '--config' : '--data-dir';
     notes.push(`Align does not add its graph to a Cline directory chosen for one session (${flag}). Run cline without it once, or add align-local to ${clineMcpFileDefault(c)} yourself.`);
+  } else if (c.stale && !c.oneSession) {
+    // Align's own entry from an older key set, or with values that changed: rewrite it (backup and undo as for any write).
+    writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: { ...alignServerEntry('mcpServers', 'local'), env: mcpChildEnv(c.env ?? {}) }, replace: true });
   } else if (!c.present) {
     // With its env block: Cline's MCP children (spawned by its hub) inherit a repo `.env`.
     writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: { ...alignServerEntry('mcpServers', 'local'), env: mcpChildEnv(c.env ?? {}) } });
