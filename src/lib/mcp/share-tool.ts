@@ -86,6 +86,6 @@ export async function runShareTool(args: Record<string, unknown> | undefined, en
     };
   } catch (e) {
     if (e instanceof ShareError) throw new Error(e.message);
-    throw e;
+    throw new Error(visible((e as Error).message));
   }
 }

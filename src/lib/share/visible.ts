@@ -7,18 +7,22 @@
  * than what is sent. Each such character is replaced by a visible escape (`\x1b`, `‮`), never
  * dropped: dropping would also hide that it was there.
  *
- * Covered: C0 (including ESC, CR, tab), DEL and C1, line and paragraph separators, zero-width and
- * directional marks, the bidi embedding/override/isolate ranges (U+202A-202E, U+2066-2069) and the BOM.
+ * Covered, by Unicode category: controls (ESC, CR, tab, NUL, DEL, C1), every format character (bidi
+ * overrides and isolates, zero-width, soft hyphen, U+061C, the tag characters U+E0000-E007F), line and
+ * paragraph separators, default-ignorable code points (U+034F, U+180E, U+3164, U+FFF9-FFFB) and lone surrogates.
  * `\n` is kept only when the caller asks (the indented body), because it cannot overwrite earlier text.
  */
-// The control characters are the point of this pattern.
-// eslint-disable-next-line no-control-regex
-const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
+// Unicode categories rather than hand-listed ranges (a hand-written list is guessing at published data):
+// Cc controls (ESC, CR, NUL, C1), Cf format (bidi marks and overrides, zero-width, soft hyphen, ALM, tag
+// characters U+E0000-E007F), Zl/Zp line and paragraph separators, Default_Ignorable_Code_Point (Hangul
+// fillers, U+034F, U+180E, interlinear annotation marks) and Cs, a lone surrogate (needs the u flag).
+const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]|\p{Cs}/gu;
 
 export function visible(text: string, opts: { keepNewline?: boolean } = {}): string {
   return text.replace(UNSAFE, (c) => {
     if (c === '\n' && opts.keepNewline) return c;
-    const code = c.charCodeAt(0);
-    return code <= 0xff ? `\\x${code.toString(16).padStart(2, '0')}` : `\\u${code.toString(16).padStart(4, '0')}`;
+    const code = c.codePointAt(0)!;
+    if (code <= 0xff) return `\\x${code.toString(16).padStart(2, '0')}`;
+    return code <= 0xffff ? `\\u${code.toString(16).padStart(4, '0')}` : `\\u{${code.toString(16)}}`;
   });
 }

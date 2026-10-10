@@ -16,6 +16,22 @@ import { visible } from '../lib/share/visible.js';
 const ESC = '\u001b'; const CR = '\r'; const RLO = '‮'; const ISO = '⁦';
 const BAD = new RegExp(`[\\u001b\\r\\u202a-\\u202e\\u2066-\\u2069]`);
 
+describe('visible, by Unicode category', () => {
+  it.each([
+    ['a tag character', 'a\u{E0041}b', 'a\\u{e0041}b'],
+    ['an Arabic letter mark', 'a\u061cb', 'a\\u061cb'],
+    ['a soft hyphen', 'a\u00adb', 'a\\xadb'],
+    ['a Mongolian vowel separator', 'a\u180eb', 'a\\u180eb'],
+    ['a Hangul filler', 'a\u3164b', 'a\\u3164b'],
+    ['a combining grapheme joiner', 'a\u034fb', 'a\\u034fb'],
+    ['an interlinear annotation mark', 'a\ufff9b', 'a\\ufff9b'],
+    ['a lone surrogate', 'a\ud800b', 'a\\ud800b'],
+  ])('escapes %s', (_n, input, expected) => { expect(visible(input)).toBe(expected); });
+  it('leaves plain ASCII, accents, CJK and an emoji alone', () => {
+    for (const t of ['plain ASCII text - 123', 'Café Zoë', '日本語', '🚀 launch']) expect(visible(t)).toBe(t);
+  });
+});
+
 describe('visible', () => {
   it('escapes each class by name', () => {
     expect(visible(`a${ESC}[2Jb`)).toBe('a\\x1b[2Jb');

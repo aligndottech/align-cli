@@ -35,6 +35,17 @@ describe('redirects', () => {
 const payload = (id: string): SharePayload => ({ localId: id, item: {} as never, shown: [], leftLocal: [], deferredPairs: [], hash: `h-${id}`, fullHash: `f-${id}` });
 const meta = { agentId: 'codex', envName: 'prod', preview: 'p', to: { tenantId: 'T', gatewayUrl: 'https://x' } };
 
+describe('a server error body', () => {
+  it('is escaped where the gateway client builds the message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'bad\u001b[2J' }), { status: 500 })));
+    const c = createGatewayClient({ mode: 'auth', gatewayUrl: 'https://gw.test', authToken: 't', tenantId: 'T' });
+    const msg = await c.shareBatch([{ title: 'x' }]).then(() => '', (e: Error) => e.message);
+    vi.unstubAllGlobals();
+    expect(msg).toContain('bad\\x1b[2J');
+    expect(msg).not.toContain('\u001b');
+  });
+});
+
 describe('pending codes', () => {
   it('consumeCode is single use: the second consume of the same code loses', () => {
     const code = issueCode([payload('a')], meta)!;

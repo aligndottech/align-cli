@@ -474,3 +474,47 @@ describe('inside an agent that align launched (ALIGN_WRAPPED): a speed bump, not
     expect(f.sent).toHaveLength(1);
   });
 });
+
+/**
+ * L9 second review, item 2: what the server and the ledger can make us print is escaped too, and hidden text is refused.
+ */
+describe('output that a stranger can influence', () => {
+  const ESC = '\u001b';
+  it('a remote id with an escape sequence is escaped in the result and in the retract line', async () => {
+    const f = fixture(); const id = seed();
+    f.reply.current = { snapshots: [{ id: `${ESC}[2Jpwn`, request_index: 0, is_new: true }], judgements: [{ request_index: 0, decision_id: 'x', results: [{ ok: true, stored: true }] }] };
+    await run(f, { ids: [id] });
+    f.out.length = 0;
+    await run(f, { retract: id });
+    const all = [...f.out, ...f.err].join('\n');
+    expect(all).not.toContain(ESC);
+    expect(all).toContain('\\x1b[2Jpwn');
+    expect(f.out.join('')).not.toContain(ESC);
+  });
+  it('a workspace name with an escape sequence is escaped in a retract refusal', async () => {
+    const f = fixture(); const id = seed(); await run(f, { ids: [id] });
+    const base = f.deps.client();
+    f.deps.client = () => ({ ...base, whoami: async () => ({ user: { email: ME }, tenant: { id: 'T9', name: `Evil${ESC}[2J` } }) });
+    await run(f, { retract: id });
+    expect([...f.out, ...f.err].join('\n')).not.toContain(ESC);
+  });
+  it('a server error that carries an escape sequence is printed escaped', async () => {
+    const f = fixture(); const id = seed();
+    const base = f.deps.client();
+    f.deps.client = () => ({ ...base, shareBatch: async () => { throw new Error(`Gateway returned 500: boom${ESC}[2J`); } });
+    expect(await run(f, { ids: [id] })).toBe(1);
+    const all = [...f.out, ...f.err].join('\n');
+    expect(all).toContain('boom\\x1b[2J');
+    expect(all).not.toContain(ESC);
+  });
+  it('refuses hidden tag characters in the title, the text and a note, naming the field, and sends nothing', async () => {
+    const tag = '\u{E0049}\u{E0047}';
+    const f = fixture(); const a = seed({ title: `Clean looking${tag}` }); const b = seed({ title: 'two', summary: `quiet${tag}` }); const c = seed({ title: 'three' }); note(c, `ok${tag}`);
+    expect(await run(f, { ids: [a, b, c] })).toBe(1);
+    const t = text(f);
+    expect(t).toContain('title contains hidden tag characters');
+    expect(t).toContain('summary contains hidden tag characters');
+    expect(t).toContain('note 1 contains hidden tag characters');
+    expect(f.sent).toHaveLength(0);
+  });
+});

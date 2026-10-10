@@ -14,7 +14,7 @@ import { getLegacyPromotion, getPromotion, listPromotions, markRetracted, type P
 import { visible } from './visible.js';
 import { buildSharePayload, clientKeyFor, type SharePayload } from './payload.js';
 import { type Destination, renderPreview } from './preview.js';
-import { scanForSecrets, scanSourceUrl, type SecretFinding } from './secret-scan.js';
+import { scanForSecrets, scanHiddenText, scanSourceUrl, type SecretFinding } from './secret-scan.js';
 import { type BatchResponse, failedJudgements, type ItemOutcome, type JudgementResult, readOutcomes } from './wire.js';
 
 export interface TeamDecision {
@@ -117,7 +117,7 @@ export async function prepare(ctx: ShareContext, ids: string[]): Promise<Prepare
       { field: 'title', text: p.item.title }, { field: 'summary', text: p.item.summary }, { field: 'platform', text: p.item.platform },
       ...p.item.judgements.map((j) => ({ field: j.kind === 'note' ? `note ${++note}` : j.kind, text: j.note })),
     ];
-    for (const f of scanForSecrets(fields)) secrets.push({ ...f, localId: row.id });
+    for (const f of [...scanForSecrets(fields), ...scanHiddenText([...fields, { field: 'raw_text', text: p.item.raw_text }, { field: 'source_url', text: p.item.source_url }])]) secrets.push({ ...f, localId: row.id });
     for (const f of scanSourceUrl(p.item.source_url)) secrets.push({ ...f, localId: row.id });
     if (live) {
       if (prior.contentHash === p.fullHash && p.item.judgements.length === 0 && !prior.confirmPending) {
@@ -133,8 +133,8 @@ export async function prepare(ctx: ShareContext, ids: string[]): Promise<Prepare
 
 /** The refusal text: where, which kind, never the value. */
 export function secretRefusal(secrets: Prepared['secrets']): string {
-  const lines = secrets.map((s) => `  ${visible(s.localId)}: ${visible(s.field)} looks like ${s.placeholder}`);
-  return `Nothing was sent: part of what would be shared looks like a credential.\n${lines.join('\n')}\n  Edit it out of the decision, then share again.`;
+  const lines = secrets.map((s) => `  ${visible(s.localId)}: ${visible(s.field)} ${s.placeholder === '<HIDDEN_TEXT>' ? 'contains hidden tag characters (invisible text)' : `looks like ${s.placeholder}`}`);
+  return `Nothing was sent: part of what would be shared looks like a credential or holds hidden text.\n${lines.join('\n')}\n  Edit it out of the decision, then share again.`;
 }
 
 export type RowResult = {

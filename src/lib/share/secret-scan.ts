@@ -64,3 +64,14 @@ export function scanSourceUrl(url: string): SecretFinding[] {
   for (const [k, v] of parsed.searchParams) if (v !== '' && SECRET_PARAMS.test(k)) names.add(k.toLowerCase());
   return [...names].map((n) => ({ field: `source_url (parameter ${n})`, placeholder: '<URL_SECRET_PARAM>' }));
 }
+
+/**
+ * Tag characters (U+E0000-E007F) render as nothing but a model reads them as text, so they can hide an
+ * instruction inside a title or note. The secret scan cannot see them and a person cannot either, so a share
+ * containing one is refused (naming the field) rather than sent.
+ */
+const HIDDEN = /[\u{E0000}-\u{E007F}]/u;
+
+export function scanHiddenText(fields: Array<{ field: string; text: string | null | undefined }>): SecretFinding[] {
+  return fields.filter((f) => f.text && HIDDEN.test(f.text)).map((f) => ({ field: f.field, placeholder: '<HIDDEN_TEXT>' }));
+}

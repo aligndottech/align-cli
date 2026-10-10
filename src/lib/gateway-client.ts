@@ -384,6 +384,7 @@ export interface BatchIngestResult {
   }>;
 }
 
+import { visible as visibleText } from './share/visible.js';
 export type { BatchResponse as ShareBatchResponse } from './share/wire.js';
 import type { BatchResponse as ShareBatchResponse } from './share/wire.js';
 
@@ -487,7 +488,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       });
       if (!res.ok) {
         let detail = '';
-        try { const body = await res.json() as any; detail = body?.detail || body?.error || ''; } catch (_) { /* non-JSON error body */ }
+        try { const body = await res.json() as any; detail = visibleText(String(body?.detail || body?.error || '')); } catch (_) { /* non-JSON error body */ }
         throw new GatewayError(
           detail ? `Gateway returned ${res.status} for ${path}: ${detail}` : `Gateway returned ${res.status} for ${path}`,
           res.status,

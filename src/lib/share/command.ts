@@ -47,7 +47,10 @@ export interface ShareDeps {
 const NO_TERMINAL = 'Confirm this in your own terminal: there is no interactive terminal here (an agent shell, a pipe and a hook have none). Nothing was sent.';
 
 export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<number> {
-  const { out, err } = deps;
+  // Every line this prints can carry text a stranger wrote (a remote id, a tenant name, a server error, a
+  // pending file's env). visible() is idempotent, so lines that were already escaped pass through unchanged.
+  const out = (l: string): void => deps.out(visible(l, { keepNewline: true }));
+  const err = (l: string): void => deps.err(visible(l, { keepNewline: true }));
   if (deps.wrapped) {
     err('align share is not run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.');
     return 1;
