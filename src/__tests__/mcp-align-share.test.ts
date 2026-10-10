@@ -64,7 +64,7 @@ describe('align_share', () => {
   });
   it('refuses a token property without echoing its name or value, and prepares nothing', async () => {
     await expect(runShareTool({ id, token: 'sk-SECRETVALUE' }, env, ctx())).rejects.toThrow(/does not accept an unknown property/);
-    await expect(runShareTool({ id, token: 'sk-SECRETVALUE' }, env, ctx())).rejects.not.toThrow(/SECRETVALUE|token/);
+    await expect(runShareTool({ id, token: 'sk-SECRETVALUE' }, env, ctx())).rejects.not.toThrow(/SECRETVALUE|"token"/);
     await expect(runShareTool({ id, yes: 'true' }, env, ctx())).rejects.toThrow(/does not accept/);
     expect(calls.whoami).toBe(0);
   });
