@@ -49,10 +49,18 @@ describe('ingest similarity: matrix result equals the exhaustive scan', () => {
     for (let i = 0; i < 500; i++) {
       const vec = vectorFor(`c${i % 12}-n${i}`);
       const id = seedDb.insertDecision({ title: `seed ${i}`, summary: `seed ${i}`, sourceUrl: `https://seed.test/${i}`, platform: 'github' });
-      seedDb.setEmbedding(id, vec, EMBEDDING_MODEL_ID);
       stored.push({ id, vec });
     }
     seedDb.close();
+    // The 500 vectors in ONE transaction: setEmbedding per row is a commit each (500 fsyncs, the slow half of this seed on Windows).
+    // Same rows setEmbedding writes (INSERT OR REPLACE, model tagged); a first write bumps no epoch, which is all a fresh graph needs.
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw.exec('BEGIN');
+      const put = raw.prepare('INSERT OR REPLACE INTO decision_embeddings (decision_id, embedding, model) VALUES (?, ?, ?)');
+      for (const { id, vec } of stored) put.run(id, Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength), EMBEDDING_MODEL_ID);
+      raw.exec('COMMIT');
+    } finally { raw.close(); }
 
     // Item 19 shares item 2's cluster and noise: it must find item 2, a row that only the
     // append path knows about.

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FetcherItem } from '@aligndottech/connector-core';
+import { createLocalDb } from '../../lib/local-db.js';
 import { createLocalGatewayClient } from '../../lib/local-gateway-client.js';
 import type { CaptureFetchReport } from '../../lib/fetchers/capture.js';
 import { acquireLock } from '../../lib/sync/lock.js';
@@ -25,6 +26,24 @@ export interface Harness {
   cleanup(): void;
 }
 
+let template: Buffer | undefined;
+/**
+ * The bytes of a fully migrated, empty graph, built once per worker and written for every harness. Creating a graph is
+ * about 125 ms of separate commits on Linux and over a second on the Windows runner, and the sync suites build one per
+ * test (135 in one file), which starved vitest's worker RPC there (`Timeout calling "onTaskUpdate"`). Held in memory so
+ * nothing is left in the temp dir if a worker is killed. The file is closed before it is read, so the WAL is checkpointed
+ * into it and no -wal/-shm companion is needed.
+ */
+function emptyGraphTemplate(): Buffer {
+  if (template === undefined) {
+    const t = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'align-l5-template-')), 'graph.db');
+    createLocalDb(t).close();
+    template = fs.readFileSync(t);
+    rmDir(path.dirname(t));
+  }
+  return template;
+}
+
 export const NOW = new Date('2026-10-10T12:00:00.000Z');
 
 export function harness(over: Partial<SyncEnv> = {}, opts: { alive?: (pid: number) => boolean } = {}): Harness {
@@ -32,6 +51,7 @@ export function harness(over: Partial<SyncEnv> = {}, opts: { alive?: (pid: numbe
   const dbPath = path.join(dir, 'graph.db');
   const lockDir = path.join(dir, 'locks');
   fs.mkdirSync(lockDir);
+  fs.writeFileSync(dbPath, emptyGraphTemplate());
   const client = createLocalGatewayClient(dbPath);
   const fetchCalls: Harness['fetchCalls'] = [];
   let scripted: Array<{ items: FetcherItem[]; report?: Partial<CaptureFetchReport> } | Error> = [];
