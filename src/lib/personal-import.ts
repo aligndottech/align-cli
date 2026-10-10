@@ -140,11 +140,11 @@ export async function runPersonalImport(
   // L1: classify:false on every batch. Every caller of this function is a connector import,
   // and the local client otherwise runs the paid classifier on up to 3 candidates per item
   // whenever a provider key is exported. Explicit human capture (captureDecision) keeps it.
-  // The cloud client ignores the option.
+  // keyed: true marks these as connector imports, the only rows that get a source_key. The cloud client ignores both.
   const results = await runWithConcurrency<BatchResult>(
     batches.map((batch) => async () => {
       try {
-        return await ingestBatchResilient(() => client.ingestBatch(batch, { deferEnrichment: opts.deferEnrichment, classify: false }));
+        return await ingestBatchResilient(() => client.ingestBatch(batch, { deferEnrichment: opts.deferEnrichment, classify: false, keyed: true }));
       } finally {
         done++;
         if (spinner) spinner.text = `Importing ${done}/${batches.length} batches...`;

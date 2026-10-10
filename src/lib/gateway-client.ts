@@ -943,7 +943,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
 
     /** `classify` is the local client's option (see local-gateway-client.ts ingestOne); the cloud
      *  gateway decides enrichment itself, so it is accepted here and never sent. */
-    async ingestBatch(items: BatchIngestItem[], opts?: { deferEnrichment?: boolean; classify?: boolean }): Promise<BatchIngestResult> {
+    async ingestBatch(items: BatchIngestItem[], opts?: { deferEnrichment?: boolean; classify?: boolean; keyed?: boolean }): Promise<BatchIngestResult> {
       // ALI-829: the fetchers carry the source's own date as `created_at`; the gateway's
       // BatchIngestSchema (align-stack ingestRoutes.ts, ALI-622) takes it as `decided_at`
       // and strips unknown keys, so sent under the wrong name it silently vanishes. One
