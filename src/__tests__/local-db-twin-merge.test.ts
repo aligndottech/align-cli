@@ -76,6 +76,20 @@ describe('twin merge', () => {
     expect(count(dbPath, 'SELECT count(*) AS n FROM decision_embeddings')).toBe(1);
   });
 
+  it('a ratified older survivor drops its own vector when the newest twin has none: its text changed', () => {
+    const v6 = createV6Graph(dbPath);
+    v6.insertDecision({ id: 'old', title: 'Use Postgres', summary: 'v1 body', sourceUrl: PR, platform: 'github' });
+    v6.insertDecision({ id: 'new', title: 'Use Postgres for the queue', summary: 'v2 body', sourceUrl: PR, platform: 'github' });
+    v6.markRatified('old', 'tom@align.tech');
+    v6.setEmbedding('old', 0.1); // the vector of 'v1 body', which the survivor no longer holds
+    v6.close();
+
+    createLocalDb(dbPath).close();
+
+    expect(rows(`SELECT id, summary FROM decisions`)).toEqual([{ id: 'old', summary: 'v2 body' }]);
+    expect(count(dbPath, 'SELECT count(*) AS n FROM decision_embeddings')).toBe(0);
+  });
+
   it('three twins (two edits) collapse to the most recent, and both losers are backed up', () => {
     const v6 = createV6Graph(dbPath);
     v6.insertDecision({ id: 'a', title: 'T1', summary: '1', sourceUrl: PR, platform: 'github' });

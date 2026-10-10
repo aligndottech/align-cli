@@ -152,12 +152,11 @@ function mergeGroup(db: DatabaseSync, key: string): void {
     // Refs the survivor already had stay as they are; the loser's leftovers are duplicates.
     db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(loser.id);
     if (loser.id === newest.id) {
-      // The survivor takes the newest text, so it takes the vector OF that text.
-      const moved = db.prepare('SELECT 1 AS hit FROM decision_embeddings WHERE decision_id = ?').get(loser.id);
-      if (moved) {
-        db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(survivor.id);
-        db.prepare('UPDATE decision_embeddings SET decision_id = ? WHERE decision_id = ?').run(survivor.id, loser.id);
-      }
+      // The survivor takes the newest text, so it takes the vector OF that text - or none,
+      // if the newest row never got one. Its own vector described text it no longer holds;
+      // with none, the next sync re-embeds it (ingestStep 'full').
+      db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(survivor.id);
+      db.prepare('UPDATE decision_embeddings SET decision_id = ? WHERE decision_id = ?').run(survivor.id, loser.id);
     }
     db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(loser.id);
     db.prepare('DELETE FROM decisions WHERE id = ?').run(loser.id);
