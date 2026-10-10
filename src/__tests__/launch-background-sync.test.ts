@@ -27,6 +27,7 @@ function harness(opts: { summary?: SyncSummary | undefined; env?: Record<string,
   const err: string[] = [];
   const state = { off: false, ...opts.configState };
   const configWrites: string[] = [];
+  const claims = new Set<string>();
   const start = vi.fn((s: string[]) => { events.push(`start:${s.join(',')}`); return opts.start ? opts.start(s) : undefined; });
   const deps: LaunchDeps = {
     env: { ...opts.env }, argv: opts.argv ?? ['node', 'align'], cwd: '/proj', home: '/home/u', platform: 'linux', isTTY: opts.isTTY ?? true,
@@ -55,6 +56,8 @@ function harness(opts: { summary?: SyncSummary | undefined; env?: Record<string,
       readSummary: () => ('summary' in opts ? opts.summary : DUE),
       busy: opts.busy ?? (() => false),
       inCi: () => opts.inCi ?? false,
+      claim: (src: string) => !claims.has(src) && Boolean(claims.add(src)),
+      releaseClaim: (src: string) => { claims.delete(src); },
       start,
       nowMs: () => NOW,
     },
@@ -195,7 +198,7 @@ describe('launchIfChosen: the start never holds the agent', () => {
 describe('launchIfChosen: a dry run changes nothing', () => {
   it('ALIGN_LAUNCH_DRY_RUN decides (it is measured) but starts nothing, prints nothing, writes no config', async () => {
     const reads = vi.fn(() => DUE);
-    const h = harness({ env: { ALIGN_LAUNCH_DRY_RUN: '1' }, over: { backgroundSyncIo: { readSummary: reads, busy: () => false, inCi: () => false, start: vi.fn(), nowMs: () => NOW } } });
+    const h = harness({ env: { ALIGN_LAUNCH_DRY_RUN: '1' }, over: { backgroundSyncIo: { readSummary: reads, busy: () => false, inCi: () => false, claim: () => true, releaseClaim: () => {}, start: vi.fn(), nowMs: () => NOW } } });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
     expect(reads).toHaveBeenCalled();
     expect(h.deps.backgroundSyncIo!.start).not.toHaveBeenCalled();
@@ -208,7 +211,7 @@ describe('launchIfChosen: a dry run changes nothing', () => {
     const order: string[] = [];
     const h = harness({
       env: { ALIGN_LAUNCH_DRY_RUN: '1', ALIGN_LAUNCH_TRACE: '1' },
-      over: { backgroundSyncIo: { readSummary: () => { order.push('read'); return DUE; }, busy: () => false, inCi: () => false, start: vi.fn(), nowMs: () => NOW } },
+      over: { backgroundSyncIo: { readSummary: () => { order.push('read'); return DUE; }, busy: () => false, inCi: () => false, claim: () => true, releaseClaim: () => {}, start: vi.fn(), nowMs: () => NOW } },
     });
     h.deps.err = (l) => order.push(l.startsWith('align-overhead-ms') ? 'trace' : 'other');
     await launchIfChosen(h.deps);
@@ -261,5 +264,143 @@ describe('the default reader (rooted at the launcher\'s own env and home)', () =
     fs.writeFileSync(path.join(state, 'backfill', 'github.json'), JSON.stringify({ source: 'github', pid: process.pid, started_at: new Date().toISOString(), state: 'running' }));
     await launchIfChosen(h.deps);
     expect(start).not.toHaveBeenCalled();
+  });
+});
+
+describe('concurrent launches and the claim (the 15-minute rule across launches)', () => {
+  let dir: string;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-claim-')); fs.mkdirSync(path.join(dir, 'align-cli', 'backfill'), { recursive: true }); });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const state = (): string => path.join(dir, 'align-cli');
+  const write = (s: SyncSummary): void => fs.writeFileSync(path.join(state(), 'sync-summary.json'), JSON.stringify(s));
+  const launch = (start: (s: string[]) => unknown, extra: Record<string, unknown> = {}) => {
+    const h = harness({ env: { XDG_STATE_HOME: dir }, over: { backgroundSyncIo: { start, nowMs: () => NOW, inCi: () => false, ...extra } } });
+    return launchIfChosen(h.deps);
+  };
+  // The real claim reads the wall clock; the summary's stamps are relative to it.
+  const dueNow = (): SyncSummary => summary(src('github', { lastSuccessAt: new Date(Date.now() - 60 * 60_000).toISOString() }));
+
+  it('five rapid launches start ONE child for the source', async () => {
+    write(dueNow());
+    const start = vi.fn();
+    for (let i = 0; i < 5; i++) await launch(start, { nowMs: () => Date.now() });
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(path.join(state(), 'github.bgclaim'))).toBe(true);
+  });
+
+  it('two claims race for the same source at once: exactly one wins', async () => {
+    write(dueNow());
+    const start = vi.fn();
+    await Promise.all(Array.from({ length: 6 }, () => launch(start, { nowMs: () => Date.now() })));
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('a claim older than the interval is stale and a new launch takes over; a fresh one holds', async () => {
+    write(dueNow());
+    fs.writeFileSync(path.join(state(), 'github.bgclaim'), JSON.stringify({ at: Date.now() - 16 * 60_000 }));
+    const stale = vi.fn();
+    await launch(stale, { nowMs: () => Date.now() });
+    expect(stale).toHaveBeenCalledTimes(1);
+    fs.writeFileSync(path.join(state(), 'github.bgclaim'), JSON.stringify({ at: Date.now() - 14 * 60_000 }));
+    const fresh = vi.fn();
+    await launch(fresh, { nowMs: () => Date.now() });
+    expect(fresh).not.toHaveBeenCalled();
+  });
+
+  it('a claim dated in the future, or unreadable, does not hold a source back for ever', async () => {
+    write(dueNow());
+    for (const body of [JSON.stringify({ at: Date.now() + 3_600_000 }), '{broken']) {
+      fs.writeFileSync(path.join(state(), 'github.bgclaim'), body);
+      const start = vi.fn();
+      await launch(start, { nowMs: () => Date.now() });
+      expect(start).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('a start that fails gives the claim back, so the next launch may try again', async () => {
+    write(dueNow());
+    await launch(vi.fn(async () => ({ ok: false })), { nowMs: () => Date.now() });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fs.existsSync(path.join(state(), 'github.bgclaim'))).toBe(false);
+    const ok = vi.fn();
+    await launch(ok, { nowMs: () => Date.now() });
+    expect(ok).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unwritable state directory means no start (and the agent still runs)', async () => {
+    write(dueNow());
+    fs.chmodSync(state(), 0o500);
+    try {
+      if (process.platform === 'win32' || process.getuid?.() === 0) return;
+      const start = vi.fn();
+      expect(await launch(start, { nowMs: () => Date.now() })).toEqual({ handled: true, code: 0 });
+      expect(start).not.toHaveBeenCalled();
+    } finally { fs.chmodSync(state(), 0o700); }
+  });
+
+  it('the launcher starts the child as the launcher, from the real starter\'s options (caller)', async () => {
+    write(dueNow());
+    const h = harness({ env: { XDG_STATE_HOME: dir } });
+    const seen: unknown[] = [];
+    vi.doMock('../lib/sync/spawn-background.js', async (orig) => ({ ...(await orig<Record<string, unknown>>()), startSyncChild: (...a: unknown[]) => { seen.push(a); return Promise.resolve({ ok: true }); } }));
+    vi.resetModules();
+    const { launchIfChosen: fresh } = await import('../lib/launch/launch.js');
+    await fresh({ ...h.deps, backgroundSyncIo: { nowMs: () => Date.now(), inCi: () => false } });
+    vi.doUnmock('../lib/sync/spawn-background.js');
+    expect(seen).toHaveLength(1);
+    expect((seen[0] as [string[], { caller: string }])[1].caller).toBe('launcher');
+  });
+});
+
+describe('a summary that is hostile or huge', () => {
+  let dir: string;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-big-')); fs.mkdirSync(path.join(dir, 'align-cli', 'backfill'), { recursive: true }); });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const run = async (sources: SummarySource[], start = vi.fn()) => {
+    fs.writeFileSync(path.join(dir, 'align-cli', 'sync-summary.json'), JSON.stringify(summary(...sources)));
+    const h = harness({ env: { XDG_STATE_HOME: dir }, over: { backgroundSyncIo: { start, nowMs: () => Date.now(), inCi: () => false } } });
+    const t0 = performance.now();
+    await launchIfChosen(h.deps);
+    return { ms: performance.now() - t0, start };
+  };
+  const old = new Date(Date.now() - 3_600_000).toISOString();
+
+  it('one id that is not a source does not block the real ones', async () => {
+    const { start } = await run([src('myspace', { status: 'never' }), src('github', { lastSuccessAt: old })]);
+    expect(start).toHaveBeenCalledExactlyOnceWith(['github']);
+  });
+
+  it('20,000 junk ids cost the launch no more than 20 ms over a one-source summary, and start only the real source', async () => {
+    const junk = Array.from({ length: 20_000 }, (_, i) => src(`junk${i}`, { status: 'never' }));
+    await run([src('github', { lastSuccessAt: old })]); // warm the code
+    fs.rmSync(path.join(dir, 'align-cli', 'github.bgclaim'), { force: true });
+    const small = await run([src('github', { lastSuccessAt: old })]);
+    fs.rmSync(path.join(dir, 'align-cli', 'github.bgclaim'), { force: true });
+    const big = await run([...junk, src('github', { lastSuccessAt: old })]);
+    expect(big.start).toHaveBeenCalledExactlyOnceWith(['github']);
+    expect(big.ms - small.ms).toBeLessThan(20);
+  });
+});
+
+describe('an unwritable config', () => {
+  it('the first-use line is marked before it is printed: a mark that fails prints nothing and starts nothing, and a later launch does not repeat a line', async () => {
+    const h = harness();
+    (h.deps.config as { markBackgroundSyncNoticeShown: () => void }).markBackgroundSyncNoticeShown = () => { throw new Error('EACCES: config.json'); };
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+    expect(h.err).toEqual([]);
+    expect(h.start).not.toHaveBeenCalled();
+    expect(h.deps.runAgent).toHaveBeenCalledTimes(1);
+  });
+  it('the reconnect line is marked first too: an unwritable config prints no line', async () => {
+    const h = harness({ summary: summary(src('github', { status: 'needs_reauth' })) });
+    (h.deps.config as { markReauthLineShown: () => void }).markReauthLineShown = () => { throw new Error('EACCES'); };
+    await launchIfChosen(h.deps);
+    expect(h.err).toEqual([]);
+  });
+  it('the mark is written before the line is printed (order)', async () => {
+    const h = harness();
+    await launchIfChosen(h.deps);
+    expect(h.configWrites).toEqual(['notice']);
+    expect(h.events.indexOf(`err:${BACKGROUND_SYNC_NOTICE.slice(0, 24)}`)).toBeGreaterThanOrEqual(0);
   });
 });

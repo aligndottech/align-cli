@@ -47,11 +47,29 @@ describe('shouldBackgroundSync: which sources are due', () => {
     expect(shouldBackgroundSync(input({ summary: summary(src('github', { status: 'partial', lastSuccessAt: old, lastAttemptAt: minutesAgo(20) })) }))).toEqual(['github']);
   });
 
-  it('an unparseable or future timestamp is stale, never fresh', () => {
+  it('an unparseable timestamp is stale, never fresh', () => {
     expect(shouldBackgroundSync(input({ summary: summary(src('github', { lastSuccessAt: 'yesterday-ish' })) }))).toEqual(['github']);
-    expect(shouldBackgroundSync(input({ summary: summary(src('github', { lastSuccessAt: minutesAgo(-600) })) }))).toEqual(['github']);
     // an unparseable ATTEMPT is ignored, so the (fresh) success still holds the source back
     expect(shouldBackgroundSync(input({ summary: summary(src('github', { lastSuccessAt: minutesAgo(2), lastAttemptAt: 'x' })) }))).toEqual([]);
+  });
+});
+
+describe('shouldBackgroundSync: a timestamp from the future', () => {
+  it('is ignored: a past stamp beside it decides (two examples)', () => {
+    const fresh = src('github', { lastSuccessAt: minutesAgo(-600), lastAttemptAt: minutesAgo(3) });
+    const old = src('github', { lastSuccessAt: minutesAgo(-600), lastAttemptAt: minutesAgo(40) });
+    expect(shouldBackgroundSync(input({ summary: summary(fresh) }))).toEqual([]);
+    expect(shouldBackgroundSync(input({ summary: summary(old) }))).toEqual(['github']);
+  });
+  it('with only future stamps the source counts as tried when the summary was written: not due on every launch, due once the interval has passed', () => {
+    const futureOnly = src('github', { lastSuccessAt: minutesAgo(-600) });
+    const written = (m: number): SyncSummary => ({ version: 1, generated_at: minutesAgo(m), sources: [futureOnly] });
+    expect(shouldBackgroundSync(input({ summary: written(2) }))).toEqual([]);
+    expect(shouldBackgroundSync(input({ summary: written(20) }))).toEqual(['github']);
+  });
+  it('future stamps and an unusable generated_at: due (the launch claim, not this function, holds it back)', () => {
+    const s: SyncSummary = { version: 1, generated_at: 'nope', sources: [src('github', { lastSuccessAt: minutesAgo(-600) })] };
+    expect(shouldBackgroundSync(input({ summary: s }))).toEqual(['github']);
   });
 });
 
@@ -92,6 +110,11 @@ describe('shouldBackgroundSync: when nothing may start', () => {
   it('an id that could be read as a flag or a second word never reaches the argv', () => {
     const s = summary(src('--yes', { status: 'never' }), src('a b', { status: 'never' }), src('github', { status: 'never' }), src('github', { status: 'never' }));
     expect(shouldBackgroundSync(input({ summary: s }))).toEqual(['github']);
+  });
+
+  it('an id that is well formed but is not a source does not stop the real ones, and does not start (two examples)', () => {
+    expect(shouldBackgroundSync(input({ summary: summary(src('myspace', { status: 'never' }), src('github', { status: 'never' })) }))).toEqual(['github']);
+    expect(shouldBackgroundSync(input({ summary: summary(src('myspace', { status: 'never' })) }))).toEqual([]);
   });
 });
 

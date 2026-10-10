@@ -2,6 +2,7 @@ import { type Command, Option } from 'commander';
 import chalk from 'chalk';
 import { askWithTimeout } from '../lib/confirm-timeout.js';
 import { createConfigStore } from '../lib/config.js';
+import { inCi } from '../lib/telemetry-ci.js';
 import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
 import { acquireLock } from '../lib/sync/lock.js';
 import { classifyUnclassified, estimateClassify } from '../lib/sync/classify.js';
@@ -54,6 +55,8 @@ export interface SyncCommandDeps {
   /** L6: is the launch-time background refresh switched off (`align sync --off`)? */
   backgroundOff(): boolean;
   setBackgroundOff(off: boolean): void;
+  /** Why the launch-time refresh is off in THIS shell regardless of `--off` (ALIGN_NO_SYNC, CI), or undefined. */
+  shellGate(): string | undefined;
 }
 
 function whole(raw: string | undefined, fallback: number, min: number): number | undefined {
@@ -62,11 +65,12 @@ function whole(raw: string | undefined, fallback: number, min: number): number |
 }
 
 /** Returns the process exit code. A background run always exits 0: nobody is there to read a failure, and the next run tries again. */
-export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOptions, d: SyncCommandDeps): Promise<number> {
+export async function runSyncCommand(sourcesRaw: string[], opts: SyncCommandOptions, d: SyncCommandDeps): Promise<number> {
+  let sourcesArg = sourcesRaw;
   if (opts.off || opts.on) {
     // A switch, not a sync: it takes nothing else, so a mistyped `align sync --off github` does not quietly sync (or not).
-    if ((opts.off && opts.on) || sourcesArg.length > 0 || opts.status || opts.classify || opts.background) {
-      d.err('align sync: --off and --on are used on their own: align sync --off, or align sync --on.');
+    if ((opts.off && opts.on) || sourcesArg.length > 0 || opts.status || opts.classify || opts.background || opts.yes || opts.max !== undefined || opts.delay !== undefined) {
+      d.err('align sync: --off and --on are used on their own: align sync --off, or align sync --on. They stop or allow only the refresh that runs when you start Align; `align sync`, `align_sync` and `align_backfill` still work.');
       return 2;
     }
     d.setBackgroundOff(opts.off === true);
@@ -75,7 +79,13 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
       : `Background refresh is on: Align checks your connected sources when you start it, at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source. Turn it off: align sync --off`);
     return 0;
   }
-  const unknown = sourcesArg.filter((s) => !(BACKFILL_SOURCES as readonly string[]).includes(s));
+  let unknown = sourcesArg.filter((s) => !(BACKFILL_SOURCES as readonly string[]).includes(s));
+  // A background run has nobody to read an error, and one bad id must not stop the good ones: it skips what it does not know.
+  if (opts.background && unknown.length > 0) {
+    sourcesArg = sourcesArg.filter((s) => !unknown.includes(s));
+    unknown = [];
+    if (sourcesArg.length === 0) return 0;
+  }
   if (unknown.length > 0) {
     d.err(`align sync: cannot sync ${JSON.stringify(unknown[0]!.slice(0, 16))}. Sources: ${BACKFILL_SOURCES.join(', ')}.`);
     return 2;
@@ -93,9 +103,12 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
 
   if (opts.status) {
     d.out(renderStatus(collectStatus(d.statusDeps(dbPath))));
+    const gate = d.shellGate();
     d.out(d.backgroundOff()
       ? 'Background refresh: off. Turn it on: align sync --on'
-      : `Background refresh: on (at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source; turn it off: align sync --off)`);
+      : gate !== undefined
+        ? `Background refresh: on, but off in this shell (${gate})`
+        : `Background refresh: on (at most every ${SYNC_MIN_INTERVAL_MS / 60_000} minutes per source; turn it off: align sync --off)`);
     return 0;
   }
   if (opts.classify) return classifyFlow(dbPath, max, opts, d);
@@ -105,7 +118,11 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
   if (sourcesArg.length === 0 && !opts.background && d.isConnected('teams')) d.out(TEAMS_NOTE);
   if (targets.length === 0 && !opts.background) d.out('No source is connected to sync. Run: align connect <source>');
 
-  if (delay > 0) await d.sleep(delay * 1000);
+  if (delay > 0) {
+    await d.sleep(delay * 1000);
+    // A child the launcher started may have slept through `align sync --off`. (An on-demand run, delay 0, is not the launcher's and ignores the switch.)
+    if (opts.background && d.backgroundOff()) return 0;
+  }
   const base = d.env(dbPath);
   // L4: a person at the terminal is told, before the first request, what a team scope reads. A background run has nobody to tell.
   const env: SyncEnv = opts.background ? base : { ...base, announce: (_source, line) => d.out(line), confirm: async (_source, message) => d.isTty() && (await askWithTimeout(() => d.confirm(message))) };
@@ -119,6 +136,8 @@ export async function runSyncCommand(sourcesArg: string[], opts: SyncCommandOpti
     try {
       result = await (d.run ?? runSync)(targets, env, {
         trigger,
+        // The launcher's decision is older than the delay: each source re-checks its own age after taking its lock.
+        ...(opts.background && delay > 0 ? { minIntervalMs: SYNC_MIN_INTERVAL_MS } : {}),
         onOutcome: (o) => {
           if (!opts.background) for (const line of renderOutcome(o)) d.out(line);
           if (d.report) pings.push(d.report(o, reportTrigger).catch(() => {}));
@@ -227,6 +246,7 @@ export function registerSyncCommand(program: Command): void {
         report: recordSourceSynced,
         backgroundOff: () => config.isBackgroundSyncOff(),
         setBackgroundOff: (off) => config.setBackgroundSyncOff(off),
+        shellGate: () => (process.env['ALIGN_NO_SYNC'] ? 'ALIGN_NO_SYNC is set' : inCi() ? 'this looks like CI' : undefined),
       });
       if (code !== 0) process.exitCode = code;
     });

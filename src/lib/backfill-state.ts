@@ -274,6 +274,8 @@ export function startBackfillChild(
   caller: ChildCaller = 'mcp',
   /** The environment the child inherits. Defaults to this process's own; the sync launch hook passes a reduced one. */
   baseEnv: Record<string, string | undefined> = process.env,
+  /** Where the child runs (default: here). The sync launcher passes the home folder, so a folder never picks scope for an unattended run. */
+  cwd?: string,
 ): Promise<{ ok: boolean; pid?: number }> {
   const { command, args } = cmd;
   return new Promise((resolve) => {
@@ -287,6 +289,7 @@ export function startBackfillChild(
         windowsHide: true,
         // L5: a sync child has no status file (the sync lock and source_sync record it), so it must
         // not inherit one from this process either.
+        ...(cwd !== undefined ? { cwd } : {}),
         env: stampCaller(file === undefined ? withoutStatusEnv(baseEnv) : { ...baseEnv, [BACKFILL_STATUS_ENV]: file }, caller),
       });
     } catch {

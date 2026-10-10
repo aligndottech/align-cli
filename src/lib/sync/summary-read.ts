@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { alignStateDir } from '../backfill-state.js';
+import { isKnownSource } from './source-ids.js';
 import type { SyncStatus } from './sync-state.js';
 
 export const SUMMARY_FILE = 'sync-summary.json';
@@ -36,8 +37,11 @@ export function readSummary(dir: string | null = alignStateDir()): SyncSummary |
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<SyncSummary>;
     if (raw.version !== 1 || !Array.isArray(raw.sources) || typeof raw.generated_at !== 'string') return undefined;
-    const sources = raw.sources.filter((s): s is SummarySource => typeof s?.id === 'string' && typeof s.backgroundEligible === 'boolean');
-    return { version: 1, generated_at: raw.generated_at, sources };
+    const sources = raw.sources.filter((s): s is SummarySource => typeof s?.id === 'string' && isKnownSource(s.id) && typeof s.backgroundEligible === 'boolean');
+    // One entry per source: a repeated id would only repeat work, and a huge file is cut to the known list.
+    const seen = new Set<string>();
+    const unique = sources.filter((s) => !seen.has(s.id) && seen.add(s.id));
+    return { version: 1, generated_at: raw.generated_at, sources: unique };
   } catch {
     return undefined;
   }

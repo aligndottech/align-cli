@@ -27,6 +27,7 @@ export function renderOutcome(o: SourceOutcome): string[] {
     case 'manual':
     case 'locked':
     case 'backfill_running':
+    case 'recent':
       return [`${label}: ${o.message ?? o.state}`];
     case 'error':
       return [`${label}: the sync failed (${o.message ?? 'unknown error'}). Nothing about the saved token changed; the next sync tries again.`];

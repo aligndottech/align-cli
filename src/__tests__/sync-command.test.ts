@@ -54,6 +54,7 @@ function deps(over: Partial<SyncCommandDeps> = {}): SyncCommandDeps {
     classify: vi.fn(async () => ({ items: 10, calls: 30, typed: 12, unparsed: 0 })),
     classifyLock: () => acquireLock('sync-classify', { dir: h.lockDir, alive: () => true }),
     backgroundOff: () => bgOff,
+    shellGate: () => undefined,
     setBackgroundOff: (off) => { bgOff = off; bgWrites.push(off); },
     ...over,
   };
@@ -178,6 +179,42 @@ describe('a refused token', () => {
     expect(err).toEqual([]);
     expect(readRows(h.dbPath, 'github')[0]!.status).toBe('needs_reauth');
     expect(tokens.get('github')).toEqual({ token: 'tok' });
+  });
+});
+
+describe('background: ids, the switch and the interval', () => {
+  it('an id that is not a source is skipped and the rest run (a foreground run still exits 2)', async () => {
+    h.script({ items: [] });
+    expect(await run(['myspace', 'github'], { background: true, delay: '0' })).toBe(0);
+    expect(h.fetchCalls.map((c) => c.source)).toEqual(['github']);
+    expect(await run(['myspace', 'github'], {})).toBe(2);
+  });
+  it('only unknown ids: nothing runs, and it does not fall back to every connected source', async () => {
+    expect(await run(['myspace'], { background: true, delay: '0' })).toBe(0);
+    expect(h.fetchCalls).toHaveLength(0);
+  });
+  it('a launcher child that slept through `align sync --off` stops; an on-demand one (no delay) ignores the switch', async () => {
+    bgOff = true;
+    h.script({ items: [] });
+    expect(await run(['github'], { background: true, delay: '20' })).toBe(0);
+    expect(h.fetchCalls).toHaveLength(0);
+    expect(await run(['github'], { background: true, delay: '0' })).toBe(0);
+    expect(h.fetchCalls).toHaveLength(1);
+  });
+  it('--off with --yes, --max or --delay exits 2 and changes nothing', async () => {
+    for (const o of [{ off: true, yes: true }, { off: true, max: '5' }, { on: true, delay: '3' }] as SyncCommandOptions[]) expect(await run([], o)).toBe(2);
+    expect(bgWrites).toEqual([]);
+  });
+  it('--status says off in this shell when ALIGN_NO_SYNC or CI applies, and the switch itself wins when it is off', async () => {
+    await run([], { status: true }, { shellGate: () => 'ALIGN_NO_SYNC is set' });
+    expect(out.join('\n')).toContain('off in this shell (ALIGN_NO_SYNC is set)');
+    out.length = 0; bgOff = true;
+    await run([], { status: true }, { shellGate: () => 'this looks like CI' });
+    expect(out.join('\n')).toContain('Background refresh: off. Turn it on');
+  });
+  it('--off explains what it does not stop', async () => {
+    await run([], { off: true, on: true });
+    expect(err.join('\n')).toContain('align_backfill');
   });
 });
 

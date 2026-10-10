@@ -165,6 +165,25 @@ to a source, and it makes no AI calls. Specifically:
 - Stored items that never finished linking (all of them after an upgrade) are finished locally
   on the first sync, with no network and no AI calls.
 
+### Refresh when you start Align
+
+When you start `align` in a terminal, it refreshes each connected source in the background, at most
+once every 15 minutes per source. It never waits for it, and it prints one line the first time.
+The refresh runs from your home folder, so the folder you started in does not choose what it reads.
+It makes no AI calls and sends no keys other than the saved connector tokens it reads from its own
+config.
+
+- `align sync --off` stops it, and `align sync --on` starts it again. This stops **only** the
+  refresh at launch. `align sync`, `align_sync` and `align_backfill` still work, and a refresh that
+  was already waiting to start (it waits 20 seconds) stops when it sees the switch.
+- `ALIGN_NO_SYNC=1` stops it for one shell. CI and a session with no terminal never start it.
+  `align sync --status` says when the refresh is off in this shell.
+- A source whose saved login stopped working is named in one line at most once a day.
+- Your own `DO_NOT_TRACK`, `CI` and `ALIGN_TELEMETRY` settings reach the refresh, so it follows them.
+- The first-use line and that reminder are remembered in your config file. Two Align processes that
+  save the config at the same moment can lose one of those flags (the config is read, changed and
+  written back without a lock). The result is one repeated line, not a wrong refresh.
+
 Typing the relationships between imported items takes your own AI key, so it is always your call:
 
 ```bash

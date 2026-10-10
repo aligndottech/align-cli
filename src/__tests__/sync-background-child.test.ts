@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { startBackfillChild } from '../lib/backfill-state.js';
-import { startSyncChild, syncChildEnv } from '../lib/sync/spawn-background.js';
+import { CHILD_ENV_KEYS } from '../lib/launch/mcp-child-env.js';
+import { startSyncChild, SYNC_CHILD_ALIGN_NAMES, syncChildEnv } from '../lib/sync/spawn-background.js';
+import { telemetryDisabledByEnv } from '../lib/telemetry-env.js';
 
 /**
  * L6 Test List (the detached child the launcher starts):
@@ -45,52 +47,114 @@ describe('startSyncChild passes the reduced environment to the starter', () => {
   it('the starter receives no secret and the sources and delay in argv', async () => {
     const start = vi.fn(async () => ({ ok: true, pid: 9 }));
     await startSyncChild(['github'], { delaySeconds: 20, start, env: { ...KEPT, ...SECRETS } });
-    const call = start.mock.calls[0] as unknown as [string, string[], unknown, unknown, Record<string, string>];
+    const call = start.mock.calls[0] as unknown as [string, string[], unknown, unknown, string, Record<string, string>];
     expect(call[1]).toEqual(['sync', '--background', '--delay', '20', 'github']);
-    expect(call[4]).toEqual(KEPT);
+    expect(call[5]).toEqual(KEPT);
+  });
+});
+
+describe('syncChildEnv: the value rules are mcp-child-env.ts\'s', () => {
+  it('a credentialed proxy URL, a relative certificate path and a relative XDG path are dropped; plain ones are kept (two examples each)', () => {
+    const bad = syncChildEnv({ HTTPS_PROXY: 'http://bob:pw@proxy:8080', ALIGN_GATEWAY_URL: 'https://gw/?key=1', NODE_EXTRA_CA_CERTS: './ca.pem', SSL_CERT_FILE: 'ca.pem', XDG_CONFIG_HOME: './c', XDG_DATA_HOME: 'd' });
+    expect(bad).toEqual({});
+    const good = syncChildEnv({ HTTPS_PROXY: 'http://proxy:3128', ALIGN_GATEWAY_URL: 'https://gw.example', NODE_EXTRA_CA_CERTS: path.resolve('/etc/ca.pem'), XDG_STATE_HOME: path.resolve('/s') });
+    expect(Object.keys(good).sort()).toEqual(['ALIGN_GATEWAY_URL', 'HTTPS_PROXY', 'NODE_EXTRA_CA_CERTS', 'XDG_STATE_HOME']);
+  });
+  it('code-loading switches are blank: NODE_OPTIONS, NODE_PATH, LD_PRELOAD never reach the child', () => {
+    expect(syncChildEnv({ NODE_OPTIONS: '--require /x.js', NODE_PATH: '/p', LD_PRELOAD: '/x.so', DYLD_INSERT_LIBRARIES: '/d', NODE_TLS_REJECT_UNAUTHORIZED: '0' })).toEqual({});
+  });
+  it('ALIGN_* is an exact list: credential-shaped names that no prefix rule would catch are dropped, and the names the child reads are kept', () => {
+    const planted = { ALIGN_AUTH_HEADER: 'a', ALIGN_COOKIE: 'c', ALIGN_PAT: 'p', ALIGN_PASS: 'p', ALIGN_PWD: 'p', ALIGN_DB_DSN: 'd', ALIGN_BEARER: 'b', ALIGN_SESSION: 's', ALIGN_LLM_PROVIDER: 'x', ALIGN_FOO: 'y' };
+    expect(syncChildEnv(planted)).toEqual({});
+    const kept = Object.fromEntries(SYNC_CHILD_ALIGN_NAMES.map((n) => [n, n === 'ALIGN_GATEWAY_URL' ? 'https://gw.example' : '1']));
+    expect(syncChildEnv(kept)).toEqual(kept);
+  });
+  it('every name on the ALIGN list is one align reads at all (the MCP block lists every read)', () => {
+    for (const n of SYNC_CHILD_ALIGN_NAMES) expect(CHILD_ENV_KEYS, n).toContain(n);
+  });
+  it('the user\'s own opt-outs reach the child: DO_NOT_TRACK, CI and ALIGN_TELEMETRY', () => {
+    expect(syncChildEnv({ DO_NOT_TRACK: '1', CI: 'true', ALIGN_TELEMETRY: '0' })).toEqual({ DO_NOT_TRACK: '1', CI: 'true', ALIGN_TELEMETRY: '0' });
+    expect(syncChildEnv({ DO_NOT_TRACK: '1', CI: 'true' })).toEqual({ DO_NOT_TRACK: '1', CI: 'true' });
   });
 });
 
 describe.skipIf(process.platform === 'win32')('a real detached child', () => {
   let dir: string;
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-child-')); });
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(dir, { recursive: true, force: true }); });
 
   const ps = (pid: number, col: string): string => {
     try { return execFileSync('ps', ['-o', `${col}=`, '-p', String(pid)], { encoding: 'utf8' }).trim(); } catch { return ''; }
   };
-
-  it('has its own session and no terminal, a stdin that is not ours, no secrets, and is reaped on exit', async () => {
+  const wait = async (file: string): Promise<void> => { for (let i = 0; i < 200 && !fs.existsSync(file); i++) await new Promise((res) => setTimeout(res, 50)); };
+  const dump = (out: string): string => `
+    const fs = require('node:fs');
+    const { execFileSync } = require('node:child_process');
+    const ps = (c) => execFileSync('ps', ['-o', c + '=', '-p', String(process.pid)], { encoding: 'utf8' }).trim();
+    fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify({
+      pid: process.pid, sid: ps('sid'), pgid: ps('pgid'), tty: ps('tty'), cwd: process.cwd(),
+      stdinTty: require('node:tty').isatty(0), stdoutTty: require('node:tty').isatty(1),
+      env: process.env,
+    }));`;
+  type Seen = { pid: number; sid: string; pgid: string; tty: string; cwd: string; stdinTty: boolean; stdoutTty: boolean; env: Record<string, string> };
+  const spawnReal = async (env: Record<string, string | undefined>, o: { caller?: 'mcp' | 'launcher'; cwd?: string } = {}): Promise<Seen> => {
     const out = path.join(dir, 'seen.json');
-    const script = `
-      const fs = require('node:fs');
-      const { execFileSync } = require('node:child_process');
-      const ps = (c) => execFileSync('ps', ['-o', c + '=', '-p', String(process.pid)], { encoding: 'utf8' }).trim();
-      fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify({
-        pid: process.pid, sid: ps('sid'), pgid: ps('pgid'), tty: ps('tty'),
-        stdinTty: require('node:tty').isatty(0), stdoutTty: require('node:tty').isatty(1),
-        envNames: Object.keys(process.env), argv: process.argv.slice(1),
-      }));`;
-    const r = await startBackfillChild('sync', ['x'], undefined, { command: process.execPath, args: ['-e', script, '--', 'sync', '--background'] }, syncChildEnv({ ...process.env, ...SECRETS }));
+    const r = await startBackfillChild('sync', ['x'], undefined, { command: process.execPath, args: ['-e', dump(out)] }, o.caller ?? 'mcp', env, o.cwd);
     expect(r.ok).toBe(true);
-    for (let i = 0; i < 200 && !fs.existsSync(out); i++) await new Promise((res) => setTimeout(res, 50));
-    const seen = JSON.parse(fs.readFileSync(out, 'utf8')) as { pid: number; sid: string; pgid: string; tty: string; stdinTty: boolean; stdoutTty: boolean; envNames: string[] };
-    // Its own session: the terminal closing cannot signal it, and it cannot read the launcher's terminal.
+    await wait(out);
+    return JSON.parse(fs.readFileSync(out, 'utf8')) as Seen;
+  };
+
+  it('has its own session and no terminal, a stdin that is not ours, and is reaped on exit', async () => {
+    const seen = await spawnReal(syncChildEnv(process.env));
     expect(seen.sid).toBe(String(seen.pid));
     expect(seen.pgid).toBe(String(seen.pid));
     expect(seen.pgid).not.toBe(ps(process.pid, 'pgid'));
     expect(seen.tty).toMatch(/^\?+$|^-$/);
     expect(seen.stdinTty).toBe(false);
     expect(seen.stdoutTty).toBe(false);
-    for (const name of Object.keys(SECRETS)) expect(seen.envNames, name).not.toContain(name);
-    // The launcher is still running; the child must not linger as a zombie once it exited.
-    let state = 'x';
-    for (let i = 0; i < 100; i++) {
-      state = ps(seen.pid, 'stat');
-      if (state === '' || !state.startsWith('Z')) break;
-      await new Promise((res) => setTimeout(res, 50));
-    }
-    await new Promise((res) => setTimeout(res, 300));
+    await new Promise((res) => setTimeout(res, 400));
     expect(ps(seen.pid, 'stat')).toBe('');
+  });
+
+  it('secrets in THIS process\'s environment never reach it: the starter honours the env it was given, not process.env', async () => {
+    for (const [k, v] of Object.entries({ ...SECRETS, PGPASSWORD: 'pg-planted' })) vi.stubEnv(k, v);
+    const seen = await spawnReal(syncChildEnv(process.env));
+    for (const name of [...Object.keys(SECRETS), 'PGPASSWORD']) expect(Object.keys(seen.env), name).not.toContain(name);
+    expect(seen.env['PATH']).toBe(process.env['PATH']);
+  });
+
+  it('runs where it is told, not in the folder it was started from (two folders)', async () => {
+    const home = fs.realpathSync(dir);
+    expect((await spawnReal({ PATH: process.env['PATH'] }, { cwd: home })).cwd).toBe(home);
+    fs.rmSync(path.join(dir, 'seen.json'));
+    expect((await spawnReal({ PATH: process.env['PATH'] }, { cwd: fs.realpathSync(os.tmpdir()) })).cwd).toBe(fs.realpathSync(os.tmpdir()));
+  });
+
+  it('caller: the default (an MCP tool call) stamps ALIGN_STARTED_BY=mcp; the launcher stamps nothing, and cannot inherit one', async () => {
+    expect((await spawnReal({ PATH: process.env['PATH'] })).env['ALIGN_STARTED_BY']).toBe('mcp');
+    fs.rmSync(path.join(dir, 'seen.json'));
+    expect((await spawnReal({ PATH: process.env['PATH'], ALIGN_STARTED_BY: 'mcp' }, { caller: 'launcher' })).env).not.toHaveProperty('ALIGN_STARTED_BY');
+  });
+
+  it('startSyncChild runs the child from the home directory and as the launcher when asked (recorded by a fake starter)', async () => {
+    const start = vi.fn(async () => ({ ok: true, pid: 1 }));
+    await startSyncChild(['github'], { start, caller: 'launcher' });
+    await startSyncChild(['github'], { start });
+    const calls = start.mock.calls as unknown as Array<[string, string[], unknown, unknown, string, unknown, string]>;
+    expect([calls[0]![4], calls[0]![6]]).toEqual(['launcher', os.homedir()]);
+    expect([calls[1]![4], calls[1]![6]]).toEqual(['mcp', os.homedir()]);
+  });
+
+  it('DO_NOT_TRACK=1 in the launcher shell is still set in the child, and that env turns telemetry off there', async () => {
+    vi.stubEnv('DO_NOT_TRACK', '1');
+    const seen = await spawnReal(syncChildEnv(process.env));
+    expect(seen.env['DO_NOT_TRACK']).toBe('1');
+    // the child's own telemetry predicate, evaluated over the env the child received
+    for (const k of ['DO_NOT_TRACK', 'ALIGN_TELEMETRY']) vi.stubEnv(k, undefined);
+    vi.stubEnv('DO_NOT_TRACK', seen.env['DO_NOT_TRACK']!);
+    expect(telemetryDisabledByEnv()).toBeDefined();
+    vi.stubEnv('DO_NOT_TRACK', undefined);
+    expect(telemetryDisabledByEnv()).toBeUndefined();
   });
 });

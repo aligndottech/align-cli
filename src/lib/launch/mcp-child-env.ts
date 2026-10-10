@@ -97,7 +97,7 @@ function credentialedUrl(v: string): boolean {
 const isAbsolutePath = (v: string): boolean => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(v);
 
 /** The value Align writes for one key, given the user's environment. */
-function valueFor(k: string, env: Record<string, string | undefined>): string {
+export function childEnvValue(k: string, env: Record<string, string | undefined>): string {
   if (CHILD_ENV_SECRETS.includes(k) || ALWAYS_EMPTY.includes(k)) return '';
   if ((XDG_VARS as readonly string[]).includes(k)) return absoluteXdg(env, k) ?? '';
   const v = env[k] ?? '';
@@ -111,7 +111,7 @@ function valueFor(k: string, env: Record<string, string | undefined>): string {
 /** The block: for each key, the user's own value under the rules above, or empty. */
 export function mcpChildEnv(env: Record<string, string | undefined>): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const k of CHILD_ENV_KEYS) out[k] = valueFor(k, env);
+  for (const k of CHILD_ENV_KEYS) out[k] = childEnvValue(k, env);
   return out;
 }
 

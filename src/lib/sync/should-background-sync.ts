@@ -3,6 +3,7 @@
  * what `sync-summary.json` said, so the launch path opens no database, makes no network call and
  * loads no fetcher to decide. Every gate fails toward "do not start anything".
  */
+import { isKnownSource } from './source-ids.js';
 import type { SummarySource, SyncSummary } from './summary-read.js';
 
 /** Decision 23: at most one background read per source per 15 minutes. One constant. */
@@ -12,8 +13,8 @@ export const BACKGROUND_LAUNCH_DELAY_SECONDS = 20;
 /** The "reconnect this source" line is shown at most this often. */
 export const REAUTH_LINE_INTERVAL_MS = 24 * 3_600_000;
 
-/** What reaches argv. The summary is a file on disk, so an id is checked before it can be read as a flag. */
-const SAFE_SOURCE_ID = /^[a-z][a-z0-9-]{0,31}$/;
+/** What reaches argv. The summary is a file on disk, so an id must be one of the sources a sync reads (which also rules out a flag or a second word). */
+const SAFE_SOURCE_ID = { test: isKnownSource };
 
 export interface BackgroundSyncGates {
   isTty: boolean;
@@ -44,10 +45,20 @@ function parsed(iso: string | undefined): number | undefined {
   return Number.isNaN(t) ? undefined : t;
 }
 
-/** The latest moment this source was tried, or undefined when no readable timestamp exists. */
-function lastTried(s: SummarySource): number | undefined {
-  const stamps = [parsed(s.lastSuccessAt), parsed(s.lastAttemptAt)].filter((t): t is number => t !== undefined);
-  return stamps.length === 0 ? undefined : Math.max(...stamps);
+/**
+ * The latest moment this source was tried, or undefined when no readable timestamp exists. A stamp
+ * LATER than now is ignored (a clock that moved back, or a damaged file): otherwise it would read
+ * as "tried in the future" and, with the age negative, make the source due on every launch. When
+ * every stamp is in the future the source counts as tried when the summary was written, so it is
+ * retried once the interval has passed, not on every launch.
+ */
+function lastTried(s: SummarySource, now: number, generatedAt: string): number | undefined {
+  const all = [parsed(s.lastSuccessAt), parsed(s.lastAttemptAt)].filter((t): t is number => t !== undefined);
+  const past = all.filter((t) => t <= now);
+  if (past.length > 0) return Math.max(...past);
+  if (all.length === 0) return undefined;
+  const written = parsed(generatedAt);
+  return written !== undefined && written <= now ? written : undefined;
 }
 
 export function shouldBackgroundSync(i: BackgroundSyncInput): string[] {
@@ -56,10 +67,10 @@ export function shouldBackgroundSync(i: BackgroundSyncInput): string[] {
   for (const s of i.summary!.sources) {
     if (!s.backgroundEligible || s.status === 'needs_reauth') continue;
     if (!SAFE_SOURCE_ID.test(s.id) || i.busy?.has(s.id)) continue;
-    const tried = lastTried(s);
-    // No readable timestamp, or one in the future (a clock that moved back): stale, never fresh.
+    const tried = lastTried(s, i.now, i.summary!.generated_at);
+    // No readable timestamp: stale, never fresh.
     const age = tried === undefined ? Number.POSITIVE_INFINITY : i.now - tried;
-    if (age < 0 || age >= i.minIntervalMs) due.add(s.id);
+    if (age >= i.minIntervalMs) due.add(s.id);
   }
   return [...due];
 }
