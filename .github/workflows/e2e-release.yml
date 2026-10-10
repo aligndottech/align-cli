@@ -141,6 +141,12 @@ jobs:
       - name: Run the golden path
         env:
           ALIGN_GATEWAY_URL: http://127.0.0.1:4547
+          # This step plays a stranger's laptop, not a CI job. Since the telemetry default
+          # flipped (#357) the CLI sends NOTHING when it detects CI, and GitHub Actions sets
+          # CI=true, so the sink below received no funnel stages and the 0.50.0 E2E went red
+          # while the product was right. CI=false is the CLI's documented override (inCi in
+          # src/lib/telemetry-ci.ts); only the telemetry code reads CI.
+          CI: 'false'
         run: |
           set -eu
           export HOME="$RUNNER_TEMP/home"
