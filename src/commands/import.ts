@@ -21,6 +21,7 @@ import { registerImportZoomCommand } from './import/zoom.js';
 import { registerImportNotionCommand } from './import/notion.js';
 import { registerImportSessionsCommand } from './import/sessions.js';
 import { runConnect } from './connect.js';
+import { SINCE_HELP } from '../lib/since-flag.js';
 
 interface ProgressState {
   connector: string;
@@ -171,7 +172,7 @@ function registerImportListCommands(importCmd: Command): void {
 interface ConnectGroupOpts {
   env: EnvName; all: boolean; channel?: string; project?: string;
   from?: string; to?: string; approve: boolean;
-  source?: string; token?: string; yes?: boolean; json?: boolean;
+  source?: string; token?: string; yes?: boolean; json?: boolean; since?: string;
 }
 
 /**
@@ -225,6 +226,7 @@ export function registerImportCommand(program: Command): void {
     .option('--token <token>', 'Read-only token for --source, so nothing is pasted')
     .option('--yes', 'Answer yes to every confirm (re-use a saved token, import what was found)')
     .option('--json', 'Print one JSON summary instead of the report (with --source)')
+    .option('--since <when>', SINCE_HELP)
     .option('--all', 'Scan all connected connectors')
     .option('--channel <id>', 'Slack channel ID (single-connector only)')
     .option('--project <key>', 'Project key (Jira prefix or GitHub org/repo)')
@@ -243,7 +245,13 @@ export function registerImportCommand(program: Command): void {
       if (!opts.all && !connectors.length) {
         // The local picker (or its --source bypass). False means a cloud env: fall through
         // to the connector scan bare `import` always ran there.
-        if (await runConnect({ source: opts.source, token: opts.token, yes: opts.yes, json: opts.json, env: opts.env })) return;
+        if (await runConnect({ source: opts.source, token: opts.token, yes: opts.yes, json: opts.json, since: opts.since, env: opts.env })) return;
+      }
+      // The hosted scan reads a date range (--from/--to), not a look-back. Ignoring --since here
+      // would run an unbounded scan under a flag that promised a bound.
+      if (opts.since !== undefined && (opts.all || !connectors.length)) {
+        console.error(chalk.red('align connect: --since applies to a local connect or to one source (align connect <source> --since 30d). The hosted scan takes --from and --to.'));
+        process.exit(2);
       }
       const config = createConfigStore();
       const env = config.getEnvironment(resolveEnv(opts.env));

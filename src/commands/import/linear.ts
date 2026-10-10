@@ -11,12 +11,15 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface LinearImportOpts {
   token?: string;
   personal?: boolean;
   limit: string;
+  since?: string;
   approve?: boolean;
   env?: EnvName;
 }
@@ -27,11 +30,13 @@ export function registerImportLinearCommand(importCmd: Command): void {
     .description('Import your Linear issues (personal API token)')
     .option('--token <token>', 'Linear personal API token (lin_api_...)')
     .option('--personal', 'Connect your own Linear via browser OAuth (Align personal app) instead of a token')
-    .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.linear))
+    .option('--limit <n>', 'Max items to import', String(SYNC_CEILINGS.linear))
+    .option('--since <when>', SINCE_HELP)
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: LinearImportOpts, cmd: Command) => {
       const opts = subcommandOpts<LinearImportOpts>(cmd);
+      const window = sinceFromFlag(opts.since);
       const config = createConfigStore();
       const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
@@ -55,11 +60,11 @@ export function registerImportLinearCommand(importCmd: Command): void {
       const spinner = p.spinner();
       spinner.start('Fetching your Linear issues...');
       try {
-        const fetched = await fetchLinearItems({ token, limit: parseInt(opts.limit, 10) });
+        const fetched = await fetchLinearItems({ token, ...fetchWindow('linear', window), limit: parseInt(opts.limit, 10) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'Linear', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'linear' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.linear, fetched)])}\n`);
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.linear, fetched, windowLabel(window.days))])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

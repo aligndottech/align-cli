@@ -34,7 +34,7 @@ describe('withCaptureReport (the fallback when the fetcher cannot report)', () =
  * one read, not two.
  */
 describe('withCaptureReport (the SDK report, when the fetcher has one)', () => {
-  it('uses fetchWithReport and carries scanned, requested and every skip through, dropping kind', async () => {
+  it('uses fetchWithReport and carries scanned, requested and every skip through, kind included (L3)', async () => {
     const items = [item(1)];
     const fetch = vi.fn(async () => items);
     const fetchWithReport = vi.fn(async () => ({
@@ -55,8 +55,8 @@ describe('withCaptureReport (the SDK report, when the fetcher has one)', () => {
       scanned: 9,
       requested: 50,
       skips: [
-        { count: 3, detail: 'threads with no human message (bot or system output only)' },
-        { count: 1, detail: 'channels the token could not read' },
+        { kind: 'shape', count: 3, detail: 'threads with no human message (bot or system output only)' },
+        { kind: 'error', count: 1, detail: 'channels the token could not read' },
       ],
     });
     expect(fetchWithReport).toHaveBeenCalledWith({ limit: 50 });

@@ -40,6 +40,8 @@ export function gitCaptureReport(counts: {
 }): CaptureFetchReport {
   return {
     scanned: counts.scanned,
+    // L3: a scan that stopped short of its bound read the whole window; one that hit it did not.
+    complete: counts.scanned < counts.limit,
     ...(counts.scanned >= counts.limit ? { requested: counts.limit } : {}),
     skips: gitCaptureSkips(counts),
   };
@@ -47,11 +49,11 @@ export function gitCaptureReport(counts: {
 
 /** Read-only local-git import. The canonical GitFetcher in connector-core is
  *  pure; the CLI injects the actual git I/O (log/remote) here. */
-export async function fetchGitItems(opts: { limit: number }): Promise<CaptureFetchResult> {
+export async function fetchGitItems(opts: { limit: number; since?: string }): Promise<CaptureFetchResult> {
   // Read ONCE and hand the commits to the pure GitFetcher, rather than letting it call
   // git again: two reads of a moving history are two different answers, and the scanned
   // and rejected counts have to describe the same read the items came from.
-  const { commits, scanned, rejectedByRationale } = await getCommitHistoryDetailed({ limit: opts.limit });
+  const { commits, scanned, rejectedByRationale } = await getCommitHistoryDetailed({ limit: opts.limit, ...(opts.since !== undefined ? { from: opts.since } : {}) });
   const items = await new GitFetcher({ getCommitHistory: async () => commits, getRemoteUrl })
     .fetch({ token: '', limit: opts.limit });
   return {

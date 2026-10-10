@@ -97,7 +97,8 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     });
     await run(['connect', 'git']);
     const printed = logSpy.mock.calls.flat().join('\n');
-    expect(printed).toContain('Git: 3 commits');
+    // L3: a windowed read states its window instead of "of up to N requested".
+    expect(printed).toContain('Git: imported 3 commits from the last 6 months');
     expect(printed).toContain('2 commits stated no reason beyond the subject');
     expect(printed).toContain('5 commits with a mechanical');            // 10 - 3 - 2
     expect(printed).not.toContain('7 commits');                         // the conflated number
@@ -113,7 +114,8 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     });
     await run(['connect', 'git', '--limit', '10']);
     const printed = logSpy.mock.calls.flat().join('\n');
-    expect(printed).toContain('Git: 3 commits of up to 10 requested');
+    // L3: the scan hit its bound, so the line says the read is not the whole window and why.
+    expect(printed).toContain('Git: imported 3 commits, read stopped early (not the last 6 months): stopped at the ceiling of 10');
   });
 
   // ALI-829: the row's decided_at comes from the commit's own date, so the command has to
@@ -139,7 +141,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     });
     await run(['connect', 'git']);
     const printed = logSpy.mock.calls.flat().join('\n');
-    expect(printed).toContain('Git: 8 commits');
+    expect(printed).toContain('Git: imported 8 commits from the last 6 months');
     expect(printed).not.toContain('stated no reason');
     expect(printed).not.toContain('mechanical subject');
   });

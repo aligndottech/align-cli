@@ -11,12 +11,15 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface GitHubImportOpts {
   token?: string;
   personal?: boolean;
   limit: string;
+  since?: string;
   approve?: boolean;
   env?: EnvName;
   repo?: string;
@@ -29,13 +32,15 @@ export function registerImportGitHubCommand(importCmd: Command): void {
     .description('Import your GitHub PRs and issues')
     .option('--token <token>', 'GitHub personal access token (ghp_...)')
     .option('--personal', 'Connect your own GitHub via browser OAuth (Align personal app) instead of a token')
-    .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.github))
+    .option('--limit <n>', 'Max items to import', String(SYNC_CEILINGS.github))
+    .option('--since <when>', SINCE_HELP)
     .option('--repo <owner/repo>', 'Scope to one GitHub repo - the literal owner/repo (not the fuzzy short name `search`/`why` accept; default: the repo you are in, if it is a GitHub remote)')
     .option('--all', 'Every repo your token can see, not just the current one')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: GitHubImportOpts, cmd: Command) => {
       const opts = subcommandOpts<GitHubImportOpts>(cmd);
+      const window = sinceFromFlag(opts.since);
       const config = createConfigStore();
       const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
@@ -69,11 +74,15 @@ export function registerImportGitHubCommand(importCmd: Command): void {
             ? `Fetching your GitHub PRs and issues in ${repo}...`
             : 'Fetching your GitHub PRs and issues everywhere your token can see (pass --repo to narrow)...',
         );
-        const fetched = await fetchGitHubItems({ token, limit: parseInt(opts.limit, 10), ...(repo ? { repo } : {}) });
+        // L3: items first, discussion later (Decision 27); inside a repo, everyone's items in it (Decision 7).
+        const fetched = await fetchGitHubItems({
+          token, ...fetchWindow('github', window), limit: parseInt(opts.limit, 10), discussion: 'none',
+          ...(repo ? { repo, scope: 'team' as const } : {}),
+        });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'GitHub', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'github' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.github, fetched)])}\n`);
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.github, fetched, windowLabel(window.days))])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

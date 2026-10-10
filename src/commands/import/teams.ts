@@ -11,12 +11,15 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface TeamsImportOpts {
   token?: string;
   personal?: boolean;
   limit: string;
+  since?: string;
   approve?: boolean;
   env?: EnvName;
 }
@@ -27,11 +30,13 @@ export function registerImportTeamsCommand(importCmd: Command): void {
     .description('Import channel messages from Microsoft Teams')
     .option('--token <token>', 'Microsoft Graph API delegated access token')
     .option('--personal', 'Connect via browser OAuth (Align Teams app) instead of pasting a Graph token')
-    .option('--limit <n>', 'Max messages to import', String(IMPORT_LIMITS.teams))
+    .option('--limit <n>', 'Max messages to import', String(SYNC_CEILINGS.teams))
+    .option('--since <when>', SINCE_HELP)
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: TeamsImportOpts, cmd: Command) => {
       const opts = subcommandOpts<TeamsImportOpts>(cmd);
+      const window = sinceFromFlag(opts.since);
       p.log.warn(
         'Requires a delegated Graph API token with ChannelMessage.Read.All scope.\n' +
         '  This permission requires admin consent in most Microsoft 365 tenants.\n' +
@@ -63,12 +68,12 @@ export function registerImportTeamsCommand(importCmd: Command): void {
       try {
         const fetched = await fetchTeamsItems({
           token,
-          limit: parseInt(opts.limit, 10),
+          ...fetchWindow('teams', window), limit: parseInt(opts.limit, 10),
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} messages`);
         await runPersonalImport(items, client, { label: 'Teams', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'teams' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.teams, fetched)])}\n`);
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.teams, fetched, windowLabel(window.days))])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

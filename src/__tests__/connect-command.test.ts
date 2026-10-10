@@ -222,4 +222,55 @@ describe('align connect (ALI-951)', () => {
       expect(mockFetchJira).not.toHaveBeenCalled();
     });
   });
+
+  // L3: --since on the picker/--source path and on the real parent (a parent flag is awarded to
+  // the parent, so the subcommand must read it back through optsWithGlobals).
+  describe('--since (L3)', () => {
+    const daysAgo = (iso: unknown) => Math.round((Date.now() - Date.parse(String(iso))) / 86_400_000);
+
+    it('--source github --since 30d reads 30 days back, and the report line says so', async () => {
+      setTty(false, false);
+      await run(['connect', '--source', 'github', '--token', 't', '--yes', '--since', '30d']);
+      expect(daysAgo(mockFetchGitHub.mock.calls.at(-1)![0].since)).toBe(30);
+      expect(stdout.join('\n')).toContain('from the last 30 days');
+    });
+
+    it('--source github with no --since reads the plan default, 180 days', async () => {
+      setTty(false, false);
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      expect(daysAgo(mockFetchGitHub.mock.calls.at(-1)![0].since)).toBe(180);
+      expect(stdout.join('\n')).toContain('from the last 6 months');
+    });
+
+    it('--since all sends no lower bound', async () => {
+      setTty(false, false);
+      await run(['connect', '--source', 'github', '--token', 't', '--yes', '--since', 'all']);
+      expect('since' in mockFetchGitHub.mock.calls.at(-1)![0]).toBe(false);
+    });
+
+    it('the subcommand form reads the parent\'s flag: connect github --since 2w', async () => {
+      setTty(true, true);
+      await run(['connect', 'github', '--token', 't', '--approve', '--since', '2w']);
+      expect(daysAgo(mockFetchGitHub.mock.calls.at(-1)![0].since)).toBe(14);
+    });
+
+    it('the hosted scan (--all, or a cloud env) has its own --from/--to, so --since there is refused, not ignored', async () => {
+      setTty(false, false);
+      mockResolveImportEnv.mockReturnValue('prod');
+      const code = await run(['connect', '--all', '--since', '30d']);
+      expect(code).toBe(2);
+      expect(stderr.join('\n')).toContain('--from');
+    });
+
+    it.each([
+      ['--source github --token t --yes', ['connect', '--source', 'github', '--token', 't', '--yes', '--since', '6x']],
+      ['the subcommand form', ['connect', 'github', '--token', 't', '--approve', '--since', '-3d']],
+    ])('a bad value exits 2 naming the accepted forms and reads nothing (%s)', async (_n, argv) => {
+      setTty(false, false);
+      const code = await run(argv);
+      expect(code).toBe(2);
+      expect(stderr.join('\n')).toContain('30d, 2w, 6m, 1y or all');
+      expect(mockFetchGitHub).not.toHaveBeenCalled();
+    });
+  });
 });

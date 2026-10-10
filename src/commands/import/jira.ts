@@ -12,7 +12,9 @@ import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { PERSONAL_OAUTH_KEYS, personalCredsForImport } from '../../lib/personal-oauth.js';
 import { AuthExpiredError } from '../../lib/errors.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface JiraImportOpts {
   email?: string;
@@ -20,6 +22,7 @@ interface JiraImportOpts {
   personal?: boolean;
   domain?: string;
   limit: string;
+  since?: string;
   approve?: boolean;
   env?: EnvName;
 }
@@ -32,11 +35,13 @@ export function registerImportJiraCommand(importCmd: Command): void {
     .option('--token <token>', 'Atlassian API token (or uses cached OAuth token from align setup)')
     .option('--personal', 'Connect via browser OAuth (Align personal Atlassian app) instead of a token')
     .option('--domain <domain>', 'Jira domain, e.g. company.atlassian.net (for API token auth)')
-    .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.jira))
+    .option('--limit <n>', 'Max items to import', String(SYNC_CEILINGS.jira))
+    .option('--since <when>', SINCE_HELP)
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: JiraImportOpts, cmd: Command) => {
       const opts = subcommandOpts<JiraImportOpts>(cmd);
+      const window = sinceFromFlag(opts.since);
       const config = createConfigStore();
       const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
@@ -85,12 +90,12 @@ export function registerImportJiraCommand(importCmd: Command): void {
           siteBase,
           email: opts.email,
           domain: opts.domain,
-          limit: parseInt(opts.limit, 10),
+          ...fetchWindow('jira', window), limit: parseInt(opts.limit, 10),
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'Jira', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'jira' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.jira, fetched)])}\n`);
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.jira, fetched, windowLabel(window.days))])}\n`);
       } catch (err) {
         spinner.stop('');
         if (err instanceof AuthExpiredError) {

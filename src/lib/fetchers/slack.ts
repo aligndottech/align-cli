@@ -1,5 +1,5 @@
 import { SlackFetcher } from '@aligndottech/connector-core';
-import { type CaptureFetchResult, withCaptureReport } from './capture.js';
+import { type CaptureFetchResult, type WindowedOpts, withCaptureReport } from './capture.js';
 
 /**
  * Read-only personal Slack import (canonical fetcher in connector-core).
@@ -13,6 +13,6 @@ import { type CaptureFetchResult, withCaptureReport } from './capture.js';
  * moment Slack adds a subtype the SDK learns about and this file does not
  * (code-style.md, "a type and a database constraint are two writers of one fact").
  */
-export async function fetchSlackItems(opts: { token: string; limit?: number; daysBack?: number }): Promise<CaptureFetchResult> {
+export async function fetchSlackItems(opts: { token: string; limit?: number } & WindowedOpts): Promise<CaptureFetchResult> {
   return withCaptureReport(opts, new SlackFetcher());
 }

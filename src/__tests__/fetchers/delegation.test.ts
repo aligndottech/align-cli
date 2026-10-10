@@ -107,12 +107,12 @@ describe('CLI fetcher wrappers delegate to connector-core', () => {
     ]);
     // ALI-827: a core fetcher that cannot report (every 0.5.0 one) gets the fallback - one
     // item came back, nothing was asked for by number, nothing to explain. ALI-829: one that
-    // can (Slack, mocked 0.6.0-shaped above) has its own report carried through, kind dropped.
+    // can (Slack, mocked 0.6.0-shaped above) has its own report carried through, kind kept (L3).
     results.forEach((r, i) => {
       if (r.items[0].platform === 'slack') {
         expect(r.report, `result ${i}`).toEqual({
           scanned: 4,
-          skips: [{ count: 3, detail: 'threads with no human message (bot or system output only)' }],
+          skips: [{ kind: 'shape', count: 3, detail: 'threads with no human message (bot or system output only)' }],
         });
       } else {
         expect(r.report, `result ${i}`).toEqual({ scanned: 1, skips: [] });
@@ -142,6 +142,7 @@ describe('CLI fetcher wrappers delegate to connector-core', () => {
     const { report } = await fetchGitItems({ limit: 10 });
     expect(report).toEqual({
       scanned: 5,
+      complete: true, // L3: 5 scanned against a bound of 10 read the whole window
       skips: [
         { count: 1, detail: 'commits stated no reason beyond the subject' },
         // 5 scanned - 1 kept - 1 rationale = 3, and never folded into the line above. The
@@ -164,6 +165,16 @@ describe('CLI fetcher wrappers delegate to connector-core', () => {
     const { report: capped } = await fetchGitItems({ limit: 5 });
     expect(capped.requested).toBe(5);
     expect(capped.scanned).toBe(5);
+    // L3: and a scan that hit its bound did not read the whole window (the uncapped one did).
+    expect(capped.complete).toBe(false);
+    expect(uncapped.complete).toBe(true);
+  });
+
+  it('git wrapper hands the window to git as its lower bound, and leaves from out without one (L3)', async () => {
+    await fetchGitItems({ limit: 10, since: '2026-04-13T12:00:00.000Z' });
+    expect(getCommitHistoryDetailed).toHaveBeenLastCalledWith({ limit: 10, from: '2026-04-13T12:00:00.000Z' });
+    await fetchGitItems({ limit: 10 });
+    expect(vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0]).toEqual({ limit: 10 });
   });
 
   it('jira/confluence map a FetcherAuthError to AuthExpiredError (reconnect flow)', async () => {

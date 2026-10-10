@@ -1,5 +1,5 @@
 import { LinearFetcher } from '@aligndottech/connector-core';
-import { type CaptureFetchResult, withCaptureReport } from './capture.js';
+import { type CaptureFetchResult, type WindowedOpts, withCaptureReport } from './capture.js';
 
 /**
  * ALI-786: Linear's scoped personal-API-key dialog
@@ -18,7 +18,7 @@ const LINEAR_400_HINT =
   'Create a new key with Read included, or use an unscoped (classic) personal API key.';
 
 /** Read-only personal Linear import (canonical fetcher in connector-core). */
-export async function fetchLinearItems(opts: { token: string; limit?: number }): Promise<CaptureFetchResult> {
+export async function fetchLinearItems(opts: { token: string; limit?: number } & WindowedOpts): Promise<CaptureFetchResult> {
   try {
     return await withCaptureReport(opts, new LinearFetcher());
   } catch (err) {

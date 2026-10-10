@@ -12,13 +12,16 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS, SLACK_DAYS_BACK } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface SlackImportOpts {
   token?: string;
   personal?: boolean;
   limit: string;
-  daysBack: string;
+  since?: string;
+  daysBack?: string;
   approve?: boolean;
   env?: EnvName;
 }
@@ -29,12 +32,15 @@ export function registerImportSlackCommand(importCmd: Command): void {
     .description('Import decision threads from Slack (xoxp- user token) [experimental]')
     .option('--token <token>', 'Slack user OAuth token (xoxp-...)')
     .option('--personal', 'Connect your own Slack via browser OAuth (Align personal app) instead of a token')
-    .option('--limit <n>', 'Max threads to import', String(IMPORT_LIMITS.slack))
-    .option('--days-back <n>', 'How many days back to scan', String(SLACK_DAYS_BACK))
+    .option('--limit <n>', 'Max threads to import', String(SYNC_CEILINGS.slack))
+    .option('--since <when>', SINCE_HELP)
+    .option('--days-back <n>', 'Deprecated: use --since. How many days back to scan')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: SlackImportOpts, cmd: Command) => {
       const opts = subcommandOpts<SlackImportOpts>(cmd);
+      // --days-back is the old spelling of the same window; --since wins when both are given.
+      const window = sinceFromFlag(opts.since ?? (opts.daysBack !== undefined ? `${opts.daysBack}d` : undefined));
       p.log.warn(chalk.yellow(
         'Experimental: requires a Slack app with xoxp- token installed in your workspace.\n' +
         '  To get a token: api.slack.com/apps → New App → OAuth & Permissions → User Token Scopes:\n' +
@@ -67,13 +73,12 @@ export function registerImportSlackCommand(importCmd: Command): void {
       try {
         const fetched = await fetchSlackItems({
           token,
-          limit: parseInt(opts.limit, 10),
-          daysBack: parseInt(opts.daysBack, 10),
+          ...fetchWindow('slack', window), limit: parseInt(opts.limit, 10),
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} threads`);
         await runPersonalImport(items, client, { label: 'Slack', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'slack' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.slack, fetched)])}\n`);
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.slack, fetched, windowLabel(window.days))])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

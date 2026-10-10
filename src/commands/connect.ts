@@ -6,6 +6,7 @@ import { resolveImportEnv } from '../lib/resolve-env.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { createCaptureCollector } from '../lib/capture-report.js';
 import { connectLocalSources } from './setup.js';
+import { sinceFromFlag } from '../lib/since-flag.js';
 
 /**
  * ALI-951: `align import <source>` was renamed `align connect <source>` in 0.38.0 and kept as
@@ -26,6 +27,8 @@ export interface ConnectOptions {
   token?: string;
   yes?: boolean;
   json?: boolean;
+  /** L3: how far back to read (30d, 2w, 6m, 1y, all). Absent means six months. */
+  since?: string;
   env?: EnvName;
 }
 
@@ -38,6 +41,8 @@ export interface ConnectOptions {
 export async function runConnect(opts: ConnectOptions): Promise<boolean> {
   const envName = resolveImportEnv(opts.env);
   if (envName !== 'local') return false;
+  // Before any prompt or request: a window nobody meant is refused, not read and called complete.
+  const window = sinceFromFlag(opts.since);
 
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!interactive && !opts.source) {
@@ -74,6 +79,7 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
       preselected: opts.source ? [opts.source] : undefined,
       seedTokens: opts.token ? { token: opts.token } : undefined,
       json: opts.json,
+      window,
     });
     if (opts.json) {
       console.log(JSON.stringify({ env: 'local', graph: dbPath, sources: results }));

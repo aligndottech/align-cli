@@ -1,11 +1,17 @@
 import { GitHubFetcher } from '@aligndottech/connector-core';
-import { type CaptureFetchResult, withCaptureReport } from './capture.js';
+import { type CaptureFetchResult, type WindowedOpts, withCaptureReport } from './capture.js';
 import { currentRepoIdentity } from '../repo-identity.js';
 
 /** Read-only personal GitHub import (canonical fetcher in connector-core). `repo`
  *  (`owner/repo`) narrows the search to one repo - connector-core >= 0.7.0 (ALI-917);
  *  omitted, every repo the token can see, unchanged from before that version. */
-export async function fetchGitHubItems(opts: { token: string; limit?: number; repo?: string }): Promise<CaptureFetchResult> {
+export async function fetchGitHubItems(opts: {
+  token: string; limit?: number; repo?: string;
+  /** L3: 'none' reads items only; their discussion is fetched later (Decision 27). */
+  discussion?: 'none' | 'full';
+  /** L3: 'team' reads everyone's items in `repo`. The SDK honours it only with a repo. */
+  scope?: 'yours' | 'team';
+} & WindowedOpts): Promise<CaptureFetchResult> {
   return withCaptureReport(opts, new GitHubFetcher());
 }
 

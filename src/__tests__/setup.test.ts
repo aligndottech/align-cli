@@ -2655,9 +2655,10 @@ describe('align setup', () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
       const reports = reportsPrinted();
       expect(reports).toHaveLength(1);
-      expect(reports[0]).toContain('Git: 1 commits');
-      expect(reports[0]).toContain('GitHub: 1 PRs and issues');
-      expect(reports[0]).toContain('Linear: 1 issues of up to 250 requested');
+      expect(reports[0]).toContain('Git: imported 1 commits from the last 6 months');
+      expect(reports[0]).toContain('GitHub: imported 1 PRs and issues from the last 6 months');
+      // L3: a windowed read states its window; the ceiling is a bound, not a target to fall short of.
+      expect(reports[0]).toContain('Linear: imported 1 issues from the last 6 months');
       // A source that fetched nothing still gets its line (R4a): that zero IS the answer.
       expect(reports[0]).toContain('Repo docs: 0 ADRs and sections');
     });
@@ -2666,10 +2667,10 @@ describe('align setup', () => {
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
       const reports = reportsPrinted();
       expect(reports).toHaveLength(1);
-      expect(reports[0]).toContain('Git: 1 commits');
+      expect(reports[0]).toContain('Git: imported 1 commits from the last 6 months');
       expect(reports[0]).toContain('Repo docs: 0 ADRs and sections');
-      // One commit scanned against setup's cap of 500: the repo ran out, not the cap.
-      expect(reports[0]).not.toContain('of up to 500');
+      // One commit scanned against the ceiling: the repo ran out, not the cap.
+      expect(reports[0]).not.toContain('ceiling');
     });
   });
 });

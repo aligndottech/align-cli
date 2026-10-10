@@ -11,13 +11,16 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface GitLabImportOpts {
   token?: string;
   personal?: boolean;
   domain?: string;
   limit: string;
+  since?: string;
   approve?: boolean;
   env?: EnvName;
 }
@@ -29,11 +32,13 @@ export function registerImportGitLabCommand(importCmd: Command): void {
     .option('--token <token>', 'GitLab personal access token (glpat-...)')
     .option('--personal', 'Connect your own GitLab via browser OAuth (gitlab.com only)')
     .option('--domain <domain>', 'GitLab domain for self-hosted (default: gitlab.com)')
-    .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.gitlab))
+    .option('--limit <n>', 'Max items to import', String(SYNC_CEILINGS.gitlab))
+    .option('--since <when>', SINCE_HELP)
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: GitLabImportOpts, cmd: Command) => {
       const opts = subcommandOpts<GitLabImportOpts>(cmd);
+      const window = sinceFromFlag(opts.since);
       const config = createConfigStore();
       const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
@@ -64,11 +69,11 @@ export function registerImportGitLabCommand(importCmd: Command): void {
       const spinner = p.spinner();
       spinner.start('Fetching your GitLab merge requests...');
       try {
-        const fetched = await fetchGitLabItems({ token, domain: opts.domain, limit: parseInt(opts.limit, 10) });
+        const fetched = await fetchGitLabItems({ token, domain: opts.domain, ...fetchWindow('gitlab', window), limit: parseInt(opts.limit, 10) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
         await runPersonalImport(items, client, { label: 'GitLab', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'gitlab' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.gitlab, fetched)])}\n`);
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.gitlab, fetched, windowLabel(window.days))])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

@@ -20,7 +20,7 @@ align ask <query>             Ask a question about your decision graph, or pass 
                               flags: --env --limit --repo --all --json
 
 align connect [connectors]    Connect a source and import its decisions. No source: pick from a list. --all: scan every connected cloud connector
-                              flags: --env --source --token --yes --json --all --channel --project --from --to --approve
+                              flags: --env --source --token --yes --json --since --all --channel --project --from --to --approve
 align connect list            List import jobs
                               flags: --env --status --connector
 align connect suggestions     List pending import suggestions
@@ -28,27 +28,27 @@ align connect suggestions     List pending import suggestions
 align connect scan-runs       List historical scan runs
                               flags: --env
 align connect git             Import local git commit history (no auth required)
-                              flags: --limit --from --to --branch --approve --env
+                              flags: --limit --since --from --to --branch --approve --env
 align connect docs            Import ADRs and your CLAUDE.md/AGENTS.md content (no auth required)
                               flags: --limit --approve --env
 align connect github          Import your GitHub PRs and issues
-                              flags: --token --personal --limit --repo --all --approve --env
+                              flags: --token --personal --limit --since --repo --all --approve --env
 align connect gitlab          Import your GitLab merge requests
-                              flags: --token --personal --domain --limit --approve --env
+                              flags: --token --personal --domain --limit --since --approve --env
 align connect linear          Import your Linear issues (personal API token)
-                              flags: --token --personal --limit --approve --env
+                              flags: --token --personal --limit --since --approve --env
 align connect jira            Import your Jira issues
-                              flags: --email --token --personal --domain --limit --approve --env
+                              flags: --email --token --personal --domain --limit --since --approve --env
 align connect confluence      Import your Confluence pages
-                              flags: --email --token --personal --domain --limit --approve --env
+                              flags: --email --token --personal --domain --limit --since --approve --env
 align connect slack           Import decision threads from Slack (xoxp- user token) [experimental]
-                              flags: --token --personal --limit --days-back --approve --env
+                              flags: --token --personal --limit --since --days-back --approve --env
 align connect teams           Import channel messages from Microsoft Teams
-                              flags: --token --personal --limit --approve --env
+                              flags: --token --personal --limit --since --approve --env
 align connect zoom            Import cloud recording transcripts from Zoom
-                              flags: --token --personal --limit --approve --env
+                              flags: --token --personal --limit --since --approve --env
 align connect notion          Import your Notion pages (internal integration token)
-                              flags: --token --personal --limit --approve --env
+                              flags: --token --personal --limit --since --approve --env
 align connect sessions        Review decision-shaped moments from local coding-agent sessions (Claude Code, pi, Codex CLI, opencode) one by one
                               flags: --limit --env
 
