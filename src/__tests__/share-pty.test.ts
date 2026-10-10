@@ -19,7 +19,9 @@ beforeAll(async () => {
     db.markRatified(id, 'me@acme.test');
     const id2 = db.insertDecision({ title: 'Second decision', summary: 'another one', sourceUrl: 'https://github.com/o/r/pull/13', platform: 'github' });
     db.markRatified(id2, 'me@acme.test');
-    return [id, id2];
+    const id3 = db.insertDecision({ title: 'No url decision', summary: 'kept local', sourceUrl: null, platform: 'cli' });
+    db.markRatified(id3, 'me@acme.test');
+    return [id, id2, id3];
   });
 });
 afterAll(async () => { await h?.close(); });
@@ -88,6 +90,22 @@ describe.skipIf(!canPty)('on a real pseudo-terminal', () => {
     const agree = await h.pty([h.ids[1]!], [['[y/N]', 'y\n'], ['stand behind the team', 'y\n']]);
     expect(agree.code).toBe(0);
     expect(h.posts).toHaveLength(2);
+  });
+});
+
+describe.skipIf(!canPty)('the real binary and the private share salt', () => {
+  it('shares a decision with no URL without the local id anywhere in the body, using the salt file (not the install id)', async () => {
+    h.posts.length = 0;
+    h.reply.batch = (n: number) => ({ snapshots: Array.from({ length: n }, (_, i) => ({ id: `N${i}`, request_index: i, is_new: true })) }); // an earlier test left a matched reply here
+    const r = await h.pty([h.ids[2]!], [['[y/N]', 'y\n']]);
+    expect(r.code).toBe(0);
+    expect(h.posts).toHaveLength(1);
+    expect(h.posts[0]!.body).not.toContain(h.ids[2]!);
+    expect(h.posts[0]!.body).toMatch(/align-local:\/\/decision\/[0-9a-f]{32}/);
+    const fs = await import('node:fs'); const path = await import('node:path');
+    const salt = fs.readFileSync(path.join(h.dir, 'state', 'align-cli', 'share-salt'), 'utf8');
+    expect(salt).toMatch(/^[0-9a-f]{64}$/);
+    expect(h.posts[0]!.body).not.toContain(salt);
   });
 });
 

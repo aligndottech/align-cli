@@ -58,7 +58,7 @@ describe('a hostile preview', () => {
   const p = buildSharePayload({
     row: row({ title: hostile, summary: `line one${CR}overwrite\nline two ${RLO}evil`, sourceUrl: `https://x.test/p${ESC}]0;pwn` }),
     judgements: [{ id: 'j', decision_id: '11111111-1111-4111-8111-111111111111', counterpart_id: null, context_key: null, kind: 'note', value: null, note: `n${ESC}[31m`, judge_id: 'i', judge_label: null, via: 'mcp', agent_id: `ag${ESC}`, judged_at: '2026-09-04T10:00:00.000Z' }],
-    remoteIdOf: () => undefined, titleOf: () => null, clientKey: 'k', alreadySent: new Set(),
+    remoteIdOf: () => undefined, titleOf: () => null, clientKey: 'k', salt: 's', alreadySent: new Set(),
   });
   const text = renderPreview([p], { workspace: `Acme${ESC}[2J`, env: 'prod', email: `me${RLO}@x` });
   it('holds no escape, carriage return or bidi control, and shows the escapes instead', () => {

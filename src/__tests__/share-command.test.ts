@@ -38,9 +38,9 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(dir, { recursive: true, force: true }); });
 
-function seed(over: { id?: string; ratify?: string | null; summary?: string; title?: string } = {}): string {
+function seed(over: { id?: string; ratify?: string | null; summary?: string; title?: string; noUrl?: boolean } = {}): string {
   const db = createLocalDb(dbPath);
-  const id = db.insertDecision({ title: over.title ?? 'Use sqlite for the cache', summary: over.summary ?? 'sqlite ships with node', sourceUrl: 'https://github.com/o/r/pull/12', platform: 'github', decidedAt: '2026-09-02T09:00:00.000Z' });
+  const id = db.insertDecision({ title: over.title ?? 'Use sqlite for the cache', summary: over.summary ?? 'sqlite ships with node', sourceUrl: over.noUrl ? null : 'https://github.com/o/r/pull/12', platform: over.noUrl ? 'cli' : 'github', decidedAt: '2026-09-02T09:00:00.000Z' });
   if (over.ratify !== null) db.markRatified(id, over.ratify ?? ME);
   db.close();
   return id;
@@ -576,5 +576,17 @@ describe('an older gateway (no request_index, no is_new)', () => {
     expect(getPromotion(dbPath, b, 'prod', 'T1')).toMatchObject({ remoteId: 'MINE', matched: false });
     expect(await run(ok, { retract: b })).toBe(0);
     expect(ok.archived).toEqual(['MINE']);
+  });
+});
+
+/** L9 second review, item 6: the raw local id appears nowhere in what is sent. */
+describe('a decision with no source URL', () => {
+  it('sends an opaque local-only URL and key: the local id is in no part of the request body', async () => {
+    const f = fixture(); const id = seed({ noUrl: true });
+    await run(f, { ids: [id] });
+    const body = JSON.stringify(f.sent);
+    expect(f.sent).toHaveLength(1);
+    expect(body).not.toContain(id);
+    expect(f.sent[0]![0]!['source_url']).toMatch(/^align-local:\/\/decision\/[0-9a-f]{32}$/);
   });
 });

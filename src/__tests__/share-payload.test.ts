@@ -31,7 +31,7 @@ const j = (over: Partial<JudgementRow>): JudgementRow => ({
   judge_id: 'inst-1', judge_label: 'tom@align.tech', via: 'cli', agent_id: null, judged_at: `2026-09-04T10:00:${String(n % 60).padStart(2, '0')}.000Z`, ...over,
 });
 const build = (judgements: JudgementRow[], remote: Record<string, string> = {}, r = row(), alreadySent: string[] = []) =>
-  buildSharePayload({ row: r, judgements, remoteIdOf: (id) => remote[id], titleOf: (id) => `title of ${id}`, clientKey: 'ck-1', alreadySent: new Set(alreadySent) });
+  buildSharePayload({ row: r, judgements, remoteIdOf: (id) => remote[id], titleOf: (id) => `title of ${id}`, clientKey: 'ck-1', salt: 'salt-x', alreadySent: new Set(alreadySent) });
 const OTHER = '22222222-2222-4222-8222-222222222222';
 const REMOTE = '33333333-3333-4333-8333-333333333333';
 
@@ -132,9 +132,12 @@ describe('the item and its hash', () => {
   });
   it('sends the text as raw_text and the decided date as created_at, and a stable source for a row with none', () => {
     const p = build([], {}, row({ sourceUrl: null, decidedAt: null }));
-    expect(p.item.source_url).toBe(`align-local://decision/${row().id}`);
+    expect(p.item.source_url).toMatch(/^align-local:\/\/decision\/[0-9a-f]{32}$/);
+    expect(p.item.source_url).not.toContain(row().id);
+    expect(shareSourceUrl({ id: 'x', sourceUrl: null }, 'salt-1')).not.toBe(shareSourceUrl({ id: 'x', sourceUrl: null }, 'salt-2'));
+    expect(shareSourceUrl({ id: 'x', sourceUrl: null }, 'salt-1')).toBe(shareSourceUrl({ id: 'x', sourceUrl: null }, 'salt-1'));
     expect('created_at' in p.item).toBe(false);
-    expect(shareSourceUrl({ id: 'x', sourceUrl: 'https://a/b' })).toBe('https://a/b');
+    expect(shareSourceUrl({ id: 'x', sourceUrl: 'https://a/b' }, 's')).toBe('https://a/b');
   });
   it('flags a legacy push in the preview', () => {
     const p = build([]);

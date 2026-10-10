@@ -12,6 +12,7 @@ import { resolveEnv } from '../lib/resolve-env.js';
 import { sinceFromFlag } from '../lib/since-flag.js';
 import { runShare, type ShareDeps } from '../lib/share/command.js';
 import type { ShareClient } from '../lib/share/run.js';
+import { shareSalt } from '../lib/share/salt.js';
 import { ttyConfirm } from '../lib/share/tty.js';
 
 export function registerShareCommand(program: Command): void {
@@ -47,7 +48,7 @@ export function registerShareCommand(program: Command): void {
         sinceIso: opts.since === undefined ? undefined : sinceFromFlag(opts.since).since,
       }, {
         cloudEnv,
-        salt: config.getInstallId(),
+        salt: shareSalt(),
         defaultGatewayUrl: defaultGatewayUrlFor(envName),
         localDbPath: local.mode === 'local-embedded' ? local.localDbPath ?? null : null,
         client: () => createGatewayClient(cloudEnv) as unknown as ShareClient,

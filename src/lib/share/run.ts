@@ -36,7 +36,7 @@ export interface ShareContext {
   envName: string;
   client: ShareClient;
   judge: Judge;
-  /** This install's secret salt for the opaque client_key (the install id the CLI already keeps). */
+  /** This install's private share salt (see salt.ts): never sent anywhere, not the telemetry install id. */
   salt: string;
   /** Where the share goes. Shown whenever it is not the environment's default, and bound into a confirmation code. */
   gatewayUrl: string;
@@ -112,6 +112,7 @@ export async function prepare(ctx: ShareContext, ids: string[]): Promise<Prepare
       row, judgements: mine, remoteIdOf, titleOf: (id) => titles.get(id) ?? null,
       // The key is minted ONCE and reused, so a twin fold (a new local id) cannot create a second team decision.
       clientKey: prior && prior.clientKey !== '' ? prior.clientKey : clientKeyFor(ctx.salt, row.id),
+      salt: ctx.salt,
       alreadySent: new Set(live ? prior.sent : []),
     });
     let note = 0;

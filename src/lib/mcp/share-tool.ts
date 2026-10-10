@@ -19,6 +19,7 @@ import { createGatewayClient } from '../gateway-client.js';
 import { resolveEnv } from '../resolve-env.js';
 import { issueCode, sweepPending } from '../share/pending.js';
 import { visible } from '../share/visible.js';
+import { shareSalt } from '../share/salt.js';
 import { prepare, secretRefusal, type ShareClient, ShareError } from '../share/run.js';
 import { teamCtaLine } from '../team-cta.js';
 import { agentIdFrom, jsonSchemaOf, strictInput, type StrictSpec } from './tool-rules.js';
@@ -63,7 +64,7 @@ export async function runShareTool(args: Record<string, unknown> | undefined, en
     const config = createConfigStore();
     const envName = resolveEnv();
     const cloudEnv = config.getEnvironment(envName);
-    target = { cloudEnv, envName, client: createGatewayClient(cloudEnv) as unknown as ShareClient, salt: config.getInstallId() };
+    target = { cloudEnv, envName, client: createGatewayClient(cloudEnv) as unknown as ShareClient, salt: shareSalt() };
   }
   sweepPending();
   const { cloudEnv, envName, client } = target;
@@ -71,7 +72,7 @@ export async function runShareTool(args: Record<string, unknown> | undefined, en
     return { text: `Sharing needs a team login, and none is set up. Ask the user to run: align login\n${teamCtaLine()}`, shared: false };
   }
   try {
-    const prep = await prepare({ dbPath: env.localDbPath, envName, client, judge: await (ctx.judge ?? defaultJudge)(), salt: target.salt ?? createConfigStore().getInstallId(), gatewayUrl: cloudEnv.gatewayUrl, defaultGatewayUrl: defaultGatewayUrlFor(envName) }, [input['id'] as string]);
+    const prep = await prepare({ dbPath: env.localDbPath, envName, client, judge: await (ctx.judge ?? defaultJudge)(), salt: target.salt ?? shareSalt(), gatewayUrl: cloudEnv.gatewayUrl, defaultGatewayUrl: defaultGatewayUrlFor(envName) }, [input['id'] as string]);
     if (prep.secrets.length) return { text: secretRefusal(prep.secrets), shared: false };
     if (prep.payloads.length === 0) {
       return { text: prep.already.map((a) => `Already shared as ${visible(a.remoteId)}: ${visible(a.title)}`).join('\n'), shared: false };

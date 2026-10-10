@@ -87,6 +87,8 @@ export interface BuildInput {
   titleOf: (localId: string) => string | null;
   /** The opaque idempotency key: the one stored at the first share, else clientKeyFor(...). */
   clientKey: string;
+  /** The install's private share salt, for the opaque local-only source URL. */
+  salt: string;
   /** Hashes of judgements this workspace already stored; they are not sent (or shown) again. */
   alreadySent: ReadonlySet<string>;
 }
@@ -102,9 +104,15 @@ export function clientKeyFor(salt: string, localId: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-/** A local row with no source URL still needs a stable one on the wire: the local id is the only identity it has. */
-export function shareSourceUrl(row: { id: string; sourceUrl: string | null }): string {
-  return row.sourceUrl ?? `align-local://decision/${row.id}`;
+/**
+ * A local row with no source URL still needs one on the wire. The raw local id never leaves the machine, so it is
+ * `align-local://decision/<hash of the share salt and the id>`. Matching by source key ignores this form (it names
+ * no connector item), and the server's identity for a share is (workspace, user, client_key), not the URL, so
+ * changing this form from the older raw-id one cannot mint a second team decision for a decision shared before.
+ */
+export function shareSourceUrl(row: { id: string; sourceUrl: string | null }, salt: string): string {
+  if (row.sourceUrl !== null) return row.sourceUrl;
+  return `align-local://decision/${createHash('sha256').update(`align-share-url\n${salt}\n${row.id}`).digest('hex').slice(0, 32)}`;
 }
 
 const VALUE: Record<string, 'true_positive' | 'false_positive'> = { real: 'true_positive', false: 'false_positive' };
@@ -191,7 +199,7 @@ export function buildSharePayload(input: BuildInput): SharePayload {
     sending = fresh.filter((x) => keep.has(x));
   }
   const base = {
-    source_url: shareSourceUrl(row),
+    source_url: shareSourceUrl(row, input.salt),
     platform: row.platform,
     title: row.title,
     summary: row.summary,
