@@ -5,6 +5,7 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 import { repoFromSourceUrl } from './repo-identity.js';
+import { migrateV7 } from './local-db-v7.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS decision_refs (
  * `migrate` from the source and compares it here, because forgetting the bump leaves the new
  * branch running destructively on every open with nothing to stop it.
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /** The title connector-core 0.5.0 gave every Slack thread whose root was deleted. The 0.6.0
  *  fetcher titles such a thread from its first human message, or drops it; either way this
@@ -137,6 +138,12 @@ const LEGACY_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
  *    'unknown', and stamping 'human' on it from its platform would be the retroactive
  *    guess align-stack's migration 113 refuses. The columns are added here rather than only
  *    in SCHEMA because CREATE TABLE IF NOT EXISTS never alters an existing table.
+ *
+ * 6. ALI-787: tag each embedding with the model that produced it (see LEGACY_EMBEDDING_MODEL).
+ *
+ * 7. L2: per-source sync state, `source_key` identity with a backed-up twin merge,
+ *    `detail_pending`, `enriched_at` (NULL on every existing row) and `local_judgements`.
+ *    See local-db-v7.ts.
  *
  * The version guard is load-bearing rather than tidiness. The same UPDATE run on every open
  * is indistinguishable from this one today, and starts silently eating genuine conflicts the
@@ -351,6 +358,20 @@ export function migrate(db: DatabaseSync): void {
       // are touched, so re-running this on an already-migrated database is a no-op.
       db.prepare('UPDATE decision_embeddings SET model = ? WHERE model IS NULL').run(LEGACY_EMBEDDING_MODEL);
       db.exec('PRAGMA user_version = 6');
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+  if (version < 7) {
+    // L2: sync state, source_key with the twin merge, enriched_at, local_judgements. One
+    // transaction, IMMEDIATE and stamped inside, for the reasons steps 2 and 4 give. The step
+    // itself, and why each part is shaped as it is, lives in local-db-v7.ts.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      migrateV7(db);
+      db.exec('PRAGMA user_version = 7');
       db.exec('COMMIT');
     } catch (err) {
       if (db.isTransaction) db.exec('ROLLBACK');

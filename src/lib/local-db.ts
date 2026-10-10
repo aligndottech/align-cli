@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } from './local-db-migrate.js';
 import type { DeciderKind } from './decider-kind.js';
+import { normaliseSourceKey } from './source-key.js';
 
 export interface DecisionRow {
   id: string;
@@ -195,24 +196,38 @@ export function createLocalDb(dbPath: string) {
        *  cloud's snapshots.ts rule). Omitted stores NULL, which reads as 'unknown'. */
       deciderKind?: DeciderKind | null;
     }): string {
+      // L2: a one-item-per-URL connector item upserts on its source_key, and that branch takes
+      // the new title, so an edited PR title updates the row instead of adding a twin. Every
+      // other row (sessions, captures, docs) keeps the (source_url, title) identity.
+      //
+      // Both branches clear enriched_at: the row's text may have changed, so its links are not
+      // known to be current until ingestOne's link pass marks it again (Decision 30).
+      const sourceUrl = identifyingSourceUrl(row.sourceUrl);
       const inserted = db.prepare(
-        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET
+           title = excluded.title, summary = excluded.summary, platform = excluded.platform,
+           repo = COALESCE(excluded.repo, decisions.repo),
+           decided_at = COALESCE(excluded.decided_at, decisions.decided_at),
+           enriched_at = NULL
          ON CONFLICT(source_url, title) DO UPDATE SET
            summary = excluded.summary, platform = excluded.platform,
            repo = COALESCE(excluded.repo, decisions.repo),
-           decided_at = COALESCE(excluded.decided_at, decisions.decided_at)
+           decided_at = COALESCE(excluded.decided_at, decisions.decided_at),
+           enriched_at = NULL
          RETURNING id`
       ).get(
         randomUUID(),
         row.title,
         row.summary,
-        identifyingSourceUrl(row.sourceUrl),
+        sourceUrl,
         row.platform,
         row.repo ?? null,
         // `||`, not `??`: COALESCE('', old) is '', so an empty string would blank a stored
         // date. Callers normalise, but this is the one place the column is written.
         row.decidedAt || null,
         row.deciderKind ?? null,
+        normaliseSourceKey(row.platform, sourceUrl) ?? null,
       ) as { id: string };
       return inserted.id;
     },
@@ -241,9 +256,16 @@ export function createLocalDb(dbPath: string) {
      * A null `sourceUrl` is always null here: SQLite treats each NULL in a unique index as
      * distinct, so those rows never conflict and every one of them really is new.
      */
-    findIdBySource(sourceUrl: string | null, title: string): string | null {
+    findIdBySource(sourceUrl: string | null, title: string, platform?: string): string | null {
       const identity = identifyingSourceUrl(sourceUrl);
       if (identity === null) return null;
+      // L2: with the platform, a one-item-per-URL item is found by its source_key, so a retitled
+      // PR is recognised as the row insertDecision is about to update, not as a new one.
+      const key = platform === undefined ? undefined : normaliseSourceKey(platform, identity);
+      if (key !== undefined) {
+        const byKey = db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined;
+        if (byKey) return byKey.id;
+      }
       const row = db.prepare(
         `SELECT id FROM decisions WHERE source_url = ? AND title = ?`
       ).get(identity, title) as { id: string } | undefined;
