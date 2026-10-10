@@ -70,8 +70,8 @@
     "tenant_id": "tenant-fixture-1",
     "user_id": "user-fixture-1",
     "envelope_id": "00000000-0000-4000-8000-000000000903",
-    "plaintext_json": "{\"v\":1,\"kind\":\"confirm_team_text\",\"tenant_id\":\"tenant-fixture-1\",\"gateway_url\":\"https://api.align.test\",\"confirm\":{\"decision_id\":\"00000000-0000-4000-8000-000000000500\",\"team_text_hash\":\"team-text-hash-1\"},\"decisions\":[{\"source_url\":\"https://github.com/o/r/pull/3\",\"platform\":\"github\",\"title\":\"Decision 3\",\"summary\":\"Summary of decision 3.\",\"raw_text\":\"Summary of decision 3.\",\"client_key\":\"f39b8ee4-4d4e-5b50-ab55-69d374283310\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\",\"confirm_team_text_hash\":\"team-text-hash-1\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"}],\"display\":[{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]}]}",
-    "plaintext_sha256": "619808cd41c54fc1e14eb6208fad8ca1135c00c43b17d5087cfddd8bb44476fa",
+    "plaintext_json": "{\"v\":1,\"kind\":\"confirm_team_text\",\"tenant_id\":\"tenant-fixture-1\",\"gateway_url\":\"https://api.align.test\",\"confirm\":{\"decision_id\":\"00000000-0000-4000-8000-000000000500\",\"team_text_hash\":\"643bc2b9cadf52f65f678bc716534d9ab23fb516b5586334963d15fce6d0d104\"},\"decisions\":[{\"source_url\":\"https://github.com/o/r/pull/3\",\"platform\":\"github\",\"title\":\"Decision 3\",\"summary\":\"Summary of decision 3.\",\"raw_text\":\"Summary of decision 3.\",\"client_key\":\"f39b8ee4-4d4e-5b50-ab55-69d374283310\",\"judgements\":[{\"kind\":\"ratify\",\"judged_at\":\"2026-09-03T10:00:00.000Z\",\"origin\":\"local_share\",\"confirm_team_text_hash\":\"643bc2b9cadf52f65f678bc716534d9ab23fb516b5586334963d15fce6d0d104\"}],\"decided_at\":\"2026-09-02T09:00:00.000Z\"}],\"display\":[{\"judgements\":[{\"via\":\"cli\",\"agent\":null,\"counterpart_title\":null}],\"left_local\":[]}]}",
+    "plaintext_sha256": "75380673f0689a8d243b11fadbc0d240ebfa5fae7f539b04a55eb03f63777e3b",
     "expected_item_fields": [
       "client_key",
       "decided_at",

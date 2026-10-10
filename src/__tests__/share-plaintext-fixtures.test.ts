@@ -30,7 +30,8 @@ describe('share plaintext contract fixtures', () => {
     expect(rich.decisions[0].judgements.map((j: { kind: string }) => j.kind).sort()).toEqual(['note', 'ratify']);
     expect(rich.display[0].left_local).toHaveLength(2);
     const confirm = JSON.parse(fx[2]!.plaintext_json);
-    expect(confirm.confirm).toEqual({ decision_id: '00000000-0000-4000-8000-000000000500', team_text_hash: 'team-text-hash-1' });
-    expect(confirm.decisions[0].judgements[0].confirm_team_text_hash).toBe('team-text-hash-1');
+    expect(confirm.confirm).toEqual({ decision_id: '00000000-0000-4000-8000-000000000500', team_text_hash: confirm.confirm.team_text_hash });
+    expect(confirm.confirm.team_text_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(confirm.decisions[0].judgements[0].confirm_team_text_hash).toBe(confirm.confirm.team_text_hash);
   });
 });

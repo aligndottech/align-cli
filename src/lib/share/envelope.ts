@@ -33,6 +33,16 @@ export class UnkeyedItemError extends Error {
   }
 }
 
+/** The gateway's team-text hash: a lowercase hex SHA-256. Anything else is not one, and is never staged. */
+export const TEAM_TEXT_HASH_RE = /^[0-9a-f]{64}$/;
+
+export class InvalidTeamTextHashError extends Error {
+  constructor() {
+    super('The team text hash the gateway sent is not a 64-character lowercase hex SHA-256, so the confirmation was not staged.');
+    this.name = 'InvalidTeamTextHashError';
+  }
+}
+
 export interface Binding { envelopeId: string; tenantId: string; userId: string; kind: RequestKind }
 
 export function aadFor(b: Binding): Buffer {
@@ -78,6 +88,7 @@ export interface PlaintextInput {
 export function buildPlaintext(input: PlaintextInput): Buffer {
   // Only a KEYED item is promoted as written; one without a client_key can be rewritten by synthesis or upserted onto
   // a teammate's row. Every share item carries one today, and anything else is refused here rather than staged.
+  if (input.confirm && !TEAM_TEXT_HASH_RE.test(input.confirm.teamTextHash)) throw new InvalidTeamTextHashError();
   for (const p of input.payloads) {
     if (typeof p.item.client_key !== 'string' || p.item.client_key === '') throw new UnkeyedItemError(p.item.title);
   }

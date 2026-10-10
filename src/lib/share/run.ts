@@ -12,6 +12,7 @@ import { existingTitles, type Judge, listJudgements } from '../curation/judgemen
 import { createLocalDb, type DecisionRow } from '../local-db.js';
 import { getLegacyPromotion, getPromotion, ledgerReady, listPromotions, markRetracted, type Promotion, type PromotionWrite, recordPromotion, recordPromotions } from './ledger.js';
 import { visible } from './visible.js';
+import { TEAM_TEXT_HASH_RE } from './envelope.js';
 import type { ShareRequestsApi } from './requests-client.js';
 import { buildSharePayload, clientKeyFor, type SharePayload } from './payload.js';
 import { type Destination, renderPreview } from './preview.js';
@@ -240,7 +241,9 @@ export async function send(ctx: ShareContext, prep: Prepared, hooks: SendHooks =
       const { p, outcome } = it;
       if (outcome.kind === 'matched' && outcome.needsConfirmation.length > 0) {
         let team: TeamDecision | null = null;
-        const byApproval = hooks.post !== undefined && hooks.confirmByApproval === true && outcome.teamTextHash !== null;
+        const hashOk = outcome.teamTextHash !== null && TEAM_TEXT_HASH_RE.test(outcome.teamTextHash);
+        if (hooks.post && hooks.confirmByApproval && outcome.teamTextHash !== null && !hashOk) it.warnings.push('the gateway sent a team text hash this CLI does not recognise, so your ratify was not confirmed.');
+        const byApproval = hooks.post !== undefined && hooks.confirmByApproval === true && hashOk;
         if (!byApproval && outcome.teamTextHash && hooks.confirmTeamText) team = await ctx.client.getDecision(outcome.remoteId).catch(() => null);
         if (team !== null && !('decision_json' in team)) {
           it.warnings.push('the team\'s full text could not be read from this gateway, so your ratify was not confirmed.');

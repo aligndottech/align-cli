@@ -13,6 +13,8 @@ const TENANT = 'tenant-fixture-1';
 const USER = 'user-fixture-1';
 const GATEWAY = 'https://api.align.test';
 const SALT = 'fixture-salt';
+// The CLI only echoes the gateway's team-text hash (a sha256 of the team's text). A fixed, real-shaped value, assembled the way the gateway builds it.
+const TEAM_TEXT_HASH = createHash('sha256').update(JSON.stringify(['Team title', 'Team summary', ['Team statement'], null, null])).digest('hex');
 const uuid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 const row = (n: number, over: Partial<DecisionRow> = {}): DecisionRow => ({
@@ -66,12 +68,12 @@ export function buildFixtures(): Fixture[] {
   // What `send` re-posts for a matched share that waits on the team's text: only the waiting judgement, carrying the hash.
   const matched = payload(row(3));
   const waiting = matched.shown.filter((s) => s.wire.kind === 'ratify');
-  const again: SharePayload = { ...matched, shown: waiting, item: { ...matched.item, judgements: waiting.map((s) => ({ ...s.wire, confirm_team_text_hash: 'team-text-hash-1' })) } };
+  const again: SharePayload = { ...matched, shown: waiting, item: { ...matched.item, judgements: waiting.map((s) => ({ ...s.wire, confirm_team_text_hash: TEAM_TEXT_HASH })) } };
   const ten = Array.from({ length: 10 }, (_, i) => payload(row(20 + i)));
   return [
     fixture('minimal-share', 'share', 1, [minimal]),
     fixture('rich-share', 'share', 2, [rich]),
-    fixture('confirm-team-text', 'confirm_team_text', 3, [again], { remoteId: uuid(500), teamTextHash: 'team-text-hash-1' }),
+    fixture('confirm-team-text', 'confirm_team_text', 3, [again], { remoteId: uuid(500), teamTextHash: TEAM_TEXT_HASH }),
     fixture('ten-item-share', 'share', 4, ten),
   ];
 }

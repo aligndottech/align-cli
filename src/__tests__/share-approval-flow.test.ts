@@ -27,6 +27,7 @@ import { fakeRequests, type FakeRequests, keyOf, openInBrowserWay, urlIn } from 
  * - a matched share waiting on the team's text stages a SECOND request (confirm_team_text) and still never prompts.
  */
 let dir: string; let dbPath: string; let clock: number;
+const TH = 'a'.repeat(64);
 const ME = 'me@co.com';
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-share-appr-'));
@@ -276,7 +277,7 @@ describe('who may use which path', () => {
 
 describe('a match that waits on the team\'s text', () => {
   const matched = (n: number): BatchResponse => ({
-    matched: Array.from({ length: n }, (_, i) => ({ request_index: i, existing_id: 'TEAM1', status: 'active', team_text_hash: 'th-1', needs_confirmation: [{ kind: 'ratify', judgement_index: 0 }] })),
+    matched: Array.from({ length: n }, (_, i) => ({ request_index: i, existing_id: 'TEAM1', status: 'active', team_text_hash: TH, needs_confirmation: [{ kind: 'ratify', judgement_index: 0 }] })),
     judgements: Array.from({ length: n }, (_, i) => ({ request_index: i, decision_id: 'TEAM1', results: [{ ok: false, error: 'needs_confirmation' }] })),
   });
   it('stages a second request of kind confirm_team_text carrying the hash, approves it in the browser, and never prompts or reads the team text here', async () => {
@@ -286,11 +287,21 @@ describe('a match that waits on the team\'s text', () => {
     expect(f.gw.staged.map((s) => s.kind)).toEqual(['share', 'confirm_team_text']);
     const second = f.gw.staged[1]!;
     const plain = JSON.parse((await openInBrowserWay(second.envelope, keyOf(f.out.filter((l) => l.includes('Approve in your browser')).at(-1)!.split(' ').at(-1)!), { envelopeId: second.envelope_id, tenantId: 'T1', userId: 'U1', kind: 'confirm_team_text' })).toString());
-    expect(plain.confirm).toEqual({ decision_id: 'TEAM1', team_text_hash: 'th-1' });
-    expect(plain.decisions[0].judgements).toEqual([expect.objectContaining({ kind: 'ratify', confirm_team_text_hash: 'th-1' })]);
+    expect(plain.confirm).toEqual({ decision_id: 'TEAM1', team_text_hash: TH });
+    expect(plain.decisions[0].judgements).toEqual([expect.objectContaining({ kind: 'ratify', confirm_team_text_hash: TH })]);
     expect(f.gw.completes).toHaveLength(2);
     expect(f.asks).toEqual([]); expect(f.teamReads).toBe(0); expect(f.batches).toBe(0);
     expect(getPromotion(dbPath, id, 'prod', 'T1')).toMatchObject({ confirmPending: false });
+  });
+  it('refuses to stage a confirmation whose hash is not 64 lowercase hex: no second request, a warning, ratify left unconfirmed', async () => {
+    for (const bad of ['th-1', 'A'.repeat(64), 'a'.repeat(63)]) {
+      const f = fixture(); const id = seed(`Bad ${bad.length}`, bad.length);
+      f.gw.replies.push({ ...matched(1), matched: [{ request_index: 0, existing_id: 'TEAM1', status: 'active', team_text_hash: bad, needs_confirmation: [{ kind: 'ratify', judgement_index: 0 }] }] });
+      expect(await run(f, { ids: [id] })).toBe(0);
+      expect(f.gw.staged.map((s) => s.kind)).toEqual(['share']);
+      expect(say(f)).toContain('does not recognise');
+      expect(getPromotion(dbPath, id, 'prod', 'T1')).toMatchObject({ confirmPending: true });
+    }
   });
   it('a declined second approval leaves the ratify unconfirmed and says so', async () => {
     const f = fixture({ states: ['approved', 'declined'] }); const id = seed();

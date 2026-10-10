@@ -70,6 +70,11 @@ const payload = (over: Partial<SharePayload['item']> = {}): SharePayload => ({
 });
 
 describe('buildPlaintext', () => {
+  it('refuses a confirm hash that is not 64 lowercase hex, and accepts one that is', () => {
+    const mk = (h: string) => () => buildPlaintext({ kind: 'confirm_team_text', tenantId: T, gatewayUrl: 'g', payloads: [payload()], confirm: { remoteId: 'R9', teamTextHash: h } });
+    for (const bad of ['abc', 'B'.repeat(64), 'b'.repeat(63), 'b'.repeat(65), `${'b'.repeat(63)}g`]) expect(mk(bad)).toThrow(/64-character lowercase hex/);
+    expect(mk('b'.repeat(64))).not.toThrow();
+  });
   it('carries the exact batch decisions (created_at becomes decided_at, once), the tenant, the gateway and labels-only display', () => {
     const plain = JSON.parse(buildPlaintext({ kind: 'share', tenantId: T, gatewayUrl: 'https://api.align.tech', payloads: [payload()] }).toString('utf8'));
     expect(plain).toMatchObject({ v: 1, kind: 'share', tenant_id: T, gateway_url: 'https://api.align.tech' });
@@ -83,6 +88,6 @@ describe('buildPlaintext', () => {
   it('a confirm_team_text request names the team decision and the hash the judgements carry', () => {
     const plain = JSON.parse(buildPlaintext({ kind: 'confirm_team_text', tenantId: T, gatewayUrl: 'https://g', payloads: [payload()], confirm: { remoteId: 'R9', teamTextHash: 'abc' } }).toString('utf8'));
     expect(plain.kind).toBe('confirm_team_text');
-    expect(plain.confirm).toEqual({ decision_id: 'R9', team_text_hash: 'abc' });
+    expect(plain.confirm).toEqual({ decision_id: 'R9', team_text_hash: 'b'.repeat(64) });
   });
 });
