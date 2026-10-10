@@ -685,12 +685,19 @@ export async function recordInvocationUsage(
   const config = createConfigStore();
   if (command === 'setup' && config.getEnvironment('local').mode === 'local-embedded') return;
   let env;
+  let name: string | undefined;
   try {
-    env = config.getEnvironment(resolveEnv(envFlag, { preferLocalEmbedded: true }));
+    name = resolveEnv(envFlag, { preferLocalEmbedded: true });
+    env = config.getEnvironment(name as never);
   } catch (e) {
     // This hook runs after the command already acted. A name that means nothing (a stale ALIGN_ENV, a typo) must not turn
-    // that into exit 2, and it names no environment to report against, so nothing is sent. Only this error: any other still surfaces.
+    // that into exit 2, and it names no environment to report against, so nothing is sent.
     if ((e as Error).name === 'UnknownEnvError') return;
+    // A hand-edited destination the transport rule refuses: the command finished, so say what is wrong in one line and send nothing.
+    if ((e as Error).name === 'TransportError') {
+      process.stderr.write(`align: warning: the saved destination "${name}" cannot be used (${(e as Error).message}). Edit or remove it in the config file.\n`);
+      return;
+    }
     throw e;
   }
   await recordCommandUsage(env, command, opts.capMs === undefined ? {} : { capMs: opts.capMs });

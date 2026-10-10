@@ -10,6 +10,14 @@ describe('describeFatal', () => {
     expect(r.lines.join('\n')).not.toContain('issues');
   });
 
+  it('a saved destination the transport rule refuses is a config problem: exit 2, the message, no bug-report footer (second review N5)', () => {
+    const e = new Error('api.evil.example must be reached over https (http is allowed only for localhost)'); e.name = 'TransportError';
+    const r = describeFatal(e, false);
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('over https');
+    expect(r.lines.join('\n')).not.toContain('issues');
+  });
+
   it('any other error still exits 1 with the report footer', () => {
     const r = describeFatal(new Error('boom'), false);
     expect(r.code).toBe(1);
