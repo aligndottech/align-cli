@@ -74,8 +74,8 @@ beforeEach(async () => {
   for (const d of [env['XDG_CONFIG_HOME']!, env['XDG_DATA_HOME']!, env['XDG_STATE_HOME']!, env['XDG_CACHE_HOME']!]) fs.mkdirSync(d, { recursive: true });
   // Seed: local mode, the notice already shown (so default-on sends), a gitlab token for a closed port.
   fs.writeFileSync(path.join(dir, 'seed.mjs'), `
-    const { createConfigStore } = await import(${JSON.stringify(path.join(root, 'src/lib/config.ts'))});
-    const { getLocalDbPath } = await import(${JSON.stringify(path.join(root, 'src/lib/local-mode.ts'))});
+    const { createConfigStore } = await import(${JSON.stringify(pathToFileURL(path.join(root, 'src/lib/config.ts')).href)});
+    const { getLocalDbPath } = await import(${JSON.stringify(pathToFileURL(path.join(root, 'src/lib/local-mode.ts')).href)});
     const c = createConfigStore();
     c.setLocalMode(getLocalDbPath());
     c.setDefaultEnv('local');
