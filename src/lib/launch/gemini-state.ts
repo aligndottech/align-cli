@@ -27,7 +27,6 @@ function readText(file: string): string | null {
   }
 }
 
-const layer = (file: string, text: string | null): Layer => ({ file, servers: parseJsonc(text)?.['mcpServers'] });
 
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
