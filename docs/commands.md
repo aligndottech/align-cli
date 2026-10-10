@@ -232,7 +232,7 @@ queue; `.align/decisions.md` and the local MCP server both label an unratified c
 `align ratify <id>` is the human act - it refuses a hook, a pipe, or any caller not at a
 terminal - and `align share <id>` (alias `push`) sends ratified decisions, with the judgements you made
 about them, to your team. It prints exactly what leaves the machine and asks first; nothing is
-sent without a yes. `align share --retract <id>` undoes it. An agent can only PREPARE a share
+sent without a yes. `align share --retract <id>` undoes it while you are on the team; once you have left, a share stays as the team's record. An agent can only PREPARE a share
 (`align_share`); you finish it with `align share --confirm <code>` in your own terminal.
 
 `align use --undo` puts back a file Align wrote for a written-once agent (Auggie, Cline, Amp,

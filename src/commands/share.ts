@@ -31,7 +31,7 @@ export function registerShareCommand(program: Command): void {
     .option('--confirm <code>', 'Finish a share your agent previewed (needs your own terminal; not used when shares are approved in the browser)')
     .option('--no-open', 'Print the approval link without opening a browser')
     .option('--typed', 'Answer at this terminal instead of approving in the browser (not accepted where the workspace requires browser approval)')
-    .option('--retract <id>', 'Archive what you shared for this decision on your team graph')
+    .option('--retract <id>', 'Archive what you shared for this decision on your team graph (a share stays with the team after you leave)')
     .action(async (ids: string[], opts: { env?: EnvName; allRatified?: boolean; since?: string; yes?: boolean; confirm?: string; retract?: string; typed?: boolean; open?: boolean }) => {
       if (opts.yes) {
         console.error(chalk.red('align share has no --yes: a share always needs your own answer, typed at a terminal. Nothing was sent.'));
