@@ -1,6 +1,7 @@
 import { fetchGitHubDiscussion, GitHubFetcher } from '@aligndottech/connector-core';
-import { GITHUB_DISCUSSION_BUDGET } from '../import-defaults.js';
-import { type CaptureFetchResult, type WindowedOpts, withCaptureReport } from './capture.js';
+import { GITHUB_DISCUSSION_BUDGET, SYNC_TIME_BUDGET_MS } from '../import-defaults.js';
+import { type CaptureFetchResult, type CaptureSkip, type WindowedOpts, withCaptureReport } from './capture.js';
+import type { FetcherItem } from '@aligndottech/connector-core';
 import { currentRepoIdentity } from '../repo-identity.js';
 
 /**
@@ -19,6 +20,7 @@ export async function fetchGitHubItems(opts: {
   scope?: 'yours' | 'team';
   discussionBudget?: number;
 } & WindowedOpts): Promise<CaptureFetchResult> {
+  const startedAt = Date.now();
   const { discussionBudget = GITHUB_DISCUSSION_BUDGET, ...rest } = opts;
   const first = await withCaptureReport({ ...rest, discussion: 'none' as const }, new GitHubFetcher());
   // Said only when the SDK actually read team scope (it ignores `scope: 'team'` without a repo).
@@ -28,24 +30,78 @@ export async function fetchGitHubItems(opts: {
   const pending = first.items.filter((i) => i.detail_pending === true);
   if (pending.length === 0) return { items: first.items, report: { ...first.report, ...scopeNote } };
 
-  let drained: Awaited<ReturnType<typeof fetchGitHubDiscussion>> = { items: [], skips: [], requests: 0 };
-  let failure: { kind: 'error'; count: number; detail: string } | undefined;
-  try {
-    drained = await fetchGitHubDiscussion(pending, { token: opts.token, maxRequests: discussionBudget });
-  } catch {
-    failure = { kind: 'error', count: pending.length, detail: 'items whose discussion could not be read (GitHub did not answer); they stay thin' };
-  }
-  const enriched = new Map(drained.items.map((i) => [i.source_url, i]));
+  const drain = await drainDiscussion(pending, {
+    token: opts.token,
+    budget: discussionBudget,
+    // What is left of the time budget once the list is read, never under 30 s.
+    deadlineMs: Math.max(30_000, (opts.timeBudgetMs ?? SYNC_TIME_BUDGET_MS) - (Date.now() - startedAt)),
+  });
+  const enriched = new Map(drain.items.map((i) => [i.source_url, i]));
   return {
     items: first.items.map((i) => enriched.get(i.source_url) ?? i),
     report: {
       ...first.report,
       ...scopeNote,
-      skips: [...first.report.skips, ...drained.skips, ...(failure ? [failure] : [])],
+      skips: [...first.report.skips, ...drain.skips],
       discussionTotal: pending.length,
       discussionPending: pending.length - enriched.size,
     },
   };
+}
+
+/**
+ * The discussion pass, in chunks, because the SDK's drain takes no deadline or cancel and keeps
+ * going after a refusal. One item first as a probe, then ten at a time, newest first (the SDK
+ * orders only within what it is given). It stops, leaving the rest pending, when: the request
+ * budget is spent; the time allowed has run out (checked between chunks); or a chunk made NO
+ * progress and reported a failure - that is GitHub refusing or rate-limiting (a revoked token,
+ * a 403 with no quota left, a 429), so a dead token costs about one request, not the whole budget.
+ * It never sleeps on a Retry-After: stopping is the honest answer for a one-shot import.
+ */
+async function drainDiscussion(
+  pending: FetcherItem[],
+  o: { token: string; budget: number; deadlineMs: number },
+): Promise<{ items: FetcherItem[]; skips: CaptureSkip[] }> {
+  const byNewest = [...pending].sort((a, b) => ((a.updated_at ?? '') < (b.updated_at ?? '') ? 1 : (a.updated_at ?? '') > (b.updated_at ?? '') ? -1 : 0));
+  const started = Date.now();
+  const items: FetcherItem[] = [];
+  const skips: CaptureSkip[] = [];
+  let remaining = o.budget;
+  let failedItems = 0;
+  let failedDetail: string | undefined;
+  let stop: 'budget' | 'time' | 'refused' | undefined;
+  for (let at = 0; at < byNewest.length;) {
+    if (remaining <= 0) { stop = 'budget'; break; }
+    if (Date.now() - started >= o.deadlineMs) { stop = 'time'; break; }
+    const chunk = byNewest.slice(at, at + (at === 0 ? 1 : 10));
+    let r: Awaited<ReturnType<typeof fetchGitHubDiscussion>>;
+    try {
+      r = await fetchGitHubDiscussion(chunk, { token: o.token, maxRequests: remaining });
+    } catch {
+      failedItems += byNewest.length - at;
+      failedDetail = 'items whose discussion could not be read (GitHub did not answer); they stay thin';
+      stop = 'refused';
+      break;
+    }
+    items.push(...r.items);
+    remaining -= r.requests;
+    at += chunk.length;
+    const errors = r.skips.filter((k) => k.kind === 'error');
+    for (const k of errors) { failedItems += k.count; failedDetail ??= k.detail; }
+    // A chunk that read nothing and failed is a refusal; one that read nothing for want of budget is the budget.
+    if (r.items.length === 0 && errors.length > 0) { stop = 'refused'; break; }
+    if (r.items.length === 0) { stop = 'budget'; break; }
+  }
+  const unreached = pending.length - items.length;
+  if (failedItems > 0 && stop !== 'refused') skips.push({ kind: 'error', count: failedItems, detail: failedDetail ?? 'items whose discussion GitHub failed to return; they stay thin' });
+  if (stop === 'refused') {
+    skips.push({ kind: 'error', count: unreached, detail: `discussion stopped after GitHub refused or rate-limited a request (a revoked token, or no quota left); ${unreached} items stay thin${failedDetail && failedItems !== unreached ? `: ${failedDetail}` : ''}` });
+  } else if (stop === 'time') {
+    skips.push({ kind: 'time_budget', count: unreached, detail: `discussion stopped when its ${Math.round(o.deadlineMs / 1000)} s time budget ran out; ${unreached} items stay thin` });
+  } else if (unreached > 0) {
+    skips.push({ kind: 'page_cap', count: unreached, detail: `items whose discussion was not read: the request budget of ${o.budget} ran out` });
+  }
+  return { items, skips };
 }
 
 const GITHUB_HOST_PREFIX = 'github.com/';

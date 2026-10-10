@@ -25,36 +25,117 @@ const listResult = (items: unknown[]) => ({ items, report: { platform: 'github',
 beforeEach(() => {
   fetchWithReport.mockReset();
   drain.mockReset();
+  vi.useRealTimers();
 });
 
+/** A drain that behaves like the SDK's: newest first, 3 requests per PR, stops before the budget. */
+function sdkDrain(opts: { fail?: (call: number) => boolean; tick?: () => void } = {}) {
+  let call = 0;
+  return async (items: Array<ReturnType<typeof thin>>, o: { maxRequests: number }) => {
+    call++;
+    opts.tick?.();
+    if (opts.fail?.(call)) return { items: [], skips: [{ kind: 'error', count: items.length, detail: 'items whose discussion GitHub failed to return; they stay pending' }], requests: 1 };
+    const out: unknown[] = [];
+    let requests = 0;
+    for (const it of items) {
+      if (requests + 3 > o.maxRequests) break;
+      requests += 3;
+      out.push({ ...it, raw_text: `${it.raw_text}\n\n## Comments\nx`, detail_pending: false });
+    }
+    return { items: out, skips: out.length < items.length ? [{ kind: 'page_cap', count: items.length - out.length, detail: 'sdk budget line' }] : [], requests };
+  };
+}
+const many = (n: number) => Array.from({ length: n }, (_, i) => ({ ...thin(i + 1), updated_at: `2026-09-${String(30 - (i % 28)).padStart(2, '0')}T00:00:00Z` }));
+
 describe('items first, then a budgeted discussion pass', () => {
-  it('reads the list with discussion: none whatever the caller passed, then drains the pending items with the budget', async () => {
-    fetchWithReport.mockResolvedValue(listResult([thin(1), thin(2)]));
-    drain.mockResolvedValue({ items: [full(1), full(2)], skips: [], requests: 6 });
+  it('reads the list with discussion: none whatever the caller passed', async () => {
+    fetchWithReport.mockResolvedValue(listResult([thin(1)]));
+    drain.mockImplementation(sdkDrain());
     await fetchGitHubItems({ token: 'tok', limit: 3000, discussion: 'full' as never });
     expect(fetchWithReport.mock.calls[0]![0]).toMatchObject({ discussion: 'none', token: 'tok' });
-    expect(drain).toHaveBeenCalledWith([thin(1), thin(2)], { token: 'tok', maxRequests: GITHUB_DISCUSSION_BUDGET });
     expect(GITHUB_DISCUSSION_BUDGET).toBe(600);
   });
 
-  it('puts the enriched items back in their original order and leaves the unreached ones thin', async () => {
-    fetchWithReport.mockResolvedValue(listResult([thin(1), thin(2), thin(3)]));
-    drain.mockResolvedValue({
-      items: [full(3), full(1)], // the SDK drains newest first, so the order it returns is its own
-      skips: [{ kind: 'page_cap', count: 1, detail: 'items whose discussion was not read: the request budget of 600 ran out' }],
-      requests: 600,
-    });
+  it('drains in chunks: ONE item first as a probe, then ten at a time, with the budget that is left', async () => {
+    fetchWithReport.mockResolvedValue(listResult(many(25)));
+    drain.mockImplementation(sdkDrain());
     const r = await fetchGitHubItems({ token: 't' });
-    expect(r.items).toEqual([full(1), thin(2), full(3)]);
-    expect(r.report).toMatchObject({ discussionTotal: 3, discussionPending: 1 });
-    expect(r.report.skips).toEqual([{ kind: 'page_cap', count: 1, detail: 'items whose discussion was not read: the request budget of 600 ran out' }]);
+    const sizes = drain.mock.calls.map((c) => (c[0] as unknown[]).length);
+    expect(sizes).toEqual([1, 10, 10, 4]);
+    const budgets = drain.mock.calls.map((c) => (c[1] as { maxRequests: number }).maxRequests);
+    expect(budgets).toEqual([600, 597, 567, 537]);
+    expect(r.report).toMatchObject({ discussionTotal: 25, discussionPending: 0 });
+    expect(r.items.every((i) => i.detail_pending === false)).toBe(true);
   });
 
-  it('a custom budget is passed through (two examples)', async () => {
-    fetchWithReport.mockResolvedValue(listResult([thin(1)]));
-    drain.mockResolvedValue({ items: [], skips: [], requests: 0 });
-    await fetchGitHubItems({ token: 't', discussionBudget: 30 });
-    expect(drain).toHaveBeenCalledWith(expect.anything(), { token: 't', maxRequests: 30 });
+  it('newest first across chunks (the SDK only orders within the items it is given)', async () => {
+    const items = [
+      { ...thin(1), updated_at: '2026-01-01T00:00:00Z' },
+      { ...thin(2), updated_at: '2026-09-01T00:00:00Z' },
+      { ...thin(3), updated_at: '2026-05-01T00:00:00Z' },
+    ];
+    fetchWithReport.mockResolvedValue(listResult(items));
+    drain.mockImplementation(sdkDrain());
+    await fetchGitHubItems({ token: 't' });
+    expect(drain.mock.calls.flatMap((c) => (c[0] as typeof items).map((i) => i.source_url))).toEqual([items[1]!.source_url, items[2]!.source_url, items[0]!.source_url]);
+  });
+
+  it('returns the items in their ORIGINAL order, enriched where the drain reached them', async () => {
+    fetchWithReport.mockResolvedValue(listResult([thin(1), thin(2), thin(3)]));
+    drain.mockImplementation(sdkDrain());
+    const r = await fetchGitHubItems({ token: 't', discussionBudget: 6 }); // room for two PRs
+    expect(r.items.map((i) => i.source_url)).toEqual([thin(1), thin(2), thin(3)].map((i) => i.source_url));
+    expect(r.items.filter((i) => i.detail_pending === true)).toHaveLength(1);
+    expect(r.report).toMatchObject({ discussionTotal: 3, discussionPending: 1 });
+  });
+
+  it('the request budget ends the pass and is reported once, in our words', async () => {
+    fetchWithReport.mockResolvedValue(listResult(many(25)));
+    drain.mockImplementation(sdkDrain());
+    const r = await fetchGitHubItems({ token: 't', discussionBudget: 30 }); // ten PRs
+    expect(r.report).toMatchObject({ discussionTotal: 25, discussionPending: 15 });
+    const budgetSkips = r.report.skips.filter((k) => k.kind === 'page_cap');
+    expect(budgetSkips).toEqual([{ kind: 'page_cap', count: 15, detail: 'items whose discussion was not read: the request budget of 30 ran out' }]);
+    expect(JSON.stringify(r.report.skips)).not.toContain('sdk budget line');
+  });
+
+  it('a REVOKED token costs about one request, not the budget: the probe is refused, the pass stops, every item stays thin', async () => {
+    fetchWithReport.mockResolvedValue(listResult(many(25)));
+    drain.mockImplementation(sdkDrain({ fail: () => true }));
+    const r = await fetchGitHubItems({ token: 'revoked' });
+    expect(drain).toHaveBeenCalledTimes(1);
+    expect((drain.mock.calls[0]![0] as unknown[]).length).toBe(1);
+    expect(r.report).toMatchObject({ discussionTotal: 25, discussionPending: 25 });
+    expect(r.report.skips.some((k) => k.kind === 'error' && /refused or rate-limited/.test(k.detail) && /24 items stay thin|25 items stay thin/.test(k.detail))).toBe(true);
+  });
+
+  it('a refusal in the middle stops the pass there (rate limit hit after some success)', async () => {
+    fetchWithReport.mockResolvedValue(listResult(many(25)));
+    drain.mockImplementation(sdkDrain({ fail: (call) => call >= 3 }));
+    const r = await fetchGitHubItems({ token: 't' });
+    expect(drain).toHaveBeenCalledTimes(3);
+    expect(r.report).toMatchObject({ discussionTotal: 25, discussionPending: 14 }); // 1 + 10 got it
+  });
+
+  it('a deadline ends the pass between chunks: what is left of the time budget after the list fetch, at least 30 s', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-10T12:00:00Z'));
+    fetchWithReport.mockResolvedValue(listResult(many(25)));
+    drain.mockImplementation(sdkDrain({ tick: () => vi.setSystemTime(Date.now() + 40_000) })); // each chunk "takes" 40 s
+    const r = await fetchGitHubItems({ token: 't', timeBudgetMs: 60_000 });
+    expect(drain).toHaveBeenCalledTimes(2); // 0 s, 40 s: start the second; at 80 s the 60 s is spent
+    expect(r.report.skips.some((k) => k.kind === 'time_budget' && /time budget/.test(k.detail))).toBe(true);
+    expect(r.report.discussionPending).toBeGreaterThan(0);
+  });
+
+  it('the deadline is never shorter than 30 s, even if the list fetch used the whole budget', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-10T12:00:00Z'));
+    fetchWithReport.mockImplementation(async () => { vi.setSystemTime(Date.now() + 100_000); return listResult(many(5)); });
+    drain.mockImplementation(sdkDrain());
+    const r = await fetchGitHubItems({ token: 't', timeBudgetMs: 60_000 });
+    expect(drain).toHaveBeenCalled();
+    expect(r.report.discussionPending).toBe(0);
   });
 
   it('with nothing pending the drain is never called and no discussion count is reported', async () => {
@@ -65,20 +146,13 @@ describe('items first, then a budgeted discussion pass', () => {
     expect('discussionTotal' in r.report).toBe(false);
   });
 
-  it('all drained: total is reported and pending is zero (so the renderer prints no clause)', async () => {
-    fetchWithReport.mockResolvedValue(listResult([thin(1)]));
-    drain.mockResolvedValue({ items: [full(1)], skips: [], requests: 3 });
-    const r = await fetchGitHubItems({ token: 't' });
-    expect(r.report).toMatchObject({ discussionTotal: 1, discussionPending: 0 });
-  });
-
   it('a drain that throws leaves every item thin and says so, and the import still happens', async () => {
     fetchWithReport.mockResolvedValue(listResult([thin(1), thin(2)]));
     drain.mockRejectedValue(new Error('socket hang up'));
     const r = await fetchGitHubItems({ token: 't' });
     expect(r.items).toEqual([thin(1), thin(2)]);
     expect(r.report).toMatchObject({ discussionTotal: 2, discussionPending: 2 });
-    expect(r.report.skips.some((s) => s.kind === 'error' && /discussion/.test(s.detail))).toBe(true);
+    expect(r.report.skips.some((k) => k.kind === 'error' && /discussion/.test(k.detail))).toBe(true);
   });
 });
 
