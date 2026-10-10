@@ -9,6 +9,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 vi.setConfig({ testTimeout: 30_000 });
+// The two tests that seed 500 rows do about 1000 separate commits. 6 s on Linux, 30 s+ on the Windows runner (fsync), which timed out at 30 s.
+const SEED_TIMEOUT_MS = 180_000;
 const DIM = 32;
 let seed = 777;
 const rand = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32 - 0.5; };
@@ -24,7 +26,7 @@ function vectorFor(text: string): Float32Array {
 const hooks = vi.hoisted(() => ({ onEmbed: undefined as undefined | ((text: string) => void) }));
 vi.mock('../lib/local-embeddings.js', async (importOriginal) => ({
   ...(await importOriginal<typeof Embeddings>()),
-  getEmbedding: vi.fn(async (text: string) => { hooks.onEmbed?.(text); return vectorFor(text); }),
+  getEmbedding: vi.fn(async (text: string) => { await new Promise<void>((r) => setImmediate(r)); hooks.onEmbed?.(text); return vectorFor(text); }),
 }));
 
 import { cosineSimilarity, EMBEDDING_MODEL_ID } from '../lib/local-embeddings.js';
@@ -47,10 +49,18 @@ describe('ingest similarity: matrix result equals the exhaustive scan', () => {
     for (let i = 0; i < 500; i++) {
       const vec = vectorFor(`c${i % 12}-n${i}`);
       const id = seedDb.insertDecision({ title: `seed ${i}`, summary: `seed ${i}`, sourceUrl: `https://seed.test/${i}`, platform: 'github' });
-      seedDb.setEmbedding(id, vec, EMBEDDING_MODEL_ID);
       stored.push({ id, vec });
     }
     seedDb.close();
+    // The 500 vectors in ONE transaction: setEmbedding per row is a commit each (500 fsyncs, the slow half of this seed on Windows).
+    // Same rows setEmbedding writes (INSERT OR REPLACE, model tagged); a first write bumps no epoch, which is all a fresh graph needs.
+    const raw = new DatabaseSync(dbPath);
+    try {
+      raw.exec('BEGIN');
+      const put = raw.prepare('INSERT OR REPLACE INTO decision_embeddings (decision_id, embedding, model) VALUES (?, ?, ?)');
+      for (const { id, vec } of stored) put.run(id, Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength), EMBEDDING_MODEL_ID);
+      raw.exec('COMMIT');
+    } finally { raw.close(); }
 
     // Item 19 shares item 2's cluster and noise: it must find item 2, a row that only the
     // append path knows about.
@@ -85,7 +95,7 @@ describe('ingest similarity: matrix result equals the exhaustive scan', () => {
     // Item 19 is item 2's twin, so it links to a batch-mate and not only to seeded rows.
     const batchIds = new Set(snapshots.map((s) => s.id));
     expect(snapshots[19]!.analysis.relatedDecisions.some((r: { id: string }) => batchIds.has(r.id))).toBe(true);
-  });
+  }, SEED_TIMEOUT_MS);
 
   it('does not link to a Slack tombstone twin that the same run deletes', async () => {
     // A matrix loaded before the twin goes would still hold its vector and link the new
@@ -239,5 +249,5 @@ describe('ingest similarity: matrix result equals the exhaustive scan', () => {
     for (const suffix of ['', '-wal', '-shm']) if (fs.existsSync(`${dbPath}.streaming.db${suffix}`)) fs.unlinkSync(`${dbPath}.streaming.db${suffix}`);
     expect(withMatrix.flat().length).toBeGreaterThan(20);   // control: linking happened
     expect(streaming).toEqual(withMatrix);
-  });
+  }, SEED_TIMEOUT_MS);
 });

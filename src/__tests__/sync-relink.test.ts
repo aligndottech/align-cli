@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 const embedCalls: string[] = [];
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn(async (t: string) => {
+    await new Promise<void>((r) => setImmediate(r)); // a real embed yields to the event loop; a mock that never does starves vitest's worker RPC on a slow runner
     embedCalls.push(t);
     // Items about the same topic embed close together, so the link pass has something to link.
     const v = new Float32Array(384).fill(0.01);
@@ -17,6 +18,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
 }));
 
+import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { relinkAll } from '../lib/sync/relink.js';
 
@@ -44,12 +46,31 @@ function sql<T = Record<string, unknown>>(q: string): T[] {
 }
 function exec(q: string): void { const db = new DatabaseSync(dbPath); try { db.exec(q); } finally { db.close(); } }
 
+// Straight into the graph: rows plus the vectors the mock embedder would have given them, the vectors in ONE transaction.
+// Going through ingestBatch costs several commits a row (about 50 ms on Linux, over two seconds a row on the Windows runner,
+// where 40 rows took 95 s) and this suite is about the re-link queue, not about ingest.
 async function seed(n: number): Promise<void> {
-  const c = createLocalGatewayClient(dbPath);
-  await c.ingestBatch(Array.from({ length: n }, (_, i) => ({
-    source_url: `https://github.com/o/r/pull/${i + 1}`, platform: 'github', title: `PR ${i + 1}`, raw_text: `Use Postgres for store ${i + 1}`,
-  })), { classify: false, keyed: true });
-  c.close();
+  const db = createLocalDb(dbPath);
+  const ids: Array<{ id: string; text: string }> = [];
+  try {
+    for (let i = 0; i < n; i++) {
+      const text = `Use Postgres for store ${i + 1}`;
+      const id = db.insertDecision({ title: `PR ${i + 1}`, summary: text, sourceUrl: `https://github.com/o/r/pull/${i + 1}`, platform: 'github', keyed: true });
+      db.markEnriched(id); // ingest stamps a finished row; the tests that want it unfinished clear the stamp
+      ids.push({ id, text });
+    }
+  } finally { db.close(); }
+  const raw = new DatabaseSync(dbPath);
+  try {
+    raw.exec('BEGIN');
+    const put = raw.prepare('INSERT OR REPLACE INTO decision_embeddings (decision_id, embedding, model) VALUES (?, ?, ?)');
+    for (const { id, text } of ids) {
+      const v = new Float32Array(384).fill(0.01);
+      v[text.includes('Postgres') ? 0 : 1] = 1;
+      put.run(id, Buffer.from(v.buffer, v.byteOffset, v.byteLength), 'Xenova/all-MiniLM-L6-v2');
+    }
+    raw.exec('COMMIT');
+  } finally { raw.close(); }
 }
 const links = () => Number((sql<{ n: number }>('SELECT COUNT(*) AS n FROM decision_links')[0] as { n: number }).n);
 

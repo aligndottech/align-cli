@@ -14,6 +14,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
 }));
 
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
+import { rmDir } from './helpers/rm-dir.js';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -25,7 +26,7 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l3-pending-'));
   dbPath = path.join(dir, 'graph.db');
 });
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => rmDir(dir));
 
 function row(url: string): { detail_pending: number; summary: string } {
   const db = new DatabaseSync(dbPath);
@@ -34,7 +35,11 @@ function row(url: string): { detail_pending: number; summary: string } {
 const item = (url: string, text: string, pending?: boolean) => ({
   source_url: url, platform: 'github', title: `PR ${url.slice(-1)}`, raw_text: text, ...(pending === undefined ? {} : { detail_pending: pending }),
 });
-const ingest = (items: ReturnType<typeof item>[]) => createLocalGatewayClient(dbPath).ingestBatch(items, { classify: false, keyed: true });
+// Close the client: Windows refuses to delete a graph.db a handle still holds open.
+const ingest = async (items: ReturnType<typeof item>[]) => {
+  const c = createLocalGatewayClient(dbPath);
+  try { return await c.ingestBatch(items, { classify: false, keyed: true }); } finally { c.close(); }
+};
 
 describe('detail_pending is stored from the fetched item', () => {
   it('an items-first item is stored pending', async () => {

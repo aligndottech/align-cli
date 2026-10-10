@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { FetcherAuthError } from '@aligndottech/connector-core';
 
 vi.mock('../lib/local-embeddings.js', () => ({
-  getEmbedding: vi.fn(async (t: string) => { const v = new Float32Array(384).fill(0.01); v[t.length % 7] = 1; return v; }),
+  getEmbedding: vi.fn(async (t: string) => { await new Promise<void>((r) => setImmediate(r)); const v = new Float32Array(384).fill(0.01); v[t.length % 7] = 1; return v; }),
   cosineSimilarity: vi.fn().mockReturnValue(0.1),
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
 }));

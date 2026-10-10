@@ -4,6 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual run of ONLY the cross-platform job, on any ref, so a Windows or macOS fix can be
+  # proven on a branch before it merges. Every other job skips on this event: install-smoke
+  # alone would bill a macOS runner. The default is what the push path runs.
+  workflow_dispatch:
+    inputs:
+      os:
+        description: 'JSON list of runners for cross-platform'
+        default: '["windows-latest","macos-latest"]'
 
 jobs:
   # Job name MUST stay "test" - main's branch protection requires the "test" context, and it is
@@ -16,6 +24,7 @@ jobs:
   #   gh api repos/aligndottech/align-cli/branches/main/protection \
   #     --jq .required_status_checks.contexts      # ["test"]
   test:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,7 +118,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        # inputs.os is empty on push, so the fallback IS the push matrix. Keep the two lists equal.
+        os: ${{ fromJSON(inputs.os || '["windows-latest","macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -232,6 +242,7 @@ jobs:
   # Same gate on the newest Node (not a required context). 22.16 is the floor and the
   # required `test` job covers it, so the value here is the OTHER end of the range.
   test-node24:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -267,6 +278,7 @@ jobs:
   # NOT a required context yet - same reasoning as install-smoke below: prove it stable
   # first. A flaky required gate teaches everyone to ignore red.
   binaries:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -334,6 +346,7 @@ jobs:
   # protection (a gate is only real once something requires it, but a flaky
   # required gate teaches everyone to ignore red).
   install-smoke:
+    if: github.event_name != 'workflow_dispatch'
     permissions:
       contents: read  # CodeQL: the job only checks out and runs; never let the default token write
     strategy:
@@ -470,6 +483,7 @@ jobs:
   # is the defect it exists to catch.
   ruleset-guard:
     name: Copilot review guard (parser)
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     # CodeQL: an explicit floor. Read is genuinely all this job needs - it checks out the repo
     # and runs a fixture-driven shell test against a fake curl. The LIVE ruleset read is not

@@ -27,6 +27,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
 import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import type { FetcherItem } from '@aligndottech/connector-core';
+import { rmDir } from './helpers/rm-dir.js';
 import { PR_URL, type PrState, realShapes } from './helpers/github-real-shapes.js';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -39,13 +40,18 @@ beforeEach(() => {
   dbPath = path.join(dir, 'graph.db');
   embedded.length = 0;
 });
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => rmDir(dir));
 
-const ingItem = (item: FetcherItem) =>
-  createLocalGatewayClient(dbPath).ingestBatch(
-    [{ source_url: item.source_url, platform: 'github', title: item.title, raw_text: item.raw_text, detail_pending: item.detail_pending === true }],
-    { classify: false, keyed: true },
-  );
+// Close the client: Windows refuses to delete a graph.db a handle still holds open.
+const ingItem = async (item: FetcherItem) => {
+  const c = createLocalGatewayClient(dbPath);
+  try {
+    return await c.ingestBatch(
+      [{ source_url: item.source_url, platform: 'github', title: item.title, raw_text: item.raw_text, detail_pending: item.detail_pending === true }],
+      { classify: false, keyed: true },
+    );
+  } finally { c.close(); }
+};
 const COMMENT = { who: 'alice', text: 'we chose Postgres' };
 
 interface Snap { title: string; summary: string; detail_pending: number; enriched_at: string | null; vec: number; links: number }
