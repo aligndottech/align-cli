@@ -333,7 +333,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     if (platform === 'slack') db.deleteSlackTombstoneTwin(sourceUrl);
     if (opts.keyed) db.foldPendingTwin(sourceUrl, title, platform, true);
     const existingId = db.findIdBySource(sourceUrl, title, platform, opts.keyed);
-    if (opts.keyed && existingId !== null) ({ title, summary } = db.keepProtectedText(existingId, title, summary));
+    if (opts.keyed && existingId !== null) ({ title, summary } = db.keepProtectedText(existingId, title, summary, opts.detailPending));
     const created = existingId === null;
     // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.

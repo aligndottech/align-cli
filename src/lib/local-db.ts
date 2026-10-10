@@ -140,10 +140,6 @@ const DECISION_COLUMNS =
 /** A person's ratification or confirmation covers the text they read (review finding 4). */
 const ATTESTED = 'decisions.ratified_at IS NOT NULL OR decisions.confirmed_at IS NOT NULL';
 
-/** L3: an items-first arrival (excluded.detail_pending) onto a row that already holds its
- *  discussion (decisions.detail_pending = 0) carries LESS text than the row. Keep the row. */
-const KEEP_RICHER = '(excluded.detail_pending = 1 AND decisions.detail_pending = 0)';
-
 export function createLocalDb(dbPath: string) {
   // SQLite creates the DB file but not its parent directory, so on a clean machine
   // (~/.config/align-cli absent) `align setup --local` crashed with "unable to open
@@ -234,12 +230,18 @@ export function createLocalDb(dbPath: string) {
       const inserted = db.prepare(
         `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key, detail_pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET
-           title = CASE WHEN ${ATTESTED} OR ${KEEP_RICHER} THEN decisions.title ELSE excluded.title END,
-           summary = CASE WHEN ${ATTESTED} OR ${KEEP_RICHER} THEN decisions.summary ELSE excluded.summary END,
+           title = CASE WHEN ${ATTESTED} THEN decisions.title ELSE excluded.title END,
+           summary = CASE WHEN ${ATTESTED} THEN decisions.summary ELSE excluded.summary END,
            platform = excluded.platform,
            repo = COALESCE(excluded.repo, decisions.repo),
            decided_at = COALESCE(excluded.decided_at, decisions.decided_at),
-           detail_pending = CASE WHEN ${KEEP_RICHER} THEN 0 ELSE excluded.detail_pending END,
+           -- An attested row keeps its text, so it keeps the flag that describes that text (review 8).
+           -- A thin arrival whose body IS the stored body (ingestOne passed the stored text on
+           -- because the stored one is richer) must not turn a complete row pending again.
+           detail_pending = CASE
+             WHEN ${ATTESTED} THEN decisions.detail_pending
+             WHEN excluded.detail_pending = 1 AND decisions.detail_pending = 0 AND excluded.summary = decisions.summary THEN 0
+             ELSE excluded.detail_pending END,
            enriched_at = CASE WHEN ${ATTESTED} THEN decisions.enriched_at ELSE NULL END
          ON CONFLICT(source_url, title) DO UPDATE SET
            summary = excluded.summary, platform = excluded.platform,
@@ -310,9 +312,15 @@ export function createLocalDb(dbPath: string) {
      * `text_revision_pending` audit note and the stored text is returned. Any other row (or an
      * unknown id) gets the incoming text back unchanged.
      */
-    keepProtectedText(id: string, title: string, summary: string): { title: string; summary: string } {
-      const row = db.prepare(`SELECT title, summary, ratified_at, confirmed_at FROM decisions WHERE id = ?`).get(id) as
-        { title: string; summary: string; ratified_at: string | null; confirmed_at: string | null } | undefined;
+    keepProtectedText(id: string, title: string, summary: string, thin = false): { title: string; summary: string } {
+      const row = db.prepare(`SELECT title, summary, detail_pending, ratified_at, confirmed_at FROM decisions WHERE id = ?`).get(id) as
+        { title: string; summary: string; detail_pending: number; ratified_at: string | null; confirmed_at: string | null } | undefined;
+      if (row && row.ratified_at === null && row.confirmed_at === null && thin && row.detail_pending === 0 && row.summary.startsWith(summary)) {
+        // L3: `thin` is an items-first arrival (discussion not fetched). The stored row already has
+        // its discussion and the arrival is its body prefix, so the BODY is kept and the arriving
+        // TITLE is not: a title carries no discussion, so a rename is as complete as it ever is.
+        return { title, summary: row.summary };
+      }
       if (!row || (row.ratified_at === null && row.confirmed_at === null)) return { title, summary };
       if (row.title !== title || row.summary !== summary) {
         const detail = JSON.stringify({ title, summary });
