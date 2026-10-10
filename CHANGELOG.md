@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.51.0](https://github.com/aligndottech/align-cli/compare/cli-v0.50.0...cli-v0.51.0) (2026-10-10)
+
+
+### Features
+
+* **share:** browser approval flow and request-approval MCP tools (ALI-1540 phase 6) ([#377](https://github.com/aligndottech/align-cli/issues/377)) ([e849094](https://github.com/aligndottech/align-cli/commit/e849094848bf5e36585b8501f26ba8e913a6b005))
+
+
+### Bug Fixes
+
+* **e2e:** run the golden path as a user, not as CI, so the funnel pings are sent ([#372](https://github.com/aligndottech/align-cli/issues/372)) ([db3dd66](https://github.com/aligndottech/align-cli/commit/db3dd66ddd5b23feea3bdf367482494022ce07d6))
+
 ## [0.50.0](https://github.com/aligndottech/align-cli/compare/cli-v0.49.0...cli-v0.50.0) (2026-10-10)
 
 
