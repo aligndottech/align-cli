@@ -187,8 +187,8 @@ describe('insertDecision after L2', () => {
   it('a connector upsert with a known source_key and a new title retitles the row; no second row', () => {
     const db = createLocalDb(dbPath);
     try {
-      const id = db.insertDecision({ title: 'Use Postgres', summary: 'v1', sourceUrl: PR, platform: 'github' });
-      const again = db.insertDecision({ title: 'Use Postgres for the queue', summary: 'v2', sourceUrl: `${PR}#top`, platform: 'github' });
+      const id = db.insertDecision({ title: 'Use Postgres', summary: 'v1', sourceUrl: PR, platform: 'github', keyed: true });
+      const again = db.insertDecision({ title: 'Use Postgres for the queue', summary: 'v2', sourceUrl: `${PR}#top`, platform: 'github', keyed: true });
       expect(again).toBe(id);
       expect(db.listDecisions().map(d => [d.id, d.title, d.summary])).toEqual([[id, 'Use Postgres for the queue', 'v2']]);
     } finally { db.close(); }
@@ -206,9 +206,10 @@ describe('insertDecision after L2', () => {
   it('findIdBySource finds the row by its source_key when the title changed', () => {
     const db = createLocalDb(dbPath);
     try {
-      const id = db.insertDecision({ title: 'Use Postgres', summary: 'v1', sourceUrl: PR, platform: 'github' });
-      expect(db.findIdBySource(PR, 'A new title', 'github')).toBe(id);
-      expect(db.findIdBySource(SESSION, 'A new title', 'agent-session')).toBeNull();
+      const id = db.insertDecision({ title: 'Use Postgres', summary: 'v1', sourceUrl: PR, platform: 'github', keyed: true });
+      expect(db.findIdBySource(PR, 'A new title', 'github', true)).toBe(id);
+      expect(db.findIdBySource(SESSION, 'A new title', 'agent-session', true)).toBeNull();
+      expect(db.findIdBySource(PR, 'A new title', 'github')).toBeNull(); // not a connector call: no key lookup
     } finally { db.close(); }
   });
 });

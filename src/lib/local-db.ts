@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } from './local-db-migrate.js';
 import type { DeciderKind } from './decider-kind.js';
-import { connectorItemKey } from './source-key.js';
+import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
 
 export interface DecisionRow {
   id: string;
@@ -195,6 +195,10 @@ export function createLocalDb(dbPath: string) {
        *  immutable, so a human re-capture cannot launder an agent claim into 'human' (the
        *  cloud's snapshots.ts rule). Omitted stores NULL, which reads as 'unknown'. */
       deciderKind?: DeciderKind | null;
+      /** L2: true ONLY from connector import code. Gives a one-item-per-URL item its source_key,
+       *  so an edited title updates the row. Never inferred from the platform: `align capture
+       *  <PR url>` stamps `github` too, and must not merge with the imported item. */
+      keyed?: boolean;
     }): string {
       // L2: a one-item-per-URL connector item upserts on its source_key, and that branch takes
       // the new title, so an edited PR title updates the row instead of adding a twin. Every
@@ -227,7 +231,7 @@ export function createLocalDb(dbPath: string) {
         // date. Callers normalise, but this is the one place the column is written.
         row.decidedAt || null,
         row.deciderKind ?? null,
-        connectorItemKey(row.platform, sourceUrl) ?? null,
+        (row.keyed ? connectorItemKey(row.platform, sourceUrl) : undefined) ?? null,
       ) as { id: string };
       return inserted.id;
     },
@@ -256,12 +260,12 @@ export function createLocalDb(dbPath: string) {
      * A null `sourceUrl` is always null here: SQLite treats each NULL in a unique index as
      * distinct, so those rows never conflict and every one of them really is new.
      */
-    findIdBySource(sourceUrl: string | null, title: string, platform?: string): string | null {
+    findIdBySource(sourceUrl: string | null, title: string, platform?: string, keyed?: boolean): string | null {
       const identity = identifyingSourceUrl(sourceUrl);
       if (identity === null) return null;
       // L2: with the platform, a one-item-per-URL item is found by its source_key, so a retitled
       // PR is recognised as the row insertDecision is about to update, not as a new one.
-      const key = platform === undefined ? undefined : connectorItemKey(platform, identity);
+      const key = platform === undefined || !keyed ? undefined : connectorItemKey(platform, identity);
       if (key !== undefined) {
         const byKey = db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined;
         if (byKey) return byKey.id;
@@ -270,6 +274,27 @@ export function createLocalDb(dbPath: string) {
         `SELECT id FROM decisions WHERE source_url = ? AND title = ?`
       ).get(identity, title) as { id: string } | undefined;
       return row?.id ?? null;
+    },
+
+    /** The id of the connector-imported item `url` names, under any platform, or null. A capture
+     *  of that URL must not rewrite the imported text (L2 review finding 1). */
+    findKeyedIdByUrl(url: string): string | null {
+      const identity = identifyingSourceUrl(url);
+      if (identity === null) return null;
+      for (const platform of KEYED_PLATFORMS) {
+        const key = connectorItemKey(platform, identity);
+        const hit = key === undefined ? undefined : db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined;
+        if (hit) return hit.id;
+      }
+      return null;
+    },
+
+    /** A capture of a URL a connector already imported: audit it, change nothing, return the row. */
+    noteCaptureOfHeldItem(url: string): DecisionRow | null {
+      const id = this.findKeyedIdByUrl(url);
+      const row = id === null ? null : this.getDecisionById(id);
+      if (row) this.insertAudit({ decisionId: row.id, action: 'capture_seen', actor: null, detail: url });
+      return row;
     },
 
     /**

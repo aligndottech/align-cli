@@ -27,6 +27,9 @@ export interface IngestOptions {
    *  today's behaviour (classify when a provider is configured), which explicit human
    *  capture relies on. */
   classify?: boolean;
+  /** L2: the call is a connector import, so a one-item-per-URL item gets a source_key.
+   *  Omitted (capture, MCP align_capture, sessions) never keys, whatever the platform. */
+  keyed?: boolean;
 }
 
 export interface LocalBatchItem {
@@ -35,7 +38,23 @@ export interface LocalBatchItem {
 
 /** `classify`: see IngestOptions. `deferEnrichment` is the cloud gateway's option and is
  *  accepted only so one call site serves both clients; local ingest ignores it. */
-export interface LocalBatchOptions { classify?: boolean; deferEnrichment?: boolean }
+export interface LocalBatchOptions { classify?: boolean; deferEnrichment?: boolean; keyed?: boolean }
+
+/** What `align capture <url>` stores for a URL: the last path segment (or host) as the title and
+ *  "Captured from <host>" as the summary. One writer, read by the v7 migration to recognise
+ *  rows that are captures and not connector imports. */
+export function captureFieldsForUrl(url: URL): { title: string; summary: string } {
+  return { title: url.pathname.split('/').filter(Boolean).pop() ?? url.hostname, summary: `Captured from ${url.hostname}` };
+}
+
+/** True when a stored row has the exact shape `captureFieldsForUrl` writes. */
+export function isCaptureShaped(row: { title: string; summary: string; source_url: string | null }): boolean {
+  if (row.source_url === null) return false;
+  let url: URL;
+  try { url = new URL(row.source_url); } catch { return false; }
+  const f = captureFieldsForUrl(url);
+  return row.summary === f.summary || row.title === f.title.slice(0, 80);
+}
 
 export interface IngestResult {
   id: string; title: string; summary: string; sourceUrl: string | null; platform: string;

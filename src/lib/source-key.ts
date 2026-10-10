@@ -111,6 +111,9 @@ const ITEM_SHAPES: Record<string, RegExp[]> = {
   git: [/\/commit\/[0-9a-f]{7,40}$/i, /^\/\/commit\/[0-9a-f]{7,40}$/i],
 };
 
+/** Every platform a connector import can key. */
+export const KEYED_PLATFORMS: readonly string[] = Object.keys(ITEM_SHAPES);
+
 /**
  * The key stored in `decisions.source_key`, or undefined (the row keeps its
  * (source_url, title) identity). The platform is part of the stored string, so a `git` import

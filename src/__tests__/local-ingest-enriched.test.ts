@@ -210,8 +210,8 @@ describe('ingestOne writes enriched_at last, and a crashed ingest is retried wit
   });
 
   it('a retitled item (same source_key) updates the one row, and is a change', async () => {
-    await client.ingestBatch([A], { classify: false });
-    const { snapshots } = await client.ingestBatch([{ ...A, title: 'Use Postgres, not Redis, for the queue' }], { classify: false });
+    await client.ingestBatch([A], { classify: false, keyed: true });
+    const { snapshots } = await client.ingestBatch([{ ...A, title: 'Use Postgres, not Redis, for the queue' }], { classify: false, keyed: true });
 
     expect(snapshots[0]).toMatchObject({ created: false, changed: true });
     expect(inspect(db => db.listDecisions().map(d => d.title))).toEqual(['Use Postgres, not Redis, for the queue']);

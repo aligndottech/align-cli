@@ -31,6 +31,7 @@
  * computed only where NULL, and a second pass finds no group of twins left to merge.
  */
 import type { DatabaseSync } from 'node:sqlite';
+import { isCaptureShaped } from './local-ingest.js';
 import { connectorItemKey } from './source-key.js';
 
 const V7_TABLES = `
@@ -178,10 +179,17 @@ export function migrateV7(db: DatabaseSync): void {
   // After the ALTERs, so the backup carries every column a row can hold.
   db.exec('CREATE TABLE IF NOT EXISTS decisions_merged_backup AS SELECT * FROM decisions WHERE 0');
 
-  const unkeyed = db.prepare('SELECT id, platform, source_url FROM decisions WHERE source_key IS NULL AND source_url IS NOT NULL')
-    .all() as Array<{ id: string; platform: string; source_url: string }>;
+  // Only rows that look like connector imports are keyed. A v6 row cannot say how it was
+  // written, and `align capture <PR url>` wrote platform github too, so the rule is on the
+  // row: a capture has the summary "Captured from <host>" or the URL's last path segment as
+  // its title (isCaptureShaped). Those stay unkeyed. When unsure, do not merge: the cost of
+  // a missed twin is a duplicate the next sync can still resolve, the cost of a wrong merge
+  // is a lost record.
+  const unkeyed = db.prepare('SELECT id, platform, source_url, title, summary FROM decisions WHERE source_key IS NULL AND source_url IS NOT NULL')
+    .all() as Array<{ id: string; platform: string; source_url: string; title: string; summary: string }>;
   const setKey = db.prepare('UPDATE decisions SET source_key = ? WHERE id = ?');
   for (const row of unkeyed) {
+    if (isCaptureShaped(row)) continue;
     const key = connectorItemKey(row.platform, row.source_url);
     if (key !== undefined) setKey.run(key, row.id);
   }

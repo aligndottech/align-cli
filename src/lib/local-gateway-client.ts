@@ -8,7 +8,7 @@ import { repositoryOf } from './decision-links.js';
 import { localCitationFor } from './commit-cite.js';
 import { extractRefs, refIdentityFor } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
-import { type IngestOptions, type IngestResult, ingestStep, type LocalBatchItem, type LocalBatchOptions, selectForClassification } from './local-ingest.js';
+import { captureFieldsForUrl, type IngestOptions, type IngestResult, ingestStep, type LocalBatchItem, type LocalBatchOptions, selectForClassification } from './local-ingest.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
 // (ask/search/check) work identically in local mode.
@@ -296,12 +296,14 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       try {
         const url = new URL(input);
         sourceUrl = url.href;
-        title = url.pathname.split('/').filter(Boolean).pop() ?? url.hostname;
-        summary = `Captured from ${url.hostname}`;
+        ({ title, summary } = captureFieldsForUrl(url));
         capturedAsUrl = true;
       } catch { /* plain text - use as-is */ }
     }
     if (opts.titleOverride) title = opts.titleOverride.slice(0, 80);
+    // L2: a capture of a URL whose item a connector already imported adds nothing to it.
+    const heldRow = capturedAsUrl ? db.noteCaptureOfHeldItem(sourceUrl!) : null;
+    if (heldRow) return { id: heldRow.id, title: heldRow.title, summary: heldRow.summary, sourceUrl: heldRow.sourceUrl, platform: heldRow.platform, related: [], created: false, changed: false };
 
     // ALI-792: what the text points at, stored beside the decision. When the whole
     // input IS the URL being captured, there is nothing to point at - and comparing
@@ -329,7 +331,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // an older fetcher may have written for the same source_url (see local-db.ts). Removed
     // BEFORE the lookup: L2 finds a Slack thread by its source_key, which the tombstone shares.
     if (platform === 'slack') db.deleteSlackTombstoneTwin(sourceUrl);
-    const existingId = db.findIdBySource(sourceUrl, title, platform);
+    const existingId = db.findIdBySource(sourceUrl, title, platform, opts.keyed);
     const created = existingId === null;
     // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.
@@ -359,7 +361,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     const embedding = await getEmbedding(embedText);
     // ALI-831: origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
-    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind });
+    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind, keyed: opts.keyed });
     db.replaceRefs(id, refs);
     // ALI-796's payoff: if some earlier decision already cited THIS one (a git commit
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
@@ -461,6 +463,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           sourceUrlOverride: item.source_url ?? null,
           createdAt: item.created_at,
           classify: opts.classify,
+          keyed: opts.keyed,
         });
         snapshots.push({
           id: r.id,
