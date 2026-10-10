@@ -1,4 +1,5 @@
 import { alignDistribution } from './distribution.js';
+import { embeddingLengthMismatch } from './similarity/embedding-matrix.js';
 
 /**
  * The HF model id and dtype every distribution embeds with. Single source of truth: the
@@ -118,10 +119,7 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   // findSimilar drops the row as IRRELEVANT. A vector written by a different model would make
   // decisions quietly unfindable with no error anywhere.
   if (a.length !== b.length) {
-    throw new Error(
-      `Embedding length mismatch: ${a.length} vs ${b.length}. The local graph holds a vector ` +
-      'from a different model - run `align local reset` and re-import to rebuild it.',
-    );
+    throw embeddingLengthMismatch(a.length, b.length);
   }
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i < a.length; i++) {

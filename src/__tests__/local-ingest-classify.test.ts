@@ -12,6 +12,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// Ranking is driven by the mocked cosineSimilarity below; see helpers/mocked-cosine-matrix.ts.
+vi.mock('../lib/similarity/embedding-matrix.js', async () =>
+  (await import('./helpers/mocked-cosine-matrix.js')).mockedCosineMatrixModule());
 vi.mock('../lib/local-embeddings.js', () => ({
   // Every item embeds to the same vector and every pair scores 0.8, above
   // SIMILARITY_THRESHOLD (0.65), so each item after the first has classifiable candidates.

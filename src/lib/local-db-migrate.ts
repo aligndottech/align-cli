@@ -3,6 +3,7 @@
  * that file stays under the 900-line limit. local-db.ts re-exports SCHEMA_VERSION, so every
  * existing `import { SCHEMA_VERSION } from './local-db.js'` still resolves.
  */
+import { bumpRowSetEpoch } from './local-db-epoch.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { repoFromSourceUrl } from './repo-identity.js';
 import { migrateV7 } from './local-db-v7.js';
@@ -155,6 +156,7 @@ const LEGACY_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
  * writer for the v4 tombstone sweep and the ingest-time twin removal (ALI-829).
  */
 export function deleteDecisionWithDependents(db: DatabaseSync, id: string): void {
+  bumpRowSetEpoch(db);
   db.prepare('DELETE FROM decision_links WHERE source_id = ? OR target_id = ?').run(id, id);
   db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(id);
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(id);
@@ -228,6 +230,7 @@ export function migrate(db: DatabaseSync): void {
       `);
       // Explicitly, not by CASCADE: SQLite leaves foreign_keys OFF unless asked, so the
       // ON DELETE CASCADE in the schema does not fire and these would be orphaned.
+      if ((db.prepare('SELECT COUNT(*) AS n FROM dedup_dropped').get() as { n: number }).n > 0) bumpRowSetEpoch(db);
       db.exec(`DELETE FROM decision_embeddings WHERE decision_id IN (SELECT id FROM dedup_dropped)`);
       db.exec(`DELETE FROM decisions WHERE id IN (SELECT id FROM dedup_dropped)`);
       db.exec(`DROP TABLE dedup_dropped; DROP TABLE dedup_survivor;`);

@@ -35,6 +35,7 @@
  * Replay-safe: every CREATE is IF NOT EXISTS, every ALTER is guarded by table_info, keys are
  * computed only where NULL, and a second pass finds no group of twins left to merge.
  */
+import { bumpRowSetEpoch } from './local-db-epoch.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { isCaptureShaped } from './local-ingest.js';
 import { connectorItemKey } from './source-key.js';
@@ -134,6 +135,7 @@ function repointLinks(db: DatabaseSync, loser: string, survivor: string, group: 
  *  text's vector). Also used by insertDecision to absorb a keyless row written by an older
  *  binary. */
 function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, group: Set<string>, actor: string): void {
+  bumpRowSetEpoch(db);
   const hasJudgements = tableExists(db, 'local_judgements');
   const hasPromotions = tableExists(db, 'promotions');
   db.prepare('INSERT INTO decisions_merged_backup SELECT * FROM decisions WHERE id = ?').run(loserId);

@@ -4,6 +4,7 @@
  * classifier. local-gateway-client.ts's ingestOne owns the I/O and calls these.
  */
 import type { DecisionRow } from './local-db.js';
+import type { EmbeddingMatrix } from './similarity/embedding-matrix.js';
 
 /**
  * ALI-1065: the capture-time classification budget. Only the high-confidence tier
@@ -30,6 +31,16 @@ export interface IngestOptions {
   /** L2: the call is a connector import, so a one-item-per-URL item gets a source_key.
    *  Omitted (capture, MCP align_capture, sessions) never keys, whatever the platform. */
   keyed?: boolean;
+}
+
+/** State shared by the ingests of ONE run (ingestBatch). `matrix` is the graph's embeddings,
+ *  loaded on first use. Absent for a single capture, which then loads its own. */
+export interface IngestSession {
+  matrix?: EmbeddingMatrix;
+  /** db.rowSetEpoch() and db.dataVersion() when `matrix` was built (or last brought current by
+   *  this run's own write). Either one moving means the graph changed under the copy. */
+  epoch?: number;
+  dataVersion?: number;
 }
 
 export interface LocalBatchItem {
