@@ -8,7 +8,10 @@ import type { BuildInput, LaunchDeps } from '../launch.js'; // type-only: no run
  * launch target before align reads its session history (Copilot), and widening AgentName would
  * reach every parser's exhaustive switch for nothing.
  */
-export type LaunchAgentId = AgentName | 'copilot' | 'qwen' | 'droid' | 'amp' | 'kiro' | 'grok-build';
+export type LaunchAgentId =
+  | AgentName
+  | 'copilot' | 'qwen' | 'droid' | 'amp' | 'kiro' | 'grok-build'
+  | 'goose' | 'auggie' | 'continue' | 'cline' | 'aider';
 
 /**
  * One launchable (or planned) coding agent. R1 carries today's `LaunchAgent` fields plus the
@@ -23,6 +26,11 @@ export interface AgentSpec {
   /** A launch target today. Later phases flip more entries to true; nothing else changes. */
   supported: boolean;
   /**
+   * false: Align cannot give this agent its graph tools (no MCP input at all, Aider), only
+   * instructions. The picker and `align agents` say so. Absent means the graph is wired in.
+   */
+  graph?: false;
+  /**
    * How a user installs it. `npm`: one argv the picker may offer to run after an explicit yes.
    * `docs`: a script or URL installer, which Align only ever prints (plan Decision 4).
    */
@@ -32,6 +40,12 @@ export interface AgentSpec {
    * found is really this agent. A `bin` on PATH that this refuses counts as not installed.
    */
   acceptsBin?: (found: string, env: Record<string, string | undefined>, platform: string) => boolean;
+  /**
+   * Variables that fix where the agent reads its config, set to the location Align scanned and
+   * wrote. An agent that loads a `.env` from the cwd (Cline, cn) would otherwise let a repo move
+   * it. The launcher sets each one only when the user has not exported it (theirs always wins).
+   */
+  pins?: (d: LaunchDeps, base: BuildInput) => Record<string, string>;
   /** The adapter. Absent for agents that are not launch targets yet. */
   build?: (d: LaunchDeps, base: BuildInput) => LaunchSpec;
 }

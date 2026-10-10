@@ -1,5 +1,6 @@
 import type { LaunchAgent } from './agents.js';
 import type { InstallOutcome } from './install.js';
+import { specByName } from './registry/index.js';
 import type { LaunchAgentId } from './registry/types.js';
 
 export interface PickerOption {
@@ -19,9 +20,13 @@ const byLabel = (a: LaunchAgent, b: LaunchAgent): number => (a.label < b.label ?
 export function pickerOptions(agents: readonly LaunchAgent[], isInstalled: (a: LaunchAgent) => boolean): PickerOption[] {
   const installed = agents.filter(isInstalled).sort(byLabel);
   const missing = agents.filter((a) => !isInstalled(a)).sort(byLabel);
+  // An agent Align can give instructions but no graph tools (Aider) says so in its row.
+  const noGraph = (a: LaunchAgent): boolean => specByName(a.name)?.graph === false;
+  const NO_GRAPH = 'instructions only: no graph tools';
+  const label = (a: LaunchAgent): string => (noGraph(a) ? `${a.label} (${NO_GRAPH})` : a.label);
   return [
-    ...installed.map((a) => ({ value: a.name, label: a.label })),
-    ...missing.map((a) => ({ value: a.name, label: `${a.label} (not installed)`, hint: `install: ${a.install}` })),
+    ...installed.map((a) => ({ value: a.name, label: label(a) })),
+    ...missing.map((a) => ({ value: a.name, label: `${label(a)} (not installed)`, hint: `install: ${a.install}` })),
   ];
 }
 

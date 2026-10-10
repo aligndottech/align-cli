@@ -7,7 +7,7 @@
  * Deliberately separate from project-state.ts's isLocalAlignServer (Claude Code, pi, Cursor),
  * which matches any command line that mentions align and mcp.
  */
-export type StrictHost = 'mcpServers' | 'codex' | 'copilot' | 'droid';
+export type StrictHost = 'mcpServers' | 'codex' | 'copilot' | 'droid' | 'auggie';
 
 export interface CanonicalOptions {
   /** Whether a bare `align mcp` reads the local graph on this machine. */
@@ -30,8 +30,10 @@ const EXTRA: Record<StrictHost, Record<string, (v: unknown) => boolean>> = {
   copilot: { type: (v) => v === 'local' || v === 'stdio', tools: (v) => sameArgs(v, ['*']) },
   // Factory Droid: `type` is optional and stdio by default; `disabled: true` is configured-but-off.
   droid: { type: (v) => v === 'stdio', disabled: (v) => v === false },
+  // Auggie: `auggie mcp add` writes `type: "stdio"` and an empty `env` (auggie 0.36.0).
+  auggie: { type: (v) => v === 'stdio', env: (v) => isObject(v) && Object.keys(v).length === 0 },
 };
-const REQUIRED: Record<StrictHost, string[]> = { mcpServers: [], codex: [], copilot: ['type', 'tools'], droid: [] };
+const REQUIRED: Record<StrictHost, string[]> = { mcpServers: [], codex: [], copilot: ['type', 'tools'], droid: [], auggie: [] };
 
 export function isCanonicalLocalEntry(entry: unknown, o: CanonicalOptions): boolean {
   if (!isObject(entry)) return false;
@@ -93,6 +95,42 @@ export function parseJsonc(text: string | null): Json | null {
     return null;
   }
 }
+
+/**
+ * JSONC as Auggie reads it (jsonc-parser with allowTrailingComma): comments, plus a comma before
+ * `}` or `]`. Only for a reader that must see what such an agent sees; null when not an object.
+ */
+export function parseJsoncTrailingCommas(text: string | null): Json | null {
+  if (text === null) return null;
+  const stripped = stripJsonComments(text);
+  let out = '';
+  for (let i = 0; i < stripped.length; i++) {
+    const c = stripped[i]!;
+    if (c === '"') {
+      let j = i + 1;
+      while (j < stripped.length && stripped[j] !== '"') j += stripped[j] === '\\' ? 2 : 1;
+      out += stripped.slice(i, j + 1);
+      i = j;
+    } else if (c === ',' && /^\s*[}\]]/.test(stripped.slice(i + 1))) {
+      out += ' ';
+    } else {
+      out += c;
+    }
+  }
+  try {
+    const parsed: unknown = JSON.parse(out);
+    return isObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fail closed: a non-empty config file align cannot parse, that names align in any form (an
+ * escape like `align\u002dlocal` still carries "align"), may hold a server align cannot see.
+ */
+export const unreadableMentionsAlign = (text: string | null, parsed: unknown): boolean =>
+  text !== null && parsed === null && text.trim() !== '' && /align/i.test(text);
 
 /** What the agent's loaded config layers already hold for Align, decided by the strict test above. */
 export interface AlignLocalState {

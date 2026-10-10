@@ -440,7 +440,7 @@ describe('launchIfChosen: Cursor\'s binary name (C4)', () => {
 });
 
 describe('launchIfChosen: the picker lists every agent (phase P)', () => {
-  const ALL = ['amp', 'claude-code', 'codex', 'copilot', 'cursor', 'droid', 'gemini-cli', 'grok-build', 'kiro', 'opencode', 'pi', 'qwen'];
+  const ALL = ['aider', 'amp', 'auggie', 'claude-code', 'cline', 'codex', 'continue', 'copilot', 'cursor', 'droid', 'gemini-cli', 'goose', 'grok-build', 'kiro', 'opencode', 'pi', 'qwen'];
   const values = (opts: Array<{ value: string }>) => opts.map((o) => o.value).sort();
 
   it('on a TTY with none installed, opens the picker with every supported agent, each marked not installed', async () => {

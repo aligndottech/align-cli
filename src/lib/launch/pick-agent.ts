@@ -1,6 +1,6 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import type { LaunchAgentId } from './registry/types.js';
-import { agentByName, byPriority, type LaunchAgent, PRE_WAVE_A, PRE_WAVE_B, resolveAgentBin, supportedAgents } from './agents.js';
+import { agentByName, byPriority, type LaunchAgent, PRE_WAVE_A, PRE_WAVE_B, PRE_WAVE_C, resolveAgentBin, supportedAgents } from './agents.js';
 import { findOnPath } from './detect.js';
 import { type InstallOfferDeps, offerInstall } from './install.js';
 import { chooseAgent, type PickerOption } from './picker-options.js';
@@ -73,9 +73,9 @@ export async function pickAgent(
 
   // Without a terminal and without --approve, only the oldest launchable agents installed are
   // weighed, wave by wave: a machine with Claude Code plus Codex picks Claude Code, as it did
-  // before Codex could be launched, Codex plus Qwen picks Codex, as before wave B, and two agents
-  // of the same wave still are not guessed between.
-  const tier = [PRE_WAVE_A, PRE_WAVE_B].map((set) => installed.filter((a) => set.has(a.name))).find((t) => t.length > 0);
+  // before Codex could be launched, Codex plus Qwen picks Codex, as before wave B, Qwen plus
+  // Goose picks Qwen, as before wave C, and two agents of the same wave still are not guessed between.
+  const tier = [PRE_WAVE_A, PRE_WAVE_B, PRE_WAVE_C].map((set) => installed.filter((a) => set.has(a.name))).find((t) => t.length > 0);
   const unattended = !opts.interactive && !opts.approve && tier ? tier : installed;
 
   let chosen: LaunchAgent | null | undefined;

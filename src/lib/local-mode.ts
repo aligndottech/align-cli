@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import envPaths from 'env-paths';
 import { createConfigStore } from './config.js';
+import { procLike, realPathOf } from './xdg.js';
 import { createLocalDb } from './local-db.js';
 
 /**
@@ -44,7 +45,19 @@ export function legacyLocalDbDir(): string {
  * committed frames belonging to the database it was written for, so copying one onto a
  * DIFFERENT database at the new location would hand SQLite another file's transactions.
  */
-export function migrateLocalDb(oldDir: string, newDir: string): void {
+export function migrateLocalDb(oldDir: string, newDir: string, opts: { cwd?: string; home?: string } = {}): void {
+  // Never into the directory align was started in: there, a target comes from something the
+  // repo controls (an agent that loads the repo's `.env` hands it to its MCP children). Running
+  // from the home dir or above it is fine; ~/.config sits under those legitimately.
+  // Compared as REAL paths, so /proc/self/cwd/x or a symlink into the cwd cannot pass as elsewhere.
+  if (procLike(newDir) || procLike(realPathOf(newDir))) return;
+  const cwd = realPathOf(opts.cwd ?? process.cwd());
+  const home = realPathOf(opts.home ?? os.homedir());
+  const inside = (child: string, parent: string): boolean => {
+    const rel = path.relative(parent, child);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  };
+  if (inside(realPathOf(newDir), cwd) && !inside(home, cwd)) return;
   const oldFile = path.join(oldDir, 'local.db');
   const newFile = path.join(newDir, 'local.db');
   if (fs.existsSync(newFile) || !fs.existsSync(oldFile)) return;
