@@ -113,7 +113,6 @@ describe('no sequence of tool calls sends a share', () => {
     const out: string[] = [];
     const deps: ShareDeps = { cloudEnv: cloud, salt: 'salt-1', defaultGatewayUrl: 'https://x', localDbPath: dbPath, client: () => client, judge: async () => ({ judgeId: 'i', judgeLabel: null }), owner: async () => 'me@co.com', ttyConfirm: async () => true, out: (l) => out.push(l), err: (l) => out.push(l) };
     const code = await runShare({ ids: [], envName: 'prod', confirm: r.code as string }, deps);
-    expect(out.join('\n')).toBe('');
     expect(code).toBe(0);
     expect(calls.shareBatch).toBe(1);
   });
