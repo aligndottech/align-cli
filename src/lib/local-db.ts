@@ -168,12 +168,12 @@ export function createLocalDb(dbPath: string) {
 
   // Shared by insertLink and resolveRefs (ALI-796), so there is one writer of the
   // decision_links insert rather than two copies of the same ON CONFLICT clause.
-  function insertLinkRow(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
+  function insertLinkRow(link: { id?: string; sourceId: string; targetId: string; relation: string; confidence: number }): void {
     db.prepare(
       `INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(source_id, target_id, relation)
          DO UPDATE SET confidence = MAX(confidence, excluded.confidence)`
-    ).run(randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
+    ).run(link.id ?? randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
   }
 
   let dataVersionStmt: ReturnType<typeof db.prepare> | undefined;
@@ -643,8 +643,19 @@ export function createLocalDb(dbPath: string) {
      * The unique index (created in migrate) is what makes the OR IGNORE real. Confidence is
      * refreshed rather than ignored so a better score replaces a worse one.
      */
-    insertLink(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
+    insertLink(link: { id?: string; sourceId: string; targetId: string; relation: string; confidence: number }): void {
       insertLinkRow(link);
+    },
+
+    /**
+     * LM: the ONE way a link is deleted on behalf of a person's mark. `align mark <a> replaces <b>`
+     * writes its supersedes link under the id `mark:<judgement id>` (when the classifier had not
+     * already written that edge, in which case the edge keeps its own id and is not ours), and
+     * `--undo` removes exactly that row here. The id is built inside this method, so no caller can
+     * name another link: a classifier edge, or a link another mark owns, cannot be reached from here.
+     */
+    deleteMarkLink(judgementId: string): number {
+      return Number(db.prepare(`DELETE FROM decision_links WHERE id = ? AND relation = 'supersedes'`).run(`mark:${judgementId}`).changes);
     },
 
     /**
@@ -656,8 +667,11 @@ export function createLocalDb(dbPath: string) {
      * classification can upgrade a cosine `relates` edge into a typed one atomically.
      */
     replaceLink(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
+      // LM: an edge a person's `align mark ... replaces` wrote (id `mark:<judgement id>`) is theirs, not
+      // the classifier's to upgrade away: deleting it would orphan the judgement, and `--undo` could
+      // no longer find its link. The pair may then carry that edge beside the new one.
       db.prepare(
-        'DELETE FROM decision_links WHERE (source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)',
+        `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%'`,
       ).run(link.sourceId, link.targetId, link.targetId, link.sourceId);
       insertLinkRow(link);
     },
