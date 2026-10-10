@@ -41,7 +41,7 @@ describe('downgrade guard', () => {
 });
 
 describe('a second opener waits for the lock', () => {
-  it('opens a v6 file while another process holds the write lock for 600ms, then migrates it', async () => {
+  it('opens a v6 file while another process holds the write lock for 5.5s (past the old 5s wait), then migrates it', async () => {
     const v6 = createV6Graph(dbPath);
     v6.insertDecision({ id: 'a', title: 'T1', summary: 'one', sourceUrl: 'https://github.com/o/r/pull/1', platform: 'github' });
     v6.raw.exec('PRAGMA journal_mode = WAL'); // every real v6 file is WAL: the CLI has always set it
@@ -51,12 +51,12 @@ describe('a second opener waits for the lock', () => {
       const d = new DatabaseSync(${JSON.stringify(dbPath)});
       d.exec('BEGIN IMMEDIATE');
       console.log('locked');
-      setTimeout(() => { d.exec('COMMIT'); d.close(); }, 600);
+      setTimeout(() => { d.exec('COMMIT'); d.close(); }, 5500);
     `], { stdio: ['ignore', 'pipe', 'inherit'] });
     await new Promise<void>((resolve) => holder.stdout.once('data', () => resolve()));
     const t = performance.now();
     createLocalDb(dbPath).close(); // blocks on busy_timeout until the holder commits
-    expect(performance.now() - t).toBeGreaterThan(300); // control: it really waited
+    expect(performance.now() - t).toBeGreaterThan(5000); // control: it really waited
     await new Promise((resolve) => holder.once('exit', resolve));
     const check = new DatabaseSync(dbPath);
     expect((check.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);

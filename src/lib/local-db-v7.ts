@@ -194,7 +194,12 @@ export function foldTwins(db: DatabaseSync, twins: TwinRow[], key: string, actor
 
   for (const loser of twins.filter(t => t.id !== survivor.id)) absorbLoser(db, loser.id, survivor.id, group, actor);
 
-  const conflicts = ratifiedAll.slice(1).filter(t => t.title !== survivor.title || t.summary !== survivor.summary);
+  const others = ratifiedAll.slice(1).filter(t => t.id !== survivor.id);
+  const conflicts = others.filter(t => t.title !== survivor.title || t.summary !== survivor.summary);
+  // A second ratifier of the SAME text: their ratification would otherwise exist only in the backup.
+  for (const t of others.filter(o => !conflicts.includes(o))) {
+    db.prepare(auditInsert).run(survivor.id, 'ratification_agreed', actor, JSON.stringify({ by: t.ratified_by, at: t.ratified_at }));
+  }
   for (const c of conflicts) {
     db.prepare(auditInsert).run(survivor.id, 'ratification_conflict', actor,
       JSON.stringify({ by: c.ratified_by, at: c.ratified_at, title: c.title, summary: c.summary }));

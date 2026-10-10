@@ -331,6 +331,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // an older fetcher may have written for the same source_url (see local-db.ts). Removed
     // BEFORE the lookup: L2 finds a Slack thread by its source_key, which the tombstone shares.
     if (platform === 'slack') db.deleteSlackTombstoneTwin(sourceUrl);
+    if (opts.keyed) db.foldPendingTwin(sourceUrl, title, platform, true);
     const existingId = db.findIdBySource(sourceUrl, title, platform, opts.keyed);
     if (opts.keyed && existingId !== null) ({ title, summary } = db.keepProtectedText(existingId, title, summary));
     const created = existingId === null;

@@ -150,10 +150,11 @@ export function createLocalDb(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
   const db = new DatabaseSync(dbPath);
-  // First, before anything that needs a lock: every local command and the advisory hook open
+  // 30s: the longest measured v7 migration (100k rows, 33k merges) takes about 5s, so a waiting
+  // opener outlasts it with margin. First, before anything that needs a lock: every local command and the advisory hook open
   // this file, so a concurrent opener is normal, and without a timeout it fails at once with
   // "database is locked" instead of waiting for the migration in progress.
-  db.exec('PRAGMA busy_timeout = 5000');
+  db.exec('PRAGMA busy_timeout = 30000');
   try {
     db.exec('PRAGMA journal_mode = WAL');
     db.exec(SCHEMA);
@@ -221,15 +222,7 @@ export function createLocalDb(dbPath: string) {
       // known to be current until ingestOne's link pass marks it again (Decision 30).
       const sourceUrl = identifyingSourceUrl(row.sourceUrl);
       const key = (row.keyed ? connectorItemKey(row.platform, sourceUrl) : undefined) ?? null;
-      // A keyless row at this (source_url, title) is a twin an older binary wrote beside the
-      // keyed one. Adopt it as the keyed row, or absorb it into the row that already holds the
-      // key: either way the upsert below cannot meet a UNIQUE(source_url, title) failure.
-      if (key !== null) {
-        const twin = db.prepare(`SELECT id FROM decisions WHERE source_url = ? AND title = ? AND source_key IS NULL`).get(sourceUrl, row.title) as { id: string } | undefined;
-        const holder = twin ? db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined : undefined;
-        if (twin && !holder) db.prepare(`UPDATE decisions SET source_key = ? WHERE id = ?`).run(key, twin.id);
-        else if (twin && holder) foldKeylessTwin(db, twin.id, holder.id, key);
-      }
+      api.foldPendingTwin(sourceUrl, row.title, row.platform, row.keyed);
       const inserted = db.prepare(
         `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET
@@ -335,6 +328,22 @@ export function createLocalDb(dbPath: string) {
         if (hit) return hit.id;
       }
       return null;
+    },
+
+    /**
+     * A keyless row at this (source_url, title) is a twin an older binary wrote beside the keyed
+     * one. Adopt it as the keyed row, or fold it with the row that already holds the key (the
+     * attested one survives). ingestOne calls this BEFORE it looks the item up, so the text it
+     * protects and embeds is the survivor's. No-op for an unkeyed call.
+     */
+    foldPendingTwin(sourceUrl: string | null, title: string, platform: string, keyed?: boolean): void {
+      const key = keyed ? connectorItemKey(platform, sourceUrl) : undefined;
+      if (key === undefined) return;
+      const twin = db.prepare(`SELECT id FROM decisions WHERE source_url = ? AND title = ? AND source_key IS NULL`).get(sourceUrl, title) as { id: string } | undefined;
+      if (!twin) return;
+      const holder = db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined;
+      if (holder) foldKeylessTwin(db, twin.id, holder.id, key);
+      else db.prepare(`UPDATE decisions SET source_key = ? WHERE id = ?`).run(key, twin.id);
     },
 
     /** A capture of a URL a connector already imported: audit it, change nothing, return the row. */

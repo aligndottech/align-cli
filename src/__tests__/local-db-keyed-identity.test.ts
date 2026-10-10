@@ -16,6 +16,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
 }));
 
+import { getEmbedding } from '../lib/local-embeddings.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { createV6Graph } from './helpers/v6-graph.js';
@@ -258,5 +259,39 @@ describe('re-review: attested keyless twin, ratification conflicts, note growth 
     v6.close();
     createLocalDb(dbPath).close();
     expect(rows('SELECT id FROM decisions')).toEqual([{ id: 'z2' }]);
+  });
+});
+
+describe('round 3', () => {
+  const U = 'https://github.com/o/r/pull/8';
+
+  it('keyed ingest folds the attested keyless twin FIRST: its text is embedded, the upstream text is noted at once', async () => {
+    const client = createLocalGatewayClient(dbPath);
+    try {
+      await client.ingestBatch([{ source_url: U, platform: 'github', title: 'Old', raw_text: 's1' }], { classify: false, keyed: true });
+      const raw = new DatabaseSync(dbPath);
+      raw.prepare(`INSERT INTO decisions (id,title,summary,source_url,platform,ratified_by,ratified_at) VALUES ('legacy','New','human-ratified text',?,'github','tom','2026-10-01T00:00:00Z')`).run(U);
+      raw.close();
+      vi.mocked(getEmbedding).mockClear();
+      await client.ingestBatch([{ source_url: U, platform: 'github', title: 'New', raw_text: 'upstream text' }], { classify: false, keyed: true });
+      const texts = vi.mocked(getEmbedding).mock.calls.map(c => c[0]);
+      expect(texts).toEqual(['New. human-ratified text']); // never the upstream text
+      expect(rows('SELECT id, summary FROM decisions')).toEqual([{ id: 'legacy', summary: 'human-ratified text' }]);
+      const notes = rows(`SELECT detail FROM decision_audit WHERE action = 'text_revision_pending'`);
+      expect(notes.map(n => JSON.parse(n.detail as string))).toEqual([{ title: 'New', summary: 'upstream text' }]);
+    } finally { client.close(); }
+  });
+
+  it('a second ratifier with the SAME text as the survivor is kept as a ratification_agreed audit row', () => {
+    const v6 = createV6Graph(dbPath);
+    v6.insertDecision({ id: 'a', title: 'Use Postgres', summary: 'same', sourceUrl: PR, platform: 'github' });
+    v6.raw.prepare(`UPDATE decisions SET ratified_by = 'tom', ratified_at = '2026-01-01T00:00:00Z' WHERE id = 'a'`).run();
+    v6.insertDecision({ id: 'b', title: 'Use Postgres', summary: 'same', sourceUrl: `${PR}/`, platform: 'github' });
+    v6.raw.prepare(`UPDATE decisions SET ratified_by = 'dan', ratified_at = '2026-02-01T00:00:00Z' WHERE id = 'b'`).run();
+    v6.close();
+    createLocalDb(dbPath).close();
+    expect(rows(`SELECT detail FROM decision_audit WHERE action = 'ratification_agreed'`).map(r => JSON.parse(r.detail as string)))
+      .toEqual([{ by: 'dan', at: '2026-02-01T00:00:00Z' }]);
+    expect(rows(`SELECT count(*) AS n FROM decision_audit WHERE action = 'ratification_conflict'`)).toEqual([{ n: 0 }]);
   });
 });
