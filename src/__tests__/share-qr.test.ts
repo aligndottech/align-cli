@@ -3,6 +3,8 @@ import { MAX_LINK_LENGTH } from '../lib/share/approve-link.js';
 import { qrStyleFor, renderQr } from '../lib/share/qr.js';
 import { decodeMatrix, eccCodeOf, matrixOf, parseLines } from './helpers/qr-decode.js';
 
+const ESC = '\u001b';
+const SGR = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
 const ID = '123e4567-e89b-42d3-a456-426614174000';
 const KEYS = ['A'.repeat(43), `${'Zy0_'.repeat(10)  }Q9-`, 'x7Kp2-_mN4vB8cR1tL6wE3yU5iO0aS9dF2gH4jK6lZ8'.slice(0, 43)];
 const mk = (origin: string, key: string): string => `${origin}/share/approve/${ID}#k=${key}`;
@@ -43,7 +45,7 @@ describe('renderQr: size, error correction and polarity', () => {
       const r = renderQr(link, STYLES[0]!);
       expect(r.version).toBeLessThanOrEqual(10);
       expect(r.columns).toBeLessThanOrEqual(60);
-      for (const l of r.lines) expect(l.replace(/\u001b\[[0-9;]*m/g, '').length).toBe(r.columns);
+      for (const l of r.lines) expect(l.replace(SGR, '').length).toBe(r.columns);
     }
   });
   it('half-block output is about half as tall as it is wide', () => {
@@ -62,14 +64,15 @@ describe('renderQr: size, error correction and polarity', () => {
   });
   it('colour output carries its own black and white, so it scans on a dark and a light terminal alike', () => {
     const { lines } = renderQr(typical, STYLES[0]!);
-    expect(lines.join('')).toMatch(/\u001b\[38;5;16;48;5;231m|\u001b\[38;5;231;48;5;16m|\u001b\[38;5;16;48;5;16m|\u001b\[38;5;231;48;5;231m/);
-    for (const l of lines) expect(l.endsWith('\u001b[0m')).toBe(true);
-    // the top and bottom quiet-zone rows are white, not "whatever the terminal background is"
-    expect(lines[0]!.replace(/\u001b\[0m$/, '').split('▀').every((s) => s === '' || /^\u001b\[38;5;231;48;5;231m$|^$/.test(s) || /38;5;231;48;5;231/.test(s))).toBe(true);
+    const codes = new Set(lines.join('').match(SGR));
+    for (const c of codes) expect(c === `${ESC}[0m` || new RegExp(`^${ESC}\\[38;5;(16|231);48;5;(16|231)m$`).test(c), JSON.stringify(c)).toBe(true);
+    for (const l of lines) expect(l.endsWith(`${ESC}[0m`)).toBe(true);
+    // the top quiet-zone row is white on white, not "whatever the terminal background is"
+    expect(new Set(lines[0]!.match(SGR))).toEqual(new Set([`${ESC}[38;5;231;48;5;231m`, `${ESC}[0m`]));
   });
   it('uses no Unicode at all in the ascii style', () => {
     for (const l of renderQr(typical, { color: false, unicode: false }).lines) expect(l).toMatch(/^[ #]+$/);
-    for (const l of renderQr(typical, { color: true, unicode: false }).lines) expect(l.replace(/\u001b\[[0-9;]*m/g, '')).toMatch(/^ +$/);
+    for (const l of renderQr(typical, { color: true, unicode: false }).lines) expect(l.replace(SGR, '')).toMatch(/^ +$/);
   });
 });
 
