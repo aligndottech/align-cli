@@ -118,6 +118,11 @@ align ai                      Choose the AI model `align ask` writes terminal an
 align capture <url>           Capture a decision from a URL (Slack/Jira/GitHub/Confluence/etc.)
                               flags: --env
 
+# Bring connected sources up to date in your local graph
+
+align sync [sources]          Bring connected sources up to date in your local graph (reads only, no AI calls)
+                              flags: --status --classify --max --yes --background --delay
+
 # Removed in 0.40.0 - use align connect
 
 align import [args]           removed in 0.40.0 - use align connect
@@ -191,6 +196,7 @@ align local start             Initialize local decision graph
 align local status            Show local graph statistics
 align local forget [connector]
                               Remove saved read-only tokens (all, or one named connector)
+                              flags: --purge
 align local reset             Wipe local graph and reset config
 ```
 <!-- commands:end -->

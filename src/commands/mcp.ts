@@ -15,6 +15,7 @@ import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { inviteNudgeLine } from '../lib/invite-prompt.js';
 import { renderMcpInstructions } from '../lib/mcp-instructions.shared.js';
 import { BACKFILL_TOOL, BACKFILL_TOOL_SCHEMA, runBackfill } from '../lib/mcp-backfill.js';
+import { runSyncTool, SYNC_TOOL, SYNC_TOOL_SCHEMA } from '../lib/mcp-sync.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
 import {
   createAsOfGuard,
@@ -79,7 +80,10 @@ const CLOUD_ONLY_LINES = [
  * a tool the cloud server cannot serve would be a guaranteed-fail instruction (see above).
  */
 const LOCAL_ONLY_LINES = [
-  `- When the user wants older history from a source they connected (say, the last year of PRs), call ${BACKFILL_TOOL}. It never takes a token: for a source not connected it returns the align connect command for the user to run.`,
+  // ONE line for both tools: the 2048-byte budget below is spent to within a byte by the shared lines and the
+  // graph identity, which are mirrored byte for byte in align-stack and cannot be cut here. The detail lives in
+  // each tool's own description.
+  `- For a graph that looks stale, or older history from sources the user connected, call ${SYNC_TOOL} (status, run) or ${BACKFILL_TOOL}. Neither takes a token; each returns the align connect command for the user.`,
 ];
 
 /**
@@ -215,7 +219,7 @@ export async function dispatchTool(
   // that does. Scoped to decisions on purpose: align_check_drift and align_check_alignment stay
   // available, and both send the cutoff so the gateway records no check event or drift row for
   // them (ALI-1429, ALI-1438).
-  if (createdBefore && (name === 'align_capture' || name === BACKFILL_TOOL)) {
+  if (createdBefore && (name === 'align_capture' || name === BACKFILL_TOOL || (name === SYNC_TOOL && args?.['action'] === 'run'))) {
     throw new Error(
       name === 'align_capture'
         ? `align_capture adds a decision to the graph, and this server is frozen as of ${createdBefore}, ` +
@@ -274,6 +278,9 @@ export async function dispatchTool(
     // L3: never classifies and never takes a credential; the child it starts is `align connect`.
     case BACKFILL_TOOL:
       return runBackfill(args, env);
+    // L5: never classifies and never takes a credential; `run` starts `align sync --background`.
+    case SYNC_TOOL:
+      return runSyncTool(args, env);
     case 'align_check_alignment': {
       // ALI-1420: the gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
       // gateway that predates the parameter. No cutoff keeps the two-argument call.
@@ -580,8 +587,9 @@ export const TOOL_SCHEMAS = [
       required: ['decision_id'],
     },
   },
-  // L3: appended, so the ranking an agent reads off tools/list (the check first) is unchanged.
+  // L3 and L5: appended, so the ranking an agent reads off tools/list (the check first) is unchanged.
   BACKFILL_TOOL_SCHEMA,
+  SYNC_TOOL_SCHEMA,
 ];
 
 /**

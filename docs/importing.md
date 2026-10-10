@@ -66,13 +66,51 @@ a window and lifts the scan bound to the ceiling.
 
 GitHub reads items first, then fetches comments and reviews for as many as 600 requests allow,
 newest first. The report says how many got their discussion ("discussion fetched for 188 of 312");
-the rest stay without it until `align sync` exists. Inside a repo, on your local graph, it reads
+the rest stay without it until `align sync` reads them (a later run continues where the last one
+stopped, 600 requests at a time). Inside a repo, on your local graph, it reads
 everyone's pull requests and issues in that repo, as far as your token can see, and the report says
 so; elsewhere, only yours.
 
 From inside a coding agent, `align_backfill` does the same for a source you already connected. It
 never takes a token: for a source that is not connected it hands back the `align connect` command
 for you to run. At most one backfill per source and three at once run at a time.
+
+## Keeping it up to date: `align sync`
+
+```bash
+align sync              # every connected source except Teams
+align sync github jira  # just these
+align sync --status     # what is connected, when it last synced, what is waiting
+```
+
+A sync reads only what changed since the last one (it starts a day before the last complete read,
+so a late edit is not missed) and stores it the same way a connect does. It reads, it never writes
+to a source, and it makes no AI calls. Specifically:
+
+- **It never moves its bookmark past data it did not read.** A read that a ceiling or time budget
+  cut short says so, keeps where it got to, and the next sync finishes the older part before it
+  moves on.
+- **GitHub comments and reviews** arrive over several runs, newest first, 600 requests a run.
+- **A refused token is recorded, never deleted.** The source shows as needing you to reconnect
+  (`align connect <source>`), and a successful reconnect clears it. Nothing here asks for a token.
+- **Slack replies to older threads** are picked up for threads that had a reply in the last 30 days.
+- **Teams is manual** (its token lasts about an hour): `align sync teams`, or `align connect teams`.
+- One sync per source at a time, across terminals and agents. A second one says "already syncing".
+- Stored items that never finished linking (all of them after an upgrade) are finished locally
+  on the first sync, with no network and no AI calls.
+
+Typing the relationships between imported items takes your own AI key, so it is always your call:
+
+```bash
+align sync --classify --max 25    # shows "up to 75 LLM calls on your <provider> key", then asks
+```
+
+From inside a coding agent, `align_sync` can show the status, start the same background refresh
+and estimate the classification cost. It cannot classify, and it never takes a token.
+
+`align local forget <source>` drops the token and the source's sync state and leaves what it
+imported. Add `--purge` to delete the imported items too; items you ratified, confirmed, acted on
+or judged are kept, and the line tells you how many were deleted and kept.
 
 ## Git
 
