@@ -30,10 +30,13 @@ export interface IngestOptions {
   /** L2: the call is a connector import, so a one-item-per-URL item gets a source_key.
    *  Omitted (capture, MCP align_capture, sessions) never keys, whatever the platform. */
   keyed?: boolean;
+  /** L3: the item's discussion has not been fetched yet (GitHub items-first). Stored, never inferred. */
+  detailPending?: boolean;
 }
 
 export interface LocalBatchItem {
   source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string;
+  detail_pending?: boolean;
 }
 
 /** `classify`: see IngestOptions. `deferEnrichment` is the cloud gateway's option and is

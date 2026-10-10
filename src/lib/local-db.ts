@@ -140,6 +140,10 @@ const DECISION_COLUMNS =
 /** A person's ratification or confirmation covers the text they read (review finding 4). */
 const ATTESTED = 'decisions.ratified_at IS NOT NULL OR decisions.confirmed_at IS NOT NULL';
 
+/** L3: an items-first arrival (excluded.detail_pending) onto a row that already holds its
+ *  discussion (decisions.detail_pending = 0) carries LESS text than the row. Keep the row. */
+const KEEP_RICHER = '(excluded.detail_pending = 1 AND decisions.detail_pending = 0)';
+
 export function createLocalDb(dbPath: string) {
   // SQLite creates the DB file but not its parent directory, so on a clean machine
   // (~/.config/align-cli absent) `align setup --local` crashed with "unable to open
@@ -213,6 +217,10 @@ export function createLocalDb(dbPath: string) {
        *  so an edited title updates the row. Never inferred from the platform: `align capture
        *  <PR url>` stamps `github` too, and must not merge with the imported item. */
       keyed?: boolean;
+      /** L3: the item arrived items-first (GitHub `discussion: 'none'`): its discussion has not
+       *  been fetched. Stored in `detail_pending` so the later drain can find it. A pending
+       *  arrival never downgrades a row whose discussion is already stored (see the upsert). */
+      detailPending?: boolean;
     }): string {
       // L2: a one-item-per-URL connector item upserts on its source_key, and that branch takes
       // the new title, so an edited PR title updates the row instead of adding a twin. Every
@@ -224,13 +232,14 @@ export function createLocalDb(dbPath: string) {
       const key = (row.keyed ? connectorItemKey(row.platform, sourceUrl) : undefined) ?? null;
       api.foldPendingTwin(sourceUrl, row.title, row.platform, row.keyed);
       const inserted = db.prepare(
-        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key, detail_pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET
-           title = CASE WHEN ${ATTESTED} THEN decisions.title ELSE excluded.title END,
-           summary = CASE WHEN ${ATTESTED} THEN decisions.summary ELSE excluded.summary END,
+           title = CASE WHEN ${ATTESTED} OR ${KEEP_RICHER} THEN decisions.title ELSE excluded.title END,
+           summary = CASE WHEN ${ATTESTED} OR ${KEEP_RICHER} THEN decisions.summary ELSE excluded.summary END,
            platform = excluded.platform,
            repo = COALESCE(excluded.repo, decisions.repo),
            decided_at = COALESCE(excluded.decided_at, decisions.decided_at),
+           detail_pending = CASE WHEN ${KEEP_RICHER} THEN 0 ELSE excluded.detail_pending END,
            enriched_at = CASE WHEN ${ATTESTED} THEN decisions.enriched_at ELSE NULL END
          ON CONFLICT(source_url, title) DO UPDATE SET
            summary = excluded.summary, platform = excluded.platform,
@@ -250,6 +259,7 @@ export function createLocalDb(dbPath: string) {
         row.decidedAt || null,
         row.deciderKind ?? null,
         key,
+        row.detailPending ? 1 : 0,
       ) as { id: string };
       return inserted.id;
     },

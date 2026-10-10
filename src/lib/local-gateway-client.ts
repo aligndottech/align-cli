@@ -363,7 +363,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     const embedding = await getEmbedding(embedText);
     // ALI-831: origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
-    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind, keyed: opts.keyed });
+    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind, keyed: opts.keyed, detailPending: opts.detailPending });
     db.replaceRefs(id, refs);
     // ALI-796's payoff: if some earlier decision already cited THIS one (a git commit
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
@@ -464,8 +464,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           titleOverride: item.title,
           sourceUrlOverride: item.source_url ?? null,
           createdAt: item.created_at,
-          classify: opts.classify,
-          keyed: opts.keyed,
+          classify: opts.classify, keyed: opts.keyed, detailPending: item.detail_pending,
         });
         snapshots.push({
           id: r.id,
