@@ -131,7 +131,7 @@ const HOW_NO_QR = 'To open it: open the link above on any device where you are s
 export async function presentLink(url: string, d: PresentDeps): Promise<void> {
   const check = checkApproveLink(url, d.appUrl);
   if (!check.ok) {
-    d.out('This link does not have the shape of an Align approval link, so it was not opened and no QR code was made. Check it before you open it.');
+    d.out('This link is not in the expected form, so it was not opened and no QR code was made. If you trust this server, copy the link yourself.');
     return;
   }
   const showQr = (): boolean => {

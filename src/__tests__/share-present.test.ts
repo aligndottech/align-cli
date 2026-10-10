@@ -51,7 +51,7 @@ describe('presentLink', () => {
       const r = rig(plan({ open: true, qr: true }));
       await presentLink(bad, r.deps);
       expect(r.opened).toEqual([]); expect(r.raw).toEqual([]);
-      expect(r.out.join('\n')).toContain('does not have the shape');
+      expect(r.out.join('\n')).toBe('This link is not in the expected form, so it was not opened and no QR code was made. If you trust this server, copy the link yourself.');
     }
   });
   it('a terminal narrower than the QR gets a sentence, not a wrapped code; a wide enough one gets the code', async () => {

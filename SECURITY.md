@@ -81,8 +81,10 @@ reading the content on the page defends against a request you did not mean to ma
 you. On a remote machine, scan the QR code it prints with your phone; approving on a phone with Face ID or a
 fingerprint is the strongest way. The link is not a secret from the agent that ran the command, and the QR code is
 the same link, so neither is a lock. Before the link reaches a browser launcher, the CLI checks the whole string
-against one exact shape (https, the configured app's host, `/share/approve/<id>`, a 43-character key in the
-fragment) and starts the launcher with an argument list, never a shell string. On Linux and macOS the launcher's command
+against one exact shape (https, the app's host, `/share/approve/<id>`, a 43-character key in the
+fragment) and starts the launcher with an argument list, never a shell string. That is a shape check, not a check of
+where the link goes: the host is whatever your configuration says. A self-host whose link has a path prefix, or uses
+plain http on a non-local host, fails the check; the CLI then prints the link without opening it or drawing a code. On Linux and macOS the launcher's command
 line holds the whole link, key included, while it runs, so another local user could read it with `ps`; the key alone
 cannot approve anything (that needs your signed-in session and, where enabled, your passkey). Use `--no-open` and the QR
 code if that matters on a shared machine.

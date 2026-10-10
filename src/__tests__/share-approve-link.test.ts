@@ -48,6 +48,21 @@ describe('checkApproveLink: the one gate between a link and a shell, a spawn or 
       expect(checkApproveLink(link(APP, ID, `${'A'.repeat(42)}${bad}`), APP).ok, JSON.stringify(bad)).toBe(false);
     }
   });
+  it('is case-sensitive for the fixed parts (scheme, /share/approve/, #k=) and case-insensitive for the host', () => {
+    expect(checkApproveLink(`${APP}/SHARE/APPROVE/${ID}#k=${KEY}`, APP).ok).toBe(false);
+    expect(checkApproveLink(`${APP}/Share/approve/${ID}#k=${KEY}`, APP).ok).toBe(false);
+    expect(checkApproveLink(`${APP}/share/approve/${ID}#K=${KEY}`, APP).ok).toBe(false);
+    expect(checkApproveLink(`HTTPS://app.align.test/share/approve/${ID}#k=${KEY}`, APP).ok).toBe(false);
+    expect(checkApproveLink(link('https://APP.Align.Test'), APP).ok).toBe(true);
+    expect(checkApproveLink(link(APP), 'https://APP.align.TEST').ok).toBe(true);
+    expect(checkApproveLink(link(APP, ID.toUpperCase()), APP).ok).toBe(true);
+  });
+  it('still refuses a self-host with a path prefix or plain http on a LAN host (it fails closed; the message tells them what to do)', () => {
+    for (const [l, app] of [[link('http://lan-box'), 'http://lan-box'], [`https://example.org/align/share/approve/${ID}#k=${KEY}`, 'https://example.org/align']] as const) {
+      const r = checkApproveLink(l, app);
+      expect(r.ok).toBe(false);
+    }
+  });
   it('refuses a configured app URL that is itself odd, whatever the link says', () => {
     for (const odd of ['https://app.align.test;calc', 'https://app.align.test/ x', 'not a url', 'https://u@app.align.test', 'https://app.align.test"']) {
       expect(checkApproveLink(link(odd), odd).ok, odd).toBe(false);

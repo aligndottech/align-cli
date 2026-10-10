@@ -522,6 +522,6 @@ describe('delivery of the approval link (QR, open, narrow terminal)', () => {
     f.deps.approval.plan = { open: true, qr: true, qrIfOpenFails: true, why: 't' }; f.deps.approval.qr = qr;
     f.deps.approval.appUrl = 'https://app.align.test"; calc; "';
     expect(await run(f, { ids: [id] })).toBe(0);
-    expect(f.opened).toEqual([]); expect(say(f)).not.toContain('Scan this'); expect(say(f)).toMatch(/does not have the shape/);
+    expect(f.opened).toEqual([]); expect(say(f)).not.toContain('Scan this'); expect(say(f)).toMatch(/not in the expected form/);
   });
 });

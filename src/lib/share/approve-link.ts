@@ -11,15 +11,20 @@
  * query, no extra path, no whitespace or control characters, and a length cap. A string that passes contains none of
  * the characters a shell, a PowerShell string or an argv parser treats specially. Callers must still pass it as an
  * argument vector and never build a shell string from it; this is the second belt, not the first.
+ *
+ * WHAT THIS IS NOT. It is a SHAPE check, not a destination control. The link is built from the configured app URL and
+ * then compared with that same app URL, so the host check only catches a link that was altered after it was built. Where
+ * the link points is whatever the configuration (gateway URL, ALIGN_GATEWAY_URL) says. Only the host is
+ * case-insensitive; the scheme, the path and `#k=` must be exactly as written.
  */
 export type LinkCheck = { ok: true; url: string } | { ok: false; reason: string };
 
 export const MAX_LINK_LENGTH = 220;
-const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const HOST = '(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*';
+const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+const HOST = '(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*';
 const AUTHORITY = `(?:${HOST}|\\[::1\\])(?::[0-9]{1,5})?`;
-const LINK_RE = new RegExp(`^(https?)://(${AUTHORITY})/share/approve/(${UUID})#k=([A-Za-z0-9_-]{43})$`, 'i');
-const APP_RE = new RegExp(`^(https?)://(${AUTHORITY})/*$`, 'i');
+const LINK_RE = new RegExp(`^(https?)://(${AUTHORITY})/share/approve/(${UUID})#k=([A-Za-z0-9_-]{43})$`);
+const APP_RE = new RegExp(`^(https?)://(${AUTHORITY})/*$`);
 
 const isLocalHost = (authority: string): boolean => /^(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?$/i.test(authority);
 const refuse = (reason: string): LinkCheck => ({ ok: false, reason });
@@ -32,7 +37,7 @@ export function checkApproveLink(url: string, appUrl: string): LinkCheck {
   const m = LINK_RE.exec(url);
   if (!m) return refuse('not the shape of an approval link');
   const [, scheme, authority] = m as unknown as [string, string, string];
-  if (scheme.toLowerCase() === 'http' && !isLocalHost(authority)) return refuse('http is only for a localhost app');
+  if (scheme === 'http' && !isLocalHost(authority)) return refuse('http is only for a localhost app');
   if (`${scheme}://${authority}`.toLowerCase() !== `${app[1]}://${app[2]}`.toLowerCase()) return refuse('not the configured app');
   return { ok: true, url };
 }
