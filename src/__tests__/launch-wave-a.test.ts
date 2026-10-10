@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runUse, type UseDeps } from '../commands/use.js';
 import { supportedAgents } from '../lib/launch/agents.js';
-import { geminiCopyName } from '../lib/launch/gemini-state.js';
 import { type LaunchDeps, launchIfChosen } from '../lib/launch/launch.js';
 import { pickAgent } from '../lib/launch/pick-agent.js';
 import { AGENT_REGISTRY } from '../lib/launch/registry/index.js';
@@ -38,7 +37,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
     readPiState: () => ({ projectHasExtension: false, projectHasMcp: false, projectHasBlock: false, mcpAdapterInstalled: true, mcpFile: '/home/u/.pi/agent/mcp.json' }),
     readCursorState: () => ({ projectHasMcp: false, mcpFile: '/home/u/.cursor/mcp.json' }),
     readCodexState: () => ({ present: false, overridden: [] }),
-    readGeminiState: () => ({ present: false, overridden: [], systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'untrusted' }),
+    readGeminiState: () => ({ present: false, settingsFile: '/home/u/.gemini/settings.json', trust: 'untrusted' }),
     readCopilotState: () => ({ present: false, overridden: [] }),
     pruneLaunchFiles: (_d, prefix, opts) => { pruned.push({ prefix, keep: opts.keep, remove: opts.remove }); },
     applyConfigWrite: vi.fn(),
@@ -139,22 +138,23 @@ describe('wave A: each launches with Align wired in', () => {
     expect(args[0]).toBe('-c');
     expect(args.slice(-2)).toEqual(['resume', '--last']);
   });
-  it('gemini: writes the merged system copy 0600, points the env at it, and the trust line goes to stderr', async () => {
-    const h = harness({ stored: 'gemini-cli', onPath: ['gemini'] });
+  it('gemini: adds align-local once to the user settings, sets no system-tier env, and the trust line goes to stderr', async () => {
+    const applyConfigWrite = vi.fn();
+    const h = harness({ stored: 'gemini-cli', onPath: ['gemini'], applyConfigWrite });
     await launchIfChosen(h.deps);
-    const name = geminiCopyName('/etc/gemini-cli/settings.json');
-    expect(h.written.map(([n]) => n)).toEqual([name]);
-    expect(h.modes[name]).toBe(0o600);
-    expect(h.runAgent.mock.calls[0]![0].env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']).toBe(`/cache/${name}`);
+    expect(h.written).toEqual([]);
+    expect(applyConfigWrite).toHaveBeenCalledOnce();
+    expect(applyConfigWrite.mock.calls[0]![0]).toMatchObject({ kind: 'mcp-entry', file: '/home/u/.gemini/settings.json', name: 'align-local', root: '/home/u' });
+    const env = h.runAgent.mock.calls[0]![0].env;
+    expect(Object.keys(env).filter((k) => k.startsWith('GEMINI_'))).toEqual([]);
     expect(h.err.some((l) => l.includes('Trust this folder in Gemini'))).toBe(true);
   });
-  it('gemini: keeps (and refreshes) this source\'s copy when injecting; removes only it when not', async () => {
-    const h = harness({ stored: 'gemini-cli', onPath: ['gemini'], readGeminiState: () => ({ present: true, overridden: [], systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'trusted' }) });
+  it('gemini: already present -> no write; the old system-settings copies are always aged out', async () => {
+    const applyConfigWrite = vi.fn();
+    const h = harness({ stored: 'gemini-cli', onPath: ['gemini'], applyConfigWrite, readGeminiState: () => ({ present: true, settingsFile: '/home/u/.gemini/settings.json', trust: 'trusted' }) });
     await launchIfChosen(h.deps);
-    expect(h.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: undefined, remove: geminiCopyName('/etc/gemini-cli/settings.json') }]);
-    const i = harness({ stored: 'gemini-cli', onPath: ['gemini'] });
-    await launchIfChosen(i.deps);
-    expect(i.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: geminiCopyName('/etc/gemini-cli/settings.json'), remove: undefined }]);
+    expect(applyConfigWrite).not.toHaveBeenCalled();
+    expect(h.pruned).toEqual([{ prefix: 'gemini-system-settings-', keep: undefined, remove: undefined }]);
   });
   it('copilot: writes its launch file and passes it with @', async () => {
     const h = harness({ stored: 'copilot', onPath: ['copilot'] });

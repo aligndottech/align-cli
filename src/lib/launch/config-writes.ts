@@ -21,6 +21,8 @@ export interface ConfigWrite {
   root?: string;
   /** One extra line after the first write (what the user has to do next). */
   hint?: string;
+  /** JSON only: the tail of the invalid-JSON message, for a file whose agent reads more than strict JSON (Gemini's settings take comments). */
+  invalidJsonAdvice?: string;
 }
 
 /**
@@ -54,7 +56,7 @@ export function applyConfigWrite(w: ConfigWrite, note: (line: string) => void, m
       if (w.name in servers) return undefined;
       return { ...cur, [w.topKey]: { ...servers, [w.name]: w.entry } };
     },
-    { ...opts, trailingNewline: true },
+    { ...opts, trailingNewline: true, ...(w.invalidJsonAdvice ? { invalidJsonAdvice: w.invalidJsonAdvice } : {}) },
   );
   if (status === 'symlink') memo?.add(w.file);
   else if (quiet) memo?.remove(w.file);
