@@ -109,7 +109,7 @@ describe('L2 schema bump on a v6 file', () => {
     try {
       const keys = Object.fromEntries((db.prepare('SELECT id, source_key FROM decisions').all() as Array<{ id: string; source_key: string | null }>)
         .map(r => [r.id, r.source_key]));
-      expect(keys).toEqual({ pr: 'https://github.com/o/r/pull/9', ses: null });
+      expect(keys).toEqual({ pr: 'github|https://github.com/o/r/pull/9', ses: null });
     } finally { db.close(); }
   });
 });

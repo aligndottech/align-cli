@@ -1,90 +1,69 @@
-// L2: the identity of a connector item that is exactly one thing per URL (a PR, an issue, a
-// page, a thread, a meeting, a commit). Two rows with the same key are the same item under an
-// edited title, which the (source_url, title) key cannot see.
-//
-// Until connector-core 0.10.0 publishes the shared normaliser and its fixture table (S1), this
-// is the local copy, and these rows are its fixture table. Two cases per rule, on both sides.
+// L2: the identity of a connector item that is exactly one thing per URL. Two readers of one
+// format must agree, so the SDK's published fixture table (copied into fixtures/, header
+// names its origin) is run against the local copy: drift in either fails here.
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { normaliseSourceKey } from '../lib/source-key.js';
+import { connectorItemKey, normaliseSourceKey } from '../lib/source-key.js';
 
-describe('normaliseSourceKey: one key per item URL', () => {
-  it.each([
-    // [platform, url, expected key]
-    ['github', 'https://github.com/o/r/pull/12', 'https://github.com/o/r/pull/12'],
-    ['github', 'https://github.com/o/r/issues/7', 'https://github.com/o/r/issues/7'],
-    ['gitlab', 'https://gitlab.com/g/p/-/merge_requests/3', 'https://gitlab.com/g/p/-/merge_requests/3'],
-    ['gitlab', 'https://gitlab.example.com/g/sub/p/-/issues/9', 'https://gitlab.example.com/g/sub/p/-/issues/9'],
-    ['jira', 'https://x.atlassian.net/browse/ALI-12', 'https://x.atlassian.net/browse/ALI-12'],
-    ['jira', 'https://jira.corp.example/browse/OPS-1', 'https://jira.corp.example/browse/OPS-1'],
-    ['linear', 'https://linear.app/align/issue/ALI-1505/title-slug', 'https://linear.app/align/issue/ALI-1505/title-slug'],
-    ['linear', 'https://linear.app/team/issue/ENG-7', 'https://linear.app/team/issue/ENG-7'],
-    ['confluence', 'https://x.atlassian.net/wiki/spaces/ENG/pages/123456/Title', 'https://x.atlassian.net/wiki/spaces/ENG/pages/123456/Title'],
-    ['confluence', 'https://x.atlassian.net/wiki/pages/viewpage.action?pageId=99&foo=1', 'https://x.atlassian.net/wiki/pages/viewpage.action?pageId=99'],
-    ['notion', 'https://www.notion.so/Design-doc-0123456789abcdef0123456789abcdef', 'https://www.notion.so/Design-doc-0123456789abcdef0123456789abcdef'],
-    ['notion', 'https://www.notion.so/ws/0123456789abcdef0123456789abcdef', 'https://www.notion.so/ws/0123456789abcdef0123456789abcdef'],
-    ['slack', 'https://slack.com/archives/C0123/p1700000000123456', 'https://slack.com/archives/C0123/p1700000000123456'],
-    ['slack', 'https://acme.slack.com/archives/C9/p1?thread_ts=1.2&cid=C9', 'https://acme.slack.com/archives/C9/p1?thread_ts=1.2'],
-    ['teams', 'https://teams.microsoft.com/l/message/19:abc@thread.tacv2/1616965872395?groupId=g', 'https://teams.microsoft.com/l/message/19:abc@thread.tacv2/1616965872395'],
-    ['teams', 'https://teams.microsoft.com/l/message/19:def@thread.skype/42', 'https://teams.microsoft.com/l/message/19:def@thread.skype/42'],
-    ['zoom', 'https://zoom.us/recording/abc%2F%2Bdef', 'https://zoom.us/recording/abc%2F%2Bdef'],
-    ['zoom', 'https://zoom.us/recording/xyz==', 'https://zoom.us/recording/xyz=='],
-    ['git', 'https://github.com/o/r/commit/0123abc', 'https://github.com/o/r/commit/0123abc'],
-    ['git', 'git://commit/0123abc', 'git://commit/0123abc'],
-  ])('%s %s', (platform, url, key) => {
-    expect(normaliseSourceKey(platform, url)).toBe(key);
+interface KeyCase { platform: string; rule: string; a: string; b?: string; same?: boolean; key: string | null; why: string }
+
+const TABLE = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'source-key-fixtures.json'), 'utf8'),
+) as { cases: KeyCase[] };
+
+describe('normaliseSourceKey: the SDK fixture table', () => {
+  it('read the table (positive control: a path typo must not pass with zero rows)', () => {
+    expect(TABLE.cases.length).toBeGreaterThan(100);
   });
 
-  it('lowercases the scheme and host, never the path', () => {
-    expect(normaliseSourceKey('github', 'HTTPS://GitHub.com/O/R/pull/12')).toBe('https://github.com/O/R/pull/12');
-    expect(normaliseSourceKey('jira', 'https://X.Atlassian.NET/browse/ALI-1')).toBe('https://x.atlassian.net/browse/ALI-1');
+  it.each(TABLE.cases.map(c => [`${c.platform}/${c.rule}: ${c.why}`, c] as const))('%s', (_name, c) => {
+    expect(normaliseSourceKey(c.platform, c.a)).toBe(c.key ?? undefined);
+    if (c.b !== undefined) {
+      expect(normaliseSourceKey(c.platform, c.a) === normaliseSourceKey(c.platform, c.b)).toBe(c.same);
+    }
   });
 
-  it('drops a trailing slash and a fragment', () => {
-    expect(normaliseSourceKey('github', 'https://github.com/o/r/pull/12/')).toBe('https://github.com/o/r/pull/12');
-    expect(normaliseSourceKey('github', 'https://github.com/o/r/pull/12#issuecomment-1')).toBe('https://github.com/o/r/pull/12');
-  });
-
-  it('drops the query unless the platform needs a parameter of it', () => {
-    expect(normaliseSourceKey('github', 'https://github.com/o/r/issues/7?utm=x')).toBe('https://github.com/o/r/issues/7');
-    expect(normaliseSourceKey('jira', 'https://x.atlassian.net/browse/ALI-1?focusedCommentId=3')).toBe('https://x.atlassian.net/browse/ALI-1');
+  it('a Notion database peek keys on the peeked page, never the database', () => {
+    const db = '0123456789abcdef0123456789abcdef';
+    const page = 'fedcba9876543210fedcba9876543210';
+    expect(normaliseSourceKey('notion', `https://www.notion.so/acme/db${db.slice(2)}?v=1&p=${page}`)).toBe(`https://www.notion.so/${page}`);
   });
 });
 
-describe('normaliseSourceKey: no key where the URL may hold more than one decision', () => {
-  it.each([
-    // Sessions and manual captures hold several decisions under one transcript URL.
-    ['agent-session', 'https://github.com/o/r/pull/12'],
-    ['cli', 'https://github.com/o/r/pull/12'],
-    // A docs file holds several sections.
-    ['docs', 'https://github.com/o/r/blob/main/docs/adr/0001.md'],
-    ['code', 'https://github.com/o/r/pull/12'],
-  ])('platform %s', (platform, url) => {
-    expect(normaliseSourceKey(platform, url)).toBeUndefined();
+describe('connectorItemKey: local policy on top of the shared format', () => {
+  it('namespaces the key by platform, so a git commit and a github row for the same URL never share one', () => {
+    const u = 'https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567';
+    expect(connectorItemKey('git', u)).toBe(`git|${u}`);
+    expect(connectorItemKey('github', u)).toBe(`github|${u}`);
+    expect(connectorItemKey('git', u)).not.toBe(connectorItemKey('github', u));
   });
 
   it.each([
-    // A fetcher fallback that names a site, not an item: keying on it would merge every
-    // item that fell back into one row.
-    ['confluence', 'https://x.atlassian.net/wiki'],
+    ['github', 'https://github.com/o/r/pull/12', 'github|https://github.com/o/r/pull/12'],
+    ['github', 'https://github.com/O/R/pull/12#issuecomment-1', 'github|https://github.com/o/r/pull/12'],
+    ['linear', 'https://linear.app/align/issue/ALI-1505/title-slug', 'linear|https://linear.app/align/issue/ALI-1505'],
+    ['jira', 'https://x.atlassian.net/browse/ALI-12', 'jira|https://x.atlassian.net/browse/ALI-12'],
+    ['confluence', 'https://x.atlassian.net/wiki/spaces/ENG/pages/123456/Title', 'confluence|https://x.atlassian.net/wiki/pages/123456'],
+    ['slack', 'https://acme.slack.com/archives/C9/p1700000000123456', 'slack|https://slack.com/archives/C9/p1700000000123456'],
+    ['git', 'git://commit/0123abc', 'git|git://commit/0123abc'],
+  ])('%s %s', (platform, url, key) => {
+    expect(connectorItemKey(platform, url)).toBe(key);
+  });
+
+  it.each([
+    ['agent-session', 'https://github.com/o/r/pull/12'],
+    ['cli', 'https://github.com/o/r/pull/12'],
+    ['docs', 'https://github.com/o/r/blob/main/docs/adr/0001.md'],
     ['confluence', 'https://x.atlassian.net/wiki/spaces/ENG'],
     ['teams', 'https://teams.microsoft.com'],
     ['teams', 'https://teams.microsoft.com/l/channel/19:abc'],
-    ['github', 'https://github.com/o/r'],
     ['github', 'https://github.com/o/r/pulls'],
-    ['jira', 'https://x.atlassian.net/browse/'],
     ['slack', 'https://slack.com/archives/C0123'],
-    ['notion', 'https://www.notion.so/'],
-    ['linear', 'https://linear.app/align'],
-    ['zoom', 'https://zoom.us/'],
-    ['git', 'https://github.com/o/r'],
-  ])('%s %s is not an item URL', (platform, url) => {
-    expect(normaliseSourceKey(platform, url)).toBeUndefined();
-  });
-
-  it('returns undefined for a missing or unparseable URL', () => {
-    expect(normaliseSourceKey('github', null)).toBeUndefined();
-    expect(normaliseSourceKey('github', '')).toBeUndefined();
-    expect(normaliseSourceKey('github', 'not a url')).toBeUndefined();
+    ['jira', 'https://api.atlassian.com/ex/jira/cloud-id/browse/ALI-1'],
+  ])('%s %s is not an item URL: no key', (platform, url) => {
+    expect(connectorItemKey(platform, url)).toBeUndefined();
   });
 });

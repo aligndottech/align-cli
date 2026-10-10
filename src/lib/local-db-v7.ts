@@ -31,7 +31,7 @@
  * computed only where NULL, and a second pass finds no group of twins left to merge.
  */
 import type { DatabaseSync } from 'node:sqlite';
-import { normaliseSourceKey } from './source-key.js';
+import { connectorItemKey } from './source-key.js';
 
 const V7_TABLES = `
 CREATE TABLE IF NOT EXISTS source_sync (
@@ -182,7 +182,7 @@ export function migrateV7(db: DatabaseSync): void {
     .all() as Array<{ id: string; platform: string; source_url: string }>;
   const setKey = db.prepare('UPDATE decisions SET source_key = ? WHERE id = ?');
   for (const row of unkeyed) {
-    const key = normaliseSourceKey(row.platform, row.source_url);
+    const key = connectorItemKey(row.platform, row.source_url);
     if (key !== undefined) setKey.run(key, row.id);
   }
 

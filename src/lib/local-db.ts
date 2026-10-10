@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } from './local-db-migrate.js';
 import type { DeciderKind } from './decider-kind.js';
-import { normaliseSourceKey } from './source-key.js';
+import { connectorItemKey } from './source-key.js';
 
 export interface DecisionRow {
   id: string;
@@ -227,7 +227,7 @@ export function createLocalDb(dbPath: string) {
         // date. Callers normalise, but this is the one place the column is written.
         row.decidedAt || null,
         row.deciderKind ?? null,
-        normaliseSourceKey(row.platform, sourceUrl) ?? null,
+        connectorItemKey(row.platform, sourceUrl) ?? null,
       ) as { id: string };
       return inserted.id;
     },
@@ -261,7 +261,7 @@ export function createLocalDb(dbPath: string) {
       if (identity === null) return null;
       // L2: with the platform, a one-item-per-URL item is found by its source_key, so a retitled
       // PR is recognised as the row insertDecision is about to update, not as a new one.
-      const key = platform === undefined ? undefined : normaliseSourceKey(platform, identity);
+      const key = platform === undefined ? undefined : connectorItemKey(platform, identity);
       if (key !== undefined) {
         const byKey = db.prepare(`SELECT id FROM decisions WHERE source_key = ?`).get(key) as { id: string } | undefined;
         if (byKey) return byKey.id;
