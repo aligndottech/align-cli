@@ -23,8 +23,11 @@ const ALIGN_READS = [
   'ALIGN_SUBJECT_KEY', 'ALIGN_TELEMETRY', 'ALIGN_TENANT_ID', 'ALIGN_TOKEN', 'ALIGN_WRAPPED',
 ] as const;
 
-/** Other variables align reads that choose where it sends data (local-llm.ts). */
-const OTHER_READS = ['OLLAMA_HOST', 'OLLAMA_CONTEXT_LENGTH'] as const;
+/**
+ * Other variables align reads: where it sends data (local-llm.ts), and CI (telemetry-ci.ts: a
+ * repo's CI=false would otherwise turn CI detection off, and with it telemetry's CI default).
+ */
+const OTHER_READS = ['OLLAMA_HOST', 'OLLAMA_CONTEXT_LENGTH', 'CI'] as const;
 
 /** Where Node sends traffic, and which certificates it trusts: the user's own value is kept (a corporate proxy), unless credentialed. */
 const NETWORK = [
@@ -68,6 +71,7 @@ export const CHILD_ENV_NOT_PINNED: Record<string, string> = {
   COLORFGBG: 'output colour only',
   DO_NOT_TRACK: 'can only turn telemetry off',
   COPILOT_ALLOW_ALL: 'read by the launcher about Copilot, not by align mcp',
+  GEMINI_RESTRICTED_MODE: 'read by the launcher about Gemini folder trust, not by align mcp',
   ...Object.fromEntries([
     'QWEN_CODE_SYSTEM_DEFAULTS_PATH', 'QWEN_CODE_SYSTEM_SETTINGS_PATH', 'QWEN_CODE_TRUSTED_FOLDERS_PATH', 'QWEN_HOME',
     'GEMINI_CLI_SYSTEM_DEFAULTS_PATH', 'GEMINI_CLI_SYSTEM_SETTINGS_PATH', 'GEMINI_CLI_TRUST_WORKSPACE', 'GEMINI_CLI_TRUSTED_FOLDERS_PATH', 'GEMINI_CLI_HOME',

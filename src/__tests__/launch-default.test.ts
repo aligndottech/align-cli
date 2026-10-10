@@ -28,7 +28,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     readPiState: () => ({ projectHasExtension: false, projectHasMcp: false, projectHasBlock: false, mcpAdapterInstalled: true, mcpFile: '/home/u/.pi/agent/mcp.json' }),
     readCursorState: () => ({ projectHasMcp: false, mcpFile: '/home/u/.cursor/mcp.json' }),
     readCodexState: () => ({ present: false, overridden: [] }),
-    readGeminiState: () => ({ present: false, overridden: [], systemSettings: { path: '/etc/gemini-cli/settings.json', text: null, unreadable: false }, trust: 'untrusted' }),
+    readGeminiState: () => ({ present: false, settingsFile: '/home/u/.gemini/settings.json', trust: 'untrusted' }),
     readCopilotState: () => ({ present: false, overridden: [] }),
     pruneLaunchFiles: vi.fn(),
     applyConfigWrite: vi.fn(),

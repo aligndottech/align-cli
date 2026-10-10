@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type * as McpSetup from '../lib/mcp-setup.js';
 import { Command } from 'commander';
 import { AuthExpiredError } from '../lib/errors.js';
@@ -104,6 +105,7 @@ const makeDefaultConfig = () => ({
     // the prompt fires under the forced-TTY describe block below and resolves via mockConfirm's
     // default (false) - these tests are not about telemetry consent, so nothing here asserts on it.
     getTelemetryConsent: vi.fn().mockReturnValue(undefined),
+    getTelemetryNoticeShownAt: () => undefined,
     setTelemetryConsent: vi.fn(),
     getProviderKey: mockGetProviderKey,
     setProviderKey: mockSetProviderKey,
@@ -288,6 +290,8 @@ function makeProgram(): Command {
 
 describe('align setup', () => {
   beforeEach(() => {
+    // C6: CI vars, ALIGN_WRAPPED and ALIGN_TOKEN/ALIGN_ENV change what this suite does; clear them.
+    clearTelemetryEnv();
     vi.stubGlobal('setTimeout', (fn: () => void) => { fn(); return 0; });
     vi.clearAllMocks();
     mockWhoami.mockResolvedValue({ user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } });
@@ -309,6 +313,7 @@ describe('align setup', () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('registers the setup command without throwing', () => {
@@ -1340,6 +1345,7 @@ describe('align setup', () => {
           getConnectorSiteBase: vi.fn().mockReturnValue(null),
           setConnectorSiteBase: vi.fn(),
           getTelemetryConsent: vi.fn().mockReturnValue(undefined),
+          getTelemetryNoticeShownAt: () => undefined,
           setTelemetryConsent: vi.fn(),
           getProviderKey: mockGetProviderKey,
           setProviderKey: mockSetProviderKey,
@@ -1825,6 +1831,7 @@ describe('align setup', () => {
       getConnectorSiteBase: vi.fn().mockReturnValue(null),
       setConnectorSiteBase: vi.fn(),
       getTelemetryConsent: vi.fn(() => state.consent),
+      getTelemetryNoticeShownAt: () => undefined,
       setTelemetryConsent: vi.fn((v: 'granted' | 'declined') => { state.consent = v; }),
     });
 
@@ -1855,16 +1862,6 @@ describe('align setup', () => {
       mockRecordFunnelStage.mock.calls
         .map((c, i) => ({ env: c[0] as Env, command: c[2] as string, order: mockRecordFunnelStage.mock.invocationCallOrder[i]! }))
         .filter((_, i) => mockRecordFunnelStage.mock.calls[i]![1] === stage);
-    const consentAskOrder = () => {
-      const ask = mockConfirm.mock.calls
-        .map((c, i) => ({ msg: String((c[0] as { message?: string })?.message), order: mockConfirm.mock.invocationCallOrder[i]! }))
-        .find((c) => /Help improve Align/.test(c.msg));
-      expect(ask).toBeDefined();
-      return ask!.order;
-    };
-    const consentYes = () =>
-      mockConfirm.mockImplementation(async (o: { message?: string }) => /Help improve Align/.test(String(o?.message)));
-
     it('cloud (--approve, already logged in): setup_started once at the start, setup_completed once after the outro', async () => {
       mockRecordFunnelStage.mockResolvedValue(true);
       const { outro } = await import('@clack/prompts');
@@ -1884,56 +1881,48 @@ describe('align setup', () => {
       expect(vi.mocked(outro).mock.invocationCallOrder[0]!).toBeLessThan(completed[0]!.order);
     });
 
-    it('--local: every setup_started offer carries the LOCAL env, even with a cloud token stored; one offer follows consent', async () => {
+    it('--local: every setup_started offer carries the LOCAL env, even with a cloud token stored; offers follow local init', async () => {
       // state.cloudToken is 'tok': the machine is logged in. The emitter stays "unsent"
-      // (mock default false) so the branch-top offer cannot satisfy this - only the
-      // post-consent offer can.
-      consentYes();
-
+      // (mock default false), so every offer the wizard makes is visible here.
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
 
-      const askedAt = consentAskOrder();
+      const initAt = mockInitLocalMode.mock.invocationCallOrder[0]!;
       const started = stageCalls('setup_started');
       expect(started.length).toBeGreaterThan(0);
       expect(started.every((c) => c.env.mode === 'local-embedded')).toBe(true);
-      // Positive control: the branch-top offer exists and precedes the question...
-      expect(started.some((c) => c.order < askedAt)).toBe(true);
-      // ...and exactly one buffered offer follows it.
-      expect(started.filter((c) => c.order > askedAt)).toHaveLength(1);
+      expect(started.filter((c) => c.order > initAt).length).toBeGreaterThan(0);
       const completed = stageCalls('setup_completed');
       expect(completed).toHaveLength(1);
       expect(completed[0]!.env.mode).toBe('local-embedded');
     });
 
-    // ALI-954: setup_completed is beacon-tier. The wizard's job is to OFFER it after the
-    // outro whatever the consent answer was; whether it sends is the emitter's decision
-    // (usage-telemetry-funnel.test.ts, "beacon tier"). This pins the offer survives a No.
-    it('--local, consent declined at the prompt: setup_completed is still offered after the outro', async () => {
-      mockConfirm.mockImplementation(async (o: { message?: string }) => !/Help improve Align/.test(String(o?.message)));
+    // C6: local telemetry is opt-out, disclosed by the one-time notice before the first send
+    // (cli.ts's preAction), so the wizard no longer asks. On a TTY - where it used to ask - the
+    // question is gone, the stored decision is untouched, and the wizard still completes.
+    it('--local on a TTY: no consent question is asked and no decision is stored', async () => {
+      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+
+      const asked = mockConfirm.mock.calls.some((c) => /Help improve Align|telemetry|usage/i.test(String((c[0] as { message?: string })?.message)));
+      expect(asked).toBe(false);
+      expect(state.consent).toBeUndefined();
+      expect(stageCalls('setup_completed')).toHaveLength(1);
+    });
+
+    // An existing install whose user said No to the pre-C6 prompt keeps that answer; the
+    // wizard still OFFERS setup_completed after the outro, and the emitter decides (beacon
+    // tier, usage-telemetry-funnel.test.ts).
+    it('--local with an existing decline on disk: setup_completed is still offered after the outro', async () => {
+      state.consent = 'declined';
       const { outro } = await import('@clack/prompts');
 
       await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
 
+      expect(state.consent).toBe('declined');
       const completed = stageCalls('setup_completed');
       expect(completed).toHaveLength(1);
       expect(completed[0]!.command).toBe('setup');
       expect(completed[0]!.env.mode).toBe('local-embedded');
       expect(vi.mocked(outro).mock.invocationCallOrder[0]!).toBeLessThan(completed[0]!.order);
-    });
-
-    // ALI-954: an env var that already disables everything skips the consent question - the
-    // wizard still completes, and the skipped prompt is the ONLY thing that changes.
-    it('--local under DO_NOT_TRACK=1: the consent question is not asked, the wizard still completes', async () => {
-      vi.stubEnv('DO_NOT_TRACK', '1');
-      try {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
-      } finally {
-        vi.unstubAllEnvs();
-      }
-
-      const asked = mockConfirm.mock.calls.some((c) => /Help improve Align/.test(String((c[0] as { message?: string })?.message)));
-      expect(asked).toBe(false);
-      expect(stageCalls('setup_completed')).toHaveLength(1);
     });
 
     // Copilot on #279 (second pass): a STALE stored token passes the emitter's token check,
@@ -1978,16 +1967,15 @@ describe('align setup', () => {
       expect(stageCalls('setup_started')).toHaveLength(1);
     });
 
-    it('a fresh install: setup_started offered after consent, setup_completed against the local env', async () => {
+    it('a fresh install: setup_started offered after local init, setup_completed against the local env', async () => {
       state.cloudToken = null;
-      consentYes();
 
       await makeProgram().parseAsync(['node', 'align', 'setup']);
 
       expect(mockInitLocalMode).toHaveBeenCalled();
-      const askedAt = consentAskOrder();
+      const initAt = mockInitLocalMode.mock.invocationCallOrder[0]!;
       const started = stageCalls('setup_started');
-      expect(started.filter((c) => c.order > askedAt && c.env.mode === 'local-embedded')).toHaveLength(1);
+      expect(started.filter((c) => c.order > initAt && c.env.mode === 'local-embedded').length).toBeGreaterThan(0);
       const completed = stageCalls('setup_completed');
       expect(completed).toHaveLength(1);
       expect(completed[0]!.env.mode).toBe('local-embedded');
@@ -1998,7 +1986,6 @@ describe('align setup', () => {
     // only for a team user, who starts with a token.
     it('a fresh install never offers a stage against a cloud identity', async () => {
       state.cloudToken = null;
-      consentYes();
 
       await makeProgram().parseAsync(['node', 'align', 'setup']);
 

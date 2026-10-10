@@ -153,9 +153,44 @@ export interface Layer {
  * `replaceable(entry)`: whether this launch's injection overwrites EVERY key of a non-canonical
  * align-local (Gemini: always, its system tier replaces the entry whole; Codex: only when it
  * carries nothing beyond command/args/enabled; Copilot: never known, so never).
+ *
+ * `lastWins` (Gemini, Qwen: mcpServers merges SHALLOWLY, so per server name the LAST layer that
+ * names it replaces the earlier ones whole): only the effective entry per name counts. A
+ * canonical `align` in one layer that a later layer replaces with something else is NOT present,
+ * and that later file is the conflict. Without it every layer is judged alone (the other agents,
+ * whose merge rule was not established here). `countsAsPresent` lets an agent exclude a layer
+ * from "present" while it still decides the effective entry (Qwen's unapproved workspace).
  */
-export function foldLayers(layers: Layer[], o: CanonicalOptions, replaceable: (entry: unknown) => boolean): AlignLocalState {
+export function foldLayers(
+  layers: Layer[],
+  o: CanonicalOptions,
+  replaceable: (entry: unknown) => boolean,
+  opts: { lastWins?: boolean; countsAsPresent?: (file: string) => boolean } = {},
+): AlignLocalState {
   const state: AlignLocalState = { present: false, overridden: [] };
+  if (opts.lastWins) {
+    const counts = opts.countsAsPresent ?? (() => true);
+    for (const name of ['align', 'align-local'] as const) {
+      let eff: { file: string; entry: unknown } | undefined;
+      let canonicalBefore = false;
+      for (const { file, servers } of layers) {
+        if (!isObject(servers) || !(name in servers)) continue;
+        if (eff && isCanonicalLocalEntry(eff.entry, o)) canonicalBefore = true;
+        eff = { file, entry: servers[name] };
+      }
+      if (!eff) continue;
+      if (isCanonicalLocalEntry(eff.entry, o)) {
+        if (counts(eff.file)) state.present = true;
+      } else if (name === 'align-local') {
+        if (replaceable(eff.entry)) state.overridden.push(eff.file);
+        else state.conflict ??= eff.file;
+      } else if (canonicalBefore) {
+        // A user's own `align` aimed elsewhere is normal; one that REPLACED a canonical one is not.
+        state.conflict ??= eff.file;
+      }
+    }
+    return state;
+  }
   for (const { file, servers } of layers) {
     if (!isObject(servers)) continue;
     if (isCanonicalLocalEntry(servers['align'], o)) state.present = true;

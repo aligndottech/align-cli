@@ -7,6 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 
 const getTelemetryConsent = vi.fn();
@@ -14,8 +15,10 @@ const getInstallId = vi.fn();
 const INSTALL_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
 
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
-  createConfigStore: () => ({ getTelemetryConsent, getInstallId }),
+  createConfigStore: () => ({ getTelemetryConsent, getTelemetryNoticeShownAt: () => noticeShownAt, getInstallId }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
 }));
 
@@ -46,12 +49,15 @@ function sentBody(): Record<string, unknown> {
 
 describe('recordCommandUsage - local-embedded anonymous ping', () => {
   beforeEach(() => {
+    noticeShownAt = undefined;
+    // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+    // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+    clearTelemetryEnv();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     getTelemetryConsent.mockReset();
     getInstallId.mockReset();
     getInstallId.mockReturnValue(INSTALL_ID);
-    vi.stubEnv('ALIGN_TELEMETRY', '');
   });
 
   afterEach(() => vi.unstubAllEnvs());

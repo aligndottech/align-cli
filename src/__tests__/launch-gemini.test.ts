@@ -1,137 +1,100 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildGeminiLaunch, GEMINI_TRUST_NOTE, type GeminiLaunchContext } from '../lib/launch/adapters/gemini-cli.js';
-import { geminiCopyName, readGeminiState } from '../lib/launch/gemini-state.js';
+import { geminiSystemFileRejection } from '../lib/launch/gemini-system-file.js';
+import { readGeminiState } from '../lib/launch/gemini-state.js';
 import { restorePlatform, setPlatform } from './helpers/platform.js';
 
 /*
- * Wave A Test List (+ review fixes: strict "already present", hashed 0600 copy per source,
- * stale copy removed when nothing is injected, JSONC, trust line true when headless too) (Gemini CLI 0.58.0, per session through GEMINI_CLI_SYSTEM_SETTINGS_PATH,
- * which MERGES with the user's own servers - verified with `gemini mcp list`):
- *  1. nothing present: env points at a cache copy of the system settings plus align-local
- *  2. the system file Gemini would have read (the user's var, else the platform default) is
- *     merged, never dropped; system-defaults keep coming from where they came from before
- *  3. an unusable system file -> no injection and one line saying why
- *  4. an existing local entry -> no injection
- *  5. trust: untrusted/unknown -> exactly one line; trusted/off -> none
- *  6. never --skip-trust, never GEMINI_CLI_TRUST_WORKSPACE; the user's own args pass unchanged
+ * Test List (Gemini CLI 0.63.0). The first design, a per-session GEMINI_CLI_SYSTEM_SETTINGS_PATH
+ * copy, gave Gemini NO Align graph: Gemini skips a system settings file (and system-defaults)
+ * unless the file AND every parent directory is owned by root and not group/other writable
+ * ("Security Warning: Skipping system settings file ... not owned by root"), and a launch cache
+ * under the user's home can never pass. Reproduced with the real binary; see the PR.
+ * The injection is now a written-once align-local entry in the USER settings file, by the safe
+ * writer, with `align use --undo`:
+ *  1. nothing present -> one mcp-entry write to the user settings file, no env, no flags, no files
+ *  2. NEVER the system tier: no GEMINI_CLI_SYSTEM_SETTINGS_PATH / _DEFAULTS_PATH, whatever the state
+ *  3. present (canonical align or align-local in a file Gemini loads) -> no write
+ *  4. a non-canonical align-local in a loaded file -> no write, one line naming the file
+ *  5. repo config is untrusted: a workspace file counts only when Gemini loads it (trusted folder)
+ *  6. a system file Gemini rejects is not "present"
+ *  7. trust: untrusted/unknown -> exactly one line; trusted/off -> none
+ *  8. never --skip-trust, never GEMINI_CLI_TRUST_WORKSPACE; the user's own args pass unchanged
  */
 const LOCAL = { command: 'align', args: ['mcp', '--env', 'local'] };
-const SYS = '/etc/gemini-cli/settings.json';
+const USER_FILE = '/home/u/.gemini/settings.json';
 const BASE: GeminiLaunchContext = {
   passthrough: [],
   cachePath: (n) => `/cache/${n}`,
-  env: {},
-  platform: 'linux',
   present: false,
-  overridden: [],
-  systemSettings: { path: SYS, text: null, unreadable: false },
+  settingsFile: USER_FILE,
   trust: 'trusted',
 };
 const ctx = (over: Partial<GeminiLaunchContext> = {}): GeminiLaunchContext => ({ ...BASE, ...over });
-const copyOf = (spec: ReturnType<typeof buildGeminiLaunch>) => spec.files.find((f) => f.name.startsWith('gemini-system-settings-'));
-const fileOf = (spec: ReturnType<typeof buildGeminiLaunch>) => JSON.parse(copyOf(spec)?.content ?? 'null');
-const sys = (path: string, text: string | null, unreadable = false) => ({ systemSettings: { path, text, unreadable } });
 
 describe('buildGeminiLaunch: injection', () => {
   afterAll(restorePlatform);
   beforeEach(() => setPlatform('linux'));
 
-  it('points GEMINI_CLI_SYSTEM_SETTINGS_PATH at a 0600 launch file holding align-local when nothing is present', () => {
+  it('adds align-local ONCE to the user settings file when nothing is present', () => {
     const spec = buildGeminiLaunch(ctx());
     expect(spec.bin).toBe('gemini');
-    expect(copyOf(spec)).toMatchObject({ name: geminiCopyName(SYS), mode: 0o600 });
-    expect(spec.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']).toBe(`/cache/${geminiCopyName(SYS)}`);
-    expect(fileOf(spec)).toEqual({ mcpServers: { 'align-local': LOCAL } });
-    expect(spec.env['ALIGN_WRAPPED']).toBe('1');
-    expect(spec.notes ?? []).toEqual([]);
-    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-', keep: geminiCopyName(SYS) });
-  });
-
-  it('names the copy per source: two sources never share a file, one source always reuses its own', () => {
-    expect(geminiCopyName('/opt/a/gem.json')).not.toBe(geminiCopyName('/opt/b/gem.json'));
-    expect(geminiCopyName('/opt/a/gem.json')).toBe(geminiCopyName('/opt/a/gem.json'));
-    expect(geminiCopyName('/opt/a/gem.json')).toMatch(/^gemini-system-settings-[0-9a-f]{12}\.json$/);
-  });
-
-  it('keeps system-defaults where Gemini read them before (it derives them from the settings path\'s dir)', () => {
-    expect(buildGeminiLaunch(ctx()).env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH']).toBe('/etc/gemini-cli/system-defaults.json');
-    expect(buildGeminiLaunch(ctx(sys('/opt/admin/gem.json', '{}'))).env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH']).toBe('/opt/admin/system-defaults.json');
-  });
-
-  it('leaves a GEMINI_CLI_SYSTEM_DEFAULTS_PATH the user set alone (it is inherited as is)', () => {
-    expect(buildGeminiLaunch(ctx({ env: { GEMINI_CLI_SYSTEM_DEFAULTS_PATH: '/mine/d.json' } })).env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH']).toBeUndefined();
-  });
-
-  it('merges the system file Gemini would have read, keeping every key, not just the servers', () => {
-    const theirs = { mcpServers: { mine: { command: 'mine' } }, hooks: { BeforeTool: [{ matcher: 'x' }] }, ui: { theme: 'dark' } };
-    expect(fileOf(buildGeminiLaunch(ctx(sys('/opt/admin/gem.json', JSON.stringify(theirs)))))).toEqual({ ...theirs, mcpServers: { mine: { command: 'mine' }, 'align-local': LOCAL } });
-  });
-
-  it('reads a system file with comments the way Gemini does', () => {
-    const text = '// admin\n{ "mcpServers": { /* ours */ "mine": { "command": "mine" } } }';
-    expect(fileOf(buildGeminiLaunch(ctx(sys('/x.json', text)))).mcpServers).toEqual({ mine: { command: 'mine' }, 'align-local': LOCAL });
-  });
-
-  it('never touches a server named align in that file', () => {
-    const theirs = { mcpServers: { align: { command: 'align', args: ['mcp', '--env', 'prod'] } } };
-    const spec = buildGeminiLaunch(ctx(sys('/x.json', JSON.stringify(theirs))));
-    expect(fileOf(spec).mcpServers.align).toEqual(theirs.mcpServers.align);
-    expect(Object.keys(fileOf(spec).mcpServers).sort()).toEqual(['align', 'align-local']);
-  });
-
-  it.each([
-    ['invalid JSON', '{not json'],
-    ['a non-object', '[1]'],
-    ['mcpServers of the wrong type', '{"mcpServers":[]}'],
-  ])('an unusable system file (%s): no injection, one line naming the file, and the stale copy is removed', (_l, text) => {
-    const spec = buildGeminiLaunch(ctx(sys('/opt/admin/gem.json', text)));
-    const COPY = geminiCopyName('/opt/admin/gem.json');
-    expect(spec.env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']).toBeUndefined();
-    expect(spec.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH']).toBeUndefined();
-    expect(spec.files).toEqual([]);
-    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-', remove: COPY });
-    expect(spec.notes).toHaveLength(1);
-    expect(spec.notes![0]).toContain('/opt/admin/gem.json');
-    expect(spec.notes![0]).toMatch(/graph tools were not added/);
-  });
-
-  it('an unreadable system file: same, no injection, one line, stale copy removed', () => {
-    const spec = buildGeminiLaunch(ctx(sys(SYS, null, true)));
-    const COPY = geminiCopyName(SYS);
-    expect(spec.files).toEqual([]);
-    expect(spec.notes).toHaveLength(1);
-    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-', remove: COPY });
-  });
-
-  it('a usable file, or one that is absent, says nothing', () => {
-    expect(buildGeminiLaunch(ctx(sys('/x.json', '{"ui":{}}'))).notes ?? []).toEqual([]);
-    expect(buildGeminiLaunch(ctx()).notes ?? []).toEqual([]);
-  });
-
-  it('align\'s own local server already present: no env, no file, no note, and the stale copy is removed', () => {
-    const spec = buildGeminiLaunch(ctx({ present: true, ...sys('/x.json', '{bad') }));
-    const COPY = geminiCopyName('/x.json');
+    expect(spec.writes).toEqual([{ kind: 'mcp-entry', file: USER_FILE, topKey: 'mcpServers', name: 'align-local', entry: LOCAL, invalidJsonAdvice: expect.stringContaining('comments') }]);
     expect(spec.env).toEqual({ ALIGN_WRAPPED: '1' });
     expect(spec.files).toEqual([]);
     expect(spec.notes ?? []).toEqual([]);
-    expect(spec.prune).toEqual({ prefix: 'gemini-system-settings-', remove: COPY });
   });
 
-  it('a non-canonical align-local anywhere is replaced by ours (system tier wins), with one line naming the files', () => {
-    const theirs = { mcpServers: { 'align-local': { command: 'sh', args: ['-c', 'evil'], env: { PATH: 'x' } } } };
-    const spec = buildGeminiLaunch(ctx({ present: true, overridden: ['/repo/.gemini/settings.json', '/x.json'], ...sys('/x.json', JSON.stringify(theirs)) }));
-    expect(fileOf(spec).mcpServers['align-local']).toEqual(LOCAL);
-    expect(spec.notes).toEqual(["Gemini will use Align's own align-local MCP server this session, not the one in /repo/.gemini/settings.json, /x.json."]);
+  it('never points Gemini at a system settings file: it would be skipped unless root-owned (0.63.0)', () => {
+    for (const over of [{}, { present: true }, { conflict: '/x.json' }, { trust: 'untrusted' as const }]) {
+      const spec = buildGeminiLaunch(ctx(over));
+      expect(Object.keys(spec.env).filter((k) => /SYSTEM_(SETTINGS|DEFAULTS)_PATH/.test(k))).toEqual([]);
+      expect(spec.files).toEqual([]);
+    }
   });
 
-  it('on win32 the server goes through cmd /c and the default dir is ProgramData', () => {
+  it('removes the copies earlier align versions left in the launch cache (they held the admin file)', () => {
+    expect(buildGeminiLaunch(ctx()).prune).toEqual({ prefix: 'gemini-system-settings-' });
+  });
+
+  it('align\'s own local server already present: no write, no note', () => {
+    const spec = buildGeminiLaunch(ctx({ present: true }));
+    expect(spec.writes ?? []).toEqual([]);
+    expect(spec.notes ?? []).toEqual([]);
+  });
+
+  it('a non-canonical align-local in a file Gemini loads: nothing written, one line naming it', () => {
+    const spec = buildGeminiLaunch(ctx({ conflict: '/repo/.gemini/settings.json' }));
+    expect(spec.writes ?? []).toEqual([]);
+    expect(spec.notes).toEqual(["/repo/.gemini/settings.json defines its own align-local MCP server, so Align did not add its graph to Gemini. Remove that entry to use the graph."]);
+  });
+
+  it('a blocker Gemini applies: nothing written, ONE plain line naming the file and why', () => {
+    const spec = buildGeminiLaunch(ctx({ blocked: { file: '/home/u/.gemini/settings.json', why: 'mcp.excluded lists align-local' } }));
+    expect(spec.writes ?? []).toEqual([]);
+    expect(spec.notes).toEqual(['Gemini will not load Align\'s graph: /home/u/.gemini/settings.json - mcp.excluded lists align-local. Remove that to use the graph.']);
+  });
+
+  it('a blocker AND a conflict: both are reported, two lines', () => {
+    const spec = buildGeminiLaunch(ctx({ blocked: { file: '/repo/.gemini/settings.json', why: 'mcp.excluded lists align-local' }, conflict: '/repo/.gemini/settings.json' }));
+    expect(spec.writes ?? []).toEqual([]);
+    expect(spec.notes).toHaveLength(2);
+    expect(spec.notes![0]).toContain('will not load');
+    expect(spec.notes![1]).toContain('defines its own align-local');
+  });
+
+  it('a repo-defined `align` gets one plain line naming the file, and the entry is still written', () => {
+    const spec = buildGeminiLaunch(ctx({ repoAlign: '/repo/.gemini/settings.json' }));
+    expect(spec.writes).toHaveLength(1);
+    expect(spec.notes).toEqual(['/repo/.gemini/settings.json defines an `align` MCP server of its own that Gemini will run next to Align\'s. Check it before you trust this folder.']);
+  });
+
+  it('on win32 the server goes through cmd /c', () => {
     setPlatform('win32');
-    const spec = buildGeminiLaunch(ctx({ platform: 'win32', ...sys('C:\\ProgramData\\gemini-cli\\settings.json', null) }));
-    expect(fileOf(spec).mcpServers['align-local']).toEqual({ command: 'cmd', args: ['/c', 'align', 'mcp', '--env', 'local'] });
-    expect(spec.env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH']).toBe('C:\\ProgramData\\gemini-cli\\system-defaults.json');
+    expect(buildGeminiLaunch(ctx()).writes![0]!.entry).toEqual({ command: 'cmd', args: ['/c', 'align', 'mcp', '--env', 'local'] });
   });
 });
 
@@ -174,44 +137,36 @@ describe('readGeminiState', () => {
   afterEach(() => rmSync(root, { recursive: true, force: true }));
   const sysFile = () => path.join(root, 'sys.json');
   const sysEnv = () => ({ GEMINI_CLI_SYSTEM_SETTINGS_PATH: sysFile() });
-  const state = (o: { env?: Record<string, string | undefined>; platform?: string; localIsDefault?: boolean } = {}) =>
-    readGeminiState(proj, home, { localIsDefault: o.localIsDefault ?? false }, o.env ?? sysEnv(), o.platform ?? 'linux');
-  const userSettings = (v: unknown) => writeFileSync(path.join(home, '.gemini', 'settings.json'), JSON.stringify(v));
+  // Gemini rejects a system file outside a root-owned tree, so a test tree (owned by the
+  // test user) is rejected unless the rule is told otherwise.
+  const state = (o: { env?: Record<string, string | undefined>; platform?: string; localIsDefault?: boolean; systemLoads?: boolean } = {}) =>
+    readGeminiState(proj, home, { localIsDefault: o.localIsDefault ?? false }, o.env ?? sysEnv(), o.platform ?? 'linux', () => (o.systemLoads ? null : 'not owned by root'));
+  const userFile = () => path.join(home, '.gemini', 'settings.json');
+  const userSettings = (v: unknown) => writeFileSync(userFile(), JSON.stringify(v));
   const wsFile = () => path.join(proj, '.gemini', 'settings.json');
   const workspace = (v: unknown) => writeFileSync(wsFile(), JSON.stringify(v));
   const trustProj = () => writeFileSync(path.join(home, '.gemini', 'trustedFolders.json'), JSON.stringify({ [proj]: 'TRUST_FOLDER' }));
   const HOSTILE = { command: 'align', args: ['mcp', '--env', 'local'], env: { PATH: '/tmp/evil' } };
   const CANON = { command: 'align', args: ['mcp', '--env', 'local'] };
 
-  it('the system file is the user\'s var when set, else the platform default', () => {
-    expect(state().systemSettings.path).toBe(sysFile());
-    expect(state({ env: {}, platform: 'linux' }).systemSettings.path).toBe('/etc/gemini-cli/settings.json');
-    expect(state({ env: {}, platform: 'darwin' }).systemSettings.path).toBe('/Library/Application Support/GeminiCli/settings.json');
-    expect(state({ env: {}, platform: 'win32' }).systemSettings.path).toBe('C:\\ProgramData\\gemini-cli\\settings.json');
-  });
-
-  it('reads the system file\'s text, null when absent, unreadable for a directory', () => {
-    expect(state().systemSettings).toMatchObject({ text: null, unreadable: false });
-    writeFileSync(sysFile(), '{"a":1}');
-    expect(state().systemSettings).toMatchObject({ text: '{"a":1}', unreadable: false });
-    rmSync(sysFile());
-    mkdirSync(sysFile());
-    expect(state().systemSettings).toMatchObject({ text: null, unreadable: true });
+  it('the file to write is the user settings: ~/.gemini/settings.json, or $GEMINI_CLI_HOME/.gemini/settings.json', () => {
+    expect(state().settingsFile).toBe(userFile());
+    const gh = path.join(root, 'gh');
+    expect(state({ env: { GEMINI_CLI_HOME: gh } }).settingsFile).toBe(path.join(gh, '.gemini', 'settings.json'));
   });
 
   it('a canonical align in the user settings is present; JSONC user settings are read too', () => {
     expect(state().present).toBe(false);
     userSettings({ mcpServers: { align: CANON } });
     expect(state().present).toBe(true);
-    writeFileSync(path.join(home, '.gemini', 'settings.json'), `// mine\n{ "mcpServers": { "align": ${JSON.stringify(CANON)} /* c */ } }`);
+    writeFileSync(userFile(), `// mine\n{ "mcpServers": { "align": ${JSON.stringify(CANON)} /* c */ } }`);
     expect(state().present).toBe(true);
   });
 
-  it('a canonical align-local never counts as present: our system-tier copy is injected anyway', () => {
+  it('a canonical align-local in the user settings is present (our own earlier write): nothing more to add', () => {
     userSettings({ mcpServers: { 'align-local': CANON } });
-    expect(state()).toMatchObject({ present: false, overridden: [] });
-    writeFileSync(sysFile(), JSON.stringify({ mcpServers: { 'align-local': CANON } }));
-    expect(state()).toMatchObject({ present: false, overridden: [] });
+    expect(state()).toMatchObject({ present: true });
+    expect(state().conflict).toBeUndefined();
   });
 
   it('another graph, a shell that mentions align, or win32 bare align is not present', () => {
@@ -223,17 +178,15 @@ describe('readGeminiState', () => {
     expect(state({ platform: 'win32' }).present).toBe(false);
   });
 
-  it('a hostile workspace align-local in a TRUSTED folder is overridden, naming the file', () => {
-    trustProj();
-    workspace({ mcpServers: { 'align-local': HOSTILE } });
-    expect(state()).toMatchObject({ present: false, overridden: [wsFile()] });
+  it('a non-canonical align-local in the user settings is a conflict: the writer never edits an existing entry', () => {
+    userSettings({ mcpServers: { 'align-local': HOSTILE } });
+    expect(state()).toMatchObject({ present: false, conflict: userFile() });
   });
 
-  it('the same workspace file in an UNTRUSTED folder is ignored: Gemini does not load it', () => {
+  it('a hostile workspace align-local in a TRUSTED folder is a conflict (workspace outranks user), naming the file', () => {
+    trustProj();
     workspace({ mcpServers: { 'align-local': HOSTILE } });
-    expect(state()).toMatchObject({ present: false, overridden: [] });
-    workspace({ mcpServers: { align: CANON } });
-    expect(state().present).toBe(false);
+    expect(state()).toMatchObject({ present: false, conflict: wsFile() });
   });
 
   it('a canonical workspace align counts only in a trusted folder', () => {
@@ -243,22 +196,181 @@ describe('readGeminiState', () => {
     expect(state().present).toBe(true);
   });
 
-  it('a hostile align-local in the system file is overridden too', () => {
+  it('a system file Gemini would REJECT (not root-owned) is not read: its canonical entry is not "present", its hostile one no conflict', () => {
+    writeFileSync(sysFile(), JSON.stringify({ mcpServers: { align: CANON } }));
+    expect(state().present).toBe(false);
     writeFileSync(sysFile(), JSON.stringify({ mcpServers: { 'align-local': HOSTILE } }));
-    expect(state().overridden).toEqual([sysFile()]);
+    expect(state().conflict).toBeUndefined();
   });
 
-  it('reads GEMINI_CLI_HOME for the user settings', () => {
-    const gh = path.join(root, 'gh');
-    mkdirSync(path.join(gh, '.gemini'), { recursive: true });
-    writeFileSync(path.join(gh, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: { align: CANON } }));
-    expect(state({ env: { ...sysEnv(), GEMINI_CLI_HOME: gh } }).present).toBe(true);
+  it('a system file Gemini WOULD load (root-owned tree) is read: canonical is present, hostile is a conflict', () => {
+    writeFileSync(sysFile(), JSON.stringify({ mcpServers: { align: CANON } }));
+    expect(state({ systemLoads: true }).present).toBe(true);
+    writeFileSync(sysFile(), JSON.stringify({ mcpServers: { 'align-local': HOSTILE } }));
+    expect(state({ systemLoads: true }).conflict).toBe(sysFile());
+  });
+
+  it('LAST layer wins per name: a trusted repo\'s non-canonical `align` replaces the user\'s canonical one, so it is not present and the repo file is named', () => {
+    trustProj();
+    userSettings({ mcpServers: { align: CANON } });
+    workspace({ mcpServers: { align: { command: '/bin/echo', args: ['EVIL'] } } });
+    expect(state()).toMatchObject({ present: false, conflict: wsFile() });
+  });
+
+  it('positive control: a canonical workspace `align` over a canonical user one stays present, no conflict', () => {
+    trustProj();
+    userSettings({ mcpServers: { align: CANON } });
+    workspace({ mcpServers: { align: CANON } });
+    expect(state()).toMatchObject({ present: true });
+    expect(state().conflict).toBeUndefined();
+  });
+
+  it('a user\'s own non-canonical `align` (the prod graph) with no canonical one before it is no conflict, just not present', () => {
+    userSettings({ mcpServers: { align: { command: 'align', args: ['mcp', '--env', 'prod'] } } });
+    expect(state()).toMatchObject({ present: false });
+    expect(state().conflict).toBeUndefined();
+  });
+
+  it('a later non-canonical align-local over an earlier canonical one is the effective entry: conflict', () => {
+    trustProj();
+    userSettings({ mcpServers: { 'align-local': CANON } });
+    workspace({ mcpServers: { 'align-local': HOSTILE } });
+    expect(state()).toMatchObject({ present: false, conflict: wsFile() });
+  });
+
+  it('probe K: an UNTRUSTED-by-Align workspace file is still checked for a conflict (Gemini may trust the folder via an IDE)', () => {
+    workspace({ mcpServers: { 'align-local': HOSTILE } });
+    expect(state().conflict).toBe(wsFile());
+  });
+
+  it('...but an untrusted workspace canonical `align` still does not count as present', () => {
+    workspace({ mcpServers: { align: CANON } });
     expect(state().present).toBe(false);
+  });
+
+  it('GEMINI_RESTRICTED_MODE=true is untrusted whatever the rules say (Gemini checks it before GEMINI_CLI_TRUST_WORKSPACE)', () => {
+    trustProj();
+    expect(state({ env: { ...sysEnv(), GEMINI_RESTRICTED_MODE: 'true' } }).trust).toBe('untrusted');
+    expect(state({ env: { ...sysEnv(), GEMINI_RESTRICTED_MODE: 'true', GEMINI_CLI_TRUST_WORKSPACE: 'true' } }).trust).toBe('untrusted');
+  });
+
+  /*
+   * Table of the REAL Gemini 0.63.0 behaviour, measured with a headless session (not `gemini mcp
+   * list`, which uses canLoadServer: lowercased, empty allowlist = allow none). A live session uses
+   * McpClientManager.isBlockedBySettings: EXACT-case includes, an empty allowlist allows all,
+   * allowlists intersect across layers (an empty result allows all), and --allowed-mcp-server-names
+   * replaces the allowlist and drops excluded. The expected column is what the real session did
+   * on 2026-10-10 (rt.sh: SPAWNED or not). A wrong "blocked" here is expensive: it stops align
+   * writing its entry at all.
+   */
+  describe('MCP blockers: the same verdict as a real Gemini session', () => {
+    type Row = { name: string; user?: unknown; ws?: unknown; flags?: string[]; blocked: boolean };
+    const rows: Row[] = [
+      { name: 'allowed: [] allows all', user: { mcp: { allowed: [] } }, blocked: false },
+      { name: 'user allowed [a] + workspace allowed [b]: empty intersection allows all', user: { mcp: { allowed: ['a'] } }, ws: { mcp: { allowed: ['b'] } }, blocked: false },
+      { name: "excluded ['ALIGN-LOCAL'] is exact-case: spawned", ws: { mcp: { excluded: ['ALIGN-LOCAL'] } }, blocked: false },
+      { name: "excluded ['align-local'] blocks", ws: { mcp: { excluded: ['align-local'] } }, blocked: true },
+      { name: 'flag listing align-local drops settings excluded', ws: { mcp: { excluded: ['align-local'] } }, flags: ['--allowed-mcp-server-names=align-local'], blocked: false },
+      { name: 'admin.mcp.enabled false (workspace) does not block a live session', ws: { admin: { mcp: { enabled: false } } }, blocked: false },
+      { name: 'admin.mcp.enabled false (user) does not block a live session', user: { admin: { mcp: { enabled: false } } }, blocked: false },
+      { name: "allowed ['ALIGN-LOCAL'] blocks (exact case)", ws: { mcp: { allowed: ['ALIGN-LOCAL'] } }, blocked: true },
+      { name: "allowed [' align-local '] blocks (no trimming)", ws: { mcp: { allowed: [' align-local '] } }, blocked: true },
+      { name: 'flag ALIGN-LOCAL blocks', flags: ['--allowed-mcp-server-names=ALIGN-LOCAL'], blocked: true },
+      { name: 'camelCase flag other blocks', flags: ['--allowedMcpServerNames=other'], blocked: true },
+      { name: 'space form counts only the FIRST value: "other align-local" blocks', flags: ['--allowed-mcp-server-names', 'other', 'align-local'], blocked: true },
+      { name: '=other,align-local spawns', flags: ['--allowed-mcp-server-names=other,align-local'], blocked: false },
+      { name: 'allowed [align-local] spawns', ws: { mcp: { allowed: ['align-local'] } }, blocked: false },
+      { name: 'no mcp settings at all spawns', blocked: false },
+    ];
+    it.each(rows)('$name', ({ user, ws, flags, blocked }) => {
+      trustProj();
+      if (user) userSettings(user);
+      if (ws) workspace(ws);
+      const st = readGeminiState(proj, home, { localIsDefault: false }, sysEnv(), 'linux', () => 'x', flags ?? []);
+      expect(st.blocked !== undefined).toBe(blocked);
+    });
+    it('names the file that blocks it', () => {
+      trustProj();
+      workspace({ mcp: { allowed: ['ALIGN-LOCAL'] } });
+      expect(state().blocked).toEqual({ file: wsFile(), why: 'mcp.allowed does not list align-local' });
+    });
+    it('a blocker in a system file Gemini rejects is ignored', () => {
+      writeFileSync(sysFile(), JSON.stringify({ mcp: { excluded: ['align-local'] } }));
+      expect(state().blocked).toBeUndefined();
+      expect(state({ systemLoads: true }).blocked?.file).toBe(sysFile());
+    });
+    it('nothing after `--` is a flag of Gemini\'s', () => {
+      const st = readGeminiState(proj, home, { localIsDefault: false }, sysEnv(), 'linux', () => 'x', ['--', '--allowed-mcp-server-names=other']);
+      expect(st.blocked).toBeUndefined();
+    });
+  });
+
+  it('a repo `align` with no user `align` behind it is reported (it is not the user\'s choice); the user\'s own is not', () => {
+    trustProj();
+    workspace({ mcpServers: { align: { command: 'sh', args: ['-c', 'x'] } } });
+    expect(state().repoAlign).toBe(wsFile());
+    rmSync(wsFile());
+    userSettings({ mcpServers: { align: { command: 'align', args: ['mcp', '--env', 'prod'] } } });
+    expect(state().repoAlign).toBeUndefined();
+  });
+
+  it('...not when the folder is untrusted (Gemini would not run it), not when it is canonical, and not twice when it is already the conflict', () => {
+    workspace({ mcpServers: { align: { command: 'sh' } } });
+    expect(state().repoAlign).toBeUndefined();
+    trustProj();
+    workspace({ mcpServers: { align: CANON } });
+    expect(state().repoAlign).toBeUndefined();
+    userSettings({ mcpServers: { align: CANON } });
+    workspace({ mcpServers: { align: { command: 'sh' } } });
+    expect(state()).toMatchObject({ conflict: wsFile() });
+    expect(state().repoAlign).toBeUndefined();
   });
 
   it('carries the folder trust verdict', () => {
     expect(state().trust).toBe('untrusted');
     trustProj();
     expect(state().trust).toBe('trusted');
+  });
+});
+
+describe('geminiSystemFileRejection: the rule Gemini 0.63.0 applies (isFileAndDirectorySecureSync)', () => {
+  let root: string;
+  beforeEach(() => { root = mkdtempSync(path.join(os.tmpdir(), 'align-gemini-sys-')); });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  const nonRoot = process.getuid?.() !== 0 && process.platform !== 'win32';
+
+  it.skipIf(!nonRoot)('rejects a file in a directory the user owns, which is where every launch cache lives (the regression)', () => {
+    const f = path.join(root, 'gemini-system-settings-abc.json');
+    writeFileSync(f, '{}');
+    expect(geminiSystemFileRejection(f, 'linux')).toMatch(/not owned by root/);
+  });
+
+  it.skipIf(!nonRoot)('rejects a symlink to a file, whatever it points at, when the link sits in a user-owned tree', () => {
+    const real = path.join(root, 'real.json');
+    const link = path.join(root, 'link.json');
+    writeFileSync(real, '{}');
+    symlinkSync(real, link);
+    expect(geminiSystemFileRejection(link, 'linux')).not.toBeNull();
+  });
+
+  it.skipIf(!nonRoot)('a missing file is not rejected: Gemini only checks a file that exists', () => {
+    expect(geminiSystemFileRejection(path.join(root, 'absent.json'), 'linux')).toBeNull();
+  });
+
+  it.skipIf(!nonRoot)('a group- or other-writable mode is its own reason', () => {
+    const f = path.join(root, 'w.json');
+    writeFileSync(f, '{}');
+    chmodSync(root, 0o777);
+    expect(geminiSystemFileRejection(f, 'linux')).not.toBeNull();
+  });
+
+  it('is not judged on win32: Gemini checks ACLs through PowerShell, which align cannot repeat', () => {
+    expect(geminiSystemFileRejection(path.join(root, 'x.json'), 'win32')).toBeNull();
+  });
+
+  it('the one real system file of a stock Linux machine passes when it is root-owned (positive control)', () => {
+    // /etc/hosts is the standard root-owned, not group/other-writable file under a root-owned tree.
+    if (process.platform === 'win32') return;
+    expect(geminiSystemFileRejection('/etc/hosts', 'linux')).toBeNull();
   });
 });

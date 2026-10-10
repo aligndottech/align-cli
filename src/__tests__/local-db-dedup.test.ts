@@ -95,12 +95,16 @@ describe('local-db source_url dedup', () => {
    * the URL alone let a CONSTANT source_url - connector-core's Teams fallback is literally
    * 'https://teams.microsoft.com' - collapse every message onto one row and DELETE the rest on
    * migration. Duplicating on a retitle is a tidiness problem; that was data loss.
+   *
+   * L2 retires this cost for one-item-per-URL connector items (a commit, a PR, a page): those
+   * upsert on `source_key` and take the new title (local-db-twin-merge.test.ts). It stays for
+   * every row whose URL can hold several decisions, such as a manual capture or a session.
    */
   it('inserts a second row when the title changed, which is the cost of the pair key', () => {
     db = createLocalDb(dbPath);
-    db.insertDecision({ title: 'Old title', summary: 's', sourceUrl: COMMIT_URL, platform: 'git' });
+    db.insertDecision({ title: 'Old title', summary: 's', sourceUrl: COMMIT_URL, platform: 'cli' });
 
-    db.insertDecision({ title: 'New title', summary: 's', sourceUrl: COMMIT_URL, platform: 'git' });
+    db.insertDecision({ title: 'New title', summary: 's', sourceUrl: COMMIT_URL, platform: 'cli' });
 
     expect(db.listDecisions()).toHaveLength(2);
   });
@@ -134,7 +138,7 @@ describe('SCHEMA_VERSION and migrate() are one fact', () => {
    * literal, so the next migration cannot introduce the drift silently.
    */
   it('SCHEMA_VERSION equals the highest migration step in migrate()', () => {
-    const source = readFileSync(new URL('../lib/local-db.ts', import.meta.url), 'utf8');
+    const source = readFileSync(new URL('../lib/local-db-migrate.ts', import.meta.url), 'utf8');
     const steps = [...source.matchAll(/if \(version < (\d+)\)/g)].map(m => Number(m[1]));
 
     // Positive control: an empty parse would make the comparison below vacuous.

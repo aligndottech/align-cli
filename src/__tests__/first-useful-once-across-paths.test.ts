@@ -9,6 +9,7 @@
  * producers are the real `ask` command and the real MCP CallTool handler.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import { Command } from 'commander';
 import type { EnvironmentConfig } from '../lib/config.js';
 import type * as LocalLlm from '../lib/local-llm.js';
@@ -31,12 +32,15 @@ const cloudEnv: EnvironmentConfig = {
 const recorded = vi.hoisted(() => new Set<string>());
 
 vi.mock('node:fs', () => ({ existsSync: vi.fn().mockReturnValue(false) }));
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn().mockReturnValue(cloudEnv),
     getDefaultEnv: vi.fn().mockReturnValue('prod'),
     getConnectorFields: vi.fn().mockReturnValue(null),
     getTelemetryConsent: vi.fn().mockReturnValue(undefined),
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId: vi.fn().mockReturnValue('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
     wasFunnelStageRecorded: (stage: string) => recorded.has(stage),
     markFunnelStageRecorded: (stage: string) => { recorded.add(stage); },
@@ -83,9 +87,12 @@ async function agentAsk(): Promise<void> {
 
 describe('first_useful_decision is once per install across `align ask` and the MCP server', () => {
   beforeEach(() => {
+    noticeShownAt = undefined;
+    // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+    // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+    clearTelemetryEnv();
     recorded.clear();
     mockFetch.mockReset().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
-    vi.stubEnv('ALIGN_TELEMETRY', '');
   });
   afterEach(() => vi.unstubAllEnvs());
 

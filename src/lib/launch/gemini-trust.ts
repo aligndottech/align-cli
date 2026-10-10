@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { geminiSystemFileRejection } from './gemini-system-file.js';
 import { parseJsonc } from './strict-entry.js';
 
 /**
@@ -44,14 +45,17 @@ export function geminiDir(home: string, env: Record<string, string | undefined>)
   return path.join(env['GEMINI_CLI_HOME'] ? env['GEMINI_CLI_HOME'] : home, '.gemini');
 }
 
+type Rejects = (file: string, platform: string) => string | null;
 const folderTrustSetting = (s: Json | null): unknown => ((s?.['security'] as Json | undefined)?.['folderTrust'] as Json | undefined)?.['enabled'];
 
 /** security.folderTrust.enabled, merged system-defaults < user < system as Gemini does; default on. */
-function folderTrustEnabled(home: string, env: Record<string, string | undefined>, platform: string): boolean {
+function folderTrustEnabled(home: string, env: Record<string, string | undefined>, platform: string, rejects: Rejects): boolean {
   const system = geminiSystemSettingsPath(env, platform);
   const defaults = env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'] ? env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'] : geminiSystemDefaultsPath(system, platform);
   let enabled = true;
+  // The two system tiers are skipped by Gemini unless root-owned; the user file is never checked.
   for (const file of [defaults, path.join(geminiDir(home, env), 'settings.json'), system]) {
+    if ((file === defaults || file === system) && rejects(file, platform) !== null) continue;
     const v = folderTrustSetting(readJson(file));
     if (typeof v === 'boolean') enabled = v;
   }
@@ -89,10 +93,12 @@ function isSubpath(parent: string, child: string, platform: string): boolean {
  * Gemini also accepts a trust decision from a connected IDE; align cannot see that, so in an IDE
  * terminal this can say untrusted for a folder Gemini will treat as trusted (one extra line).
  */
-export function geminiFolderTrust(cwd: string, home: string, env: Record<string, string | undefined>, platform: string): GeminiTrust {
+export function geminiFolderTrust(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, rejects: Rejects = geminiSystemFileRejection): GeminiTrust {
+  // Gemini checks GEMINI_RESTRICTED_MODE before GEMINI_CLI_TRUST_WORKSPACE (checkPathTrust, 0.63.0).
+  if (env['GEMINI_RESTRICTED_MODE'] === 'true') return 'untrusted';
   if (env['GEMINI_CLI_TRUST_WORKSPACE'] === 'true') return 'trusted';
   if (env['GEMINI_CLI_TRUST_WORKSPACE'] === 'false') return 'untrusted';
-  if (!folderTrustEnabled(home, env, platform)) return 'off';
+  if (!folderTrustEnabled(home, env, platform, rejects)) return 'off';
 
   const file = env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'] ? env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'] : path.join(geminiDir(home, env), 'trustedFolders.json');
   if (!existsSync(file)) return 'untrusted';

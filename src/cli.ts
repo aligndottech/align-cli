@@ -66,14 +66,24 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
 
   // ALI-954: the install beacon - once per install id, on the very first run, BEFORE the
   // command's action and therefore before any prompt it shows. preAction on the root fires for
-  // the root's own action (bare `align`) and for every subcommand. Fire-and-forget: the
-  // request is started here and Node keeps the process alive until it completes or the 2s
-  // timeout aborts it, so the wizard never waits on a blackholed network. Skips itself under
+  // the root's own action (bare `align`) and for every subcommand. Awaited, with an 800ms cap,
+  // on the first run only (later runs return after a config read): a fire-and-forget send lost
+  // the install whenever the command exited before the request started, and the stage is
+  // once-only. A failed connection releases the stage so the next run retries; a timeout keeps it
+  // (one attempt, see recordInstallBeacon). Skips itself under
   // DO_NOT_TRACK / ALIGN_TELEMETRY, after `align telemetry off`, when a cloud token is already
   // in hand, and when the first command IS `align telemetry ...` (see recordInstallBeacon).
+  //
+  // C6: the one-time telemetry notice prints first, to stderr, and is awaited - it is the
+  // disclosure local-mode sends wait on, so it must land before the command's output and before
+  // the beacon. Every command an installed hook runs (isHookInvocation) gets no notice and sends
+  // nothing, and the notice prints only to a person at a terminal (telemetry-consent.ts).
   program.hook('preAction', async (_thisCommand, actionCommand) => {
-    const { invocationCommandPath, recordInstallBeacon } = await import('./lib/usage-telemetry.js');
-    void recordInstallBeacon(invocationCommandPath(actionCommand));
+    const { beginInvocationTelemetry, invocationCommandPath } = await import('./lib/usage-telemetry.js');
+    const { isHookInvocation } = await import('./lib/hook-context.js');
+    const commandPath = invocationCommandPath(actionCommand);
+    const hook = isHookInvocation(commandPath, actionCommand.opts());
+    await beginInvocationTelemetry(commandPath, { hook });
   });
 
   // Saved AI provider keys and the saved preference (`align ai`, the first-ask offer) reach
@@ -100,8 +110,8 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
 
   // ALI-403/ALI-618/ALI-954: one usage event per invocation, so CLI activation and weekly
   // retention are countable in both cloud mode (opt-out) and local-embedded mode (with the
-  // stored consent - a no-op until the setup prompt or `align telemetry on` grants it). No-op
-  // under ALIGN_TELEMETRY=0 / DO_NOT_TRACK=1 in either mode. Runs after the command's own work,
+  // one-time notice shown, or `align telemetry on` - C6). No-op under ALIGN_TELEMETRY=0 /
+  // DO_NOT_TRACK=1 and in CI, in either mode. Runs after the command's own work,
   // so a slow or blackholed gateway cannot delay the output the user came for.
   program.hook('postAction', async (_thisCommand, actionCommand) => {
     const { envFlagOf, invocationCommandPath, recordInvocationUsage } = await import('./lib/usage-telemetry.js');

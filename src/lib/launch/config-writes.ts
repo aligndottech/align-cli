@@ -23,6 +23,8 @@ export interface ConfigWrite {
   hint?: string;
   /** Replace an entry of this name that is Align's own (a stale env block), instead of adding only. */
   replace?: true;
+  /** JSON only: the tail of the invalid-JSON message, for a file whose agent reads more than strict JSON (Gemini's settings take comments). */
+  invalidJsonAdvice?: string;
 }
 
 /**
@@ -57,7 +59,7 @@ export function applyConfigWrite(w: ConfigWrite, note: (line: string) => void, m
       if (w.replace && JSON.stringify(servers[w.name]) === JSON.stringify(w.entry)) return undefined;
       return { ...cur, [w.topKey]: { ...servers, [w.name]: w.entry } };
     },
-    { ...opts, trailingNewline: true },
+    { ...opts, trailingNewline: true, ...(w.invalidJsonAdvice ? { invalidJsonAdvice: w.invalidJsonAdvice } : {}) },
   );
   if (status === 'symlink') memo?.add(w.file);
   else if (quiet) memo?.remove(w.file);

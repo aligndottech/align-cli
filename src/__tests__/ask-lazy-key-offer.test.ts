@@ -5,6 +5,7 @@
  * already decided after the chain's cheap Ollama probe, so the offer adds no probe of its own.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import { Command } from 'commander';
 
 // A real spinner on a forced TTY reaches for cursor control a test stdout does not have.
@@ -64,6 +65,8 @@ const setTTY = (v: boolean) => {
 const NO_PROVIDER = { ok: false, failure: { kind: 'no_provider' } };
 
 beforeEach(() => {
+  // C6: CI vars, ALIGN_WRAPPED and ALIGN_TOKEN/ALIGN_ENV change what this suite does; clear them.
+  clearTelemetryEnv();
   dismissed.value = false;
   offerAskProviderKey.mockReset();
   synthesiseDetailed.mockReset();

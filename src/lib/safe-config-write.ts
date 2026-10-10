@@ -749,6 +749,16 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       continue;
     }
 
+    // Compare-and-swap: the agent may rewrite its own file (Gemini saves settings) between the read
+    // above and our write. Re-read right before every destructive step; if it moved, touch nothing.
+    const moved = (): boolean => {
+      let now: string | null = null;
+      try { now = readCurrent(fs, file); } catch { /* unreadable counts as moved */ }
+      if (now === cur) return false;
+      report.skipped.push(`${file}: it changed while undo was running, so align left it as it is now. Run \`align use --undo\` again`);
+      return true;
+    };
+
     // The first backup (0) and the snapshots (1..n): each is trusted only when it is a regular file
     // whose hash is the one align recorded when it made it.
     const snapPath = (n: number): string => (n === 0 ? backupPath : `${backupPath}.${n}`);
@@ -774,6 +784,7 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
     // Whole-file only when align wrote this file exactly once and nobody has touched it since.
     if (sha(cur) === entry.sha256 && entry.firstSha256 === entry.sha256) {
       if (entry.created) {
+        if (moved()) continue;
         fs.unlinkSync(file);
         report.removed.push(file);
         report.done.push(file);
@@ -782,6 +793,10 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       if (backupTrusted()) {
         const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${randomBytes(4).toString('hex')}.align-tmp`);
         fs.copyFileSync(backupPath, tmp, 1);
+        if (moved()) {
+          try { fs.unlinkSync(tmp); } catch { /* gone */ }
+          continue;
+        }
         fs.renameSync(tmp, file);
         dropBackup();
         report.restored.push(file);
@@ -872,13 +887,14 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
     // A file align created that holds nothing but align's own content once that is out: remove it, as
     // an untouched one is.
     if (entry.created && entry.owned && !entry.block && next.trim() === '{}') {
+      if (moved()) continue;
       fs.unlinkSync(file);
       dropBackup();
       report.removed.push(file);
       report.done.push(file);
       continue;
     }
-    if (next !== cur) stageAndRename(fs, file, next, modeOf(fs, file));
+    if (next !== cur && !stageAndRename(fs, file, next, modeOf(fs, file), () => !moved())) continue;
     dropBackup();
     report.cleaned.push(file);
     report.done.push(file);

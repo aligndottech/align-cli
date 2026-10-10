@@ -26,8 +26,10 @@ describe('mcpChildEnv: the block', () => {
     expect(Object.values(mcpChildEnv({})).every((v) => v === '')).toBe(true);
   });
   it('the user\'s own non-secret values are kept; an absolute XDG is kept, a relative one is not', () => {
-    const e = mcpChildEnv({ ALIGN_ENV: 'local', ALIGN_LLM_BASE_URL: 'http://127.0.0.1:1234', XDG_CONFIG_HOME: path.resolve('/c'), XDG_DATA_HOME: './d' });
+    const e = mcpChildEnv({ ALIGN_ENV: 'local', ALIGN_LLM_BASE_URL: 'http://127.0.0.1:1234', XDG_CONFIG_HOME: path.resolve('/c'), XDG_DATA_HOME: './d', CI: 'true' });
     expect(e['ALIGN_ENV']).toBe('local');
+    expect(e['CI']).toBe('true');
+    expect(mcpChildEnv({})['CI']).toBe('');
     expect(e['ALIGN_LLM_BASE_URL']).toBe('http://127.0.0.1:1234');
     expect(e['XDG_CONFIG_HOME']).toBe(path.resolve('/c'));
     expect(e['XDG_DATA_HOME']).toBe('');
