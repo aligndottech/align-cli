@@ -69,22 +69,54 @@ describe('parseSince: everything else is refused, naming the accepted forms', ()
   });
 });
 
-describe('windowLabel: the phrase the report prints', () => {
+describe('windowLabel: the phrase the report prints, exact about the days', () => {
+  // A label must not claim a length the window does not have: --since 6m is 182 days, the default
+  // is 180, and "the last 6 months" for both made two different reads look identical.
   it.each([
-    [180, 'the last 6 months'],
-    [182, 'the last 6 months'],
+    [180, 'the last 180 days'], // the default: NOT "6 months"
+    [182, 'the last 6 months'], // --since 6m
     [30, 'the last 30 days'],
     [14, 'the last 14 days'],
     [365, 'the last 1 year'],
     [730, 'the last 2 years'],
-    [90, 'the last 3 months'],
+    [61, 'the last 2 months'],
+    [60, 'the last 60 days'], // not 2 months
+    [90, 'the last 90 days'],
+    [366, 'the last 366 days'], // not 1 year
     [1, 'the last 1 day'],
   ])('%i days reads "%s"', (days, label) => {
     expect(windowLabel(days)).toBe(label);
   });
 
+  it('every spelling the parser accepts gets a label that is true of it', () => {
+    for (const raw of ['1m', '2m', '6m', '11m', '12m', '13m', '1y', '2y', '10w', '45d']) {
+      const days = parseSince(raw, NOW).days!;
+      const label = windowLabel(days);
+      const n = /last (\d+) (day|month|year)/.exec(label)!;
+      const per = { day: 1, month: 30.4, year: 365 }[n[2] as 'day' | 'month' | 'year'];
+      expect(Math.round(Number(n[1]) * per), `${raw} -> ${label}`).toBe(days);
+    }
+  });
+
   it('has a phrase for no window', () => {
     expect(windowLabel(undefined)).toBe('all the history the ceiling allowed');
+  });
+});
+
+describe('what an error echoes back (a pasted secret must not ride along)', () => {
+  it('cuts the echoed value to 16 characters', () => {
+    const secret = `ghp_${'a'.repeat(36)}`;
+    try { parseSince(secret, NOW); } catch (e) {
+      expect((e as Error).message).not.toContain(secret);
+      expect((e as Error).message).toContain(secret.slice(0, 16));
+      expect((e as Error).message).not.toContain(secret.slice(0, 17));
+      return;
+    }
+    throw new Error('should have thrown');
+  });
+
+  it('leaves a short value whole', () => {
+    expect(() => parseSince('6x', NOW)).toThrow('"6x"');
   });
 });
 

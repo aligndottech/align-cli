@@ -2656,9 +2656,9 @@ describe('align setup', () => {
       const reports = reportsPrinted();
       expect(reports).toHaveLength(1);
       expect(reports[0]).toContain('Git: imported 1 commits from the last 6 months');
-      expect(reports[0]).toContain('GitHub: imported 1 PRs and issues from the last 6 months');
+      expect(reports[0]).toContain('GitHub: imported 1 PRs and issues from the last 180 days');
       // L3: a windowed read states its window; the ceiling is a bound, not a target to fall short of.
-      expect(reports[0]).toContain('Linear: imported 1 issues from the last 6 months');
+      expect(reports[0]).toContain('Linear: imported 1 issues from the last 180 days');
       // A source that fetched nothing still gets its line (R4a): that zero IS the answer.
       expect(reports[0]).toContain('Repo docs: 0 ADRs and sections');
     });

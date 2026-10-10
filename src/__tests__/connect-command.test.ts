@@ -239,7 +239,7 @@ describe('align connect (ALI-951)', () => {
       setTty(false, false);
       await run(['connect', '--source', 'github', '--token', 't', '--yes']);
       expect(daysAgo(mockFetchGitHub.mock.calls.at(-1)![0].since)).toBe(180);
-      expect(stdout.join('\n')).toContain('from the last 6 months');
+      expect(stdout.join('\n')).toContain('from the last 180 days');
     });
 
     it('--since all sends no lower bound', async () => {

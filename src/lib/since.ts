@@ -20,7 +20,8 @@ const EPOCH_MS = Date.UTC(1970, 0, 1);
 
 export class SinceError extends Error {
   constructor(raw: string, why: string) {
-    super(`Cannot read "${raw}" as how far back to look: ${why}. Use ${ACCEPTED_SINCE_FORMS}.`);
+    // Cut: a pasted secret in the wrong field must not ride along into an error transcript.
+    super(`Cannot read "${raw.slice(0, 16)}" as how far back to look: ${why}. Use ${ACCEPTED_SINCE_FORMS}.`);
     this.name = 'SinceError';
   }
 }
@@ -49,14 +50,21 @@ function windowOfDays(days: number, now: Date): SyncWindow {
   return { days, since: new Date(now.getTime() - days * DAY_MS).toISOString() };
 }
 
-/** The phrase the capture report prints: "the last 6 months". */
+/**
+ * The phrase the capture report prints. Exact: "the last 6 months" only for a window that IS
+ * what `6m` parses to (182 days). The default is 180 days and reads "the last 180 days", so two
+ * different reads never share a label. A month or year label needs the day count to be exactly
+ * what that many months or years parse to; anything else is said in days.
+ */
 export function windowLabel(days: number | undefined): string {
   if (days === undefined) return 'all the history the ceiling allowed';
   const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
-  if (days < 60) return `the last ${plural(days, 'day')}`;
   const months = Math.round(days / MONTH_DAYS);
-  if (months >= 12 && months % 12 === 0) return `the last ${plural(months / 12, 'year')}`;
-  return `the last ${plural(months, 'month')}`;
+  if (months >= 2 && Math.round(months * MONTH_DAYS) === days) {
+    if (months % 12 === 0 && days === 365 * (months / 12)) return `the last ${plural(months / 12, 'year')}`;
+    return `the last ${plural(months, 'month')}`;
+  }
+  return `the last ${plural(days, 'day')}`;
 }
 
 /**
