@@ -37,3 +37,17 @@ export function inHookContext(): boolean {
 export function resetHookContextForTests(): void {
   hookContext = false;
 }
+
+/**
+ * C6: whether this invocation is one of the commands an installed hook runs, decided from the
+ * command path and its flags BEFORE the action runs (cli.ts's preAction), so the telemetry
+ * notice and beacon can refuse too. The list is every hook command align writes:
+ *   - `check --hook`      the pre-commit hook
+ *   - `check --advisory`  every agent's tool hook (agent-rules.ts, user-hooks.ts)
+ *   - `context inject`    the Claude Code SessionStart hook (agent-rules.ts SESSION_INJECT_COMMAND)
+ * A new hook command must be added here; telemetry-notice.test.ts pins each one.
+ */
+export function isHookInvocation(commandPath: string, opts: Record<string, unknown>): boolean {
+  if (commandPath === 'context inject') return true;
+  return commandPath === 'check' && (opts['hook'] === true || opts['advisory'] === true);
+}

@@ -44,9 +44,10 @@ MIT. No account needed. Beta, pre-1.0.
 
 Run it inside a git repository. `--local` seeds the graph from your commit history, so you have
 something to ask about straight away, and your decisions stay in a SQLite file on your machine.
-Your decisions and code never go to Align. It sends two anonymous counts by default (install,
-setup completed); usage only with your consent; `align telemetry off` or `DO_NOT_TRACK=1` stops
-all of it. [What touches the network](docs/local-mode.md), and [every field](docs/telemetry.md).
+Your decisions and code never go to Align. It sends anonymous usage counts, and tells you so
+once, before the first one. `align telemetry off` or `DO_NOT_TRACK=1` stops all of it, and
+nothing is sent from CI. [What touches the network](docs/local-mode.md), and
+[every field](docs/telemetry.md).
 
 Working with a team? Team graphs are separate from the local one. Run `align login`, then
 `align setup`: a work email lands you in your company's graph (first person in is the admin, the

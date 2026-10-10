@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 
 let consent: 'granted' | 'declined' | 'off' | undefined = 'granted';
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   createConfigStore: () => ({
     getInstallId: () => '11111111-1111-4111-8111-111111111111',
     getTelemetryConsent: () => consent,
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     wasFunnelStageRecorded: () => false,
     markFunnelStageRecorded: () => {},
   }),
@@ -18,10 +22,17 @@ const fetchMock = vi.fn();
 const sentBody = (): Record<string, unknown> => JSON.parse((fetchMock.mock.calls[0]![1] as { body: string }).body);
 
 beforeEach(() => {
+
+  noticeShownAt = undefined;
+
+  // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+
+  // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+
+  clearTelemetryEnv();
+
   fetchMock.mockReset().mockResolvedValue(new Response('{}', { status: 200 }));
   vi.stubGlobal('fetch', fetchMock);
-  vi.stubEnv('DO_NOT_TRACK', undefined);
-  vi.stubEnv('ALIGN_TELEMETRY', undefined);
   consent = 'granted';
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });

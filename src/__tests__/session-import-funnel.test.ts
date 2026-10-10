@@ -2,6 +2,7 @@
  * ALI-835: the summary line a human reads, and the hook guard on the funnel emitter.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 
 // Mocked at the module boundary: recordFunnelStage resolves the config store dynamically, and
 // the real one reads a machine's stored consent - which would make "does the guard fire" depend
@@ -11,11 +12,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // postAnonymous reads to build the target. Replacing the whole module made every send throw
 // inside the emitter's own catch, which returns false - so the guard test failed for a reason
 // that had nothing to do with the guard, and looked exactly like the guard working.
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   createConfigStore: () => ({
     getInstallId: () => '11111111-1111-4111-8111-111111111111',
     getTelemetryConsent: () => 'granted',
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     wasFunnelStageRecorded: () => false,
     markFunnelStageRecorded: () => {},
   }),
@@ -109,6 +113,10 @@ describe('recordFunnelStage refuses to send from a hook', () => {
   const fetchMock = vi.fn().mockResolvedValue({ ok: true });
 
   beforeEach(() => {
+    noticeShownAt = undefined;
+    // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+    // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+    clearTelemetryEnv();
     resetHookContextForTests();
     fetchMock.mockClear();
     vi.stubGlobal('fetch', fetchMock);
