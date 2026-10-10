@@ -83,7 +83,7 @@ export async function approveOne(
   const url = approveUrl(d.appUrl, staged.id, staged.keyB64Url);
   if (spec.heading) d.out(spec.heading);
   d.out(`Approve in your browser: ${url}`);
-  d.out(`Code: ${staged.userCode}  (the page shows the same code: check they match before you approve)`);
+  d.out(`Code: ${staged.userCode}  (the page shows the same code. Check they match before you approve.)`);
   d.out(`The link opens on any device where you are signed in to Align. It expires in ${minutesLeft(staged.expiresAt, d.now())} minutes. Nothing is sent until you approve.`);
   await presentLink(url, {
     appUrl: d.appUrl, plan: d.plan ?? { open: d.openUrl !== undefined, qr: false, qrIfOpenFails: false, why: 'default' },
@@ -103,7 +103,7 @@ export async function approveOne(
       const cancelled = await d.client.cancelShareRequest(staged.id).then(() => true, () => false);
       d.err(cancelled
         ? `Cancelled the request. ${tail}`
-        : 'Could not reach the gateway to cancel. The request expires on its own, and nothing can be sent from it: this run is the only thing that holds the means to finish it, and it has stopped.');
+        : 'Could not reach the gateway to cancel. The request expires on its own. Nothing can be sent from it, because only this run could finish it and this run has stopped.');
       return { ok: false, exit: 130 };
     }
   }
@@ -169,7 +169,7 @@ export async function runBrowserShare(ctx: ShareContext, prep: Prepared, d: Brow
     try {
       rows = await send(ctx, { ...prep, payloads: group }, approvalHooks(d, to, step.response));
     } catch (e) {
-      d.err(`The gateway completed this request, so it is on your team graph, but this run could not finish recording it (${visible((e as Error).message)}). \`align share --retract\` may not find it until you share the same decision again (that is safe: it will not make a second copy).`);
+      d.err(`The gateway completed this request, so it is on your team graph, but this run could not finish recording it (${visible((e as Error).message)}). \`align share --retract\` may not find it until you share the same decision again. That is safe: it will not make a second copy.`);
       return 1;
     }
     d.out(`\n${renderResults(rows)}`);

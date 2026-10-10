@@ -125,8 +125,8 @@ export interface PresentDeps {
   copy?: (url: string) => void;
 }
 
-const HOW_WITH_QR = 'To open it: scan the QR code with your phone (approving there with Face ID or a fingerprint is the strongest way), or open the link above on any device where you are signed in to Align.';
-const HOW_NO_QR = 'To open it: open the link above on any device where you are signed in to Align, a phone included.';
+const HOW_WITH_QR = 'To open it, scan the QR code with your phone, or open the link above on any device where you are signed in to Align. Approving on a phone with Face ID or a fingerprint is the strongest way.';
+const HOW_NO_QR = 'To open it, open the link above on any device where you are signed in to Align, a phone included.';
 
 export async function presentLink(url: string, d: PresentDeps): Promise<void> {
   const check = checkApproveLink(url, d.appUrl);

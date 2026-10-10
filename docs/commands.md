@@ -232,21 +232,21 @@ queue; `.align/decisions.md` and the local MCP server both label an unratified c
 `align ratify <id>` is the human act - it refuses a hook, a pipe, or any caller not at a
 terminal - and `align share <id>` (alias `push`) sends ratified decisions, with the judgements you made
 about them, to your team. It prints exactly what leaves the machine and asks first; nothing is
-sent without a yes. `align share --retract <id>` undoes it while you are on the team; once you have left, a share stays as the team's record. An agent can ask for a share, and
+sent without a yes. `align share --retract <id>` undoes it while you are on the team. Once you have left, a share stays as the team's record. An agent can ask for a share, and
 cannot finish it alone. With a server that offers browser approval, `align_share` stages the share and hands
 you a link and a short code. You approve it in your logged-in browser, and the agent then finishes it with
 `align_share_status`. With an older server, or one that has it turned off, `align_share` returns a one-time
-code and you finish it with `align share --confirm <code>` in your own terminal. Browser approval is not a
-lock: an agent that can read your mailbox or your browser's cookies can still get a session, and it stays
-that way until a passkey or other step-up credential exists (see SECURITY.md).
+code. You finish it with `align share --confirm <code>` in your own terminal. Browser approval is not a
+lock: an agent that can read your mailbox or your browser's cookies can still get a session. That stays
+true until a passkey or other step-up credential exists (see SECURITY.md).
 
 Getting the approval link to a browser: at your own terminal on a machine with a browser, `align share` opens
 the link for you (`--no-open` turns that off). On a remote machine (SSH, a dev container, a box with no display), it prints a
-QR code of the whole link instead (`--qr` forces one, `--no-qr` never prints one). Scan it with your phone: approving on a
+QR code of the whole link instead (`--qr` forces one, `--no-qr` never prints one). Scan it with your phone. Approving on a
 phone with Face ID or a fingerprint is the strongest way. A QR code is never printed when output is not a terminal unless
 you pass `--qr`. If your agent staged the request, `align share --open <request id>` shows the link again on the machine that
-staged it (it needs the private file that machine holds). `--copy` asks your terminal to put the link on the clipboard
-(OSC 52: only terminals that support it; clipboard managers may keep it).
+staged it (it needs the private file that machine holds). `--copy` asks your terminal to put the link on the clipboard.
+That works only in terminals that support OSC 52, and clipboard managers may keep the link.
 
 `align use --undo` puts back a file Align wrote for a written-once agent (Auggie, Cline, Amp,
 Kiro, Grok Build, pi, Cursor). The restore is exact only while nobody else has touched the file.

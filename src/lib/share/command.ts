@@ -79,8 +79,8 @@ export interface ShareDeps {
   err: (line: string) => void;
 }
 
-const WRAPPED = 'align share needs your own answer typed at a terminal here, and this is not run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.';
-const NO_TERMINAL = 'Confirm this in your own terminal: there is no interactive terminal here (an agent shell, a pipe and a hook have none). Nothing was sent.';
+const WRAPPED = 'align share needs you to type your answer at a terminal, and this run is inside an agent that align launched, so it cannot ask you. Open a normal terminal of your own and run it there. Nothing was sent.';
+const NO_TERMINAL = 'Confirm this in your own terminal. There is no interactive terminal here (an agent shell, a pipe and a hook have none). Nothing was sent.';
 
 export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<number> {
   // Every line this prints can carry text a stranger wrote (a remote id, a tenant name, a server error, a
@@ -219,7 +219,7 @@ async function reopenRequest(opts: ShareOptions, deps: ShareDeps, out: (l: strin
   const url = approveUrl(deps.approval.appUrl, rec.requestId, rec.keyB64Url);
   const minutes = Math.max(1, Math.round((Date.parse(rec.expiresAt) - Date.now()) / 60000));
   out(`Approve in your browser: ${url}`);
-  out(`Code: ${rec.userCode}  (the page shows the same code: check they match before you approve)`);
+  out(`Code: ${rec.userCode}  (the page shows the same code. Check they match before you approve.)`);
   out(`It expires in ${minutes} minutes. Nothing is sent until you approve. When you have, tell your agent so it can finish the share.`);
   const a = deps.approval;
   await presentLink(url, {
