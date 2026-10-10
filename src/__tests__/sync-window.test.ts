@@ -20,6 +20,16 @@ describe('nextWindow', () => {
     expect(nextWindow({ window_since: '2025-10-10T12:00:00.000Z', high_water: '2026-10-12T00:00:00.000Z', pending_until: null }, NOW)).toEqual({ since: '2025-10-10T12:00:00.000Z' });
   });
 
+  it('while a hole is open the re-read is bounded to the default window; with no hole a deeper window the person asked for is kept (two examples each)', () => {
+    const old = '2025-12-01T00:00:00.000Z';
+    expect(nextWindow({ window_since: old, high_water: null, pending_until: null, hole_streak: 2 }, NOW)).toEqual({ since: ago(SYNC_WINDOW_DEFAULT_DAYS) });
+    expect(nextWindow({ window_since: old, high_water: '2026-01-01T00:00:00.000Z', pending_until: null, hole_streak: 1 }, NOW)).toEqual({ since: ago(SYNC_WINDOW_DEFAULT_DAYS) });
+    expect(nextWindow({ window_since: old, high_water: null, pending_until: null, hole_streak: 0 }, NOW)).toEqual({ since: old });
+    expect(nextWindow({ window_since: old, high_water: '2026-01-01T00:00:00.000Z', pending_until: null }, NOW)).toEqual({ since: '2025-12-31T00:00:00.000Z' });
+    // a recent floor is never moved back
+    expect(nextWindow({ window_since: ago(10), high_water: null, pending_until: null, hole_streak: 3 }, NOW)).toEqual({ since: ago(10) });
+  });
+
   it('no row at all: the default window back from now, no upper bound', () => {
     expect(nextWindow(undefined, NOW)).toEqual({ since: ago(SYNC_WINDOW_DEFAULT_DAYS) });
   });

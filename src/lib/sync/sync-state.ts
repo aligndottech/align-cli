@@ -33,6 +33,9 @@ export interface SyncRow {
   last_attempt_at: string | null;
   /** The newest updated_at seen across a pending cycle, in THIS scope's own row. */
   cycle_top: string | null;
+  /** What the last incomplete run could not read (a signature), and how many runs in a row had exactly that. */
+  hole_sig: string | null;
+  hole_streak: number;
   items_last_run: number | null;
   skips_last_run: string | null;
   changed_via: 'cli' | 'mcp' | null;
@@ -93,6 +96,8 @@ export interface RunResult {
   pending_until: string | null;
   /** The cycle's newest stamp while a cycle is pending; null once it ends. */
   cycle_top?: string | null;
+  hole_sig?: string | null;
+  hole_streak?: number;
   /** Stamped as last_attempt_at on every run. */
   attemptAt: string;
   items: number;
@@ -104,10 +109,10 @@ export interface RunResult {
 export function saveRun(dbPath: string, key: ScopeKey, r: RunResult): void {
   withDb(dbPath, (db) => {
     db.prepare(
-      `UPDATE source_sync SET status = ?, high_water = ?, pending_until = ?, cycle_top = ?, items_last_run = ?, skips_last_run = ?,
+      `UPDATE source_sync SET status = ?, high_water = ?, pending_until = ?, cycle_top = ?, hole_sig = ?, hole_streak = ?, items_last_run = ?, skips_last_run = ?,
          last_attempt_at = ?, last_success_at = COALESCE(?, last_success_at)
        WHERE source_id = ? AND scope_key = ?`,
-    ).run(r.status, r.high_water, r.pending_until, r.cycle_top ?? null, r.items, JSON.stringify(r.skips), r.attemptAt, r.successAt ?? null, key.source, key.scopeKey);
+    ).run(r.status, r.high_water, r.pending_until, r.cycle_top ?? null, r.hole_sig ?? null, r.hole_streak ?? 0, r.items, JSON.stringify(r.skips), r.attemptAt, r.successAt ?? null, key.source, key.scopeKey);
   });
 }
 

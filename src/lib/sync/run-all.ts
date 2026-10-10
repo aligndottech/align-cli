@@ -2,7 +2,8 @@
  * L5: one `align sync` invocation across sources: each source under its own lock, then the
  * re-link queue once (it belongs to the graph, not to a source), then the launch summary.
  */
-import { SYNC_TIME_BUDGET_MS } from '../import-defaults.js';
+/** The re-link queue gets its OWN budget, counted from when it starts: a source that spent all of its own must not leave the queue none. */
+export const RELINK_BUDGET_MS = 60_000;
 import { relinkAll, type RelinkResult } from './relink.js';
 import { type SourceOutcome, type SyncEnv, syncSource } from './run-source.js';
 
@@ -20,7 +21,6 @@ export async function runSync(
   o: { trigger: 'cli' | 'background'; onOutcome?: (o: SourceOutcome) => void } = { trigger: 'cli' },
 ): Promise<SyncRunResult> {
   const outcomes: SourceOutcome[] = [];
-  const started = env.now().getTime();
   for (const source of sources) {
     const out = await syncSource(source, env, { trigger: o.trigger });
     outcomes.push(out);
@@ -29,7 +29,7 @@ export async function runSync(
   const lock = env.lock('sync-relink');
   if (!lock.ok) return { outcomes };
   try {
-    const relink = await relinkAll(env.dbPath, env.client, { deadlineAt: started + SYNC_TIME_BUDGET_MS, now: () => env.now().getTime() });
+    const relink = await relinkAll(env.dbPath, env.client, { deadlineAt: env.now().getTime() + RELINK_BUDGET_MS, now: () => env.now().getTime() });
     return { outcomes, relink };
   } catch (e) {
     return { outcomes, relinkError: (e instanceof Error ? e.message : String(e)).slice(0, 200) };

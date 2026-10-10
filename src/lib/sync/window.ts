@@ -12,6 +12,8 @@ import { SYNC_WINDOW_DEFAULT_DAYS } from '../import-defaults.js';
 /** Each run reads from a day before the watermark, so an item edited between two runs while the
  *  vendor was behind on its own indexing is not missed. */
 export const OVERLAP_DAYS = 1;
+/** A hole that ended this many consecutive runs the same way is called persistent. */
+export const PERSISTENT_HOLE_RUNS = 5;
 const DAY_MS = 86_400_000;
 
 /** The slice of a `source_sync` row the next-window decision reads. */
@@ -20,6 +22,8 @@ export interface WindowState {
   window_since: string | null;
   high_water: string | null;
   pending_until: string | null;
+  /** Consecutive runs that ended on the same hole. While it is above zero the re-read is bounded (see nextWindow). */
+  hole_streak?: number;
 }
 
 function parse(iso: string | null | undefined): number | undefined {
@@ -49,7 +53,11 @@ export function nextWindow(s: WindowState | undefined, now: Date): { since?: str
   const hw = plausible(s.high_water ?? undefined, now) === undefined ? undefined : s.high_water!;
   const floor = hw !== undefined ? minusDays(hw, OVERLAP_DAYS) : parse(s.window_since) === undefined ? undefined : s.window_since!;
   const until = parse(s.pending_until) === undefined ? undefined : s.pending_until!;
-  return { ...(floor !== undefined ? { since: floor } : {}), ...(until !== undefined ? { until } : {}) };
+  // A hole that keeps coming back keeps the watermark where it was, so the re-read would grow every day, and a source that
+  // reads more each time is more likely to hit its budget again. Bound it to the default window while a hole is open.
+  const bound = (s.hole_streak ?? 0) > 0 ? new Date(now.getTime() - SYNC_WINDOW_DEFAULT_DAYS * DAY_MS).toISOString() : undefined;
+  const since = bound !== undefined && (floor === undefined || Date.parse(floor) < Date.parse(bound)) ? bound : floor;
+  return { ...(since !== undefined ? { since } : {}), ...(until !== undefined ? { until } : {}) };
 }
 
 export interface RunFinish {
@@ -62,6 +70,8 @@ export interface RunFinish {
    * separates read from unread, so no `until` is set and the next run re-reads from the watermark.
    */
   cut?: boolean;
+  /** This hole has now come back often enough (see PERSISTENT_HOLE_RUNS) that the watermark stops waiting for it. */
+  persistent?: boolean;
   highWater?: string;
   oldestReached?: string;
   /** The newest `updated_at` stored for this source across the whole cycle, for the final run of
@@ -101,6 +111,10 @@ export function finishRun(
   const prevHigh = plausible(prev.high_water ?? undefined, r.now) === undefined ? null : prev.high_water;
   if (r.complete) {
     return { high_water: later(later(prevHigh, plausible(r.highWater, r.now)), plausible(r.cycleNewest, r.now)), pending_until: null, status: 'ok' };
+  }
+  if (r.persistent === true) {
+    // The other streams are read and committed; only the hole is not. Say so in the status, and move on.
+    return { high_water: later(later(prevHigh, plausible(r.highWater, r.now)), plausible(r.cycleNewest, r.now)), pending_until: null, status: 'partial' };
   }
   if (r.cut === true) return { high_water: prevHigh, pending_until: earlier(prev.pending_until, r.oldestReached), status: 'partial' };
   return { high_water: prevHigh, pending_until: null, status: 'partial' };

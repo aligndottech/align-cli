@@ -18,6 +18,7 @@
  * transaction, so a purge can be undone by copying them back. Its links and sync-item state go with it.
  */
 import type { DatabaseSync } from 'node:sqlite';
+import { copyRowsToBackup } from '../backup-copy.js';
 import { createLocalDb } from '../local-db.js';
 import { deleteDecisionWithDependents } from '../local-db-migrate.js';
 import { BACKFILL_SOURCES } from '../mcp-backfill.js';
@@ -67,9 +68,9 @@ export function purgeIn(db: DatabaseSync, platform: string): PurgeResult {
   const { total } = previewIn(db, platform);
   const ids = (db.prepare(`SELECT d.id AS id FROM decisions d WHERE ${disposableWhere(db)}`).all(platform) as Array<{ id: string }>).map((r) => r.id);
   for (const id of ids) {
-    db.prepare('INSERT INTO decisions_purged_backup SELECT * FROM decisions WHERE id = ?').run(id);
-    db.prepare('INSERT INTO decision_embeddings_purged_backup SELECT * FROM decision_embeddings WHERE decision_id = ?').run(id);
-    db.prepare('INSERT INTO decision_refs_purged_backup SELECT * FROM decision_refs WHERE decision_id = ?').run(id);
+    copyRowsToBackup(db, 'decisions', 'decisions_purged_backup', 'id', id);
+    copyRowsToBackup(db, 'decision_embeddings', 'decision_embeddings_purged_backup', 'decision_id', id);
+    copyRowsToBackup(db, 'decision_refs', 'decision_refs_purged_backup', 'decision_id', id);
     deleteDecisionWithDependents(db, id);
     db.prepare('DELETE FROM sync_item_state WHERE decision_id = ?').run(id);
   }

@@ -49,5 +49,7 @@ export async function fetchWhole(source: string, tokens: Record<string, string>,
   if (source !== 'slack') return undefined;
   const { SlackFetcher } = await import('@aligndottech/connector-core');
   const r = await new SlackFetcher().fetchOne(url, { token: tokens['token']! });
+  // A skip (429, 404, a channel it cannot see, time) is a reason the caller counts, never a silent "no".
+  if (!r.item) throw new Error(r.skip?.detail ?? 'the thread could not be read');
   return r.item;
 }

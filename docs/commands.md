@@ -356,3 +356,23 @@ Local-only mode sends two anonymous counts by default (install, setup completed)
 with your consent; `align telemetry off` or `DO_NOT_TRACK=1` stops all of it. See
 [Telemetry](telemetry.md) for every event and field, and
 [Cloud or local-only](local-mode.md#telemetry) for how the two modes differ.
+
+## Undoing `align local forget <source> --purge`
+
+There is no restore command. A purge copies every row it deletes into three tables inside the graph
+file first, in the same transaction: `decisions_purged_backup`, `decision_embeddings_purged_backup` and
+`decision_refs_purged_backup`. So a purge can be undone by hand, once, with the `sqlite3` shell on the
+graph file (`align local status` prints where it is):
+
+```sql
+INSERT INTO decisions SELECT * FROM decisions_purged_backup WHERE platform = 'slack';
+INSERT INTO decision_embeddings SELECT * FROM decision_embeddings_purged_backup WHERE decision_id IN (SELECT id FROM decisions);
+INSERT INTO decision_refs SELECT * FROM decision_refs_purged_backup WHERE decision_id IN (SELECT id FROM decisions);
+```
+
+Replace `slack` with the source you purged. (If a later version added columns to `decisions`, list the columns by name in both halves of the first statement.) What the backup does **not** keep: the links between
+decisions, audit rows, and the `sync_classified` notes (a purge only ever removes rows that had no
+human act and no judgement on them, so there are none of those to lose, but the links and the sync
+state are rebuilt by the next `align sync`, not restored). The backup tables hold the full text and the
+vectors of what you purged, so they stay until you remove them: `align local reset` wipes the whole
+graph, backups included, and is the only command that does.

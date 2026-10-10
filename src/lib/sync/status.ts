@@ -11,6 +11,7 @@ import type { BackfillStatus } from '../backfill-state.js';
 import { BACKFILL_SOURCES } from '../mcp-backfill.js';
 import type { SyncRow, SyncStatus } from './sync-state.js';
 import { EMBEDDING_MODEL_ID } from '../local-embeddings.js';
+import { PERSISTENT_HOLE_RUNS } from './window.js';
 import { pendingDetailCount, readRows, unfinishedCount } from './sync-state.js';
 
 export interface SourceStatus {
@@ -31,6 +32,8 @@ export interface SourceStatus {
   skips: Record<string, number>;
   /** What the last run could not read, in the fetcher's own words, by scope. Never item content or a URL. */
   missing?: string[];
+  /** The same hole for PERSISTENT_HOLE_RUNS runs or more: the sync reads the rest and no longer waits for it. */
+  persistent_hole?: string;
   /** A read a ceiling cut in date order: how far back it got. Older history is still to come. */
   reached_back_to?: string;
   running?: 'sync' | 'backfill';
@@ -104,6 +107,7 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
     const attempts = rows.map((r) => r.last_attempt_at).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t)));
     const attempt = attempts.sort((a, b) => Date.parse(b) - Date.parse(a))[0];
     const missing = missingOf(rows);
+    const stuck = rows.find((r) => r.hole_streak >= PERSISTENT_HOLE_RUNS && r.hole_sig !== null);
     const items = rows.find((r) => r.items_last_run !== null)?.items_last_run ?? undefined;
     const pending = rows.map((r) => r.pending_until).filter((t): t is string => t !== null && !Number.isNaN(Date.parse(t))).sort()[0];
     const bf = d.backfill(id);
@@ -114,6 +118,7 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
       ...(last !== undefined ? { last_success_at: last } : {}),
       ...(attempt !== undefined ? { last_attempt_at: attempt } : {}),
       ...(missing.length > 0 ? { missing } : {}),
+      ...(stuck ? { persistent_hole: `${stuck.hole_sig} (${stuck.hole_streak} runs in a row)` } : {}),
       ...(items !== undefined ? { items_last_run: items } : {}),
       ...(pending !== undefined ? { reached_back_to: pending } : {}),
       ...(connected && d.syncRunning(id) ? { running: 'sync' as const } : bf && d.backfillAlive(bf) ? { running: 'backfill' as const } : {}),
@@ -143,11 +148,12 @@ export function renderStatus(r: { sources: SourceStatus[]; rows_awaiting_relink:
     if (s.discussion_pending) bits.push(`${s.discussion_pending} still waiting for their discussion`);
     if (s.reached_back_to) bits.push(`older history still to read (reached ${s.reached_back_to.slice(0, 10)})`);
     if (s.missing) bits.push(`not read last time: ${s.missing.join('; ')}`);
+    if (s.persistent_hole) bits.push(`persistent hole: ${s.persistent_hole}; the sync reads the rest and no longer waits for it, so fix the access or leave it`);
     const skips = Object.entries(s.skips).map(([k, n]) => `${k} ${n}`);
     if (skips.length) bits.push(`skipped last run: ${skips.join(', ')}`);
     lines.push(`${s.label} (${s.scope}): ${bits.join('; ')}.`);
     if (s.next_step) lines.push(`  ${s.next_step}`);
   }
-  if (r.rows_awaiting_relink > 0) lines.push(`${r.rows_awaiting_relink} stored items wait for their links to be finished; the next sync does it, locally and free.`);
+  if (r.rows_awaiting_relink > 0) lines.push(`${r.rows_awaiting_relink} stored items wait for their links to be finished. Each sync works on them for up to a minute, locally and free, until they are done.`);
   return lines.join('\n');
 }

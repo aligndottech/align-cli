@@ -40,6 +40,7 @@ export function renderOutcome(o: SourceOutcome): string[] {
         lines.push(`  Stopped early${why ? `: ${why.count} ${why.detail}` : ''}.${reached}`);
       }
       if (o.scopeNote) lines.push(`  Read ${o.scopeNote}.`);
+      if (o.persistentHole) lines.push(`  Persistent hole: ${o.persistentHole}. The sync reads the rest and no longer waits for it; fix the access or leave it.`);
       if (o.drain && (o.drain.enriched > 0 || o.drain.remaining > 0)) {
         lines.push(`  Discussion: ${o.drain.enriched} read${o.drain.remaining > 0 ? `, ${o.drain.remaining} still to come (the next sync continues)` : ''}.`);
       }

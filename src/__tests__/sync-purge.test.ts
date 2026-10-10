@@ -118,6 +118,20 @@ describe('purgePlatform', () => {
   });
 });
 
+describe('the documented restore recipe (docs/commands.md) undoes a purge', () => {
+  it('puts back the rows, their vectors and their refs', () => {
+    const ids = seed();
+    purgePlatform(dbPath, 'slack');
+    expect(titles('slack')).toHaveLength(7);
+    exec(`INSERT INTO decisions SELECT * FROM decisions_purged_backup WHERE platform = 'slack';
+          INSERT INTO decision_embeddings SELECT * FROM decision_embeddings_purged_backup WHERE decision_id IN (SELECT id FROM decisions);
+          INSERT INTO decision_refs SELECT * FROM decision_refs_purged_backup WHERE decision_id IN (SELECT id FROM decisions);`);
+    expect(titles('slack')).toHaveLength(10);
+    expect(sql(`SELECT 1 FROM decision_embeddings WHERE decision_id = '${ids['plain1']}'`)).toHaveLength(1);
+    expect(sql(`SELECT 1 FROM decision_refs WHERE decision_id = '${ids['plain1']}'`)).toHaveLength(1);
+  });
+});
+
 describe('names that are not connector sources', () => {
   it.each(['cli', 'git', 'docs', 'sessions', 'agent-session', 'gitub', '', 'all', '*'])('%j: refused, and nothing is deleted', (name) => {
     seed();

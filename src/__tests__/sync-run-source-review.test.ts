@@ -30,6 +30,9 @@ let lastWin: { since?: string; until?: string } = {};
 let skip: { kind: string; count: number; detail: string } | undefined;
 let ceiling: number | undefined;
 const START = '2026-10-10T12:00:00.000Z';
+/** A source whose fetcher reads ONE newest-first listing (see CUT_KINDS_BY_SOURCE): the only kind where a cut leaves a date line. */
+const SRC = 'jira';
+const srow = (scope = 'yours') => readRows(h.dbPath, SRC).find((r) => r.scope_key === scope)!;
 
 function setup(over: Parameters<typeof harness>[0] = {}): void {
   clock = new Date(START); world = []; skip = undefined; ceiling = undefined;
@@ -40,9 +43,10 @@ function setup(over: Parameters<typeof harness>[0] = {}): void {
       .sort((a, b) => (a.updated_at! < b.updated_at! ? 1 : -1));
     const cut = ceiling !== undefined && inWin.length > ceiling;
     const items = cut ? inWin.slice(0, ceiling) : inWin;
-    const skips = [...(skip ? [skip] : []), ...(cut ? [{ kind: 'vendor_cap', count: 1, detail: 'ceiling' }] : [])];
+    // The item ceiling of a single listing (jira, notion, gitlab) emits NO skip: the report is just not complete.
+    const skips = skip ? [skip] : [];
     const stamps = items.map((i) => i.updated_at!).sort();
-    return { items, report: { scanned: items.length, skips, complete: skips.length === 0, ...(stamps.length ? { highWater: stamps.at(-1), oldestReached: stamps[0] } : {}) } } as never;
+    return { items, report: { scanned: items.length, skips, complete: skips.length === 0 && !cut, ...(stamps.length ? { highWater: stamps.at(-1), oldestReached: stamps[0] } : {}) } } as never;
   };
 }
 afterEach(() => h?.cleanup());
@@ -51,7 +55,7 @@ const ids = (): string[] => {
   try { return (db.prepare('SELECT source_url FROM decisions ORDER BY source_url').all() as Array<{ source_url: string }>).map((r) => r.source_url.split('/').pop()!); } finally { db.close(); }
 };
 const day = (d: number) => new Date(Date.parse(START) + d * 86_400_000);
-const row = (scope = 'yours') => readRows(h.dbPath, 'github').find((r) => r.scope_key === scope)!;
+const row = (scope = 'yours', src = 'github') => readRows(h.dbPath, src).find((r) => r.scope_key === scope)!;
 
 describe('W1: a recurring hole must not stall the source', () => {
   it('one persistent unreadable-channel skip: five days of new items all land, and no `until` ever pins a run', async () => {
@@ -108,13 +112,13 @@ describe('W1: a recurring hole must not stall the source', () => {
     ceiling = 2;
     world = [1, 2, 3, 4, 5].map((n) => pr(n, `2026-10-0${n}T00:00:00.000Z`));
     const states: string[] = [];
-    for (let run = 0; run < 3; run++) states.push((await syncSource('github', h.env)).state);
+    for (let run = 0; run < 3; run++) states.push((await syncSource(SRC, h.env)).state);
     expect(states).toEqual(['partial', 'partial', 'ok']);
     expect(ids()).toEqual(['1', '2', '3', '4', '5']);
-    expect(row()).toMatchObject({ high_water: '2026-10-05T00:00:00.000Z', pending_until: null, cycle_top: null, status: 'ok' });
+    expect(srow()).toMatchObject({ high_water: '2026-10-05T00:00:00.000Z', pending_until: null, cycle_top: null, status: 'ok' });
     clock = day(1);
     world.push(pr(6, '2026-10-10T20:00:00.000Z'));
-    await syncSource('github', h.env);
+    await syncSource(SRC, h.env);
     expect(lastWin).toEqual({ since: '2026-10-04T00:00:00.000Z' });
     expect(ids()).toContain('6');
   });
@@ -135,13 +139,17 @@ describe('a source whose listing is not one newest-first stream cannot leave a d
     expect(lastWin.until).toBeUndefined();
   });
 
-  it('the same report on a newest-first source (github) IS a cut: the next run reads until it', async () => {
+  it('the same report on jira, one newest-first listing, IS a cut: the next run reads until it; on github, which interleaves several searches, it is a hole', async () => {
     setup();
-    h.env.fetch = async (_s, _t, win) => { lastWin = win; return { items: [pr(1, '2026-10-05T00:00:00.000Z')], report: { scanned: 1, complete: false, highWater: '2026-10-05T00:00:00.000Z', oldestReached: '2026-10-05T00:00:00.000Z', skips: [{ kind: 'time_budget', count: 4, detail: 'search paced out' }] } } as never; };
-    await syncSource('github', h.env);
-    expect(row().pending_until).toBe('2026-10-05T00:00:00.000Z');
-    await syncSource('github', h.env);
+    h.env.fetch = async (_s, _t, win) => { lastWin = win; return { items: [pr(1, '2026-10-05T00:00:00.000Z')], report: { scanned: 1, complete: false, highWater: '2026-10-05T00:00:00.000Z', oldestReached: '2026-10-05T00:00:00.000Z', skips: [{ kind: 'time_budget', count: 4, detail: 'issue read stopped; older issues not read' }] } } as never; };
+    await syncSource('jira', h.env);
+    expect(row('yours', 'jira').pending_until).toBe('2026-10-05T00:00:00.000Z');
+    await syncSource('jira', h.env);
     expect(lastWin.until).toBe('2026-10-05T00:00:00.000Z');
+    await syncSource('github', h.env);
+    expect(row('yours', 'github').pending_until).toBeNull();
+    await syncSource('github', h.env);
+    expect(lastWin.until).toBeUndefined();
   });
 });
 
@@ -194,15 +202,15 @@ describe('W3: the cycle top belongs to its own scope', () => {
       return teamFetch(s, t, win, sc);
     };
     clock = new Date('2026-10-10T00:00:00.000Z');
-    await syncSource('github', h.env); // team run 1: cut after the newest item
+    await syncSource(SRC, h.env); // team run 1: cut after the newest item
     clock = new Date('2026-10-21T00:00:00.000Z');
     scope = { scopeKey: 'yours', scope: 'yours' };
-    await syncSource('github', h.env); // an item updated 10-20 is stored, in ANOTHER scope
+    await syncSource(SRC, h.env); // an item updated 10-20 is stored, in ANOTHER scope
     team.push(pr(12, '2026-10-15T00:00:00.000Z'));
     scope = { scopeKey: 'repo:o/r', scope: 'team', repo: 'o/r' };
-    await syncSource('github', h.env); // team run 2: finishes the older part
-    expect(row('repo:o/r').high_water).toBe('2026-10-09T00:00:00.000Z');
-    await syncSource('github', h.env); // team run 3: incremental, must see PR 12
+    await syncSource(SRC, h.env); // team run 2: finishes the older part
+    expect(srow('repo:o/r').high_water).toBe('2026-10-09T00:00:00.000Z');
+    await syncSource(SRC, h.env); // team run 3: incremental, must see PR 12
     expect(ids()).toContain('12');
   });
 });

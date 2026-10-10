@@ -35,6 +35,7 @@
  * Replay-safe: every CREATE is IF NOT EXISTS, every ALTER is guarded by table_info, keys are
  * computed only where NULL, and a second pass finds no group of twins left to merge.
  */
+import { copyRowsToBackup } from './backup-copy.js';
 import { bumpRowSetEpoch } from './local-db-epoch.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { isCaptureShaped } from './local-ingest.js';
@@ -138,9 +139,9 @@ function absorbLoser(db: DatabaseSync, loserId: string, survivorId: string, grou
   bumpRowSetEpoch(db);
   const hasJudgements = tableExists(db, 'local_judgements');
   const hasPromotions = tableExists(db, 'promotions');
-  db.prepare('INSERT INTO decisions_merged_backup SELECT * FROM decisions WHERE id = ?').run(loserId);
-  db.prepare('INSERT INTO decision_embeddings_merged_backup SELECT * FROM decision_embeddings WHERE decision_id = ?').run(loserId);
-  db.prepare('INSERT INTO decision_refs_merged_backup SELECT * FROM decision_refs WHERE decision_id = ?').run(loserId);
+  copyRowsToBackup(db, 'decisions', 'decisions_merged_backup', 'id', loserId);
+  copyRowsToBackup(db, 'decision_embeddings', 'decision_embeddings_merged_backup', 'decision_id', loserId);
+  copyRowsToBackup(db, 'decision_refs', 'decision_refs_merged_backup', 'decision_id', loserId);
   repoint(db, 'decision_audit', 'decision_id', loserId, survivorId);
   repointLinks(db, loserId, survivorId, group);
   repoint(db, 'decision_refs', 'decision_id', loserId, survivorId);

@@ -37,6 +37,7 @@ function sql<T = Record<string, unknown>>(q: string, ...a: Array<string | number
   try { return db.prepare(q).all(...a) as T[]; } finally { db.close(); }
 }
 const row = () => readRows(h.dbPath, 'github')[0]!;
+const jrow = () => readRows(h.dbPath, 'jira')[0]!;
 const D = (iso: string, days: number) => new Date(Date.parse(iso) - days * 86_400_000).toISOString();
 
 describe('the watermark', () => {
@@ -72,18 +73,18 @@ describe('the watermark', () => {
   it('an incomplete run: high_water stays, pending_until is the oldest reached, status partial; the next run reads UNTIL it', async () => {
     h.script({
       items: [pr(1, '2026-10-09T00:00:00.000Z'), pr(2, '2026-09-20T00:00:00.000Z')],
-      report: { complete: false, highWater: '2026-10-09T00:00:00.000Z', oldestReached: '2026-09-20T00:00:00.000Z', skips: [{ kind: 'vendor_cap', count: 1, detail: 'GitHub search ceiling' }] },
+      report: { complete: false, highWater: '2026-10-09T00:00:00.000Z', oldestReached: '2026-09-20T00:00:00.000Z', skips: [{ kind: 'time_budget', count: 1, detail: 'issue read stopped; older issues not read' }] },
     });
-    const out = await syncSource('github', h.env);
+    const out = await syncSource('jira', h.env);
     expect(out).toMatchObject({ state: 'partial', reachedBack: '2026-09-20T00:00:00.000Z' });
-    expect(row()).toMatchObject({ status: 'partial', high_water: null, pending_until: '2026-09-20T00:00:00.000Z' });
+    expect(jrow()).toMatchObject({ status: 'partial', high_water: null, pending_until: '2026-09-20T00:00:00.000Z' });
 
     h.script({ items: [pr(3, '2026-09-10T00:00:00.000Z')], report: { highWater: '2026-09-10T00:00:00.000Z' } });
-    const second = await syncSource('github', h.env);
+    const second = await syncSource('jira', h.env);
     expect(h.fetchCalls[1]!.win).toEqual({ since: D(NOW.toISOString(), 180), until: '2026-09-20T00:00:00.000Z' });
     expect(second.state).toBe('ok');
     // the cycle's TRUE top (run 1's newest item), not the clamped last run's 09-10
-    expect(row()).toMatchObject({ status: 'ok', pending_until: null, high_water: '2026-10-09T00:00:00.000Z' });
+    expect(jrow()).toMatchObject({ status: 'ok', pending_until: null, high_water: '2026-10-09T00:00:00.000Z' });
   });
 
   it('a kill after batch 2 of 4: high_water is batch 2\'s newest only, and the next run resumes from there', async () => {
