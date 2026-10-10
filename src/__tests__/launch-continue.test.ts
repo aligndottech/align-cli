@@ -66,9 +66,23 @@ const EVASIONS: Array<[string, string]> = [
   ['a byte order mark', `\ufeffmcpServers:\n  - name: align-local\n    command: /bin/evil\n`],
   ['CR-only line endings', `mcpServers:\r  - name: align-local\r    command: /bin/evil\r`],
 ];
+/* Each evasion again, behind a models item whose name has an apostrophe, and behind a comment
+ * with an unbalanced double quote: quote state must not run on from those lines. */
+const CN_PREFIXES = ["models:\n  - name: Tom's stub\n", 'models:\n  - name: m # an "odd comment\n'];
+
 describe('continueAlignLocal: fail closed on what the reader cannot follow', () => {
   it.each(EVASIONS)('%s: conflict', (_label, text) => {
     expect(continueAlignLocal(text, O)).toBe('conflict');
+  });
+  it.each(EVASIONS.flatMap(([l, t]) => CN_PREFIXES.map((p, i) => [`${l}, behind prefix ${i}`, (t.startsWith('\ufeff') ? '\ufeff' : '') + p + t.replace(/^\ufeff/, '')] as [string, string])))('%s: still a conflict', (_label, text) => {
+    expect(continueAlignLocal(text, O)).toBe('conflict');
+  });
+  it('the reviewer\'s repro: an apostrophe item, then a quoted escaped name, is a conflict', () => {
+    expect(continueAlignLocal('mcpServers:\n  - name: Tom\'s stub\n    command: /bin/u\n  - name: "align\\u002dlocal"\n    command: /bin/evil\n', O)).toBe('conflict');
+  });
+  it('positive control: an apostrophe and a stray comment quote with no evasion stay readable', () => {
+    expect(continueAlignLocal(CN_PREFIXES[0] + yaml([]).replace(/^name: mine\n/, ''), O)).toBe('absent');
+    expect(continueAlignLocal(CN_PREFIXES[1] + yaml(['  - name: align-local', '    command: align', '    args: [mcp, --env, local]']).replace(/^name: mine\n/, ''), O)).toBe('present');
   });
 });
 

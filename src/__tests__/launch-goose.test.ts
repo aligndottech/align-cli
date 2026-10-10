@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildGooseLaunch } from '../lib/launch/adapters/goose.js';
-import { gooseAlignLocal, gooseConfigFile, isGooseBin, readGooseState } from '../lib/launch/goose-state.js';
+import { gooseAlignLocal, gooseConfigFile, gooseRecipeMentions, isGooseBin, readGooseState } from '../lib/launch/goose-state.js';
 
 /*
  * Goose, per session (goose 1.54.0, binary-verified in a sandbox): `goose session
@@ -88,9 +88,25 @@ const EVASIONS: Array<[string, string]> = [
   ['a byte order mark', `\ufeffextensions:\n  align-local:\n    enabled: true\n    cmd: /bin/evil\n`],
   ['CR-only line endings', `extensions:\r  align-local:\r    enabled: true\r    cmd: /bin/evil\r`],
 ];
+/* Quote state must not leak across lines: an apostrophe in a plain scalar, or a stray double
+ * quote in a comment, once hid every later evasion. Each evasion is re-run behind both. */
+const GOOSE_PREFIXES = ["GOOSE_SYSTEM_PROMPT: Tom's stub\n", '# an "unbalanced comment\nGOOSE_MODEL: x\n'];
+
 describe('gooseAlignLocal: fail closed on what the reader cannot follow', () => {
   it.each(EVASIONS)('%s: conflict', (_label, text) => {
     expect(gooseAlignLocal(text, O)).toBe('conflict');
+  });
+  it.each(EVASIONS.flatMap(([l, t]) => GOOSE_PREFIXES.map((p, i) => [`${l}, behind prefix ${i}`, (t.startsWith('\ufeff') ? '\ufeff' : '') + p + t.replace(/^\ufeff/, '')] as [string, string])))('%s: still a conflict', (_label, text) => {
+    expect(gooseAlignLocal(text, O)).toBe('conflict');
+  });
+  it('positive control: a plain apostrophe and a stray quote in a comment, with no evasion, stay readable', () => {
+    expect(gooseAlignLocal(GOOSE_PREFIXES.join('') + block([]), O)).toBe('absent');
+    expect(gooseAlignLocal(GOOSE_PREFIXES.join('') + block(['  align-local:', '    enabled: true', '    cmd: align', '    args: [mcp, --env, local]']), O)).toBe('present');
+  });
+  it('an anchor or alias anywhere a node starts is a conflict (after `- `, after `: `, at line start)', () => {
+    expect(gooseAlignLocal(block(['  x:', '    args: [&a mcp]']), O)).toBe('conflict');
+    expect(gooseAlignLocal(`base: &b\n  cmd: x\n${block([])}`, O)).toBe('conflict');
+    expect(gooseAlignLocal(`*x\n${block([])}`, O)).toBe('conflict');
   });
 });
 
@@ -132,6 +148,15 @@ describe('buildGooseLaunch: `goose session --with-extension`', () => {
     expect(run.notes).toEqual(["Align adds its graph to `goose session` and `goose run` only, so `goose configure` opens without it."]);
     expect(buildGooseLaunch({ ...base, passthrough: ['--help'] })).toEqual({ bin: 'goose', args: ['--help'], env: { ALIGN_WRAPPED: '1' }, files: [] });
     expect(buildGooseLaunch({ ...base, passthrough: ['-V'] }).args).toEqual(['-V']);
+  });
+  it('a --recipe file that defines align-local: nothing added (goose would refuse to start), one line naming it', () => {
+    const r = path.join(root, 'r.yaml');
+    writeFileSync(r, 'extensions:\n  - type: stdio\n    name: align-local\n    cmd: /bin/x\n');
+    const s = buildGooseLaunch({ ...base, passthrough: ['run', '--recipe', r], recipeDefinesAlignLocal: gooseRecipeMentions(root, ['run', '--recipe', r]) });
+    expect(s.args).toEqual(['run', '--recipe', r]);
+    expect(s.notes).toEqual([`${r} defines its own align-local extension, so Align did not add its graph to Goose. Remove or rename that entry to use the graph.`]);
+    writeFileSync(r, 'extensions: []\n');
+    expect(buildGooseLaunch({ ...base, passthrough: ['run', '--recipe', r], recipeDefinesAlignLocal: gooseRecipeMentions(root, ['run', '--recipe', r]) }).args).toEqual(['run', '--with-extension', EXT, '--recipe', r]);
   });
   it('canonical align-local already in config.yaml: nothing added, no duplicate', () => {
     expect(buildGooseLaunch({ ...base, present: true, passthrough: [] })).toEqual({ bin: 'goose', args: [], env: { ALIGN_WRAPPED: '1' }, files: [] });

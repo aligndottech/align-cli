@@ -1,5 +1,5 @@
 import { buildGooseLaunch } from '../../adapters/goose.js';
-import { isGooseBin } from '../../goose-state.js';
+import { gooseRecipeMentions, isGooseBin } from '../../goose-state.js';
 import type { AgentSpec } from '../types.js';
 
 export const goose: AgentSpec = {
@@ -13,5 +13,9 @@ export const goose: AgentSpec = {
   // A release binary from a script or Homebrew; there is no npm package, so Align only prints it.
   install: { kind: 'docs', url: 'https://goose-docs.ai/docs/getting-started/installation', text: 'curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash' },
   acceptsBin: (found, env, platform) => isGooseBin(found, env, platform),
-  build: (d, base) => buildGooseLaunch({ passthrough: base.passthrough, ...d.readGooseState!(d.cwd, d.home, d.env, d.platform) }),
+  build: (d, base) => buildGooseLaunch({
+    passthrough: base.passthrough,
+    ...d.readGooseState!(d.cwd, d.home, d.env, d.platform),
+    recipeDefinesAlignLocal: gooseRecipeMentions(d.cwd, base.passthrough),
+  }),
 };

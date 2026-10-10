@@ -13,48 +13,62 @@ export interface YamlLine {
   text: string;
 }
 
-/** Strip a trailing comment: a `#` at the start or after whitespace, outside quotes. */
-function stripComment(line: string): string {
-  let quote: string | null = null;
+/**
+ * One line, read on its own (no quote state carries to the next line). A quote opens a quoted
+ * scalar only where a YAML node starts: after the indent, after `- `, after `: `, or after `[`, `{`
+ * or `,`. Anywhere else (`Tom's`) it is a plain character. Returns where a comment starts (or the
+ * line length), and whether the line holds something this reader does not follow: an escape in a
+ * double-quoted scalar, a quoted scalar that does not close on the line, an anchor or alias at a
+ * node start, or a complex key (`? `). When unsure, it says unfollowable.
+ */
+function scanLine(line: string): { comment: number; unfollowable: boolean } {
+  let nodeStart = true;
+  const space = (k: number) => k >= line.length || /\s/.test(line[k]!);
   for (let i = 0; i < line.length; i++) {
     const c = line[i]!;
-    if (quote) {
-      if (c === quote) quote = null;
-    } else if (c === '"' || c === "'") {
-      quote = c;
-    } else if (c === '#' && (i === 0 || /\s/.test(line[i - 1]!))) {
-      return line.slice(0, i);
+    if (/\s/.test(c)) continue;
+    if (c === '#' && (i === 0 || /\s/.test(line[i - 1]!))) return { comment: i, unfollowable: false };
+    if (nodeStart) {
+      if (c === '&' || c === '*') return { comment: line.length, unfollowable: true };
+      if (c === '?' && space(i + 1)) return { comment: line.length, unfollowable: true };
+      if (c === '"' || c === "'") {
+        let j = i + 1;
+        for (; j < line.length; j++) {
+          if (c === '"' && line[j] === '\\') return { comment: line.length, unfollowable: true };
+          if (line[j] === c) {
+            if (c === "'" && line[j + 1] === "'") { j++; continue; }
+            break;
+          }
+        }
+        if (j >= line.length) return { comment: line.length, unfollowable: true };
+        i = j;
+        nodeStart = false;
+        continue;
+      }
+      if (c === '-' && space(i + 1)) continue;
+      if (c === '[' || c === '{') continue;
     }
+    if ((c === ':' && space(i + 1)) || c === ',' || c === '[' || c === '{') {
+      nodeStart = true;
+      continue;
+    }
+    nodeStart = false;
   }
-  return line;
+  return { comment: line.length, unfollowable: false };
+}
+
+/** Strip a trailing comment, by the same per-line rules. */
+function stripComment(line: string): string {
+  return line.slice(0, scanLine(line).comment);
 }
 
 /**
  * Constructs that can spell a name without its literal text, or that this reader cannot follow:
- * an escape in a double-quoted scalar (`\x2d`, an escaped line break), an anchor or alias,
- * a byte order mark, a CR not followed by LF. Their presence makes the whole file unreadable.
+ * a byte order mark, a CR not followed by LF, and per line whatever `scanLine` cannot follow.
  */
 function unfollowable(text: string): boolean {
   if (text.startsWith('\ufeff') || /\r(?!\n)/.test(text)) return true;
-  let quote: string | null = null;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]!;
-    if (quote) {
-      if (quote === '"' && c === '\\') return true;
-      if (c === quote) quote = null;
-      continue;
-    }
-    if (c === '#' && (i === 0 || /\s/.test(text[i - 1]!))) {
-      const end = text.indexOf('\n', i);
-      if (end < 0) return false;
-      i = end;
-    } else if (c === '"' || c === "'") {
-      quote = c;
-    } else if ((c === '&' || c === '*') && (i === 0 || /[\s[{,:-]/.test(text[i - 1]!)) && /[^\s,\]}]/.test(text[i + 1] ?? ' ')) {
-      return true;
-    }
-  }
-  return false;
+  return text.split(/\r?\n/).some((l) => scanLine(l).unfollowable);
 }
 
 /**

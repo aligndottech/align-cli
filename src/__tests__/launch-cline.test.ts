@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildClineLaunch } from '../lib/launch/adapters/cline.js';
-import { clineMcpFile, readClineState } from '../lib/launch/cline-state.js';
+import { clineMcpFile, clinePins, readClineState } from '../lib/launch/cline-state.js';
 
 /*
  * Cline CLI, written ONCE (cline 3.0.70, binary-verified in a sandbox). No per-session MCP input
@@ -41,9 +41,14 @@ describe('clineMcpFile: the path resolution in cline 3.0.70', () => {
     expect(clineMcpFile(home, { CLINE_DIR: '/c' }, [])).toBe(path.join(path.resolve('/c'), 'data', 'settings', 'cline_mcp_settings.json'));
     expect(clineMcpFile(home, {}, [])).toBe(def());
   });
-  it('the user\'s own --config dir (beats CLINE_DIR) and --data-dir (beats CLINE_DATA_DIR) for this session', () => {
+  it('the user\'s own --config dir beats CLINE_DIR; --data-dir does NOT move the MCP file (cline 3.0.70, checked: it still listed ~/.cline\'s)', () => {
     expect(clineMcpFile(home, { CLINE_DIR: '/c' }, ['--config', '/u'])).toBe(path.join(path.resolve('/u'), 'data', 'settings', 'cline_mcp_settings.json'));
-    expect(clineMcpFile(home, { CLINE_DATA_DIR: '/d' }, ['--data-dir=/dd'])).toBe(path.join(path.resolve('/dd'), 'settings', 'cline_mcp_settings.json'));
+    expect(clineMcpFile(home, {}, ['--data-dir=/dd'])).toBe(def());
+    expect(clineMcpFile(home, { CLINE_DATA_DIR: '/d' }, ['--data-dir', '/dd'])).toBe(path.join(path.resolve('/d'), 'settings', 'cline_mcp_settings.json'));
+  });
+  it('clinePins: all three location variables, as cline would resolve them; --config feeds the data dir', () => {
+    expect(clinePins(home, {}, [])).toEqual({ CLINE_DIR: path.join(home, '.cline'), CLINE_DATA_DIR: path.join(home, '.cline', 'data'), CLINE_MCP_SETTINGS_PATH: def() });
+    expect(clinePins(home, {}, ['--config', '/u'])).toEqual({ CLINE_DIR: path.join(home, '.cline'), CLINE_DATA_DIR: path.join(path.resolve('/u'), 'data'), CLINE_MCP_SETTINGS_PATH: path.join(path.resolve('/u'), 'data', 'settings', 'cline_mcp_settings.json') });
   });
 });
 
@@ -52,9 +57,9 @@ describe('readClineState', () => {
   it('no file: not present, nothing in conflict', () => {
     expect(read()).toEqual({ present: false, overridden: [], mcpFile: def(), oneSession: false });
   });
-  it('the user\'s --config or --data-dir marks the file as one session\'s', () => {
+  it('the user\'s --config marks the file as one session\'s; --data-dir does not (it does not move the MCP file)', () => {
     expect(readClineState(cwd, home, O, {}, 'linux', ['--config', '/u']).oneSession).toBe(true);
-    expect(readClineState(cwd, home, O, {}, 'linux', ['--data-dir=/d']).oneSession).toBe(true);
+    expect(readClineState(cwd, home, O, {}, 'linux', ['--data-dir=/d']).oneSession).toBe(false);
     expect(readClineState(cwd, home, O, { CLINE_DIR: '/c' }, 'linux', []).oneSession).toBe(false);
   });
   it('canonical align-local is present: flat, and the transport shape `cline mcp add` writes', () => {
@@ -95,8 +100,8 @@ describe('buildClineLaunch', () => {
   it('conflict: no write, one line naming the file', () => {
     expect(buildClineLaunch({ ...base, conflict: base.mcpFile, passthrough: [] }).notes).toEqual([`${base.mcpFile} defines its own align-local MCP server, so Align did not add its graph to Cline. Remove that entry to use the graph.`]);
   });
-  it('a one-session --config or --data-dir dir: nothing written there, one line (both flags)', () => {
-    for (const flag of ['--config', '--data-dir']) {
+  it('a one-session --config dir: nothing written there, one line', () => {
+    for (const flag of ['--config']) {
       const s = buildClineLaunch({ ...base, oneSession: true, passthrough: [flag, '/tmp/x'] });
       expect(s.writes, flag).toBeUndefined();
       expect(s.notes, flag).toEqual([`Align does not add its graph to a Cline directory chosen for one session (${flag}). Run cline without it once, or add align-local to /h/.cline/data/settings/cline_mcp_settings.json yourself.`]);

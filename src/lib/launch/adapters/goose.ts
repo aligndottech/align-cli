@@ -2,7 +2,10 @@ import { alignServerEntry } from '../../mcp-setup.js';
 import type { GooseProjectState } from '../goose-state.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
-export interface GooseLaunchContext extends Pick<LaunchContext, 'passthrough'>, GooseProjectState {}
+export interface GooseLaunchContext extends Pick<LaunchContext, 'passthrough'>, GooseProjectState {
+  /** A `--recipe` file of the user's that names align-local (its path), else undefined. */
+  recipeDefinesAlignLocal?: string;
+}
 
 /** goose's root-only options: they print and exit, so there is no session to add to. */
 const ROOT_ONLY = new Set(['-h', '--help', '-V', '--version']);
@@ -25,6 +28,9 @@ export function buildGooseLaunch(c: GooseLaunchContext): LaunchSpec {
   const spec: LaunchSpec = { bin: 'goose', args: [...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [] };
   if (c.conflict) {
     return { ...spec, notes: [`${c.conflict} defines its own align-local extension, so Align did not add its graph to Goose. Remove or rename that entry to use the graph.`] };
+  }
+  if (c.recipeDefinesAlignLocal) {
+    return { ...spec, notes: [`${c.recipeDefinesAlignLocal} defines its own align-local extension, so Align did not add its graph to Goose. Remove or rename that entry to use the graph.`] };
   }
   if (c.present) return spec;
   const { command, args } = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };

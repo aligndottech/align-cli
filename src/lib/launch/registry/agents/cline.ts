@@ -1,5 +1,5 @@
 import { buildClineLaunch } from '../../adapters/cline.js';
-import { clineMcpFile } from '../../cline-state.js';
+import { clineMcpFile, clinePins } from '../../cline-state.js';
 import type { AgentSpec } from '../types.js';
 
 export const cline: AgentSpec = {
@@ -10,7 +10,7 @@ export const cline: AgentSpec = {
   supported: true,
   install: { kind: 'npm', argv: ['npm', 'i', '-g', 'cline'] },
   // Cline (Bun-compiled) loads `.env`/`.env.local` from the cwd: pin the exact file Align read.
-  pins: (d, base) => ({ CLINE_MCP_SETTINGS_PATH: clineMcpFile(d.home, d.env, base.passthrough) }),
+  pins: (d, base) => clinePins(d.home, d.env, base.passthrough),
   build: (d, base) => buildClineLaunch({
     passthrough: base.passthrough,
     ...d.readClineState!(d.cwd, d.home, d.env, d.platform, base.passthrough),

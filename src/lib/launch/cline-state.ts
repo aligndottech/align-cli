@@ -5,7 +5,7 @@ import { type AlignLocalState, type CanonicalOptions, isCanonicalLocalEntry, par
 export interface ClineProjectState extends AlignLocalState {
   /** The one MCP settings file Cline CLI loads: the file align adds to. */
   mcpFile: string;
-  /** The user's --config or --data-dir chose that file for this session only: align writes nothing there. */
+  /** The user's --config chose that file for this session only: align writes nothing there. */
   oneSession: boolean;
 }
 
@@ -14,18 +14,35 @@ const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null 
 const FILE = 'cline_mcp_settings.json';
 
 /**
- * Where Cline CLI reads its MCP servers (cline 3.0.70, its bundled path code): CLINE_MCP_SETTINGS_PATH;
- * else `<data dir>/settings/cline_mcp_settings.json`, the data dir being CLINE_DATA_DIR, else
- * `<cline dir>/data`, the cline dir being the `--config` dir, else CLINE_DIR, else ~/.cline. A
- * `--data-dir` or `--config` in the user's own args is read for that session, so it is honoured.
+ * Where Cline CLI reads its MCP servers (cline 3.0.70, its bundled path code, checked with
+ * `cline config --json`): CLINE_MCP_SETTINGS_PATH; else `<data dir>/settings/cline_mcp_settings.json`,
+ * the data dir being CLINE_DATA_DIR, else `<cline dir>/data`, the cline dir being the user's
+ * `--config` dir, else CLINE_DIR, else ~/.cline. `--data-dir` does NOT move it: with
+ * `--data-dir B` cline still listed ~/.cline's servers.
  */
-export function clineMcpFile(home: string, env: Record<string, string | undefined>, passthrough: string[]): string {
-  if (env['CLINE_MCP_SETTINGS_PATH']?.trim()) return path.resolve(env['CLINE_MCP_SETTINGS_PATH'].trim());
-  const dataFlag = optionValue(passthrough, '--data-dir');
+function clineDirs(home: string, env: Record<string, string | undefined>, passthrough: string[]): { clineDir: string; dataDir: string; mcpFile: string } {
   const configFlag = optionValue(passthrough, '--config');
-  const clineDir = configFlag ? path.resolve(configFlag) : env['CLINE_DIR']?.trim() ? path.resolve(env['CLINE_DIR'].trim()) : path.join(home, '.cline');
-  const dataDir = dataFlag ? path.resolve(dataFlag) : env['CLINE_DATA_DIR']?.trim() ? path.resolve(env['CLINE_DATA_DIR'].trim()) : path.join(clineDir, 'data');
-  return path.join(dataDir, 'settings', FILE);
+  const userDir = env['CLINE_DIR']?.trim() ? path.resolve(env['CLINE_DIR'].trim()) : path.join(home, '.cline');
+  const clineDir = configFlag ? path.resolve(configFlag) : userDir;
+  const dataDir = env['CLINE_DATA_DIR']?.trim() ? path.resolve(env['CLINE_DATA_DIR'].trim()) : path.join(clineDir, 'data');
+  const mcp = env['CLINE_MCP_SETTINGS_PATH']?.trim();
+  return { clineDir: userDir, dataDir, mcpFile: mcp ? path.resolve(mcp) : path.join(dataDir, 'settings', FILE) };
+}
+
+export function clineMcpFile(home: string, env: Record<string, string | undefined>, passthrough: string[]): string {
+  return clineDirs(home, env, passthrough).mcpFile;
+}
+
+/**
+ * The three variables that place Cline's MCP file, as cline would resolve them this launch. Cline
+ * loads `.env`/`.env.local` from the cwd, so the launch pins them (only those the user did not
+ * export); a process variable wins over its dotenv. CLINE_DIR is pinned to the user's own dir even
+ * with `--config`, which beats it anyway; CLINE_DATA_DIR follows `--config`, because an exported
+ * CLINE_DATA_DIR beats `--config` (checked) and must not undo the user's flag.
+ */
+export function clinePins(home: string, env: Record<string, string | undefined>, passthrough: string[]): Record<string, string> {
+  const d = clineDirs(home, env, passthrough);
+  return { CLINE_DIR: d.clineDir, CLINE_DATA_DIR: d.dataDir, CLINE_MCP_SETTINGS_PATH: d.mcpFile };
 }
 
 /** `cline mcp add` wraps the command in `transport` (3.0.70); the flat form loads too. */
@@ -53,7 +70,7 @@ export function readClineState(
 ): ClineProjectState {
   const o = { ...opts, platform, host: 'mcpServers' as const };
   const mcpFile = clineMcpFile(home, env, passthrough);
-  const oneSession = optionValue(passthrough, '--config') !== undefined || optionValue(passthrough, '--data-dir') !== undefined;
+  const oneSession = optionValue(passthrough, '--config') !== undefined;
   const state: ClineProjectState = { present: false, overridden: [], mcpFile, oneSession };
   const text = readText(mcpFile);
   const parsed = parseJsonc(text);

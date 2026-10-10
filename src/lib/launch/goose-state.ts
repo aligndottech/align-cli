@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readText } from './layer-files.js';
+import { optionValue, readText } from './layer-files.js';
 import type { AlignLocalState } from './strict-entry.js';
 import { isCanonicalLocalEntry } from './strict-entry.js';
 import { type Field, fields, listValue, meaningfulLines, scalarValue, topLevelBlock, type YamlLine } from './yaml-scan.js';
@@ -118,4 +118,16 @@ export function readGooseState(_cwd: string, home: string, opts: { localIsDefaul
   const configFile = gooseConfigFile(home, env, platform);
   const verdict = gooseAlignLocal(readText(configFile), { ...opts, platform });
   return verdict === 'conflict' ? { present: false, conflict: configFile, configFile } : { present: verdict === 'present', configFile };
+}
+
+/**
+ * A recipe the user runs (`--recipe <file>`) that names align-local: goose would refuse to start
+ * if Align added its own under that name. Returns that file. Only a recipe given as a readable
+ * path is checked; a recipe named by its title is resolved by goose and not read here.
+ */
+export function gooseRecipeMentions(cwd: string, passthrough: string[]): string | undefined {
+  const r = optionValue(passthrough, '--recipe');
+  if (!r) return undefined;
+  const file = path.resolve(cwd, r);
+  return readText(file)?.includes('align-local') ? file : undefined;
 }

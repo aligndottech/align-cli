@@ -231,6 +231,22 @@ Continue CLI (`cn`) runs hooks from the repository's `.claude/settings.json` and
 `.continue/settings*.json`. That is cn's own trust decision about the repo, and Align does not
 control it.
 
+Some agents load a `.env` file from the repository you open them in. A repo could use that to
+point the agent at its own MCP config. For those agents, Align sets the config-location
+variables itself when it launches them, and leaves alone any variable you exported:
+
+| Agent | Loads a repo `.env`? | Align sets |
+|---|---|---|
+| Cline | yes (checked) | `CLINE_DIR`, `CLINE_DATA_DIR`, `CLINE_MCP_SETTINGS_PATH` |
+| Continue CLI | yes (checked) | `CONTINUE_GLOBAL_DIR`, `CONTINUE_API_BASE`, `CONTINUE_USE_BEDROCK` |
+| Codex, Copilot, Gemini CLI, Qwen Code, OpenCode, Goose, Claude Code | no (checked) | nothing |
+| pi, Auggie | no loader in the shipped code | nothing |
+| Aider | yes (its own feature) | nothing: Align passes its file on the command line |
+| Amp, Factory Droid, Kiro CLI, Grok Build, Cursor | UNVERIFIED (not installable here) | nothing: no evidence they load a repo `.env` |
+
+Known limit: every MCP entry Align adds runs a bare `align`. The agent resolves `align`
+through its own PATH, so it runs whichever `align` comes first on the PATH the agent sees.
+
 ## Agent wiring
 
 ```

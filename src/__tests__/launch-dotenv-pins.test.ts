@@ -60,7 +60,11 @@ const childEnv = async (h: ReturnType<typeof harness>) => {
 
 describe('pins: each config-location variable is pinned to what Align scanned, unless the user exported it', () => {
   it('cline: CLINE_MCP_SETTINGS_PATH is the file Align scanned and wrote; an exported value is left to the user', async () => {
-    expect((await childEnv(harness('cline', 'cline')))['CLINE_MCP_SETTINGS_PATH']).toBe(path.join(home, '.cline', 'data', 'settings', 'cline_mcp_settings.json'));
+    const env = await childEnv(harness('cline', 'cline'));
+    expect(env['CLINE_MCP_SETTINGS_PATH']).toBe(path.join(home, '.cline', 'data', 'settings', 'cline_mcp_settings.json'));
+    expect(env['CLINE_DIR']).toBe(path.join(home, '.cline'));
+    expect(env['CLINE_DATA_DIR']).toBe(path.join(home, '.cline', 'data'));
+    expect((await childEnv(harness('cline', 'cline', { CLINE_DIR: '/c' })))['CLINE_DIR']).toBeUndefined();
     expect((await childEnv(harness('cline', 'cline', { CLINE_DATA_DIR: '/d' })))['CLINE_MCP_SETTINGS_PATH']).toBe(path.join(path.resolve('/d'), 'settings', 'cline_mcp_settings.json'));
     expect((await childEnv(harness('cline', 'cline', { CLINE_MCP_SETTINGS_PATH: '/mine.json' })))['CLINE_MCP_SETTINGS_PATH']).toBeUndefined();
   });
@@ -68,28 +72,25 @@ describe('pins: each config-location variable is pinned to what Align scanned, u
     expect((await childEnv(harness('continue', 'cn')))['CONTINUE_GLOBAL_DIR']).toBe(path.join(home, '.continue'));
     expect((await childEnv(harness('continue', 'cn', { CONTINUE_GLOBAL_DIR: '/c' })))['CONTINUE_GLOBAL_DIR']).toBeUndefined();
   });
-  it('amp: AMP_SETTINGS_FILE is the settings file Align reads; not with --settings-file or an exported one', async () => {
-    expect((await childEnv(harness('amp', 'amp', { XDG_CONFIG_HOME: path.join(home, '.config') })))['AMP_SETTINGS_FILE']).toBe(path.join(home, '.config', 'amp', 'settings.json'));
-    expect((await childEnv(harness('amp', 'amp', { AMP_SETTINGS_FILE: '/a.json' })))['AMP_SETTINGS_FILE']).toBeUndefined();
-    expect((await childEnv(harness('amp', 'amp', {}, ['node', 'align', '--', '--settings-file', '/s.json'])))['AMP_SETTINGS_FILE']).toBeUndefined();
+  it('continue: CONTINUE_API_BASE is cn\'s own default (where it fetches its default config and models), CONTINUE_USE_BEDROCK is off; exported values win', async () => {
+    const env = await childEnv(harness('continue', 'cn'));
+    expect(env['CONTINUE_API_BASE']).toBe('https://api.continue.dev/');
+    expect(env['CONTINUE_USE_BEDROCK']).toBe('0');
+    const mine = await childEnv(harness('continue', 'cn', { CONTINUE_API_BASE: 'https://mine.example/', CONTINUE_USE_BEDROCK: '1' }));
+    expect(mine['CONTINUE_API_BASE']).toBeUndefined();
+    expect(mine['CONTINUE_USE_BEDROCK']).toBeUndefined();
   });
-  it('kiro: KIRO_HOME is ~/.kiro unless exported', async () => {
-    expect((await childEnv(harness('kiro', 'kiro-cli')))['KIRO_HOME']).toBe(path.join(home, '.kiro'));
-    expect((await childEnv(harness('kiro', 'kiro-cli', { KIRO_HOME: '/k' })))['KIRO_HOME']).toBeUndefined();
+  it('no pin where no agent was shown to load a repo .env: amp, kiro, droid, grok-build (removed: a pin could only point them away from the user\'s real settings)', async () => {
+    for (const [agent, bin, v] of [['amp', 'amp', 'AMP_SETTINGS_FILE'], ['kiro', 'kiro-cli', 'KIRO_HOME'], ['droid', 'droid', 'FACTORY_HOME_OVERRIDE']] as const) {
+      expect((await childEnv(harness(agent, bin)))[v], agent).toBeUndefined();
+    }
   });
-  it('droid: FACTORY_HOME_OVERRIDE is the home Align read ~/.factory from, unless exported', async () => {
-    expect((await childEnv(harness('droid', 'droid')))['FACTORY_HOME_OVERRIDE']).toBe(home);
-    expect((await childEnv(harness('droid', 'droid', { FACTORY_HOME_OVERRIDE: '/f' })))['FACTORY_HOME_OVERRIDE']).toBeUndefined();
-  });
-  it.skipIf(process.platform === 'win32')('grok-build: GROK_HOME is the ~/.grok Align read, unless exported', async () => {
+  it.skipIf(process.platform === 'win32')('no pin for grok-build either', async () => {
     mkdirSync(path.join(home, '.grok', 'bin'), { recursive: true });
     writeFileSync(path.join(home, '.grok', 'bin', 'grok'), '');
     const h = harness('grok-build', 'grok');
     h.deps.findOnPath = (b) => (b === 'grok' ? path.join(home, '.grok', 'bin', 'grok') : null);
-    expect((await childEnv(h))['GROK_HOME']).toBe(path.join(home, '.grok'));
-    const g = harness('grok-build', 'grok', { GROK_HOME: path.join(home, '.grok') });
-    g.deps.findOnPath = h.deps.findOnPath;
-    expect((await childEnv(g))['GROK_HOME']).toBeUndefined();
+    expect((await childEnv(h))['GROK_HOME']).toBeUndefined();
   });
   it('agents a repo .env cannot redirect (proven in a sandbox) get no pin: codex, copilot, gemini-cli, qwen, goose', async () => {
     for (const [agent, bin, v] of [['codex', 'codex', 'CODEX_HOME'], ['copilot', 'copilot', 'COPILOT_HOME'], ['qwen', 'qwen', 'QWEN_HOME']] as const) {
