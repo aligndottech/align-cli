@@ -6,20 +6,16 @@ import envPaths from 'env-paths';
 import { migrateConfigDirectory } from './lib/config.js';
 import { legacyLocalDbDir, migrateLocalDb } from './lib/local-mode.js';
 import { buildProgram } from './cli.js';
+import { describeFatal } from './lib/fatal.js';
 
 // Last-resort guard so no command ever dumps a raw Node stack trace at a user.
 // Individual commands still handle their own expected errors; this only catches
 // the unexpected (e.g. a native/db error escaping an async action).
 function handleFatal(err: unknown): never {
-  const e = err instanceof Error ? err : new Error(String(err));
-  if (process.env['ALIGN_DEBUG']) {
-    console.error(e);
-  } else {
-    console.error(`\nalign: ${e.message}\n`);
-    console.error('Run with ALIGN_DEBUG=1 for the full stack trace, or report it at');
-    console.error('https://github.com/aligndottech/align-cli/issues');
-  }
-  process.exit(1);
+  const r = describeFatal(err, Boolean(process.env['ALIGN_DEBUG']));
+  if (r.stack) console.error(r.stack);
+  for (const line of r.lines) console.error(line);
+  process.exit(r.code);
 }
 process.on('uncaughtException', handleFatal);
 process.on('unhandledRejection', handleFatal);
