@@ -315,6 +315,39 @@ describe('runJoin: the token is verified before anything is saved (F5)', () => {
     expect(h.config.getShareDestination()).toBeNull();
   });
 
+  it('after the browser step the refusal does not claim no browser was opened, and says the issued token stays valid until it expires (second review N6)', async () => {
+    installFakeGateway({ me: { status: 401, body: { error: 'nope' } } });
+    const h = makeHarness({ typed: TYPED });
+    await runJoin(h.deps, { link: linkFor() });
+    const text = h.out.join('\n');
+    expect(text).not.toContain('no browser was opened');
+    expect(text).toMatch(/Nothing was saved/);
+    expect(text).toMatch(/stays valid until 2027-01-08/);
+  });
+
+  it('a callback that never carries a token: the browser did open, so the text says that and claims no issued token', async () => {
+    installFakeGateway();
+    const h = makeHarness({ typed: TYPED, callback: 'reject' });
+    await runJoin(h.deps, { link: linkFor() });
+    const text = h.out.join('\n');
+    expect(text).not.toContain('no browser was opened');
+    expect(text).not.toMatch(/stays valid/);
+  });
+
+  it('a refusal BEFORE the browser still says no browser was opened (the control)', async () => {
+    installFakeGateway({ peek: { status: 404 } });
+    const h = makeHarness({ typed: TYPED });
+    await runJoin(h.deps, { link: linkFor() });
+    expect(h.out.join('\n')).toContain('no browser was opened');
+  });
+
+  it('--gateway on a link with no gw= is passed to the page as cli_gw the same way', async () => {
+    installFakeGateway({ peek: okPeek({ gateway_url: undefined }) });
+    const h = makeHarness({ typed: TYPED });
+    await runJoin(h.deps, { link: linkFor({ gw: null }), gateway: GW });
+    expect(h.opened[0]).toContain(`cli_gw=${encodeURIComponent(GW)}`);
+  });
+
   it('an unreachable gateway at whoami saves nothing either (unlike login, which saves on unreachable)', async () => {
     installFakeGateway({ me: 'unreachable' });
     const h = makeHarness({ typed: TYPED });

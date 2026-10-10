@@ -59,6 +59,14 @@ export async function runJoin(deps: JoinDeps, input: JoinInput): Promise<JoinRes
     deps.out(`\nNothing was saved and no browser was opened.\n  ${reason}\n`);
     return { ok: false, reason };
   };
+  // After the browser step: a browser WAS opened, and if the server already issued a token it is still live there. Say both.
+  const refuseLate = (reason: string, issued?: { host: string; expiresAt?: string }): JoinResult => {
+    const live = issued
+      ? `\n  ${issued.host} issued a token to this computer and it was not saved. It stays valid until ${issued.expiresAt ? issued.expiresAt.slice(0, 10) : 'it expires'} (or until the organisation's admin revokes the invite); nothing here can revoke it.`
+      : '';
+    deps.out(`\nNothing was saved. A browser was opened.\n  ${reason}${live}\n`);
+    return { ok: false, reason };
+  };
 
   // First, before any request: a join gives a server a credential and a place to send shares, so it is a person's act, at a
   // terminal of their own. An agent (or a script) that has been handed a link must not be able to finish it, whichever host
@@ -131,10 +139,10 @@ export async function runJoin(deps: JoinDeps, input: JoinInput): Promise<JoinRes
   }
 
   const received = await receive(deps, link.token, peekApp, link.gatewayUrl);
-  if (typeof received === 'string') return refuse(received);
+  if (typeof received === 'string') return refuseLate(received);
 
   const me = await verifyToken(link.gatewayUrl, received.token);
-  if (typeof me === 'string') return refuse(`${gwHost} ${me}`);
+  if (typeof me === 'string') return refuseLate(`${gwHost} ${me}`, { host: gwHost, ...(received.expiresAt ? { expiresAt: received.expiresAt } : {}) });
 
   const tenantName = visible(me.tenantName).slice(0, ORG_NAME_MAX);
   if (tenantName.trim() !== claimed.trim()) {

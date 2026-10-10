@@ -10,7 +10,8 @@ const ASK_TIMEOUT_MS = 5 * 60_000;
 function ask(question: string): Promise<string | null> {
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const done = (v: string | null) => { rl.close(); resolve(v); };
+    // Resolve FIRST: close() emits 'close' synchronously, and that handler resolves null. Closing first made every answer null.
+    const done = (v: string | null) => { resolve(v); rl.close(); };
     rl.once('close', () => resolve(null));
     rl.question(question, (a) => done(a));
   });
