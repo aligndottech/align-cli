@@ -10,6 +10,7 @@ import { migrateV7 } from './local-db-v7.js';
 import { migrateV8 } from './local-db-v8.js';
 import { migrateV9 } from './local-db-v9.js';
 import { migrateV10, repairPromotions } from './local-db-v10.js';
+import { migrateV11 } from './local-db-v11.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -69,7 +70,7 @@ CREATE TABLE IF NOT EXISTS decision_refs (
  * `migrate` from the source and compares it here, because forgetting the bump leaves the new
  * branch running destructively on every open with nothing to stop it.
  */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 /** The title connector-core 0.5.0 gave every Slack thread whose root was deleted. The 0.6.0
  *  fetcher titles such a thread from its first human message, or drops it; either way this
@@ -442,6 +443,21 @@ export function migrate(db: DatabaseSync): void {
       if (current < 10) {
         migrateV10(db);
         db.exec('PRAGMA user_version = 10');
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+  if (version < 11) {
+    // ALI-1527: re-key zoom rows after connector-core changed the zoom source key. See local-db-v11.ts.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+      if (current < 11) {
+        migrateV11(db);
+        db.exec('PRAGMA user_version = 11');
       }
       db.exec('COMMIT');
     } catch (err) {

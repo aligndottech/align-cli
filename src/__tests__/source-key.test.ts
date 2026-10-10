@@ -2,6 +2,7 @@
 // format must agree, so the SDK's published fixture table is run against the function the CLI
 // uses. L3: that function is the SDK's own, re-exported, so there is no copy left to drift.
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +36,25 @@ describe('the keys schema v7 stored are still the keys the SDK computes (frozen 
     if (c.b !== undefined) {
       expect(normaliseSourceKey(c.platform, c.a) === normaliseSourceKey(c.platform, c.b)).toBe(c.same);
     }
+  });
+});
+
+// ALI-1527: connector-core 0.10.1 changed the zoom key (meeting_id kept, the chat URL keyless) and appended
+// 8 rows to the table. The 121 frozen rows above still hold; this pins the table the CLI now runs, so a
+// bump that moves a key again fails here and has to come with a migration like schema v11, not just a
+// version change. Re-pin only together with that migration.
+const SDK_TABLE_SHA256 = 'f0ccd900fe3839548f7a3ec76ecf8e6d41c31ef96407526f0c428a13380b5621';
+
+describe('the SDK table this CLI runs is the one schema v11 was written against', () => {
+  it('has the pinned sha256 and 129 rows (the 121 frozen plus the 8 the zoom fix appended)', () => {
+    const file = createRequire(import.meta.url).resolve('@aligndottech/connector-core/source-key-fixtures.json');
+    expect(createHash('sha256').update(readFileSync(file)).digest('hex')).toBe(SDK_TABLE_SHA256);
+    expect(TABLE.cases).toHaveLength(129);
+  });
+
+  it('the 8 appended rows are all zoom, and every frozen row is still in the table unchanged', () => {
+    expect(TABLE.cases.slice(121).map((c) => c.platform)).toEqual(Array(8).fill('zoom'));
+    expect(TABLE.cases.slice(0, 121)).toEqual(FROZEN.cases);
   });
 });
 

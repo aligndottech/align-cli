@@ -35,8 +35,8 @@ const version = () => sql<{ user_version: number }>('PRAGMA user_version')[0]!.u
 describe('a fresh graph', () => {
   it('is at v10 with a promotions table that has no foreign key', () => {
     createLocalDb(dbPath).close();
-    expect(SCHEMA_VERSION).toBe(10);
-    expect(version()).toBe(10);
+    expect(SCHEMA_VERSION).toBe(11);
+    expect(version()).toBe(SCHEMA_VERSION);
     expect(sql<{ name: string }>('PRAGMA table_info(promotions)').map((c) => c.name)).toEqual(
       ['local_id', 'env', 'tenant_id', 'remote_id', 'content_hash', 'matched', 'client_key', 'sent', 'confirm_pending', 'shared_at', 'retracted_at'],
     );
@@ -53,7 +53,7 @@ describe('a v9 graph', () => {
   it('migrates with every row unchanged, and a second open or a replay of the step changes nothing', () => {
     makeV9();
     createLocalDb(dbPath).close();
-    expect(version()).toBe(10);
+    expect(version()).toBe(SCHEMA_VERSION);
     expect(sql('SELECT 1 FROM decisions')).toHaveLength(2);
     const once = sql('SELECT count(*) AS n FROM sqlite_master')[0];
     createLocalDb(dbPath).close();
@@ -61,7 +61,7 @@ describe('a v9 graph', () => {
     createLocalDb(dbPath).close();
     expect(sql('SELECT count(*) AS n FROM sqlite_master')[0]).toEqual(once);
     expect(sql('SELECT 1 FROM decisions')).toHaveLength(2);
-    expect(version()).toBe(10);
+    expect(version()).toBe(SCHEMA_VERSION);
   });
   it('turns old push audit rows into legacy ledger rows, once, and skips a row with no cloud id', () => {
     makeV9();
@@ -139,12 +139,12 @@ describe('a copy of the real graph', () => {
     for (const suffix of ['', '-wal', '-shm']) if (fs.existsSync(REAL + suffix)) fs.copyFileSync(REAL + suffix, dbPath + suffix);
     const titlesBefore = sql<{ t: string }>('SELECT group_concat(id || title, char(10)) AS t FROM (SELECT id, title FROM decisions ORDER BY id)')[0]!.t;
     createLocalDb(dbPath).close();
-    expect(version()).toBe(10);
+    expect(version()).toBe(SCHEMA_VERSION);
     expect(sql<{ n: number }>('SELECT count(*) AS n FROM decisions')[0]!.n).toBe(718);
     expect(sql<{ n: number }>('SELECT count(*) AS n FROM promotions')[0]!.n).toBe(0);
     exec('PRAGMA user_version = 9');
     createLocalDb(dbPath).close();
-    expect(version()).toBe(10);
+    expect(version()).toBe(SCHEMA_VERSION);
     // `id,title` rows are the same set after migration and replay: nothing merged, nothing lost.
     const titlesAfter = sql<{ t: string }>('SELECT group_concat(id || title, char(10)) AS t FROM (SELECT id, title FROM decisions ORDER BY id)')[0]!.t;
     expect(titlesAfter).toBe(titlesBefore);
@@ -173,7 +173,7 @@ describe('a graph already at v10 with the first-build promotions table', () => {
     createLocalDb(dbPath).close(); createLocalDb(dbPath).close();
     expect(sql('SELECT count(*) AS n FROM sqlite_master')[0]).toEqual(once);
     expect(getPromotion(dbPath, 'L1', 'prod', 'T1')).toMatchObject({ remoteId: 'R1', clientKey: '', sent: [], confirmPending: false });
-    expect(version()).toBe(10);
+    expect(version()).toBe(SCHEMA_VERSION);
   });
   it('the real old-shape file from the review (16 decisions) opens, repairs and replays', () => {
     const FX = '/tmp/align-work/l9r2/fxold/local.db';
