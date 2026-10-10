@@ -150,9 +150,18 @@ export function createLocalDb(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
   const db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec(SCHEMA);
-  migrate(db);
+  // First, before anything that needs a lock: every local command and the advisory hook open
+  // this file, so a concurrent opener is normal, and without a timeout it fails at once with
+  // "database is locked" instead of waiting for the migration in progress.
+  db.exec('PRAGMA busy_timeout = 5000');
+  try {
+    db.exec('PRAGMA journal_mode = WAL');
+    db.exec(SCHEMA);
+    migrate(db);
+  } catch (err) {
+    db.close();
+    throw err;
+  }
 
   // Shared by insertLink and resolveRefs (ALI-796), so there is one writer of the
   // decision_links insert rather than two copies of the same ON CONFLICT clause.

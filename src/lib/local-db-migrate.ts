@@ -164,6 +164,15 @@ export function deleteDecisionWithDependents(db: DatabaseSync, id: string): void
 
 export function migrate(db: DatabaseSync): void {
   const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+  // A newer CLI migrated this file. Running this build's older code against the newer tables
+  // (a v6 binary inserting rows without a source_key beside keyed ones) corrupts identity, so
+  // refuse before touching anything.
+  if (version > SCHEMA_VERSION) {
+    throw new Error(
+      `This local graph was written by a newer Align CLI (schema v${version}; this CLI supports up to v${SCHEMA_VERSION}). ` +
+      'Upgrade the CLI (npm install -g @aligndottech/cli@latest) before opening it.',
+    );
+  }
   if (version < 1) {
     db.exec(`UPDATE decision_links SET relation = 'relates' WHERE relation = 'conflicts_with'`);
   }
@@ -368,10 +377,16 @@ export function migrate(db: DatabaseSync): void {
     // L2: sync state, source_key with the twin merge, enriched_at, local_judgements. One
     // transaction, IMMEDIATE and stamped inside, for the reasons steps 2 and 4 give. The step
     // itself, and why each part is shaped as it is, lives in local-db-v7.ts.
+    //
+    // `version` was read BEFORE this lock: a second opener of a v6 file waits here (busy_timeout)
+    // while the first migrates, and must then find the work done. Re-read it inside the lock.
     db.exec('BEGIN IMMEDIATE');
     try {
-      migrateV7(db);
-      db.exec('PRAGMA user_version = 7');
+      const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+      if (current < 7) {
+        migrateV7(db);
+        db.exec('PRAGMA user_version = 7');
+      }
       db.exec('COMMIT');
     } catch (err) {
       if (db.isTransaction) db.exec('ROLLBACK');
