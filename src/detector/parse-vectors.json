@@ -1,0 +1,557 @@
+{
+  "vectors": 1,
+  "note": "Golden parse vectors for relationship-contract.v1.json. Run by the TypeScript and the Python parser. Hand-written, no customer text. Cases that depend on parse.evidenceMaxWords are named in tests, not hard-coded here.",
+  "cases": [
+    {
+      "name": "clean item",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"supersedes\",\"confidence\":0.9,\"reason\":\"B replaces A\"}",
+      "expected": {
+        "type": "supersedes",
+        "confidence": 0.9,
+        "reason": "B replaces A",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "same item wrapped in prose and a code fence",
+      "offer": "legacyV0",
+      "raw": "Here is my answer:\n```json\n{\"type\":\"supersedes\",\"confidence\":0.9,\"reason\":\"B replaces A\"}\n```\nHope that helps.",
+      "expected": {
+        "type": "supersedes",
+        "confidence": 0.9,
+        "reason": "B replaces A",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "first object wins when two are present",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":0.4,\"reason\":\"first\"} then {\"type\":\"supersedes\",\"confidence\":0.9,\"reason\":\"second\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "first",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "braces inside a string do not end the object",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":0.4,\"reason\":\"use {braces} here\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "use {braces} here",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "escaped quote and brace inside a string",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":0.4,\"reason\":\"he said \\\"no}\\\" twice\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "he said \"no}\" twice",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "object nested in an array is still the first object",
+      "offer": "legacyV0",
+      "raw": "[{\"type\":\"relates\",\"confidence\":0.4,\"reason\":\"in array\"}]",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "in array",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "unknown type is dropped",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"unrelated\",\"confidence\":0.9,\"reason\":\"x\"}",
+      "expected": null
+    },
+    {
+      "name": "unknown type is dropped (second example)",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"depends_on\",\"confidence\":0.9,\"reason\":\"x\"}",
+      "expected": null
+    },
+    {
+      "name": "wrong case is dropped, no case folding",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"Conflicts_With\",\"confidence\":0.9,\"reason\":\"x\"}",
+      "expected": null
+    },
+    {
+      "name": "surrounding space in the type is dropped",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\" relates\",\"confidence\":0.9,\"reason\":\"x\"}",
+      "expected": null
+    },
+    {
+      "name": "type that is not a string is dropped",
+      "offer": "legacyV0",
+      "raw": "{\"type\":7,\"confidence\":0.9,\"reason\":\"x\"}",
+      "expected": null
+    },
+    {
+      "name": "missing type is dropped",
+      "offer": "legacyV0",
+      "raw": "{\"confidence\":0.9,\"reason\":\"x\"}",
+      "expected": null
+    },
+    {
+      "name": "a stored type outside the offer list is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\":\"supersedes\",\"confidence\":0.9,\"reason\":\"x\"}",
+      "expected": null
+    },
+    {
+      "name": "a stored type outside the offer list is dropped (second example)",
+      "offer": "v1Candidate",
+      "raw": "{\"type\":\"conflicts_with\",\"confidence\":0.9,\"reason\":\"x\"}",
+      "expected": null
+    },
+    {
+      "name": "the verdict type is dropped under the legacy offer",
+      "offer": "legacyV0",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.9, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"n1 n2 n3\", \"existing_quote\": \"e1 e2 e3\"}, \"replaced\": \"new\"}",
+      "expected": null
+    },
+    {
+      "name": "a type the database allows but the offer omits is dropped",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"corrects\",\"confidence\":0.9,\"reason\":\"x\"}",
+      "expected": null
+    },
+    {
+      "name": "a type in the offer is accepted (blocks)",
+      "offer": "v1Candidate",
+      "raw": "{\"type\":\"blocks\",\"confidence\":0.7,\"reason\":\"x\"}",
+      "expected": {
+        "type": "blocks",
+        "confidence": 0.7,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "confidence above one clamps to one",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":1.7,\"reason\":\"x\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 1.0,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "confidence below zero clamps to zero",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":-0.2,\"reason\":\"x\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.0,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "confidence of exactly one passes through",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":1,\"reason\":\"x\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 1.0,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "confidence of exactly zero passes through",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":0,\"reason\":\"x\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.0,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "confidence inside the range passes through",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":0.25,\"reason\":\"x\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.25,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "missing confidence defaults",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"reason\":\"x\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.5,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "string confidence defaults, no coercion",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":\"0.9\",\"reason\":\"x\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.5,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "boolean confidence defaults",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":true,\"reason\":\"x\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.5,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "null confidence defaults",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":null,\"reason\":\"x\"}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.5,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "NaN is not JSON, so the item is dropped",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":NaN,\"reason\":\"x\"}",
+      "expected": null,
+      "note": "Python json.loads accepts NaN by default; the contract is strict JSON."
+    },
+    {
+      "name": "missing reason becomes empty",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":0.4}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "reason that is not a string becomes empty",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":0.4,\"reason\":12}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "incompatible with evidence on both sides",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"opposed\", \"evidence\": {\"new_quote\": \"we will retire the queue worker\", \"existing_quote\": \"the queue worker stays on\"}, \"replaced\": \"new\"}",
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "opposed",
+        "evidence": {
+          "new_quote": "we will retire the queue worker",
+          "existing_quote": "the queue worker stays on"
+        },
+        "replaced": "new"
+      }
+    },
+    {
+      "name": "incompatible with evidence and replaced existing",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"opposed\", \"evidence\": {\"new_quote\": \"we will retire the queue worker\", \"existing_quote\": \"the queue worker stays on\"}, \"replaced\": \"existing\"}",
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "opposed",
+        "evidence": {
+          "new_quote": "we will retire the queue worker",
+          "existing_quote": "the queue worker stays on"
+        },
+        "replaced": "existing"
+      }
+    },
+    {
+      "name": "incompatible with no evidence is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\":\"incompatible\",\"confidence\":0.8,\"reason\":\"opposed\"}",
+      "expected": null
+    },
+    {
+      "name": "incompatible with evidence on the new side only is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"we retire it\"}}",
+      "expected": null
+    },
+    {
+      "name": "incompatible with evidence on the existing side only is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"existing_quote\": \"it stays\"}}",
+      "expected": null
+    },
+    {
+      "name": "incompatible with a blank quote is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"   \", \"existing_quote\": \"it stays\"}}",
+      "expected": null
+    },
+    {
+      "name": "incompatible with a quote that is not a string is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": 5, \"existing_quote\": \"it stays\"}}",
+      "expected": null
+    },
+    {
+      "name": "incompatible with null evidence is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": null}",
+      "expected": null
+    },
+    {
+      "name": "incompatible with evidence that is not an object is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": \"we retire it\"}",
+      "expected": null
+    },
+    {
+      "name": "replaced in the wrong case is dropped to null, item kept",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"we will retire the queue worker\", \"existing_quote\": \"the queue worker stays on\"}, \"replaced\": \"New\"}",
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "x",
+        "evidence": {
+          "new_quote": "we will retire the queue worker",
+          "existing_quote": "the queue worker stays on"
+        },
+        "replaced": null
+      }
+    },
+    {
+      "name": "replaced with another word is dropped to null, item kept",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"we will retire the queue worker\", \"existing_quote\": \"the queue worker stays on\"}, \"replaced\": \"later\"}",
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "x",
+        "evidence": {
+          "new_quote": "we will retire the queue worker",
+          "existing_quote": "the queue worker stays on"
+        },
+        "replaced": null
+      }
+    },
+    {
+      "name": "evidence over the word cap on the new side is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15 n16\", \"existing_quote\": \"e1 e2 e3\"}}",
+      "expected": null,
+      "note": "16 words = parse.evidenceMaxWords + 1"
+    },
+    {
+      "name": "evidence over the word cap on the existing side is dropped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"n1 n2 n3\", \"existing_quote\": \"e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 e15 e16\"}}",
+      "expected": null
+    },
+    {
+      "name": "evidence at exactly the word cap is accepted",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15\", \"existing_quote\": \"e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 e15\"}}",
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "x",
+        "evidence": {
+          "new_quote": "n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15",
+          "existing_quote": "e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 e15"
+        },
+        "replaced": null
+      },
+      "note": "15 words = parse.evidenceMaxWords"
+    },
+    {
+      "name": "a non-breaking space does not split a word",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 p\\u00a0q\", \"existing_quote\": \"it stays\"}}",
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "x",
+        "evidence": {
+          "new_quote": "w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 p\u00a0q",
+          "existing_quote": "it stays"
+        },
+        "replaced": null
+      },
+      "note": "Words split on ASCII space, tab, CR and LF only. 14 words plus one NBSP-joined pair is 15."
+    },
+    {
+      "name": "tabs and newlines separate words",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"t1\\tt2\\tt3\\tt4 t5 t6 t7 t8\\nu1 u2 u3 u4 u5 u6 u7\", \"existing_quote\": \"it stays\"}}",
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "x",
+        "evidence": {
+          "new_quote": "t1\tt2\tt3\tt4 t5 t6 t7 t8\nu1 u2 u3 u4 u5 u6 u7",
+          "existing_quote": "it stays"
+        },
+        "replaced": null
+      },
+      "note": "15 words split by a mix of space, tab and newline"
+    },
+    {
+      "name": "relates with evidence over the cap keeps the item and drops the evidence",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"relates\", \"confidence\": 0.4, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15 n16\", \"existing_quote\": \"e1 e2 e3\"}}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "relates with null evidence keeps the item",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"relates\", \"confidence\": 0.4, \"reason\": \"x\", \"evidence\": null}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "relates with an array for evidence keeps the item",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"relates\", \"confidence\": 0.4, \"reason\": \"x\", \"evidence\": [{\"new_quote\": \"we will retire the queue worker\", \"existing_quote\": \"the queue worker stays on\"}]}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "relates with valid evidence keeps it",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"relates\", \"confidence\": 0.4, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"we will retire the queue worker\", \"existing_quote\": \"the queue worker stays on\"}}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "x",
+        "evidence": {
+          "new_quote": "we will retire the queue worker",
+          "existing_quote": "the queue worker stays on"
+        },
+        "replaced": null
+      }
+    },
+    {
+      "name": "relates with one-sided evidence keeps the item and drops the evidence",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"relates\", \"confidence\": 0.4, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"we retire it\"}}",
+      "expected": {
+        "type": "relates",
+        "confidence": 0.4,
+        "reason": "x",
+        "evidence": null,
+        "replaced": null
+      }
+    },
+    {
+      "name": "plain prose is dropped",
+      "offer": "legacyV0",
+      "raw": "I cannot tell from these two decisions.",
+      "expected": null
+    },
+    {
+      "name": "empty string is dropped",
+      "offer": "legacyV0",
+      "raw": "",
+      "expected": null
+    },
+    {
+      "name": "whitespace only is dropped",
+      "offer": "legacyV0",
+      "raw": "  \n ",
+      "expected": null
+    },
+    {
+      "name": "invalid JSON inside braces is dropped",
+      "offer": "legacyV0",
+      "raw": "{not json}",
+      "expected": null
+    },
+    {
+      "name": "unterminated object is dropped",
+      "offer": "legacyV0",
+      "raw": "{\"type\":\"relates\",\"confidence\":0.4",
+      "expected": null
+    },
+    {
+      "name": "a bare JSON string is dropped",
+      "offer": "legacyV0",
+      "raw": "\"relates\"",
+      "expected": null
+    },
+    {
+      "name": "an object that is not JSON, then a good one, is dropped (no retry)",
+      "offer": "legacyV0",
+      "raw": "{oops} {\"type\":\"relates\",\"confidence\":0.4,\"reason\":\"x\"}",
+      "expected": null
+    }
+  ]
+}

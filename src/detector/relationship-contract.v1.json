@@ -1,0 +1,53 @@
+{
+  "contract": "align.relationship",
+  "version": 1,
+  "revision": "2026-10-10 initial: taxonomy synced to the database CHECK (14 types), v0 offer list frozen, v1 candidate offer list and parse rules added",
+  "types": [
+    "blocks",
+    "clarifies",
+    "conflicts_with",
+    "contradicts",
+    "corrects",
+    "duplicates",
+    "excepts",
+    "implements",
+    "partially_supersedes",
+    "questions",
+    "refines",
+    "relates",
+    "supersedes",
+    "supports"
+  ],
+  "offers": {
+    "legacyV0": [
+      "supersedes",
+      "conflicts_with",
+      "contradicts",
+      "duplicates",
+      "clarifies",
+      "relates",
+      "refines",
+      "supports",
+      "questions",
+      "blocks"
+    ],
+    "v1Candidate": [
+      "incompatible",
+      "relates",
+      "duplicates",
+      "refines",
+      "clarifies",
+      "blocks",
+      "questions",
+      "supports"
+    ]
+  },
+  "verdictTypes": ["incompatible"],
+  "conflictFamily": ["conflicts_with", "contradicts"],
+  "parse": {
+    "confidenceDefault": 0.5,
+    "confidenceClamp": [0, 1],
+    "evidenceMaxWords": 15
+  },
+  "temperature": 0
+}
