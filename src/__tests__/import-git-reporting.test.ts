@@ -143,4 +143,45 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     expect(printed).not.toContain('stated no reason');
     expect(printed).not.toContain('mechanical subject');
   });
+
+  // L3 review 7: git stays what it was (the newest 500, however old) unless --since is passed.
+  describe('the window is opt-in for git', () => {
+    const repoOldNewest = { commits: [commit], scanned: 1, rejectedByRationale: 0 };
+
+    it('by default asks git for the newest 500 with no lower bound, so a repo whose newest commit is 400 days old still imports', async () => {
+      vi.mocked(getCommitHistoryDetailed).mockResolvedValue({ ...repoOldNewest, commits: [{ ...commit, date: '2025-09-05T00:00:00Z' }] });
+      await run(['connect', 'git']);
+      const asked = vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0];
+      expect(asked.limit).toBe(500);
+      expect(asked.from).toBeUndefined();
+      const printed = logSpy.mock.calls.flat().join('\n');
+      expect(printed).toContain('Git: 1 commits');
+      expect(printed).not.toMatch(/from the last/);
+    });
+
+    it('with --since 30d it sends the lower bound, lifts the scan bound to the ceiling, and says the window', async () => {
+      vi.mocked(getCommitHistoryDetailed).mockResolvedValue(repoOldNewest);
+      await run(['connect', 'git', '--since', '30d']);
+      const asked = vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0];
+      expect(asked.limit).toBe(5000);
+      expect(Math.round((Date.now() - Date.parse(asked.from!)) / 86_400_000)).toBe(30);
+      expect(logSpy.mock.calls.flat().join('\n')).toContain('Git: imported 1 commits from the last 30 days');
+    });
+
+    it('an explicit --limit 500 is honoured with --since: it is told apart from the untouched default by its source', async () => {
+      vi.mocked(getCommitHistoryDetailed).mockResolvedValue(repoOldNewest);
+      await run(['connect', 'git', '--since', '1y', '--limit', '500']);
+      expect(vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0].limit).toBe(500);
+      await run(['connect', 'git', '--since', '1y']);
+      expect(vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0].limit).toBe(5000);
+    });
+
+    it('an explicit --limit wins over the ceiling, and an explicit --from over --since', async () => {
+      vi.mocked(getCommitHistoryDetailed).mockResolvedValue(repoOldNewest);
+      await run(['connect', 'git', '--since', '30d', '--limit', '40', '--from', '2025-01-01']);
+      const asked = vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0];
+      expect(asked.limit).toBe(40);
+      expect(asked.from).toBe('2025-01-01');
+    });
+  });
 });

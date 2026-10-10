@@ -11,11 +11,14 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { gitCaptureReport } from '../../lib/fetchers/git.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { windowLabel } from '../../lib/since.js';
+import { sinceFromFlag } from '../../lib/since-flag.js';
 
 interface GitImportOpts {
   limit: string;
   from?: string;
+  since?: string;
   to?: string;
   branch?: string;
   approve?: boolean;
@@ -26,7 +29,8 @@ export function registerImportGitCommand(importCmd: Command): void {
   importCmd
     .command('git')
     .description('Import local git commit history (no auth required)')
-    .option('--limit <n>', 'Max commits to import', String(IMPORT_LIMITS.git))
+    .option('--limit <n>', 'Max commits to import', String(GIT_DEFAULT_LIMIT))
+    .option('--since <when>', 'Read only this far back (30d, 2w, 6m, 1y or all). Without it git reads the newest commits however old. --from wins')
     .option('--from <date>', 'Start date (ISO e.g. 2025-01-01)')
     .option('--to <date>', 'End date (ISO)')
     .option('--branch <name>', 'Branch to scan (default: current)')
@@ -34,6 +38,8 @@ export function registerImportGitCommand(importCmd: Command): void {
     .option('--env <env>', 'Environment')
     .action(async (_opts: GitImportOpts, cmd: Command) => {
       const opts = subcommandOpts<GitImportOpts>(cmd);
+      // Opt-in: no --since means the newest commits however old, exactly as before the window.
+      const window = opts.since === undefined ? undefined : sinceFromFlag(opts.since);
       if (!(await isGitRepo())) {
         p.log.error('Not in a git repository. Run from inside your project directory.');
         process.exit(1);
@@ -48,10 +54,13 @@ export function registerImportGitCommand(importCmd: Command): void {
 
       const spinner = p.spinner();
       spinner.start('Reading git history...');
-      const requested = parseInt(opts.limit, 10);
+      // An untouched --limit (by option SOURCE, so an explicit `--limit 500` is not mistaken for it)
+      // becomes the ceiling once a window bounds the read.
+      const requested = window !== undefined && cmd.getOptionValueSource('limit') === 'default' ? SYNC_CEILINGS.git : parseInt(opts.limit, 10);
       const { commits, scanned, rejectedByRationale } = await getCommitHistoryDetailed({
         limit: requested,
-        from: opts.from,
+        // An explicit --from is a date the user picked; the shared window only fills the gap.
+        from: opts.from ?? window?.since,
         to: opts.to,
         branch: opts.branch,
       });
@@ -86,7 +95,9 @@ export function registerImportGitCommand(importCmd: Command): void {
         };
       });
 
+      const importResult: { stored?: number; failedBatches?: number } = {};
       await runPersonalImport(items, client, {
+        result: importResult,
         label: 'git history',
         approve: opts.approve,
         appUrl: resolveAppUrl(env),
@@ -97,6 +108,6 @@ export function registerImportGitCommand(importCmd: Command): void {
       // import ends with. Derived by gitCaptureReport so this command and `align setup`
       // cannot disagree on what "mechanical" means or when the cap is worth naming.
       const report = gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: requested });
-      console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.git, { items, report })])}\n`);
+      console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.git, { items, report }, window !== undefined && opts.from === undefined ? windowLabel(window.days) : undefined, importResult)])}\n`);
     });
 }

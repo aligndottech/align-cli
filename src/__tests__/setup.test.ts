@@ -755,6 +755,8 @@ describe('align setup', () => {
         await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
 
         expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ repo: 'o/r' }));
+        // L3 review 5: the local graph reads the whole repo (named in the report); see the cloud case below.
+        expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ repo: 'o/r', scope: 'team' }));
       });
 
       it('re-imports a connected Atlassian connector with its saved email, domain and token', async () => {
@@ -2653,11 +2655,16 @@ describe('align setup', () => {
         report: { scanned: 1, requested: 250, skips: [] },
       });
       await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      // L3 review 5: the hosted path narrows to the repo but never asks for team scope until L4 discloses it.
+      const cloudCall = vi.mocked(fetchGitHubItems).mock.calls.at(-1)![0] as unknown as Record<string, unknown>;
+      expect(cloudCall['repo']).toBe('o/r');
+      expect('scope' in cloudCall).toBe(false);
       const reports = reportsPrinted();
       expect(reports).toHaveLength(1);
       expect(reports[0]).toContain('Git: 1 commits');
-      expect(reports[0]).toContain('GitHub: 1 PRs and issues');
-      expect(reports[0]).toContain('Linear: 1 issues of up to 250 requested');
+      expect(reports[0]).toContain('GitHub: imported 1 PRs and issues from the last 180 days');
+      // L3: a windowed read states its window; the ceiling is a bound, not a target to fall short of.
+      expect(reports[0]).toContain('Linear: imported 1 issues from the last 180 days');
       // A source that fetched nothing still gets its line (R4a): that zero IS the answer.
       expect(reports[0]).toContain('Repo docs: 0 ADRs and sections');
     });

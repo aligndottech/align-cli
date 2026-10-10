@@ -11,12 +11,15 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface ZoomImportOpts {
   token?: string;
   personal?: boolean;
   limit: string;
+  since?: string;
   approve?: boolean;
   env?: EnvName;
 }
@@ -27,11 +30,13 @@ export function registerImportZoomCommand(importCmd: Command): void {
     .description('Import cloud recording transcripts from Zoom')
     .option('--token <token>', 'Zoom OAuth access token')
     .option('--personal', 'Connect via browser OAuth (Align Zoom app) instead of pasting a token')
-    .option('--limit <n>', 'Max recordings to import', String(IMPORT_LIMITS.zoom))
+    .option('--limit <n>', 'Max recordings to import', String(SYNC_CEILINGS.zoom))
+    .option('--since <when>', SINCE_HELP)
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: ZoomImportOpts, cmd: Command) => {
       const opts = subcommandOpts<ZoomImportOpts>(cmd);
+      const window = sinceFromFlag(opts.since);
       const config = createConfigStore();
       const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
@@ -57,12 +62,13 @@ export function registerImportZoomCommand(importCmd: Command): void {
       try {
         const fetched = await fetchZoomItems({
           token,
-          limit: parseInt(opts.limit, 10),
+          ...fetchWindow('zoom', window), limit: parseInt(opts.limit, 10),
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} recordings with transcripts`);
-        await runPersonalImport(items, client, { label: 'Zoom', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'zoom' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.zoom, fetched)])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'Zoom', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'zoom' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.zoom, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

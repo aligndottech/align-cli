@@ -11,12 +11,15 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface GitHubImportOpts {
   token?: string;
   personal?: boolean;
   limit: string;
+  since?: string;
   approve?: boolean;
   env?: EnvName;
   repo?: string;
@@ -29,13 +32,15 @@ export function registerImportGitHubCommand(importCmd: Command): void {
     .description('Import your GitHub PRs and issues')
     .option('--token <token>', 'GitHub personal access token (ghp_...)')
     .option('--personal', 'Connect your own GitHub via browser OAuth (Align personal app) instead of a token')
-    .option('--limit <n>', 'Max items to import', String(IMPORT_LIMITS.github))
+    .option('--limit <n>', 'Max items to import', String(SYNC_CEILINGS.github))
+    .option('--since <when>', SINCE_HELP)
     .option('--repo <owner/repo>', 'Scope to one GitHub repo - the literal owner/repo (not the fuzzy short name `search`/`why` accept; default: the repo you are in, if it is a GitHub remote)')
     .option('--all', 'Every repo your token can see, not just the current one')
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: GitHubImportOpts, cmd: Command) => {
       const opts = subcommandOpts<GitHubImportOpts>(cmd);
+      const window = sinceFromFlag(opts.since);
       const config = createConfigStore();
       const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
@@ -64,16 +69,26 @@ export function registerImportGitHubCommand(importCmd: Command): void {
         // file, not this one, and this call must not be the one thing standing outside
         // the safety net if it ever changes.
         const repo = await resolveGitHubRepoScope(opts);
+        // Team scope only on the LOCAL graph, and only inside a repo; a hosted env keeps `yours` until
+        // the L4 disclosure ships. The status text says what is read, because it is not "your" items.
+        const team = Boolean(repo) && env.mode === 'local-embedded';
         spinner.start(
           repo
-            ? `Fetching your GitHub PRs and issues in ${repo}...`
+            ? team
+              ? `Fetching everyone's PRs and issues in ${repo}, as far as your token can see...`
+              : `Fetching your GitHub PRs and issues in ${repo}...`
             : 'Fetching your GitHub PRs and issues everywhere your token can see (pass --repo to narrow)...',
         );
-        const fetched = await fetchGitHubItems({ token, limit: parseInt(opts.limit, 10), ...(repo ? { repo } : {}) });
+        // L3: items first, then discussion inline up to a request budget (fetchGitHubItems); inside a repo, everyone's items in it.
+        const fetched = await fetchGitHubItems({
+          token, ...fetchWindow('github', window), limit: parseInt(opts.limit, 10),
+          ...(repo ? { repo, ...(team ? { scope: 'team' as const } : {}) } : {}),
+        });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} items`);
-        await runPersonalImport(items, client, { label: 'GitHub', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'github' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.github, fetched)])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'GitHub', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'github' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.github, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

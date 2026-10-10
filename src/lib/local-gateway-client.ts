@@ -295,7 +295,13 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     if (platform === 'slack') db.deleteSlackTombstoneTwin(identity);
     if (opts.keyed) db.foldPendingTwin(identity, title, platform, true);
     const existingId = db.findIdBySource(sourceUrl, title, platform, opts.keyed);
-    if (opts.keyed && existingId !== null) ({ title, summary } = db.keepProtectedText(existingId, title, summary));
+    // L3: an items-first arrival over a complete row merges onto the stored discussion; the row stays complete.
+    let pending = opts.detailPending;
+    if (opts.keyed && existingId !== null) {
+      const kept = db.keepProtectedText(existingId, title, summary, opts.detailPending);
+      ({ title, summary } = kept);
+      if (kept.keptDiscussion) pending = false;
+    }
     const created = existingId === null;
     // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.
@@ -325,7 +331,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     const embedding = await getEmbedding(embedText);
     // ALI-831: origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
-    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind, keyed: opts.keyed });
+    const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind, keyed: opts.keyed, detailPending: pending });
     db.replaceRefs(id, refs);
     // ALI-796's payoff: if some earlier decision already cited THIS one (a git commit
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
@@ -379,8 +385,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           titleOverride: item.title,
           sourceUrlOverride: item.source_url ?? null,
           createdAt: item.created_at,
-          classify: opts.classify,
-          keyed: opts.keyed,
+          classify: opts.classify, keyed: opts.keyed, detailPending: item.detail_pending,
         }, session);
         snapshots.push({
           id: r.id,

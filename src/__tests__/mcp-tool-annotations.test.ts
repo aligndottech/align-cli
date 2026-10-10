@@ -29,7 +29,8 @@ import type { EnvironmentConfig } from '../lib/config';
  * - toolSchemasFor's description rewriting preserves annotations in both modes
  */
 
-const WRITE_TOOLS = ['align_capture', 'align_check_drift'] as const;
+// L3 added align_backfill: it records a window and starts an import, so it is a write.
+const WRITE_TOOLS = ['align_backfill', 'align_capture', 'align_check_drift'] as const;
 
 const localEnv = { mode: 'local-embedded', gatewayUrl: '', localDbPath: '/tmp/x.db' } as unknown as EnvironmentConfig;
 const cloudEnv = { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't' } as unknown as EnvironmentConfig;

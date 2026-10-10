@@ -39,7 +39,9 @@ describe('the local MCP tool list leads with the check (ALI-139)', () => {
       // decided. All READS, so mcp-tool-annotations.test.ts's write set is unchanged.
       'align_get_topic_timeline', 'align_get_decision_rationale', 'align_get_decision_timeline',
     ]));
-    expect(names).toHaveLength(11);
+    // L3 appended align_backfill (a write), after the check that leads the list.
+    expect(names).toContain('align_backfill');
+    expect(names).toHaveLength(12);
   });
 });
 

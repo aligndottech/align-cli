@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SYNC_CEILINGS } from '../lib/import-defaults.js';
 
 /**
  * ALI-388: `align import <src> --personal` - connect via the Align Personal OAuth apps
@@ -251,18 +252,18 @@ describe('every OAuth-capable subcommand resolves --personal (the wiring, not ju
 describe('align import <x> fetches as much as align setup does (ALI-829, R29)', () => {
   // Measured 2026-09-02: `align import slack` fetched 50 where setup had fetched 250, so
   // re-importing to get more got less. One constant, two readers.
-  it('slack: no --limit means setup\'s 250 over setup\'s 90 days', async () => {
+  it('slack: no --limit means setup\'s ceiling over setup\'s six-month window (L3)', async () => {
     configState.tokens['prod:slack-personal'] = 'cached-slack-tok';
     await run(['connect', 'slack', '--personal', '--approve']);
     const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
-    expect(vi.mocked(fetchSlackItems)).toHaveBeenCalledWith(expect.objectContaining({ limit: 250, daysBack: 90 }));
+    expect(vi.mocked(fetchSlackItems)).toHaveBeenCalledWith(expect.objectContaining({ limit: SYNC_CEILINGS.slack, since: expect.any(String) }));
   });
 
-  it('confluence: no --limit means setup\'s 250', async () => {
+  it('confluence: no --limit means setup\'s ceiling (L3)', async () => {
     configState.tokens['prod:confluence-personal'] = 'cached-conf-tok';
     configState.cloudIds['prod:confluence-personal'] = 'cloud-1';
     await run(['connect', 'confluence', '--approve']);
-    expect(vi.mocked(fetchConfluenceItems)).toHaveBeenCalledWith(expect.objectContaining({ limit: 250 }));
+    expect(vi.mocked(fetchConfluenceItems)).toHaveBeenCalledWith(expect.objectContaining({ limit: SYNC_CEILINGS.confluence }));
   });
 
   it('an explicit --limit still wins', async () => {

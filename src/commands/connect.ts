@@ -6,6 +6,8 @@ import { resolveImportEnv } from '../lib/resolve-env.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { createCaptureCollector } from '../lib/capture-report.js';
 import { connectLocalSources } from './setup.js';
+import { sinceFromFlag } from '../lib/since-flag.js';
+import { trackChildFromEnv } from '../lib/backfill-state.js';
 
 /**
  * ALI-951: `align import <source>` was renamed `align connect <source>` in 0.38.0 and kept as
@@ -26,6 +28,8 @@ export interface ConnectOptions {
   token?: string;
   yes?: boolean;
   json?: boolean;
+  /** L3: how far back to read (30d, 2w, 6m, 1y, all). Absent means six months. */
+  since?: string;
   env?: EnvName;
 }
 
@@ -38,6 +42,11 @@ export interface ConnectOptions {
 export async function runConnect(opts: ConnectOptions): Promise<boolean> {
   const envName = resolveImportEnv(opts.env);
   if (envName !== 'local') return false;
+  // Before any prompt or request: a window nobody meant is refused, not read and called complete.
+  const window = sinceFromFlag(opts.since);
+  // Set only when `align_backfill` started this process: it records how the run ended (exit code,
+  // last line) in the state directory, so a backfill that failed is not invisible.
+  const track = trackChildFromEnv();
 
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!interactive && !opts.source) {
@@ -74,7 +83,14 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
       preselected: opts.source ? [opts.source] : undefined,
       seedTokens: opts.token ? { token: opts.token } : undefined,
       json: opts.json,
+      window,
     });
+    const failed = results.filter((r) => r.error);
+    // The line that explains the outcome: the errors first (they are why a run "succeeded" with nothing).
+    track?.note([...failed.map((r) => `${r.id}: ${r.error}`), ...results.filter((r) => !r.error).map((r) => `${r.id}: found ${r.found}, imported ${r.imported}`)].join('; '));
+    // A background run that could not read its source must not end "done": non-zero exit, but only
+    // for a run `align_backfill` started, so an interactive `align connect` keeps its exit code.
+    if (track && failed.length > 0) process.exitCode = 1;
     if (opts.json) {
       console.log(JSON.stringify({ env: 'local', graph: dbPath, sources: results }));
       return true;
@@ -88,6 +104,7 @@ export async function runConnect(opts: ConnectOptions): Promise<boolean> {
       p.log.info(chalk.dim('Nothing connected. Run align connect again to pick a source, or align connect --source <id>.'));
     }
   } catch (e) {
+    track?.note((e as Error).message);
     console.error(chalk.red(`align connect: ${(e as Error).message}`));
     process.exit(2);
   }

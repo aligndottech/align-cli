@@ -12,7 +12,9 @@ import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { PERSONAL_OAUTH_KEYS, personalCredsForImport } from '../../lib/personal-oauth.js';
 import { AuthExpiredError } from '../../lib/errors.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface ConfluenceImportOpts {
   email?: string;
@@ -20,6 +22,7 @@ interface ConfluenceImportOpts {
   personal?: boolean;
   domain?: string;
   limit: string;
+  since?: string;
   approve?: boolean;
   env?: EnvName;
 }
@@ -32,11 +35,13 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
     .option('--token <token>', 'Atlassian API token (or uses cached OAuth token from align setup)')
     .option('--personal', 'Connect via browser OAuth (Align personal Atlassian app) instead of a token')
     .option('--domain <domain>', 'Confluence domain, e.g. company.atlassian.net (for API token auth)')
-    .option('--limit <n>', 'Max pages to import', String(IMPORT_LIMITS.confluence))
+    .option('--limit <n>', 'Max pages to import', String(SYNC_CEILINGS.confluence))
+    .option('--since <when>', SINCE_HELP)
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .action(async (_opts: ConfluenceImportOpts, cmd: Command) => {
       const opts = subcommandOpts<ConfluenceImportOpts>(cmd);
+      const window = sinceFromFlag(opts.since);
       const config = createConfigStore();
       const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
@@ -86,12 +91,13 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
           siteBase,
           email: opts.email,
           domain: opts.domain,
-          limit: parseInt(opts.limit, 10),
+          ...fetchWindow('confluence', window), limit: parseInt(opts.limit, 10),
         });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} pages`);
-        await runPersonalImport(items, client, { label: 'Confluence', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'confluence' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.confluence, fetched)])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'Confluence', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'confluence' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.confluence, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         if (err instanceof AuthExpiredError) {

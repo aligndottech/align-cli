@@ -36,7 +36,7 @@ import os from 'node:os';
 import chalk from 'chalk';
 import { createConfigStore, type EnvName } from '../../lib/config.js';
 import { getGitIdentity } from '../../lib/git.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
 import { createLocalGatewayClient } from '../../lib/local-gateway-client.js';
 import { type ConfirmEachItem, runConfirmEachImport, runWithConcurrency } from '../../lib/personal-import.js';
 import { resolveImportEnv } from '../../lib/resolve-env.js';
@@ -187,7 +187,7 @@ export function registerImportSessionsCommand(importCmd: Command): void {
   importCmd
     .command('sessions')
     .description('Review decision-shaped moments from local coding-agent sessions (Claude Code, pi, Codex CLI, opencode) one by one')
-    .option('--limit <n>', 'Max candidates to review', String(IMPORT_LIMITS.sessions))
+    .option('--limit <n>', 'Max candidates to review', String(SYNC_CEILINGS.sessions))
     .option('--env <env>', 'Environment (must be local)')
     .action(async (opts: { limit: string; env?: EnvName }) => {
       const config = createConfigStore();

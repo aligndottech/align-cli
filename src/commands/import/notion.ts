@@ -11,12 +11,15 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { personalCredsForImport } from '../../lib/personal-oauth.js';
 import { commandIntro } from '../../lib/brand.js';
-import { IMPORT_LIMITS } from '../../lib/import-defaults.js';
+import { SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { fetchWindow, windowLabel } from '../../lib/since.js';
+import { SINCE_HELP, sinceFromFlag } from '../../lib/since-flag.js';
 
 interface NotionImportOpts {
   token?: string;
   personal?: boolean;
   limit: string;
+  since?: string;
   approve?: boolean;
   env?: EnvName;
 }
@@ -27,7 +30,8 @@ export function registerImportNotionCommand(importCmd: Command): void {
     .description('Import your Notion pages (internal integration token)')
     .option('--token <token>', 'Notion integration token (ntn_...)')
     .option('--personal', 'Connect your own Notion via browser OAuth (Align personal app) instead of a token')
-    .option('--limit <n>', 'Max pages to import', String(IMPORT_LIMITS.notion))
+    .option('--limit <n>', 'Max pages to import', String(SYNC_CEILINGS.notion))
+    .option('--since <when>', SINCE_HELP)
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
     .addHelpText('after', `
@@ -36,6 +40,7 @@ To share a page: open it in Notion → ... menu → Add connections → select y
 Create an integration at: https://app.notion.com/developers/tokens`)
     .action(async (_opts: NotionImportOpts, cmd: Command) => {
       const opts = subcommandOpts<NotionImportOpts>(cmd);
+      const window = sinceFromFlag(opts.since);
       const config = createConfigStore();
       const envName = resolveImportEnv(opts.env);
       const env = config.getEnvironment(envName);
@@ -61,11 +66,12 @@ Create an integration at: https://app.notion.com/developers/tokens`)
       const spinner = p.spinner();
       spinner.start('Fetching your Notion pages...');
       try {
-        const fetched = await fetchNotionItems({ token, limit: parseInt(opts.limit, 10) });
+        const fetched = await fetchNotionItems({ token, ...fetchWindow('notion', window), limit: parseInt(opts.limit, 10) });
         const { items } = fetched;
         spinner.stop(`Found ${items.length} pages`);
-        await runPersonalImport(items, client, { label: 'Notion', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'notion' } });
-        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.notion, fetched)])}\n`);
+        const importResult: { stored?: number; failedBatches?: number } = {};
+        await runPersonalImport(items, client, { result: importResult, label: 'Notion', approve: opts.approve, appUrl: resolveAppUrl(env), funnel: { env, source: 'notion' } });
+        console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.notion, fetched, windowLabel(window.days), importResult)])}\n`);
       } catch (err) {
         spinner.stop('');
         p.log.error((err as Error).message);

@@ -1,5 +1,5 @@
 {
-  "$origin": "Copied verbatim from align-connector-sdk packages/connector-core/src/__fixtures__/source-key-fixtures.json at commit c44d1d4 (the cases and rules below are unedited). Parity note: src/lib/source-key.ts is a behavioural copy of connector-core's normaliseSourceKey; source-key.test.ts runs this table against it, so any drift in either copy fails there. Re-copy this file whenever connector-core's table changes.",
+  "$origin": "FROZEN. The 121 cases the CLI's own normaliser (src/lib/source-key.ts before L3, byte-equivalent to connector-core at c44d1d4) was held to when schema v7 keyed existing rows. Never re-copy this file from the SDK: it exists so that an SDK patch which changes a key fails CI HERE, before it splits one stored item into two rows. If the change is deliberate, it needs a schema migration (re-key) and a new frozen file named for the new version.",
   "$comment": "Shared fixture table for normaliseSourceKey(platform, url). Published in @aligndottech/connector-core so every reader (CLI, gateway) checks one table. same: whether normaliseSourceKey(platform, a) === normaliseSourceKey(platform, b). key: the expected normaliseSourceKey(platform, a); null means undefined (no key). no_key cases have no b.",
   "rules": {
     "host_case": "Lowercase the scheme and the host. The path keeps its case.",

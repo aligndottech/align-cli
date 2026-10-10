@@ -6,6 +6,9 @@
  * confirms - and a run with no terminal and no bypass exits non-zero naming the flag it
  * needed (clig.dev, Heroku). `--json` prints one machine-readable summary.
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,9 +33,10 @@ const mockFetchGitHub = vi.hoisted(() => vi.fn().mockResolvedValue({
   items: [{ source_url: 'https://github.com/o/r/pull/1', title: 'PR: a', raw_text: 'a', type: 'pull_request' }],
   report: { scanned: 1, skips: [] },
 }));
+const mockResolveRepo = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('../lib/fetchers/github.js', () => ({
   fetchGitHubItems: mockFetchGitHub,
-  resolveGitHubRepoScope: vi.fn().mockResolvedValue(undefined),
+  resolveGitHubRepoScope: mockResolveRepo,
 }));
 const mockFetchJira = vi.hoisted(() => vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }));
 vi.mock('../lib/fetchers/jira.js', () => ({ fetchJiraItems: mockFetchJira }));
@@ -220,6 +224,151 @@ describe('align connect (ALI-951)', () => {
       expect(code).toBeDefined();
       expect(stderr.join('\n')).toContain('--source jira --json');
       expect(mockFetchJira).not.toHaveBeenCalled();
+    });
+  });
+
+  // L3: --since on the picker/--source path and on the real parent (a parent flag is awarded to
+  // the parent, so the subcommand must read it back through optsWithGlobals).
+  describe('--since (L3)', () => {
+    const daysAgo = (iso: unknown) => Math.round((Date.now() - Date.parse(String(iso))) / 86_400_000);
+
+    it('--source github --since 30d reads 30 days back, and the report line says so', async () => {
+      setTty(false, false);
+      await run(['connect', '--source', 'github', '--token', 't', '--yes', '--since', '30d']);
+      expect(daysAgo(mockFetchGitHub.mock.calls.at(-1)![0].since)).toBe(30);
+      expect(stdout.join('\n')).toContain('from the last 30 days');
+    });
+
+    it('--source github with no --since reads the plan default, 180 days', async () => {
+      setTty(false, false);
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      expect(daysAgo(mockFetchGitHub.mock.calls.at(-1)![0].since)).toBe(180);
+      expect(stdout.join('\n')).toContain('from the last 180 days');
+    });
+
+    it('--since all sends no lower bound', async () => {
+      setTty(false, false);
+      await run(['connect', '--source', 'github', '--token', 't', '--yes', '--since', 'all']);
+      expect('since' in mockFetchGitHub.mock.calls.at(-1)![0]).toBe(false);
+    });
+
+    it('the subcommand form reads the parent\'s flag: connect github --since 2w', async () => {
+      setTty(true, true);
+      await run(['connect', 'github', '--token', 't', '--approve', '--since', '2w']);
+      expect(daysAgo(mockFetchGitHub.mock.calls.at(-1)![0].since)).toBe(14);
+    });
+
+    it('the hosted scan (--all, or a cloud env) has its own --from/--to, so --since there is refused, not ignored', async () => {
+      setTty(false, false);
+      mockResolveImportEnv.mockReturnValue('prod');
+      const code = await run(['connect', '--all', '--since', '30d']);
+      expect(code).toBe(2);
+      expect(stderr.join('\n')).toContain('--from');
+    });
+
+    it.each([
+      ['--source github --token t --yes', ['connect', '--source', 'github', '--token', 't', '--yes', '--since', '6x']],
+      ['the subcommand form', ['connect', 'github', '--token', 't', '--approve', '--since', '-3d']],
+    ])('a bad value exits 2 naming the accepted forms and reads nothing (%s)', async (_n, argv) => {
+      setTty(false, false);
+      const code = await run(argv);
+      expect(code).toBe(2);
+      expect(stderr.join('\n')).toContain('30d, 2w, 6m, 1y or all');
+      expect(mockFetchGitHub).not.toHaveBeenCalled();
+    });
+  });
+
+  // L3 review 4 and 5 on the --source path.
+  describe('what the report claims (L3 review)', () => {
+    beforeEach(() => { setTty(false, false); });
+
+    it('says imported X of N when a batch failed, not the fetched count', async () => {
+      mockFetchGitHub.mockResolvedValueOnce({
+        items: [{ source_url: 'u1', platform: 'github', raw_text: 'a' }, { source_url: 'u2', platform: 'github', raw_text: 'b' }],
+        report: { scanned: 2, skips: [], complete: true },
+      });
+      mockRunPersonalImport.mockImplementationOnce(async (_i: unknown, _c: unknown, o: { result: { stored: number; failedBatches: number } }) => {
+        o.result.stored = 1; o.result.failedBatches = 1; return 1;
+      });
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      expect(stdout.join('\n')).toContain('imported 1 of 2 PRs and issues (a batch failed)');
+    });
+
+    it('an import that THROWS leaves no "imported N" claim: it reports 0 of N and a failure', async () => {
+      mockFetchGitHub.mockResolvedValueOnce({
+        items: [{ source_url: 'u1', platform: 'github', raw_text: 'a' }, { source_url: 'u2', platform: 'github', raw_text: 'b' }],
+        report: { scanned: 2, skips: [], complete: true },
+      });
+      mockRunPersonalImport.mockRejectedValueOnce(new Error('gateway down'));
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      const out = stdout.join('\n');
+      expect(out).toContain('imported 0 of 2 PRs and issues (a batch failed)');
+      expect(out).not.toMatch(/imported 2 /);
+    });
+
+    it('prints the team scope line when the read was team scope', async () => {
+      mockFetchGitHub.mockResolvedValueOnce({
+        items: [{ source_url: 'u1', platform: 'github', raw_text: 'a' }],
+        report: { scanned: 1, skips: [], complete: true, scope: 'team', scopeNote: "everyone's PRs and issues in o/r, as far as your token can see" },
+      });
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      expect(stdout.join('\n')).toContain("reads everyone's PRs and issues in o/r, as far as your token can see");
+    });
+
+    it('asks the fetcher for team scope on the local graph', async () => {
+      mockResolveRepo.mockResolvedValueOnce('o/r');
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      expect(mockFetchGitHub.mock.calls.at(-1)![0]).toMatchObject({ repo: 'o/r', scope: 'team' });
+    });
+  });
+
+  // Re-review C: a background run that could not read its source must not end "done".
+  describe('how a backfill child ends (L3 re-review)', () => {
+    let stateDir: string;
+    const saved: Record<string, string | undefined> = {};
+    beforeEach(async () => {
+      setTty(false, false);
+      stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l3-child-'));
+      for (const k of ['XDG_STATE_HOME', 'HOME', 'USERPROFILE', 'LOCALAPPDATA', 'ALIGN_BACKFILL_STATUS']) saved[k] = process.env[k];
+      process.env['XDG_STATE_HOME'] = stateDir; process.env['HOME'] = stateDir; process.env['USERPROFILE'] = stateDir; process.env['LOCALAPPDATA'] = stateDir;
+      const { backfillDir, statusPath } = await import('../lib/backfill-state.js');
+      process.env['ALIGN_BACKFILL_STATUS'] = statusPath(backfillDir()!, 'github');
+    });
+    afterEach(() => {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+      process.exitCode = undefined;
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    });
+
+    it('a rejected token: non-zero exit, final state failed, last_line is the error, and the next call says so', async () => {
+      mockFetchGitHub.mockRejectedValueOnce(new Error('GitHub authentication failed (401)'));
+      await run(['connect', '--env', 'local', '--source', 'github', '--token', 'bad', '--yes', '--json']);
+      expect(process.exitCode).toBe(1);
+      const { trackChildFromEnv, readStatus, backfillDir, statusPath } = await import('../lib/backfill-state.js');
+      trackChildFromEnv()!.finish(process.exitCode ?? 0); // what the process 'exit' handler does
+      const status = readStatus(statusPath(backfillDir()!, 'github'));
+      expect(status).toMatchObject({ state: 'failed', exit_code: 1 });
+      expect(status!.last_line).toContain('github: GitHub authentication failed (401)');
+
+      const { runBackfill, defaultBackfillDeps } = await import('../lib/mcp-backfill.js');
+      const env = { mode: 'local-embedded', gatewayUrl: '', authToken: null, tenantId: null, localDbPath: '/x' } as never;
+      const reply = await runBackfill({ source: 'github' }, env, { ...defaultBackfillDeps(env), isConnected: () => false });
+      expect(reply.text).toContain('Last run failed: github: GitHub authentication failed (401)');
+    });
+
+    it('a run that worked ends done with exit code 0 and says what it did', async () => {
+      await run(['connect', '--env', 'local', '--source', 'github', '--token', 't', '--yes', '--json']);
+      expect(process.exitCode).toBeUndefined();
+      const { trackChildFromEnv, readStatus, backfillDir, statusPath } = await import('../lib/backfill-state.js');
+      trackChildFromEnv()!.finish(0);
+      expect(readStatus(statusPath(backfillDir()!, 'github'))).toMatchObject({ state: 'done', exit_code: 0, last_line: expect.stringContaining('github: found 1') });
+    });
+
+    it('an interactive connect (no backfill status in the environment) keeps its exit code even when a source fails', async () => {
+      delete process.env['ALIGN_BACKFILL_STATUS'];
+      mockFetchGitHub.mockRejectedValueOnce(new Error('boom'));
+      await run(['connect', '--env', 'local', '--source', 'github', '--token', 'bad', '--yes', '--json']);
+      expect(process.exitCode).toBeUndefined();
     });
   });
 });

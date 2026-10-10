@@ -6,6 +6,7 @@ import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } 
 import type { DeciderKind } from './decider-kind.js';
 import { bumpRowSetEpoch, rowSetEpoch } from './local-db-epoch.js';
 import { foldKeylessTwin } from './local-db-v7.js';
+import { discussionStart } from './github-text.js';
 import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
 
 export interface DecisionRow {
@@ -215,6 +216,10 @@ export function createLocalDb(dbPath: string) {
        *  so an edited title updates the row. Never inferred from the platform: `align capture
        *  <PR url>` stamps `github` too, and must not merge with the imported item. */
       keyed?: boolean;
+      /** L3: the item arrived items-first (GitHub `discussion: 'none'`): its discussion has not
+       *  been fetched. Stored in `detail_pending` so the later drain can find it. A pending
+       *  arrival never downgrades a row whose discussion is already stored (see the upsert). */
+      detailPending?: boolean;
     }): string {
       // L2: a one-item-per-URL connector item upserts on its source_key, and that branch takes
       // the new title, so an edited PR title updates the row instead of adding a twin. Every
@@ -226,13 +231,20 @@ export function createLocalDb(dbPath: string) {
       const key = (row.keyed ? connectorItemKey(row.platform, sourceUrl) : undefined) ?? null;
       api.foldPendingTwin(sourceUrl, row.title, row.platform, row.keyed);
       const inserted = db.prepare(
-        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO decisions (id, title, summary, source_url, platform, repo, decided_at, decider_kind, source_key, detail_pending) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET
            title = CASE WHEN ${ATTESTED} THEN decisions.title ELSE excluded.title END,
            summary = CASE WHEN ${ATTESTED} THEN decisions.summary ELSE excluded.summary END,
            platform = excluded.platform,
            repo = COALESCE(excluded.repo, decisions.repo),
            decided_at = COALESCE(excluded.decided_at, decisions.decided_at),
+           -- An attested row keeps its text, so it keeps the flag that describes that text (review 8).
+           -- A thin arrival whose body IS the stored body (ingestOne passed the stored text on
+           -- because the stored one is richer) must not turn a complete row pending again.
+           detail_pending = CASE
+             WHEN ${ATTESTED} THEN decisions.detail_pending
+             WHEN excluded.detail_pending = 1 AND decisions.detail_pending = 0 AND excluded.summary = decisions.summary THEN 0
+             ELSE excluded.detail_pending END,
            enriched_at = CASE WHEN ${ATTESTED} THEN decisions.enriched_at ELSE NULL END
          ON CONFLICT(source_url, title) DO UPDATE SET
            summary = excluded.summary, platform = excluded.platform,
@@ -252,6 +264,7 @@ export function createLocalDb(dbPath: string) {
         row.decidedAt || null,
         row.deciderKind ?? null,
         key,
+        row.detailPending ? 1 : 0,
       ) as { id: string };
       return inserted.id;
     },
@@ -302,9 +315,19 @@ export function createLocalDb(dbPath: string) {
      * `text_revision_pending` audit note and the stored text is returned. Any other row (or an
      * unknown id) gets the incoming text back unchanged.
      */
-    keepProtectedText(id: string, title: string, summary: string): { title: string; summary: string } {
-      const row = db.prepare(`SELECT title, summary, ratified_at, confirmed_at FROM decisions WHERE id = ?`).get(id) as
-        { title: string; summary: string; ratified_at: string | null; confirmed_at: string | null } | undefined;
+    keepProtectedText(id: string, title: string, summary: string, thin = false): { title: string; summary: string; keptDiscussion?: true } {
+      const row = db.prepare(`SELECT title, summary, detail_pending, ratified_at, confirmed_at FROM decisions WHERE id = ?`).get(id) as
+        { title: string; summary: string; detail_pending: number; ratified_at: string | null; confirmed_at: string | null } | undefined;
+      if (row && row.ratified_at === null && row.confirmed_at === null && thin && row.detail_pending === 0) {
+        // L3: `thin` is an items-first arrival (discussion not fetched). The stored row is complete
+        // and has a discussion block: keep the BLOCK and take everything else from the arrival
+        // (title, body, Status, Repo), so a merge, a rename or an edit still lands. The result
+        // equals the stored text when nothing changed, which makes the caller's unchanged-skip fire.
+        const keep = discussionStart(row.summary);
+        if (keep !== -1 && discussionStart(summary) === -1) {
+          return { title, summary: summary + row.summary.slice(keep), keptDiscussion: true };
+        }
+      }
       if (!row || (row.ratified_at === null && row.confirmed_at === null)) return { title, summary };
       if (row.title !== title || row.summary !== summary) {
         const detail = JSON.stringify({ title, summary });
