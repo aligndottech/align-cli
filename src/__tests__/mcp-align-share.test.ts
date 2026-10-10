@@ -46,7 +46,7 @@ afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(dir, { recursive: true, force: t
 describe('align_share', () => {
   it('previews, issues a code, and sends nothing', async () => {
     const r = await runShareTool({ id }, env, ctx());
-    expect(r.text).toContain('To: "Acme" (as claimed by x) via x, as me@co.com');
+    expect(r.text).toContain('To: "Acme" via x, as me@co.com');
     expect(r.text).toContain('Use sqlite');
     expect(r.text).toContain(r.code as string);
     // the result is not a runnable command line for the agent: no `align share ... --confirm <code>` anywhere

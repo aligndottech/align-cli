@@ -155,19 +155,25 @@ describe('the preview names the gateway host, always (C4)', () => {
 
   it('a builtin with its default gateway: host named, no "not the default" note', () => {
     const t = renderPreview(payloads, { ...base, gatewayHost: 'api.align.tech' });
-    expect(t).toContain('To: "Acme" (as claimed by api.align.tech) via api.align.tech, as me@co.com');
+    expect(t).toContain('To: "Acme" via api.align.tech, as me@co.com');
     expect(t).not.toContain('not the default');
+  });
+
+  it('never words the org name as something Align or the host vouches for (join review F6)', () => {
+    const t = renderPreview(payloads, { ...base, gatewayHost: 'api.align.tech' });
+    expect(t).not.toMatch(/claimed by|verified by Align\b(?!\))/);
+    expect(t).toContain('the organisation chose that name; Align does not verify it');
   });
 
   it('a team destination: host named, and no wording about a default', () => {
     const t = renderPreview(payloads, { ...base, env: 'acme', gatewayHost: 'api.acme.example' });
-    expect(t).toContain('To: "Acme" (as claimed by api.acme.example) via api.acme.example, as me@co.com');
+    expect(t).toContain('To: "Acme" via api.acme.example, as me@co.com');
     expect(t).not.toContain('not the default');
   });
 
   it('a builtin pointed elsewhere by an override still says so', () => {
     const t = renderPreview(payloads, { ...base, gatewayHost: 'x.example', gateway: 'https://x.example' });
-    expect(t).toContain('via x.example, as me@co.com (this gateway is not the default for prod)');
+    expect(t).toContain('via x.example, as me@co.com (the organisation chose that name; Align does not verify it; this gateway is not the default for prod)');
   });
 
   it('the workspace name the server chose cannot rewrite the line', () => {

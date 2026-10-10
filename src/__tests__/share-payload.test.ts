@@ -123,7 +123,7 @@ describe('the item and its hash', () => {
     expect(c.hash).not.toBe(a.hash);
     expect(a.hash).toBe(hashItem(a.item));
     const text = renderPreview([a], { workspace: 'Acme', env: 'prod', email: 'me@co.com', gatewayHost: 'api.align.tech' }, { updates: new Set([a.localId]) });
-    expect(text).toContain('To: "Acme" (as claimed by api.align.tech) via api.align.tech, as me@co.com');
+    expect(text).toContain('To: "Acme" via api.align.tech, as me@co.com');
     expect(text).toContain('Use sqlite for the cache');
     expect(text).toContain('Settled on sqlite because it ships with node.');
     expect(text).toContain('Source: https://github.com/o/r/pull/12 (github)');

@@ -56,7 +56,7 @@ describe('align_share with browser approval', () => {
     expect(r.text).toContain(String(r['request_id']));
     expect(r.text).toMatch(/do not try to approve it yourself/);
     expect(r.text).toContain(SHARE_STATUS_TOOL);
-    expect(r.text).toContain('To: "Acme" (as claimed by api.align.test) via api.align.test, as me@co.com');
+    expect(r.text).toContain('To: "Acme" via api.align.test, as me@co.com');
     expect(new URL(urlOf(r)).hash).toMatch(/^#k=[A-Za-z0-9_-]{43}$/);
     expect(gw.staged).toHaveLength(1);
     expect(gw.staged[0]).toMatchObject({ kind: 'share', requester_label: 'tom-laptop', agent: 'claude-code' });

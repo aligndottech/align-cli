@@ -28,7 +28,7 @@ describe('the preview', () => {
     expect(lines.filter((l) => l === visible(LINE))).toHaveLength(1);
     const at = lines.indexOf(visible(LINE));
     expect(lines[at + 1]).toBe('Nothing is sent until you say yes.');
-    expect(lines[lines.length - 1]).toMatch(/^To: "Acme" \(as claimed by api\.align\.tech\) via api\.align\.tech, as me@x$/);
+    expect(lines[lines.length - 1]).toMatch(/^To: "Acme" via api\.align\.tech, as me@x \(the organisation chose that name; Align does not verify it\)$/);
   });
 });
 

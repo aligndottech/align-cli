@@ -90,7 +90,7 @@ describe('available: the person approves in a browser', () => {
     expect(f.gw.completes[0]!.id).toBe(rowId);
     expect(f.asks).toEqual([]);          // never prompted on a terminal
     expect(f.batches).toBe(0);           // never called shareBatch
-    expect(say(f)).toContain('To: "Acme" (as claimed by api.align.test) via api.align.test, as me@co.com');   // the destination, host named
+    expect(say(f)).toContain('To: "Acme" via api.align.test, as me@co.com');   // the destination, host named
     expect(say(f)).toContain('Code: KJ4M-9XQT');
     expect(say(f)).toMatch(/expires in 1[45] minutes/);
     expect(say(f)).toContain('Approved in your browser. Sending...');
@@ -548,5 +548,19 @@ describe('which web app the approval link opens on (C4, S15)', () => {
     f.gw.appUrl = 'https://align.evil.example';
     expect(await run(f, { ids: [id] })).toBe(0);
     expect(say(f)).not.toContain('align.evil.example');
+  });
+});
+
+
+describe('browser mode names the destination before anything is staged (join review F6)', () => {
+  it('the preview, with the gateway host and the org name, is printed before the request is staged', async () => {
+    const f = fixture(); const id = seed();
+    const order: string[] = [];
+    const out = f.deps.out;
+    f.deps.out = (l) => { if (l.includes('To: "Acme" via api.align.test')) order.push('preview'); out(l); };
+    const stage = f.gw.api.stageShareRequest;
+    f.gw.api.stageShareRequest = async (...a) => { order.push('stage'); return stage(...a); };
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(order).toEqual(['preview', 'stage']);
   });
 });

@@ -70,7 +70,7 @@ describe('a hostile preview', () => {
   });
   it('ends with the destination line, the last thing read before the question', () => {
     const lines = text.split('\n');
-    expect(lines[lines.length - 1]).toMatch(/^To: "Acme\\x1b\[2J" \(as claimed by api\.align\.tech\) via api\.align\.tech, as me\\u202e@x$/);
+    expect(lines[lines.length - 1]).toMatch(/^To: "Acme\\x1b\[2J" via api\.align\.tech, as me\\u202e@x \(the organisation chose that name; Align does not verify it\)$/);
     expect(lines[lines.length - 2]).toBe('Nothing is sent until you say yes.');
   });
   it('results and refusals are sanitised too', () => {
