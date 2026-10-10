@@ -16,6 +16,7 @@ import type { SharePayload } from './payload.js';
 import { type Prepared, renderResults, send, type SendHooks, SHARE_BATCH_ITEMS, type ShareContext, ShareError } from './run.js';
 import type { ShareRequestsApi } from './requests-client.js';
 import type { BatchResponse } from './wire.js';
+import { type DeliveryPlan, type PresentDeps, presentLink } from './delivery.js';
 import { visible } from './visible.js';
 
 export interface BrowserFlowDeps extends Omit<PollDeps, 'client'> {
@@ -26,6 +27,16 @@ export interface BrowserFlowDeps extends Omit<PollDeps, 'client'> {
   agent?: string;
   /** Try to open the link here. The link is printed either way. */
   openUrl?: (url: string) => Promise<boolean>;
+  /** What to do with the link (open, QR). Absent: open when `openUrl` is given, never a QR. */
+  plan?: DeliveryPlan;
+  /** Build the QR lines for a link. */
+  qr?: PresentDeps['qr'];
+  /** Terminal width, when known. */
+  columns?: number;
+  /** --copy */
+  copy?: (url: string) => void;
+  /** Unfiltered output for the QR lines (they carry colour escapes that `out` would neutralise). */
+  raw?: (line: string) => void;
   out: (line: string) => void;
   err: (line: string) => void;
 }
@@ -74,7 +85,11 @@ export async function approveOne(
   d.out(`Approve in your browser: ${url}`);
   d.out(`Code: ${staged.userCode}  (the page shows the same code: check they match before you approve)`);
   d.out(`The link opens on any device where you are signed in to Align. It expires in ${minutesLeft(staged.expiresAt, d.now())} minutes. Nothing is sent until you approve.`);
-  if (d.openUrl && !(await d.openUrl(url))) d.out('Could not open a browser here. Open the link above yourself.');
+  await presentLink(url, {
+    appUrl: d.appUrl, plan: d.plan ?? { open: d.openUrl !== undefined, qr: false, qrIfOpenFails: false, why: 'default' },
+    ...(d.openUrl ? { openUrl: d.openUrl } : {}), ...(d.qr ? { qr: d.qr } : {}), ...(d.columns !== undefined ? { columns: d.columns } : {}),
+    ...(d.copy ? { copy: d.copy } : {}), out: d.out, raw: d.raw ?? d.out,
+  });
   d.out('Waiting for your approval. Ctrl-C cancels the request.');
 
   const decision = await pollUntilDecided(staged.id, staged.expiresAt, d);
