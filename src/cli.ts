@@ -69,7 +69,8 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // the root's own action (bare `align`) and for every subcommand. Awaited, with an 800ms cap,
   // on the first run only (later runs return after a config read): a fire-and-forget send lost
   // the install whenever the command exited before the request started, and the stage is
-  // once-only. An undelivered send releases the stage so the next run retries. Skips itself under
+  // once-only. A failed connection releases the stage so the next run retries; a timeout keeps it
+  // (one attempt, see recordInstallBeacon). Skips itself under
   // DO_NOT_TRACK / ALIGN_TELEMETRY, after `align telemetry off`, when a cloud token is already
   // in hand, and when the first command IS `align telemetry ...` (see recordInstallBeacon).
   //

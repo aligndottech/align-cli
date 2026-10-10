@@ -3,8 +3,8 @@
  * own vendor table plus its generic flags rather than a hand list: the runner a suite lands on
  * may be Buildkite or Jenkins, not GitHub, and any CI variable left set turns telemetry off and
  * inverts the suite (tdd.md, "a test must establish its own preconditions"). Plus the env
- * switches, ALIGN_WRAPPED (a run inside a launched agent), and the ALIGN_* variables that put a
- * cloud token or a non-default env in scope.
+ * switches, ALIGN_WRAPPED (a run inside a launched agent), the ALIGN_* variables that put a
+ * cloud token or a non-default env in scope, and ALIGN_GATEWAY_URL.
  *
  * vi.stubEnv(k, undefined) DELETES the variable (and vi.unstubAllEnvs restores it), which is the
  * state meant - an empty string is a different state.
@@ -40,6 +40,8 @@ export const TELEMETRY_ENV_KEYS: readonly string[] = [
   'ALIGN_TOKEN',
   'ALIGN_ENV',
   'ALIGN_TENANT_ID',
+  // Where the anonymous events go. Exported in a shell it would point every send at a real host.
+  'ALIGN_GATEWAY_URL',
 ];
 
 /** Call first thing in a telemetry suite's top-level beforeEach; pair with vi.unstubAllEnvs(). */

@@ -87,7 +87,6 @@ describe('the one-time telemetry notice', () => {
     // Every CI variable, the env switches, ALIGN_WRAPPED and the ALIGN_* token/env vars are
     // inputs here, so they are cleared rather than inherited (tdd.md).
     clearTelemetryEnv();
-    vi.stubEnv('ALIGN_GATEWAY_URL', undefined);
     state.consent = undefined;
     state.noticeShownAt = undefined;
     state.stages = [];

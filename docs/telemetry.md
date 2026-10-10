@@ -58,9 +58,10 @@ added server-side.
 ### `cli.funnel.install`
 
 Sent once per install, on the first run that shows the notice, before any prompt. Never again
-for that install id once it has been delivered. That first run waits for it, for at most 0.8
-seconds; if it cannot be delivered in that time, the next run tries again. Every other event is
-sent without waiting. Not sent when the first run already holds a cloud login token (cloud
+for that install id once it has been sent. That first run waits for it, for at most 0.8
+seconds. If the connection fails outright, the next run tries again; if the gateway does not
+answer in time, it is not retried, so it is sent at most once. Every other event is sent without
+waiting. Not sent when the first run already holds a cloud login token (cloud
 mode has its own, authenticated events) and not sent when the first command is
 `align telemetry ...`.
 

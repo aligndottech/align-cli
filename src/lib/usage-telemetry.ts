@@ -89,27 +89,34 @@ async function postWithTimeout(url: string, init: NonNullable<Parameters<typeof 
 export const INSTALL_BEACON_CAP_MS = 800;
 
 /**
- * POST and report whether it was DELIVERED - any HTTP response counts, since the gateway
- * received it; a refused connection, a network error or the cap does not. Never throws, never
- * prints, and never takes longer than `capMs`: the abort signal ends the request, and the timer
- * wins the race even if a transport ignores the signal.
+ * POST and say what happened to it:
+ * - 'delivered': any HTTP response - the gateway received it, whatever it answered;
+ * - 'failed': the request never reached a gateway (refused connection, DNS, a network error);
+ * - 'timeout': no answer within `capMs`. The request may have been written and received.
+ * Never throws, never prints, and never takes longer than `capMs`: the abort signal ends the
+ * request, and the timer wins the race even if a transport ignores the signal.
  */
-async function postDelivered(url: string, init: NonNullable<Parameters<typeof fetch>[1]>, capMs: number): Promise<boolean> {
+type DeliveryOutcome = 'delivered' | 'failed' | 'timeout';
+async function postDelivered(url: string, init: NonNullable<Parameters<typeof fetch>[1]>, capMs: number): Promise<DeliveryOutcome> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const capped = new Promise<boolean>((resolve) => {
+  const capped = new Promise<DeliveryOutcome>((resolve) => {
     timer = setTimeout(() => {
+      // Resolve first: the abort below rejects the fetch, and that must not read as 'failed'.
+      resolve('timeout');
       controller.abort();
-      resolve(false);
     }, capMs);
   });
   try {
     return await Promise.race([
-      fetch(url, { ...init, signal: controller.signal }).then(() => true, () => false),
+      fetch(url, { ...init, signal: controller.signal }).then(
+        (): DeliveryOutcome => 'delivered',
+        (): DeliveryOutcome => 'failed',
+      ),
       capped,
     ]);
   } catch {
-    return false;
+    return 'failed';
   } finally {
     clearTimeout(timer);
   }
@@ -509,11 +516,14 @@ export async function recordInstallBeacon(commandPath: string): Promise<boolean>
 
     // Awaited, unlike every other send: the stage is once-only and already claimed, so a request
     // that never left (the command exited first, `align status` does) would lose this install
-    // from the funnel forever. Capped at INSTALL_BEACON_CAP_MS; if it is not delivered in that
-    // time the claim is released, so the next run retries. A request the gateway received but did
-    // not answer in time may then arrive twice - an overcount of one, never a lost install.
+    // from the funnel forever. Capped at INSTALL_BEACON_CAP_MS.
+    // - A failed connection (nothing reached a gateway) releases the claim; the next run retries,
+    //   and a refusal costs no wait.
+    // - A timeout keeps the claim: the request was written and may have arrived, so that is the
+    //   one attempt. Releasing it made every run behind a silent gateway pay the cap again and
+    //   send again. The cost is an install lost if that one request really was dropped.
     const target = process.env['ALIGN_GATEWAY_URL'] || ALIGN_HOSTED_GATEWAY_URL;
-    const delivered = await postDelivered(
+    const outcome = await postDelivered(
       `${target}/telemetry/anonymous`,
       {
         method: 'POST',
@@ -528,8 +538,8 @@ export async function recordInstallBeacon(commandPath: string): Promise<boolean>
       },
       INSTALL_BEACON_CAP_MS,
     );
-    if (!delivered) config.releaseFunnelStage('install');
-    return delivered;
+    if (outcome === 'failed') config.releaseFunnelStage('install');
+    return outcome === 'delivered';
   } catch {
     // Telemetry must never fail or delay a command; the funnel loses one row.
     return false;

@@ -2,8 +2,9 @@
  * The install beacon is the funnel's denominator, and it is once-only: the stage is marked before
  * the send. A fire-and-forget send therefore lost the install forever whenever the command
  * exited before the request started (`align status` on a set-up local install does). So the
- * FIRST-RUN beacon is awaited before the command runs, with a hard cap; if it fails or times out,
- * the stage is released and the next run retries. Every other run, and every other event, stays
+ * FIRST-RUN beacon is awaited before the command runs, with a hard cap. If the connection fails,
+ * the stage is released and the next run retries; if the request was written but not answered
+ * in time, it may have arrived, so that counts as the one attempt and the stage stays claimed. Every other run, and every other event, stays
  * fire-and-forget.
  *
  * The listener is a fetch double with a controllable delay that honours the abort signal, the way
@@ -70,7 +71,6 @@ async function quickExitRun(): Promise<void> {
 describe('the first-run install beacon is delivered before the command runs', () => {
   beforeEach(() => {
     clearTelemetryEnv();
-    vi.stubEnv('ALIGN_GATEWAY_URL', undefined);
     state.stages = [];
     state.noticeShownAt = '2026-10-10T00:00:00.000Z';
     listener = 'answers';
@@ -95,7 +95,10 @@ describe('the first-run install beacon is delivered before the command runs', ()
     expect(state.stages).toContain('install');
   });
 
-  it('a listener that never answers: the run is held at most ~1s, nothing prints or throws, and the stage is released', async () => {
+  // A request that was written but never answered may well have arrived, so it is ONE attempt:
+  // the stage stays claimed. Releasing it here made every run behind a silent gateway pay the cap
+  // again and send again (re-review of 03cdbf0).
+  it('a listener that never answers: the run is held at most ~1s, nothing prints or throws, and the stage stays claimed', async () => {
     listener = 'never-answers';
     const started = Date.now();
     await expect(quickExitRun()).resolves.toBeUndefined();
@@ -103,11 +106,24 @@ describe('the first-run install beacon is delivered before the command runs', ()
     expect(held).toBeLessThan(1100);
     expect(held).toBeGreaterThanOrEqual(INSTALL_BEACON_CAP_MS - 50);
     expect(events).toEqual(['request-written', 'command-exited']);
-    expect(state.stages).not.toContain('install');
+    expect(state.stages).toContain('install');
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
-  it('a refused connection releases the stage too, at once', async () => {
+  it('behind a silent gateway, three runs make one request, and runs 2 and 3 are not held', async () => {
+    listener = 'never-answers';
+    await quickExitRun();
+    const held: number[] = [];
+    for (let i = 0; i < 2; i++) {
+      const started = Date.now();
+      await quickExitRun();
+      held.push(Date.now() - started);
+    }
+    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    for (const ms of held) expect(ms).toBeLessThan(100);
+  });
+
+  it('a refused connection (nothing was written to a gateway) releases the stage, at once', async () => {
     listener = 'refuses';
     const started = Date.now();
     await quickExitRun();
@@ -115,8 +131,8 @@ describe('the first-run install beacon is delivered before the command runs', ()
     expect(state.stages).not.toContain('install');
   });
 
-  it('a later run retries after a failed first run, and succeeds', async () => {
-    listener = 'never-answers';
+  it('a later run retries after a refused first run, and succeeds', async () => {
+    listener = 'refuses';
     await quickExitRun();
     expect(state.stages).not.toContain('install');
 
