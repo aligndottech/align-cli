@@ -79,6 +79,8 @@ describe('windowLabel: the phrase the report prints, exact about the days', () =
     [14, 'the last 14 days'],
     [365, 'the last 1 year'],
     [730, 'the last 2 years'],
+    [1095, 'the last 3 years'], // 3y: round-trips exactly, so not "1095 days"
+    [547, 'the last 18 months'], // 18m
     [61, 'the last 2 months'],
     [60, 'the last 60 days'], // not 2 months
     [90, 'the last 90 days'],
@@ -89,7 +91,7 @@ describe('windowLabel: the phrase the report prints, exact about the days', () =
   });
 
   it('every spelling the parser accepts gets a label that is true of it', () => {
-    for (const raw of ['1m', '2m', '6m', '11m', '12m', '13m', '1y', '2y', '10w', '45d']) {
+    for (const raw of ['1m', '2m', '6m', '11m', '12m', '13m', '18m', '1y', '2y', '3y', '10y', '10w', '45d']) {
       const days = parseSince(raw, NOW).days!;
       const label = windowLabel(days);
       const n = /last (\d+) (day|month|year)/.exec(label)!;

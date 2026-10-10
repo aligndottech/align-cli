@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { parseSince, SinceError, type SyncWindow } from './since.js';
 
 /** The help line for `--since`, one writer for every command that takes it. */
-export const SINCE_HELP = 'How far back to read: 30d, 2w, 6m, 1y or all (default 6m). A ceiling still applies';
+export const SINCE_HELP = 'How far back to read: 30d, 2w, 6m, 1y or all (default 180 days). A ceiling still applies';
 
 /**
  * L3: the CLI end of the one duration parser. A bad value exits 2 (usage error) naming the

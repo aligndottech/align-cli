@@ -54,8 +54,9 @@ export function registerImportGitCommand(importCmd: Command): void {
 
       const spinner = p.spinner();
       spinner.start('Reading git history...');
-      // An untouched --limit becomes the ceiling once a window bounds the read.
-      const requested = window !== undefined && opts.limit === String(GIT_DEFAULT_LIMIT) ? SYNC_CEILINGS.git : parseInt(opts.limit, 10);
+      // An untouched --limit (by option SOURCE, so an explicit `--limit 500` is not mistaken for it)
+      // becomes the ceiling once a window bounds the read.
+      const requested = window !== undefined && cmd.getOptionValueSource('limit') === 'default' ? SYNC_CEILINGS.git : parseInt(opts.limit, 10);
       const { commits, scanned, rejectedByRationale } = await getCommitHistoryDetailed({
         limit: requested,
         // An explicit --from is a date the user picked; the shared window only fills the gap.

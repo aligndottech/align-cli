@@ -59,11 +59,10 @@ function windowOfDays(days: number, now: Date): SyncWindow {
 export function windowLabel(days: number | undefined): string {
   if (days === undefined) return 'all the history the ceiling allowed';
   const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+  // Years first: 3y is 1095 days, which 36 months (1094) does not round-trip to.
+  if (days % 365 === 0) return `the last ${plural(days / 365, 'year')}`;
   const months = Math.round(days / MONTH_DAYS);
-  if (months >= 2 && Math.round(months * MONTH_DAYS) === days) {
-    if (months % 12 === 0 && days === 365 * (months / 12)) return `the last ${plural(months / 12, 'year')}`;
-    return `the last ${plural(months, 'month')}`;
-  }
+  if (months >= 2 && Math.round(months * MONTH_DAYS) === days) return `the last ${plural(months, 'month')}`;
   return `the last ${plural(days, 'day')}`;
 }
 

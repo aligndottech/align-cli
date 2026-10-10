@@ -252,6 +252,25 @@ describe('the sources it takes', () => {
   });
 });
 
+describe('what the tool schema and the errors say (review H)', () => {
+  it('the schema names the real default: 180 days, not 6m (which is 182)', async () => {
+    const { BACKFILL_TOOL_SCHEMA } = await import('../lib/mcp-backfill.js');
+    const since = BACKFILL_TOOL_SCHEMA.inputSchema.properties.since.description;
+    expect(since).toContain('Default 180 days');
+    expect(since).not.toMatch(/Default 6m/);
+  });
+
+  it('unknown property names are cut to 16 characters in the error', async () => {
+    const long = 'a_very_long_property_name_that_could_be_a_secret';
+    try { await runBackfill({ source: 'github', [long]: 1 } as never, localEnv, deps()); } catch (e) {
+      expect((e as Error).message).toContain(JSON.stringify(long.slice(0, 16)));
+      expect((e as Error).message).not.toContain(long.slice(0, 17));
+      return;
+    }
+    throw new Error('should have thrown');
+  });
+});
+
 describe('the tool name', () => {
   it('is align_backfill', () => {
     expect(BACKFILL_TOOL).toBe('align_backfill');

@@ -55,7 +55,7 @@ export const BACKFILL_TOOL_SCHEMA = {
     type: 'object',
     properties: {
       source: { type: 'string', enum: [...BACKFILL_SOURCES], description: 'Which connected source to read from' },
-      since: { type: 'string', description: 'How far back: 30d, 2w, 6m, 1y or all. Default 6m. A ceiling per source still applies' },
+      since: { type: 'string', description: 'How far back: 30d, 2w, 6m, 1y or all. Default 180 days. A ceiling per source still applies' },
     },
     required: ['source'],
     additionalProperties: false,
@@ -121,7 +121,7 @@ export async function runBackfill(
   if (unknownKeys.length) {
     // Names the keys, never their values: a rejected token must not be echoed back into the
     // transcript it was typed into.
-    const names = unknownKeys.slice(0, 3).map((k) => JSON.stringify(k.slice(0, 40))).join(', ');
+    const names = unknownKeys.slice(0, 3).map((k) => JSON.stringify(k.slice(0, 16))).join(', ');
     throw new Error(
       `${BACKFILL_TOOL} takes only "source" and "since", and does not accept ${names}. ` +
       'It never accepts a token or key: the person connects a source themselves with `align connect <source>`.',

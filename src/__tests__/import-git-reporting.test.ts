@@ -168,6 +168,14 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
       expect(logSpy.mock.calls.flat().join('\n')).toContain('Git: imported 1 commits from the last 30 days');
     });
 
+    it('an explicit --limit 500 is honoured with --since: it is told apart from the untouched default by its source', async () => {
+      vi.mocked(getCommitHistoryDetailed).mockResolvedValue(repoOldNewest);
+      await run(['connect', 'git', '--since', '1y', '--limit', '500']);
+      expect(vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0].limit).toBe(500);
+      await run(['connect', 'git', '--since', '1y']);
+      expect(vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0].limit).toBe(5000);
+    });
+
     it('an explicit --limit wins over the ceiling, and an explicit --from over --since', async () => {
       vi.mocked(getCommitHistoryDetailed).mockResolvedValue(repoOldNewest);
       await run(['connect', 'git', '--since', '30d', '--limit', '40', '--from', '2025-01-01']);
