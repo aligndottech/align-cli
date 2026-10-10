@@ -243,7 +243,8 @@ export function createConfigStore() {
     /**
      * L4: what the person chose to read for a source, kept beside its token under `<env>:<source>:scope` so forgetting the
      * connector removes it too. Non-secret, and not a `:field:` key, so no fetch is ever handed it as a credential.
-     * A damaged entry reads as null, which every caller treats as the narrower "yours".
+     * An entry that is PRESENT but unreadable (truncated, or written by a newer CLI) reads as yours, never as "no choice": for GitHub
+     * and GitLab "no choice" means "widen from the folder", and a damaged record must not do that. Only an absent entry is null.
      */
     getConnectorScope(env: EnvName, connectorKey: string): StoredScope | null {
       const raw = getTokens()[`${env}:${connectorKey}:scope`];
@@ -253,8 +254,8 @@ export function createConfigStore() {
         if (v.kind === 'yours') return { kind: 'yours' };
         const strings = (x: unknown): x is string[] => Array.isArray(x) && x.length > 0 && x.every((e) => typeof e === 'string');
         if (v.kind === 'team' && strings(v.values) && strings(v.labels)) return { kind: 'team', values: v.values, labels: v.labels };
-      } catch { /* damaged: no choice */ }
-      return null;
+      } catch { /* damaged: falls through to yours */ }
+      return { kind: 'yours' };
     },
     setConnectorScope(env: EnvName, connectorKey: string, scope: StoredScope) {
       store.set('connectorTokens', { ...getTokens(), [`${env}:${connectorKey}:scope`]: JSON.stringify(scope) });

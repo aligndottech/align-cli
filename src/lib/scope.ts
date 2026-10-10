@@ -116,7 +116,9 @@ export async function resolveScope(source: string, deps: ScopeDeps, o: { foregro
 }
 
 async function autoDetected(source: 'github' | 'gitlab', deps: ScopeDeps, foreground: boolean): Promise<ResolvedScope> {
-  const place = source === 'github' ? await deps.cwdRepo() : await deps.cwdGitlabProject();
+  // The folder's remote is gitlab.com; a token saved for another host would read a different project of the same path.
+  const selfManaged = source === 'gitlab' && !!deps.store.fields(source)?.['domain'] && deps.store.fields(source)?.['domain'] !== 'gitlab.com';
+  const place = selfManaged ? undefined : source === 'github' ? await deps.cwdRepo() : await deps.cwdGitlabProject();
   if (place === undefined) {
     return yours('default', source === 'github'
       ? "Reading only your own GitHub items (this folder is not a GitHub repo). To read everyone's in a repo: align connect --source github --repo owner/repo"
@@ -229,7 +231,7 @@ export async function chooseScope(deps: ScopeDeps, source: string, input: SetInp
   if (!isScoped(source)) {
     const fixed = FIXED_SCOPES[source];
     if (fixed) throw new ScopeRefusal(`${labelOf(source)} reads ${fixed.text}. There is no scope to choose for it.`, 'fixed');
-    throw new ScopeRefusal(`Unknown source "${source.slice(0, 16)}". A scope can be set for: ${SCOPED_SOURCES.join(', ')}.`, 'unknown_source');
+    throw new ScopeRefusal(`Unknown source. A scope can be set for: ${SCOPED_SOURCES.join(', ')}.`, 'unknown_source');
   }
   if (!fields?.['token']) {
     throw new ScopeRefusal(`${labelOf(source)} is not connected, so its scope cannot be set. Connecting needs a token only the person can supply: align connect ${source}`, 'not_connected');
@@ -248,9 +250,9 @@ export async function chooseScope(deps: ScopeDeps, source: string, input: SetInp
 /** Write a checked choice: the stored preference, and the scope's own `source_sync` row (the source's window, no watermark). Deletes nothing. */
 export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choice, by: ChangedBy): { newRow: boolean; row?: { high_water: string | null; window_since: string | null } } {
   if (choice.scope === 'team') deps.store.saveScope(source, { kind: 'team', values: choice.values, labels: choice.labels });
-  // GitHub and GitLab would otherwise widen again from the folder's remote, so "yours" is written down; the others default to it.
-  else if (source === 'github' || source === 'gitlab') deps.store.saveScope(source, { kind: 'yours' });
-  else deps.store.clearScope(source);
+  // "Yours" is written down for every source that has one: otherwise GitHub and GitLab widen again from the folder's remote, and Jira
+  // and Linear from the keys local decisions cite, as if nothing had been chosen.
+  else deps.store.saveScope(source, { kind: 'yours' });
   if (deps.dbPath === undefined || !fs.existsSync(deps.dbPath)) return { newRow: true };
   const window = inheritedWindowSince(readRows(deps.dbPath, source), deps.now());
   const adopted = adoptScope(deps.dbPath, { source, scopeKey: choice.scopeKey, scope: choice.scope }, window, { via: by.via, agent: by.via === 'mcp' ? by.agent : null });

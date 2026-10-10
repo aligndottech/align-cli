@@ -81,12 +81,13 @@ describe('connector scope storage', () => {
     expect(c.getConnectorScope('prod', 'jira')).toBeNull();
   });
 
-  it('a damaged entry reads as no choice, in three shapes', () => {
+  it('a PRESENT but unreadable entry reads as yours (never as no choice, which widens GitHub from the folder); absent stays null', () => {
     const c = createConfigStore();
     for (const bad of ['not json', '{"kind":"everyone"}', '{"kind":"team","values":"ALI","labels":["ALI"]}', '{"kind":"team","values":[],"labels":[]}']) {
       c.setConnectorToken('local', 'jira:scope', bad);
-      expect(c.getConnectorScope('local', 'jira'), bad).toBeNull();
+      expect(c.getConnectorScope('local', 'jira'), bad).toEqual({ kind: 'yours' });
     }
+    expect(c.getConnectorScope('local', 'linear')).toBeNull();
   });
 });
 

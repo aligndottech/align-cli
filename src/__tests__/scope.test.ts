@@ -111,6 +111,26 @@ describe('resolveScope: GitHub', () => {
   });
 });
 
+describe('resolveScope: review additions', () => {
+  it('a team read in the BACKGROUND carries no disclosure, even for a stored choice (the line is for a person at a terminal)', async () => {
+    const store = memStore({ scopes: { linear: { kind: 'team', values: ['id-9'], labels: ['ENG'] } } });
+    expect((await resolveScope('linear', deps({ store }), { foreground: false })).disclosure).toBeUndefined();
+    expect((await resolveScope('linear', deps({ store }), { foreground: true })).disclosure).toContain('Linear team ENG');
+  });
+
+  it('GitLab with a token saved for a self-managed host does not read the gitlab.com folder as a project there (both sides)', async () => {
+    const table: Array<[RegExp, { status: number }]> = [[/projects/, { status: 200 }]];
+    const own = deps({ cwdGitlabProject: async () => 'g/p', table });
+    expect((await resolveScope('gitlab', own, { foreground: true })).scope).toBe('team');
+    const store = memStore();
+    const f = store.fields;
+    store.fields = (s) => (s === 'gitlab' ? { token: 'x', domain: 'git.acme.io' } : f(s));
+    const other = deps({ store, cwdGitlabProject: async () => 'g/p', table });
+    expect((await resolveScope('gitlab', other, { foreground: true })).scope).toBe('yours');
+    expect(other.calls).toHaveLength(0);
+  });
+});
+
 describe('resolveScope: the other sources', () => {
   it('Jira reads the stored projects as team with the option the fetcher takes; with none it is yours and says how to widen', async () => {
     const store = memStore({ scopes: { jira: { kind: 'team', values: ['OPS', 'ALI'], labels: ['OPS', 'ALI'] } } });
@@ -223,11 +243,11 @@ describe('setScope', () => {
     expect(r.text).toContain('Nothing already imported is deleted');
   });
 
-  it('back to yours clears the stored team choice (Jira) and keeps the team row and its data', async () => {
+  it('back to yours replaces the stored team choice with an explicit yours (Jira) and keeps the team row and its data', async () => {
     seedRows({ withTeam: { key: 'jira:OPS', highWater: '2026-10-01T00:00:00.000Z' } });
     const store = memStore({ scopes: { jira: { kind: 'team', values: ['OPS'], labels: ['OPS'] } } });
     const r = await setScope(deps({ store }), 'jira', { scope: 'yours' }, { via: 'mcp', agent: 'codex' });
-    expect(store.scopes['jira']).toBeUndefined();
+    expect(store.scopes['jira']).toEqual({ kind: 'yours' });
     expect(r).toMatchObject({ scope: 'yours', scopeKey: 'yours' });
     expect(readRows(dbPath, 'jira').map((x) => x.scope_key)).toEqual(['jira:OPS', 'yours']);
     expect(r.text).toContain('stay in your graph');
@@ -313,6 +333,14 @@ describe('setScope', () => {
     const err = await setScope(deps(), 'confluence', { scope: 'yours' }, { via: 'cli' }).catch((e: unknown) => e) as ScopeRefusal;
     expect(err.kind).toBe('no_yours');
     expect(err.message).toContain('--spaces');
+  });
+
+  it('GitLab: yours is written down; a check that could not answer is refused too', async () => {
+    const d = deps();
+    await setScope(d, 'gitlab', { scope: 'yours' }, { via: 'cli' });
+    expect(d.store.scopes['gitlab']).toEqual({ kind: 'yours' });
+    const err = await setScope(deps({ table: [[/projects/, { status: 500 }]] }), 'gitlab', { scope: 'team', values: 'g/p' }, { via: 'cli' }).catch((e: unknown) => e) as ScopeRefusal;
+    expect(err.kind).toBe('unverified');
   });
 
   it('GitLab: a visible project is stored; a hidden one is refused', async () => {

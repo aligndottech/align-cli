@@ -148,14 +148,14 @@ describe('Jira', () => {
     expect(s.asked[0]!.initial).toEqual(['BETA']);
   });
 
-  it('interactive: nothing selected is yours and clears a stored team choice after the fetch; a cancelled picker changes nothing (two answers)', async () => {
+  it('interactive: nothing selected is yours, written down after the fetch; a cancelled picker changes nothing (two answers)', async () => {
     const store = memStore({ scopes: { jira: { kind: 'team', values: ['BETA'], labels: ['BETA'] } } });
     const none = setup({ interactive: true, picks: [], table: [jiraProjects('BETA')], store });
     const d = await decideConnectScope('jira', TOKENS.jira, none.ctx);
     expect(d.scope).toBe('yours');
     expect(none.deps.store.scopes['jira']).toBeDefined();
     d.commit();
-    expect(none.deps.store.scopes['jira']).toBeUndefined();
+    expect(none.deps.store.scopes['jira']).toEqual({ kind: 'yours' });
     const cancel = setup({ interactive: true, picks: null, table: [jiraProjects('BETA')], store: memStore({ scopes: { jira: { kind: 'team', values: ['BETA'], labels: ['BETA'] } } }) });
     const c = await decideConnectScope('jira', TOKENS.jira, cancel.ctx);
     expect(c.scope).toBe('team');
@@ -203,6 +203,24 @@ describe('Jira', () => {
       expect(s.said.join('\n')).toContain('Jira answered 500');
       expect(s.said.join('\n')).toContain('--projects KEYS');
     }
+  });
+});
+
+describe('an explicit yours is remembered', () => {
+  it('not interactive: stored yours beats the cited keys, with no listing; interactive preselects nothing (two surfaces)', async () => {
+    const store = () => memStore({ scopes: { jira: { kind: 'yours' } } });
+    const quiet = setup({ cited: ['ALI'], table: [jiraProjects('ALI')], store: store() });
+    expect(await decideConnectScope('jira', TOKENS.jira, quiet.ctx)).toMatchObject({ scope: 'yours' });
+    expect(quiet.deps.calls).toHaveLength(0);
+    const asked = setup({ interactive: true, cited: ['ALI'], table: [jiraProjects('ALI')], store: store() });
+    await decideConnectScope('jira', TOKENS.jira, asked.ctx);
+    expect(asked.asked[0]!.initial).toEqual([]);
+  });
+
+  it('GitHub: a damaged-looking record is already yours, so a repo folder does not widen it', async () => {
+    const s = setup({ cwdRepo: 'o/r', table: [SEARCH], store: memStore({ scopes: { github: { kind: 'yours' } } }) });
+    expect(await decideConnectScope('github', TOKENS.github, s.ctx)).toMatchObject({ scope: 'yours' });
+    expect(s.deps.calls).toHaveLength(0);
   });
 });
 
@@ -296,6 +314,20 @@ describe('fetchUnderScope', () => {
     expect(s.deps.store.scopes['jira']).toEqual({ kind: 'team', values: ['ALI'], labels: ['ALI'] });
     expect(r.report.scopeNote).toBe("everyone's items in Jira project ALI, as far as your token can see");
     expect(readRows(dbPath, 'jira').find((x) => x.scope_key === 'jira:ALI')).toMatchObject({ scope: 'team', changed_via: 'cli', changed_by_agent: null });
+  });
+
+  it('the spinner starts AFTER the questions and the disclosure, before the fetch, and also before a refusal is thrown', async () => {
+    const events: string[] = [];
+    const s = setup({ interactive: true, table: [jiraProjects('ALI')], picks: ['ALI'] });
+    s.ctx.prompts = { multiselect: async () => { events.push('ask'); return ['ALI']; } };
+    s.ctx.say = () => { events.push('say'); };
+    const fetch = vi.fn(async () => { events.push('fetch'); return { items: [], report: { ...report } }; });
+    await fetchUnderScope(source(fetch), TOKENS.jira, undefined, s.ctx, () => events.push('spinner'));
+    expect(events).toEqual(['ask', 'say', 'spinner', 'fetch']);
+    const refused: string[] = [];
+    const none = setup({ table: [] });
+    await expect(fetchUnderScope({ id: 'confluence', fetch: vi.fn() }, TOKENS.confluence, undefined, none.ctx, () => refused.push('spinner'))).rejects.toThrow(/--spaces/);
+    expect(refused).toEqual(['spinner']);
   });
 
   it('a failed fetch writes nothing', async () => {

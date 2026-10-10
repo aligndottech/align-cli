@@ -85,9 +85,9 @@ describe('through the real dispatcher', () => {
     expect(r.sources).toHaveLength(2);
   });
 
-  it('set to yours goes through setScope: the stored team choice is cleared', async () => {
+  it('set to yours goes through setScope: the team choice is replaced by an explicit yours', async () => {
     const r = await dispatchTool('align_scope', { action: 'set', source: 'jira', scope: 'yours' }, client, env) as { text: string; scope: string };
     expect(r.scope).toBe('yours');
-    expect(store.scopes['jira']).toBeUndefined();
+    expect(store.scopes['jira']).toEqual({ kind: 'yours' });
   });
 });

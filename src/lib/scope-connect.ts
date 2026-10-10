@@ -67,7 +67,7 @@ export function checkScopeFlags(source: string | undefined, flags: ScopeFlags): 
   if (source === undefined) return 'Scope flags (--scope, --repo, --projects, --teams, --gitlab-project, --spaces) need --source <id> to say which source they are for.';
   const fixed = FIXED_SCOPES[source];
   if (fixed) return `${labelOf(source)} reads ${fixed.text}. There is no scope to choose for it.`;
-  if (!isScoped(source)) return `Unknown source "${source.slice(0, 16)}".`;
+  if (!isScoped(source)) return 'That source has no scope to choose.';
   if (flags.scope !== undefined && flags.scope !== 'yours' && flags.scope !== 'team') return '--scope takes yours or team.';
   const wrong = valueFlags.find((k) => VALUE_FLAG[source] !== k);
   if (wrong !== undefined) return `${FLAG_NAME[wrong]} is for ${FLAG_FOR[wrong]}; ${labelOf(source)} takes ${FLAG_NAME[VALUE_FLAG[source]]}.`;
@@ -150,7 +150,7 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     const listed = await list();
     if (listed === undefined) return resolved();
     const keys = listed.map((x) => x.key);
-    const initial = stored?.kind === 'team' ? stored.labels.filter((k) => keys.includes(k)) : ctx.citedKeys().filter((k) => keys.includes(k));
+    const initial = stored?.kind === 'team' ? stored.labels.filter((k) => keys.includes(k)) : stored?.kind === 'yours' ? [] : ctx.citedKeys().filter((k) => keys.includes(k));
     const message = confluence
       ? 'Which Confluence spaces should Align read? Pick at least one.'
       : `Which ${WHAT[source as keyof typeof WHAT]} should Align read everything from? Leave all unselected to read only your own issues.`;
@@ -160,7 +160,8 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     return fromChoice(await chooseScope(deps, source, picked.length === 0 ? { scope: 'yours' } : { scope: 'team', values: picked }, tokens));
   }
 
-  if (stored?.kind === 'team' || confluence) return resolved();
+  // A chosen scope (team OR yours) is kept; only a source never chosen for falls to the cited keys.
+  if (stored !== null || confluence) return resolved();
   // Not interactive, nothing flagged, nothing stored: the keys this person's own decisions cite, if the token can see them (Decision 7).
   const cited = ctx.citedKeys();
   if (cited.length === 0) return resolved();
@@ -179,8 +180,13 @@ export async function fetchUnderScope(
   tokens: Record<string, string>,
   window: SyncWindow | undefined,
   ctx: ConnectScopeCtx,
+  /** Starts the caller's spinner. Called AFTER the questions and notes (a spinner redraws and listens to the keyboard, which garbles a picker),
+   *  and also before a refusal is thrown, so the caller's stop line has a spinner to stop. */
+  startSpinner: () => void = () => {},
 ): Promise<CaptureFetchResult> {
-  const decision = await decideConnectScope(source.id, tokens, ctx);
+  let decision: ScopeDecision;
+  try { decision = await decideConnectScope(source.id, tokens, ctx); } catch (e) { startSpinner(); throw e; }
+  startSpinner();
   const fetched = await source.fetch(tokens, window, decision.extras);
   decision.commit();
   if (decision.scope === 'team' && fetched.report.scopeNote === undefined) {

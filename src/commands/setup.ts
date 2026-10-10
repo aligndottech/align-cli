@@ -955,10 +955,9 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   // is only the automatic import for the paste-token connectors just collected.
   for (const { source, tokens, reused } of localReady) {
     const spinner = quiet ? { start() {}, stop() {} } : p.spinner();
-    spinner.start(`Fetching from ${source.label}...`);
     let sourceCs: CaptureSource | undefined;
     try {
-      const fetched = await fetchUnderScope(source, tokens, window, scopeCtx);
+      const fetched = await fetchUnderScope(source, tokens, window, scopeCtx, () => spinner.start(`Fetching from ${source.label}...`));
       sourceCs = capture.add(toCaptureSource(source, fetched, windowLabel(window.days)));
       const { items } = fetched;
       // Saved only once the fetch it unlocked has succeeded. A token that never worked is not

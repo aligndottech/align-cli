@@ -116,7 +116,7 @@ describe('set', () => {
   it('scope "yours" narrows back and says what stays', async () => {
     const store = memStore({ scopes: { jira: { kind: 'team', values: ['OPS'], labels: ['OPS'] } } });
     const r = await runScopeTool({ action: 'set', source: 'jira', scope: 'yours' }, localEnv, d({ store }));
-    expect(store.scopes['jira']).toBeUndefined();
+    expect(store.scopes['jira']).toEqual({ kind: 'yours' });
     expect(r.text).toContain('stay in your graph');
     expect(r).toMatchObject({ scope: 'yours', scope_key: 'yours' });
   });
