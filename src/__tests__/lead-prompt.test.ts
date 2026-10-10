@@ -21,7 +21,7 @@ import {
  * - Disk: after a submit the address is in no file under the config or state directories.
  */
 const HOSTED = 'https://api.align.tech';
-const person: LeadGateInput = { env: {}, tty: true, hasLogin: false, inCi: false, state: {}, gatewayUrl: HOSTED, hostedGatewayUrl: HOSTED };
+const person: LeadGateInput = { env: {}, tty: true, hasLogin: false, inCi: false, state: {}, gatewayUrl: HOSTED, hostedGatewayUrl: HOSTED, hasTeamDestination: false };
 const asked = (over: Partial<LeadState> = {}): LeadState => ({ shownAt: '2026-10-10T10:00:00.000Z', version: LEAD_CONSENT_VERSION, outcome: 'skipped', ...over });
 
 describe('who is asked (the decision table)', () => {
@@ -93,7 +93,7 @@ function fixture(lines: Array<string | null>, send: LeadSendOutcome = { kind: 'a
       setLeadOutcome: (o: LeadPromptOutcome) => { f.calls.push(`outcome:${o}`); f.state = { ...f.state, outcome: o, ...(o === 'submitted' ? { submittedAt: 'now' } : {}) }; },
       clearLeadPromptShown: () => { f.calls.push('clear'); f.state = { ...f.state, shownAt: undefined, version: undefined, outcome: undefined }; },
     },
-    env: {}, hasLogin: false, inCi: false, tty: true, gatewayUrl: HOSTED, hostedGatewayUrl: HOSTED,
+    env: {}, hasLogin: false, inCi: false, tty: true, gatewayUrl: HOSTED, hostedGatewayUrl: HOSTED, hasTeamDestination: false,
     ask: async (shown, q, onShown) => { f.shown.push(shown); f.questions.push(q); if (queue.length === 0) return null; onShown(); return queue.shift()!; },
     post: async (e) => { f.posts.push(e); return send; },
     out: (l) => f.out.push(l),

@@ -27,7 +27,7 @@ export const LEAD_INPUT_PROMPT = 'Work email (press Enter to skip):';
 const CAP_MS = 5000;
 const MAX_RESPONSE_BYTES = 4096;
 
-export type LeadSkipReason = 'not-hosted' | 'wrapped' | 'ci' | 'suppressed' | 'not-a-terminal' | 'has-login' | 'already-asked';
+export type LeadSkipReason = 'not-hosted' | 'has-team-destination' | 'wrapped' | 'ci' | 'suppressed' | 'not-a-terminal' | 'has-login' | 'already-asked';
 
 export interface LeadGateInput {
   env: Record<string, string | undefined>;
@@ -40,6 +40,8 @@ export interface LeadGateInput {
   gatewayUrl: string;
   /** Align's own hosted gateway. Only that target may be asked for, or sent, an email. */
   hostedGatewayUrl: string;
+  /** The person has joined a team (`align join`): they are not the audience for Align's list. */
+  hasTeamDestination: boolean;
 }
 
 const sameUrl = (a: string, b: string): boolean => a.trim().replace(/\/+$/, '').toLowerCase() === b.trim().replace(/\/+$/, '').toLowerCase();
@@ -50,6 +52,7 @@ const isSet = (v: string | undefined): boolean => v !== undefined && v !== '';
 export function leadPromptDecision(i: LeadGateInput): LeadSkipReason | null {
   // A self-hosted or preview gateway is not Align's list: no prompt, no send, no flag, no network.
   if (i.hostedGatewayUrl === '' || !sameUrl(i.gatewayUrl, i.hostedGatewayUrl)) return 'not-hosted';
+  if (i.hasTeamDestination) return 'has-team-destination';
   if (isSet(i.env['ALIGN_WRAPPED'])) return 'wrapped';
   if (i.inCi) return 'ci';
   if (isSet(i.env['ALIGN_NO_LEAD_PROMPT'])) return 'suppressed';
@@ -138,6 +141,7 @@ export interface LeadDeps {
   inCi: boolean;
   gatewayUrl: string;
   hostedGatewayUrl: string;
+  hasTeamDestination: boolean;
   /** stdin, stdout and stderr are terminals. The controlling terminal itself is proven by `ask`. */
   tty: boolean;
   /** Show `shown` on the controlling terminal, call onShown once visible, return the typed line, or null with no terminal. */
@@ -152,7 +156,7 @@ const DECLINES = /^(n|no|never|no thanks|no thank you)$/i;
 /** Runs the whole prompt. Returns what happened, for tests. Never throws: a broken store costs the prompt, never the command. */
 export async function maybeAskLead(d: LeadDeps): Promise<'skipped-by-gate' | 'no-terminal' | LeadPromptOutcome | 'not-sent'> {
   try {
-    if (leadPromptDecision({ env: d.env, tty: d.tty, hasLogin: d.hasLogin, inCi: d.inCi, gatewayUrl: d.gatewayUrl, hostedGatewayUrl: d.hostedGatewayUrl, state: d.store.getLeadState() }) !== null) return 'skipped-by-gate';
+    if (leadPromptDecision({ env: d.env, tty: d.tty, hasLogin: d.hasLogin, inCi: d.inCi, gatewayUrl: d.gatewayUrl, hostedGatewayUrl: d.hostedGatewayUrl, hasTeamDestination: d.hasTeamDestination, state: d.store.getLeadState() }) !== null) return 'skipped-by-gate';
     const shown = `${LEAD_QUESTION_LINE}\n${LEAD_CONSENT_LINE}`;
     // Marked as soon as the person can see it, so Ctrl-C or end of input still counts as asked.
     let line = await d.ask(shown, LEAD_INPUT_PROMPT, () => d.store.markLeadPromptShown(LEAD_CONSENT_VERSION));
@@ -189,4 +193,38 @@ export async function maybeAskLead(d: LeadDeps): Promise<'skipped-by-gate' | 'no
   } catch {
     return 'skipped-by-gate';
   }
+}
+
+export interface LeadPromptWiring {
+  store: LeadStore & { listTeamDestinationNames(): string[] };
+  /** The gateway this share resolved to: compared with the hosted one, never posted to. */
+  cloudGatewayUrl: string;
+  hostedGatewayUrl: string;
+  env: Record<string, string | undefined>;
+  inCi: boolean;
+  tty: boolean;
+  ask: LeadDeps['ask'];
+  out: (line: string) => void;
+}
+
+/**
+ * What `align share` hands the run as its lead prompt. Two rules live here so a test can hold them:
+ * a saved team destination switches the prompt off, and the address is posted to Align's hosted gateway
+ * as Align spells it, never to whatever the run resolved (a self-host, or an environment override that merely
+ * matches after normalising).
+ */
+export function leadPromptFor(w: LeadPromptWiring): () => ReturnType<typeof maybeAskLead> {
+  return () => maybeAskLead({
+    store: w.store,
+    env: w.env,
+    hasLogin: false,
+    gatewayUrl: w.cloudGatewayUrl,
+    hostedGatewayUrl: w.hostedGatewayUrl,
+    hasTeamDestination: w.store.listTeamDestinationNames().length > 0,
+    inCi: w.inCi,
+    tty: w.tty,
+    ask: w.ask,
+    post: (email) => postLead(email, w.hostedGatewayUrl),
+    out: w.out,
+  });
 }
