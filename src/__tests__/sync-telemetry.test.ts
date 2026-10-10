@@ -46,7 +46,7 @@ describe('the sync command reports each source', () => {
       out: () => {}, err: () => {}, graphPath: () => '/tmp/none.db',
       env: () => ({ client: {} } as never),
       statusDeps: () => ({} as never), isConnected: () => true, isTty: () => true, confirm: async () => false,
-      sleep: async () => {}, refresh: () => {}, estimate: vi.fn(), classify: vi.fn(), classifyLock: vi.fn(),
+      sleep: async () => {}, refresh: () => {}, estimate: vi.fn(), classify: vi.fn(), classifyLock: vi.fn(), backgroundOff: () => false, setBackgroundOff: () => {}, shellGate: () => undefined, inAgent: () => false, noteOutcome: () => {}, backgroundProblems: () => [],
       report, run: async (_t, _e, o) => { for (const x of outcomes) o.onOutcome?.(x); return { outcomes }; },
     } as unknown as SyncCommandDeps;
   }
@@ -81,7 +81,7 @@ describe('the whole telemetry wait in `align sync`', () => {
       const d = {
         out: () => {}, err: () => {}, graphPath: () => '/tmp/none.db', env: () => ({ client: {} } as never),
         statusDeps: () => ({} as never), isConnected: () => true, isTty: () => true, confirm: async () => false,
-        sleep: async () => {}, refresh: () => {}, estimate: vi.fn(), classify: vi.fn(), classifyLock: vi.fn(),
+        sleep: async () => {}, refresh: () => {}, estimate: vi.fn(), classify: vi.fn(), classifyLock: vi.fn(), backgroundOff: () => false, setBackgroundOff: () => {}, shellGate: () => undefined, inAgent: () => false, noteOutcome: () => {}, backgroundProblems: () => [],
         report: never, run: async (_t: unknown, _e: unknown, o: { onOutcome?: (x: SourceOutcome) => void }) => { for (const x of outcomes) o.onOutcome?.(x); return { outcomes }; },
       } as unknown as SyncCommandDeps;
       let done = false;

@@ -184,7 +184,10 @@ config.
   If Align cannot record that it already started a refresh (something in the way in its state folder),
   it skips that source, and `align sync --status` says why.
 - A source whose saved login stopped working is named in one line at most once a day.
-- Your own `DO_NOT_TRACK`, `CI` and `ALIGN_TELEMETRY` settings reach the refresh, so it follows them.
+- Your own `DO_NOT_TRACK`, `CI` and `ALIGN_TELEMETRY` settings reach the refresh, and a stored opt-out
+  (`align telemetry off`, or a `DO_NOT_TRACK` any earlier run saw) holds for it too. When telemetry is on,
+  the refresh sends one `source_synced` ping per source with trigger `background` and no `cli.command`
+  (see [telemetry](telemetry.md)).
 - The first-use line and that reminder are remembered in your config file. Two Align processes that
   save the config at the same moment can lose one of those flags (the config is read, changed and
   written back without a lock). The result is one repeated line, not a wrong refresh.

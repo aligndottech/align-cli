@@ -1,12 +1,12 @@
 /**
- * An env opt-out reaches the detached sync child even though the agent trimmed the MCP server's
- * environment. Real processes, no mocks: a foreground align run sees DO_NOT_TRACK=1 (which stores
- * the opt-out), then `align mcp` is started through the SDK's real StdioClientTransport with an
- * entry env block that does NOT name DO_NOT_TRACK, and `align_sync run` starts the real
- * `align sync --background` child. Every process loads a preload that refuses any non-loopback
- * connection, and the gateway is a loopback capture server. The gitlab source points at a closed
- * loopback port, so the sync finishes with an `error` outcome, which is a reportable one.
- * Positive control: the same flow without DO_NOT_TRACK sends source_synced.
+ * L6 + L7: the child the LAUNCH HOOK starts (caller 'launcher', the reduced env syncChildEnv builds, run from the home
+ * folder) reports its source_synced pings with trigger `background`, sends no cli.command, and honours the user's opt-out.
+ * Real processes, no mocks: the child is started by the real startBackfillChild and runs the real `align sync --background`
+ * under a preload that refuses any non-loopback connection; the gateway is a loopback capture server. The gitlab source points
+ * at a closed loopback port, so the sync ends in an `error` outcome, which is a reportable one.
+ *  - positive control: one source_synced (trigger background), and no body without a stage (no cli.command);
+ *  - a stored (sticky) opt-out from an earlier run that saw DO_NOT_TRACK: zero pings although the child env does not name it;
+ *  - DO_NOT_TRACK=1 in the launcher shell: it is passed through to the child, zero pings.
  */
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -16,8 +16,8 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { startBackfillChild } from '../lib/backfill-state.js';
+import { syncChildEnv } from '../lib/sync/spawn-background.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.setConfig({ testTimeout: 120_000 });
@@ -43,7 +43,7 @@ let bodies: Array<Record<string, unknown>>;
 let env: Record<string, string>;
 
 beforeEach(async () => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l7-e2e-'));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-l6-launcher-e2e-'));
   bodies = [];
   server = http.createServer((req, res) => {
     let b = '';
@@ -53,14 +53,6 @@ beforeEach(async () => {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const guard = path.join(dir, 'guard.cjs');
   fs.writeFileSync(guard, GUARD);
-  // The sync child gets a REDUCED environment (L6: no NODE_OPTIONS), so it cannot load the guard or tsx from the environment.
-  // The mcp server is started through this wrapper, and the child runs the same wrapper (process.argv[1]), which loads both itself.
-  fs.writeFileSync(path.join(dir, 'entry.mjs'), `
-    import { createRequire } from 'node:module';
-    createRequire(import.meta.url)(${JSON.stringify(guard)});
-    await import(${JSON.stringify(tsx)});
-    await import(${JSON.stringify(pathToFileURL(entry).href)});
-  `);
   const home = path.join(dir, 'home');
   env = {
     HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), XDG_DATA_HOME: path.join(home, '.local', 'share'),
@@ -96,35 +88,48 @@ function find(d: string, name: string): boolean {
   return false;
 }
 
-/** foreground run (optionally under DO_NOT_TRACK=1), then the SDK-started mcp server runs a sync with an env block that never names DO_NOT_TRACK. */
-async function flow(dnt: boolean): Promise<void> {
-  await run(process.execPath, [entry, 'telemetry', 'status'], { env: { ...env, ...(dnt ? { DO_NOT_TRACK: '1' } : {}) }, cwd: root });
-  const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(dir, 'entry.mjs'), 'mcp'], env, cwd: root, stderr: 'ignore' });
-  const client = new Client({ name: 'probe', version: '0' });
-  await client.connect(transport);
-  try {
-    await client.callTool({ name: 'align_sync', arguments: { action: 'run', source: 'gitlab' } });
-    // The child writes sync-summary.json after its pings have been sent (or refused).
-    const until = Date.now() + 90_000;
-    while (!find(env['XDG_STATE_HOME']!, 'sync-summary.json') && Date.now() < until) await new Promise((r) => setTimeout(r, 250));
-    expect(find(env['XDG_STATE_HOME']!, 'sync-summary.json'), 'the background child never finished').toBe(true);
-  } finally {
-    await client.close();
-  }
+function childEnvFrom(launcherEnv: Record<string, string>): Record<string, string> {
+  return syncChildEnv(launcherEnv);
 }
 
-describe('an env opt-out and the detached sync child', () => {
-  it('positive control: without DO_NOT_TRACK the child sends source_synced for gitlab (nothing but the five fields)', async () => {
-    await flow(false);
-    const synced = bodies.filter((b) => b['stage'] === 'source_synced');
-    expect(synced).toHaveLength(1);
-    expect(synced[0]).toMatchObject({ command: 'sync', source: 'gitlab', outcome: 'error', trigger: 'background', count: 0 });
+/** Start the child exactly as the launch hook does, and wait for it to finish (it writes sync-summary.json last). */
+async function launcherChild(launcherEnv: Record<string, string>): Promise<void> {
+  const guard = path.join(dir, 'guard.cjs');
+  const r = await startBackfillChild(
+    'sync', [], undefined,
+    { command: process.execPath, args: ['--require', guard, '--import', tsx, entry, 'sync', '--background', '--delay', '0', 'gitlab'] },
+    'launcher', childEnvFrom(launcherEnv), env['HOME'],
+  );
+  expect(r.ok).toBe(true);
+  const until = Date.now() + 90_000;
+  while (!find(env['XDG_STATE_HOME']!, 'sync-summary.json') && Date.now() < until) await new Promise((res) => setTimeout(res, 250));
+  expect(find(env['XDG_STATE_HOME']!, 'sync-summary.json'), 'the background child never finished').toBe(true);
+}
+
+describe('the child the launch hook starts, and telemetry', () => {
+  it('positive control: it sends ONE source_synced for gitlab with trigger background, and no cli.command', async () => {
+    await launcherChild(env);
+    // The once-per-install beacon (stage `install`) goes with the install's first run, whichever process that is; it is not a command ping.
+    const pings = bodies.filter((b) => b['stage'] !== 'install');
+    expect(pings).toHaveLength(1);
+    expect(pings[0]).toMatchObject({ command: 'sync', source: 'gitlab', outcome: 'error', trigger: 'background', count: 0 });
+    // a cli.command ping carries no stage: there must be none
+    expect(bodies.filter((b) => b['stage'] === undefined)).toEqual([]);
   });
 
-  it('after a foreground run saw DO_NOT_TRACK=1, an mcp server with a trimmed env and its sync child send ZERO pings', async () => {
-    await flow(true);
+  it('a stored opt-out (an earlier run saw DO_NOT_TRACK=1) holds for a child whose env does not name it: zero pings', async () => {
+    await run(process.execPath, [entry, 'telemetry', 'status'], { env: { ...env, DO_NOT_TRACK: '1' }, cwd: root });
+    expect(childEnvFrom(env)).not.toHaveProperty('DO_NOT_TRACK');
+    await launcherChild(env);
     expect(bodies).toEqual([]);
     const status = await run(process.execPath, [entry, 'telemetry', 'status'], { env, cwd: root });
-    expect(status.stdout).toMatch(/off \(DO_NOT_TRACK was set on \d{4}-\d{2}-\d{2}\); turn it back on with: align telemetry on/);
+    expect(status.stdout).toMatch(/off \(DO_NOT_TRACK was set on \d{4}-\d{2}-\d{2}\)/);
+  });
+
+  it('DO_NOT_TRACK=1 in the launcher shell is passed to the child, which sends zero pings', async () => {
+    const shell = { ...env, DO_NOT_TRACK: '1' };
+    expect(childEnvFrom(shell)['DO_NOT_TRACK']).toBe('1');
+    await launcherChild(shell);
+    expect(bodies).toEqual([]);
   });
 });
