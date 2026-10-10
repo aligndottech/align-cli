@@ -45,7 +45,10 @@ export function registerShareCommand(program: Command): void {
       // A mistyped --env or --to must not fall back to the default: the destination is the one thing a share must get right.
       let envName: EnvName;
       try {
-        envName = resolveShareEnv({ ...(opts.to === undefined ? {} : { to: opts.to }), ...(opts.env === undefined ? {} : { env: opts.env }) }, config);
+        envName = resolveShareEnv({ ...(opts.to === undefined ? {} : { to: opts.to }), ...(opts.env === undefined ? {} : { env: opts.env }) }, config, {
+          wrapped: (process.env['ALIGN_WRAPPED'] ?? '') !== '',
+          tty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+        });
       } catch (e) {
         if (e instanceof UnknownEnvError || e instanceof ShareTargetError) {
           console.error(chalk.red(e instanceof UnknownEnvError ? `${e.message} Nothing was sent.` : e.message));

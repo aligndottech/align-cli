@@ -23,7 +23,26 @@ const shareable = (name: EnvName): EnvName => {
   return name;
 };
 
-export function resolveShareEnv(opts: { to?: string; env?: string }, config: ConfigStore): EnvName {
+/**
+ * Who is asking. A team destination the person has NOT made their share destination must be named by a person at a terminal:
+ * answering no at the join prompt has to be a boundary an agent cannot step over with `--to <name>`.
+ */
+export interface ShareCaller { wrapped: boolean; tty: boolean }
+
+export function resolveShareEnv(opts: { to?: string; env?: string }, config: ConfigStore, caller: ShareCaller = { wrapped: false, tty: true }): EnvName {
+  const named = resolveNamed(opts, config);
+  if (named !== null && config.hasTeamDestination(named) && named !== config.getShareDestination() && (caller.wrapped || !caller.tty)) {
+    throw new ShareTargetError(`${named} is not your share destination, so sharing to it needs you at a terminal of your own, not an agent or a script. Nothing was sent.`);
+  }
+  return named ?? defaultTarget(config);
+}
+
+function defaultTarget(config: ConfigStore): EnvName {
+  const dest = config.getShareDestination();
+  return dest !== null ? (dest as EnvName) : resolveEnv(undefined, { config });
+}
+
+function resolveNamed(opts: { to?: string; env?: string }, config: ConfigStore): EnvName | null {
   const dest = config.getShareDestination();
   if (opts.to !== undefined) {
     const to = acceptEnvName(opts.to, config);
@@ -39,8 +58,7 @@ export function resolveShareEnv(opts: { to?: string; env?: string }, config: Con
     }
     return env;
   }
-  if (dest !== null) return dest as EnvName;
-  return resolveEnv(undefined, { config });
+  return null;
 }
 
 export type AppUrlChoice = { ok: true; appUrl: string } | { ok: false; message: string };

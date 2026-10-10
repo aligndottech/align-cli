@@ -19,6 +19,7 @@ import { type EnvironmentConfig } from '../config.js';
 import { teamCtaLine } from '../team-cta.js';
 import { runBrowserShare } from './browser-flow.js';
 import { combinedHash, consumeCode, lookupCode, sweepPending } from './pending.js';
+import { isAlignHost } from '../destination-trust.js';
 import { resolveApprovalAppUrl } from './target.js';
 import { prepare, type Prepared, ratifiedRows, renderResults, renderTeamText, retract, secretRefusal, send, type ShareClient, ShareError } from './run.js';
 import type { Judge } from '../curation/judgements-db.js';
@@ -74,6 +75,8 @@ export interface ShareDeps {
 }
 
 const WRAPPED = 'align share needs your own answer typed at a terminal here, and this is not run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.';
+const WRAPPED_FOREIGN = 'This destination is not an Align address, so a share to it needs your own answer typed at a terminal here, and this is run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.';
+const hostOf = (url: string): string => { try { return new URL(url).host; } catch { return ''; } };
 const NO_TERMINAL = 'Confirm this in your own terminal: there is no interactive terminal here (an agent shell, a pipe and a hook have none). Nothing was sent.';
 
 export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<number> {
@@ -94,6 +97,10 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     return 1;
   }
   const dbPath = deps.localDbPath;
+  // A gateway that is not Align's is not an independent approver: its own web page "approving" proves nothing about the person.
+  // So a share to one needs the person at a terminal, in either mode, and an agent is refused before any request goes out.
+  const foreignGateway = !isAlignHost(hostOf(deps.cloudEnv.gatewayUrl));
+  if (foreignGateway && deps.wrapped) { err(WRAPPED_FOREIGN); return 1; }
   sweepPending(); // codes are 10 minutes; a file a day old is leftover
   const ctx = async () => ({ dbPath, envName: opts.envName, client: deps.client(), judge: await deps.judge(), salt: deps.salt, gatewayUrl: deps.cloudEnv.gatewayUrl, defaultGatewayUrl: deps.defaultGatewayUrl });
 
@@ -155,7 +162,13 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     if (prep.payloads.length === 0) return 0;
 
     if (browser) {
-      out(prep.preview);
+      if (foreignGateway) {
+        const yes = await deps.ttyConfirm(prep.preview, `Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${visible(prep.dest.workspace)} at ${visible(prep.dest.gatewayHost)}?`);
+        if (yes === null) { err(NO_TERMINAL); return 1; }
+        if (!yes) { out('Nothing was sent.'); return 0; }
+      } else {
+        out(prep.preview);
+      }
       const { guard, ...rest } = deps.approval;
       const maxWaitMs = ((cfg?.pendingTtlS ?? 900) + (cfg?.completeTtlS ?? 600)) * 1000;
       return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, appUrl: appChoice?.ok ? appChoice.appUrl : rest.appUrl, signal, maxWaitMs, client: c.client, out, err, ...(deps.wrapped ? { agent: 'wrapped' } : {}) }));

@@ -34,3 +34,9 @@ export function assertTransport(raw: string): string {
   }
   return u.origin;
 }
+
+/** `align.tech` or a subdomain of it, on a label boundary (`api.align.tech.evil.example` and `evilalign.tech` are not). Any port. */
+export function isAlignHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/:\d+$/, '');
+  return h === 'align.tech' || h.endsWith('.align.tech');
+}

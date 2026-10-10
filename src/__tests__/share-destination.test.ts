@@ -104,6 +104,34 @@ describe('resolveShareEnv: a share goes to one destination, and the share destin
   });
 });
 
+describe('naming a team destination that is not the share destination needs a person (second review N4)', () => {
+  const person = { wrapped: false, tty: true };
+
+  it('under ALIGN_WRAPPED, or with no terminal, --to <team> is refused unless it is the share destination', () => {
+    const c = withAcme();
+    for (const ctx of [{ wrapped: true, tty: true }, { wrapped: false, tty: false }, { wrapped: true, tty: false }]) {
+      expect(() => resolveShareEnv({ to: 'beta' }, c, ctx)).toThrow(ShareTargetError);
+      expect(() => resolveShareEnv({ to: 'beta' }, c, ctx)).toThrow(/terminal/);
+      expect(() => resolveShareEnv({ env: 'beta', to: 'beta' }, c, ctx)).toThrow(ShareTargetError);
+      expect(resolveShareEnv({ to: 'acme' }, c, ctx)).toBe('acme');
+      expect(resolveShareEnv({}, c, ctx)).toBe('acme');
+    }
+  });
+
+  it('the same --to is fine for a person at a terminal, and a builtin is not caught by this rule', () => {
+    const c = withAcme();
+    expect(resolveShareEnv({ to: 'beta' }, c, person)).toBe('beta');
+    expect(resolveShareEnv({ to: 'prod' }, c, { wrapped: true, tty: false })).toBe('prod');
+  });
+
+  it('a destination the person declined to make the share destination is not reachable by an agent: --to and --env both refuse', () => {
+    const c = withAcme({ shareTo: false });
+    expect(() => resolveShareEnv({ to: 'acme' }, c, { wrapped: true, tty: true })).toThrow(/terminal/);
+    expect(() => resolveShareEnv({ env: 'acme' }, c, { wrapped: true, tty: true })).toThrow(/terminal/);
+    expect(resolveShareEnv({ to: 'acme' }, c, person)).toBe('acme');
+  });
+});
+
 describe('resolveApprovalAppUrl: where the approval link points (S15)', () => {
   const guess = 'https://app.align.tech';
 
