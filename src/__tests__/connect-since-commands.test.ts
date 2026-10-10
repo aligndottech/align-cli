@@ -126,6 +126,14 @@ describe('slack keeps --days-back as a deprecated spelling of --since', () => {
     expect('daysBack' in opts('slack')).toBe(false);
   });
 
+  it('a fractional --days-back (30.5) exits 2 now, naming the accepted forms, and reads nothing (it parsed before)', async () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => { throw new Error(`exit ${code}`); }) as never);
+    await expect(run('slack', ['--days-back', '30.5'])).rejects.toThrow('exit 2');
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(out.join('\n')).toContain('30d, 2w, 6m, 1y or all');
+    expect(fetchers.slack).not.toHaveBeenCalled();
+  });
+
   it('--since wins when both are given', async () => {
     await run('slack', ['--days-back', '14', '--since', '30d']);
     expect(opts('slack')['since']).toBe('2026-09-10T12:00:00.000Z');

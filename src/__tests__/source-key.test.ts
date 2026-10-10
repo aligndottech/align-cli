@@ -18,6 +18,26 @@ const TABLE = JSON.parse(
   readFileSync(createRequire(import.meta.url).resolve('@aligndottech/connector-core/source-key-fixtures.json'), 'utf8'),
 ) as { cases: KeyCase[] };
 
+// L3 review 11: stored keys (schema v7) are only as stable as this function. The SDK's own table
+// moves with the SDK; this one does not. A patch release that changes a key would silently split an
+// already-stored item into two rows, so it has to fail here first.
+const FROZEN = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'source-key-v7-frozen.json'), 'utf8'),
+) as { cases: KeyCase[] };
+
+describe('the keys schema v7 stored are still the keys the SDK computes (frozen table)', () => {
+  it('read the frozen table (positive control: 121 rows, not zero)', () => {
+    expect(FROZEN.cases).toHaveLength(121);
+  });
+
+  it.each(FROZEN.cases.map((c) => [`${c.platform}/${c.rule}: ${c.why}`, c] as const))('%s', (_name, c) => {
+    expect(normaliseSourceKey(c.platform, c.a)).toBe(c.key ?? undefined);
+    if (c.b !== undefined) {
+      expect(normaliseSourceKey(c.platform, c.a) === normaliseSourceKey(c.platform, c.b)).toBe(c.same);
+    }
+  });
+});
+
 describe('normaliseSourceKey is the SDK function, not a copy (L3)', () => {
   it('is the very same function the SDK exports', () => {
     expect(normaliseSourceKey).toBe(sdkNormaliseSourceKey);
