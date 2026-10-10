@@ -33,32 +33,52 @@ This repository is the open-source Align CLI and MCP server (`@aligndottech/cli`
 We support the latest published version on npm. Please upgrade to the latest
 release before reporting, in case the issue is already fixed.
 
-## Sharing from inside a coding agent (`align_share`)
+## Sharing from inside a coding agent (`align share`, `align_share`)
 
 `align share` sends decisions from your local graph, and your judgements on them, to your team's
-graph. It prints exactly what leaves the machine, names the workspace and account, and asks first.
-Nothing is sent without a yes. A credential-shaped string in a title, summary, URL or note is
-refused on this machine, and again by the server.
+graph. It prints exactly what leaves the machine and names the workspace and account. A
+credential-shaped string in a title, summary, URL or note, and any hidden tag characters, are refused on
+this machine, and the credential check runs again on the server. There is no `--yes`.
 
-There is no `--yes`: a share needs an answer typed at a terminal. Every path (a plain `align share`, and
-`align share --confirm <code>`) shows the preview on the controlling terminal (`/dev/tty`, or `CONIN$` on
-Windows, which must pass an is-a-terminal check) and asks with a default of No. A process with no
-controlling terminal, such as an agent's shell tool, a hook or a pipe, is refused and sends nothing.
-`align share` also refuses when `ALIGN_WRAPPED` is set (you are inside an agent that `align` launched) and
-points you to a normal terminal. **That check is a speed bump, not a lock**: an agent can unset the variable.
+**Who approves depends on the workspace's gateway.** The CLI asks it (`GET /share-requests/config`).
 
-`align_share` (the MCP tool) only PREPARES a share: it returns the preview and a one-time code, and
-cannot send. Its result does not hand the agent a command line; it tells the agent that the person must run
-the share in their own terminal and that the agent must not. The code works once, expires after 10 minutes,
-and is refused if the decision, its judgements, the workspace or the gateway changed after the preview.
-Asking again for the same payload returns the same live code.
+- **Browser approval** (mode `available`, or `required`). The CLI seals the exact payload with AES-256-GCM
+  under a random key, sends only the ciphertext to your team's gateway, and prints a link and a short code.
+  The key is in the link's `#k=` fragment, which a browser never sends, so the server holds text it cannot
+  read until you approve. You open the link in a browser where you are signed in to Align, compare the code,
+  read the full text and the destination, and click Approve. Only then does the CLI send the approved bytes.
+  Declined, cancelled and expired requests send nothing; Ctrl-C cancels the request.
+- **Typed answer** (mode `off`, a gateway without the route, or `--typed` when the mode is `available`). The
+  preview is shown on the controlling terminal (`/dev/tty`, or `CONIN$` on Windows) and asks with a default of
+  No. A process with no controlling terminal is refused, and so is a run inside an agent that `align` launched
+  (`ALIGN_WRAPPED`). That last check is a speed bump, not a lock: an agent can unset the variable.
+- **`required`** never reaches the typed path: `--typed` and `--confirm` are refused, and the CLI never posts a
+  share directly. If the gateway's answer to the config call is anything but a clean mode or a 404, the CLI
+  stops. It never falls back to the typed path on an error.
 
-> **What this does NOT stop.** An agent that can run commands as you can allocate its own pseudo-terminal
-> (for example with `script`), read the preview from it and type the answer, so it can complete a share
-> without you. No control inside a local CLI can prevent that, because the agent controls both ends of the
-> terminal. Until the planned browser (out-of-band) confirmation on the team graph exists, **the remaining
-> control is your agent harness's own approval prompt for shell commands**: do not auto-approve
-> commands that run `align share` or open a pseudo-terminal. A share is always previewed and attributed to
-> the signed-in user. It can usually be retracted with `align share --retract`, but not always: a share that
-> matched an existing team decision, or was recorded as not yours, cannot be retracted from here, and the
-> judgements it carried stay on the team graph.
+**What an agent can do.** It can ask: `align share` run inside an agent, and the `align_share` MCP tool, stage
+a request and hand you the link and code. `align_share_status` reports whether you answered and, only when
+the gateway says you approved, sends exactly what you approved, once. **What it cannot do through these
+paths is approve**: the approve route refuses the CLI's token and accepts only a signed-in browser session.
+The agent that stages a request does see the link, and therefore the key. It already had the text it sealed,
+so that adds nothing, but the link is not a secret from the agent.
+
+> **What this does NOT stop.**
+> - An agent that can read your browser's cookie files, or drive your browser (computer use, an extension,
+>   Chrome's debugging port), can click Approve as you. A passkey prompt on approve would close that. It is
+>   not built.
+> - **The control only holds once the gateway runs `required`.** In `available`, the browser flow exists but the
+>   older ways to complete a share, including the typed answer on a pseudo-terminal an agent allocates itself
+>   (for example with `script`) and a direct call to the gateway with the CLI's token, still work. This CLI
+>   cannot change that. Until your gateway reports `required`, the remaining control is your agent harness's own
+>   approval prompt for shell commands: do not auto-approve commands that run `align share` or open a
+>   pseudo-terminal.
+> - A share is always attributed to the signed-in user. It can usually be retracted with
+>   `align share --retract`, but not always: a share that matched an existing team decision, or was recorded as
+>   not yours, cannot be retracted from here, and the judgements it carried stay on the team graph.
+
+`align_share` (the MCP tool) never sends. On a gateway without browser approval it returns the preview and a
+one-time code the person completes with `align share --confirm`, and it tells the agent not to run that. The
+code works once, expires after 10 minutes, and is refused if the decision, its judgements, the workspace or
+the gateway changed after the preview. Staged browser requests are kept 0600 in the CLI's private state
+directory (they hold the key and the sealed text) and deleted when the request ends.
