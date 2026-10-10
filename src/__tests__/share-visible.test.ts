@@ -42,7 +42,7 @@ describe('a hostile preview', () => {
   const p = buildSharePayload({
     row: row({ title: hostile, summary: `line one${CR}overwrite\nline two ${RLO}evil`, sourceUrl: `https://x.test/p${ESC}]0;pwn` }),
     judgements: [{ id: 'j', decision_id: '11111111-1111-4111-8111-111111111111', counterpart_id: null, context_key: null, kind: 'note', value: null, note: `n${ESC}[31m`, judge_id: 'i', judge_label: null, via: 'mcp', agent_id: `ag${ESC}`, judged_at: '2026-09-04T10:00:00.000Z' }],
-    remoteIdOf: () => undefined, titleOf: () => null,
+    remoteIdOf: () => undefined, titleOf: () => null, clientKey: 'k', alreadySent: new Set(),
   });
   const text = renderPreview([p], { workspace: `Acme${ESC}[2J`, env: 'prod', email: `me${RLO}@x` });
   it('holds no escape, carriage return or bidi control, and shows the escapes instead', () => {
@@ -58,7 +58,7 @@ describe('a hostile preview', () => {
     expect(lines[lines.length - 2]).toBe('Nothing is sent until you say yes.');
   });
   it('results and refusals are sanitised too', () => {
-    const r = renderResults([{ localId: 'a', title: `T${ESC}x`, outcome: { kind: 'refused', index: 0, reason: `r${CR}x` }, judgementFailures: [{ index: 0, error: `e${ESC}` }] }]);
+    const r = renderResults([{ localId: 'a', title: `T${ESC}x`, outcome: { kind: 'refused', index: 0, reason: `r${CR}x` }, judgementFailures: [{ index: 0, error: `e${ESC}` }], warnings: [`w${ESC}[2J`] }]);
     expect(r).not.toMatch(BAD);
     expect(secretRefusal([{ localId: `id${ESC}`, field: 'title', placeholder: '<GITHUB_TOKEN>' }])).not.toMatch(BAD);
   });
