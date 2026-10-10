@@ -66,11 +66,23 @@ function ensureOwnPrivateDir(d: string): boolean {
  */
 export function backfillDir(): string | null {
   try {
+    const base = alignStateDir();
+    if (base === null) return null;
+    const dir = path.join(base, 'backfill');
+    return ensureOwnPrivateDir(dir) ? dir : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `<state home>/align-cli`, created private and checked with lstat (L5: the sync lock and the
+ *  launch summary live beside `backfill/`, and share its refusal of a planted link), or null. */
+export function alignStateDir(): string | null {
+  try {
     const home = stateHome();
     fs.mkdirSync(home, { recursive: true });
     const base = path.join(home, 'align-cli');
-    const dir = path.join(base, 'backfill');
-    return ensureOwnPrivateDir(base) && ensureOwnPrivateDir(dir) ? dir : null;
+    return ensureOwnPrivateDir(base) ? base : null;
   } catch {
     return null;
   }
@@ -220,6 +232,11 @@ export function backfillChildCommand(
   return { command: execPath, args: [argv1 ?? 'align', ...argv] };
 }
 
+function withoutStatusEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const { [BACKFILL_STATUS_ENV]: _drop, ...rest } = env;
+  return rest;
+}
+
 /**
  * Start the child detached and wait up to ~300 ms for the OS to confirm it exists. "Started" is
  * claimed only on that confirmation: a spawn that fails asynchronously (ENOENT, EMFILE) arrives as
@@ -228,7 +245,7 @@ export function backfillChildCommand(
 export function startBackfillChild(
   source: string,
   argv: string[],
-  file: string,
+  file: string | undefined,
   cmd: { command: string; args: string[] } = backfillChildCommand(argv),
 ): Promise<{ ok: boolean; pid?: number }> {
   const { command, args } = cmd;
@@ -241,7 +258,9 @@ export function startBackfillChild(
         detached: true,
         stdio: 'ignore',
         windowsHide: true,
-        env: { ...process.env, [BACKFILL_STATUS_ENV]: file },
+        // L5: a sync child has no status file (the sync lock and source_sync record it), so it must
+        // not inherit one from this process either.
+        env: file === undefined ? withoutStatusEnv(process.env) : { ...process.env, [BACKFILL_STATUS_ENV]: file },
       });
     } catch {
       return done({ ok: false });
@@ -250,7 +269,7 @@ export function startBackfillChild(
       const pid = child.pid;
       if (pid === undefined) return done({ ok: false });
       try {
-        writeStatus(file, { source, pid, started_at: new Date().toISOString(), state: 'running' });
+        if (file !== undefined) writeStatus(file, { source, pid, started_at: new Date().toISOString(), state: 'running' });
       } catch { /* the child still runs; only the cap loses sight of it */ }
       child.unref();
       done({ ok: true, pid });

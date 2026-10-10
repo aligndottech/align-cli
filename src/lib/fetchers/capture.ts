@@ -41,6 +41,9 @@ export interface CaptureFetchReport {
   /** L3: the oldest `updated_at` the read saw, so an incomplete line can name the date it
    *  actually reached. Absent when no item carried one; never filled in from the clock. */
   oldestReached?: string;
+  /** L5: the latest `updated_at` the read saw, the SDK's own watermark candidate. Absent when no item carried one;
+   *  never filled in from the clock. */
+  highWater?: string;
   /** L3: 'team' when the token's whole visible scope was read, 'yours' for the caller's own items. */
   scope?: 'yours' | 'team';
   /** L3: items returned whole but waiting for their discussion (GitHub's items-first pass). */
@@ -57,6 +60,10 @@ export interface WindowedOpts {
   since?: string;
   /** Wall-clock budget for the whole read; running out is a `time_budget` skip. */
   timeBudgetMs?: number;
+  /** L5: ISO-8601 UTC upper bound (exclusive). Set by a sync finishing the older part of a window a ceiling cut. */
+  until?: string;
+  /** L5, Slack only: stored threads whose replies since `since` should be re-read (their items come back `partial`). */
+  hotThreads?: Array<{ channel: string; ts: string }>;
 }
 
 export interface CaptureFetchResult {
@@ -80,6 +87,7 @@ export interface ReportingFetcher<O> {
       skips: ReadonlyArray<{ kind?: string; count: number; detail: string }>;
       complete?: boolean;
       oldestReached?: string;
+      highWater?: string;
       scope?: 'yours' | 'team';
     };
   }>;
@@ -101,6 +109,7 @@ export async function withCaptureReport<O extends { limit?: number }>(
         skips: report.skips.map((s) => ({ ...(s.kind !== undefined ? { kind: s.kind } : {}), count: s.count, detail: s.detail })),
         ...(report.complete !== undefined ? { complete: report.complete } : {}),
         ...(report.oldestReached !== undefined ? { oldestReached: report.oldestReached } : {}),
+        ...(report.highWater !== undefined ? { highWater: report.highWater } : {}),
         ...(report.scope !== undefined ? { scope: report.scope } : {}),
         ...(pending > 0 ? { discussionPending: pending } : {}),
       },

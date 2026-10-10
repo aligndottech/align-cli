@@ -78,3 +78,11 @@ export function fetchWindow(id: SourceId, window: SyncWindow): { limit: number; 
     ...(window.since !== undefined ? { since: window.since } : {}),
   };
 }
+
+/** L5: the optional extras a sync adds to a fetch beyond the window itself. Omitted keys stay omitted. */
+export function windowExtras(o?: { until?: string; hotThreads?: Array<{ channel: string; ts: string }> }): { until?: string; hotThreads?: Array<{ channel: string; ts: string }> } {
+  return {
+    ...(o?.until !== undefined ? { until: o.until } : {}),
+    ...(o?.hotThreads !== undefined && o.hotThreads.length > 0 ? { hotThreads: o.hotThreads } : {}),
+  };
+}

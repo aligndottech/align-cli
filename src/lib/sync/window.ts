@@ -1,0 +1,111 @@
+/**
+ * L5: the pure decisions of an incremental sync - which window to read next and where the
+ * watermark stands after a run. No database, no clock of its own, no network.
+ *
+ * The watermark is the vendor's own `updated_at` (Decision 4), taken from the SDK's report, and
+ * it moves only on a COMPLETE read that carried one. Anything else leaves it where it was: a
+ * watermark that moved past data nobody read loses that data for good, while one that stays put
+ * costs a re-read the unchanged-skip makes cheap.
+ */
+import { SYNC_WINDOW_DEFAULT_DAYS } from '../import-defaults.js';
+
+/** Each run reads from a day before the watermark, so an item edited between two runs while the
+ *  vendor was behind on its own indexing is not missed. */
+export const OVERLAP_DAYS = 1;
+const DAY_MS = 86_400_000;
+
+/** The slice of a `source_sync` row the next-window decision reads. */
+export interface WindowState {
+  /** Lower bound the user asked for. `null` on an EXISTING row means "all" (L3's record of `since: all`). */
+  window_since: string | null;
+  high_water: string | null;
+  pending_until: string | null;
+}
+
+function parse(iso: string | null | undefined): number | undefined {
+  if (iso === null || iso === undefined) return undefined;
+  const ms = Date.parse(iso);
+  // NaN compares false with everything, in both directions (verification.md): refuse it here.
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+export function minusDays(iso: string, days: number): string {
+  const ms = parse(iso);
+  if (ms === undefined) throw new Error(`Cannot read "${iso.slice(0, 40)}" as a date.`);
+  return new Date(ms - days * DAY_MS).toISOString();
+}
+
+/**
+ * What the next run asks the vendor for.
+ * - No row: the default window back from now (the first sync of a source).
+ * - A high_water: one overlap day before it. Otherwise the row's own window_since, untouched.
+ * - A pending_until: also an `until` there, so a run that a ceiling cut finishes the OLDER part.
+ * An unparseable stored stamp reads as absent, which can only widen the read.
+ */
+export function nextWindow(s: WindowState | undefined, now: Date): { since?: string; until?: string } {
+  if (s === undefined) return { since: new Date(now.getTime() - SYNC_WINDOW_DEFAULT_DAYS * DAY_MS).toISOString() };
+  const hw = parse(s.high_water) === undefined ? undefined : s.high_water!;
+  const floor = hw !== undefined ? minusDays(hw, OVERLAP_DAYS) : parse(s.window_since) === undefined ? undefined : s.window_since!;
+  const until = parse(s.pending_until) === undefined ? undefined : s.pending_until!;
+  return { ...(floor !== undefined ? { since: floor } : {}), ...(until !== undefined ? { until } : {}) };
+}
+
+export interface RunFinish {
+  complete: boolean;
+  highWater?: string;
+  oldestReached?: string;
+  /** The newest `updated_at` stored for this source across the whole cycle, for the final run of
+   *  a pending cycle: its own highWater is clamped to `until` and would pull the mark back. */
+  cycleNewest?: string;
+  /** When given, a stamp more than a day AFTER it is ignored: a watermark in the future would
+   *  hide every later change from every later run. */
+  now?: Date;
+}
+
+function later(a: string | null | undefined, b: string | null | undefined): string | null {
+  const pa = parse(a);
+  const pb = parse(b);
+  if (pa === undefined) return pb === undefined ? null : b!;
+  if (pb === undefined) return a!;
+  return pb > pa ? b! : a!;
+}
+
+function earlier(a: string | null | undefined, b: string | null | undefined): string | null {
+  const pa = parse(a);
+  const pb = parse(b);
+  if (pa === undefined) return pb === undefined ? null : b!;
+  if (pb === undefined) return a!;
+  return pb < pa ? b! : a!;
+}
+
+function plausible(iso: string | undefined, now: Date | undefined): string | undefined {
+  const t = parse(iso);
+  if (t === undefined) return undefined;
+  return now !== undefined && t > now.getTime() + DAY_MS ? undefined : iso;
+}
+
+export function finishRun(
+  prev: Pick<WindowState, 'high_water' | 'pending_until'>,
+  r: RunFinish,
+): { high_water: string | null; pending_until: string | null; status: 'ok' | 'partial' } {
+  const prevHigh = parse(prev.high_water) === undefined ? null : prev.high_water;
+  if (r.complete) {
+    return { high_water: later(later(prevHigh, plausible(r.highWater, r.now)), plausible(r.cycleNewest, r.now)), pending_until: null, status: 'ok' };
+  }
+  return { high_water: prevHigh, pending_until: earlier(prev.pending_until, r.oldestReached), status: 'partial' };
+}
+
+/** Oldest first. A kill after batch N then leaves every older item committed, so a watermark equal
+ *  to the newest committed stamp never sits above an unread one. Items with no stamp lead. */
+export function ascendingByUpdated<T extends { updated_at?: string }>(items: readonly T[]): T[] {
+  const stamp = (i: T): number => parse(i.updated_at) ?? Number.NEGATIVE_INFINITY;
+  return items.map((item, index) => ({ item, index }))
+    .sort((a, b) => (stamp(a.item) - stamp(b.item) || a.index - b.index) || 0)
+    .map((e) => e.item);
+}
+
+export function newestUpdated(items: ReadonlyArray<{ updated_at?: string }>): string | undefined {
+  let best: string | undefined;
+  for (const i of items) if (i.updated_at !== undefined && parse(i.updated_at) !== undefined) best = later(best, i.updated_at) ?? best;
+  return best;
+}

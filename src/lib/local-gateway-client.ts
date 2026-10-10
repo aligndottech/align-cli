@@ -409,6 +409,35 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     },
 
     /**
+     * L5, Decision 30: finish ingests that never finished (`enriched_at` NULL: every row after the
+     * v7 upgrade, or one that died between its embedding and its link pass). Runs only the
+     * missing step, the way ingestOne does for a connector re-ingest: a row that already holds a
+     * current-model embedding gets the link pass alone (no embed call); one that does not is
+     * re-ingested from its own stored text. A row with no URL and no embedding cannot be
+     * re-ingested without inserting a twin, so it is counted and left. Never classifies.
+     */
+    async relinkUnfinished(rows: Array<{ id: string; keyed: boolean }>): Promise<{ linked: number; embedded: number; skipped: number }> {
+      const session: IngestSession = {};
+      const out = { linked: 0, embedded: 0, skipped: 0 };
+      for (const { id, keyed } of rows) {
+        const row = db.getDecisionById(id);
+        if (!row) continue;
+        const stored = db.getEmbeddingModel(id) === EMBEDDING_MODEL_ID ? db.getEmbedding(id) : null;
+        if (stored !== null) {
+          await linkPass(db, rankerFor(session), id, stored, row.title, row.summary, false);
+          db.markEnriched(id);
+          out.linked += 1;
+        } else if (row.sourceUrl === null) {
+          out.skipped += 1;
+        } else {
+          await ingestOne(row.summary, row.platform, { titleOverride: row.title, sourceUrlOverride: row.sourceUrl, createdAt: row.decidedAt ?? undefined, classify: false, keyed }, session);
+          out.embedded += 1;
+        }
+      }
+      return out;
+    },
+
+    /**
      * ALI-808: the confirm-each session importer's one write path. Ingests exactly like
      * ingestBatch does above (same ingestOne, so platform 'agent-session' derives
      * decider_kind 'agent' for free via deriveDeciderKind - see decider-kind.ts) then stamps
