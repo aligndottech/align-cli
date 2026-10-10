@@ -576,3 +576,60 @@ describe('a symlinked directory OUTSIDE the home dir (MEDIUM, second review)', (
     expect(safeWriteJson(path.join(dir, 'real', 'mcp.json'), () => ({ a: 1 }), { note })).toBe('written');
   });
 });
+
+describe('undoWrittenConfigs: compare-and-swap (Gemini rewrites its settings file while undo runs)', () => {
+  /** A SafeFs that, right after undo's FIRST read of the file, lets "another program" change it. */
+  const racing = (target: string, changeTo: string): SafeFs => {
+    const base = { ...realFs } as unknown as SafeFs;
+    let reads = 0;
+    return {
+      ...base,
+      readFileSync: ((p: string, ...rest: unknown[]) => {
+        const out = (realFs.readFileSync as (...a: unknown[]) => unknown)(p, ...rest);
+        if (p === target && ++reads === 1) writeFileSync(target, changeTo);
+        return out;
+      }) as SafeFs['readFileSync'],
+    };
+  };
+  const aborted = (r: ReturnType<typeof undoWrittenConfigs>) => {
+    expect(r.skipped).toHaveLength(1);
+    expect(r.skipped[0]).toContain(file());
+    expect(r.skipped[0]).toMatch(/changed while undo was running/);
+    expect(r.done).toEqual([]);
+  };
+
+  it('a file align created is NOT deleted when it changed after undo read it', () => {
+    const m = track();
+    safeWriteJson(file(), () => ({ mcpServers: { 'align-local': { command: 'align' } } }), { note });
+    const theirs = '{"mcpServers":{"mine":{}},"theme":"dark"}';
+    aborted(undoWrittenConfigs(m, racing(file(), theirs)));
+    expect(readFileSync(file(), 'utf8')).toBe(theirs);
+  });
+
+  it('a whole-file restore from the backup does not overwrite a change made after undo read the file', () => {
+    const m = track();
+    writeFileSync(file(), '{"a":1}');
+    safeWriteJson(file(), (c) => ({ ...c, b: 2 }), { note });
+    const theirs = '{"a":1,"b":2,"c":3}';
+    aborted(undoWrittenConfigs(m, racing(file(), theirs)));
+    expect(readFileSync(file(), 'utf8')).toBe(theirs);
+    expect(existsSync(file() + BACKUP_SUFFIX)).toBe(true);
+  });
+
+  it('a surgical cleanup does not overwrite a change made after undo read the file', () => {
+    const m = track();
+    writeFileSync(file(), '{"a":1}');
+    safeWriteJson(file(), (c) => ({ ...c, b: 2 }), { note });
+    writeFileSync(file(), '{"a":1,"b":2,"later":true}'); // user edit first: forces the surgical path
+    const theirs = '{"a":1,"b":2,"later":true,"c":3}';
+    aborted(undoWrittenConfigs(m, racing(file(), theirs)));
+    expect(readFileSync(file(), 'utf8')).toBe(theirs);
+    expect(noTemps()).toEqual([]);
+  });
+
+  it('control: with no race the same undo goes through', () => {
+    const m = track();
+    safeWriteJson(file(), () => ({ x: 1 }), { note });
+    expect(undoWrittenConfigs(m).removed).toEqual([file()]);
+  });
+});
