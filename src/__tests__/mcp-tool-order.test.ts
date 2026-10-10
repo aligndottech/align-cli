@@ -47,7 +47,9 @@ describe('the local MCP tool list leads with the check (ALI-139)', () => {
     expect(names).toContain('align_scope');
     // LM appended align_mark (it records the user's judgement, so it is a write).
     expect(names).toContain('align_mark');
-    expect(names).toHaveLength(15);
+    // L9 appended align_share (it only previews and issues a code, so it is not a write).
+    expect(names).toContain('align_share');
+    expect(names).toHaveLength(16);
   });
 });
 

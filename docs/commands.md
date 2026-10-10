@@ -189,10 +189,11 @@ align adjudicate <event-id>   Answer an alignment check that reached the judge a
 align ratify <id>             Stand behind an agent-made decision as a human: mark it as governing, not just said
                               flags: --env
 
-# Promote one ratified local decision to the shared graph
+# Share ratified decisions, with your judgements, with your team (alias: push)
 
-align push <id>               Promote one ratified local decision to the shared graph (per item, after align ratify)
-                              flags: --env
+align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
+                              flags: --env --all-ratified --since --yes --confirm --retract
+align push                    same as align share
 
 # The local graph: start, status, reset, forget
 
@@ -229,8 +230,10 @@ queue; `.align/decisions.md` and the local MCP server both label an unratified c
 `agent-decided, unratified` so an agent reading either can tell a claim from a rule.
 
 `align ratify <id>` is the human act - it refuses a hook, a pipe, or any caller not at a
-terminal - and `align push <id>` promotes one ratified local decision to the shared graph,
-per item, never bulk.
+terminal - and `align share <id>` (alias `push`) sends ratified decisions, with the judgements you made
+about them, to your team. It prints exactly what leaves the machine and asks first; nothing is
+sent without a yes. `align share --retract <id>` undoes it. An agent can only PREPARE a share
+(`align_share`); you finish it with `align share --confirm <code>` in your own terminal.
 
 `align use --undo` puts back a file Align wrote for a written-once agent (Auggie, Cline, Amp,
 Kiro, Grok Build, pi, Cursor). The restore is exact only while nobody else has touched the file.

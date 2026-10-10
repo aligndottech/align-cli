@@ -81,9 +81,12 @@ describe('the retrieval tools say which graph they search', () => {
 
   it('keeps the tool set identical across modes, so only wording differs', () => {
     // LM: align_mark records into the local graph, so a hosted server does not offer it.
-    expect(toolSchemasFor(localEnv).map(t => t.name).filter(n => n !== 'align_mark')).toEqual(toolSchemasFor(cloudEnv).map(t => t.name));
+    expect(toolSchemasFor(localEnv).map(t => t.name).filter(n => n !== 'align_mark' && n !== 'align_share')).toEqual(toolSchemasFor(cloudEnv).map(t => t.name));
     expect(toolSchemasFor(localEnv).map(t => t.name)).toContain('align_mark');
     expect(toolSchemasFor(cloudEnv).map(t => t.name)).not.toContain('align_mark');
+    // L9: align_share previews a share from the local graph, so a hosted server does not offer it either.
+    expect(toolSchemasFor(localEnv).map(t => t.name)).toContain('align_share');
+    expect(toolSchemasFor(cloudEnv).map(t => t.name)).not.toContain('align_share');
   });
 });
 
