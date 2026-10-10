@@ -49,6 +49,18 @@ describe('buildQwenLaunch', () => {
     expect(spec.notes ?? []).toEqual([]);
   });
 
+  it('PIN: the copy lives in the user-owned launch cache and Qwen 0.25.0 reads it anyway', () => {
+    // Unlike Gemini 0.63.0 (which skips a system file unless the file and every parent dir is
+    // root-owned, so align moved to a written-once user entry), Qwen has no ownership check:
+    // its bundle holds no "owned by root"/uid test, and `qwen mcp list` with
+    // QWEN_CODE_SYSTEM_SETTINGS_PATH at a user-owned file lists the server (checked 2026-10-10).
+    // If a Qwen release adds the rule, this injection silently yields no graph: re-probe on upgrade
+    // and move to the Gemini design (gemini-cli adapter) rather than editing this test.
+    const spec = buildQwenLaunch(ctx());
+    expect(spec.env['QWEN_CODE_SYSTEM_SETTINGS_PATH']).toBe(`/cache/${qwenCopyName(SYS)}`);
+    expect(spec.writes ?? []).toEqual([]);
+  });
+
   it('keeps every key of the system file it replaces, and the admin\'s own servers (JSONC read)', () => {
     const theirs = '// admin\n{ "mcpServers": { "mine": { "command": "mine" } }, "ui": { "theme": "dark" } }';
     expect(fileOf(buildQwenLaunch(ctx(sys('/opt/q.json', theirs))))).toEqual({ mcpServers: { mine: { command: 'mine' }, 'align-local': LOCAL }, ui: { theme: 'dark' } });
