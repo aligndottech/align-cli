@@ -11,6 +11,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 
 const FIXTURE_ENVS = vi.hoisted(() => ({
@@ -32,6 +33,8 @@ const FIXTURE_ENVS = vi.hoisted(() => ({
   },
 }));
 
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     getDefaultEnv: () => 'prod',
@@ -41,6 +44,7 @@ vi.mock('../lib/config.js', () => ({
     // recorded here - these tests are about WHICH env gets addressed, not about the anonymous
     // ping itself (that's usage-telemetry-anonymous.test.ts), so nothing should ever send.
     getTelemetryConsent: () => undefined,
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId: () => 'test-install-id',
   }),
 }));
@@ -52,10 +56,13 @@ vi.stubGlobal('fetch', mockFetch);
 
 describe('recordInvocationUsage', () => {
   beforeEach(() => {
+    noticeShownAt = undefined;
+    // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+    // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+    clearTelemetryEnv();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     // Preconditions stated, not inherited from the runner's shell.
-    vi.stubEnv('ALIGN_TELEMETRY', '');
     vi.stubEnv('ALIGN_ENV', '');
   });
 

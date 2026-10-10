@@ -24,7 +24,6 @@ import { loginInteractive } from '../lib/login-flow.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { collectTokensViaOAuth, oauthFlowLabel } from '../lib/personal-oauth.js';
 import { isAuthExpiry } from '../lib/errors.js';
-import { maybeRequestTelemetryConsent } from '../lib/telemetry-consent.js';
 import { commandIntro } from '../lib/brand.js';
 import pkg from '../../package.json' with { type: 'json' };
 const { version } = pkg;
@@ -711,13 +710,9 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     p.log.info(chalk.dim(connectedLine));
   }
 
-  // ALI-618: one-time, never asked again once answered. Local mode has no account, so consent
-  // is the only thing that can ever turn this on - see usage-telemetry.ts's local-embedded
-  // branch, which reads this same stored decision.
-  await maybeRequestTelemetryConsent(config, Boolean(interactive));
-  // ALI-949: the first checkpoint at which a local-mode setup_started CAN send - consent is
-  // only now on disk (or was already, on a re-run). The wizard-start offer in runSetup could
-  // not send for a fresh install, so the funnel object is offered the local env again here.
+  // ALI-949: the first checkpoint at which the local env is initialised, so a local-mode
+  // setup_started is offered against it here. (C6: there is no consent question any more - the
+  // one-time notice in cli.ts's preAction is the disclosure local sends wait on.)
   void opts.funnel.started(localEnv);
 
   return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel, agents, firstFoundTitle, agent };

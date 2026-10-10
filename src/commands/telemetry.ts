@@ -8,14 +8,14 @@ import { getTelemetryStatus } from '../lib/usage-telemetry.js';
  * opt-out default is controlled by ALIGN_TELEMETRY, not by this command - and `status` says
  * which model applies (see usage-telemetry.ts's getTelemetryStatus).
  *
- * ALI-954: `off` stores 'off', which stops BOTH tiers - the usage pings and the two anonymous
- * counts that send by default (install, setup completed). That is a stronger decision than
- * answering No at the consent prompt, which only declines usage, and the message says so.
+ * ALI-954: `off` stores 'off', which stops everything - the usage pings, the two anonymous
+ * counts (install, setup completed) and, since the review of C6, cloud-mode events too. A stored
+ * No from the pre-C6 consent question ('declined') now stops the local ones the same way.
  */
 export function registerTelemetryCommand(program: Command): void {
   const telemetry = program
     .command('telemetry')
-    .description('Manage anonymous telemetry in local-only mode (two counts by default, usage only with consent)');
+    .description('Manage anonymous telemetry in local-only mode (on after a one-time notice; off in CI)');
 
   telemetry
     .command('on')
@@ -32,7 +32,7 @@ export function registerTelemetryCommand(program: Command): void {
     .action(() => {
       createConfigStore().setTelemetryConsent('off');
       console.log(chalk.green('Telemetry off.'));
-      console.log(chalk.dim('Nothing is sent from this machine - not usage, and not the two anonymous counts (install, setup completed).'));
+      console.log(chalk.dim('Nothing is sent from this machine - not usage, not the two anonymous counts (install, setup completed), and not cloud-mode events.'));
     });
 
   telemetry
@@ -46,7 +46,7 @@ export function registerTelemetryCommand(program: Command): void {
       // actual local consent - the exact honesty gap this command exists to close. A
       // fresh-context review caught this.
       const env = config.getEnvironment(resolveEnv(undefined, { preferLocalEmbedded: true }));
-      const status = getTelemetryStatus(env, config.getTelemetryConsent());
+      const status = getTelemetryStatus(env, config.getTelemetryConsent(), config.getTelemetryNoticeShownAt() !== undefined);
       console.log(status.reason);
     });
 }

@@ -1,6 +1,6 @@
 /**
  * ALI-954: the two environment variables that turn ALL telemetry off - both tiers, the
- * default-on beacons included. Its own module so the consent prompt (telemetry-consent.ts)
+ * default-on beacons included. Its own module so the one-time notice (telemetry-consent.ts)
  * can ask the same question without importing the emitter, which setup.test.ts mocks down to
  * one function.
  *

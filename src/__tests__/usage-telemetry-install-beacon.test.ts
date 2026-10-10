@@ -12,6 +12,7 @@
  * run that already holds a cloud token skips the beacon.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 
 const getTelemetryConsent = vi.fn();
@@ -19,15 +20,25 @@ const getInstallId = vi.fn();
 const wasFunnelStageRecorded = vi.fn();
 const markFunnelStageRecorded = vi.fn();
 const getEnvironment = vi.fn();
+const releaseFunnelStage = vi.fn();
 const INSTALL_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
 
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     getTelemetryConsent,
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId,
     wasFunnelStageRecorded,
     markFunnelStageRecorded,
+    claimFunnelStage: (s: string) => {
+      if (wasFunnelStageRecorded(s)) return false;
+      markFunnelStageRecorded(s);
+      return true;
+    },
+    releaseFunnelStage,
     getEnvironment,
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
@@ -52,20 +63,44 @@ function sentTo(): { url: string; body: Record<string, unknown> } {
 
 describe('recordInstallBeacon', () => {
   beforeEach(() => {
+    // C6: the beacon follows the one-time notice (cli.ts prints it first), so this suite's
+    // default is "the notice has printed"; the one test about the notice's absence unsets it.
+    noticeShownAt = '2026-10-10T00:00:00.000Z';
+    // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+    // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+    clearTelemetryEnv();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     getTelemetryConsent.mockReset().mockReturnValue(undefined);
     getInstallId.mockReset().mockReturnValue(INSTALL_ID);
     wasFunnelStageRecorded.mockReset().mockReturnValue(false);
     markFunnelStageRecorded.mockReset();
+    releaseFunnelStage.mockReset();
     getEnvironment.mockReset().mockReturnValue(freshEnv);
-    vi.stubEnv('ALIGN_TELEMETRY', undefined);
-    vi.stubEnv('DO_NOT_TRACK', undefined);
   });
 
   afterEach(() => vi.unstubAllEnvs());
 
-  it('first ever run, no env vars, no consent yet: exactly one beacon, and the install is marked', async () => {
+  it('C6: no notice and no stored decision: no beacon (the notice is the disclosure it waits on)', async () => {
+    noticeShownAt = undefined;
+    await expect(recordInstallBeacon('align')).resolves.toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('C6: the first run is not consumed while the notice has not printed (no terminal yet)', async () => {
+    noticeShownAt = undefined;
+    await recordInstallBeacon('align');
+    expect(markFunnelStageRecorded).not.toHaveBeenCalled();
+  });
+
+  it('C6: in CI the first run is not consumed - no beacon, and the install is NOT marked', async () => {
+    vi.stubEnv('CI', 'true');
+    await expect(recordInstallBeacon('align')).resolves.toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(markFunnelStageRecorded).not.toHaveBeenCalled();
+  });
+
+  it('first ever run after the notice, no env vars, no consent yet: exactly one beacon, and the install is marked', async () => {
     await expect(recordInstallBeacon('align')).resolves.toBe(true);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -131,12 +166,23 @@ describe('recordInstallBeacon', () => {
   });
 
   // A prompt-declined consent is about USAGE; the beacons are the documented default.
-  it('a "declined" consent does not stop the beacon', async () => {
+  // Review of e794c6e: a stored No from the old consent question is "off", and the privacy page
+  // says off stays off - so it stops the beacon, and consumes the first run like an env switch.
+  it('a "declined" consent stops the beacon and consumes the first run', async () => {
     getTelemetryConsent.mockReturnValue('declined');
 
-    await expect(recordInstallBeacon('align')).resolves.toBe(true);
+    await expect(recordInstallBeacon('align')).resolves.toBe(false);
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(markFunnelStageRecorded).toHaveBeenCalledWith('install');
+  });
+
+  it('marks the install before the send, so a second run started meanwhile does not send again', async () => {
+    const order: string[] = [];
+    markFunnelStageRecorded.mockImplementation(() => { order.push('mark'); });
+    mockFetch.mockImplementation(async () => { order.push('send'); return { ok: true }; });
+    await recordInstallBeacon('align');
+    expect(order).toEqual(['mark', 'send']);
   });
 
   it('cloud mode unchanged: a run that already holds a cloud token sends no anonymous beacon', async () => {
@@ -165,9 +211,19 @@ describe('recordInstallBeacon', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('resolves true even when the gateway rejects - one lost row, never a re-send', async () => {
+  // The first-run beacon is awaited (usage-telemetry-install-delivery.test.ts): a send that
+  // never arrived releases the stage so the next run retries, rather than losing the install.
+  it('a refused connection resolves false and releases the stage for the next run', async () => {
     mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
 
+    await expect(recordInstallBeacon('align')).resolves.toBe(false);
+    expect(releaseFunnelStage).toHaveBeenCalledWith('install');
+  });
+
+  it('a gateway that answers with an error status received it: true, and the stage is kept (never a re-send)', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 500 });
+
     await expect(recordInstallBeacon('align')).resolves.toBe(true);
+    expect(releaseFunnelStage).not.toHaveBeenCalled();
   });
 });

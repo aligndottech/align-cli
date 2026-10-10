@@ -7,6 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 
 const getTelemetryConsent = vi.fn();
@@ -16,9 +17,12 @@ const markFunnelStageRecorded = vi.fn();
 const INSTALL_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const HOSTED_URL = vi.hoisted(() => 'https://api.align.tech');
 
+// C6: whether the one-time telemetry notice has printed. Unset unless a test says otherwise.
+let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     getTelemetryConsent,
+    getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId,
     wasFunnelStageRecorded,
     markFunnelStageRecorded,
@@ -55,6 +59,10 @@ function sentTo(): { url: string; body: Record<string, unknown> } {
 
 describe('recordFunnelStage', () => {
   beforeEach(() => {
+    noticeShownAt = undefined;
+    // Every CI variable now turns telemetry off (C6), so all of them are cleared - with the env
+    // switches, ALIGN_WRAPPED and the ALIGN_* token/env vars - rather than inherited.
+    clearTelemetryEnv();
     mockFetch.mockReset();
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     getTelemetryConsent.mockReset();
@@ -63,7 +71,6 @@ describe('recordFunnelStage', () => {
     wasFunnelStageRecorded.mockReset();
     wasFunnelStageRecorded.mockReturnValue(false);
     markFunnelStageRecorded.mockReset();
-    vi.stubEnv('ALIGN_TELEMETRY', '');
   });
 
   afterEach(() => vi.unstubAllEnvs());
@@ -95,8 +102,15 @@ describe('recordFunnelStage', () => {
   // declines usage telemetry still counts as having finished the wizard. Nothing else moves
   // to this tier - setup_started stays behind consent, the second example pins that.
   describe('beacon tier (ALI-954): setup_completed sends in local mode without consent', () => {
-    it('consent never asked: setup_completed still sends, as an anonymous ping', async () => {
+    it('C6: no decision and no notice yet: setup_completed does not send', async () => {
       getTelemetryConsent.mockReturnValue(undefined);
+      await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('no decision, after the notice: setup_completed sends, as an anonymous ping', async () => {
+      getTelemetryConsent.mockReturnValue(undefined);
+      noticeShownAt = '2026-10-10T00:00:00.000Z';
 
       await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(true);
 
@@ -105,11 +119,14 @@ describe('recordFunnelStage', () => {
       expect(body).toMatchObject({ installId: INSTALL_ID, command: 'setup', stage: 'setup_completed' });
     });
 
-    it('consent declined at the prompt: setup_completed still sends', async () => {
+    // Review of e794c6e: a stored No means off ("if you turned telemetry off earlier, it stays
+    // off"), so the beacon stops too, notice or not.
+    it('consent declined at the old prompt: setup_completed does not send, even after the notice', async () => {
       getTelemetryConsent.mockReturnValue('declined');
+      noticeShownAt = '2026-10-10T00:00:00.000Z';
 
-      await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(true);
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('consent declined: setup_started does NOT send - only the two beacons are default-on', async () => {
@@ -137,7 +154,8 @@ describe('recordFunnelStage', () => {
 
     // The snapshot the docs page is checked against: every field, by equality.
     it('beacon payload is exactly installId, command, cliVersion and stage - no os, no consent state', async () => {
-      getTelemetryConsent.mockReturnValue('declined');
+      getTelemetryConsent.mockReturnValue(undefined);
+      noticeShownAt = '2026-10-10T00:00:00.000Z';
 
       await recordFunnelStage(localEnv, 'setup_completed', 'setup');
 
