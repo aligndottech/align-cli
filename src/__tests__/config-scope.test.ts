@@ -91,6 +91,30 @@ describe('connector scope storage', () => {
   });
 });
 
+describe('what was told is forgotten with the connector', () => {
+  it('forgetting a connector forgets its told scopes only; forgetting all forgets every one; clearing one source leaves the others', () => {
+    const c = createConfigStore();
+    c.markTeamScopeDisclosed('jira', 'jira:ALI');
+    c.markTeamScopeDisclosed('jira', 'jira:OPS');
+    c.markTeamScopeDisclosed('github', 'repo:o/r');
+    c.forgetConnector('local', 'jira');
+    expect(c.getTeamScopeDisclosedFor()).toEqual(['github|repo:o/r']);
+    c.markTeamScopeDisclosed('linear', 'linear:ENG');
+    c.clearTeamScopeDisclosed('github');
+    expect(c.getTeamScopeDisclosedFor()).toEqual(['linear|linear:ENG']);
+    c.forgetAllConnectors('local');
+    expect(c.getTeamScopeDisclosedFor()).toEqual([]);
+  });
+
+  it('a prefix of another source name is not swept (a source named like another\'s start)', () => {
+    const c = createConfigStore();
+    c.markTeamScopeDisclosed('git', 'x');
+    c.markTeamScopeDisclosed('github', 'repo:o/r');
+    c.clearTeamScopeDisclosed('git');
+    expect(c.getTeamScopeDisclosedFor()).toEqual(['github|repo:o/r']);
+  });
+});
+
 describe('team scope disclosure', () => {
   it('is false until marked, then true for that source and scope only, and marking twice stores it once', () => {
     const c = createConfigStore();

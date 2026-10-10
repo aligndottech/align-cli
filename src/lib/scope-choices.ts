@@ -25,6 +25,24 @@ export type Visibility = 'visible' | 'invisible' | 'unknown';
 const HOSTNAME = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
 const TIMEOUT_MS = 10_000;
 const MAX_LISTED = 1000;
+/** A vendor cannot make this process read more than this much of one answer, or page through more than MAX_PAGES. */
+const MAX_BODY_BYTES = 2_000_000;
+const MAX_PAGES = 50;
+
+async function readCapped(res: Response, max: number): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return res.text();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) { await reader.cancel().catch(() => undefined); throw new Error('too large'); }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 function hostOf(vendor: string, domain: string | undefined): string {
   if (domain === undefined || !HOSTNAME.test(domain)) {
@@ -44,7 +62,7 @@ async function get(vendor: string, url: string, headers: Record<string, string>,
     throw new ScopeLookupError(`${vendor} refused the saved token. Reconnect: align connect ${vendor.toLowerCase()}`, 'auth');
   }
   if (!res.ok) throw new ScopeLookupError(`${vendor} answered ${res.status} when reading the list.`, 'unreachable');
-  try { return await res.json(); } catch { throw new ScopeLookupError(`${vendor} sent a list this CLI could not read.`, 'unreachable'); }
+  try { return JSON.parse(await readCapped(res, MAX_BODY_BYTES)); } catch { throw new ScopeLookupError(`${vendor} sent a list this CLI could not read.`, 'unreachable'); }
 }
 
 const asRecord = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {});
@@ -91,7 +109,8 @@ export async function listConfluenceSpaces(fields: Record<string, string>, f: Fe
   const items: Array<{ key: string; name: string }> = [];
   let truncated = false;
   let next: string | undefined = '/wiki/api/v2/spaces?limit=250';
-  while (next !== undefined) {
+  for (let pages = 0; next !== undefined; pages++) {
+    if (pages >= MAX_PAGES) { truncated = true; break; }
     const page = asRecord(await get('Confluence', `${base}${next}`, headers, f));
     for (const v of Array.isArray(page['results']) ? page['results'] : []) {
       const key = text(asRecord(v)['key']);
@@ -146,7 +165,7 @@ export async function findJiraProject(fields: Record<string, string>, key: strin
   if (code === 200) return true;
   if (code === 404) return false;
   if (code === 401 || code === 403) throw new ScopeLookupError('Jira refused the saved token. Reconnect: align connect jira', 'auth');
-  throw new ScopeLookupError(`Could not check Jira project ${key} (Jira answered ${code ?? 'nothing'}).`, 'unreachable');
+  throw new ScopeLookupError(`Could not check a Jira project (Jira answered ${code ?? 'nothing'}).`, 'unreachable');
 }
 
 export async function findConfluenceSpace(fields: Record<string, string>, key: string, f: FetchLike): Promise<boolean> {
@@ -167,7 +186,7 @@ const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 
 /** Can this token search `repo:o/r`? P0 measured GitHub answering 422 "cannot be searched" for a private repo the token has no access to. */
 export async function githubRepoVisibility(token: string, repo: string, f: FetchLike): Promise<Visibility> {
-  if (!REPO.test(repo)) return 'unknown';
+  if (!REPO.test(repo) || repo.split('/').some((seg) => /^\.+$/.test(seg))) return 'unknown';
   const code = await status(
     `https://api.github.com/search/issues?q=${encodeURIComponent(`repo:${repo}`)}&per_page=1`,
     { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'align-cli' },

@@ -22,6 +22,13 @@ describe('normaliseScopeValues', () => {
     expect(() => normaliseScopeValues('github', ['a/b', 'c/d'])).toThrow(/one repo/);
   });
 
+  it('a path segment that is only dots is refused (GitHub and GitLab), while dots inside a name stay valid', () => {
+    for (const bad of ['../x', 'o/..', './r', 'o/.']) expect(() => normaliseScopeValues('github', bad), bad).toThrow(ScopeValueError);
+    for (const bad of ['g/../p', '../g/p', 'g/p/.']) expect(() => normaliseScopeValues('gitlab', bad), bad).toThrow(ScopeValueError);
+    expect(normaliseScopeValues('github', 'o/r.js')).toEqual(['o/r.js']);
+    expect(normaliseScopeValues('gitlab', 'g.h/sub/p.q')).toEqual(['g.h/sub/p.q']);
+  });
+
   it('jira: capital-letter project keys, case-normalised, sorted, deduplicated', () => {
     expect(normaliseScopeValues('jira', ['ops', 'ALI', 'OPS'])).toEqual(['ALI', 'OPS']);
     expect(normaliseScopeValues('jira', 'ALI,OPS')).toEqual(['ALI', 'OPS']);

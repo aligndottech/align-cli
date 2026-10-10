@@ -65,6 +65,22 @@ describe('the disclosure in align sync', () => {
     expect(marked).toEqual([]);
   });
 
+  it('the command asks the question only at a terminal (default No): a pty-less run is never asked and never promotes', async () => {
+    h.script({ items: [] });
+    const asked: string[] = [];
+    const base = deps({ disclosure: DISCLOSURE, activates: true });
+    const ask = async (m: string): Promise<boolean> => { asked.push(m); return true; };
+    const tty = { ...base, isTty: () => true, confirm: ask };
+    await runSyncCommand(['jira'], {}, tty);
+    expect(asked).toHaveLength(1);
+    expect(marked).toEqual(['jira']);
+    marked.length = 0; asked.length = 0;
+    const noTty = { ...base, isTty: () => false, confirm: ask };
+    await runSyncCommand(['jira'], {}, noTty);
+    expect(asked).toEqual([]);
+    expect(marked).toEqual([]);
+  });
+
   it('a foreground run with no disclosure to give prints none', async () => {
     h.script({ items: [] });
     await runSyncCommand(['jira'], {}, deps({}));

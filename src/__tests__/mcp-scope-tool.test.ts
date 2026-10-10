@@ -51,7 +51,10 @@ describe('schema', () => {
     expect(t).toContain('deletes nothing');
     expect(t).toContain('align connect <source>');
     expect(t).toContain('Zoom');
-    expect(t.length).toBeLessThan(1400);
+    // Honest about the gate: a prompt a shell-capable agent could in principle answer is a speed bump, not proof.
+    expect(t).toContain('speed bump, not proof');
+    expect(t).toContain('pseudo-terminal');
+    expect(t.length).toBeLessThan(1700);
   });
 
   it('refuses a token or key before anything runs, naming the property and never the value (two examples)', async () => {
@@ -74,6 +77,16 @@ describe('schema', () => {
 
   it('a hosted server refuses: this edits what the local graph reads', async () => {
     await expect(runScopeTool({ action: 'view' }, cloudEnv, d())).rejects.toThrow(/local graph/);
+  });
+});
+
+describe('what the consent gate does not claim', () => {
+  it('the docs and the tool say plainly that a shell-capable agent with a pseudo-terminal can still confirm (a pty is not detectable, so it is documented, not tested)', () => {
+    const docs = fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'importing.md'), 'utf8');
+    expect(docs).toContain('pseudo-terminal');
+    expect(docs).toContain('speed bump, not as proof');
+    expect(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'mcp.md'), 'utf8')).toContain('speed bump, not proof');
+    expect(SCOPE_TOOL_SCHEMA.description).toContain('speed bump, not proof');
   });
 });
 
@@ -158,7 +171,7 @@ describe('set', () => {
 
   it('a project the token cannot see is refused by key, with nothing stored', async () => {
     const deps = d({ table: [jiraProjects('ALI')] });
-    await expect(runScopeTool({ action: 'set', source: 'jira', projects: ['NOPE'] }, localEnv, deps)).rejects.toThrow(/NOPE/);
+    await expect(runScopeTool({ action: 'set', source: 'jira', projects: ['NOPE'] }, localEnv, deps)).rejects.toThrow(/cannot see 1 of the projects you gave/);
     expect(deps.store.scopes).toEqual({});
   });
 

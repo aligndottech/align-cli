@@ -84,8 +84,8 @@ as your token can see. There is no "everything": a team read always has a name.
 |--------|-------------------|----------------|
 | GitHub | a repo (`--repo owner/repo`), or the repo you are in | your own items |
 | GitLab | a project (`--gitlab-project group/project`), or the project you are in | your own merge requests |
-| Jira | project keys (`--projects ALI,OPS`) | your own issues |
-| Linear | team keys (`--teams ENG`) | your own issues |
+| Jira | project keys (`--projects ALI,OPS`) | issues you are involved in |
+| Linear | team keys (`--teams ENG`) | issues you are involved in |
 | Confluence | space keys (`--spaces ENG,OPS`) | **nothing is read**: pick at least one space |
 | Slack, Notion, Teams | nothing to pick | everything your token can see (Slack: the channels it is in) |
 | Zoom | nothing to pick | only your own cloud recordings; the whole account needs an admin token, which Align does not ask for |
@@ -99,9 +99,9 @@ align connect                                          # at a terminal: pickers,
 The first time a source is read as a particular team scope (each repo, project set or space set counts separately, so widening later says it again), one line says what that means: "Importing items from
 everyone in ... that your token can read. They stay on this machine." Nothing leaves your machine
 unless you share a decision yourself. A repo your token cannot see (a private repo, a token with no
-repo access) is not read as a team: it says so and reads only your items. A choice you make is
-checked against what your token can see before anything is fetched, and a value that fails is
-refused without being printed back.
+repo access) is not read as a team: it says so and reads only the items you are involved in. A choice you make is
+checked against what your token can see before anything is fetched. A value that fails is refused
+without being printed back, and the message counts the values that failed instead of naming them.
 
 Widening is a new scope, so the next sync reads the whole window again for it (a few minutes, and
 some of the source's rate limit). Going back to a scope you read before only catches up. Changing
@@ -111,10 +111,25 @@ From inside a coding agent, `align_scope` shows each connected source's scope (`
 (`set`), through the same code the command uses, and records that an agent made the change. It never
 takes a token: a source that is not connected gets the `align connect` command back for you to run.
 
-**A team scope an agent sets waits for you.** Nothing reads it in the background, or when an agent runs a
-sync, until you run `align sync <source>` at a terminal: that shows the line above, then reads it.
-Until then the source keeps reading what it read before, and `align sync --status` says a change is
-waiting. Going back to only your own items is immediate.
+**A wider scope that nobody at a terminal asked for waits for you.** That covers an agent's `align_scope set`,
+a connect with no terminal or with `--json`, and a connect an agent started. Nothing reads it, in the
+background or when an agent runs a sync, until you run `align sync <source>` at a terminal: that shows the
+line above and asks "Read ... now?" (the default is No, and no terminal means no). Until then the source
+keeps reading what it read before, and `align sync --status` says a change is waiting. Going back to only
+your own items is immediate.
+
+**What this does and does not stop.** It stops an agent that only has Align's tools, a script, and a background
+job. It does not stop an agent that can run shell commands and drive a pseudo-terminal (`script`, `expect`):
+that can answer the prompt itself, and Align cannot tell. Treat the prompt as a speed bump, not as proof of
+consent. If you do not want an agent able to do this, do not give it a shell.
+
+Without a terminal (or with `--json`), a connect never widens by itself: it does not turn the keys your
+decisions cite into a project list, and it does not read a repo just because you are standing in one. At a
+terminal the picker preselects the cited keys, and you choose.
+
+Scope settings are saved in Align's config file next to your tokens. Two Align processes writing that file at
+the same moment can lose one of the two writes (the file is read whole and written whole); a lost scope
+change shows up as the old scope, and `align_scope view` or `align sync --status` shows what is in force.
 
 The per-source commands (`align connect jira ...`) do not take scope flags; use `align connect --source
 jira --projects ALI`. On the local graph `align connect confluence` reads the spaces already chosen, or

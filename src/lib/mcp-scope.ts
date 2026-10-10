@@ -38,7 +38,7 @@ export const SCOPE_TOOL_SCHEMA = {
     'action "view" lists each connected source\'s scope (and any change waiting for the person); use it when asked what is read or why teammates\' items are missing. ' +
     'action "set" changes one source; offer it when the user asks to include their team\'s items, or to go back to only their own. ' +
     'Widening re-reads that source\'s history on its next sync (a few minutes; the reply says how far back). ' +
-    'It deletes nothing and reads other people\'s items onto this machine only. A team change you make WAITS for the person: it is not read, by a background sync or by align_sync, until they run `align sync <source>` at a terminal, which shows them what it reads first. Tell them so, with the reply\'s disclosure sentence in your own words; do not start it yourself. Narrowing to their own items is immediate. ' +
+    'It deletes nothing and reads other people\'s items onto this machine only. A team change you make WAITS: nothing reads it, in the background or via align_sync, until a person runs `align sync <source>` at a terminal, which shows what it reads and asks (default No). Tell them so, with the reply\'s disclosure sentence in your own words. That prompt is a speed bump, not proof of consent: an agent with shell access could answer it from a pseudo-terminal, and you must never do that. Narrowing to their own items is immediate. ' +
     'Zoom is only the user\'s own; Slack, Notion and Teams already read all their token can see. ' +
     'It never takes a token or key: for a source that is not connected, or whose saved token was refused, the reply gives the exact `align connect <source>` command for the user to run themselves. Do not ask the user to paste a token into the chat.',
   inputSchema: {

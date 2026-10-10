@@ -29,6 +29,7 @@ export function memStore(init: { connected?: string[]; scopes?: Record<string, S
     // An init entry of just a source id means "told for every scope of it"; marking is always per (source, scope).
     isDisclosed: (s, key) => disclosed.has(s) || disclosed.has(`${s}|${key}`),
     markDisclosed: (s, key) => { disclosed.add(`${s}|${key}`); },
+    clearDisclosed: (s) => { for (const e of [...disclosed]) if (e === s || e.startsWith(`${s}|`)) disclosed.delete(e); },
   };
 }
 

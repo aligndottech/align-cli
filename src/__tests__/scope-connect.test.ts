@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { runScopeTool } from '../lib/mcp-scope.js';
 import { scopeOf } from '../lib/sync/sources.js';
+import type { ChangedBy } from '../lib/scope.js';
+import type { ActiveScope } from '../lib/scope-values.js';
 import { checkScopeFlags, type ConnectScopeCtx, decideConnectScope, fetchUnderScope, type PickOption, type ScopeFlags } from '../lib/scope-connect.js';
 import { beginRun, readRows } from '../lib/sync/sync-state.js';
 import { FIELDS, jiraProjects, makeDeps, memStore, type Route } from './helpers/scope-deps.js';
@@ -38,20 +40,25 @@ afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 interface Asked { message: string; options: PickOption[]; initial: string[]; required: boolean }
 function setup(o: {
   interactive?: boolean; quiet?: boolean; flags?: ScopeFlags; picks?: string[] | null; cited?: string[];
-  table?: Route[]; store?: ReturnType<typeof memStore>; cwdRepo?: string; cwdGitlab?: string;
-} = {}): { ctx: ConnectScopeCtx; said: string[]; asked: Asked[]; deps: ReturnType<typeof makeDeps> } {
+  table?: Route[]; store?: ReturnType<typeof memStore>; cwdRepo?: string; cwdGitlab?: string; confirms?: boolean; by?: ChangedBy;
+} = {}): { ctx: ConnectScopeCtx; said: string[]; asked: Asked[]; confirmed: string[]; deps: ReturnType<typeof makeDeps> } {
   const said: string[] = [];
   const asked: Asked[] = [];
+  const confirmed: string[] = [];
   const deps = makeDeps(dbPath, {
     ...(o.table ? { table: o.table } : {}), ...(o.store ? { store: o.store } : {}),
     cwdRepo: async () => o.cwdRepo, cwdGitlabProject: async () => o.cwdGitlab,
   });
   const ctx: ConnectScopeCtx = {
     deps, interactive: o.interactive ?? false, quiet: o.quiet ?? false, flags: o.flags ?? {},
-    prompts: { multiselect: async (message, options, initial, opt) => { asked.push({ message, options, initial, required: opt.required }); return o.picks === undefined ? initial : o.picks; } },
+    prompts: {
+      multiselect: async (message, options, initial, opt) => { asked.push({ message, options, initial, required: opt.required }); return o.picks === undefined ? initial : o.picks; },
+      confirm: async (message) => { confirmed.push(message); return o.confirms ?? false; },
+    },
     citedKeys: () => o.cited ?? [], say: (l) => said.push(l),
+    ...(o.by ? { by: o.by } : {}),
   };
-  return { ctx, said, asked, deps };
+  return { ctx, said, asked, confirmed, deps };
 }
 const SEARCH: Route = [/api\.github\.com\/search\/issues/, { status: 200 }];
 const TOKENS = { jira: FIELDS['jira']!, linear: FIELDS['linear']!, github: FIELDS['github']!, confluence: FIELDS['confluence']!, gitlab: FIELDS['gitlab']! };
@@ -60,8 +67,8 @@ const spaces = (...keys: string[]): Route => [/wiki\/api\/v2\/spaces/, { body: {
 
 describe('GitHub', () => {
   it('inside a repo the token can see: team, resolved extras with the repo, the disclosure said once and marked', async () => {
-    for (const interactive of [true, false]) {
-      const s = setup({ interactive, cwdRepo: 'o/r', table: [SEARCH] });
+    {
+      const s = setup({ interactive: true, cwdRepo: 'o/r', table: [SEARCH] });
       const d = await decideConnectScope('github', TOKENS.github, s.ctx);
       expect(d).toMatchObject({ scope: 'team', extras: { resolved: true, repo: 'o/r', team: true }, label: "everyone's items in o/r" });
       expect(s.said).toHaveLength(1);
@@ -72,11 +79,12 @@ describe('GitHub', () => {
   });
 
   it('already told: no line. Quiet: no line and not marked as told (two cases)', async () => {
-    const told = setup({ cwdRepo: 'o/r', table: [SEARCH], store: memStore({ disclosed: ['github'] }) });
+    const told = setup({ interactive: true, cwdRepo: 'o/r', table: [SEARCH], store: memStore({ disclosed: ['github'] }) });
     await decideConnectScope('github', TOKENS.github, told.ctx);
     expect(told.said).toEqual([]);
-    const quiet = setup({ quiet: true, cwdRepo: 'o/r', table: [SEARCH] });
-    await decideConnectScope('github', TOKENS.github, quiet.ctx);
+    // --json: not a person, so the folder does not widen and nothing is told or marked.
+    const quiet = setup({ interactive: true, quiet: true, cwdRepo: 'o/r', table: [SEARCH] });
+    expect(await decideConnectScope('github', TOKENS.github, quiet.ctx)).toMatchObject({ scope: 'yours' });
     expect(quiet.said).toEqual([]);
     expect(quiet.deps.store.disclosed.has('github|repo:o/r')).toBe(false);
   });
@@ -89,7 +97,7 @@ describe('GitHub', () => {
   });
 
   it('a repo the token cannot see: yours, resolved with no repo, and the line is said', async () => {
-    const s = setup({ cwdRepo: 'aligndottech/align-stack', table: [[/api\.github\.com\/search/, { status: 422 }]] });
+    const s = setup({ interactive: true, cwdRepo: 'aligndottech/align-stack', table: [[/api\.github\.com\/search/, { status: 422 }]] });
     const d = await decideConnectScope('github', TOKENS.github, s.ctx);
     expect(d).toMatchObject({ scope: 'yours', extras: { resolved: true } });
     expect(d.extras.repo).toBeUndefined();
@@ -105,7 +113,7 @@ describe('GitHub', () => {
   });
 
   it('--scope yours wins over the folder, makes no probe, and is written down after the fetch', async () => {
-    const s = setup({ cwdRepo: 'o/r', flags: { scope: 'yours' }, table: [SEARCH] });
+    const s = setup({ interactive: true, cwdRepo: 'o/r', flags: { scope: 'yours' }, table: [SEARCH] });
     const d = await decideConnectScope('github', TOKENS.github, s.ctx);
     expect(d.scope).toBe('yours');
     expect(s.deps.calls).toHaveLength(0);
@@ -114,15 +122,15 @@ describe('GitHub', () => {
     expect(s.deps.store.scopes['github']).toEqual({ kind: 'yours' });
   });
 
-  it('--repo checks the token before anything is fetched: seen is team, unseen is a refusal naming the repo (two outcomes)', async () => {
-    const ok = setup({ flags: { repo: 'x/y' }, table: [SEARCH] });
+  it('--repo checks the token before anything is fetched: seen is team, unseen is a refusal that does not print the value (two outcomes)', async () => {
+    const ok = setup({ interactive: true, flags: { repo: 'x/y' }, table: [SEARCH] });
     expect(await decideConnectScope('github', TOKENS.github, ok.ctx)).toMatchObject({ scope: 'team', extras: { resolved: true, repo: 'x/y', team: true } });
-    const no = setup({ flags: { repo: 'x/y' }, table: [[/search/, { status: 422 }]] });
-    await expect(decideConnectScope('github', TOKENS.github, no.ctx)).rejects.toThrow(/cannot see x\/y/);
+    const no = setup({ interactive: true, flags: { repo: 'x/y' }, table: [[/search/, { status: 422 }]] });
+    await expect(decideConnectScope('github', TOKENS.github, no.ctx)).rejects.toThrow(/cannot see the repo you named/);
   });
 
   it('the in-flight token is the one used to check, not a saved one (a first connect has none saved)', async () => {
-    const s = setup({ flags: { repo: 'x/y' }, table: [SEARCH], store: memStore({ connected: [] }) });
+    const s = setup({ interactive: true, flags: { repo: 'x/y' }, table: [SEARCH], store: memStore({ connected: [] }) });
     await decideConnectScope('github', { token: 'IN-FLIGHT-TOKEN-12345' }, s.ctx);
     expect(s.deps.calls).toHaveLength(1);
   });
@@ -136,7 +144,7 @@ describe('Jira', () => {
     expect(s.asked[0]!.options.map((x) => x.value)).toEqual(['ALI', 'BETA', 'OPS']);
     expect(s.asked[0]!.initial).toEqual(['ALI', 'OPS']);
     expect(s.asked[0]!.required).toBe(false);
-    expect(s.asked[0]!.message).toContain('only your own');
+    expect(s.asked[0]!.message).toContain('only the items you are involved in');
     expect(d).toMatchObject({ scope: 'team', extras: { resolved: true, projects: ['BETA', 'OPS'] }, label: "everyone's items in Jira projects BETA, OPS" });
     expect(s.said.join('\n')).toContain('everyone in Jira projects BETA, OPS');
   });
@@ -168,14 +176,28 @@ describe('Jira', () => {
     expect(await decideConnectScope('jira', TOKENS.jira, s.ctx)).toMatchObject({ scope: 'team', extras: { projects: ['ALI', 'OPS'] } });
     expect(s.asked).toEqual([]);
     const bad = setup({ flags: { projects: 'NOPE' }, table: [jiraProjects('ALI')] });
-    await expect(decideConnectScope('jira', TOKENS.jira, bad.ctx)).rejects.toThrow(/NOPE/);
+    const err = await decideConnectScope('jira', TOKENS.jira, bad.ctx).catch((e: Error) => e);
+    expect((err as Error).message).toContain('cannot see 1 of the projects you gave');
+    expect((err as Error).message).not.toContain('NOPE');
   });
 
-  it('not interactive, nothing flagged or stored: the cited keys the token can see become the scope, and the line says so', async () => {
-    const s = setup({ cited: ['ALI', 'OPS', 'GONE'], table: [jiraProjects('ALI', 'OPS')] });
-    const d = await decideConnectScope('jira', TOKENS.jira, s.ctx);
-    expect(d).toMatchObject({ scope: 'team', extras: { projects: ['ALI', 'OPS'] } });
-    expect(s.said.join('\n')).toContain('everyone in Jira projects ALI, OPS');
+  it('NOT a person (no terminal, --json, or an agent child): cited keys never widen. Yours, the hint, nothing stored active, no lookup (three ways)', async () => {
+    const cases = [{ interactive: false }, { interactive: false, quiet: true }, { interactive: true, quiet: true }];
+    for (const c of cases) {
+      const s = setup({ ...c, cited: ['ALI', 'SECRET'], table: [jiraProjects('ALI')] });
+      const d = await decideConnectScope('jira', TOKENS.jira, s.ctx);
+      expect(d, JSON.stringify(c)).toMatchObject({ scope: 'yours' });
+      expect(d.extras.projects).toBeUndefined();
+      d.commit();
+      expect(s.deps.store.scopes['jira'] ?? { kind: 'yours' }).toEqual({ kind: 'yours' });
+      expect(s.deps.calls).toHaveLength(0);
+      if (!c.quiet) expect(s.said.join('\n')).toContain('--projects KEYS');
+    }
+  });
+
+  it('a person (terminal, not --json) who picks the cited keys still reads team: the positive control', async () => {
+    const s = setup({ interactive: true, cited: ['ALI'], table: [jiraProjects('ALI')], picks: ['ALI'] });
+    expect(await decideConnectScope('jira', TOKENS.jira, s.ctx)).toMatchObject({ scope: 'team', extras: { projects: ['ALI'] } });
   });
 
   it('not interactive and no cited key: yours, and the line says how to widen (two reasons: none cited, none visible)', async () => {
@@ -195,8 +217,8 @@ describe('Jira', () => {
     expect(s.deps.calls).toHaveLength(0);
   });
 
-  it('a list that cannot be read never blocks the connect: yours, with the reason (interactive and not)', async () => {
-    for (const interactive of [true, false]) {
+  it('a list that cannot be read never blocks the connect: yours, with the reason', async () => {
+    for (const interactive of [true]) {
       const s = setup({ interactive, cited: ['ALI'], table: [[/project\/search/, { status: 500 }]] });
       const d = await decideConnectScope('jira', TOKENS.jira, s.ctx);
       expect(d.scope).toBe('yours');
@@ -244,11 +266,11 @@ describe('Linear', () => {
     expect(d).toMatchObject({ scope: 'team', extras: { teams: ['id-ENG'] }, label: "everyone's items in Linear team ENG" });
   });
 
-  it('not interactive: --teams, else the cited keys the token can see, else yours (three cases)', async () => {
-    const flagged = setup({ flags: { teams: 'ops' }, table: [teams('ENG', 'OPS')] });
+  it('--teams from a person is read; cited keys never widen on their own; with neither it is yours (three cases)', async () => {
+    const flagged = setup({ interactive: true, flags: { teams: 'ops' }, table: [teams('ENG', 'OPS')] });
     expect(await decideConnectScope('linear', TOKENS.linear, flagged.ctx)).toMatchObject({ extras: { teams: ['id-OPS'] } });
     const cited = setup({ cited: ['ENG'], table: [teams('ENG')] });
-    expect(await decideConnectScope('linear', TOKENS.linear, cited.ctx)).toMatchObject({ scope: 'team', extras: { teams: ['id-ENG'] } });
+    expect(await decideConnectScope('linear', TOKENS.linear, cited.ctx)).toMatchObject({ scope: 'yours' });
     const none = setup({ table: [teams('ENG')] });
     expect(await decideConnectScope('linear', TOKENS.linear, none.ctx)).toMatchObject({ scope: 'yours' });
     expect(none.said.join('\n')).toContain('--teams KEYS');
@@ -270,14 +292,17 @@ describe('Confluence', () => {
     }
   });
 
-  it('not interactive: --spaces is used; a stored choice is used; neither is refused with the command (three cases)', async () => {
-    const flagged = setup({ flags: { spaces: 'ENG' }, table: [spaces('ENG')] });
+  it('not interactive: a stored choice is used; --spaces from a person is used; a request with no terminal is saved for later and refused now (three cases)', async () => {
+    const flagged = setup({ interactive: true, flags: { spaces: 'ENG' }, table: [spaces('ENG')] });
     expect(await decideConnectScope('confluence', TOKENS.confluence, flagged.ctx)).toMatchObject({ extras: { spaces: ['ENG'] } });
     const stored = setup({ store: memStore({ scopes: { confluence: { kind: 'team', values: ['OPS'], labels: ['OPS'] } } }) });
     expect(await decideConnectScope('confluence', TOKENS.confluence, stored.ctx)).toMatchObject({ extras: { spaces: ['OPS'] } });
     const none = setup();
     await expect(decideConnectScope('confluence', TOKENS.confluence, none.ctx)).rejects.toThrow(/align connect --source confluence --spaces ENG,OPS/);
     expect(none.deps.calls).toHaveLength(0);
+    const unattended = setup({ flags: { spaces: 'ENG' }, table: [spaces('ENG')] });
+    await expect(decideConnectScope('confluence', TOKENS.confluence, unattended.ctx)).rejects.toThrow(/saved and waiting for you to confirm/);
+    expect(unattended.deps.store.scopes['confluence']).toEqual({ kind: 'team', values: ['ENG'], labels: ['ENG'], pending: { previous: null } });
   });
 
   it('a list that cannot be read is a refusal too (Confluence has no yours to fall back to), with the reason', async () => {
@@ -323,11 +348,11 @@ describe('the window a new scope row records', () => {
 
 describe('GitLab, Zoom and the sources with nothing to pick', () => {
   it('GitLab: the project from the remote when the token can see it; --gitlab-project; the cannot-see line (three cases)', async () => {
-    const seen = setup({ cwdGitlab: 'g/p', table: [[/api\/v4\/projects/, { status: 200 }]] });
+    const seen = setup({ interactive: true, cwdGitlab: 'g/p', table: [[/api\/v4\/projects/, { status: 200 }]] });
     expect(await decideConnectScope('gitlab', TOKENS.gitlab, seen.ctx)).toMatchObject({ scope: 'team', extras: { projectId: 'g/p' } });
-    const flagged = setup({ flags: { gitlabProject: '12' }, table: [[/api\/v4\/projects/, { status: 200 }]] });
+    const flagged = setup({ interactive: true, flags: { gitlabProject: '12' }, table: [[/api\/v4\/projects/, { status: 200 }]] });
     expect(await decideConnectScope('gitlab', TOKENS.gitlab, flagged.ctx)).toMatchObject({ extras: { projectId: '12' } });
-    const hidden = setup({ cwdGitlab: 'g/p', table: [[/projects/, { status: 404 }]] });
+    const hidden = setup({ interactive: true, cwdGitlab: 'g/p', table: [[/projects/, { status: 404 }]] });
     expect(await decideConnectScope('gitlab', TOKENS.gitlab, hidden.ctx)).toMatchObject({ scope: 'yours' });
     expect(hidden.said.join('\n')).toContain('cannot see g/p');
   });
@@ -351,7 +376,7 @@ describe('fetchUnderScope', () => {
 
   it('says the disclosure BEFORE the fetch, hands the fetch the scope, writes the choice only AFTER it succeeded, and names whose items were read', async () => {
     const events: string[] = [];
-    const s = setup({ flags: { projects: 'ALI' }, table: [jiraProjects('ALI')] });
+    const s = setup({ interactive: true, flags: { projects: 'ALI' }, table: [jiraProjects('ALI')] });
     s.ctx.say = (l) => events.push(`say:${l.slice(0, 9)}`);
     const fetch = vi.fn(async () => { events.push('fetch'); expect(s.deps.store.scopes['jira']).toBeUndefined(); return { items: [], report: { ...report } }; });
     const r = await fetchUnderScope(source(fetch), TOKENS.jira, undefined, s.ctx);
@@ -377,7 +402,7 @@ describe('fetchUnderScope', () => {
   });
 
   it('a failed fetch writes nothing', async () => {
-    const s = setup({ flags: { projects: 'ALI' }, table: [jiraProjects('ALI')] });
+    const s = setup({ interactive: true, flags: { projects: 'ALI' }, table: [jiraProjects('ALI')] });
     await expect(fetchUnderScope(source(vi.fn(async () => { throw new Error('boom'); })), TOKENS.jira, undefined, s.ctx)).rejects.toThrow('boom');
     expect(s.deps.store.scopes['jira']).toBeUndefined();
     expect(readRows(dbPath, 'jira')).toEqual([]);
@@ -431,11 +456,121 @@ describe('checkScopeFlags', () => {
   });
 });
 
+describe('consent: only a person widens (security review)', () => {
+  const pendingJira = (previous: ActiveScope | null = null) => memStore({ scopes: { jira: { kind: 'team', values: ['OPS'], labels: ['OPS'], pending: { previous } } } });
+
+  it('GitHub: the folder widens only for a person; unattended it stays yours with no probe (three ways), and a person is the positive control', async () => {
+    for (const c of [{ interactive: false }, { interactive: false, quiet: true }, { interactive: true, quiet: true }]) {
+      const s = setup({ ...c, cwdRepo: 'o/r', table: [SEARCH] });
+      const d = await decideConnectScope('github', TOKENS.github, s.ctx);
+      expect(d, JSON.stringify(c)).toMatchObject({ scope: 'yours' });
+      expect(d.extras.repo).toBeUndefined();
+      d.commit();
+      expect(s.deps.store.scopes['github']).toBeUndefined();
+      expect(s.deps.calls).toHaveLength(0);
+    }
+    const person = setup({ interactive: true, cwdRepo: 'o/r', table: [SEARCH] });
+    expect(await decideConnectScope('github', TOKENS.github, person.ctx)).toMatchObject({ scope: 'team', extras: { repo: 'o/r' } });
+  });
+
+  it('GitHub already told for this repo: an unattended run reads it (the background rule), so a person who accepted once is not blocked', async () => {
+    const s = setup({ cwdRepo: 'o/r', table: [SEARCH], store: memStore({ disclosed: ['github|repo:o/r'] }) });
+    expect(await decideConnectScope('github', TOKENS.github, s.ctx)).toMatchObject({ scope: 'team' });
+  });
+
+  it('a request made with no terminal (flags, --yes) reads what was in force and is SAVED PENDING; a person\'s identical request is active (both sides)', async () => {
+    const un = setup({ flags: { projects: 'OPS' }, table: [jiraProjects('OPS')] });
+    const d = await decideConnectScope('jira', TOKENS.jira, un.ctx);
+    expect(d).toMatchObject({ scope: 'yours' });
+    expect(d.extras.projects).toBeUndefined();
+    d.commit();
+    expect(un.deps.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'], pending: { previous: null } });
+    expect(un.said.join('\n')).toContain('once you confirm it');
+    const quiet = setup({ interactive: true, quiet: true, flags: { projects: 'OPS' }, table: [jiraProjects('OPS')] });
+    const q = await decideConnectScope('jira', TOKENS.jira, quiet.ctx);
+    q.commit();
+    expect(quiet.deps.store.scopes['jira']).toMatchObject({ pending: { previous: null } });
+    expect(quiet.said).toEqual([]);
+    const person = setup({ interactive: true, flags: { projects: 'OPS' }, table: [jiraProjects('OPS')] });
+    const p = await decideConnectScope('jira', TOKENS.jira, person.ctx);
+    p.commit();
+    expect(person.deps.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'] });
+  });
+
+  it('a child an agent started (by: mcp) has its scope choices wait, even at a terminal', async () => {
+    const s = setup({ interactive: true, by: { via: 'mcp', agent: 'unknown' }, flags: { projects: 'OPS' }, table: [jiraProjects('OPS')] });
+    (await decideConnectScope('jira', TOKENS.jira, s.ctx)).commit();
+    expect(s.deps.store.scopes['jira']).toMatchObject({ pending: { previous: null } });
+  });
+
+  it('CANCELLING the picker leaves an agent\'s waiting scope waiting: it is not read, not promoted, not marked told, and not preselected (positive control: picking it activates)', async () => {
+    const store = pendingJira();
+    const cancel = setup({ interactive: true, picks: null, table: [jiraProjects('ALI', 'OPS')], store });
+    const d = await decideConnectScope('jira', TOKENS.jira, cancel.ctx);
+    expect(d.scope).toBe('yours');
+    d.commit();
+    expect(store.scopes['jira']).toMatchObject({ pending: { previous: null } });
+    expect(store.disclosed.size).toBe(0);
+    expect(cancel.asked[0]!.initial).toEqual([]);
+    // Cancelling is not an answer to "read it now?": no such question is asked.
+    expect(cancel.confirmed).toEqual([]);
+    expect(cancel.said.join('\n')).toContain('Your agent proposed');
+    const pick = setup({ interactive: true, picks: ['OPS'], table: [jiraProjects('ALI', 'OPS')], store: pendingJira() });
+    const p = await decideConnectScope('jira', TOKENS.jira, pick.ctx);
+    p.commit();
+    expect(pick.deps.store.scopes['jira']).toEqual({ kind: 'team', values: ['OPS'], labels: ['OPS'] });
+  });
+
+  it('cancelling with a scope previously in force keeps THAT scope, not the waiting one', async () => {
+    const prev = { kind: 'team' as const, values: ['ALI'], labels: ['ALI'] };
+    const s = setup({ interactive: true, picks: null, table: [jiraProjects('ALI', 'OPS')], store: pendingJira(prev) });
+    expect(await decideConnectScope('jira', TOKENS.jira, s.ctx)).toMatchObject({ scope: 'team', extras: { projects: ['ALI'] } });
+  });
+
+  it('Confluence: cancel with nothing in force is a refusal with the command (never an empty message); with a space in force it keeps it', async () => {
+    const none = setup({ interactive: true, picks: null, table: [spaces('ENG')], store: memStore({ scopes: { confluence: { kind: 'team', values: ['ENG'], labels: ['ENG'], pending: { previous: null } } } }) });
+    const err = await decideConnectScope('confluence', TOKENS.confluence, none.ctx).catch((e: Error) => e);
+    expect((err as Error).message).toContain('--spaces ENG,OPS');
+    expect((err as Error).message).not.toBe('undefined');
+    const prev = { kind: 'team' as const, values: ['OPS'], labels: ['OPS'] };
+    const kept = setup({ interactive: true, picks: null, table: [spaces('ENG', 'OPS')], store: memStore({ scopes: { confluence: { kind: 'team', values: ['ENG'], labels: ['ENG'], pending: { previous: prev } } } }) });
+    expect(await decideConnectScope('confluence', TOKENS.confluence, kept.ctx)).toMatchObject({ extras: { spaces: ['OPS'] } });
+  });
+
+  it('a waiting scope offered outside a picker (GitHub) needs an explicit Yes: the disclosure is shown EVERY time, No keeps the previous scope and stays waiting, Yes activates and marks it told', async () => {
+    const waiting = () => memStore({ disclosed: ['github|repo:o/r'], scopes: { github: { kind: 'team', values: ['o/r'], labels: ['o/r'], pending: { previous: { kind: 'yours' } } } } });
+    const no = setup({ interactive: true, confirms: false, store: waiting() });
+    expect(await decideConnectScope('github', TOKENS.github, no.ctx)).toMatchObject({ scope: 'yours' });
+    expect(no.said.join('\n')).toContain('Importing items from everyone in o/r');
+    expect(no.confirmed).toHaveLength(1);
+    expect(no.deps.store.scopes['github']).toMatchObject({ pending: { previous: { kind: 'yours' } } });
+    const yes = setup({ interactive: true, confirms: true, store: waiting() });
+    expect(await decideConnectScope('github', TOKENS.github, yes.ctx)).toMatchObject({ scope: 'team', extras: { repo: 'o/r' } });
+    expect(yes.said.join('\n')).toContain('Importing items from everyone in o/r');
+    expect(yes.deps.store.scopes['github']).toEqual({ kind: 'team', values: ['o/r'], labels: ['o/r'] });
+  });
+
+  it('with no terminal there is no question and no promotion: a waiting scope stays waiting', async () => {
+    const store = memStore({ scopes: { github: { kind: 'team', values: ['o/r'], labels: ['o/r'], pending: { previous: { kind: 'yours' } } } } });
+    const s = setup({ confirms: true, store });
+    expect(await decideConnectScope('github', TOKENS.github, s.ctx)).toMatchObject({ scope: 'yours' });
+    expect(s.confirmed).toEqual([]);
+    expect(store.scopes['github']).toHaveProperty('pending');
+  });
+
+  it('narrowing to yours forgets what was told, so widening later announces again', async () => {
+    const store = memStore({ disclosed: ['jira|jira:ALI'], scopes: { jira: { kind: 'team', values: ['ALI'], labels: ['ALI'] } } });
+    const s = setup({ interactive: true, flags: { scope: 'yours' }, store, table: [jiraProjects('ALI')] });
+    (await decideConnectScope('jira', TOKENS.jira, s.ctx)).commit();
+    expect(store.disclosed.size).toBe(0);
+  });
+});
+
 describe('one choice, three surfaces', () => {
   const report = { scanned: 0, skips: [] as never[] };
 
   it('a choice made at connect is what the next sync reads (background too), under the key its row carries', async () => {
-    const s = setup({ flags: { projects: 'ALI' }, table: [jiraProjects('ALI')] });
+    const s = setup({ interactive: true, flags: { projects: 'ALI' }, table: [jiraProjects('ALI')] });
     await fetchUnderScope({ id: 'jira', fetch: vi.fn(async () => ({ items: [], report: { ...report } })) }, TOKENS.jira, undefined, s.ctx);
     for (const trigger of ['cli', 'background'] as const) {
       const sc = await scopeOf('jira', { trigger }, s.deps);

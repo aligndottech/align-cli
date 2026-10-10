@@ -47,6 +47,9 @@ const GITLAB_ID = /^\d{1,12}$/;
 const GITLAB_PATH = /^[A-Za-z0-9_.-]{1,100}(?:\/[A-Za-z0-9_.-]{1,100})+$/;
 const CONFLUENCE_SPACE = /^~?[A-Za-z0-9_.-]{1,32}$/;
 
+/** A segment that is only dots (`.`, `..`) would walk out of the path it is placed in. */
+const dotsOnly = (segments: string[]): boolean => segments.some((s) => /^\.+$/.test(s));
+
 const codeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 function listOf(raw: unknown): string[] {
@@ -71,7 +74,7 @@ export function normaliseScopeValues(source: ScopedSource, raw: unknown): string
     case 'github': {
       const unique = [...new Set(given)];
       if (unique.length > 1) throw new ScopeValueError('A GitHub scope is one repo, written owner/repo.');
-      if (!GITHUB_REPO.test(unique[0]!)) throw new ScopeValueError('A GitHub repo is written owner/repo, for example aligndottech/align-stack.');
+      if (!GITHUB_REPO.test(unique[0]!) || dotsOnly(unique[0]!.split('/'))) throw new ScopeValueError('A GitHub repo is written owner/repo, for example aligndottech/align-stack.');
       values = unique;
       break;
     }
@@ -93,7 +96,7 @@ export function normaliseScopeValues(source: ScopedSource, raw: unknown): string
     case 'gitlab': {
       const unique = [...new Set(given)];
       if (unique.length > 1) throw new ScopeValueError('A GitLab scope is one project: its numeric id or its group/project path.');
-      if (!GITLAB_ID.test(unique[0]!) && !GITLAB_PATH.test(unique[0]!)) throw new ScopeValueError('A GitLab project is its numeric id or its group/project path.');
+      if (!GITLAB_ID.test(unique[0]!) && (!GITLAB_PATH.test(unique[0]!) || dotsOnly(unique[0]!.split('/')))) throw new ScopeValueError('A GitLab project is its numeric id or its group/project path.');
       values = unique;
       break;
     }

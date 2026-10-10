@@ -4,7 +4,7 @@
  */
 import { createConfigStore } from './config.js';
 import { currentRepoIdentity } from './repo-identity.js';
-import type { ScopeDeps, ScopeStore } from './scope.js';
+import { CONFLUENCE_NEEDS_SPACES, type ScopeDeps, type ScopeStore } from './scope.js';
 import { type ActiveScope, describeScopeKey, type ScopedSource, scopeKeyOf } from './scope-values.js';
 
 /** `group/project` from `gitlab.com/group/project`. Self-managed hosts are not detected: name them with `--project`. */
@@ -20,6 +20,7 @@ export function configScopeStore(config = createConfigStore()): ScopeStore {
     fields: (source) => config.getConnectorFields('local', source),
     isDisclosed: (source, scopeKey) => config.isTeamScopeDisclosed(source, scopeKey),
     markDisclosed: (source, scopeKey) => config.markTeamScopeDisclosed(source, scopeKey),
+    clearDisclosed: (source) => config.clearTeamScopeDisclosed(source),
   };
 }
 
@@ -30,15 +31,17 @@ export function activeStoredScope(source: string, config = createConfigStore()):
 }
 
 /** What the sync status needs to know about the scope in force, from the stored choice. An unchosen source answers undefined (the most recently started row is used). */
-export function scopeStatusHooks(config = createConfigStore()): { activeScopeKey(id: string): string | undefined; pendingScope(id: string): string | undefined } {
+export function scopeStatusHooks(config = createConfigStore()): { activeScopeKey(id: string): string | undefined; pendingScope(id: string): string | undefined; blockedScope(id: string): string | undefined } {
   const store = configScopeStore(config);
   const key = (source: string, s: { kind: 'yours' } | { kind: 'team'; labels: string[] } | null): string | undefined =>
     s === null ? undefined : s.kind === 'yours' ? 'yours' : scopeKeyOf(source as ScopedSource, s.labels);
   return {
     activeScopeKey: (id) => {
       const s = store.getScope(id);
-      return key(id, s?.kind === 'team' && s.pending ? s.pending.previous : s);
+      // A waiting choice is never in force. With nothing before it the default applies, whose key is `yours`.
+      return s?.kind === 'team' && s.pending ? key(id, s.pending.previous) ?? 'yours' : key(id, s);
     },
+    blockedScope: (id) => (id === 'confluence' && activeStoredScope(id, config)?.kind !== 'team' ? CONFLUENCE_NEEDS_SPACES : undefined),
     pendingScope: (id) => {
       const s = store.getScope(id);
       return s?.kind === 'team' && s.pending ? describeScopeKey(id, scopeKeyOf(id as ScopedSource, s.labels), 'team') : undefined;

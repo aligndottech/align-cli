@@ -37,6 +37,8 @@ export interface ScopeStore {
   /** Told for THIS scope of the source (per source and scope: a wider scope set later is announced again). */
   isDisclosed(source: string, scopeKey: string): boolean;
   markDisclosed(source: string, scopeKey: string): void;
+  /** Forget every scope of the source that was told (narrowing to yours, forgetting the connector): a wider scope later is announced again. */
+  clearDisclosed(source: string): void;
 }
 
 /**
@@ -85,6 +87,8 @@ export interface ResolvedScope {
   note?: string;
   /** True when an agent's team choice for this source is waiting for a person; this result is the scope that stays in force meanwhile. */
   pendingConfirm?: boolean;
+  /** True when this result is an agent's waiting scope offered to a person: the caller shows the disclosure, asks, and only a Yes makes it active (markTold). */
+  activates?: boolean;
   /** Set for a FOREGROUND team read the person has not been told about yet. The caller prints it, then marks it disclosed. */
   disclosure?: string;
 }
@@ -113,6 +117,9 @@ export function cannotSeeNote(source: 'github' | 'gitlab', place: string): strin
     : `Your GitLab token cannot see ${place}, so only your own merge requests were imported. Reconnect with access: align connect gitlab`;
 }
 
+/** Confluence has no "only yours": with no chosen spaces it reads nothing. */
+export const CONFLUENCE_NEEDS_SPACES = 'Confluence reads only the spaces you choose, and none are chosen yet. Pick them: align connect --source confluence --spaces ENG,OPS';
+
 const WIDEN_FLAG: Record<string, string> = { jira: '--projects KEYS', linear: '--teams KEYS' };
 
 /**
@@ -123,14 +130,16 @@ const WIDEN_FLAG: Record<string, string> = { jira: '--projects KEYS', linear: '-
 export async function resolveScope(source: string, deps: ScopeDeps, o: { foreground: boolean }): Promise<ResolvedScope> {
   if (!isScoped(source)) return yours('default');
   const stored = deps.store.getScope(source);
+  // "Foreground" means a person at a terminal: without one nothing is announced, confirmed or widened by the folder.
+  o = { foreground: o.foreground && deps.isTty() };
   if (stored?.kind === 'team' && stored.pending) {
-    const key = scopeKeyOf(source, stored.labels);
-    // Only a person at a terminal sees the disclosure and activates an agent's choice. Anything else keeps what was in force.
-    if (o.foreground && deps.isTty()) {
-      if (deps.store.isDisclosed(source, key)) deps.store.saveScope(source, { kind: 'team', values: stored.values, labels: stored.labels });
-      return team(source, stored.values, stored.labels, 'chosen', deps, true);
+    const person = o.foreground;
+    // Only a person at a terminal is shown the disclosure and asked. Anything else keeps what was in force. A pending scope is NEVER
+    // promoted silently: the disclosure is shown every time, even if this scope was told before, and the caller must get an explicit Yes.
+    if (person) {
+      return { ...team(source, stored.values, stored.labels, 'chosen', deps, true), disclosure: disclosureText(source, stored.labels), activates: true };
     }
-    const kept = await resolveFrom(source, stored.pending.previous, deps, o);
+    const kept = await resolveFrom(source, stored.pending.previous, deps, { foreground: false });
     return { ...kept, pendingConfirm: true, note: `Team scope for ${source} is waiting for you to confirm: run \`align sync ${source}\` (it will show what it reads)` };
   }
   return resolveFrom(source, stored, deps, o);
@@ -141,7 +150,7 @@ async function resolveFrom(source: ScopedSource, stored: StoredScope | ActiveSco
   if (source === 'confluence') {
     return {
       ...yours('default'),
-      blocked: 'Confluence reads only the spaces you choose, and none are chosen yet. Pick them: align connect --source confluence --spaces ENG,OPS',
+      blocked: CONFLUENCE_NEEDS_SPACES,
     };
   }
   if (stored?.kind === 'yours') return yours('chosen');
@@ -149,10 +158,14 @@ async function resolveFrom(source: ScopedSource, stored: StoredScope | ActiveSco
   return yours('default', `Reading only your own items. To read a team's: align connect --source ${source} ${WIDEN_FLAG[source] ?? ''}`.trim());
 }
 
+/** The folder's remote is gitlab.com; a token saved for another host would read a different project of the same path. */
+function selfManagedGitlab(deps: ScopeDeps, source: string): boolean {
+  const domain = deps.store.fields(source)?.['domain'];
+  return source === 'gitlab' && !!domain && domain !== 'gitlab.com';
+}
+
 async function autoDetected(source: 'github' | 'gitlab', deps: ScopeDeps, foreground: boolean): Promise<ResolvedScope> {
-  // The folder's remote is gitlab.com; a token saved for another host would read a different project of the same path.
-  const selfManaged = source === 'gitlab' && !!deps.store.fields(source)?.['domain'] && deps.store.fields(source)?.['domain'] !== 'gitlab.com';
-  const place = selfManaged ? undefined : source === 'github' ? await deps.cwdRepo() : await deps.cwdGitlabProject();
+  const place = selfManagedGitlab(deps, source) ? undefined : source === 'github' ? await deps.cwdRepo() : await deps.cwdGitlabProject();
   if (place === undefined) {
     return yours('default', source === 'github'
       ? "Reading only your own GitHub items (this folder is not a GitHub repo). To read everyone's in a repo: align connect --source github --repo owner/repo"
@@ -172,7 +185,8 @@ async function autoDetected(source: 'github' | 'gitlab', deps: ScopeDeps, foregr
 // ---------------------------------------------------------------------------------------------------------------------
 // Changing a scope
 
-export type ChangedBy = { via: 'cli' } | { via: 'mcp'; agent: string };
+/** `unattended`: a command line nobody was at (no terminal, --json): like an agent's, a widening it asks for waits for a person. */
+export type ChangedBy = { via: 'cli'; unattended?: boolean } | { via: 'mcp'; agent: string };
 export type SetInput = { scope: 'yours' } | { scope: 'team'; values: unknown };
 
 /** A change that was refused. The message is written for the person and never carries a value that was refused. */
@@ -213,14 +227,14 @@ async function verify(source: ScopedSource, raw: unknown, deps: ScopeDeps, field
     switch (source) {
       case 'github': {
         const seen = await githubRepoVisibility(fields['token'] ?? '', given[0]!, deps.fetch);
-        if (seen === 'invisible') throw new ScopeRefusal(`Your GitHub token cannot see ${given[0]}. Nothing was changed. Reconnect with repo access: align connect github`, 'invisible');
-        if (seen === 'unknown') throw new ScopeRefusal(`Align could not check whether your GitHub token can see ${given[0]} (GitHub did not answer clearly). Nothing was changed; try again.`, 'unverified');
+        if (seen === 'invisible') throw new ScopeRefusal(`Your GitHub token cannot see the repo you named. Nothing was changed. Reconnect with repo access: align connect github`, 'invisible');
+        if (seen === 'unknown') throw new ScopeRefusal(`Align could not check whether your GitHub token can see the repo you named (GitHub did not answer clearly). Nothing was changed; try again.`, 'unverified');
         return { values: given, labels: given };
       }
       case 'gitlab': {
         const seen = await gitlabProjectVisibility(fields, given[0]!, deps.fetch);
-        if (seen === 'invisible') throw new ScopeRefusal(`Your GitLab token cannot see ${given[0]}. Nothing was changed.`, 'not_visible');
-        if (seen === 'unknown') throw new ScopeRefusal(`Align could not check whether your GitLab token can see ${given[0]}. Nothing was changed; try again.`, 'unverified');
+        if (seen === 'invisible') throw new ScopeRefusal(`Your GitLab token cannot see the project you named. Nothing was changed.`, 'not_visible');
+        if (seen === 'unknown') throw new ScopeRefusal(`Align could not check whether your GitLab token can see the project you named. Nothing was changed; try again.`, 'unverified');
         return { values: given, labels: given };
       }
       case 'jira':
@@ -236,7 +250,7 @@ async function verify(source: ScopedSource, raw: unknown, deps: ScopeDeps, field
           missing = still;
         }
         if (missing.length > 0) {
-          throw new ScopeRefusal(`Your ${name} token cannot see ${source === 'jira' ? 'these projects' : 'these spaces'}: ${missing.join(', ')}.${listed.truncated ? ` The list was cut off after ${listed.items.length}, so each was also asked for directly.` : ''} Nothing was changed.`, 'not_visible');
+          throw new ScopeRefusal(`Your ${name} token cannot see ${missing.length} of the ${source === 'jira' ? 'projects' : 'spaces'} you gave (the values are not printed back).${listed.truncated ? ` The list was cut off after ${listed.items.length}, so each was also asked for directly.` : ''} Nothing was changed.`, 'not_visible');
         }
         return { values: given, labels: given };
       }
@@ -248,7 +262,7 @@ async function verify(source: ScopedSource, raw: unknown, deps: ScopeDeps, field
         }
         const missing = given.filter((_, i) => found[i] === undefined);
         if (missing.length > 0) {
-          throw new ScopeRefusal(`Your Linear token cannot see these teams: ${missing.join(', ')}.${listed.truncated ? ` The list was cut off after ${listed.items.length}, so each key was also asked for directly.` : ''} Nothing was changed.`, 'not_visible');
+          throw new ScopeRefusal(`Your Linear token cannot see ${missing.length} of the teams you gave (the values are not printed back).${listed.truncated ? ` The list was cut off after ${listed.items.length}, so each key was also asked for directly.` : ''} Nothing was changed.`, 'not_visible');
         }
         const hits = found as Array<{ id: string; key: string }>;
         return { values: hits.map((t) => t.id), labels: hits.map((t) => t.key) };
@@ -308,13 +322,18 @@ export function commitScope(deps: ScopeDeps, source: ScopedSource, choice: Choic
     const current = deps.store.getScope(source);
     const active: ActiveScope | null = current === null ? null : current.kind === 'team' && current.pending ? current.pending.previous : current.kind === 'team' ? { kind: 'team', values: current.values, labels: current.labels } : current;
     const same = active?.kind === 'team' && scopeKeyOf(source, active.labels) === choice.scopeKey;
-    deps.store.saveScope(source, by.via === 'mcp' && !same
+    const waits = by.via === 'mcp' || by.unattended === true;
+    deps.store.saveScope(source, waits && !same
       ? { kind: 'team', values: choice.values, labels: choice.labels, pending: { previous: active } }
       : { kind: 'team', values: choice.values, labels: choice.labels });
   }
   // "Yours" is written down for every source that has one: otherwise GitHub and GitLab widen again from the folder's remote, and Jira
   // and Linear from the keys local decisions cite, as if nothing had been chosen.
-  else deps.store.saveScope(source, { kind: 'yours' });
+  else {
+    deps.store.saveScope(source, { kind: 'yours' });
+    // Narrowed: a wider scope chosen later is announced again.
+    deps.store.clearDisclosed(source);
+  }
   const pending = deps.store.getScope(source)?.kind === 'team' && (deps.store.getScope(source) as { pending?: unknown }).pending !== undefined;
   if (deps.dbPath === undefined || !fs.existsSync(deps.dbPath)) return { newRow: true, pending };
   const window = windowSince !== undefined ? windowSince : inheritedWindowSince(readRows(deps.dbPath, source), deps.now());
@@ -398,7 +417,7 @@ export async function viewScopes(deps: ScopeDeps): Promise<ScopeView[]> {
     } else if (stored?.kind === 'yours') {
       push({ source, kind: 'yours', scope_key: YOURS_KEY, label: YOURS_LABEL, can_set: true, origin: 'chosen' });
     } else {
-      const place = source === 'github' ? await deps.cwdRepo() : source === 'gitlab' ? await deps.cwdGitlabProject() : undefined;
+      const place = selfManagedGitlab(deps, source) ? undefined : source === 'github' ? await deps.cwdRepo() : source === 'gitlab' ? await deps.cwdGitlabProject() : undefined;
       push(place !== undefined
         ? { source, kind: 'team', scope_key: scopeKeyOf(source as ScopedSource, [place]), label: describeScopeKey(source, scopeKeyOf(source as ScopedSource, [place]), 'team'), values: [place], can_set: true, origin: 'detected' }
         : { source, kind: 'yours', scope_key: YOURS_KEY, label: YOURS_LABEL, can_set: true, origin: 'default' });

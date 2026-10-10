@@ -212,6 +212,10 @@ export function createConfigStore() {
     /** Drops every key this connector owns - token, extra fields, and any OAuth cloudId/siteBase. */
     forgetConnector(env: EnvName, connectorKey: string) {
       const owned = `${env}:${connectorKey}`;
+      if (env === 'local') {
+        const told = store.get('teamScopeDisclosedFor') ?? [];
+        store.set('teamScopeDisclosedFor', told.filter((e) => !e.startsWith(`${connectorKey}|`)));
+      }
       const kept = Object.fromEntries(
         Object.entries(getTokens()).filter(([key]) => key !== owned && !key.startsWith(`${owned}:`)),
       );
@@ -219,6 +223,7 @@ export function createConfigStore() {
     },
     /** Every connector in one environment. The other environments' credentials are untouched. */
     forgetAllConnectors(env: EnvName) {
+      if (env === 'local') store.set('teamScopeDisclosedFor', []);
       const kept = Object.fromEntries(
         Object.entries(getTokens()).filter(([key]) => !key.startsWith(`${env}:`)),
       );
@@ -246,6 +251,9 @@ export function createConfigStore() {
      * An entry that is PRESENT but unreadable (truncated, or written by a newer CLI) reads as yours, never as "no choice": for GitHub
      * and GitLab "no choice" means "widen from the folder", and a damaged record must not do that. Only an absent entry is null.
      */
+    // KNOWN LIMIT (lost updates): this store reads the whole file and writes the whole file, and every setter here is a read-modify-write of
+    // one key. Two Align processes writing at the same instant can lose one write. Re-reading just before each set (as the setters do) keeps the
+    // window to milliseconds; a lock was judged not worth its cost for a settings file. The visible failure for a scope is the old scope staying in force.
     getConnectorScope(env: EnvName, connectorKey: string): StoredScope | null {
       const raw = getTokens()[`${env}:${connectorKey}:scope`];
       if (raw === undefined) return null;
@@ -273,6 +281,12 @@ export function createConfigStore() {
       store.set('connectorTokens', kept);
     },
     // L4: the one-time team-scope disclosure, remembered per source and scope so it prints before the FIRST team read of each.
+    // Forgetting a connector, or narrowing it to yours, forgets that its scopes were told: a wider one later is announced again.
+    clearTeamScopeDisclosed(source: string): void {
+      const existing = store.get('teamScopeDisclosedFor') ?? [];
+      const kept = existing.filter((e) => !e.startsWith(`${source}|`));
+      if (kept.length !== existing.length) store.set('teamScopeDisclosedFor', kept);
+    },
     getTeamScopeDisclosedFor(): string[] {
       return store.get('teamScopeDisclosedFor') ?? [];
     },

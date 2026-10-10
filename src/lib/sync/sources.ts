@@ -14,7 +14,7 @@ import { fetchWindow, windowExtras } from '../since.js';
  * The scope a run reads a source under (L4: scope.ts decides). `blocked` means do not read at all; `note` is worth saying to the
  * person; `disclosure` is the one-time team-scope line, set only for a foreground run (the sync prints it before the first request).
  */
-export type SyncScope = Pick<ResolvedScope, 'scopeKey' | 'scope'> & Partial<Pick<ResolvedScope, 'repo' | 'extras' | 'blocked' | 'note' | 'disclosure'>>;
+export type SyncScope = Pick<ResolvedScope, 'scopeKey' | 'scope'> & Partial<Pick<ResolvedScope, 'repo' | 'extras' | 'blocked' | 'note' | 'disclosure' | 'activates'>>;
 
 /** The scope this machine reads a source under, decided before the fetch so its watermark can be found. Chosen scopes, the folder's
  *  repo (GitHub, GitLab) and the "yours" fallbacks are all scope.ts's: the same answer `align connect` and `align_scope` give. */

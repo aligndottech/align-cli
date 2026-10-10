@@ -88,6 +88,29 @@ describe('collectStatus', () => {
       expect(renderStatus({ sources: [only], rows_awaiting_relink: 0 })).not.toContain('older scope');
     });
 
+    it('Confluence with no spaces chosen is BLOCKED, not "ok": the state and the command say so even though its last run looked fine', () => {
+      beginRun(dbPath, { source: 'confluence', scopeKey: 'yours', scope: 'yours' }, null, '2026-10-01T00:00:00.000Z');
+      saveRun(dbPath, { source: 'confluence', scopeKey: 'yours', scope: 'yours' }, { attemptAt: '2026-10-01T01:00:00.000Z', status: 'ok', high_water: null, pending_until: null, items: 5, skips: [], successAt: '2026-10-01T01:00:00.000Z' });
+      const c = collectStatus(deps(['confluence'], { blockedScope: () => 'Confluence reads only the spaces you choose, and none are chosen yet. Pick them: align connect --source confluence --spaces ENG,OPS' })).sources.find((s) => s.id === 'confluence')!;
+      expect(c.status).toBe('blocked');
+      expect(c.next_step).toContain('--spaces ENG,OPS');
+      expect(renderStatus({ sources: [c], rows_awaiting_relink: 0 })).toContain('blocked');
+      const fine = collectStatus(deps(['confluence'])).sources.find((s) => s.id === 'confluence')!;
+      expect(fine.status).toBe('ok');
+    });
+
+    it('a refused token outranks a blocked scope', () => {
+      markNeedsReauth(dbPath, { source: 'confluence', scopeKey: 'yours', scope: 'yours' }, null, '2026-10-01T00:00:00.000Z');
+      const c = collectStatus(deps(['confluence'], { blockedScope: () => 'x' })).sources.find((s) => s.id === 'confluence')!;
+      expect(c.status).toBe('needs_reauth');
+    });
+
+    it('a row that never started is not the "most recent" one, and a garbage timestamp does not decide it (the fallback)', () => {
+      exec(`INSERT INTO source_sync (source_id, scope_key, scope, window_since, last_started_at) VALUES ('jira', 'jira:BAD', 'team', NULL, 'not a date'), ('jira', 'jira:NEVER', 'team', NULL, NULL)`);
+      const j = collectStatus(deps(['jira'])).sources.find((s) => s.id === 'jira')!;
+      expect(j.scope).toBe("everyone's items in Jira project OPS");
+    });
+
     it('an agent-chosen scope waiting for a person is said, with the command', () => {
       const j = collectStatus(deps(['jira'], { pendingScope: () => "everyone's items in Jira project BETA" })).sources.find((s) => s.id === 'jira')!;
       expect(j.next_step).toBe("Team scope for jira is waiting for you to confirm (everyone's items in Jira project BETA): run `align sync jira` (it will show what it reads)");

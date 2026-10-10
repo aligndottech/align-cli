@@ -222,3 +222,32 @@ describe('truncated lists and direct lookup of a named key', () => {
     expect(s.calls).toHaveLength(0);
   });
 });
+
+describe('limits on what a vendor can make this process read', () => {
+  it('Confluence paging stops at 50 pages and says the list is truncated', async () => {
+    const page = { body: { results: [{ key: 'A', name: 'a' }], _links: { next: '/wiki/api/v2/spaces?cursor=again' } } };
+    const s = scripted([page]);
+    const r = await listConfluenceSpaces(jiraFields, s.fetch);
+    expect(s.calls).toHaveLength(50);
+    expect(r.truncated).toBe(true);
+  });
+
+  it('a response body over 2 MB is refused as unreadable, not read into memory (Jira, Linear)', async () => {
+    const huge = 'x'.repeat(2_100_000);
+    const s = scripted([{ body: { values: [{ key: 'ALI', name: huge }], isLast: true } }]);
+    await expect(listJiraProjects(jiraFields, s.fetch)).rejects.toMatchObject({ kind: 'unreachable' });
+    const l = scripted([{ body: { data: { teams: { nodes: [{ id: 'i', key: 'ENG', name: huge }] } } } }]);
+    await expect(listLinearTeams({ token: 'lin_api_abc' }, l.fetch)).rejects.toBeInstanceOf(ScopeLookupError);
+  });
+
+  it('a body just under the cap is read', async () => {
+    const ok = scripted([{ body: { values: [{ key: 'ALI', name: 'x'.repeat(1_900_000) }], isLast: true } }]);
+    expect((await listJiraProjects(jiraFields, ok.fetch)).items).toHaveLength(1);
+  });
+
+  it('a repo with a dots-only segment is not probed', async () => {
+    const s = scripted([{ status: 200 }]);
+    expect(await githubRepoVisibility(TOKEN, 'o/..', s.fetch)).toBe('unknown');
+    expect(s.calls).toHaveLength(0);
+  });
+});

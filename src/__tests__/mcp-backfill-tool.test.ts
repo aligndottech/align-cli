@@ -101,6 +101,8 @@ describe('through the dispatcher', () => {
     expect(call[2]).toMatchObject({ detached: true, stdio: 'ignore', windowsHide: true });
     // The status file the child will fill in lives in the (scratch) state directory.
     expect((call[2] as unknown as { env: Record<string, string> }).env['ALIGN_BACKFILL_STATUS']).toBe(path.join(dir, 'align-cli', 'backfill', 'github.json'));
+    // L4: the child is marked as started by an agent's tool call, so any scope it writes waits for a person.
+    expect((call[2] as unknown as { env: Record<string, string> }).env['ALIGN_STARTED_BY']).toBe('mcp');
     expect(JSON.stringify(call)).not.toContain('tok-in-store');
   });
 

@@ -16,13 +16,14 @@
  * it told, so the next foreground run still tells the person.
  */
 import * as p from '@clack/prompts';
+import { STARTED_BY_AGENT_ENV } from './backfill-state.js';
 import type { createConfigStore } from './config.js';
 import type { CaptureFetchResult } from './fetchers/capture.js';
-import { type Choice, chooseScope, commitScope, markTold, type ResolvedScope, resolveScope, type ScopeDeps, type SetInput } from './scope.js';
+import { type ChangedBy, type Choice, chooseScope, commitScope, CONFLUENCE_NEEDS_SPACES, markTold, type ResolvedScope, resolveScope, type ScopeDeps, type SetInput } from './scope.js';
 import { citedProjectKeys } from './scope-defaults.js';
 import { realScopeDeps } from './scope-real.js';
 import { listConfluenceSpaces, listJiraProjects, listLinearTeams, ScopeLookupError } from './scope-choices.js';
-import { disclosureText, fetchOptsFor, FIXED_SCOPES, SCOPED_SOURCES, type ScopedSource } from './scope-values.js';
+import { describeScopeKey, disclosureText, fetchOptsFor, FIXED_SCOPES, SCOPED_SOURCES, type ScopedSource, scopeKeyOf } from './scope-values.js';
 import { CAPTURE_SOURCES } from './capture-sources.js';
 import type { FetchExtras, SyncWindow } from './since.js';
 
@@ -35,6 +36,8 @@ export interface PickOption { value: string; label: string; hint?: string }
 export interface ScopePrompts {
   /** The values the person chose, or null when they cancelled. */
   multiselect(message: string, options: PickOption[], initial: string[], o: { required: boolean }): Promise<string[] | null>;
+  /** A yes/no question whose default is No. A cancel, or a closed stdin, is No. */
+  confirm(message: string): Promise<boolean>;
 }
 export interface ConnectScopeCtx {
   /** The store, graph and network the scope code uses. `store.fields` is overlaid with the in-flight fields per source. */
@@ -44,6 +47,8 @@ export interface ConnectScopeCtx {
   quiet: boolean;
   flags: ScopeFlags;
   prompts: ScopePrompts;
+  /** Who the choices are attributed to. Absent: the person at this command line. A child `align_backfill` started is an agent's: its choices wait. */
+  by?: ChangedBy;
   /** Ticket prefixes local decisions cite (scope-defaults.ts), to preselect. */
   citedKeys(): string[];
   say(line: string): void;
@@ -104,8 +109,13 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     if (source === 'zoom' && fixed) tell(`${labelOf(source)} reads ${fixed.text}.`);
     return { extras: {}, scope: 'yours', label: 'your own items', commit() {} };
   }
+  // A person is someone at a terminal who can be shown the disclosure and asked: a TTY, and not --json. Everything else (a script, an agent's
+  // shell, a child `align_backfill` started) is UNATTENDED: it reads yours, it never widens from the folder or from cited keys, and a
+  // widening it is asked for is saved as PENDING for a person to confirm.
+  const person = ctx.interactive && !ctx.quiet;
   // The store, with this source's fields replaced by the ones in hand: a first connect has nothing saved to read.
-  const deps: ScopeDeps = { ...ctx.deps, isTty: () => ctx.interactive, store: { ...ctx.deps.store, fields: (s) => (s === source ? tokens : ctx.deps.store.fields(s)) } };
+  const deps: ScopeDeps = { ...ctx.deps, isTty: () => person, store: { ...ctx.deps.store, fields: (s) => (s === source ? tokens : ctx.deps.store.fields(s)) } };
+  const by: ChangedBy = ctx.by ?? { via: 'cli', unattended: !person };
   // A team read whose disclosure could not be shown (--json): the result says so, and it stays un-marked for the next foreground run.
   let disclosurePending = false;
   const blocked = (reason: string): Error => new Error(reason);
@@ -116,18 +126,30 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
     tell(text);
     markTold(deps.store, source, scopeKey);
   };
+  const decision = (extras: FetchExtras, scope: 'yours' | 'team', label: string, commit: () => void): ScopeDecision =>
+    ({ extras, scope, label, get disclosurePending() { return disclosurePending; }, commit });
   const fromChoice = (c: Choice): ScopeDecision => {
     if (c.scope === 'team') told(c.scopeKey, disclosureText(source, c.labels));
     const extras: FetchExtras = c.scope === 'yours'
       ? { resolved: true }
       : { resolved: true, ...(source === 'github' ? { repo: c.values[0]!, team: true } : fetchOptsFor(source, c.values)) };
-    return { extras, scope: c.scope, label: c.label, get disclosurePending() { return disclosurePending; }, commit: () => { commitScope(deps, source, c, { via: 'cli' }, ctx.flags.windowSince); } };
+    return decision(extras, c.scope, c.label, () => { commitScope(deps, source, c, by, ctx.flags.windowSince); });
   };
-  const fromResolved = (r: ResolvedScope): ScopeDecision => {
+  /** What is in force without the agent's waiting choice: the same answer a background run gets. */
+  const kept = (): Promise<ResolvedScope> => resolveScope(source, { ...deps, isTty: () => false }, { foreground: false });
+  const fromResolved = async (r: ResolvedScope): Promise<ScopeDecision> => {
     if (r.blocked !== undefined) throw blocked(r.blocked);
-    if (r.disclosure !== undefined) told(r.scopeKey, r.disclosure);
+    if (r.activates) {
+      // An agent's waiting scope, offered to a person: the disclosure every time, and only an explicit Yes makes it active.
+      tell(r.disclosure!);
+      const yes = await ctx.prompts.confirm(`Read ${r.label} now? No keeps your current scope.`);
+      if (!yes) return fromResolved(await kept());
+      markTold(deps.store, source, r.scopeKey);
+    } else if (r.disclosure !== undefined) told(r.scopeKey, r.disclosure);
     if (r.note !== undefined) tell(r.note);
-    return { extras: { resolved: true, ...(r.repo ? { repo: r.repo, team: true } : {}), ...r.extras }, scope: r.scope, label: r.label, get disclosurePending() { return disclosurePending; }, commit() {} };
+    // A team scope read with nobody to tell (--json, no terminal) that was never told for this scope: the disclosure is still owed.
+    if (r.scope === 'team' && !person && !deps.store.isDisclosed(source, r.scopeKey)) disclosurePending = true;
+    return decision({ resolved: true, ...(r.repo ? { repo: r.repo, team: true } : {}), ...r.extras }, r.scope, r.label, () => {});
   };
   const resolved = async (): Promise<ScopeDecision> => fromResolved(await resolveScope(source, deps, { foreground: true }));
   const list = async (): Promise<Array<{ key: string; name: string }> | undefined> => {
@@ -144,7 +166,19 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
   };
 
   const input = flagInput(source, ctx.flags);
-  if (input) return fromChoice(await chooseScope(deps, source, input, tokens));
+  if (input) {
+    const c = await chooseScope(deps, source, input, tokens);
+    if (c.scope === 'yours' || person) return fromChoice(c);
+    // Unattended widening: read what is in force now, and save the request for a person to confirm at a terminal.
+    let k: ScopeDecision;
+    try { k = await resolved(); } catch (e) {
+      // Confluence with nothing chosen yet: the request is still saved for the person, and the refusal says so.
+      commitScope(deps, source, c, by, ctx.flags.windowSince);
+      throw new Error(`${(e as Error).message} Your request for ${c.label} is saved and waiting for you to confirm: run \`align sync ${source}\` at a terminal.`);
+    }
+    tell(`${labelOf(source)} will read ${c.label} once you confirm it: run \`align sync ${source}\` at a terminal (it will show what it reads).`);
+    return decision(k.extras, k.scope, k.label, () => { commitScope(deps, source, c, by, ctx.flags.windowSince); });
+  }
 
   if (source === 'github' || source === 'gitlab') {
     const d = await resolved();
@@ -156,29 +190,30 @@ export async function decideConnectScope(source: string, tokens: Record<string, 
 
   const stored = deps.store.getScope(source);
   const confluence = source === 'confluence';
-  if (ctx.interactive) {
-    const listed = await list();
-    if (listed === undefined) return resolved();
-    const keys = listed.map((x) => x.key);
-    const initial = stored?.kind === 'team' ? stored.labels.filter((k) => keys.includes(k)) : stored?.kind === 'yours' ? [] : ctx.citedKeys().filter((k) => keys.includes(k));
-    const message = confluence
-      ? 'Which Confluence spaces should Align read? Pick at least one.'
-      : `Which ${WHAT[source as keyof typeof WHAT]} should Align read everything from? Leave all unselected to read only your own issues.`;
-    const picked = await ctx.prompts.multiselect(message, listed.map((x) => ({ value: x.key, label: `${x.key}  ${x.name}` })), initial, { required: confluence });
-    if (confluence && (picked === null || picked.length === 0)) throw blocked((await resolveScope(source, deps, { foreground: true })).blocked!);
-    if (picked === null) return resolved();
-    return fromChoice(await chooseScope(deps, source, picked.length === 0 ? { scope: 'yours' } : { scope: 'team', values: picked }, tokens));
-  }
+  // Without a person there is no picker and no guess from cited keys: the stored choice, else yours (with how to widen).
+  if (!person) return resolved();
 
-  // A chosen scope (team OR yours) is kept; only a source never chosen for falls to the cited keys.
-  if (stored !== null || confluence) return resolved();
-  // Not interactive, nothing flagged, nothing stored: the keys this person's own decisions cite, if the token can see them (Decision 7).
-  const cited = ctx.citedKeys();
-  if (cited.length === 0) return resolved();
   const listed = await list();
-  const seen = listed === undefined ? [] : cited.filter((k) => listed.some((x) => x.key === k));
-  if (seen.length === 0) return resolved();
-  return fromChoice(await chooseScope(deps, source, { scope: 'team', values: seen }, tokens));
+  if (listed === undefined) return resolved();
+  const keys = listed.map((x) => x.key);
+  const waitingLabels = stored?.kind === 'team' && stored.pending ? stored.labels : [];
+  const inForce = stored?.kind === 'team' && stored.pending ? stored.pending.previous : stored;
+  // What is preselected is what is already in force, or what local decisions cite. An agent's WAITING choice is never preselected:
+  // it is said, and picking it here is the explicit confirmation.
+  if (waitingLabels.length > 0) tell(`Your agent proposed ${source} scope ${describeScopeKey(source, scopeKeyOf(source, waitingLabels), 'team')}. It is not read until you pick it here.`);
+  const initial = inForce?.kind === 'team' ? inForce.labels.filter((k) => keys.includes(k)) : inForce?.kind === 'yours' ? [] : ctx.citedKeys().filter((k) => keys.includes(k));
+  const message = confluence
+    ? 'Which Confluence spaces should Align read? Pick at least one.'
+    : `Which ${WHAT[source as keyof typeof WHAT]} should Align read everything from? Leave all unselected to read only the items you are involved in.`;
+  const picked = await ctx.prompts.multiselect(message, listed.map((x) => ({ value: x.key, label: `${x.key}  ${x.name}` })), initial, { required: confluence });
+  // Cancelled: nothing changes, and an agent's waiting scope stays waiting (it is not promoted, and not read).
+  if (picked === null) {
+    const k = await kept();
+    if (k.blocked !== undefined) throw blocked(k.blocked);
+    return fromResolved(k);
+  }
+  if (confluence && picked.length === 0) throw blocked(CONFLUENCE_NEEDS_SPACES);
+  return fromChoice(await chooseScope(deps, source, picked.length === 0 ? { scope: 'yours' } : { scope: 'team', values: picked }, tokens));
 }
 
 /**
@@ -199,11 +234,11 @@ export async function fetchUnderScope(
   startSpinner();
   const fetched = await source.fetch(tokens, window, decision.extras);
   decision.commit();
-  if (decision.scope === 'team' && fetched.report.scopeNote === undefined) {
-    fetched.report.scopeNote = `${decision.label}, as far as your token can see`;
-  }
-  if (decision.disclosurePending) fetched.report.disclosurePending = true;
-  return fetched;
+  // A copy, never an edit of what the fetcher returned.
+  const report = { ...fetched.report };
+  if (decision.scope === 'team' && report.scopeNote === undefined) report.scopeNote = `${decision.label}, as far as your token can see`;
+  if (decision.disclosurePending) report.disclosurePending = true;
+  return { ...fetched, report };
 }
 
 /** The real prompts: a clack multiselect. A cancel is null. Tests inject their own. */
@@ -213,7 +248,19 @@ export function clackScopePrompts(): ScopePrompts {
       const answer = await p.multiselect({ message, options: options.map((x) => ({ value: x.value, label: x.label, ...(x.hint !== undefined ? { hint: x.hint } : {}) })), initialValues: initial, required: o.required, maxItems: 12 });
       return p.isCancel(answer) ? null : (answer as string[]);
     },
+    async confirm(message) {
+      const answer = await p.confirm({ message, initialValue: false });
+      return answer === true;
+    },
   };
+}
+
+/**
+ * Was this process started by an agent's tool call (`align_backfill`, `align_sync run`)? Those children carry the marker, so any scope
+ * they would write is attributed to the agent and waits for a person, exactly like `align_scope set`.
+ */
+export function startedByAgent(env: Record<string, string | undefined> = process.env): boolean {
+  return env[STARTED_BY_AGENT_ENV] === 'mcp';
 }
 
 /** The production wiring of `ConnectScopeCtx` for `align connect` and `align setup`: the real store, graph, folder, network and prompts. */
@@ -221,6 +268,7 @@ export function connectScopeCtx(o: { config: ReturnType<typeof createConfigStore
   const dbPath = o.dbPath;
   return {
     deps: realScopeDeps(dbPath, { config: o.config }), interactive: o.interactive, quiet: o.quiet, flags: o.flags ?? {}, prompts: clackScopePrompts(),
+    ...(startedByAgent() ? { by: { via: 'mcp' as const, agent: 'unknown' } } : {}),
     citedKeys: () => (dbPath === undefined ? [] : citedProjectKeys(dbPath)), say: (line) => p.log.info(line),
   };
 }

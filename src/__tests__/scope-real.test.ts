@@ -59,7 +59,8 @@ describe('scopeStatusHooks', () => {
     c.saveScope('github', { kind: 'yours' });
     expect(h.activeScopeKey('github')).toBe('yours');
     c.saveScope('linear', { kind: 'team', values: ['i'], labels: ['ENG'], pending: { previous: null } });
-    expect(h.activeScopeKey('linear')).toBeUndefined();
+    // Nothing was chosen before the waiting scope: the scope in force is the default, never the waiting one (it was reported as in force).
+    expect(h.activeScopeKey('linear')).toBe('yours');
     expect(h.pendingScope('linear')).toBe("everyone's items in Linear team ENG");
     c.saveScope('gitlab', { kind: 'team', values: ['g/p'], labels: ['g/p'], pending: { previous: { kind: 'team', values: ['a/b'], labels: ['a/b'] } } });
     expect(h.activeScopeKey('gitlab')).toBe('gitlab:a/b');

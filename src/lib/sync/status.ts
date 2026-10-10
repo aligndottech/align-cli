@@ -21,7 +21,8 @@ export interface SourceStatus {
   connected: boolean;
   /** Whose items it reads: "your own items", "everyone's items in o/r". */
   scope: string;
-  status: SyncStatus | 'never' | 'not_connected';
+  /** `blocked`: the scope in force reads nothing until the person acts (Confluence with no spaces chosen), whatever the last run said. */
+  status: SyncStatus | 'never' | 'not_connected' | 'blocked';
   /** Stamped only by a COMPLETE run. */
   last_success_at?: string;
   /** Stamped by every run, complete or not. */
@@ -56,6 +57,8 @@ export interface StatusDeps {
   activeScopeKey?(id: string): string | undefined;
   /** An agent's team choice waiting for a person to confirm it, in words, or undefined. */
   pendingScope?(id: string): string | undefined;
+  /** Why a source reads nothing until the person acts, or undefined (Confluence with no spaces chosen). */
+  blockedScope?(id: string): string | undefined;
 }
 
 export const TEAMS_NOTE = 'Teams: refresh manually with `align connect teams` (its token lasts about an hour). Only yours until then.';
@@ -110,8 +113,12 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
     const everyScope = all.filter((r) => r.source_id === id);
     // Only the scope in force is described; the others are counted. (A refused token is refused for the whole source, so it is read off every row.)
     const wanted = d.activeScopeKey?.(id);
+    // The fallback is the row most recently started; a row that never started, or whose stamp is not a date, cannot be "most recent" (NaN
+    // compares false both ways and would pick an arbitrary winner).
+    const started = (r: SyncRow): number => (r.last_started_at === null ? Number.NaN : Date.parse(r.last_started_at));
     const active = everyScope.find((r) => r.scope_key === wanted)
-      ?? [...everyScope].sort((a, b) => Date.parse(b.last_started_at ?? '') - Date.parse(a.last_started_at ?? ''))[0];
+      ?? [...everyScope].filter((r) => !Number.isNaN(started(r))).sort((a, b) => started(b) - started(a))[0]
+      ?? everyScope[0];
     const rows = active ? [active] : [];
     const older = everyScope.length - rows.length;
     const worst = everyScope.some((r) => r.status === 'needs_reauth') ? 'needs_reauth' as SyncStatus : rows.reduce<SyncStatus | undefined>((w, r) => (w === undefined || RANK[r.status] > RANK[w] ? r.status : w), undefined);
@@ -126,7 +133,7 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
     const bf = d.backfill(id);
     const s: SourceStatus = {
       id, label: label(id), connected, scope: scopeText(rows),
-      status: !connected ? 'not_connected' : (worst ?? 'never'),
+      status: !connected ? 'not_connected' : worst === 'needs_reauth' || d.blockedScope?.(id) === undefined ? (worst ?? 'never') : 'blocked',
       skips: skipCounts(rows),
       ...(last !== undefined ? { last_success_at: last } : {}),
       ...(attempt !== undefined ? { last_attempt_at: attempt } : {}),
@@ -140,6 +147,7 @@ export function collectStatus(d: StatusDeps): { sources: SourceStatus[]; rows_aw
     if (id === 'github' && connected) s.discussion_pending = pendingDetailCount(d.dbPath, 'github');
     if (!connected) s.next_step = `Not connected. Ask the person to run: align connect ${id}`;
     else if (s.status === 'needs_reauth') s.next_step = `The provider refused the saved token. Ask the person to run: align connect ${id}`;
+    else if (s.status === 'blocked') s.next_step = d.blockedScope!(id)!;
     else if (id === 'teams') s.next_step = TEAMS_NOTE;
     const waiting = connected ? d.pendingScope?.(id) : undefined;
     if (waiting !== undefined) s.next_step = `Team scope for ${id} is waiting for you to confirm (${waiting}): run \`align sync ${id}\` (it will show what it reads)`;

@@ -21,6 +21,7 @@ vi.mock('../lib/config.js', async (orig) => ({
     clearConnectorScope: vi.fn((_e: string, s: string) => { delete store.scopes[s]; }),
     isTeamScopeDisclosed: vi.fn(() => false),
     markTeamScopeDisclosed: vi.fn(),
+    clearTeamScopeDisclosed: vi.fn(),
   })),
 }));
 

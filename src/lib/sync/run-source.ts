@@ -16,6 +16,7 @@ import type { CaptureFetchResult, CaptureSkip } from '../fetchers/capture.js';
 import { isAuthExpiry } from '../errors.js';
 import { SYNC_TIME_BUDGET_MS } from '../import-defaults.js';
 import type { createLocalGatewayClient } from '../local-gateway-client.js';
+import { describeScopeKey } from '../scope-values.js';
 import { connectorItemKey } from '../source-key.js';
 import { drainGitHub, type DrainResult } from './drain.js';
 import type { Lock } from './lock.js';
@@ -57,6 +58,8 @@ export interface SyncEnv {
   scopeOf(source: string, o: { trigger: 'cli' | 'background' }): Promise<SyncScope>;
   /** L4: print the one-time team-scope disclosure. Wired only for a foreground run; nobody is there to read it in the background. */
   announce?(source: string, line: string): void;
+  /** L4: ask a person, default No, before an agent's waiting scope is read. Absent: not asked, so not read. */
+  confirm?(source: string, message: string): Promise<boolean>;
   /** L4: remember the disclosure was told. Called only after `announce`. */
   markDisclosed?(source: string, scopeKey: string): void;
   fetch(source: string, tokens: Record<string, string>, win: SourceWindow, scope: SyncScope): Promise<CaptureFetchResult>;
@@ -127,10 +130,17 @@ export async function syncSource(
 async function run(source: string, tokens: Record<string, string>, env: SyncEnv, lock: Extract<Lock, { ok: true }>, o: { trigger: 'cli' | 'background' }): Promise<SourceOutcome> {
   const now = env.now();
   const nowIso = now.toISOString();
-  const scope = await env.scopeOf(source, { trigger: o.trigger });
+  let scope = await env.scopeOf(source, { trigger: o.trigger });
   // A source that must not be read until the person acts (Confluence with no spaces): no request, no row, the command to run.
   if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
-  if (scope.disclosure !== undefined && env.announce) {
+  if (scope.activates && scope.disclosure !== undefined) {
+    // An agent's waiting scope offered to a person: it is read only after an explicit Yes. Anything else reads what was in force.
+    env.announce?.(source, scope.disclosure);
+    const yes = env.announce !== undefined && env.confirm !== undefined && await env.confirm(source, `Read ${describeScopeKey(source, scope.scopeKey, 'team')} now? No keeps your current scope.`);
+    if (yes) env.markDisclosed?.(source, scope.scopeKey);
+    else scope = await env.scopeOf(source, { trigger: 'background' });
+    if (scope.blocked !== undefined) return none(source, 'manual', scope.blocked);
+  } else if (scope.disclosure !== undefined && env.announce) {
     env.announce(source, scope.disclosure);
     env.markDisclosed?.(source, scope.scopeKey);
   }

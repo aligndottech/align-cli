@@ -348,7 +348,7 @@ describe('setScope', () => {
   });
 
   it('GitHub: a repo the token cannot see is refused with the reconnect line; one it could not check is refused too; nothing is stored', async () => {
-    for (const [hit, kind, text] of [[{ status: 422 }, 'invisible', 'cannot see o/r'], [{ status: 500 }, 'unverified', 'could not check']] as const) {
+    for (const [hit, kind, text] of [[{ status: 422 }, 'invisible', 'cannot see the repo you named'], [{ status: 500 }, 'unverified', 'could not check']] as const) {
       const d = deps({ table: [[SEARCH, hit]] });
       const err = await setScope(d, 'github', { scope: 'team', values: 'o/r' }, { via: 'cli' }).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ScopeRefusal);
@@ -390,8 +390,8 @@ describe('setScope', () => {
     const d = deps({ table: [jiraProjects('ALI')] });
     const err = await setScope(d, 'jira', { scope: 'team', values: ['ALI', 'NOPE'] }, { via: 'cli' }).catch((e: unknown) => e) as ScopeRefusal;
     expect(err.kind).toBe('not_visible');
-    expect(err.message).toContain('NOPE');
-    expect(err.message).not.toContain('ALI,');
+    expect(err.message).toContain('cannot see 1 of the projects you gave');
+    expect(err.message).not.toContain('NOPE');
     expect(d.store.scopes['jira']).toBeUndefined();
     const refused = deps({ table: [[/project\/search/, { status: 401 }]] });
     const e2 = await setScope(refused, 'jira', { scope: 'team', values: ['ALI'] }, { via: 'cli' }).catch((e: unknown) => e) as ScopeRefusal;
@@ -459,7 +459,8 @@ describe('setScope with a truncated list (past the cap a real key is not "cannot
     const d = deps({ listMax: 1, table: [cut, [/project\/NOPE$/, { status: 404 }]] });
     const err = await setScope(d, 'jira', { scope: 'team', values: ['NOPE'] }, { via: 'cli' }).catch((e: unknown) => e) as ScopeRefusal;
     expect(err.kind).toBe('not_visible');
-    expect(err.message).toContain('NOPE');
+    expect(err.message).toContain('cannot see 1 of the projects you gave');
+    expect(err.message).not.toContain('NOPE');
     expect(err.message).toContain('list was cut off after 1');
     expect(d.store.scopes['jira']).toBeUndefined();
   });
@@ -482,6 +483,21 @@ describe('setScope with a truncated list (past the cap a real key is not "cannot
   });
 });
 
+describe('refusals never print a value back (security review)', () => {
+  const glpat = 'glpat-abcdef1234567890xyz';
+
+  it('a token-shaped value that passes the Confluence format is checked, refused, and NOT printed (Confluence, Jira, Linear, GitLab, GitHub)', async () => {
+    const d = deps({ table: [[/wiki\/api\/v2\/spaces/, { body: { results: [{ key: 'ENG', name: 'E' }] } }], jiraProjects('ALI'), [/api\.linear\.app/, { body: { data: { teams: { nodes: [{ id: 'i', key: 'ENG', name: 'E' }] } } } }], [/api\/v4\/projects/, { status: 404 }], [/search\/issues/, { status: 422 }]] });
+    for (const [source, values] of [['confluence', [glpat]], ['jira', [glpat.toUpperCase().slice(0, 12)]], ['linear', [glpat.toUpperCase().slice(0, 8)]], ['gitlab', `g/${  glpat}`], ['github', `o/${  glpat}`]] as const) {
+      const err = await setScope(d, source, { scope: 'team', values }, { via: 'cli' }).catch((e: unknown) => e) as ScopeRefusal;
+      expect(err, source).toBeInstanceOf(ScopeRefusal);
+      expect(err.message, source).not.toMatch(/glpat|GLPAT|abcdef/i);
+    }
+    const c = await setScope(d, 'confluence', { scope: 'team', values: [glpat, 'x'.repeat(5)] }, { via: 'cli' }).catch((e: unknown) => e) as ScopeRefusal;
+    expect(c.message).toContain('2 of the spaces you gave');
+  });
+});
+
 describe('viewScopes', () => {
   it('lists connected sources only, with kind, key and words, and nothing secret', async () => {
     const store = memStore({ connected: ['github', 'jira', 'zoom', 'slack'], scopes: { jira: { kind: 'team', values: ['ALI', 'OPS'], labels: ['ALI', 'OPS'] } } });
@@ -500,6 +516,16 @@ describe('viewScopes', () => {
     expect(d.calls).toHaveLength(0);
     expect(v.find((x) => x.source === 'confluence')).toMatchObject({ kind: 'unset' });
     expect(v.find((x) => x.source === 'jira')).toMatchObject({ kind: 'yours', scope_key: 'yours' });
+  });
+
+  it('GitLab: a folder on gitlab.com is not read as a project of a self-managed host (the same check resolveScope applies)', async () => {
+    const store = memStore({ connected: ['gitlab'] });
+    const f = store.fields;
+    store.fields = (s2) => (s2 === 'gitlab' ? { token: 'x', domain: 'git.acme.io' } : f(s2));
+    const v = await viewScopes(deps({ store, cwdGitlabProject: async () => 'g/p' }));
+    expect(v[0]).toMatchObject({ source: 'gitlab', kind: 'yours', origin: 'default' });
+    const own = await viewScopes(deps({ store: memStore({ connected: ['gitlab'] }), cwdGitlabProject: async () => 'g/p' }));
+    expect(own[0]).toMatchObject({ kind: 'team', origin: 'detected' });
   });
 
   it('no connected source gives an empty list', async () => {

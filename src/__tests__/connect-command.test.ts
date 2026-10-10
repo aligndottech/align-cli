@@ -68,6 +68,7 @@ vi.mock('../lib/sync/after-connect.js', () => ({ afterSourceConnected: mockAfter
 const mockGetConnectorFields = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
 const mockSetConnectorScope = vi.hoisted(() => vi.fn());
+const mockGetScope = vi.hoisted(() => vi.fn((_e: string, _s: string): unknown => null));
 const mockMarkDisclosed = vi.hoisted(() => vi.fn());
 vi.mock('../lib/config.js', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -77,8 +78,8 @@ vi.mock('../lib/config.js', async (importOriginal) => ({
     getConnectorFields: mockGetConnectorFields,
     saveConnectorFields: mockSaveConnectorFields,
     forgetConnector: vi.fn(),
-    getConnectorScope: vi.fn(() => null), setConnectorScope: mockSetConnectorScope, clearConnectorScope: vi.fn(),
-    isTeamScopeDisclosed: vi.fn(() => false), markTeamScopeDisclosed: mockMarkDisclosed,
+    getConnectorScope: mockGetScope, setConnectorScope: mockSetConnectorScope, clearConnectorScope: vi.fn(),
+    isTeamScopeDisclosed: vi.fn(() => false), markTeamScopeDisclosed: mockMarkDisclosed, clearTeamScopeDisclosed: vi.fn(),
     getConnectorToken: vi.fn(() => null),
     getConnectorCloudId: vi.fn(() => null),
     getConnectorSiteBase: vi.fn(() => null),
@@ -342,10 +343,30 @@ describe('align connect (ALI-951)', () => {
       expect(stdout.join('\n')).toContain("reads everyone's PRs and issues in o/r, as far as your token can see");
     });
 
-    it('asks the fetcher for team scope on the local graph', async () => {
+    it('asks the fetcher for team scope on the local graph, for a person at a terminal', async () => {
+      setTty(true, true);
       mockResolveRepo.mockResolvedValueOnce('o/r');
       await run(['connect', '--source', 'github', '--token', 't', '--yes']);
       expect(mockFetchGitHub.mock.calls.at(-1)![0]).toMatchObject({ repo: 'o/r', scope: 'team' });
+    });
+
+    it('and NOT with no terminal: the folder does not widen an unattended connect (the review\'s backfill-child case)', async () => {
+      setTty(false, false);
+      mockResolveRepo.mockResolvedValueOnce('o/r');
+      await run(['connect', '--source', 'github', '--token', 't', '--yes']);
+      const arg = mockFetchGitHub.mock.calls.at(-1)![0] as Record<string, unknown>;
+      expect(arg).not.toHaveProperty('repo');
+      expect(arg).not.toHaveProperty('scope');
+    });
+
+    it('a child an agent started (the marker in its environment) has its scope choices saved pending, even with a terminal', async () => {
+      setTty(true, true);
+      vi.stubEnv('ALIGN_STARTED_BY', 'mcp');
+      mockGetConnectorFields.mockImplementation((_e: string, id: string) => (id === 'jira' ? { token: 't', email: 'me@acme.com', domain: 'acme.atlassian.net' } : null));
+      mockSetConnectorScope.mockClear();
+      await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI']);
+      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', expect.objectContaining({ pending: { previous: null } }));
+      vi.unstubAllEnvs();
     });
   });
 
@@ -433,6 +454,7 @@ describe('align connect (ALI-951)', () => {
     };
 
     it('--projects reads those projects (checked against the token), tells the person first, and remembers the choice after the fetch', async () => {
+      setTty(true, true);
       savedAtlassian();
       const { log } = await import('@clack/prompts');
       await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI']);
@@ -442,24 +464,35 @@ describe('align connect (ALI-951)', () => {
       expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', { kind: 'team', values: ['ALI'], labels: ['ALI'] });
     });
 
-    it('--json prints nothing of the disclosure, does not mark it told, and reports whose items were read', async () => {
+    it('--json is unattended: it reads what was in force (no projects), prints nothing, and SAVES the request pending for a person', async () => {
+      setTty(true, true);
       savedAtlassian();
       const { log } = await import('@clack/prompts');
       (log.info as ReturnType<typeof vi.fn>).mockClear();
+      mockFetchJira.mockClear();
       await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI', '--json']);
-      expect((log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n')).not.toContain('Importing items from everyone');
+      expect(mockFetchJira.mock.calls.at(-1)![0]).not.toHaveProperty('projects');
+      expect((log.info as ReturnType<typeof vi.fn>).mock.calls).toEqual([]);
       expect(mockMarkDisclosed).not.toHaveBeenCalled();
-      const out = JSON.parse(stdout[stdout.length - 1]!) as { sources: Array<{ reads?: string; disclosure_pending?: boolean }> };
-      expect(out.sources[0]!.reads).toBe("everyone's items in Jira project ALI, as far as your token can see");
-      expect(out.sources[0]).toMatchObject({ disclosure_pending: true });
+      expect(mockSetConnectorScope).toHaveBeenCalledWith('local', 'jira', expect.objectContaining({ values: ['ALI'], pending: { previous: null } }));
+      const out = JSON.parse(stdout[stdout.length - 1]!) as { sources: Array<{ reads?: string }> };
+      expect(out.sources[0]!.reads).toBeUndefined();
     });
 
-    it('a plain (not --json) team connect owes nothing: the result carries no disclosure_pending', async () => {
+    it('--json over a team scope that is chosen but not yet told: it is read, nothing is printed or marked, and the result says the disclosure is still owed', async () => {
       savedAtlassian();
-      await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI', '--json', '--scope', 'team']);
-      const quiet = JSON.parse(stdout[stdout.length - 1]!) as { sources: Array<{ disclosure_pending?: boolean }> };
-      expect(quiet.sources[0]!.disclosure_pending).toBe(true);
-      stdout.length = 0;
+      mockGetScope.mockImplementation((_e: string, source: string) => (source === 'jira' ? { kind: 'team', values: ['ALI'], labels: ['ALI'] } : null));
+      await run(['connect', '--source', 'jira', '--yes', '--json']);
+      mockGetScope.mockImplementation(() => null);
+      expect(mockFetchJira.mock.calls.at(-1)![0]).toMatchObject({ projects: ['ALI'] });
+      expect(mockMarkDisclosed).not.toHaveBeenCalled();
+      const out = JSON.parse(stdout[stdout.length - 1]!) as { sources: Array<{ reads?: string; disclosure_pending?: boolean }> };
+      expect(out.sources[0]).toMatchObject({ reads: "everyone's items in Jira project ALI, as far as your token can see", disclosure_pending: true });
+    });
+
+    it('a team connect by a person owes nothing: the result carries no disclosure_pending', async () => {
+      setTty(true, true);
+      savedAtlassian();
       await run(['connect', '--source', 'jira', '--yes', '--projects', 'ALI']);
       expect(stdout.join('\n')).not.toContain('disclosure_pending');
     });

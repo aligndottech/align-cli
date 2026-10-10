@@ -242,6 +242,9 @@ function withoutStatusEnv(env: Record<string, string | undefined>): Record<strin
  * claimed only on that confirmation: a spawn that fails asynchronously (ENOENT, EMFILE) arrives as
  * an 'error' event, and stdio is ignored, so nothing else would ever say.
  */
+/** Set on every child an agent's tool call starts, so what the child writes can be attributed to the agent (scope-connect.ts `startedByAgent`). */
+export const STARTED_BY_AGENT_ENV = 'ALIGN_STARTED_BY';
+
 export function startBackfillChild(
   source: string,
   argv: string[],
@@ -260,7 +263,7 @@ export function startBackfillChild(
         windowsHide: true,
         // L5: a sync child has no status file (the sync lock and source_sync record it), so it must
         // not inherit one from this process either.
-        env: file === undefined ? withoutStatusEnv(process.env) : { ...process.env, [BACKFILL_STATUS_ENV]: file },
+        env: { ...(file === undefined ? withoutStatusEnv(process.env) : { ...process.env, [BACKFILL_STATUS_ENV]: file }), [STARTED_BY_AGENT_ENV]: 'mcp' },
       });
     } catch {
       return done({ ok: false });

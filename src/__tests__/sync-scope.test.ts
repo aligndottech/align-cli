@@ -136,6 +136,41 @@ describe('a run under a scope', () => {
     expect(marked).toEqual([]);
   });
 
+  describe("an agent's waiting scope offered to a person during a sync", () => {
+    const offered = (): Record<string, unknown> => jira({ disclosure: 'Importing items from everyone in Jira project ALI that your token can read.', activates: true });
+    const kept = { scopeKey: 'yours', scope: 'yours' as const, extras: {}, note: 'Team scope for jira is waiting for you to confirm: run `align sync jira` (it will show what it reads)' };
+
+    it('Yes: it is announced, asked, marked told (which activates it), and read as team', async () => {
+      const seen: unknown[] = [];
+      const events: string[] = [];
+      h.env.scopeOf = async (_s, o) => (o.trigger === 'cli' ? offered() : kept) as never;
+      h.env.announce = () => { events.push('announce'); };
+      h.env.confirm = async () => { events.push('confirm'); return true; };
+      h.env.markDisclosed = (s, key) => { events.push(`mark ${s} ${key}`); };
+      h.env.fetch = async (_s, _t, _w, scope) => { seen.push(scope.scopeKey); return { items: [], report: { scanned: 0, skips: [], complete: true } }; };
+      await syncSource('jira', h.env);
+      expect(events).toEqual(['announce', 'confirm', 'mark jira jira:ALI']);
+      expect(seen).toEqual(['jira:ALI']);
+    });
+
+    it('No, or nothing to ask with (no confirm wired): not marked, and the source is read under what was in force, with the waiting note (two ways)', async () => {
+      for (const withConfirm of [true, false]) {
+        const seen: unknown[] = [];
+        const marked: string[] = [];
+        h.env.scopeOf = async (_s, o) => (o.trigger === 'cli' ? offered() : kept) as never;
+        h.env.announce = () => {};
+        if (withConfirm) h.env.confirm = async () => false; else delete h.env.confirm;
+        h.env.markDisclosed = (s) => { marked.push(s); };
+        h.env.fetch = async (_s, _t, _w, scope) => { seen.push(scope.scopeKey); return { items: [], report: { scanned: 0, skips: [], complete: true } }; };
+        const out = await syncSource('jira', h.env);
+        expect(seen).toEqual(['yours']);
+        expect(marked).toEqual([]);
+        expect(out.scopeLine).toContain('waiting for you to confirm');
+        h.env.fetch = async () => ({ items: [], report: { scanned: 0, skips: [], complete: true } });
+      }
+    });
+  });
+
   it('no disclosure, no announcement', async () => {
     const announced: string[] = [];
     h.env.scopeOf = async () => jira();

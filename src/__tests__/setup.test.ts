@@ -100,7 +100,7 @@ const makeDefaultConfig = () => ({
     forgetConnector: mockForgetConnector,
     // L4: the scope choice and the one-time team-scope disclosure. Nothing chosen and nothing told by default, like every other store field here.
     getConnectorScope: vi.fn().mockReturnValue(null), setConnectorScope: vi.fn(), clearConnectorScope: vi.fn(),
-    isTeamScopeDisclosed: vi.fn().mockReturnValue(false), markTeamScopeDisclosed: vi.fn(),
+    isTeamScopeDisclosed: vi.fn().mockReturnValue(false), markTeamScopeDisclosed: vi.fn(), clearTeamScopeDisclosed: vi.fn(),
     getConnectorCloudId: vi.fn().mockReturnValue(null),
     setConnectorCloudId: vi.fn(),
     getConnectorSiteBase: vi.fn().mockReturnValue(null),
@@ -1356,7 +1356,7 @@ describe('align setup', () => {
           forgetConnector: mockForgetConnector,
           // L4: the scope choice and the one-time team-scope disclosure. Nothing chosen and nothing told by default, like every other store field here.
           getConnectorScope: vi.fn().mockReturnValue(null), setConnectorScope: vi.fn(), clearConnectorScope: vi.fn(),
-          isTeamScopeDisclosed: vi.fn().mockReturnValue(false), markTeamScopeDisclosed: vi.fn(),
+          isTeamScopeDisclosed: vi.fn().mockReturnValue(false), markTeamScopeDisclosed: vi.fn(), clearTeamScopeDisclosed: vi.fn(),
           getConnectorCloudId: vi.fn().mockReturnValue(null),
           setConnectorCloudId: vi.fn(),
           getConnectorSiteBase: vi.fn().mockReturnValue(null),
@@ -1845,7 +1845,7 @@ describe('align setup', () => {
       forgetConnector: mockForgetConnector,
       // L4: the scope choice and the one-time team-scope disclosure. Nothing chosen and nothing told by default, like every other store field here.
       getConnectorScope: vi.fn().mockReturnValue(null), setConnectorScope: vi.fn(), clearConnectorScope: vi.fn(),
-      isTeamScopeDisclosed: vi.fn().mockReturnValue(false), markTeamScopeDisclosed: vi.fn(),
+      isTeamScopeDisclosed: vi.fn().mockReturnValue(false), markTeamScopeDisclosed: vi.fn(), clearTeamScopeDisclosed: vi.fn(),
       getConnectorCloudId: vi.fn().mockReturnValue(null),
       setConnectorCloudId: vi.fn(),
       getConnectorSiteBase: vi.fn().mockReturnValue(null),
