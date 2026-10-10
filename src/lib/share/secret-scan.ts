@@ -3,10 +3,11 @@
  * never the secret itself: the match is not printed, logged or returned, only its placeholder name.
  *
  * `secret-patterns.json` is vendored byte for byte from align-stack `config/secret-patterns.json`
- * (last changed in align-stack commit f4806ca5a). It is the same list brain redacts with and the
+ * (last changed in align-stack commit 292e07017). It is the same list brain redacts with and the
  * gateway refuses on at POST /ingest/batch, so a share that passes here is not refused there for a
- * credential shape. A parity test pins the pattern count and a known token per family; a pattern
- * added server-side but not copied here only means the SERVER refuses a share this scan let through.
+ * credential shape. `share-secret-patterns.test.ts` pins the file's sha256 and one positive and one
+ * near-miss per newer shape; a pattern added server-side but not copied here only means the SERVER
+ * refuses a share this scan let through, so re-vendor the file and update that pin together.
  */
 import patterns from './secret-patterns.json' with { type: 'json' };
 
