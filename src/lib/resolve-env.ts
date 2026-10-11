@@ -1,16 +1,33 @@
-import { createConfigStore, type EnvName } from './config.js';
+import { type BuiltinEnv, createConfigStore, type EnvName } from './config.js';
 
-const VALID_ENVS: EnvName[] = ['local', 'preview', 'prod'];
+const VALID_ENVS: BuiltinEnv[] = ['local', 'preview', 'prod'];
+
+/**
+ * A name that is neither a builtin nor a saved team destination. Resolution used to fall back to
+ * the stored default for any such name, so `--env prodd` quietly ran against prod and
+ * `--env acme` against whatever the default was. A name the user typed on purpose now either
+ * means what they said or stops (join plan S6).
+ */
+export class UnknownEnvError extends Error {
+  constructor(value: string, destinations: string[]) {
+    const shown = value.replace(/[^\x20-\x7e]/g, '?').slice(0, 40);
+    const valid = [...VALID_ENVS, ...destinations].join(', ');
+    super(`Unknown environment "${shown}". Valid environments: ${valid}.`);
+    this.name = 'UnknownEnvError';
+  }
+}
+
+function acceptName(name: string, config: ReturnType<typeof createConfigStore>): EnvName {
+  if ((VALID_ENVS as string[]).includes(name)) return name as EnvName;
+  if (config.hasTeamDestination(name)) return name as EnvName;
+  throw new UnknownEnvError(name, config.listTeamDestinationNames());
+}
 
 export function resolveEnv(flagValue?: string, opts: { preferLocalEmbedded?: boolean } = {}): EnvName {
-  if (flagValue && VALID_ENVS.includes(flagValue as EnvName)) {
-    return flagValue as EnvName;
-  }
-  const fromEnvVar = process.env['ALIGN_ENV'];
-  if (fromEnvVar && VALID_ENVS.includes(fromEnvVar as EnvName)) {
-    return fromEnvVar as EnvName;
-  }
   const config = createConfigStore();
+  if (flagValue) return acceptName(flagValue, config);
+  const fromEnvVar = process.env['ALIGN_ENV'];
+  if (fromEnvVar) return acceptName(fromEnvVar, config);
   const defaultEnv = config.getDefaultEnv();
   // A user who ran `align setup --local` has local-embedded configured but the
   // default env stays a cloud env (deliberate, so cloud-only commands are not

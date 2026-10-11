@@ -31,6 +31,15 @@ describe('config store', () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
+  it('hasTeamDestination is false for builtins, prototype names and unknown names', () => {
+    const c = createConfigStore();
+    c.setAuthToken('prod', 't');
+    expect(c.hasTeamDestination('prod')).toBe(false);
+    expect(c.hasTeamDestination('constructor')).toBe(false);
+    expect(c.hasTeamDestination('acme')).toBe(false);
+    expect(c.listTeamDestinationNames()).toEqual([]);
+  });
+
   it('stores, reads and clears the chosen launch agent', () => {
     const c = createConfigStore();
     expect(c.getAgent()).toBeUndefined();
