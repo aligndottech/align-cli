@@ -19,7 +19,7 @@ import type { ShareClient } from '../lib/share/run.js';
 import { shareSalt } from '../lib/share/salt.js';
 import { resolveShareEnv, ShareTargetError } from '../lib/share/target.js';
 import { ttyAsk, ttyConfirm } from '../lib/share/tty.js';
-import { maybeAskLead, postLead } from '../lib/lead-prompt.js';
+import { leadPromptFor } from '../lib/lead-prompt.js';
 import { inCi } from '../lib/telemetry-ci.js';
 
 export function registerShareCommand(program: Command): void {
@@ -90,16 +90,14 @@ export function registerShareCommand(program: Command): void {
         },
         out: (l) => console.log(l),
         err: (l) => console.error(chalk.red(l)),
-        leadPrompt: () => maybeAskLead({
+        leadPrompt: leadPromptFor({
           store: config,
-          env: process.env,
-          hasLogin: false,
-          gatewayUrl: cloudEnv.gatewayUrl,
+          cloudGatewayUrl: cloudEnv.gatewayUrl,
           hostedGatewayUrl: ALIGN_HOSTED_GATEWAY_URL,
+          env: process.env,
           inCi: inCi(),
           tty: Boolean(process.stdin.isTTY && process.stdout.isTTY && process.stderr.isTTY),
           ask: ttyAsk,
-          post: (email) => postLead(email, cloudEnv.gatewayUrl),
           out: (l) => console.log(l),
         }),
       } satisfies ShareDeps);
