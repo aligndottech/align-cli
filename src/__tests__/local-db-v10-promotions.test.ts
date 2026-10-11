@@ -80,9 +80,10 @@ describe('a v9 graph', () => {
 describe('a graph from a newer CLI', () => {
   it('is refused on open, and left untouched', () => {
     createLocalDb(dbPath).close();
-    exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    // +2: a bare 12 with the detector_version column is restamped to 11 (R4); see local-db-v12-detector-version.test.ts.
+    exec(`PRAGMA user_version = ${SCHEMA_VERSION + 2}`);
     expect(() => createLocalDb(dbPath)).toThrow(/written by a newer Align CLI/);
-    expect(version()).toBe(SCHEMA_VERSION + 1);
+    expect(version()).toBe(SCHEMA_VERSION + 2);
   });
 });
 

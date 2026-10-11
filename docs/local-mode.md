@@ -109,6 +109,24 @@ is listed on its own page, and a test keeps that page true.
   conflicts with, depends on) are typed at query time using **your own AI provider key**.
   Without one, related decisions still surface, just not typed. The heavier cross-tool
   relationship detection runs in the hosted gateway.
+- **Two relationship detectors, picked with `ALIGN_DETECTOR`.** `v0` (the default, unchanged)
+  types each related decision in its own call. `v1` is the detector the hosted product's base
+  prompt uses: one call per check over every related decision, shown with its date and whether
+  it was replaced. The model only says whether two decisions are *incompatible*; whether that is
+  a conflict or a replacement is worked out from the dates, and anything unclear stays a
+  conflict. Your local graph does not record who made each decision, so v1 never assumes two
+  decisions share an author. Any other value stops the CLI with the allowed values. Per-model
+  accuracy for v1 is **not yet measured**; the scores will be listed here once the benchmark
+  has run.
+- **Links record which detector wrote them.** Every existing link is stamped `v0` and is never
+  re-typed on its own. Older CLIs keep opening the graph: the new column is additive, so the
+  graph's version number does not move. `align local relink --detector v1` re-types links on
+  request. It first prints how many model calls it needs, the tokens, and a cost estimate (the
+  default model's list price, or "unknown price" for Ollama). On its own it calls nothing;
+  `--dry-run --classify` shows the v1 verdicts without writing; `--apply` writes v1 links beside
+  the v0 ones and `--apply --replace` swaps them. It asks before spending, stops after 50 calls
+  unless `--max-calls` says more, and never touches a link a person marked or judged. A link the
+  v1 detector gives no relationship is left exactly as it is.
 - **The graph is one file, not one file per repo - and it now knows which repo each decision
   came from.** Every hosted commit/pull/issue URL stamps its own repo automatically at import
   time; a Jira ticket, a Slack thread, or a bare `capture` stays unattributed rather than

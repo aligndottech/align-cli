@@ -49,7 +49,7 @@ function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
   try {
     db.exec('PRAGMA busy_timeout = 30000');
     // A newer CLI's file is not ours to read or write: the same refusal migrate() makes.
-    assertSchemaSupported((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
+    assertSchemaSupported((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, db);
     return fn(db);
   } finally {
     db.close();

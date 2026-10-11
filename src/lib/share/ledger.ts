@@ -59,7 +59,7 @@ function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA busy_timeout = 30000');
-    assertSchemaSupported((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
+    assertSchemaSupported((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, db);
     return fn(db);
   } finally {
     db.close();

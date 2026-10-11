@@ -11,6 +11,7 @@ import { migrateV8 } from './local-db-v8.js';
 import { migrateV9 } from './local-db-v9.js';
 import { migrateV10, repairPromotions } from './local-db-v10.js';
 import { migrateV11 } from './local-db-v11.js';
+import { hasDetectorVersion, migrateV12 } from './local-db-v12.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -169,7 +170,9 @@ export function deleteDecisionWithDependents(db: DatabaseSync, id: string): void
 }
 
 /** The one downgrade guard: migrate() and every other writer of this file (the sync state, purge) call it. */
-export function assertSchemaSupported(version: number): void {
+export function assertSchemaSupported(version: number, db?: DatabaseSync): void {
+  // R4: an early-branch 12 that differs only by the additive column is not newer (see restampEarlyV12).
+  if (version === 12 && db !== undefined && hasDetectorVersion(db)) return;
   if (version > SCHEMA_VERSION) {
     throw new Error(
       `This local graph was written by a newer Align CLI (schema v${version}; this CLI supports up to v${SCHEMA_VERSION}). ` +
@@ -178,7 +181,28 @@ export function assertSchemaSupported(version: number): void {
   }
 }
 
+/**
+ * Re-review R4: an unreleased build of the detector branch (68cc596) stamped user_version 12 for
+ * the detector_version column, which is now an additive step. A 12 whose only difference is that
+ * column is put back to 11, inside a write lock, so this CLI and older ones open it. A 12 without
+ * the column came from somewhere else and is still refused. The day a real numbered step 12 lands,
+ * this must go, or it would hide that step.
+ */
+function restampEarlyV12(db: DatabaseSync): void {
+  if ((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version !== 12) return;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+    if (current === 12 && hasDetectorVersion(db)) db.exec('PRAGMA user_version = 11');
+    db.exec('COMMIT');
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 export function migrate(db: DatabaseSync): void {
+  restampEarlyV12(db);
   const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
   // A newer CLI migrated this file. Running this build's older code against the newer tables
   // (a v6 binary inserting rows without a source_key beside keyed ones) corrupts identity, so
@@ -467,6 +491,20 @@ export function migrate(db: DatabaseSync): void {
   }
   // A graph an earlier build of this branch stamped v10 (see repairPromotions): runs on every open.
   repairPromotions(db);
+  // ADDITIVE steps (review F7): a change an older CLI can live with does not bump user_version,
+  // because every older CLI refuses a graph whose user_version is above what it knows. A column
+  // with a DEFAULT an older CLI's INSERTs fill correctly is additive; anything an older CLI would
+  // write wrongly, or misread, is not, and still takes a numbered step and the refusal.
+  if (!hasDetectorVersion(db)) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      migrateV12(db); // re-checks the column inside the lock
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
   if (version < SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
