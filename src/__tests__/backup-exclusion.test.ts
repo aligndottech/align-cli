@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -56,6 +56,14 @@ describe('excluding the local graph directory from backups', () => {
     excludeGraphFromBackups(dbPath, deps());
     excludeGraphFromBackups(dbPath, deps());
     expect(runs.length).toBe(1);
+  });
+
+  it('the documented undo sticks: after the person deletes CACHEDIR.TAG, neither the tag nor the exclusion comes back', () => {
+    excludeGraphFromBackups(dbPath, deps());
+    rmSync(tag());
+    excludeGraphFromBackups(dbPath, deps());
+    expect(runs.length).toBe(1);
+    expect(existsSync(tag())).toBe(false);
   });
 
   it('never fatal: a tmutil that throws still leaves the tag and does not throw', () => {

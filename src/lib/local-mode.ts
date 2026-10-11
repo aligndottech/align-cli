@@ -1,12 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import envPaths from 'env-paths';
 import { createConfigStore } from './config.js';
 import { procLike, realPathOf } from './xdg.js';
 import { createLocalDb } from './local-db.js';
 import { type BackupDeps, excludeGraphFromBackups } from './backup-exclusion.js';
-import { ensurePrivateDir, GRAPH_FILE_SUFFIXES, tightenGraphFiles } from './private-files.js';
+import { alignConfigDir, ensurePrivateDir, GRAPH_FILE_SUFFIXES, tightenGraphFiles } from './private-files.js';
 
 /**
  * The graph is one logical database spread over three files: the DB itself plus the WAL
@@ -85,8 +84,7 @@ export function migrateLocalDb(oldDir: string, newDir: string, opts: { cwd?: str
  * directory createConfigStore() resolves to, by construction rather than by convention.
  */
 export function getLocalDbPath(): string {
-  const configDir = envPaths('align-cli', { suffix: '' }).config;
-  return path.join(configDir, 'local.db');
+  return path.join(alignConfigDir(), 'local.db');
 }
 
 /**

@@ -7,13 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createConfigStore, migrateConfigDirectory } from '../lib/config.js';
 import { migrateLocalDb } from '../lib/local-mode.js';
 import { createLocalDb } from '../lib/local-db.js';
-import { markSurfaced } from '../lib/advisory-dedup.js';
+import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 import { writeBlocked } from '../lib/sync/blocked.js';
 import { listPromotions } from '../lib/share/ledger.js';
 import { anyJudgements } from '../lib/curation/guardrail.js';
 import { issueCode, loadRequest } from '../lib/share/pending.js';
 import type { SharePayload } from '../lib/share/payload.js';
-import { adjudicationPayloadPath } from '../lib/advisory-verdict.js';
+import { adjudicationPayloadPath, privateTmpDir } from '../lib/advisory-verdict.js';
 import { modelFileCache } from '../lib/model-cache.js';
 import { assertIsolatedHome } from './helpers/isolated-home.js';
 import { rmDir } from './helpers/rm-dir.js';
@@ -84,10 +84,13 @@ describe.skipIf(!posix)('the one-time directory migrations copy into an owner-on
 });
 
 describe.skipIf(!posix)('state files rewritten in place stay owner-only', () => {
-  it('the advisory dedup marker: fresh and pre-existing are both 0600', () => {
+  it('the advisory dedup marker lives in the verified private temp folder, 0600, fresh and rewritten', () => {
     const cwd = path.join(dir, 'proj');
-    // The marker's own name, derived as advisory-dedup.ts derives it (a per-project hash in the temp dir).
-    const marker = path.join(os.tmpdir(), `align-advisory-${createHash('sha1').update(cwd).digest('hex').slice(0, 16)}.json`);
+    // Review finding: a predictable name directly in the shared temp dir could be pre-planted by another account
+    // (a symlink, or a 0666 file we would write into). It belongs in align-<uid>, which is lstat- and uid-checked.
+    const store = privateTmpDir();
+    expect(store).not.toBeNull();
+    const marker = path.join(store!, `advisory-${createHash('sha1').update(cwd).digest('hex').slice(0, 16)}.json`);
     try {
       markSurfaced(cwd, ['a']);
       expect(existsSync(marker)).toBe(true);
@@ -95,6 +98,7 @@ describe.skipIf(!posix)('state files rewritten in place stay owner-only', () => 
       chmodSync(marker, 0o644);
       markSurfaced(cwd, ['b']);
       expect(mode(marker)).toBe(0o600);
+      expect([...recentlySurfaced(cwd)].sort()).toEqual(['a', 'b']);
     } finally {
       rmSync(marker, { force: true });
     }

@@ -13,7 +13,8 @@
  * There is no marker-FILE convention for iCloud or Dropbox: iCloud skips items whose NAME ends in
  * `.nosync`, which would mean renaming the user's config directory. Neither syncs the config
  * directory by default, so nothing is written for them. Undo: `tmutil removeexclusion <dir>` and
- * delete the tag (docs/local-mode.md).
+ * delete the tag (docs/local-mode.md); a separate `.backup-exclusion-done` marker
+ * keeps that undo from being reversed.
  *
  * Never fatal: every step is wrapped, and nothing here can stop a command from running.
  */
@@ -43,8 +44,11 @@ export function excludeGraphFromBackups(dbPath: string, deps: BackupDeps = defau
     if (!fs.existsSync(dbPath)) return;
     const dir = path.dirname(dbPath);
     const tag = path.join(dir, 'CACHEDIR.TAG');
-    // The tag doubles as the "already done" marker, so tmutil runs once per directory, not per command.
-    if (fs.existsSync(tag)) return;
+    // Its own "already done" marker, not the tag: a person who deletes the tag to back the graph up again
+    // (the documented undo) must not have it, or the Time Machine exclusion, put back by the next command.
+    const done = path.join(dir, '.backup-exclusion-done');
+    if (fs.existsSync(done) || fs.existsSync(tag)) return;
+    try { fs.writeFileSync(done, '', { mode: 0o600 }); } catch { /* best effort */ }
     if (deps.platform === 'darwin' && deps.hasTmutil()) {
       try { deps.run(TMUTIL, ['addexclusion', dir]); } catch { /* best effort */ }
     }

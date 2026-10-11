@@ -1,13 +1,14 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { dirname } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } from './local-db-migrate.js';
 import type { DeciderKind } from './decider-kind.js';
 import { bumpRowSetEpoch, rowSetEpoch } from './local-db-epoch.js';
 import { foldKeylessTwin } from './local-db-v7.js';
 import { discussionStart } from './github-text.js';
 import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
-import { ensurePrivateDir, precreatePrivateFile, tightenGraphFiles } from './private-files.js';
+import { alignConfigDir, ensurePrivateDir, precreatePrivateFile, tightenGraphFiles } from './private-files.js';
 
 export interface DecisionRow {
   id: string;
@@ -153,10 +154,14 @@ export function createLocalDb(dbPath: string) {
   // Still true after the move off better-sqlite3: node:sqlite does not mkdir either.
   //
   // The directory is created 0700 and the file 0600 before SQLite opens it (whose own default for a
-  // new file is 0644), and both are tightened on every open (private-files.ts). SQLite gives the
+  // new file is 0644). The file is tightened on every open, and so is the folder when it is align's own
+  // config folder (private-files.ts). SQLite gives the
   // -wal and -shm it creates the main file's mode, so they follow it.
   if (dbPath !== ':memory:') {
-    ensurePrivateDir(dirname(dbPath));
+    const dir = dirname(dbPath);
+    // Throws the real reason (ENOTDIR, EACCES) rather than SQLite's "unable to open database file".
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (resolve(dir) === resolve(alignConfigDir())) ensurePrivateDir(dir);
     precreatePrivateFile(dbPath);
     tightenGraphFiles(dbPath);
   }

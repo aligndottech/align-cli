@@ -4,6 +4,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensurePrivateDir, tightenFile, tightenGraphFiles, writePrivateFile } from '../lib/private-files.js';
 import { createLocalDb } from '../lib/local-db.js';
+import { getLocalDbPath } from '../lib/local-mode.js';
+import { assertIsolatedHome } from './helpers/isolated-home.js';
 import { rmDir } from './helpers/rm-dir.js';
 
 // Owner-only modes are a POSIX property. Windows has no mode bits (chmod only flips read-only), so these run on
@@ -37,6 +39,13 @@ describe.skipIf(!posix)('ensurePrivateDir', () => {
     chmodSync(d, 0o755);
     ensurePrivateDir(d);
     expect(mode(d)).toBe(0o700);
+  });
+  it('keeps the setgid bit while removing group and world access', () => {
+    const d = path.join(dir, 'sgid');
+    mkdirSync(d);
+    chmodSync(d, 0o2775);
+    ensurePrivateDir(d);
+    expect(statSync(d).mode & 0o7777).toBe(0o2700);
   });
   it('tightens an existing 0777 directory to 0700', () => {
     const d = path.join(dir, 'world');
@@ -102,9 +111,10 @@ describe.skipIf(!posix)('the local graph: database, -wal, -shm and its directory
     }
   });
 
-  it('a pre-existing 0644 graph in a 0755 directory is tightened on the next open', () => {
-    const graphDir = path.join(dir, 'align-cli');
-    const dbPath = path.join(graphDir, 'local.db');
+  it('the managed graph folder: a pre-existing 0644 graph in a 0755 folder is tightened on the next open', () => {
+    const dbPath = getLocalDbPath();
+    assertIsolatedHome(dbPath);
+    const graphDir = path.dirname(dbPath);
     createLocalDb(dbPath).close();
     chmodSync(dbPath, 0o644);
     chmodSync(graphDir, 0o755);
@@ -114,7 +124,27 @@ describe.skipIf(!posix)('the local graph: database, -wal, -shm and its directory
       expect(mode(graphDir)).toBe(0o700);
     } finally {
       db.close();
+      rmDir(graphDir);
     }
+  });
+
+  it('a graph somewhere else (a snapshot, a hand-set localDbPath): the file is tightened, its existing folder is not', () => {
+    // Narrowing whatever folder the file sits in would chmod a repo or the home folder.
+    const parent = path.join(dir, 'repo');
+    mkdirSync(parent);
+    chmodSync(parent, 0o755);
+    const dbPath = path.join(parent, 'snap.db');
+    createLocalDb(dbPath).close();
+    chmodSync(dbPath, 0o644);
+    createLocalDb(dbPath).close();
+    expect(mode(dbPath)).toBe(0o600);
+    expect(mode(parent)).toBe(0o755);
+  });
+
+  it('a folder that cannot be made fails with the real reason, not "unable to open database file"', () => {
+    const file = path.join(dir, 'a-file');
+    writeFileSync(file, 'x');
+    expect(() => createLocalDb(path.join(file, 'sub', 'local.db'))).toThrow(/ENOTDIR|EEXIST/);
   });
 
   it('tightenGraphFiles tightens loose -wal and -shm siblings too', () => {

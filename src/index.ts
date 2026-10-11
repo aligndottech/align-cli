@@ -2,6 +2,7 @@
 import './lib/startup-env.js'; // FIRST: snapshot the shell's env before any module can change it
 import './lib/startup-xdg.js'; // SECOND: drop a relative XDG_* before anything computes a directory from it
 import './lib/startup-backfill-track.js'; // THIRD: if align_backfill started this process, record how it ends
+import { writeSync } from 'node:fs';
 import envPaths from 'env-paths';
 import { migrateConfigDirectory } from './lib/config.js';
 import { getLocalDbPath, legacyLocalDbDir, migrateLocalDb } from './lib/local-mode.js';
@@ -24,7 +25,8 @@ process.on('uncaughtException', handleFatal);
 process.on('unhandledRejection', handleFatal);
 // A command that exits before its postAction hook still tells the person how many secrets it kept
 // out of the local graph. Taking the notice resets it, so this never repeats one cli.ts printed.
-process.on('exit', () => printRedactionNotice());
+// A synchronous write: an asynchronous stderr pipe (macOS) is not flushed once 'exit' runs.
+process.on('exit', () => printRedactionNotice((line) => { try { writeSync(2, `${line}\n`); } catch { /* stderr closed */ } }));
 
 // One-time directory migrations (ALI-819, Copilot review on #231), run exactly once at
 // real process startup - never inside createConfigStore()/getLocalDbPath() themselves,

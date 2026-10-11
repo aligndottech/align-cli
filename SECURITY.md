@@ -39,7 +39,10 @@ machine as the file. Use your operating system's disk encryption. What Align doe
 - Every capture, import, `align mark` note and MCP `align_capture` replaces matched API keys, tokens, passwords
   and private keys with a placeholder such as `<GITHUB_TOKEN>` before anything is written. The scanner matches
   patterns, so it does not catch every secret.
-- The graph folder is excluded from Time Machine on macOS and tagged with `CACHEDIR.TAG` for other backup tools.
+- Existing decisions are not scrubbed: a re-import rewrites most of them, but ratified or confirmed decisions and
+  plain captures keep the text they were saved with.
+- The graph folder, which also holds `config.json`, is excluded from Time Machine on macOS and tagged with
+  `CACHEDIR.TAG` for other backup tools.
 
 What is stored where, and how to delete all of it:
 [docs/local-mode.md](docs/local-mode.md#what-align-stores-on-your-machine-and-how-it-is-protected).

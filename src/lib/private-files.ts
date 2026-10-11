@@ -20,6 +20,7 @@
  * filesystem) is not a reason to refuse to open the user's own graph.
  */
 import fs from 'node:fs';
+import envPaths from 'env-paths';
 
 /**
  * The graph is one logical database spread over three files: the DB itself plus the WAL sidecars
@@ -32,22 +33,22 @@ export interface PrivateFileDeps {
   /** True where mode bits mean something. Default: the platform has getuid (macOS, Linux). */
   posix?: boolean;
   chmod?: (p: string, mode: number) => void;
-  /** The permission bits of `p`, or undefined when it does not exist. */
+  /** The mode bits of `p` (permissions plus setuid/setgid/sticky), or undefined when it does not exist. */
   modeOf?: (p: string) => number | undefined;
 }
 
 const isPosix = (): boolean => typeof process.getuid === 'function';
 
 function statMode(p: string): number | undefined {
-  try { return fs.statSync(p).mode & 0o777; } catch { return undefined; }
+  try { return fs.statSync(p).mode & 0o7777; } catch { return undefined; }
 }
 
-/** Remove the group and world bits from `p` when it has any. Never adds a bit. */
+/** Remove the group and world bits from `p` when it has any. Never adds a bit; setgid and sticky are kept. */
 function narrow(p: string, deps: PrivateFileDeps): void {
   if (!(deps.posix ?? isPosix())) return;
   const m = (deps.modeOf ?? statMode)(p);
   if (m === undefined || (m & 0o077) === 0) return;
-  try { (deps.chmod ?? fs.chmodSync)(p, m & 0o700); } catch { /* best effort, see the header */ }
+  try { (deps.chmod ?? fs.chmodSync)(p, m & ~0o077); } catch { /* best effort, see the header */ }
 }
 
 /** Create `dir` (and any missing parents) 0700, and tighten it if it already existed wider. False when it cannot be created. */
@@ -82,3 +83,12 @@ export function writePrivateFile(file: string, data: string | Uint8Array): void 
   narrow(file, {});
 }
 
+
+/**
+ * The folder align manages for its config and the local graph (env-paths, `suffix: ''`, the same call `conf`
+ * makes). Only this folder is narrowed when the graph opens: a graph somewhere else (a snapshot, a hand-set
+ * `localDbPath`) sits in a folder that is not ours to chmod, such as a repo or the home folder.
+ */
+export function alignConfigDir(): string {
+  return envPaths('align-cli', { suffix: '' }).config;
+}

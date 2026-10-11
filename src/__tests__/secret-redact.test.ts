@@ -57,6 +57,23 @@ describe('redactSecrets: replace each matched span with its placeholder, never k
     expect(far.count).toBe(0);
   });
 
+  it('an env-style assignment is still redacted after its name was bounded (a long name, and a short one)', () => {
+    const long = fx('MY_SERVICE_PRODUCTION_DATABASE_PASS', 'WORD=', PW);
+    expect(redactSecrets(long).text).toBe(fx('MY_SERVICE_PRODUCTION_DATABASE_PASS', 'WORD=<SECRET_VALUE>'));
+    expect(redactSecrets(fx('DB_TO', 'KEN=', 'abc123xyz')).text).toBe(fx('DB_TO', 'KEN=<SECRET_VALUE>'));
+  });
+
+  it('a content digest is not a credential: sha256:<hex> and sha1:<hex> are kept as written', () => {
+    const d256 = `sha256:${'9f86d081884c7d65'.repeat(4)}`;
+    const d1 = `sha1:${'a94a8fe5ccb19ba61c4c'.repeat(2)}`;
+    expect(redactSecrets(`pin the image to ${d256}`)).toEqual({ text: `pin the image to ${d256}`, count: 0 });
+    expect(redactSecrets(`commit ${d1}`)).toEqual({ text: `commit ${d1}`, count: 0 });
+  });
+  it('control: the same shape with a non-digest label is still redacted as credentials', () => {
+    expect(redactSecrets(fx('admin:', 'S3cr3tP4ssw0rd')).text).toBe('<CREDENTIALS>');
+    expect(redactSecrets(fx('root:', 'abc12345def')).count).toBe(1);
+  });
+
   it('leaves ordinary decision text untouched, count 0', () => {
     const text = 'We decided to rotate the private key every quarter. See PR #123 and https://github.com/a/b/pull/9.';
     expect(redactSecrets(text)).toEqual({ text, count: 0 });
@@ -76,7 +93,10 @@ describe('redactSecrets: replace each matched span with its placeholder, never k
 
 describe('no input shape makes redaction slow (a big import item can be 200 KB)', () => {
   const pemBegin = fx('-----BEGIN ', 'OPENSSH PRIVATE', ' KEY-----');
-  const units = ['a', 'a-', 'a_', '_', 'to' + 'ken=', 'pass' + 'word=', '?to' + 'ken=', '&sig=', '://', 'a://', '@', ':', '\r\n', '<', '"', pemBegin.slice(0, 20), 'aws ', 'Ab1'];
+  // The uppercase runs are review finding 1: an env-style name pattern backtracked once per repeat of the word
+  // (`XTOKENX` x 28,571 took 3.3 s before its name parts were bounded).
+  const units = ['a', 'a-', 'a_', '_', 'to' + 'ken=', 'pass' + 'word=', '?to' + 'ken=', '&sig=', '://', 'a://', '@', ':', '\r\n', '<', '"', pemBegin.slice(0, 20), 'aws ', 'Ab1',
+    'XTO' + 'KENX', 'GITHUB_TO' + 'KEN_', 'MY_SEC' + 'RET_', 'PASS' + 'WORD'];
   it.each(units)('200 KB of %j finishes well inside a second', (unit) => {
     const text = unit.repeat(Math.ceil(200_000 / unit.length));
     const t = performance.now();

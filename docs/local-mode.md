@@ -149,9 +149,11 @@ is listed on its own page, and a test keeps that page true.
 | The decision graph: `local.db` plus its `local.db-wal` and `local.db-shm` files | `~/.config/align-cli/` / `~/Library/Preferences/align-cli/` / `%APPDATA%\align-cli\Config\` |
 | Settings and the read-only tokens you pasted: `config.json` | the same folder |
 | Short-lived state: sync locks, share requests waiting for approval, the last check | `~/.local/state/align-cli/` (Linux and macOS) / `%LOCALAPPDATA%\align-cli\` |
+| Editor-hook scratch files: recent check verdicts and which decisions were just shown | `align-<your user id>/` in the system temp folder (`$TMPDIR` or `/tmp`) |
 | The embedding model (public, not your data), standalone binary only | `~/.cache/align-cli/models/` / `%LOCALAPPDATA%\align-cli\models\` |
 
-`XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` move these on Linux. The graph holds the title
+`XDG_CONFIG_HOME` moves the first two rows on Linux. `XDG_STATE_HOME` and `XDG_CACHE_HOME` move the state
+and the model cache on Linux and macOS. The graph holds the title
 and text of every decision you captured or imported, your marks and notes, and which repo each came from.
 
 **File permissions.** On macOS and Linux every folder above is owner-only (`0700`) and every file in it is
@@ -166,7 +168,8 @@ Confluence, Notion, Linear, Slack, Teams, Zoom, agent sessions, docs), every `al
 key is replaced with a placeholder such as `<GITHUB_TOKEN>` or `<PRIVATE_KEY>`, and the original is never
 written. Align tells you once per run how many it replaced. It is pattern matching, so it catches the common
 shapes, not every secret: a password with no label next to it, for example, is kept as written. Decisions saved
-by an older version keep their text until the next import of that source rewrites them.
+by an older version are not scrubbed: an import rewrites most of them with the redacted text, but a decision
+you ratified or confirmed keeps the text you attested, and a plain `align capture` is never rewritten.
 
 **Not encrypted, by design.** The graph is a plain SQLite file. Encrypting it would need a key stored on the
 same machine, next to the file, so it would protect against very little. It would also need a native database
@@ -176,15 +179,17 @@ else on the disk if the machine is lost or stolen.
 
 **Backups and sync.** On macOS Align excludes the graph folder from Time Machine (`tmutil addexclusion`,
 once). On every system it writes a `CACHEDIR.TAG` file there, which borg, restic, tar and other backup tools
-skip when you ask them to leave out caches. Neither iCloud nor Dropbox syncs these folders by default. To back
-the graph up anyway, run `tmutil removeexclusion <folder>` and delete `CACHEDIR.TAG`. Both steps are best
-effort and never stop a command.
+skip when you ask them to leave out caches. That folder also holds `config.json`, so your settings and saved
+tokens are left out of those backups too. Neither iCloud nor Dropbox syncs these folders by default. To back
+the folder up anyway, run `tmutil removeexclusion <folder>` and delete `CACHEDIR.TAG`. Align does not add them
+back: the `.backup-exclusion-done` file next to them records that it already did this once. Both steps are
+best effort and never stop a command.
 
 **How to delete everything.** `align local reset` deletes the graph and the saved tokens. To remove every
 trace, also delete the folders in the table above, for example on Linux:
 
 ```bash
-rm -rf ~/.config/align-cli ~/.local/state/align-cli ~/.cache/align-cli
+rm -rf ~/.config/align-cli ~/.local/state/align-cli ~/.cache/align-cli "${TMPDIR:-/tmp}/align-$(id -u)"
 ```
 
 Deleting a file does not overwrite where it was on disk. Disk encryption is what keeps deleted data unreadable.
