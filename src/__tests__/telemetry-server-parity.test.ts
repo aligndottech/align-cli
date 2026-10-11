@@ -26,11 +26,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const sibling = process.env['ALIGN_STACK_DIR'] ?? resolve(root, '..', 'align-stack');
 const ref = process.env['ALIGN_TELEMETRY_PARITY_REF'] ?? 'origin/main';
 
-// Pinned from THERE at e213dcdca (align-stack #3082).
+// Pinned from THERE at the merge of align-stack #3101 (adds `join`).
 const SERVER_COMMANDS = [
   'adjudicate', 'align', 'ask', 'capture', 'check', 'connect', 'context', 'decisions', 'drift',
-  'env', 'export', 'import', 'invite', 'links', 'login', 'logout', 'mark', 'mcp', 'push', 'ratify',
-  'search', 'setup', 'share', 'spaces', 'status', 'sync', 'telemetry', 'use', 'whoami',
+  'env', 'export', 'import', 'invite', 'join', 'links', 'login', 'logout', 'mark', 'mcp', 'push',
+  'ratify', 'search', 'setup', 'share', 'spaces', 'status', 'sync', 'telemetry', 'use', 'whoami',
 ];
 const SERVER_SUBCOMMAND_PARENTS = ['connect', 'context', 'decisions', 'env', 'import', 'links', 'spaces', 'telemetry'];
 const SERVER_STAGES = [
@@ -53,11 +53,9 @@ const NOT_SENT = new Set(['local', 'dev', 'connector']);
  * fix is a gateway change, outside this slice). Listed exactly, so the day the gateway adds them
  * this test fails until they are removed from here: it can only shrink.
  *
- * `join` (org invite plan C3) joins them: the gateway's `join` entry is a gateway change that
- * ships with the gateway half of the plan, and until then `join`'s command ping 400s silently,
- * exactly as `ai` and `agents` do.
+ * `join` was on this list until align-stack #3101 added it to the gateway's command enum.
  */
-const KNOWN_DRIFT = ['agents', 'ai', 'join'];
+const KNOWN_DRIFT = ['agents', 'ai'];
 
 const cliCommands = (): string[] => buildProgram({ internal: false }).commands.map((c) => c.name());
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();
