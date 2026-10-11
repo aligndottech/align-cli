@@ -105,8 +105,17 @@ describe('align check under ALIGN_DETECTOR', () => {
     expect((await client.checkAlignment('switch the queue to SQS')).status).toBe('unknown');
   });
 
-  it('unset: v1 (the default), one call over every candidate, with the v1 system prompt', async () => {
+  it('unset: v0 (the default), one call per candidate, with the v0 system prompt', async () => {
     await seed(3);
+    const sent = provider(V0_RELATES);
+    await client.checkAlignment('switch the queue to SQS');
+    expect(sent).toHaveLength(3);
+    expect(sent.every((c) => c.system !== JSON.stringify(buildV1SystemPrompt()))).toBe(true);
+  });
+
+  it('explicit v1: one call over every candidate, with the v1 system prompt', async () => {
+    await seed(3);
+    vi.stubEnv('ALIGN_DETECTOR', 'v1');
     const sent = provider(V1_CONFLICT);
     const result = await client.checkAlignment('switch the queue to SQS');
     expect(sent).toHaveLength(1);
@@ -149,16 +158,18 @@ describe('capture link pass under ALIGN_DETECTOR', () => {
     expect(v1Rows.map((r) => r.relation).sort()).toEqual(['refines', 'relates']);
   });
 
-  it('unset: v1 (the default), one call, new links stamped v1', async () => {
+  it('explicit v1: one call, new links stamped v1', async () => {
     await seed(2);
+    vi.stubEnv('ALIGN_DETECTOR', 'v1');
     const sent = provider(JSON.stringify({ similar: [{ decision_ref: 1, type: 'refines', confidence: 0.7 }] }));
     await client.ingestBatch([{ source_url: 'https://github.com/o/r/pull/99', platform: 'github', title: 'Queue retries', raw_text: 'Queue retries use backoff' }], { classify: true });
     expect(sent).toHaveLength(1);
     expect(linkVersions().filter((r) => r.v === 'v1').map((r) => r.relation).sort()).toEqual(['refines', 'relates']);
   });
 
-  it('unset (v1): an edge no detector judged keeps the v0 stamp, so relink can still type it', async () => {
+  it('explicit v1: an edge no detector judged keeps the v0 stamp, so relink can still type it', async () => {
     await seed(1);
+    vi.stubEnv('ALIGN_DETECTOR', 'v1');
     const sent = provider(JSON.stringify({ similar: [] }));
     await client.ingestBatch([{ source_url: 'https://github.com/o/r/pull/97', platform: 'github', title: 'Queue retries', raw_text: 'Queue retries use backoff' }], { classify: false });
     expect(sent).toHaveLength(0);

@@ -109,14 +109,14 @@ is listed on its own page, and a test keeps that page true.
   conflicts with, depends on) are typed at query time using **your own AI provider key**.
   Without one, related decisions still surface, just not typed. The heavier cross-tool
   relationship detection runs in the hosted gateway.
-- **Two relationship detectors, picked with `ALIGN_DETECTOR`.** `v1` (the default) is the
+- **Two relationship detectors, picked with `ALIGN_DETECTOR`.** `v0` (the default) is the
+  pairwise classifier. `v1` is opt-in with `ALIGN_DETECTOR=v1`. It is the
   detector the hosted product's base prompt uses: one call per check over every related
   decision, shown with its date and whether it was replaced. The model only says whether two
   decisions are *incompatible*; whether that is a conflict or a replacement is worked out from
   the dates, and anything unclear stays a conflict. Your local graph does not record who made
   each decision, so v1 never assumes two decisions share an author. `v0` types each related
-  decision in its own call; set `ALIGN_DETECTOR=v0` to keep using it. Any other value stops the
-  CLI with the allowed values.
+  decision in its own call. Any other value stops the CLI with the allowed values.
 
   Measured on 183 labelled decision pairs (177 scored), majority of 3 runs, conflict precision
   and recall. The pairs were picked from conflicts the hosted product had already flagged, so
@@ -130,14 +130,13 @@ is listed on its own page, and a test keeps that page true.
   | claude-sonnet-4-6 | not measured | not measured | 51/65 (78.5%) | 51/51 (100%) |
   | llama3.2 (Ollama) | 46/104 (44.2%) | 46/51 (90.2%) | 30/51 (58.8%) | 30/51 (58.8%) |
 
-  v1 became the default because it met the preregistered rule on claude-haiku-4-5: recall no
-  lower than v0's, and precision no lower than v0's minus its margin of error. It is not shown
-  to be better than v0 there. **With llama3.2, v1 finds fewer of the real conflicts (30 of 51
-  against v0's 46)**, so if a small local model is your only provider, `ALIGN_DETECTOR=v0` may
-  suit you better. Method and full results: align-stack
+  v1 met the preregistered rule on claude-haiku-4-5 (recall no lower than v0's, precision no
+  lower than v0's minus its margin of error), but it is not shown to be better than v0 there. **With llama3.2, v1
+  finds fewer of the real conflicts (30 of 51 against v0's 46).** So v0 stays the default for
+  every model, and v1 is for people who choose it knowingly. Method and full results: align-stack
   `packages/llm-eval/bench-runs/detector-phase-a/`.
-- **Links record which detector wrote them.** Links written before v1 became the default are
-  stamped `v0` and are never re-typed on their own. A link the v1 detector typed is stamped
+- **Links record which detector wrote them.** Links the v0 detector wrote are stamped `v0`, and
+  are never re-typed on their own. A link the v1 detector typed is stamped
   `v1`. An untyped `relates` link that no detector judged (classification off, no provider key,
   or a failed call) keeps the `v0` stamp, so relink can still type it. `align sync --classify`
   still types with v0 whatever `ALIGN_DETECTOR` says. Older CLIs keep opening the graph: the
