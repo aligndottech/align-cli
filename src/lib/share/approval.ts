@@ -112,7 +112,7 @@ export async function pollUntilDecided(id: string, expiresAt: string, deps: Poll
         case 'declined': case 'expired': case 'cancelled': case 'failed': return state;
         case 'pending': break;
         // completing and completed mean something other than this process acted on the request: not ours to wait on.
-        default: throw new ShareError(`The request is already ${visible(state)} on the gateway, which this run did not do, so this run stopped waiting on it.`);
+        default: throw new ShareError(`The request is already ${visible(state)} on the gateway, and this run did not cause that. This run stopped waiting on it.`);
       }
     } catch (e) {
       if (e instanceof ShareError) throw e;
@@ -135,7 +135,7 @@ export class CompletionError extends ShareError {
   constructor(message: string, readonly retryable: boolean, readonly sent: 'no' | 'maybe' = retryable ? 'maybe' : 'no') { super(message); this.name = 'CompletionError'; }
 }
 
-const MAYBE_SENT = 'It may have been sent: check your team graph. This machine has no record of the result yet, so `align share --retract` will not find it until you share the same decision again (that is safe: it will not make a second copy).';
+const MAYBE_SENT = 'It may have been sent, so check your team graph. This machine has no record of the result yet, so `align share --retract` will not find it until you share the same decision again. That is safe: it will not make a second copy.';
 
 /**
  * Send the approved bytes. The gateway re-hashes them against what the person approved, so a payload that
@@ -148,7 +148,7 @@ export async function completeRequest(client: Pick<ShareRequestsApi, 'completeSh
   } catch (e) {
     const status = (e as { statusCode?: number }).statusCode ?? 0;
     const msg = visible((e as Error).message);
-    if (status === 409 && /already_(completing|completed)/.test(msg)) throw new CompletionError(`The gateway says this request is already being completed or was (${msg}). ${MAYBE_SENT}`, true);
+    if (status === 409 && /already_(completing|completed)/.test(msg)) throw new CompletionError(`The gateway says this request is already being completed, or was (${msg}). ${MAYBE_SENT}`, true);
     if (status === 410) throw new CompletionError('The approval was too old to use (it lasts 10 minutes). Nothing was sent. Run the share again.', false);
     if (status === 422) throw new CompletionError(`The gateway refused what was approved: ${msg}. Nothing was sent.`, false);
     if (status >= 400 && status < 500) throw new CompletionError(`The gateway would not complete it: ${msg}. Nothing was sent.`, false);

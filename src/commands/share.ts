@@ -7,13 +7,15 @@ import chalk from 'chalk';
 import os from 'node:os';
 import { ALIGN_HOSTED_GATEWAY_URL, createConfigStore, defaultGatewayUrlFor, type EnvName } from '../lib/config.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
-import { tryOpenUrl } from '../lib/open-url.js';
 import { abortableSleep } from '../lib/share/approval.js';
 import { defaultJudge } from '../lib/curation/judge.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveLocalIdentity } from '../lib/git.js';
 import { UnknownEnvError } from '../lib/resolve-env.js';
 import { sinceFromFlag } from '../lib/since-flag.js';
+import { currentDeliveryEnv, decideDelivery, openApprovalLink, osc52 } from '../lib/share/delivery.js';
+import { addDeliveryOptions, conflictingDeliveryFlags, deliveryFlagsFrom, type DeliveryOpts } from '../lib/share/delivery-options.js';
+import { qrStyleFor, renderQr } from '../lib/share/qr.js';
 import { runShare, type ShareDeps } from '../lib/share/command.js';
 import type { ShareClient } from '../lib/share/run.js';
 import { shareSalt } from '../lib/share/salt.js';
@@ -23,7 +25,7 @@ import { leadPromptFor } from '../lib/lead-prompt.js';
 import { inCi } from '../lib/telemetry-ci.js';
 
 export function registerShareCommand(program: Command): void {
-  program
+  const cmd = program
     .command('share [ids...]')
     .alias('push')
     .description('Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)')
@@ -33,16 +35,26 @@ export function registerShareCommand(program: Command): void {
     .option('--since <window>', 'With --all-ratified or alone: only decisions ratified in this window (30d, 2w, 6m)')
     .option('--yes', 'Not accepted: a share always needs your own answer at a terminal')
     .option('--confirm <code>', 'Finish a share your agent previewed (needs your own terminal; not used when shares are approved in the browser)')
-    .option('--no-open', 'Print the approval link without opening a browser')
     .option('--typed', 'Answer at this terminal instead of approving in the browser (not accepted where the workspace requires browser approval)')
-    .option('--retract <id>', 'Archive what you shared for this decision on your team graph (a share stays with the team after you leave)')
-    .action(async (ids: string[], opts: { env?: EnvName; to?: string; allRatified?: boolean; since?: string; yes?: boolean; confirm?: string; retract?: string; typed?: boolean; open?: boolean }) => {
+    .option('--retract <id>', 'Archive what you shared for this decision on your team graph (a share stays with the team after you leave)');
+  addDeliveryOptions(cmd)
+    .action(async (ids: string[], opts: { env?: EnvName; to?: string; allRatified?: boolean; since?: string; yes?: boolean; confirm?: string; retract?: string; typed?: boolean } & DeliveryOpts) => {
       if (opts.yes) {
         console.error(chalk.red('align share has no --yes: a share always needs your own answer, typed at a terminal. Nothing was sent.'));
         process.exit(2);
         return;
       }
       if (process.argv[2] === 'push') console.error(chalk.dim('align push is now align share.'));
+      if (conflictingDeliveryFlags(process.argv)) {
+        console.error(chalk.red('Use --qr or --no-qr, not both. Nothing was sent.'));
+        process.exit(2);
+        return;
+      }
+      if (typeof opts.open === 'string' && (ids.length > 0 || opts.allRatified || opts.since !== undefined || opts.retract !== undefined || opts.confirm !== undefined || opts.typed)) {
+        console.error(chalk.red('--open <request id> only re-shows a link: use it on its own. Nothing was sent.'));
+        process.exit(2);
+        return;
+      }
       const config = createConfigStore();
       // A mistyped --env or --to must not fall back to the default: the destination is the one thing a share must get right.
       let envName: EnvName;
@@ -61,8 +73,12 @@ export function registerShareCommand(program: Command): void {
       }
       const local = config.getEnvironment('local');
       const cloudEnv = config.getEnvironment(envName);
+      const appUrl = resolveAppUrl(cloudEnv);
+      const denv = currentDeliveryEnv();
+      const plan = decideDelivery(denv, deliveryFlagsFrom(opts));
+      const qrStyle = qrStyleFor(process.platform, process.env);
       const code = await runShare({
-        ids, allRatified: opts.allRatified, confirm: opts.confirm, retract: opts.retract, typed: opts.typed, envName,
+        ids, ...(typeof opts.open === 'string' ? { openRequest: opts.open } : {}), allRatified: opts.allRatified, confirm: opts.confirm, retract: opts.retract, typed: opts.typed, envName,
         sinceIso: opts.since === undefined ? undefined : sinceFromFlag(opts.since).since,
       }, {
         cloudEnv,
@@ -76,9 +92,13 @@ export function registerShareCommand(program: Command): void {
         ttyConfirm,
         wrapped: (process.env['ALIGN_WRAPPED'] ?? '') !== '',
         approval: {
-          appUrl: resolveAppUrl(cloudEnv),
+          appUrl,
           label: os.hostname(),
-          ...(opts.open === false ? {} : { openUrl: (url: string) => tryOpenUrl(url) }),
+          plan,
+          ...(plan.open ? { openUrl: (url: string, linkApp: string) => openApprovalLink(url, linkApp) } : {}),
+          qr: (url: string) => renderQr(url, { ...qrStyle, color: qrStyle.color && denv.stdoutIsTTY }),
+          ...(process.stdout.columns ? { columns: process.stdout.columns } : {}),
+          ...(opts.copy ? { copy: (url: string) => { const seq = osc52(url, denv.stdoutIsTTY); if (seq !== null) process.stdout.write(seq); } } : {}),
           sleep: abortableSleep,
           now: () => Date.now(),
           guard: async (run) => {
