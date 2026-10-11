@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.51.0](https://github.com/aligndottech/align-cli/compare/cli-v0.50.0...cli-v0.51.0) (2026-10-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **detector:** the default local relationship detector is now v1. Set ALIGN_DETECTOR=v0 to keep the previous pairwise classifier.
+
+### Features
+
+* **config:** align config detector saves the relationship detector; status shows it ([#398](https://github.com/aligndottech/align-cli/issues/398)) ([d9e5b36](https://github.com/aligndottech/align-cli/commit/d9e5b36be349510403574846e0f587151876323d))
+* **config:** team destinations, hardened login loopback (join C2) ([#382](https://github.com/aligndottech/align-cli/issues/382)) ([b51621e](https://github.com/aligndottech/align-cli/commit/b51621e79f475dd801caba55b0b79608681c4415))
+* **detector:** default follows the route: v1 on a hosted model, v0 on a local one ([#399](https://github.com/aligndottech/align-cli/issues/399)) ([d3f5df6](https://github.com/aligndottech/align-cli/commit/d3f5df6a4113014bc282ebd56aadb9502992554e))
+* **detector:** make v1 the default local relationship detector ([#396](https://github.com/aligndottech/align-cli/issues/396)) ([eaed43e](https://github.com/aligndottech/align-cli/commit/eaed43e24b718b669673ff59676140027419186b))
+* **detector:** relationship contract v1 data, parser and golden parse vectors (no behaviour change) ([#380](https://github.com/aligndottech/align-cli/issues/380)) ([322f742](https://github.com/aligndottech/align-cli/commit/322f742bd07262ef00ea664a19c6a1927b45031e))
+* **detector:** v1 is the default; the local model is qwen2.5:7b ([#401](https://github.com/aligndottech/align-cli/issues/401)) ([ca93f99](https://github.com/aligndottech/align-cli/commit/ca93f9903d117e216eb42955ca073f423a7f93f7))
+* **detector:** v1 local relationship detector behind ALIGN_DETECTOR=v1 ([#388](https://github.com/aligndottech/align-cli/issues/388)) ([7149375](https://github.com/aligndottech/align-cli/commit/71493755910edb69479a9eb6780e50b77ef84d25))
+* **env:** unknown environment names fail closed (join C1) ([#381](https://github.com/aligndottech/align-cli/issues/381)) ([10cbc3b](https://github.com/aligndottech/align-cli/commit/10cbc3bf313b25471ace3e756de5c6b38f525aaf))
+* **invite:** align invite opens Settings &gt; Team invites instead of calling the API ([#392](https://github.com/aligndottech/align-cli/issues/392)) ([6fda519](https://github.com/aligndottech/align-cli/commit/6fda5198cc65a7feac71ef8f9509d634b4b8bb37))
+* **join:** align join &lt;invite link&gt; (join C3) ([#384](https://github.com/aligndottech/align-cli/issues/384)) ([6467f1f](https://github.com/aligndottech/align-cli/commit/6467f1f0c69f7237592195d8c0c7f861d63dc141))
+* **join:** callers, renewal and docs for team destinations (join C6) ([#385](https://github.com/aligndottech/align-cli/issues/385)) ([e3946f5](https://github.com/aligndottech/align-cli/commit/e3946f54540b0f489562858a68c7ea1fa189ec3c))
+* **local:** harden the local graph at rest (owner-only files, secret redaction, backup exclusion) ([#395](https://github.com/aligndottech/align-cli/issues/395)) ([f1be7e1](https://github.com/aligndottech/align-cli/commit/f1be7e147960ab19d0db8aafc7170f8a41aecdc0))
+* **share:** browser approval flow and request-approval MCP tools (ALI-1540 phase 6) ([#377](https://github.com/aligndottech/align-cli/issues/377)) ([e849094](https://github.com/aligndottech/align-cli/commit/e849094848bf5e36585b8501f26ba8e913a6b005))
+* **share:** no lead prompt once a team destination exists (join C5) ([#387](https://github.com/aligndottech/align-cli/issues/387)) ([aae7fe1](https://github.com/aligndottech/align-cli/commit/aae7fe18eb1d3224f7978f5773e51335ab7700d9))
+* **share:** open the approval link automatically or show a QR code ([#379](https://github.com/aligndottech/align-cli/issues/379)) ([4ed10b6](https://github.com/aligndottech/align-cli/commit/4ed10b6aa16a8e5ef5a59f291143d10a8aff34b0))
+* **share:** opt-in work email at the share moment (hosted only) ([#386](https://github.com/aligndottech/align-cli/issues/386)) ([569b3c2](https://github.com/aligndottech/align-cli/commit/569b3c2d82b4ad77868406cab2a9b33af8ecbbc9))
+* **share:** shares go only to the chosen destination (join C4) ([#383](https://github.com/aligndottech/align-cli/issues/383)) ([4c1eeb2](https://github.com/aligndottech/align-cli/commit/4c1eeb203ac3e0678d972308792865a4f3fd118c))
+
+
+### Bug Fixes
+
+* **detector:** make v0 the default again; v1 is opt-in ([#397](https://github.com/aligndottech/align-cli/issues/397)) ([66f28a9](https://github.com/aligndottech/align-cli/commit/66f28a94755cef22f696ae1196a4865b87102617))
+* **e2e:** run the golden path as a user, not as CI, so the funnel pings are sent ([#372](https://github.com/aligndottech/align-cli/issues/372)) ([db3dd66](https://github.com/aligndottech/align-cli/commit/db3dd66ddd5b23feea3bdf367482494022ce07d6))
+* **share:** refuse --open for a foreign gateway from an agent, and fail closed with no tenant id ([#391](https://github.com/aligndottech/align-cli/issues/391)) ([50d56e3](https://github.com/aligndottech/align-cli/commit/50d56e3a4323bb2a5e94c8da68d0075d979c1d0a))
+
 ## [0.50.0](https://github.com/aligndottech/align-cli/compare/cli-v0.49.0...cli-v0.50.0) (2026-10-10)
 
 
