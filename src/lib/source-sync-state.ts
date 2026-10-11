@@ -9,6 +9,7 @@
  * (set below, as local-db.ts sets it) is the case that pairing exists for.
  */
 import { DatabaseSync } from 'node:sqlite';
+import { tightenGraphFiles } from './private-files.js';
 
 /** The scope this phase writes under: the caller's own items. L4 adds repo/project/space keys
  *  ('repo:o/r', 'jira:ALI', ...) when scope pickers land, and L5's nextWindow reads whichever
@@ -16,6 +17,7 @@ import { DatabaseSync } from 'node:sqlite';
 export const WINDOW_SCOPE_KEY = 'yours';
 
 function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
+  tightenGraphFiles(dbPath); // owner-only on every open (private-files.ts)
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA busy_timeout = 30000');

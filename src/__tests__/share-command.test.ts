@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import { createLocalDb } from '../lib/local-db.js';
 import { upsertJudgement } from '../lib/curation/judgements-db.js';
 import { runShare, type ShareDeps, type ShareOptions } from '../lib/share/command.js';
@@ -50,6 +52,18 @@ function seed(over: { id?: string; ratify?: string | null; summary?: string; tit
 }
 const judge = { judgeId: 'inst-1', judgeLabel: ME };
 const note = (id: string, text: string) => upsertJudgement(dbPath, { kind: 'note', decisionId: id, note: text }, judge, { via: 'cli' });
+/**
+ * A note as a version from before write-time redaction stored it: raw, straight into the table. A note written
+ * today has its secrets replaced before the write (judgements-db.ts), so the share-time refusal of a credential in
+ * a note now guards these older rows, and only a row written this way can reach it.
+ */
+const legacyNote = (id: string, text: string): void => {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.prepare(`INSERT INTO local_judgements (id, decision_id, kind, note, judge_id, judge_label, via, judged_at) VALUES (?, ?, 'note', ?, ?, ?, 'cli', ?)`)
+      .run(randomUUID(), id, text, judge.judgeId, judge.judgeLabel, new Date().toISOString());
+  } finally { db.close(); }
+};
 
 interface Fx { out: string[]; err: string[]; sent: Array<Array<Record<string, unknown>>>; archived: string[]; asks: string[]; deps: ShareDeps; reply: { current: BatchResponse | ((i: Array<Record<string, unknown>>, n: number) => BatchResponse) }; tty: { answer: boolean | null; queue: Array<boolean | null> }; shown: string[]; whoamiCalls: { n: number }; team: Record<string, unknown> }
 function fixture(): Fx {
@@ -135,7 +149,7 @@ describe('preview, confirmation and the send', () => {
     expect(f.sent).toHaveLength(0);
   });
   it('a credential in a note is refused too (clean text goes)', async () => {
-    const f = fixture(); const id = seed(); note(id, `token ${`ghp_${  'y'.repeat(36)}`}`);
+    const f = fixture(); const id = seed(); legacyNote(id, `token ${`ghp_${  'y'.repeat(36)}`}`);
     expect(await run(f, { ids: [id] })).toBe(1);
     expect(f.sent).toHaveLength(0);
   });
@@ -462,7 +476,7 @@ describe('what is scanned', () => {
     const db = createLocalDb(dbPath);
     const id = db.insertDecision({ title: 'z', summary: 's', sourceUrl: 'https://zoom.us/rec/share/x?pwd=hunter2hunter2', platform: `ghp_${'q'.repeat(36)}` });
     db.markRatified(id, ME); db.close();
-    note(id, 'clean note'); note(id, `leak ${`ghp_${  'z'.repeat(36)}`}`);
+    note(id, 'clean note'); legacyNote(id, `leak ${`ghp_${  'z'.repeat(36)}`}`);
     expect(await run(f, { ids: [id] })).toBe(1);
     const t = text(f);
     expect(t).toContain('platform looks like <GITHUB_TOKEN>');

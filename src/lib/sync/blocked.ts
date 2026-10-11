@@ -10,13 +10,14 @@ import path from 'node:path';
 import { alignStateDir } from '../backfill-state.js';
 import { isKnownSource } from './source-ids.js';
 import { readRegularFile } from './safe-read.js';
+import { writePrivateFile } from '../private-files.js';
 
 export type BlockedState = 'manual' | 'not_connected';
 const file = (dir: string, source: string): string => path.join(dir, `${source}.blocked.json`);
 
 export function writeBlocked(source: string, state: BlockedState, reason: string, dir: string | null = alignStateDir()): void {
   if (dir === null || !isKnownSource(source)) return;
-  try { fs.writeFileSync(file(dir, source), JSON.stringify({ state, reason: reason.slice(0, 300) }), { mode: 0o600 }); } catch { /* the next interval tries again */ }
+  try { writePrivateFile(file(dir, source), JSON.stringify({ state, reason: reason.slice(0, 300) })); } catch { /* the next interval tries again */ }
 }
 
 export function clearBlocked(source: string, dir: string | null = alignStateDir()): void {

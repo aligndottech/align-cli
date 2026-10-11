@@ -1,6 +1,7 @@
 import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { tightenFile } from './private-files.js';
 import { createHash, randomUUID } from 'node:crypto';
 
 /**
@@ -117,6 +118,7 @@ function storeDir(): string | null {
     const st = lstatSync(dir);
     if (!st.isDirectory() || st.isSymbolicLink()) return null;
     if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return null;
+    tightenFile(dir); // ours, but an older version may have left it wider: owner-only now
     return dir;
   } catch {
     return null;

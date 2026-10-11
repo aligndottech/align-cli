@@ -140,6 +140,55 @@ is listed on its own page, and a test keeps that page true.
   opens it**, so a setting saved at system scope during that session lands in Align's copy
   and is gone next time. Save it at user or workspace scope instead.
 
+## What Align stores on your machine and how it is protected
+
+**What is stored.** In local-only mode everything lives in a few folders in your home directory:
+
+| What | Where (Linux / macOS / Windows) |
+|---|---|
+| The decision graph: `local.db` plus its `local.db-wal` and `local.db-shm` files | `~/.config/align-cli/` / `~/Library/Preferences/align-cli/` / `%APPDATA%\align-cli\Config\` |
+| Settings and the read-only tokens you pasted: `config.json` | the same folder |
+| Short-lived state: sync locks, share requests waiting for approval, the last check | `~/.local/state/align-cli/` (Linux and macOS) / `%LOCALAPPDATA%\align-cli\` |
+| The embedding model (public, not your data), standalone binary only | `~/.cache/align-cli/models/` / `%LOCALAPPDATA%\align-cli\models\` |
+
+`XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` move these on Linux. The graph holds the title
+and text of every decision you captured or imported, your marks and notes, and which repo each came from.
+
+**File permissions.** On macOS and Linux every folder above is owner-only (`0700`) and every file in it is
+owner-only (`0600`). Align creates them that way whatever your `umask` is. It also checks again each time it
+opens them, so a file an older version wrote readable by others is tightened the next time you run a command.
+Windows has no such mode bits. There the files sit in your user profile, which by default only you, SYSTEM and
+administrators can read. Align does not change those permissions.
+
+**Secrets are removed before anything is saved.** Every capture, every import (git, GitHub, GitLab, Jira,
+Confluence, Notion, Linear, Slack, Teams, Zoom, agent sessions, docs), every `align mark` note and the MCP tool
+`align_capture` run the same secret scanner `align share` uses. A matched API key, token, password or private
+key is replaced with a placeholder such as `<GITHUB_TOKEN>` or `<PRIVATE_KEY>`, and the original is never
+written. Align tells you once per run how many it replaced. It is pattern matching, so it catches the common
+shapes, not every secret: a password with no label next to it, for example, is kept as written. Decisions saved
+by an older version keep their text until the next import of that source rewrites them.
+
+**Not encrypted, by design.** The graph is a plain SQLite file. Encrypting it would need a key stored on the
+same machine, next to the file, so it would protect against very little. It would also need a native database
+library, which the CLI deliberately does not ship. **Turn on your operating system's disk encryption**
+(FileVault on macOS, BitLocker on Windows, LUKS on Linux). That protects the graph, your tokens and everything
+else on the disk if the machine is lost or stolen.
+
+**Backups and sync.** On macOS Align excludes the graph folder from Time Machine (`tmutil addexclusion`,
+once). On every system it writes a `CACHEDIR.TAG` file there, which borg, restic, tar and other backup tools
+skip when you ask them to leave out caches. Neither iCloud nor Dropbox syncs these folders by default. To back
+the graph up anyway, run `tmutil removeexclusion <folder>` and delete `CACHEDIR.TAG`. Both steps are best
+effort and never stop a command.
+
+**How to delete everything.** `align local reset` deletes the graph and the saved tokens. To remove every
+trace, also delete the folders in the table above, for example on Linux:
+
+```bash
+rm -rf ~/.config/align-cli ~/.local/state/align-cli ~/.cache/align-cli
+```
+
+Deleting a file does not overwrite where it was on disk. Disk encryption is what keeps deleted data unreadable.
+
 ## What works locally today
 
 **Works:** `setup`, `import <tool>`, `capture`, `ask`, `search`, `decisions list`,

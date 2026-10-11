@@ -29,11 +29,10 @@
  */
 import ortWasmPath from '../../node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm' with { type: 'file' };
 import ortMjsPath from '../../node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs' with { type: 'file' };
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { EMBEDDING_DTYPE, EMBEDDING_MODEL_ID, setEmbeddingBackend } from './local-embeddings.js';
+import { modelFileCache } from './model-cache.js';
 
 /**
  * Where the ~23MB model is cached between runs.
@@ -50,31 +49,6 @@ export function modelCacheDir(): string {
   }
   const base = process.env['XDG_CACHE_HOME'] || join(homedir(), '.cache');
   return join(base, 'align-cli', 'models');
-}
-
-/**
- * transformers.js asks a custom cache for a Response and hands one back to store. Keyed on the
- * request URL rather than a filename: two different repos can carry the same basename, and the
- * URL is the identity the library itself uses.
- */
-function fsCache(dir: string) {
-  const keyFor = (request: unknown): string => {
-    const url = typeof request === 'string'
-      ? request
-      : (request as { url?: string }).url ?? String(request);
-    return join(dir, createHash('sha256').update(url).digest('hex').slice(0, 32));
-  };
-  return {
-    async match(request: unknown): Promise<Response | undefined> {
-      const path = keyFor(request);
-      return existsSync(path) ? new Response(readFileSync(path)) : undefined;
-    },
-    async put(request: unknown, response: Response): Promise<void> {
-      mkdirSync(dir, { recursive: true });
-      // clone() because the caller still needs to read the body it handed us.
-      writeFileSync(keyFor(request), Buffer.from(await response.clone().arrayBuffer()));
-    },
-  };
 }
 
 type EmbeddingPipeline = (text: string, options: Record<string, unknown>) => Promise<Array<{ data: Float32Array }>>;
@@ -108,7 +82,7 @@ export async function createWasmEmbeddingPipeline(): Promise<EmbeddingPipeline> 
   env['useBrowserCache'] = false;   // no Cache API here
   env['useFSCache'] = false;        // the web build has none
   env['useCustomCache'] = true;
-  env['customCache'] = fsCache(modelCacheDir());
+  env['customCache'] = modelFileCache(modelCacheDir());
 
   // Through unknown: env is an untyped bag, and asserting a nested shape on it directly is a
   // cast TypeScript rightly refuses.

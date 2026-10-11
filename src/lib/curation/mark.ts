@@ -337,8 +337,10 @@ function applyChecked(ctx: ApplyContext, m: MarkAction, opts: { undo?: boolean; 
       const titles = requireDecisions(dbPath, [m.id]);
       if (undo) throw new MarkError('usage', 'Notes append and cannot be undone by id. `align mark --list` shows them.');
       const text = checkNote(m.text);
-      upsertJudgement(dbPath, { kind: 'note', decisionId: m.id, note: text }, judge, origin, now);
-      return { kind: 'note', replaced: false, text: `Added a note to ${quote(titles.get(m.id) ?? '')}. ${LOCAL_ONLY}` };
+      const { redacted } = upsertJudgement(dbPath, { kind: 'note', decisionId: m.id, note: text }, judge, origin, now);
+      // Told here, in the outcome both `align mark` and MCP align_mark show: a note is one item, so this IS the once-per-run notice.
+      const secrets = redacted > 0 ? ` ${redacted} secret${redacted === 1 ? ' was' : 's were'} replaced with a placeholder before it was stored.` : '';
+      return { kind: 'note', replaced: false, text: `Added a note to ${quote(titles.get(m.id) ?? '')}.${secrets} ${LOCAL_ONLY}` };
     }
   }
 }

@@ -76,3 +76,41 @@ const HIDDEN = /[\u{E0000}-\u{E007F}]/u;
 export function scanHiddenText(fields: Array<{ field: string; text: string | null | undefined }>): SecretFinding[] {
   return fields.filter((f) => f.text && HIDDEN.test(f.text)).map((f) => ({ field: f.field, placeholder: '<HIDDEN_TEXT>' }));
 }
+
+export interface Redaction { text: string; count: number }
+
+/**
+ * The same list, for REWRITING instead of refusing: what local capture, `align mark`, every import
+ * and MCP align_capture run before anything reaches the local graph. Each match becomes the
+ * pattern's own replacement, exactly as brain redacts server-side: its `\1` is filled from the match,
+ * so a captured prefix such as `password: ` or `postgres://` is kept and only the secret goes. Applied in
+ * list order, each pattern over the previous one's output, like the server. `count` is the number
+ * of spans replaced. The raw value is never returned, logged or stored.
+ */
+interface Rewrite { re: RegExp; replacement: string }
+const REWRITES: Rewrite[] = [
+  ...patterns.case_insensitive.map(([p, r]) => ({ re: new RegExp(p as string, 'gi'), replacement: r as string })),
+  ...patterns.case_sensitive.map(([p, r]) => ({ re: new RegExp(p as string, 'g'), replacement: r as string })),
+];
+
+export function redactSecrets(text: string): Redaction {
+  let count = 0;
+  let out = text;
+  for (const w of REWRITES) {
+    out = out.replace(w.re, (...args: unknown[]) => {
+      count += 1;
+      // replace() passes the match, then each capture group, then the offset (the first number).
+      const groups = args.slice(1, args.findIndex((a, i) => i > 0 && typeof a === 'number'));
+      return w.replacement.replace(/\\(\d)/g, (_m, d: string) => String(groups[Number(d) - 1] ?? ''));
+    });
+  }
+  // The bare AWS secret shape, only near the word "aws" (secretsIn's rule, judged on the text as it stands now).
+  const source = out;
+  out = source.replace(AWS_BARE, (m: string, offset: number) => {
+    const near = source.slice(Math.max(0, offset - AWS_CONTEXT), offset + m.length + AWS_CONTEXT).toLowerCase();
+    if (!near.includes('aws')) return m;
+    count += 1;
+    return '<AWS_SECRET_KEY>';
+  });
+  return { text: out, count };
+}

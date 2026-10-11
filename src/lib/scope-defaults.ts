@@ -5,6 +5,7 @@
  */
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { tightenGraphFiles } from './private-files.js';
 
 const MAX_SUGGESTED = 10;
 const TICKET = /(?:^|\/)([A-Z][A-Z0-9_]+)-\d+$/;
@@ -15,6 +16,7 @@ export function citedProjectKeys(dbPath: string): string[] {
   // A reader must never create the graph it was asked to look at: opening a missing path makes an empty file.
   if (!fs.existsSync(dbPath)) return [];
   let rows: Array<{ decision_id: string; ref: string }>;
+  tightenGraphFiles(dbPath); // owner-only on every open (private-files.ts)
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     db.exec('PRAGMA busy_timeout = 30000');

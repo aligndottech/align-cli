@@ -7,6 +7,7 @@
  */
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { tightenGraphFiles } from '../private-files.js';
 import { assertSchemaSupported } from '../local-db-migrate.js';
 import { LEDGER_COLUMNS } from '../local-db-v10.js';
 
@@ -56,6 +57,7 @@ const fromRow = (r: LedgerRow): Promotion => ({
 });
 
 function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
+  tightenGraphFiles(dbPath); // owner-only on every open (private-files.ts)
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA busy_timeout = 30000');

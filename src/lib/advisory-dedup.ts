@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { writePrivateFile } from './private-files.js';
 
 // The pre- and post-edit advisory hooks both fire for a single edit. To avoid
 // showing the agent the same conflicting decisions twice, we remember which
@@ -42,7 +43,8 @@ export function markSurfaced(cwd: string, ids: string[], now: number = Date.now(
     const file = markerPath(cwd);
     const dir = path.dirname(file);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(file, JSON.stringify({ ts: now, ids: [...merged] } satisfies Marker), 'utf8');
+    // The shared temp dir: owner-only, so another account on the machine cannot read which decisions surfaced.
+    writePrivateFile(file, JSON.stringify({ ts: now, ids: [...merged] } satisfies Marker));
   } catch {
     // Best-effort only - dedup is a nicety, never fail the hook on it.
   }

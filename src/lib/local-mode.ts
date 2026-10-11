@@ -5,6 +5,8 @@ import envPaths from 'env-paths';
 import { createConfigStore } from './config.js';
 import { procLike, realPathOf } from './xdg.js';
 import { createLocalDb } from './local-db.js';
+import { type BackupDeps, excludeGraphFromBackups } from './backup-exclusion.js';
+import { ensurePrivateDir, GRAPH_FILE_SUFFIXES, tightenGraphFiles } from './private-files.js';
 
 /**
  * The graph is one logical database spread over three files: the DB itself plus the WAL
@@ -15,8 +17,9 @@ import { createLocalDb } from './local-db.js';
  *
  * One writer of that fact rather than the literal spelled out at both sites: relocate and
  * delete disagreeing about what "the graph" is means one of them leaves half of it behind.
+ * The list itself lives in private-files.ts, which tightens the same three files on every open.
  */
-export const LOCAL_DB_SUFFIXES = ['', '-wal', '-shm'] as const;
+export const LOCAL_DB_SUFFIXES = GRAPH_FILE_SUFFIXES;
 
 /**
  * Reproduces the OLD hand-rolled linux directory exactly - the one that never read
@@ -61,11 +64,13 @@ export function migrateLocalDb(oldDir: string, newDir: string, opts: { cwd?: str
   const oldFile = path.join(oldDir, 'local.db');
   const newFile = path.join(newDir, 'local.db');
   if (fs.existsSync(newFile) || !fs.existsSync(oldFile)) return;
-  fs.mkdirSync(newDir, { recursive: true });
+  ensurePrivateDir(newDir);
   for (const suffix of LOCAL_DB_SUFFIXES) {
     const from = `${oldFile}${suffix}`;
     if (fs.existsSync(from)) fs.copyFileSync(from, `${newFile}${suffix}`);
   }
+  // copyFileSync carries the old files' mode across (SQLite wrote them 0644).
+  tightenGraphFiles(newFile);
 }
 
 /**
@@ -89,7 +94,7 @@ export function getLocalDbPath(): string {
  * global MCP config - and that moved to connectDetectedAgents, which asks first. An option
  * that no longer changes anything reads as a feature and outlives the behaviour it named.
  */
-export async function initLocalMode() {
+export async function initLocalMode(opts: { backupDeps?: BackupDeps } = {}) {
   const dbPath = getLocalDbPath();
   const config = createConfigStore();
   config.setLocalMode(dbPath);
@@ -102,6 +107,8 @@ export async function initLocalMode() {
   // Initialize schema (idempotent)
   const db = createLocalDb(dbPath);
   db.close();
+  // Keep the graph out of Time Machine and cache-aware backup tools, once (best effort, never fatal).
+  excludeGraphFromBackups(dbPath, opts.backupDeps);
 
   // This used to write every detected editor's GLOBAL MCP config right here, whenever
   // `quiet` was false - silently, from a function whose name says it initialises a graph.

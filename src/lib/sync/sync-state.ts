@@ -14,6 +14,7 @@
  */
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { tightenGraphFiles } from '../private-files.js';
 import type { CaptureSkip } from '../fetchers/capture.js';
 import { assertSchemaSupported } from '../local-db-migrate.js';
 
@@ -45,6 +46,7 @@ export interface SyncRow {
 export interface ScopeKey { source: string; scopeKey: string; scope: 'yours' | 'team' }
 
 function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
+  tightenGraphFiles(dbPath); // owner-only on every open (private-files.ts)
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA busy_timeout = 30000');

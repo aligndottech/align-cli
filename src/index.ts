@@ -4,10 +4,12 @@ import './lib/startup-xdg.js'; // SECOND: drop a relative XDG_* before anything 
 import './lib/startup-backfill-track.js'; // THIRD: if align_backfill started this process, record how it ends
 import envPaths from 'env-paths';
 import { migrateConfigDirectory } from './lib/config.js';
-import { legacyLocalDbDir, migrateLocalDb } from './lib/local-mode.js';
+import { getLocalDbPath, legacyLocalDbDir, migrateLocalDb } from './lib/local-mode.js';
+import { excludeGraphFromBackups } from './lib/backup-exclusion.js';
 import { buildProgram } from './cli.js';
 import { resolveDetectorVersion } from './detector/detector-version.js';
 import { describeFatal } from './lib/fatal.js';
+import { printRedactionNotice } from './lib/redaction-notice.js';
 
 // Last-resort guard so no command ever dumps a raw Node stack trace at a user.
 // Individual commands still handle their own expected errors; this only catches
@@ -20,6 +22,9 @@ function handleFatal(err: unknown): never {
 }
 process.on('uncaughtException', handleFatal);
 process.on('unhandledRejection', handleFatal);
+// A command that exits before its postAction hook still tells the person how many secrets it kept
+// out of the local graph. Taking the notice resets it, so this never repeats one cli.ts printed.
+process.on('exit', () => printRedactionNotice());
 
 // One-time directory migrations (ALI-819, Copilot review on #231), run exactly once at
 // real process startup - never inside createConfigStore()/getLocalDbPath() themselves,
@@ -30,6 +35,9 @@ process.on('unhandledRejection', handleFatal);
 try {
   migrateConfigDirectory(envPaths('align-cli', { suffix: 'nodejs' }).config, envPaths('align-cli', { suffix: '' }).config);
   migrateLocalDb(legacyLocalDbDir(), envPaths('align-cli', { suffix: '' }).config);
+  // An existing local graph is excluded from Time Machine and cache-aware backups on its first run
+  // after an upgrade (once; a no-op without a graph). Best effort, never fatal (backup-exclusion.ts).
+  excludeGraphFromBackups(getLocalDbPath());
 } catch (e) {
   if (process.env['ALIGN_DEBUG']) console.error('align: startup migration failed (non-fatal):', e);
 }

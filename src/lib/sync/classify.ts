@@ -13,6 +13,7 @@
  * identical to never having been asked: without the note every run would pay for the same items.
  */
 import { DatabaseSync } from 'node:sqlite';
+import { tightenGraphFiles } from '../private-files.js';
 import { createLocalDb } from '../local-db.js';
 import { CAPTURE_CLASSIFY_TOP_K } from '../local-ingest.js';
 import { hasConfiguredProvider, preferredProvider } from '../local-llm.js';
@@ -25,6 +26,7 @@ export const CLASSIFY_AUDIT_ACTION = 'sync_classified';
 export interface Unclassified { id: string; title: string; summary: string }
 
 export function unclassifiedItems(dbPath: string, limit: number): Unclassified[] {
+  tightenGraphFiles(dbPath); // owner-only on every open (private-files.ts)
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA busy_timeout = 30000');

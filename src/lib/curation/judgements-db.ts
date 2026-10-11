@@ -27,7 +27,9 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { tightenGraphFiles } from '../private-files.js';
 import { assertSchemaSupported } from '../local-db-migrate.js';
+import { redactSecrets } from '../share/secret-scan.js';
 
 export type JudgementKind = 'conflict_verdict' | 'check_verdict' | 'supersede' | 'not_a_decision' | 'note';
 export type Verdict = 'real' | 'false';
@@ -61,6 +63,7 @@ export interface Judge { judgeId: string; judgeLabel: string | null }
 export type Origin = { via: 'cli' } | { via: 'mcp'; agentId: string };
 
 function withDb<T>(dbPath: string, fn: (db: DatabaseSync) => T): T {
+  tightenGraphFiles(dbPath); // owner-only on every open (private-files.ts)
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA busy_timeout = 30000');
@@ -115,7 +118,10 @@ export function agentWouldOverrideHuman(dbPath: string, w: JudgementWrite, judge
  * same call twice leaves one row). Delete then insert inside one IMMEDIATE transaction, rather than
  * ON CONFLICT, because the unique index is on an expression and a partial predicate.
  */
-export function upsertJudgement(dbPath: string, w: JudgementWrite, judge: Judge, origin: Origin, now = new Date()): { replaced: boolean; id: string } {
+export function upsertJudgement(dbPath: string, w: JudgementWrite, judge: Judge, origin: Origin, now = new Date()): { replaced: boolean; id: string; redacted: number } {
+  // A note is free text a person (or their agent) typed: a secret in it becomes its placeholder
+  // before the write, the same list and rule as every other write to the graph (secret-scan.ts).
+  const note = w.note == null ? null : redactSecrets(w.note);
   return withDb(dbPath, (db) => {
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -142,11 +148,11 @@ export function upsertJudgement(dbPath: string, w: JudgementWrite, judge: Judge,
         `INSERT INTO local_judgements (id, decision_id, counterpart_id, context_key, kind, value, note, judge_id, judge_label, via, agent_id, judged_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
-        id, w.decisionId, w.counterpartId ?? null, w.contextKey ?? null, w.kind, w.value ?? null, w.note ?? null,
+        id, w.decisionId, w.counterpartId ?? null, w.contextKey ?? null, w.kind, w.value ?? null, note?.text ?? null,
         judge.judgeId, judge.judgeLabel, origin.via, origin.via === 'mcp' ? origin.agentId : null, now.toISOString(),
       );
       db.exec('COMMIT');
-      return { replaced, id };
+      return { replaced, id, redacted: note?.count ?? 0 };
     } catch (e) {
       db.exec('ROLLBACK');
       throw e;
