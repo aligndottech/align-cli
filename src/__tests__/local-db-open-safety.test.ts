@@ -25,12 +25,14 @@ describe('downgrade guard', () => {
   it('refuses a graph whose user_version is newer than this build, naming the fix', () => {
     createLocalDb(dbPath).close();
     const raw = new DatabaseSync(dbPath);
-    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    // +2, not +1: a 12 carrying only the detector_version column is an earlier branch build's stamp
+    // and is put back to 11 (local-db-v12-detector-version.test.ts, R4). Any other newer value is refused.
+    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 2}`);
     raw.close();
     expect(() => createLocalDb(dbPath)).toThrow(/upgrade/i);
     // and it did not touch the file: still the newer version
     const check = new DatabaseSync(dbPath);
-    expect((check.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION + 1);
+    expect((check.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION + 2);
     check.close();
   });
 

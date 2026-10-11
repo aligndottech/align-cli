@@ -178,7 +178,8 @@ describe('forgetSourceData is one transaction', () => {
 describe('a graph written by a newer CLI', () => {
   it('is refused by purge, preview and forget before anything is read or deleted', () => {
     seed();
-    exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    // +2: an early-branch 12 carrying only the detector_version column is accepted (R4).
+    exec(`PRAGMA user_version = ${SCHEMA_VERSION + 2}`);
     for (const f of [() => purgePlatform(dbPath, 'slack'), () => purgePreview(dbPath, 'slack'), () => forgetSourceData(dbPath, 'slack', { purge: true })]) {
       expect(f).toThrow(/written by a newer Align CLI/);
     }

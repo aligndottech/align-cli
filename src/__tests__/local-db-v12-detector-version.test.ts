@@ -152,3 +152,45 @@ describe('writing links once the column exists', () => {
     ]);
   });
 });
+
+describe('R4: a graph the earlier branch build stamped user_version 12', () => {
+  it('opens, keeps every link, and is stamped back to 11 so 0.50.0 reads it again', () => {
+    makeV11(4);
+    createLocalDb(dbPath).close();
+    exec('PRAGMA user_version = 12');
+    const before = sql('SELECT * FROM decision_links ORDER BY id');
+    createLocalDb(dbPath).close();
+    expect(version()).toBe(11);
+    expect(sql('SELECT * FROM decision_links ORDER BY id')).toEqual(before);
+    expect(opens050(version())).toBe(true);
+  });
+
+  it('control: 12 WITHOUT the column is some other build, and is refused as newer', () => {
+    makeV11(1);
+    exec('PRAGMA user_version = 12');
+    expect(() => createLocalDb(dbPath).close()).toThrow(/newer Align CLI/);
+    expect(version()).toBe(12);
+  });
+
+  it('control: 13 is refused as newer', () => {
+    makeV11(1);
+    createLocalDb(dbPath).close();
+    exec('PRAGMA user_version = 13');
+    expect(() => createLocalDb(dbPath).close()).toThrow(/newer Align CLI/);
+  });
+});
+
+describe('R4: the direct schema guards agree with migrate', () => {
+  it('assertSchemaSupported accepts an early-branch 12 that carries the column, and refuses one that does not', async () => {
+    const { assertSchemaSupported } = await import('../lib/local-db-migrate.js');
+    makeV11(1);
+    createLocalDb(dbPath).close();
+    const withColumn = new DatabaseSync(dbPath);
+    try { expect(() => assertSchemaSupported(12, withColumn)).not.toThrow(); } finally { withColumn.close(); }
+    exec('ALTER TABLE decision_links DROP COLUMN detector_version');
+    const without = new DatabaseSync(dbPath);
+    try { expect(() => assertSchemaSupported(12, without)).toThrow(/newer Align CLI/); } finally { without.close(); }
+    expect(() => assertSchemaSupported(12)).toThrow(/newer Align CLI/);
+  });
+});
+
