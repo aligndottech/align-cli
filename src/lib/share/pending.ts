@@ -13,6 +13,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { alignStateDir } from '../backfill-state.js';
+import { tightenFile } from '../private-files.js';
 import type { SharePayload } from './payload.js';
 
 export const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -37,7 +38,9 @@ function dirOf(): string | null {
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const st = fs.lstatSync(dir);
-    return st.isDirectory() && !st.isSymbolicLink() ? dir : null;
+    if (!st.isDirectory() || st.isSymbolicLink()) return null;
+    tightenFile(dir); // made 0755 by an older version: owner-only now (checked as a real directory first)
+    return dir;
   } catch { return null; }
 }
 
@@ -170,7 +173,9 @@ function requestsDir(): string | null {
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const st = fs.lstatSync(dir);
-    return st.isDirectory() && !st.isSymbolicLink() ? dir : null;
+    if (!st.isDirectory() || st.isSymbolicLink()) return null;
+    tightenFile(dir); // made 0755 by an older version: owner-only now (checked as a real directory first)
+    return dir;
   } catch { return null; }
 }
 

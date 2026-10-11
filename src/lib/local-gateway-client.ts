@@ -10,6 +10,8 @@ import { localCitationFor } from './commit-cite.js';
 import { extractRefs, refIdentityFor } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
 import { linkPass } from './local-link-pass.js';
+import { redactSecrets } from './share/secret-scan.js';
+import { noteRedacted } from './redaction-notice.js';
 import { EmbeddingMatrix, MATRIX_MAX_ROWS, type Ranker } from './similarity/embedding-matrix.js';
 import { captureFieldsForUrl, type IngestOptions, type IngestResult, type IngestSession, ingestStep, type LocalBatchItem, type LocalBatchOptions } from './local-ingest.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
@@ -243,14 +245,24 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   }
 
   async function ingestOne(
-    input: string,
+    rawInput: string,
     platform: string,
     opts: IngestOptions = {},
     session: IngestSession = {},
   ): Promise<IngestResult> {
+    // Secrets go first, before anything reads the text: the title is cut from it, refs are
+    // extracted from it and the embedding is built from it. Each match becomes the pattern's
+    // placeholder (<GITHUB_TOKEN>, <PRIVATE_KEY>); the raw value never reaches the graph. Redacted
+    // before the 80-character cut, so a secret straddling the cut cannot leave half of itself behind.
+    const body = redactSecrets(rawInput);
+    const input = body.text;
+    const titleOverride = opts.titleOverride === undefined ? undefined : redactSecrets(opts.titleOverride);
+    const urlOverride = opts.sourceUrlOverride == null ? undefined : redactSecrets(opts.sourceUrlOverride);
+    const redacted = body.count + (titleOverride?.count ?? 0) + (urlOverride?.count ?? 0);
+    noteRedacted(redacted);
     let title = input.slice(0, 80);
     let summary = input;
-    let sourceUrl: string | null = opts.sourceUrlOverride ?? null;
+    let sourceUrl: string | null = urlOverride?.text ?? null;
     let capturedAsUrl = false;
     if (opts.sourceUrlOverride === undefined) {
       try {
@@ -260,10 +272,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         capturedAsUrl = true;
       } catch { /* plain text - use as-is */ }
     }
-    if (opts.titleOverride) title = opts.titleOverride.slice(0, 80);
+    if (titleOverride?.text) title = titleOverride.text.slice(0, 80);
     // L2: a capture of a URL whose item a connector already imported adds nothing to it.
     const heldRow = capturedAsUrl ? db.noteCaptureOfHeldItem(sourceUrl!) : null;
-    if (heldRow) return { id: heldRow.id, title: heldRow.title, summary: heldRow.summary, sourceUrl: heldRow.sourceUrl, platform: heldRow.platform, related: [], created: false, changed: false };
+    if (heldRow) return { id: heldRow.id, title: heldRow.title, summary: heldRow.summary, sourceUrl: heldRow.sourceUrl, platform: heldRow.platform, related: [], created: false, changed: false, redacted };
 
     // ALI-792: what the text points at, stored beside the decision. When the whole
     // input IS the URL being captured, there is nothing to point at - and comparing
@@ -322,7 +334,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         db.resolveRefs(existingId, refIdentityFor(platform, sourceUrl));
         const related = step === 'relink' ? await linkPass(db, rankerFor(session), existingId, stored, title, summary, opts.classify) : [];
         if (step === 'relink') db.markEnriched(existingId);
-        return { id: existingId, title, summary, sourceUrl, platform, related, created: false, changed: false };
+        return { id: existingId, title, summary, sourceUrl, platform, related, created: false, changed: false, redacted };
       }
     }
     // Embed title + summary so URL captures (whose summary is just "Captured
@@ -353,7 +365,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     const candidates = await linkPass(db, rankerFor(session), id, embedding, title, summary, opts.classify);
     // L2, Decision 30: the LAST write. Only now is the ingest done.
     db.markEnriched(id);
-    return { id, title, summary, sourceUrl, platform, related: candidates, created, changed: true };
+    return { id, title, summary, sourceUrl, platform, related: candidates, created, changed: true, redacted };
   }
 
   const client = {
@@ -376,6 +388,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         id: r.id, title: r.title, summary: r.summary, sourceUrl: r.sourceUrl, platform: r.platform,
         related: r.related.map(c => c.decisionId),
         ...(row ? provenanceOf(row) : {}),
+        // How many secrets were replaced with placeholders before the write (absent when none):
+        // MCP align_capture hands this to the agent, which is the only place its person sees it.
+        ...(r.redacted > 0 ? { secretsRedacted: r.redacted } : {}),
       };
     },
 

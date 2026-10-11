@@ -42,7 +42,7 @@ describe('the vendored secret patterns carry the shapes the server added (align-
 });
 
 describe('no input shape makes the scan slow (a decision can be 200 KB; the old patterns took seconds)', () => {
-  const units = ['a', 'a-', 'a_', '_', 'to' + 'ken=', 'pass' + 'word=', '?to' + 'ken=', '&sig=', '://', 'a://', '@', ':', '\r\n', '<', '"', pemBegin.slice(0, 20)];
+  const units = ['a', 'a-', 'a_', '_', 'to' + 'ken=', 'pass' + 'word=', '?to' + 'ken=', '&sig=', '://', 'a://', '@', ':', '\r\n', '<', '"', pemBegin.slice(0, 20), 'XTO' + 'KENX', 'MY_SEC' + 'RET_'];
   it.each(units)('200 KB of %j finishes well inside a second', (unit) => {
     const text = unit.repeat(Math.ceil(200_000 / unit.length));
     const t = performance.now();

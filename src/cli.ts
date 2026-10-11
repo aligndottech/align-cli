@@ -5,6 +5,7 @@ import { runDefaultAction } from './commands/default-action.js';
 import { createConfigStore, savedLlmConfig } from './lib/config.js';
 import { setSavedLlmSource } from './lib/local-llm.js';
 import { setWriteRecorder } from './lib/safe-config-write.js';
+import { printRedactionNotice } from './lib/redaction-notice.js';
 
 const { version } = pkg;
 
@@ -132,6 +133,12 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
       // this one waits at most half a second: a hung gateway costs a sync about 2 s in all.
       ...(invocationCommandPath(actionCommand) === 'sync' ? { capMs: 500 } : {}),
     });
+  });
+
+  // Secrets replaced with placeholders before a local write (local-gateway-client.ts ingestOne):
+  // told once, after the command's own output, however many items it imported.
+  program.hook('postAction', () => {
+    printRedactionNotice();
   });
 
   const internal = options.internal ?? process.env.ALIGN_INTERNAL === '1';

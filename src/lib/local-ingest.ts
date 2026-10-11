@@ -75,6 +75,8 @@ export function isCaptureShaped(row: { title: string; summary: string; source_ur
 export interface IngestResult {
   id: string; title: string; summary: string; sourceUrl: string | null; platform: string;
   related: Array<{ decisionId: string; score: number }>; created: boolean; changed: boolean;
+  /** Secrets replaced with their placeholders in this item's text, title and URL before the write. */
+  redacted: number;
 }
 
 type StoredForSkip = Pick<DecisionRow, 'title' | 'summary' | 'platform' | 'repo' | 'decidedAt'>;

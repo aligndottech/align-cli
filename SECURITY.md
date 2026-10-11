@@ -28,6 +28,25 @@ This repository is the open-source Align CLI and MCP server (`@aligndottech/cli`
 - The hosted Align gateway/graph is a separate service; vulnerabilities in the
   hosted product should also be reported through the channel above.
 
+## Data at rest in local-only mode
+
+The local graph is a plain SQLite file and is **not encrypted, by design**: a key would have to sit on the same
+machine as the file. Use your operating system's disk encryption. What Align does instead:
+
+- On macOS and Linux the graph, its `-wal` and `-shm` files, `config.json` (which holds the read-only tokens you
+  pasted) and every state and cache file are owner-only (`0600`, folders `0700`), set on create whatever the
+  `umask`, and checked again on every open. On Windows the files rely on your user profile's default permissions.
+- Every capture, import, `align mark` note and MCP `align_capture` replaces matched API keys, tokens, passwords
+  and private keys with a placeholder such as `<GITHUB_TOKEN>` before anything is written. The scanner matches
+  patterns, so it does not catch every secret.
+- Existing decisions are not scrubbed: a re-import rewrites most of them, but ratified or confirmed decisions and
+  plain captures keep the text they were saved with.
+- The graph folder, which also holds `config.json`, is excluded from Time Machine on macOS and tagged with
+  `CACHEDIR.TAG` for other backup tools.
+
+What is stored where, and how to delete all of it:
+[docs/local-mode.md](docs/local-mode.md#what-align-stores-on-your-machine-and-how-it-is-protected).
+
 ## Supported versions
 
 We support the latest published version on npm. Please upgrade to the latest

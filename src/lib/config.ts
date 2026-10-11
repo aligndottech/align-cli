@@ -8,6 +8,7 @@ import type { ActiveScope, StoredScope } from './scope-values.js';
 
 import { asDestinationName, type TeamDestinationName, validateDestinationName } from './destination-name.js';
 import { assertTransport } from './destination-trust.js';
+import { ensurePrivateDir, tightenFile } from './private-files.js';
 
 export type BuiltinEnv = 'local' | 'preview' | 'prod';
 /** A builtin, or the name of a team destination saved by `align join`. */
@@ -87,8 +88,10 @@ export function migrateConfigDirectory(oldDir: string, newDir: string): void {
   const oldFile = path.join(oldDir, 'config.json');
   const newFile = path.join(newDir, 'config.json');
   if (fs.existsSync(newFile) || !fs.existsSync(oldFile)) return;
-  fs.mkdirSync(newDir, { recursive: true });
+  // copyFileSync carries the old file's mode across, so the copy is tightened (it holds tokens).
+  ensurePrivateDir(newDir);
   fs.copyFileSync(oldFile, newFile);
+  tightenFile(newFile);
 }
 
 /**
@@ -164,6 +167,13 @@ export function createConfigStore() {
     // rather than ordinary config. 0600 is also what the setup copy promises the user.
     configFileMode: 0o600,
   });
+  // configFileMode applies when conf WRITES the file, and conf creates the directory 0755. Re-check
+  // both on every open, so a file an older version wrote 0644 is tightened before anything reads it.
+  // `path` is absent only on a test double of conf.
+  if (typeof store.path === 'string') {
+    ensurePrivateDir(path.dirname(store.path));
+    tightenFile(store.path);
+  }
 
   const getEnvs = () => store.get('environments') as Record<string, Partial<EnvironmentConfig>>;
   const getTokens = () => store.get('connectorTokens') as Record<string, string>;

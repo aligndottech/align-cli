@@ -11,6 +11,7 @@
  */
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { tightenGraphFiles } from '../private-files.js';
 import { checkVerdictFor, type MarkMeta, pairVerdictsFor, supersedeMarkFor } from './judgements-db.js';
 import { agentLabel, hasUnsafeChars, quote } from './text.js';
 
@@ -19,6 +20,7 @@ export interface CheckConflict { decision_id: string; title: string; note?: stri
 /** Whether the file holds any judgement at all: lets the common no-marks path skip identity lookup entirely. */
 export function anyJudgements(dbPath: string): boolean {
   if (dbPath === '' || !fs.existsSync(dbPath)) return false;
+  tightenGraphFiles(dbPath); // owner-only on every open (private-files.ts)
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA busy_timeout = 30000');

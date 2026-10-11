@@ -44,12 +44,24 @@ export interface HarnessOptions {
   seedAtXdgGuess?: boolean;
 }
 
+/** The host platform's own esbuild binary, or undefined when it is not where npm puts it. */
+function realEsbuildBinary(): string | undefined {
+  const file = path.join(ROOT, 'node_modules', '@esbuild', `${process.platform}-${process.arch}`, 'bin', 'esbuild');
+  return fs.existsSync(file) ? file : undefined;
+}
+
 /** The scratch home and the env every child gets. HOME and USERPROFILE point at it so env-paths resolves inside it. */
 export function childEnv(dir: string, opts: HarnessOptions = {}): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, HOME: dir, USERPROFILE: dir, XDG_STATE_HOME: path.join(dir, 'state'), ALIGN_TELEMETRY: '0', DO_NOT_TRACK: '1' };
   if (opts.simulateMac) {
     delete env['XDG_CONFIG_HOME']; delete env['XDG_DATA_HOME'];
     env['NODE_OPTIONS'] = `${process.env['NODE_OPTIONS'] ?? ''} --require ${path.join(__dirname, 'fake-darwin.cjs')}`.trim();
+    // The fake platform also fools esbuild, which tsx calls to compile any source file not already in its cache:
+    // esbuild then looks for the darwin binary, finds the host's, and throws. Pointing it at the host's real binary
+    // keeps the simulation to path layout. Without this the four simulated-macOS tests passed only when an earlier
+    // child had already compiled every module (a warm tsx cache) and all failed on a cold one.
+    const bin = realEsbuildBinary();
+    if (bin !== undefined) env['ESBUILD_BINARY_PATH'] = bin;
   } else {
     env['XDG_CONFIG_HOME'] = path.join(dir, 'cfg'); env['XDG_DATA_HOME'] = path.join(dir, 'data');
   }

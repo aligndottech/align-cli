@@ -1,6 +1,7 @@
 import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { tightenFile } from './private-files.js';
 import { createHash, randomUUID } from 'node:crypto';
 
 /**
@@ -107,7 +108,8 @@ export function contentHashOf(text: string): string {
  * each user a private %LOCALAPPDATA%\Temp - which is also why the uid falls back to a
  * constant there rather than trying to synthesise one.
  */
-function storeDir(): string | null {
+/** `<tmp>/align-<uid>`: created 0700, refused when it is a link or not ours. Also holds the advisory dedup markers. */
+export function privateTmpDir(): string | null {
   try {
     const uid = typeof process.getuid === 'function' ? String(process.getuid()) : 'win';
     const dir = path.join(tmpdir(), `align-${uid}`);
@@ -117,6 +119,7 @@ function storeDir(): string | null {
     const st = lstatSync(dir);
     if (!st.isDirectory() || st.isSymbolicLink()) return null;
     if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return null;
+    tightenFile(dir); // ours, but an older version may have left it wider: owner-only now
     return dir;
   } catch {
     return null;
@@ -129,7 +132,7 @@ function storeDir(): string | null {
  * the change hash - the key has to be as specific as the thing it identifies.
  */
 function storePath(cwd: string, envName: string): string | null {
-  const dir = storeDir();
+  const dir = privateTmpDir();
   if (!dir) return null;
   const hash = createHash('sha1').update(`${cwd}\0${envName}`).digest('hex').slice(0, 16);
   return path.join(dir, `verdict-v${STORE_SCHEMA}-${hash}.json`);
@@ -137,7 +140,7 @@ function storePath(cwd: string, envName: string): string | null {
 
 /** Where the adjudication payload for one change is handed to the detached child. */
 export function adjudicationPayloadPath(contentHash: string): string | null {
-  const dir = storeDir();
+  const dir = privateTmpDir();
   if (!dir) return null;
   return path.join(dir, `adjudicate-${contentHash.slice(0, 12)}-${randomUUID()}.json`);
 }
