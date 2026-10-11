@@ -1,3 +1,4 @@
+import { createConfigStore } from './config.js';
 /**
  * Type a set of candidate edges with whichever local detector ALIGN_DETECTOR selects.
  *
@@ -27,7 +28,7 @@ export async function classifyCandidates(
   order: 'subject-first' | 'candidate-first',
   deps: { pair?: typeof classifyRelationship; set?: typeof classifyCandidateSet } = {},
 ): Promise<CandidateClassification> {
-  const version = resolveDetectorVersion();
+  const version = resolveDetectorVersion(process.env, createConfigStore().getDetector());
   if (version === 'v1') {
     if (!candidates.length) return { version, outcomes: [] };
     const result = await (deps.set ?? classifyCandidateSet)(subject, candidates);

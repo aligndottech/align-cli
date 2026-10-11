@@ -173,6 +173,12 @@ align links list              List decision links
 align drift                   Show org-wide drift summary (decisions that may be out of date)
                               flags: --env
 
+# Change align settings (the detector)
+
+align config                  Change align settings
+align config detector [version]
+                              Which relationship detector runs: v0 or v1 (default v0)
+
 # What your graph has done for you
 
 align status                  Show what your decision graph has done for you (value readout)
