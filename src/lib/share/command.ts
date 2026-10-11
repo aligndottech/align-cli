@@ -241,7 +241,7 @@ async function reopenRequest(opts: ShareOptions, deps: ShareDeps, out: (l: strin
   let state: string;
   try { state = (await deps.client().getShareRequest(rec.requestId)).state; } catch (e) { err(`Could not ask the gateway about that request (${visible((e as Error).message)}), so the link was not shown. Try again in a moment.`); return 1; }
   if (state !== 'pending') { err(`That request is ${visible(state)}, so there is nothing to approve. Ask your agent to start the share again if you still want it.`); return 1; }
-  // The same web app the share was staged for: the saved one of a team destination, else the gateway's, else the guess.
+  // Worked out again with the staging order (a team destination's saved app, else the gateway's app_url, else the guess); the record does not store it.
   let cfgAppUrl: string | null;
   try { cfgAppUrl = (await deps.client().shareRequestsConfig())?.appUrl ?? null; } catch (e) { err(`Could not ask the gateway about that request (${visible((e as Error).message)}), so the link was not shown. Try again in a moment.`); return 1; }
   const app = resolveApprovalAppUrl({ stored: deps.teamAppUrl ?? null, cfgAppUrl, guessed: deps.approval.appUrl });
