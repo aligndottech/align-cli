@@ -42,13 +42,15 @@ let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     getDefaultEnv: () => 'prod',
-    getEnvironment: (name: string) =>
-      FIXTURE_ENVS[name as keyof typeof FIXTURE_ENVS] as EnvironmentConfig,
+    getEnvironment: (name: string) => {
+      if (name === 'badhttp') { const e = new Error('api.evil.example must be reached over https'); e.name = 'TransportError'; throw e; }
+      return FIXTURE_ENVS[name as keyof typeof FIXTURE_ENVS] as EnvironmentConfig;
+    },
     getTelemetryConsent,
     getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId,
-    hasTeamDestination: () => false,
-    listTeamDestinationNames: () => [],
+    hasTeamDestination: (n: string) => n === 'badhttp',
+    listTeamDestinationNames: () => ['badhttp'],
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
 }));
@@ -90,6 +92,17 @@ describe('recordInvocationUsage - genuinely local-only user, bare command', () =
 
   it('an unknown --env flag is swallowed the same way', async () => {
     await expect(recordInvocationUsage('bogus', 'search')).resolves.toBeUndefined();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('a saved destination the transport rule refuses is swallowed with a one-line warning naming it (second review N5)', async () => {
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await expect(recordInvocationUsage('badhttp', 'logout')).resolves.toBeUndefined();
+    const said = err.mock.calls.map((c) => String(c[0])).join('');
+    err.mockRestore();
+    expect(said.split('\n').filter(Boolean)).toHaveLength(1);
+    expect(said).toContain('"badhttp"');
+    expect(said).toContain('https');
     expect(mockFetch).not.toHaveBeenCalled();
   });
 

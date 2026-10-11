@@ -5,7 +5,8 @@
  */
 export function describeFatal(err: unknown, debug: boolean): { lines: string[]; code: number; stack?: Error } {
   const e = err instanceof Error ? err : new Error(String(err));
-  if (e.name === 'UnknownEnvError') return { lines: [`\nalign: ${e.message}\n`], code: 2 };
+  // A saved destination the transport rule refuses is a config problem, not a bug: say what is wrong, exit 2.
+  if (e.name === 'UnknownEnvError' || e.name === 'TransportError') return { lines: [`\nalign: ${e.message}\n`], code: 2 };
   if (debug) return { lines: [], code: 1, stack: e };
   return {
     lines: [
