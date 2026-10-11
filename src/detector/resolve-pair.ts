@@ -38,22 +38,36 @@ export interface Resolution {
   toId: string;
 }
 
-// ---- A port of CPython's datetime.fromisoformat (3.14, the brain image's interpreter) ----------
-// Python's parse_decided_at is `fromisoformat(value.replace("Z", "+00:00"))`, naive read as UTC,
-// and any ValueError is MISSING. Ported structurally (Lib/_pydatetime.py) with digits checked as
-// strictly as the C implementation does, and microsecond precision kept, so the port and the
-// brain agree on every vector in resolver-vectors.json. No trimming: Python does not trim.
+// ---- A port of CPython 3.14's C datetime.fromisoformat (Modules/_datetimemodule.c) -------------
+// Python's parse_decided_at is `_as_utc(fromisoformat(value.replace("Z", "+00:00")))`, naive read
+// as UTC, and a ValueError is MISSING. The C implementation is what runs, and it differs from the
+// pure-Python _pydatetime in ways that matter here: it works on the UTF-8 BYTES, reads exactly two
+// digits per field, needs a time after any separator character, tolerates one stray character
+// right before a UTC offset, and parses a fraction with no '.' in the compact form. Ported
+// structurally, with C's NUL terminator modelled as byte 0 past the end, and checked against
+// date-fuzz-corpus.json (4,000 strings with Python 3.14's own verdict) and resolver-vectors.json.
+// No trimming: Python does not trim.
 
-const isDigit = (c: string | undefined): boolean => c !== undefined && c >= '0' && c <= '9';
-
-function digits(s: string): number {
-  if (s.length === 0 || ![...s].every((c) => isDigit(c))) throw new Error('not digits');
-  return Number(s);
+/** A NUL-terminated byte view: reads past the end return 0, as C's string does. */
+class Bytes {
+  constructor(readonly b: Uint8Array) {}
+  at(i: number): number { return i >= 0 && i < this.b.length ? this.b[i]! : 0; }
+}
+const isDigitByte = (c: number): boolean => c >= 0x30 && c <= 0x39;
+/** Exactly `n` ASCII digits at `p`, or null. */
+function readDigits(s: Bytes, p: number, n: number): { v: number; p: number } | null {
+  let v = 0;
+  for (let k = 0; k < n; k++) {
+    const c = s.at(p + k);
+    if (!isDigitByte(c)) return null;
+    v = v * 10 + (c - 0x30);
+  }
+  return { v, p: p + n };
 }
 
 function isLeap(y: number): boolean { return y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0); }
 const DAYS_IN_MONTH = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-function daysInMonth(y: number, m: number): number { return m === 2 && isLeap(y) ? 29 : DAYS_IN_MONTH[m]!; }
+function daysInMonth(y: number, m: number): number { return m === 2 && isLeap(y) ? 29 : DAYS_IN_MONTH[m] ?? 0; }
 function daysBeforeYear(y: number): number { const p = y - 1; return p * 365 + Math.floor(p / 4) - Math.floor(p / 100) + Math.floor(p / 400); }
 /** Proleptic Gregorian ordinal, 0001-01-01 = 1 (Python's _ymd2ord). */
 function ymd2ord(y: number, m: number, d: number): number {
@@ -61,140 +75,178 @@ function ymd2ord(y: number, m: number, d: number): number {
   for (let k = 1; k < m; k++) before += daysInMonth(y, k);
   return daysBeforeYear(y) + before + d;
 }
+function ord2ymd(n: number): [number, number, number] {
+  let y = Math.max(1, Math.floor(n / 365.2425) - 1);
+  while (daysBeforeYear(y + 1) < n) y++;
+  while (daysBeforeYear(y) >= n) y--;
+  let rest = n - daysBeforeYear(y);
+  let m = 1;
+  while (rest > daysInMonth(y, m)) { rest -= daysInMonth(y, m); m++; }
+  return [y, m, rest];
+}
 
-function separatorAt(s: string): number {
-  if (s.length === 7) return 7;
-  if (s[4] === '-') {
-    if (s[5] === 'W') {
-      if (s.length > 8 && s[8] === '-') {
-        if (s.length === 9) throw new Error('bad');
-        if (s.length > 10 && isDigit(s[10])) return 8;
+/** _find_isoformat_datetime_separator, on bytes; -1 is invalid. */
+function separatorAt(s: Bytes, len: number): number {
+  if (len === 7) return 7;
+  if (s.at(4) === 0x2d) {
+    if (s.at(5) === 0x57) {
+      if (len < 8) return -1;
+      if (len > 8 && s.at(8) === 0x2d) {
+        if (len === 9) return -1;
+        if (len > 10 && isDigitByte(s.at(10))) return 8;
         return 10;
       }
       return 8;
     }
     return 10;
   }
-  if (s[4] === 'W') {
+  if (s.at(4) === 0x57) {
     let idx = 7;
-    while (idx < s.length && isDigit(s[idx])) idx++;
+    while (idx < len && isDigitByte(s.at(idx))) idx++;
     if (idx < 9) return idx;
     return idx % 2 === 0 ? 7 : 8;
   }
   return 8;
 }
 
-/** [year, month, day] or, for a week date, the ordinal; throws on anything Python rejects. */
-function parseDate(d: string): { y: number; m: number; day: number } | { ord: number; y: number } {
-  if (![7, 8, 10].includes(d.length)) throw new Error('bad length');
-  const y = digits(d.slice(0, 4));
-  const hasSep = d[4] === '-';
-  let pos = 4 + (hasSep ? 1 : 0);
-  if (d.slice(pos, pos + 1) === 'W') {
-    pos += 1;
-    const week = digits(d.slice(pos, pos + 2));
-    pos += 2;
-    let dayno = 1;
-    if (d.length > pos) {
-      if ((d.slice(pos, pos + 1) === '-') !== hasSep) throw new Error('dash');
-      pos += hasSep ? 1 : 0;
-      dayno = digits(d.slice(pos, pos + 1));
+/** parse_isoformat_date: [y, m, d] or null. Reads past `len` exactly as C does. */
+function parseDate(s: Bytes, len: number): [number, number, number] | null {
+  const y = readDigits(s, 0, 4);
+  if (!y) return null;
+  let p = y.p;
+  const usesSep = s.at(p) === 0x2d;
+  if (usesSep) p++;
+  if (s.at(p) === 0x57) {
+    p++;
+    const w = readDigits(s, p, 2);
+    if (!w) return null;
+    p = w.p;
+    let day = 1;
+    if (p < len) {
+      if (usesSep) { if (s.at(p) !== 0x2d) return null; p++; }
+      const d = readDigits(s, p, 1);
+      if (!d) return null;
+      day = d.v;
     }
-    if (y < 1 || y > 9999) throw new Error('year');
-    if (!(week > 0 && week < 53)) {
-      const firstWeekday = ymd2ord(y, 1, 1) % 7;
-      if (!(week === 53 && (firstWeekday === 4 || (firstWeekday === 3 && isLeap(y))))) throw new Error('week');
+    const year = y.v;
+    if (year < 1 || year > 9999) return null;
+    if (!(w.v > 0 && w.v < 53)) {
+      const firstWeekday = ymd2ord(year, 1, 1) % 7;
+      if (!(w.v === 53 && (firstWeekday === 4 || (firstWeekday === 3 && isLeap(year))))) return null;
     }
-    if (!(dayno > 0 && dayno < 8)) throw new Error('weekday');
-    const first = ymd2ord(y, 1, 1);
+    if (!(day > 0 && day < 8)) return null;
+    const first = ymd2ord(year, 1, 1);
     const firstWd = (first + 6) % 7;
     let week1Monday = first - firstWd;
     if (firstWd > 3) week1Monday += 7;
-    return { ord: week1Monday + (week - 1) * 7 + (dayno - 1), y };
+    return ord2ymd(week1Monday + (w.v - 1) * 7 + (day - 1));
   }
-  const m = digits(d.slice(pos, pos + 2));
-  pos += 2;
-  if ((d.slice(pos, pos + 1) === '-') !== hasSep) throw new Error('dash');
-  pos += hasSep ? 1 : 0;
-  return { y, m, day: digits(d.slice(pos, pos + 2)) };
+  const m = readDigits(s, p, 2);
+  if (!m) return null;
+  p = m.p;
+  if (usesSep) { if (s.at(p) !== 0x2d) return null; p++; }
+  const d = readDigits(s, p, 2);
+  if (!d) return null;
+  return [y.v, m.v, d.v];
 }
 
-/** HH[:?MM[:?SS[{.,}f+]]] -> [h, m, s, us], Python's _parse_hh_mm_ss_ff. */
-function parseHms(t: string): [number, number, number, number] {
-  const comps: [number, number, number, number] = [0, 0, 0, 0];
-  let pos = 0;
-  let hasSep = false;
-  for (let comp = 0; comp < 3; comp++) {
-    if (t.length - pos < 2) throw new Error('incomplete');
-    comps[comp] = digits(t.slice(pos, pos + 2));
-    pos += 2;
-    const next = t.slice(pos, pos + 1);
-    if (comp === 0) hasSep = next === ':';
-    if (!next || comp >= 2) break;
-    if (hasSep && next !== ':') throw new Error('sep');
-    pos += hasSep ? 1 : 0;
+/** parse_hh_mm_ss_ff over [p, end): -1 on error, else 0 (clean end) or 1 (something follows). */
+function parseHms(s: Bytes, p: number, end: number, out: number[]): number {
+  out[0] = out[1] = out[2] = out[3] = 0;
+  let hasSep = true;
+  let fraction = false;
+  for (let i = 0; i < 3; i++) {
+    const r = readDigits(s, p, 2);
+    if (!r) return -1;
+    out[i] = r.v;
+    p = r.p;
+    const c = s.at(p);
+    p++;
+    if (i === 0) hasSep = c === 0x3a;
+    // A decimal mark with nothing after it is an error even right before an offset (checked on 3.14).
+    if ((c === 0x2e || c === 0x2c) && p >= end) return -1;
+    if (p >= end) return c !== 0 ? 1 : 0;
+    if (hasSep && c === 0x3a) {
+      if (i === 2) return -1;
+      continue;
+    }
+    if (c === 0x2e || c === 0x2c) {
+      if (i < 2) return -1;
+      fraction = true;
+      break;
+    }
+    if (!hasSep) { p--; if (i === 2) fraction = true; continue; }
+    return -1;
   }
-  if (pos < t.length) {
-    if (t[pos] !== '.' && t[pos] !== ',') throw new Error('frac sep');
-    pos += 1;
-    const frac = t.slice(pos);
-    digits(frac);
-    comps[3] = Number(frac.slice(0, 6).padEnd(6, '0'));
-  }
-  return comps;
+  if (!fraction) return s.at(p) !== 0 ? 1 : 0;
+  const remains = end - p;
+  const toParse = remains >= 6 ? 6 : remains;
+  const f = readDigits(s, p, toParse);
+  if (!f) return -1;
+  out[3] = toParse < 6 ? f.v * [100000, 10000, 1000, 100, 10][toParse - 1]! : f.v;
+  p = f.p;
+  while (isDigitByte(s.at(p))) p++;
+  return s.at(p) !== 0 ? 1 : 0;
 }
 
-/** Microseconds since 1970-01-01T00:00:00Z, or null where Python's parse_decided_at gives None. */
+const MIN_US = -62135596800000000n; // 0001-01-01T00:00:00Z
+const MAX_US = 253402300799999999n; // 9999-12-31T23:59:59.999999Z
+
+/** Microseconds since 1970-01-01T00:00:00Z, or null where Python's parse_decided_at gives None (or raises). */
 export function parseDecidedAt(value: unknown): bigint | null {
   if (typeof value !== 'string') return null;
-  const s = value.replaceAll('Z', '+00:00');
-  try {
-    if (s.length < 7) return null;
-    const sepAt = separatorAt(s);
-    const date = parseDate(s.slice(0, sepAt));
-    const t = s.slice(sepAt + 1);
-    let [h, mi, se, us] = [0, 0, 0, 0];
-    let offsetUs = 0n;
-    let nextDay = false;
-    if (t) {
-      if (t.length < 2) return null;
-      const tzMinus = t.indexOf('-') + 1;
-      const tzPos = tzMinus || t.indexOf('+') + 1 || t.indexOf('Z') + 1;
-      [h, mi, se, us] = parseHms(tzPos > 0 ? t.slice(0, tzPos - 1) : t);
-      if (h === 24) {
-        if (mi !== 0 || se !== 0 || us !== 0) return null;
-        h = 0;
-        nextDay = true;
-      }
-      if (tzPos > 0) {
-        const tz = t.slice(tzPos);
-        if ([0, 1, 3].includes(tz.length) || t[tzPos - 1] === 'Z') return null;
-        const [th, tm, ts, tus] = parseHms(tz);
-        const sign = t[tzPos - 1] === '-' ? -1n : 1n;
-        offsetUs = sign * (BigInt(th) * 3_600_000_000n + BigInt(tm) * 60_000_000n + BigInt(ts) * 1_000_000n + BigInt(tus));
-        if (offsetUs >= 86_400_000_000n || offsetUs <= -86_400_000_000n) return null;
-      }
-    }
-    let ord: number;
-    if ('ord' in date) {
-      ord = date.ord;
-      if (nextDay) ord += 1;
+  const replaced = value.replaceAll('Z', '+00:00');
+  if (replaced.length < 7) return null;
+  if (/[\uD800-\uDFFF]/.test(replaced)) return null; // a lone surrogate cannot be UTF-8 encoded
+  const s = new Bytes(new TextEncoder().encode(replaced));
+  const len = s.b.length;
+  const sep = separatorAt(s, len);
+  if (sep < 0) return null;
+  const date = parseDate(s, sep);
+  if (!date) return null;
+  let [y, m, d] = date;
+  const t = [0, 0, 0, 0];
+  let offsetUs = 0n;
+  if (len > sep) {
+    const lead = s.at(sep);
+    let p = sep + ((lead & 0x80) === 0 ? 1 : (lead & 0xf0) === 0xe0 ? 3 : (lead & 0xf0) === 0xf0 ? 4 : 2);
+    const end = len;
+    let tz = p;
+    do {
+      const c = s.at(tz);
+      if (c === 0x5a || c === 0x2b || c === 0x2d) break;
+    } while (++tz < end);
+    const rv = parseHms(s, p, tz, t);
+    if (rv < 0) return null;
+    if (tz >= end) {
+      if (rv === 1) return null;
+    } else if (s.at(tz) === 0x5a) {
+      if (s.at(tz + 1) !== 0) return null;
     } else {
-      let { y, m, day } = date;
-      if (nextDay && m >= 1 && m <= 12 && day <= daysInMonth(y, m)) {
-        day += 1;
-        if (day > daysInMonth(y, m)) { day = 1; m += 1; if (m > 12) { m = 1; y += 1; } }
-      }
-      if (y < 1 || y > 9999 || m < 1 || m > 12 || day < 1 || day > daysInMonth(y, m)) return null;
-      ord = ymd2ord(y, m, day);
+      const sign = s.at(tz) === 0x2d ? -1n : 1n;
+      p = tz + 1;
+      const tzc = [0, 0, 0, 0];
+      if (parseHms(s, p, end, tzc) !== 0) return null;
+      offsetUs = sign * (BigInt(tzc[0]!) * 3_600_000_000n + BigInt(tzc[1]!) * 60_000_000n + BigInt(tzc[2]!) * 1_000_000n + BigInt(tzc[3]!));
+      if (offsetUs >= 86_400_000_000n || offsetUs <= -86_400_000_000n) return null;
     }
-    if (h > 23 || mi > 59 || se > 59) return null;
-    const EPOCH_ORD = 719163; // ymd2ord(1970, 1, 1)
-    const local = BigInt(ord - EPOCH_ORD) * 86_400_000_000n + BigInt(h) * 3_600_000_000n + BigInt(mi) * 60_000_000n + BigInt(se) * 1_000_000n + BigInt(us);
-    return local - offsetUs;
-  } catch {
-    return null;
   }
+  const [h0, mi, se, us] = t as [number, number, number, number];
+  let h = h0;
+  if (h === 24 && m <= 12 && d <= daysInMonth(y, m)) {
+    if (mi !== 0 || se !== 0 || us !== 0) return null;
+    h = 0;
+    d += 1;
+    if (d > daysInMonth(y, m)) { d = 1; m += 1; if (m > 12) { m = 1; y += 1; } }
+  }
+  if (y < 1 || y > 9999 || m < 1 || m > 12 || d < 1 || d > daysInMonth(y, m)) return null;
+  if (h > 23 || mi > 59 || se > 59 || us > 999999) return null;
+  const EPOCH_ORD = 719163; // ymd2ord(1970, 1, 1)
+  const local = BigInt(ymd2ord(y, m, d) - EPOCH_ORD) * 86_400_000_000n + BigInt(h) * 3_600_000_000n + BigInt(mi) * 60_000_000n + BigInt(se) * 1_000_000n + BigInt(us);
+  const utc = local - offsetUs;
+  // _as_utc's astimezone raises OverflowError past the datetime range: the brain gets no date.
+  if (offsetUs !== 0n && (utc < MIN_US || utc > MAX_US)) return null;
+  return utc;
 }
 
 /** Python's str.isspace set, so strip() here removes exactly what Python's does (JS trim also strips U+FEFF). */

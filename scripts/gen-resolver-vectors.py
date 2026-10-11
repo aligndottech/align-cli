@@ -133,6 +133,14 @@ CASES = [
     ("author with a U+001F prefix is stripped (Python whitespace, not JS)", side("a", T0, "\u001fDana"), side("b", "2026-01-05T00:00:00Z", "dana"), None),
     ("author with a U+FEFF prefix is not stripped", side("a", T0, "\ufeffDana"), side("b", "2026-01-05T00:00:00Z", "dana"), None),
     ("week date in a year starting on Friday: 2027-W01-1 is 4 January", side("a", "2027-W01-1", "D"), side("b", "2027-01-04T12:00:00", "D"), None),
+    # Re-review R1: a separator with nothing after it, or one stray character, is no date in Python.
+    ("date then a trailing space is no date", side("a", "2026-01-01 ", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("date then a bare T is no date", side("a", "2026-01-01T", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("date then one stray letter is no date", side("a", "2026-01-01x", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("week date then a trailing space is no date", side("a", "2026-W01-1 ", "D"), side("b", "2026-02-05T00:00:00Z", "D"), None),
+    ("one stray character right before an offset is tolerated", side("a", "2026-01-01T00:00:00x+00:00", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("a decimal mark right before an offset is not", side("a", "2026-01-01T00:00:00.+00:00", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
+    ("a non-ASCII separator is allowed", side("a", "2026-01-01\u00e910:00", "D"), side("b", "2026-01-05T00:00:00Z", "D"), None),
     ("status Superseded in title case is not retired", side("a", T0, "D", status="Superseded"), side("b", "2026-01-05T00:00:00Z", "D"), None),
 ]
 

@@ -1,10 +1,11 @@
 {
-  "note": "sha256 of the P3 detector files align-stack vendors (brain: the shared prompt sections and the resolver vectors; packages/llm-eval: all of them). A separate lock from contract.lock.json because these files belong to the detector, not the parse contract. It does NOT keep the contract bytes still: the contract revision moved r1 -> r2 when relationship-prompt.v1.txt joined contract.lock.json, so align-stack must re-sync its vendored contract copy. Regenerate resolver-vectors.json (python 3.14, the brain image's interpreter) and relationship-prompt.v1.json with the scripts in scripts/, then update this lock.",
+  "note": "sha256 of the P3 detector files align-stack vendors (brain: the shared prompt sections and the resolver vectors; packages/llm-eval: all of them). A separate lock from contract.lock.json because these files belong to the detector, not the parse contract. It does NOT keep the contract bytes still: the contract revision moved r1 -> r2 when relationship-prompt.v1.txt joined contract.lock.json, so align-stack must re-sync its vendored contract copy. Regenerate resolver-vectors.json and date-fuzz-corpus.json (python 3.14, the brain image's interpreter) and relationship-prompt.v1.json with the scripts in scripts/, then update this lock.",
   "files": {
     "relationship-prompt.v1.json": "eb7c944293e061e991095b5001b528c0e8bb3b083a22d318a84d5278eec2408a",
-    "resolver-vectors.json": "c6df02f7e4c03443e6c263fff3f1b9925c02bce5bf66b3b8b88ff70643fe8828",
-    "resolve-pair.ts": "61fa23002c28fee6a26c08fa809055f92fc45a62c60fb4bdc900a9623a6f1a46",
+    "resolver-vectors.json": "b13e2857b99cccbb1bb5a37dc1f6327de0c4af6cb917a1a0f89bf0b0dafcdb3b",
+    "resolve-pair.ts": "a8a4d5a251e6ed6390e34d4f7d4c22cd71f7273061afbdf59e721c2065d75958",
     "similar-item.ts": "ef4b4bb831ee476440d1913e8539e8646953fc264148e9c7125de8f2fe47c887",
-    "__tests__/resolve-pair.test.ts": "7fd925f6da57aa3283fc888ebd70e862927bcc79662c0386db5a5f52c0641881"
+    "__tests__/resolve-pair.test.ts": "7fd925f6da57aa3283fc888ebd70e862927bcc79662c0386db5a5f52c0641881",
+    "date-fuzz-corpus.json": "37b1d70012c0eba7e886eae6d5370225451b85ded019d346bc8d6e6aa93cb7af"
   }
 }

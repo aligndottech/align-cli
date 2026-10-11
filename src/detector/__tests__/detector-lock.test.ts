@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 const detectorDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const lock = JSON.parse(readFileSync(join(detectorDir, 'detector.lock.json'), 'utf8')) as { files: Record<string, string> };
-const FILES = ['relationship-prompt.v1.json', 'resolver-vectors.json', 'resolve-pair.ts', 'similar-item.ts', '__tests__/resolve-pair.test.ts'];
+const FILES = ['relationship-prompt.v1.json', 'resolver-vectors.json', 'date-fuzz-corpus.json', 'resolve-pair.ts', 'similar-item.ts', '__tests__/resolve-pair.test.ts'];
 
 describe('detector.lock.json', () => {
   it('lists exactly the vendored P3 files', () => {

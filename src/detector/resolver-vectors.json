@@ -1766,6 +1766,181 @@
       }
     },
     {
+      "name": "date then a trailing space is no date",
+      "a": {
+        "id": "a",
+        "decided_at": "2026-01-01 ",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "b": {
+        "id": "b",
+        "decided_at": "2026-01-05T00:00:00Z",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "replacedBy": null,
+      "expected": {
+        "type": "conflicts_with",
+        "fromId": "a",
+        "toId": "b"
+      }
+    },
+    {
+      "name": "date then a bare T is no date",
+      "a": {
+        "id": "a",
+        "decided_at": "2026-01-01T",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "b": {
+        "id": "b",
+        "decided_at": "2026-01-05T00:00:00Z",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "replacedBy": null,
+      "expected": {
+        "type": "conflicts_with",
+        "fromId": "a",
+        "toId": "b"
+      }
+    },
+    {
+      "name": "date then one stray letter is no date",
+      "a": {
+        "id": "a",
+        "decided_at": "2026-01-01x",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "b": {
+        "id": "b",
+        "decided_at": "2026-01-05T00:00:00Z",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "replacedBy": null,
+      "expected": {
+        "type": "conflicts_with",
+        "fromId": "a",
+        "toId": "b"
+      }
+    },
+    {
+      "name": "week date then a trailing space is no date",
+      "a": {
+        "id": "a",
+        "decided_at": "2026-W01-1 ",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "b": {
+        "id": "b",
+        "decided_at": "2026-02-05T00:00:00Z",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "replacedBy": null,
+      "expected": {
+        "type": "conflicts_with",
+        "fromId": "a",
+        "toId": "b"
+      }
+    },
+    {
+      "name": "one stray character right before an offset is tolerated",
+      "a": {
+        "id": "a",
+        "decided_at": "2026-01-01T00:00:00x+00:00",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "b": {
+        "id": "b",
+        "decided_at": "2026-01-05T00:00:00Z",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "replacedBy": null,
+      "expected": {
+        "type": "supersedes",
+        "fromId": "b",
+        "toId": "a"
+      }
+    },
+    {
+      "name": "a decimal mark right before an offset is not",
+      "a": {
+        "id": "a",
+        "decided_at": "2026-01-01T00:00:00.+00:00",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "b": {
+        "id": "b",
+        "decided_at": "2026-01-05T00:00:00Z",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "replacedBy": null,
+      "expected": {
+        "type": "conflicts_with",
+        "fromId": "a",
+        "toId": "b"
+      }
+    },
+    {
+      "name": "a non-ASCII separator is allowed",
+      "a": {
+        "id": "a",
+        "decided_at": "2026-01-01\u00e910:00",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "b": {
+        "id": "b",
+        "decided_at": "2026-01-05T00:00:00Z",
+        "author": "D",
+        "status": null,
+        "standing": null,
+        "excepted_by": []
+      },
+      "replacedBy": null,
+      "expected": {
+        "type": "supersedes",
+        "fromId": "b",
+        "toId": "a"
+      }
+    },
+    {
       "name": "status Superseded in title case is not retired",
       "a": {
         "id": "a",
