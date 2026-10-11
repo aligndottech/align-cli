@@ -5,7 +5,7 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import os from 'node:os';
-import { createConfigStore, defaultGatewayUrlFor, type EnvName } from '../lib/config.js';
+import { ALIGN_HOSTED_GATEWAY_URL, createConfigStore, defaultGatewayUrlFor, type EnvName } from '../lib/config.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
 import { tryOpenUrl } from '../lib/open-url.js';
 import { abortableSleep } from '../lib/share/approval.js';
@@ -18,7 +18,9 @@ import { runShare, type ShareDeps } from '../lib/share/command.js';
 import type { ShareClient } from '../lib/share/run.js';
 import { shareSalt } from '../lib/share/salt.js';
 import { resolveShareEnv, ShareTargetError } from '../lib/share/target.js';
-import { ttyConfirm } from '../lib/share/tty.js';
+import { ttyAsk, ttyConfirm } from '../lib/share/tty.js';
+import { maybeAskLead, postLead } from '../lib/lead-prompt.js';
+import { inCi } from '../lib/telemetry-ci.js';
 
 export function registerShareCommand(program: Command): void {
   program
@@ -88,6 +90,18 @@ export function registerShareCommand(program: Command): void {
         },
         out: (l) => console.log(l),
         err: (l) => console.error(chalk.red(l)),
+        leadPrompt: () => maybeAskLead({
+          store: config,
+          env: process.env,
+          hasLogin: false,
+          gatewayUrl: cloudEnv.gatewayUrl,
+          hostedGatewayUrl: ALIGN_HOSTED_GATEWAY_URL,
+          inCi: inCi(),
+          tty: Boolean(process.stdin.isTTY && process.stdout.isTTY && process.stderr.isTTY),
+          ask: ttyAsk,
+          post: (email) => postLead(email, cloudEnv.gatewayUrl),
+          out: (l) => console.log(l),
+        }),
       } satisfies ShareDeps);
       if (code !== 0) process.exit(code);
     });
