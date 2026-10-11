@@ -36,16 +36,17 @@ describe('offers.legacyV0 is the offer list the CLI ships today', () => {
 });
 
 describe('contract.lock.json pins every vendored file', () => {
-  it('lists the four files align-stack vendors, with a revision', () => {
+  it('lists the five files align-stack vendors, with a revision', () => {
     expect(Object.keys(lock.files).sort()).toEqual([
       '__tests__/relationship-contract.test.ts',
       'parse-vectors.json',
       'relationship-contract.ts',
       'relationship-contract.v1.json',
+      'relationship-prompt.v1.txt',
     ]);
   });
 
-  it.each(['relationship-contract.v1.json', 'parse-vectors.json', 'relationship-contract.ts', '__tests__/relationship-contract.test.ts'])(
+  it.each(['relationship-contract.v1.json', 'parse-vectors.json', 'relationship-contract.ts', '__tests__/relationship-contract.test.ts', 'relationship-prompt.v1.txt'])(
     '%s matches its pinned sha256',
     (file) => {
       expect(sha256(join(detectorDir, file)), `${file} changed: bump "revision" in relationship-contract.v1.json, then update contract.lock.json (shasum -a 256 <file>)`).toBe(lock.files[file]);

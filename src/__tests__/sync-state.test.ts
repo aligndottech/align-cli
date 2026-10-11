@@ -77,7 +77,8 @@ describe('saveRun', () => {
 
 describe('the schema guard', () => {
   it('every sync-state function refuses a graph written by a newer CLI, before touching it', () => {
-    exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    // +2: an early-branch 12 carrying only the detector_version column is accepted (R4).
+    exec(`PRAGMA user_version = ${SCHEMA_VERSION + 2}`);
     const msg = /written by a newer Align CLI/;
     expect(() => beginRun(dbPath, KEY, null, NOW)).toThrow(msg);
     expect(() => saveRun(dbPath, KEY, { attemptAt: NOW, status: 'ok', high_water: null, pending_until: null, items: 0, skips: [] })).toThrow(msg);

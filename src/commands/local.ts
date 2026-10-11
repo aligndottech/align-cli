@@ -11,6 +11,7 @@ import { forgetSourceData } from '../lib/sync/forget.js';
 import { isPurgeable, PURGEABLE_SOURCES, purgePreview } from '../lib/sync/purge.js';
 import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
 import { refreshSummary } from '../lib/sync/summary.js';
+import { DEFAULT_RELINK_MAX_CALLS, type RelinkCommandOptions, runRelinkCommand } from './local-relink.js';
 
 export function registerLocalCommand(program: Command): void {
   const local = program
@@ -131,6 +132,43 @@ export function registerLocalCommand(program: Command): void {
       } else if (r.staying > 0) {
         console.log(`${r.staying} ${connector} items stay in your graph. To delete the ones nobody has vouched for: align local forget ${connector} --purge`);
       }
+    });
+
+  // Shared detector P3: the one path that re-types an existing link. See local-relink.ts for the
+  // estimate, cap and confirmation, and src/lib/local-relink.ts for which links it may touch.
+  local
+    .command('relink')
+    .description('Re-type existing local links with the v1 relationship detector (estimate first; writes only with --apply)')
+    .requiredOption('--detector <version>', 'Detector to re-type with (only v1)')
+    .option('--dry-run', 'Show the estimate and write nothing (the default); calls no model unless --classify is added')
+    .option('--classify', 'With --dry-run: classify and show the v1 verdicts without writing (spends the estimated calls)')
+    .option('--apply', 'Classify and write the re-typed links as v1 rows beside the v0 ones')
+    .option('--replace', 'With --apply: replace each re-typed v0 link instead of keeping it')
+    .option('--max-calls <n>', `Stop after this many model calls (default ${DEFAULT_RELINK_MAX_CALLS})`, (v) => Number(v))
+    .option('--yes', 'Skip the question; with no terminal, also needs --max-calls')
+    .action(async (opts: RelinkCommandOptions) => {
+      const env = createConfigStore().getEnvironment('local');
+      if (env.mode !== 'local-embedded') {
+        console.log('Local mode is not active. Run `align local start` first.');
+        return;
+      }
+      const [{ planRelink, relinkWithV1 }, llm] = await Promise.all([import('../lib/local-relink.js'), import('../lib/local-llm.js')]);
+      process.exitCode = await runRelinkCommand(opts, {
+        dbPath: () => env.localDbPath ?? getLocalDbPath(),
+        plan: planRelink,
+        relink: (dbPath, o) => relinkWithV1(dbPath, o),
+        hasProvider: llm.hasConfiguredProvider,
+        provider: () => (llm.hasConfiguredProvider() ? llm.preferredProvider() : undefined),
+        isTty: () => Boolean(process.stdin.isTTY && process.stdout.isTTY),
+        wrapped: () => Boolean(process.env['ALIGN_WRAPPED']),
+        confirm: async (message) => {
+          const { confirm, isCancel } = await import('@clack/prompts');
+          const answer = await confirm({ message, initialValue: false });
+          return !isCancel(answer) && answer === true;
+        },
+        out: (line) => console.log(line),
+        err: (line) => console.error(line),
+      });
     });
 
   local

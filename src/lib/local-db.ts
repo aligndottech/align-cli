@@ -45,6 +45,9 @@ export interface AuditRow {
   createdAt: string;
 }
 
+/** A link to write. `detectorVersion` defaults to 'v0' (schema v12). */
+export interface NewLink { id?: string; sourceId: string; targetId: string; relation: string; confidence: number; detectorVersion?: 'v0' | 'v1' }
+
 export interface LinkRow {
   id: string;
   sourceId: string;
@@ -168,12 +171,15 @@ export function createLocalDb(dbPath: string) {
 
   // Shared by insertLink and resolveRefs (ALI-796), so there is one writer of the
   // decision_links insert rather than two copies of the same ON CONFLICT clause.
-  function insertLinkRow(link: { id?: string; sourceId: string; targetId: string; relation: string; confidence: number }): void {
+  // `detectorVersion` (schema v12): which detector wrote the edge. Omitted means 'v0'; only the
+  // v1 detector passes 'v1'. A conflict on the triple keeps the stored version: same relation,
+  // nothing re-typed.
+  function insertLinkRow(link: NewLink): void {
     db.prepare(
-      `INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO decision_links (id, source_id, target_id, relation, confidence, detector_version) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(source_id, target_id, relation)
          DO UPDATE SET confidence = MAX(confidence, excluded.confidence)`
-    ).run(link.id ?? randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence);
+    ).run(link.id ?? randomUUID(), link.sourceId, link.targetId, link.relation, link.confidence, link.detectorVersion ?? 'v0');
   }
 
   let dataVersionStmt: ReturnType<typeof db.prepare> | undefined;
@@ -643,7 +649,7 @@ export function createLocalDb(dbPath: string) {
      * The unique index (created in migrate) is what makes the OR IGNORE real. Confidence is
      * refreshed rather than ignored so a better score replaces a worse one.
      */
-    insertLink(link: { id?: string; sourceId: string; targetId: string; relation: string; confidence: number }): void {
+    insertLink(link: NewLink): void {
       insertLinkRow(link);
     },
 
@@ -666,14 +672,28 @@ export function createLocalDb(dbPath: string) {
      * (either direction, any relation) before writing the new one, so capture-time
      * classification can upgrade a cosine `relates` edge into a typed one atomically.
      */
-    replaceLink(link: { sourceId: string; targetId: string; relation: string; confidence: number }): void {
+    replaceLink(link: Omit<NewLink, 'id'>): void {
       // LM: an edge a person's `align mark ... replaces` wrote (id `mark:<judgement id>`) is theirs, not
       // the classifier's to upgrade away: deleting it would orphan the judgement, and `--undo` could
       // no longer find its link. The pair may then carry that edge beside the new one.
-      db.prepare(
-        `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%'`,
-      ).run(link.sourceId, link.targetId, link.targetId, link.sourceId);
-      insertLinkRow(link);
+      // One unit (review F8): a failure after the delete must not leave the pair unlinked. A
+      // SAVEPOINT, not BEGIN, so a caller already inside a transaction can still call this.
+      db.exec('SAVEPOINT replace_link');
+      try {
+        // Review F1: a `replaces` mark written over an existing classifier row keeps that row's id,
+        // so the judgement itself is what protects it, not only the `mark:` id.
+        db.prepare(
+          `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%'
+             AND NOT (relation = 'supersedes' AND EXISTS (SELECT 1 FROM local_judgements j
+               WHERE j.kind = 'supersede' AND j.decision_id = decision_links.source_id AND j.counterpart_id = decision_links.target_id))`,
+        ).run(link.sourceId, link.targetId, link.targetId, link.sourceId);
+        insertLinkRow(link);
+        db.exec('RELEASE replace_link');
+      } catch (err) {
+        db.exec('ROLLBACK TO replace_link');
+        db.exec('RELEASE replace_link');
+        throw err;
+      }
     },
 
     /**
@@ -767,6 +787,14 @@ export function createLocalDb(dbPath: string) {
       if (filter?.decisionId) { sql += ` AND (source_id = ? OR target_id = ?)`; params.push(filter.decisionId, filter.decisionId); }
       if (filter?.createdBefore) { sql += ` AND julianday(created_at) < julianday(?)`; params.push(filter.createdBefore); }
       return db.prepare(sql).all(...params) as unknown as LinkRow[];
+    },
+
+    /** True when another stored decision supersedes this one: the v1 detector shows it RETIRED and refuses a verdict edge (review F5). */
+    isSuperseded(decisionId: string): boolean {
+      return db.prepare(
+        `SELECT 1 FROM decision_links l JOIN decisions s ON s.id = l.source_id
+         WHERE l.target_id = ? AND l.relation IN ('supersedes', 'partially_supersedes') LIMIT 1`,
+      ).get(decisionId) !== undefined;
     },
 
     getStats(): DbStats {

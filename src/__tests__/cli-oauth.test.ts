@@ -61,9 +61,13 @@ describe('waitForCallback', () => {
     serverReady.catch(() => {}); // suppress unhandled rejection from timeout
   });
 
+  // A blocker must hold 127.0.0.1 itself. listen(port) with no host binds the wildcard, and on macOS and Windows a more
+  // specific 127.0.0.1/::1 bind still succeeds beside a wildcard holder (and wins every loopback connection), so the port
+  // is not busy there. Linux refuses that bind, which is why a wildcard blocker passed on Linux only. The ::1 side is
+  // pinned in cli-oauth-bind.test.ts.
   it('tries next port when first is busy', async () => {
     const blocker = http.createServer();
-    await new Promise<void>(r => blocker.listen(19877, r));
+    await new Promise<void>(r => blocker.listen(19877, '127.0.0.1', r));
     try {
       let capturedNonce = '';
       const promise = waitForCallback({
@@ -110,7 +114,7 @@ describe('waitForCallback', () => {
   it('rejects when all ports are busy', async () => {
     const blockers = [19880, 19881].map(p => {
       const s = http.createServer();
-      return new Promise<http.Server>(r => s.listen(p, () => r(s)));
+      return new Promise<http.Server>(r => s.listen(p, '127.0.0.1', () => r(s)));
     });
     const servers = await Promise.all(blockers);
     try {

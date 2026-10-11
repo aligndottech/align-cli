@@ -56,10 +56,10 @@ describe('connectorItemKey after the connector-core zoom fix', () => {
 });
 
 describe('a fresh graph', () => {
-  it('is at v11', () => {
+  it('is at the current version, which includes v11', () => {
     createLocalDb(dbPath).close();
-    expect(SCHEMA_VERSION).toBe(11);
-    expect(version()).toBe(11);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(11);
+    expect(version()).toBe(SCHEMA_VERSION);
   });
 });
 
@@ -69,7 +69,7 @@ describe('a v10 graph holding the old collapsed zoom key', () => {
     exec(`INSERT INTO local_judgements (id, decision_id, kind, value, judge_id, via, judged_at) VALUES ('j1', 'z1', 'not_a_decision', NULL, 'tom', 'cli', '2026-10-02')`);
     exec(`INSERT INTO promotions (local_id, env, tenant_id, remote_id, content_hash) VALUES ('z1', 'prod', 'T1', 'R1', 'h')`);
     createLocalDb(dbPath).close();
-    expect(version()).toBe(11);
+    expect(version()).toBe(SCHEMA_VERSION);
     expect(keys()).toEqual([{ id: 'z1', source_key: keyOf('M1') }]);
     expect(sql('SELECT ratified_by FROM decisions WHERE id = \'z1\'')).toEqual([{ ratified_by: 'tom' }]);
     expect(sql('SELECT decision_id FROM local_judgements')).toEqual([{ decision_id: 'z1' }]);
@@ -113,6 +113,6 @@ describe('a v10 graph holding the old collapsed zoom key', () => {
     exec('PRAGMA user_version = 10');
     createLocalDb(dbPath).close();
     expect(sql('SELECT * FROM decisions')).toEqual(once);
-    expect(version()).toBe(11);
+    expect(version()).toBe(SCHEMA_VERSION);
   });
 });
