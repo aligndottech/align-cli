@@ -6,10 +6,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
 
 /**
- * P3 (shared detector) Test List, schema v12:
- * - A v11 graph migrates to v12 and every existing link reads detector_version = 'v0'.
+ * P3 (shared detector) Test List, the detector_version column (review F7: an ADDITIVE step):
+ * - A v11 graph gains the column and every existing link reads detector_version = 'v0'.
+ * - user_version stays 11, so a 0.50.0 CLI (which refuses anything above 11) still opens it, and
+ *   a link that CLI writes (no detector_version in its INSERT) reads 'v0'.
  * - 0 links migrates cleanly; 50 links keeps all 50 (counted before and after).
- * - A replay (user_version put back to 11, column present) is a no-op.
+ * - Re-opening is a no-op.
  * - Nothing is re-typed: relation and confidence are byte-identical after the migration.
  * - New links default to v0; a link the v1 detector writes is stamped v1.
  * - A v0 conflicts_with and a v0 contradicts link are still read as conflicts after migration.
@@ -33,7 +35,7 @@ const versions = () => sql<{ v: string }>('SELECT DISTINCT detector_version AS v
 const hasColumn = () => sql<{ name: string }>('PRAGMA table_info(decision_links)').some((c) => c.name === 'detector_version');
 const linkRows = () => sql('SELECT id, source_id, target_id, relation, confidence FROM decision_links ORDER BY id');
 
-/** A real v11 file: the current schema with the v12 column removed and the version put back. */
+/** A real v11 file: the current schema with the additive column removed. */
 function makeV11(links: number): void {
   createLocalDb(dbPath).close();
   const values: string[] = [];
@@ -47,23 +49,50 @@ function makeV11(links: number): void {
   exec('PRAGMA user_version = 11');
 }
 
+/** 0.50.0's open check, copied from align-cli origin/main 526f63b src/lib/local-db-migrate.ts
+ *  (assertSchemaSupported with SCHEMA_VERSION = 11): it throws above 11 and opens anything else. */
+function opens050(userVersion: number): boolean {
+  const supported = 11;
+  return !(userVersion > supported);
+}
+
 describe('a fresh graph', () => {
-  it('is at v12 with the column', () => {
+  it('has the column and stays at the compatibility version 11', () => {
     createLocalDb(dbPath).close();
-    expect(SCHEMA_VERSION).toBe(12);
-    expect(version()).toBe(12);
+    expect(SCHEMA_VERSION).toBe(11);
+    expect(version()).toBe(11);
     expect(hasColumn()).toBe(true);
   });
 });
 
-describe('v11 -> v12', () => {
+describe('F7: an older CLI keeps reading the graph', () => {
+  it('a v11 graph opened by this CLI is still accepted by 0.50.0\'s version check', () => {
+    makeV11(3);
+    createLocalDb(dbPath).close();
+    expect(hasColumn()).toBe(true);
+    expect(opens050(version())).toBe(true);
+  });
+
+  it('control: the check really refuses a newer version (so the pass above means something)', () => {
+    expect(opens050(12)).toBe(false);
+  });
+
+  it('a link written the 0.50.0 way (no detector_version in the INSERT) reads v0', () => {
+    makeV11(1);
+    createLocalDb(dbPath).close();
+    exec(`INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES ('old-cli', 'd1', 'd0', 'refines', 0.5)`);
+    expect(sql<{ v: string }>(`SELECT detector_version AS v FROM decision_links WHERE id = 'old-cli'`)[0]!.v).toBe('v0');
+  });
+});
+
+describe('adding the column to a v11 graph', () => {
   it('keeps all 50 links, re-types none, and stamps every one v0', () => {
     makeV11(50);
     expect(hasColumn()).toBe(false);
     expect(linkCount()).toBe(50);
     const before = linkRows();
     createLocalDb(dbPath).close();
-    expect(version()).toBe(12);
+    expect(version()).toBe(11);
     expect(linkCount()).toBe(50);
     expect(linkRows()).toEqual(before);
     expect(versions()).toEqual(['v0']);
@@ -72,23 +101,21 @@ describe('v11 -> v12', () => {
   it('migrates a graph with 0 links cleanly', () => {
     makeV11(0);
     createLocalDb(dbPath).close();
-    expect(version()).toBe(12);
+    expect(version()).toBe(11);
     expect(hasColumn()).toBe(true);
     expect(linkCount()).toBe(0);
   });
 
-  it('a replay (user_version back to 11, column present) changes nothing', () => {
+  it('an older CLI dropping back the column is not possible, but a file missing it gains it on the next open', () => {
     makeV11(5);
     createLocalDb(dbPath).close();
     exec(`UPDATE decision_links SET detector_version = 'v1' WHERE id = 'l001'`);
-    exec('PRAGMA user_version = 11');
     createLocalDb(dbPath).close();
-    expect(version()).toBe(12);
     expect(sql<{ v: string }>(`SELECT detector_version AS v FROM decision_links WHERE id = 'l001'`)[0]!.v).toBe('v1');
     expect(linkCount()).toBe(5);
   });
 
-  it('re-opening a v12 graph is a no-op', () => {
+  it('re-opening is a no-op', () => {
     makeV11(3);
     createLocalDb(dbPath).close();
     const before = sql('SELECT * FROM decision_links ORDER BY id');
@@ -106,7 +133,7 @@ describe('v11 -> v12', () => {
   });
 });
 
-describe('writing links after v12', () => {
+describe('writing links once the column exists', () => {
   it('insertLink and replaceLink default to v0, and stamp v1 when the v1 detector writes', () => {
     makeV11(0);
     const db = createLocalDb(dbPath);

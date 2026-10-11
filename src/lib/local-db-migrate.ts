@@ -11,7 +11,7 @@ import { migrateV8 } from './local-db-v8.js';
 import { migrateV9 } from './local-db-v9.js';
 import { migrateV10, repairPromotions } from './local-db-v10.js';
 import { migrateV11 } from './local-db-v11.js';
-import { migrateV12 } from './local-db-v12.js';
+import { hasDetectorVersion, migrateV12 } from './local-db-v12.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS decision_refs (
  * `migrate` from the source and compares it here, because forgetting the bump leaves the new
  * branch running destructively on every open with nothing to stop it.
  */
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 11;
 
 /** The title connector-core 0.5.0 gave every Slack thread whose root was deleted. The 0.6.0
  *  fetcher titles such a thread from its first human message, or drops it; either way this
@@ -466,23 +466,22 @@ export function migrate(db: DatabaseSync): void {
       throw err;
     }
   }
-  if (version < 12) {
-    // Shared detector P3: decision_links.detector_version, every existing link 'v0'. See local-db-v12.ts.
+  // A graph an earlier build of this branch stamped v10 (see repairPromotions): runs on every open.
+  repairPromotions(db);
+  // ADDITIVE steps (review F7): a change an older CLI can live with does not bump user_version,
+  // because every older CLI refuses a graph whose user_version is above what it knows. A column
+  // with a DEFAULT an older CLI's INSERTs fill correctly is additive; anything an older CLI would
+  // write wrongly, or misread, is not, and still takes a numbered step and the refusal.
+  if (!hasDetectorVersion(db)) {
     db.exec('BEGIN IMMEDIATE');
     try {
-      const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-      if (current < 12) {
-        migrateV12(db);
-        db.exec('PRAGMA user_version = 12');
-      }
+      migrateV12(db); // re-checks the column inside the lock
       db.exec('COMMIT');
     } catch (err) {
       if (db.isTransaction) db.exec('ROLLBACK');
       throw err;
     }
   }
-  // A graph an earlier build of this branch stamped v10 (see repairPromotions): runs on every open.
-  repairPromotions(db);
   if (version < SCHEMA_VERSION) {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }
