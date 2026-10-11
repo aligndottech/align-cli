@@ -107,16 +107,17 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     try { await deps.leadPrompt?.(); } catch { /* an optional prompt never changes what the person sees from the command */ }
     return 1;
   }
+  // A gateway that is not Align's is not an independent approver: its own web page "approving" proves nothing about the person.
+  // So a share to one needs the person at a terminal, in either mode, and an agent is refused before any request goes out.
+  // --open is refused too: an agent re-opening an approval link for a foreign gateway is the same hole.
+  const foreignGateway = !isAlignHost(hostOf(deps.cloudEnv.gatewayUrl));
+  if (foreignGateway && deps.wrapped) { err(WRAPPED_FOREIGN); return 1; }
   if (opts.openRequest !== undefined) return await reopenRequest(opts, deps, out, err);
   if (!deps.localDbPath) {
     err('There is no local graph on this machine to share from. `align setup --local` creates one.');
     return 1;
   }
   const dbPath = deps.localDbPath;
-  // A gateway that is not Align's is not an independent approver: its own web page "approving" proves nothing about the person.
-  // So a share to one needs the person at a terminal, in either mode, and an agent is refused before any request goes out.
-  const foreignGateway = !isAlignHost(hostOf(deps.cloudEnv.gatewayUrl));
-  if (foreignGateway && deps.wrapped) { err(WRAPPED_FOREIGN); return 1; }
   sweepPending(); // codes are 10 minutes; a file a day old is leftover
   const ctx = async () => ({ dbPath, envName: opts.envName, client: deps.client(), judge: await deps.judge(), salt: deps.salt, gatewayUrl: deps.cloudEnv.gatewayUrl, defaultGatewayUrl: deps.defaultGatewayUrl });
 
@@ -234,7 +235,8 @@ async function reopenRequest(opts: ShareOptions, deps: ShareDeps, out: (l: strin
   if (rec === null) { err('No pending request with that id on this machine. A request can only be re-opened on the machine that staged it, and only until it expires. Ask your agent to start the share again.'); return 1; }
   if (!(Date.parse(rec.expiresAt) > Date.now())) { err('That request has expired. Ask your agent to start the share again.'); return 1; }
   if (rec.envName !== opts.envName) { err(`That request was staged for ${rec.envName}, not ${opts.envName}. Run: align share --open ${rec.requestId} --to ${rec.envName}`); return 1; }
-  if (rec.gatewayUrl !== deps.cloudEnv.gatewayUrl || (deps.cloudEnv.tenantId !== undefined && rec.tenantId !== deps.cloudEnv.tenantId)) {
+  // Fails closed: a sign-in with no tenant id cannot show the request belongs to this workspace, so it is not shown.
+  if (rec.gatewayUrl !== deps.cloudEnv.gatewayUrl || !deps.cloudEnv.tenantId || rec.tenantId !== deps.cloudEnv.tenantId) {
     err('That request was staged for a different workspace or gateway than the one you are signed in to now, so it was not shown.');
     return 1;
   }
