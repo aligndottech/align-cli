@@ -58,8 +58,9 @@ export function childEnv(dir: string, opts: HarnessOptions = {}): Record<string,
 
 /** Where the PRODUCT puts its graph, config and state under `env`: asked of the product, in a child, never guessed. */
 export function productPaths(env: Record<string, string | undefined>): { dbPath: string; configDir: string; stateDir: string } {
-  const r = spawnSync(path.join(ROOT, 'node_modules/.bin/tsx'), [path.join(__dirname, 'print-paths.ts')], { env, encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`print-paths failed: ${r.stderr}`);
+  // node + tsx's own entry, not node_modules/.bin/tsx: on Windows that is a .cmd shim spawnSync cannot run without a shell.
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(__dirname, 'print-paths.ts')], { env, encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`print-paths failed: ${r.error?.message ?? r.stderr}`);
   const parsed = JSON.parse(r.stdout.trim().split('\n').pop()!) as { dbPath: string; configDir: string; stateDir: string | null };
   if (!parsed.stateDir) throw new Error('the product has no private state directory under this env');
   return { dbPath: parsed.dbPath, configDir: parsed.configDir, stateDir: parsed.stateDir };
