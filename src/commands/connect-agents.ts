@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import * as p from '@clack/prompts';
 import { alignServerEntry, detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
 import type { EnvName } from '../lib/config.js';
+import { envFlag } from '../lib/destination-name.js';
 import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
 
 /**
@@ -35,7 +36,8 @@ export async function connectDetectedAgents(
   const envArg = envName === 'prod' ? undefined : envName;
   // Runnable AS PRINTED. Bare `align mcp --setup` resolves to the cloud default, so telling a
   // local user to run it would wire their agent to prod - the graph they did not just build.
-  const envSuffix = envArg ? ` --env ${envArg}` : '';
+  // envFlag also refuses a name that is not shell-safe, before anything is written.
+  const envSuffix = envFlag(envName);
 
   if (editors.length === 0) {
     // Named GLOBAL deliberately: detectEditors() only checks each agent's global config

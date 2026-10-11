@@ -10,11 +10,11 @@ export const VALID_ENVS: readonly EnvName[] = ['local', 'preview', 'prod'];
 
 export type SetupRoute =
   | { kind: 'local'; teamLoginUntouched?: 'prod' | 'preview' }
-  | { kind: 'team'; env: 'prod' | 'preview' };
+  | { kind: 'team'; env: EnvName };
 
 export class InvalidEnvError extends Error {
-  constructor(value: string) {
-    super(`Unknown environment "${value}". Valid environments: ${VALID_ENVS.join(', ')}.`);
+  constructor(value: string, destinations: string[] = []) {
+    super(`Unknown environment "${value}". Valid environments: ${[...VALID_ENVS, ...destinations].join(', ')}.`);
     this.name = 'InvalidEnvError';
   }
 }
@@ -23,10 +23,20 @@ const isTeamEnv = (v: string | undefined): v is 'prod' | 'preview' => v === 'pro
 
 export function routeSetup(
   opts: { env?: string; local?: boolean },
-  config: { getEnvironment(env: EnvName): EnvironmentConfig; getDefaultEnv(): EnvName },
+  config: {
+    getEnvironment(env: EnvName): EnvironmentConfig;
+    getDefaultEnv(): EnvName;
+    hasTeamDestination(name: string): boolean;
+    listTeamDestinationNames(): string[];
+  },
   processEnv: Record<string, string | undefined>,
 ): SetupRoute {
-  if (opts.env !== undefined && !VALID_ENVS.includes(opts.env as EnvName)) throw new InvalidEnvError(opts.env);
+  // A saved team destination (`align join`) is a team env too: setup runs against it. Anything else that is
+  // not a builtin is an error, from --env and from ALIGN_ENV alike, as in resolveEnv (join plan S6).
+  const known = (v: string): boolean => (VALID_ENVS as readonly string[]).includes(v) || config.hasTeamDestination(v);
+  if (opts.env !== undefined && !known(opts.env)) throw new InvalidEnvError(opts.env, config.listTeamDestinationNames());
+  const ambient = processEnv['ALIGN_ENV'];
+  if (opts.env === undefined && !opts.local && ambient && !known(ambient)) throw new InvalidEnvError(ambient, config.listTeamDestinationNames());
 
   // The team env this machine is logged in to: the default env first, then prod, then preview.
   const defaultEnv = config.getDefaultEnv();
@@ -36,11 +46,11 @@ export function routeSetup(
   if (opts.local || opts.env === 'local') {
     return loggedInEnv ? { kind: 'local', teamLoginUntouched: loggedInEnv } : { kind: 'local' };
   }
-  if (isTeamEnv(opts.env)) return { kind: 'team', env: opts.env };
+  if (opts.env !== undefined) return { kind: 'team', env: opts.env as EnvName };
 
   const fromEnvVar = processEnv['ALIGN_ENV'];
   if (fromEnvVar === 'local') return loggedInEnv ? { kind: 'local', teamLoginUntouched: loggedInEnv } : { kind: 'local' };
-  if (isTeamEnv(fromEnvVar)) return { kind: 'team', env: fromEnvVar };
+  if (fromEnvVar && fromEnvVar !== 'local') return { kind: 'team', env: fromEnvVar as EnvName };
   if (loggedInEnv) return { kind: 'team', env: loggedInEnv };
   return { kind: 'local' };
 }

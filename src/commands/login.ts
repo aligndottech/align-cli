@@ -4,7 +4,8 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
-import { loginInteractive } from '../lib/login-flow.js';
+import { loginInteractive, saveTeamToken } from '../lib/login-flow.js';
+import { visible } from '../lib/share/visible.js';
 import { commandIntro } from '../lib/brand.js';
 
 export function registerLoginCommands(program: Command): void {
@@ -18,6 +19,19 @@ export function registerLoginCommands(program: Command): void {
       const envName = resolveEnv(opts.env);
       const env = config.getEnvironment(envName);
 
+      if (opts.token && env.kind === 'team') {
+        const r = await saveTeamToken(env, envName, opts.token, config, {
+          wrapped: (process.env['ALIGN_WRAPPED'] ?? '') !== '',
+          tty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+        });
+        if (typeof r === 'string') {
+          console.error(chalk.red(r));
+          process.exit(1);
+          return;
+        }
+        p.log.success(`Token saved for ${envName} (${visible(r.email)}, ${visible(r.tenantName)})`);
+        return;
+      }
       if (opts.token) {
         config.setAuthToken(envName, opts.token);
         p.log.success(`Token saved for ${envName}`);
@@ -36,7 +50,10 @@ export function registerLoginCommands(program: Command): void {
     .option('--env <env>', 'Environment')
     .action((opts: { env?: EnvName }) => {
       const envName = resolveEnv(opts.env);
-      createConfigStore().clear(envName);
+      const config = createConfigStore();
+      // A team destination keeps its entry (gateway, web app) and loses only the token, so `align login --env <name>` renews it.
+      if (config.hasTeamDestination(envName)) config.clearTeamToken(envName);
+      else config.clear(envName);
       console.log(chalk.green(`Logged out of ${envName}`));
     });
 

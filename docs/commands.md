@@ -73,6 +73,7 @@ A removed command stays registered so an old script gets the new spelling and a 
 
 align env                     Get or set the default environment (local, preview, prod)
 align env set <env>           Set the default environment for all commands
+align env list                List the environments and every team destination joined with align join, with both hosts
 align env get                 Show the current default environment
 
 # Usage telemetry on, off, status

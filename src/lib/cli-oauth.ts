@@ -13,12 +13,19 @@ export function waitForCallback(opts: {
   ports: number[];
   timeoutMs: number;
   onBound?: (port: number, nonce: string) => void | Promise<void>;
+  /** Stops the wait: the listeners close and the promise rejects. */
+  signal?: AbortSignal;
 }): Promise<CallbackResult> {
   return new Promise((resolve, reject) => {
     let servers: http.Server[] = [];
     const closeAll = (): void => { for (const x of servers) x.close(); };
     const nonce = randomBytes(16).toString('hex');
 
+    opts.signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      closeAll();
+      reject(new Error('cancelled'));
+    }, { once: true });
     const timer = setTimeout(() => {
       closeAll();
       reject(new Error('CLI OAuth timed out waiting for browser callback'));
@@ -105,9 +112,10 @@ export function waitForCallback(opts: {
           }
           // No IPv6 loopback on this machine (a container, a disabled stack): IPv4 alone is all there is to answer on.
           servers = [s];
+          if (opts.signal?.aborted) { closeAll(); return; }
           void opts.onBound?.(port, nonce);
         });
-        s6.listen(port, '::1', () => { servers = [s, s6]; void opts.onBound?.(port, nonce); });
+        s6.listen(port, '::1', () => { servers = [s, s6]; if (opts.signal?.aborted) { closeAll(); return; } void opts.onBound?.(port, nonce); });
       });
     }
 

@@ -240,6 +240,26 @@ describe('connectDetectedAgents', () => {
     expect(out).toContain('align mcp --setup');
     expect(out).not.toContain('--env');
   });
+
+  it('a team destination is threaded to the writer and named in the manual command (join C6)', async () => {
+    detectEditors.mockReturnValue([CLAUDE]);
+    writeMcpConfig.mockClear();
+    await connectDetectedAgents('acme' as never);
+    expect(writeMcpConfig.mock.calls[0]![1]).toBe('acme');
+
+    detectEditors.mockReturnValue([]);
+    logged.length = 0;
+    await connectDetectedAgents('acme' as never);
+    expect(logged.join('\n')).toContain('align mcp --setup --env acme');
+    expect(logged.join('\n')).toContain('"--env","acme"');
+  });
+
+  it('a name that is not shell-safe stops before anything is written or printed', async () => {
+    detectEditors.mockReturnValue([CLAUDE]);
+    writeMcpConfig.mockClear();
+    await expect(connectDetectedAgents('a;b' as never)).rejects.toThrow(/not a safe/);
+    expect(writeMcpConfig).not.toHaveBeenCalled();
+  });
 });
 
 
