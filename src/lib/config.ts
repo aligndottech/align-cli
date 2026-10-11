@@ -140,6 +140,8 @@ export function createConfigStore() {
     telemetryOffVia?: string;
     telemetryOffAt?: string;
     agent?: string;
+    /** Which local relationship detector to run when ALIGN_DETECTOR is unset: 'v0' or 'v1'. */
+    detector?: string;
     launchOff?: boolean;
     backgroundSyncOff?: boolean;
     backgroundSyncNoticeShownAt?: string;
@@ -443,6 +445,13 @@ export function createConfigStore() {
     setLaunchOff(off: boolean) {
       if (off) store.set('launchOff', true);
       else store.delete('launchOff');
+    },
+    /** The saved detector choice, or undefined when none is saved (the default then applies). */
+    getDetector(): string | undefined {
+      return store.get('detector') as string | undefined;
+    },
+    setDetector(detector: string) {
+      store.set('detector', detector);
     },
     clearAgent() {
       store.delete('agent');

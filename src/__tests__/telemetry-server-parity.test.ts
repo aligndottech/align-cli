@@ -28,7 +28,8 @@ const ref = process.env['ALIGN_TELEMETRY_PARITY_REF'] ?? 'origin/main';
 
 // Pinned from THERE at the merge of align-stack #3101 (adds `join`).
 const SERVER_COMMANDS = [
-  'adjudicate', 'align', 'ask', 'capture', 'check', 'connect', 'context', 'decisions', 'drift',
+  // 'config' is pinned here after align-stack #3141 added it to the gateway list (the gateway lands first).
+  'adjudicate', 'align', 'ask', 'capture', 'check', 'config', 'connect', 'context', 'decisions', 'drift',
   'env', 'export', 'import', 'invite', 'join', 'links', 'login', 'logout', 'mark', 'mcp', 'push',
   'ratify', 'search', 'setup', 'share', 'spaces', 'status', 'sync', 'telemetry', 'use', 'whoami',
 ];

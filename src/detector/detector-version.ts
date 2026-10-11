@@ -11,10 +11,26 @@
 export const DETECTOR_VERSIONS = ['v0', 'v1'] as const;
 export type DetectorVersion = (typeof DETECTOR_VERSIONS)[number];
 
-export function resolveDetectorVersion(env: Record<string, string | undefined> = process.env): DetectorVersion {
+export function resolveDetectorVersion(
+  env: Record<string, string | undefined> = process.env,
+  saved?: string,
+): DetectorVersion {
   const raw = env['ALIGN_DETECTOR'];
-  if (raw === undefined || raw.trim() === '') return 'v0';
+  if (raw === undefined || raw.trim() === '') {
+    // The saved choice (`align config detector`) applies when the env var is unset. It is validated
+    // here too, so a hand-edited value fails loudly instead of quietly running the default.
+    if (saved === undefined) return 'v0';
+    if ((DETECTOR_VERSIONS as readonly string[]).includes(saved)) return saved as DetectorVersion;
+    throw new Error(`detector "${saved}" in the saved config is not a detector version. Allowed: ${DETECTOR_VERSIONS.join(', ')}. Fix it with: align config detector v0`);
+  }
   const value = raw.trim();
   if ((DETECTOR_VERSIONS as readonly string[]).includes(value)) return value as DetectorVersion;
   throw new Error(`ALIGN_DETECTOR="${raw}" is not a detector version. Allowed: ${DETECTOR_VERSIONS.join(', ')} (unset means v0).`);
+}
+
+/** Where the active detector comes from, for `align config detector` and `align status`. */
+export function detectorSource(env: Record<string, string | undefined>, saved: string | undefined): string {
+  if (env['ALIGN_DETECTOR']?.trim()) return 'ALIGN_DETECTOR';
+  if (saved !== undefined) return 'saved with align config detector';
+  return 'default';
 }
