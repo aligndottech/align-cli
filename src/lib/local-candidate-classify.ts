@@ -14,6 +14,7 @@ import { createConfigStore } from './config.js';
  * is A). v1 always puts the new/proposed side as the NEW DECISION.
  */
 import { type DetectorVersion, resolveDetectorVersion } from '../detector/detector-version.js';
+import { classifierRoute } from '../detector/classifier-route.js';
 import { type ClassificationOutcome, classifyRelationship, type RelationshipType } from './local-relationship-classifier.js';
 import { classifyCandidateSet, type SetCandidate, type SetSubject } from './local-set-classifier.js';
 
@@ -28,7 +29,8 @@ export async function classifyCandidates(
   order: 'subject-first' | 'candidate-first',
   deps: { pair?: typeof classifyRelationship; set?: typeof classifyCandidateSet } = {},
 ): Promise<CandidateClassification> {
-  const version = resolveDetectorVersion(process.env, createConfigStore().getDetector());
+  const store = createConfigStore();
+  const version = resolveDetectorVersion(process.env, store.getDetector(), classifierRoute(process.env, store));
   if (version === 'v1') {
     if (!candidates.length) return { version, outcomes: [] };
     const result = await (deps.set ?? classifyCandidateSet)(subject, candidates);
