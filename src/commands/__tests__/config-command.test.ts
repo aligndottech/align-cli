@@ -20,8 +20,8 @@ describe('align config detector', () => {
   it('with no argument, prints the detector in use and where it comes from', async () => {
     vi.stubEnv('ALIGN_DETECTOR', '');
     const text = await run('detector');
-    expect(text).toMatch(/Detector: v0 \(default\)/);
-    expect(text).toMatch(/align config detector v1/);
+    expect(text).toMatch(/Detector: v1 \(default\)/);
+    expect(text).toMatch(/align config detector v0/);
   });
 
   it('with a version, saves it so the next run reads it', async () => {

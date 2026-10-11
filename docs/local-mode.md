@@ -109,32 +109,32 @@ is listed on its own page, and a test keeps that page true.
   conflicts with, depends on) are typed at query time using **your own AI provider key**.
   Without one, related decisions still surface, just not typed. The heavier cross-tool
   relationship detection runs in the hosted gateway.
-- **Two relationship detectors, picked with `ALIGN_DETECTOR`.** `v0` (the default) is the
-  pairwise classifier. `v1` is opt-in with `ALIGN_DETECTOR=v1`. It is the
-  detector the hosted product's base prompt uses: one call per check over every related
-  decision, shown with its date and whether it was replaced. The model only says whether two
-  decisions are *incompatible*; whether that is a conflict or a replacement is worked out from
-  the dates, and anything unclear stays a conflict. Your local graph does not record who made
-  each decision, so v1 never assumes two decisions share an author. `v0` types each related
-  decision in its own call. Any other value stops the CLI with the allowed values.
+- **One relationship detector, the same one the hosted product runs.** `v1` is the default. It sends
+  all related decisions in one call and asks whether any is incompatible with the new one. The model
+  only says whether two decisions are *incompatible*; whether that is a conflict or a replacement is
+  worked out from the dates, and anything unclear stays a conflict. Your local graph does not record who
+  made each decision, so v1 never assumes two decisions share an author. `v0` is the older pairwise
+  classifier, one call per related decision. Choose it with `ALIGN_DETECTOR=v0` or
+  `align config detector v0`. Any other value stops the CLI with the allowed values.
 
-  Measured on 183 labelled decision pairs (177 scored), majority of 3 runs, conflict precision
-  and recall. The pairs were picked from conflicts the hosted product had already flagged, so
-  they are not a held-out test: read these as a comparison between the two detectors, not as
-  accuracy you will see on your own graph. Each pair was one call with one related decision and
-  no dates, so the benchmark did not exercise v1's many-candidates call or its date rules.
+  Local model: the CLI uses `qwen2.5:7b` when it is installed (`ollama pull qwen2.5:7b`). It is the
+  local model that passes the v1 detector on our labelled pairs. The 3B `llama3.2` does not: it found
+  30 of 51 real conflicts against v0's 46, so if `llama3.2` is your only local model, set
+  `ALIGN_DETECTOR=v0`.
 
-  | Model | v0 precision | v0 recall | v1 precision | v1 recall |
-  |---|---|---|---|---|
-  | claude-haiku-4-5 | 51/65 (78.5%) | 51/51 (100%) | 51/63 (81.0%) | 51/51 (100%) |
-  | claude-sonnet-4-6 | not measured | not measured | 51/65 (78.5%) | 51/51 (100%) |
-  | llama3.2 (Ollama) | 46/104 (44.2%) | 46/51 (90.2%) | 30/51 (58.8%) | 30/51 (58.8%) |
+  Measured on 183 labelled decision pairs (177 scored), majority of 3 runs, conflict precision and
+  recall. The pairs were picked from conflicts the hosted product had already flagged, so they are not a
+  held-out test: read these as a comparison between detectors and models, not as accuracy on your graph.
 
-  v1 met the preregistered rule on claude-haiku-4-5 (recall no lower than v0's, precision no
-  lower than v0's minus its margin of error), but it is not shown to be better than v0 there. **With llama3.2, v1
-  finds fewer of the real conflicts (30 of 51 against v0's 46).** So v0 stays the default for
-  every model, and v1 is for people who choose it knowingly. Method and full results: align-stack
-  `packages/llm-eval/bench-runs/detector-phase-a/`.
+  | Model | Detector | precision | recall |
+  |---|---|---|---|
+  | claude-haiku-4-5 | v0 | 51/65 (78.5%) | 51/51 (100%) |
+  | claude-haiku-4-5 | v1 | 51/63 (81.0%) | 51/51 (100%) |
+  | qwen2.5:7b (Ollama) | v1 | 46/70 (65.7%) | 46/51 (90.2%) |
+  | llama3.2 (Ollama) | v0 | 46/104 (44.2%) | 46/51 (90.2%) |
+  | llama3.2 (Ollama) | v1 | 30/51 (58.8%) | 30/51 (58.8%) |
+
+  Method and full results: align-stack `packages/llm-eval/bench-runs/detector-phase-a/`.
 - **Links record which detector wrote them.** Links the v0 detector wrote are stamped `v0`, and
   are never re-typed on their own. A link the v1 detector typed is stamped
   `v1`. An untyped `relates` link that no detector judged (classification off, no provider key,

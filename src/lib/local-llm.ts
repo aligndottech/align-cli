@@ -517,11 +517,12 @@ async function tryGemini(
  * (ALI-692)
  */
 export const OLLAMA_MODEL_FAMILIES: readonly RegExp[] = [
+  // qwen first: qwen2.5:7b is the local model that passes the shared v1 detector (addendum 7).
+  /^qwen[\d.:-]/i,
   /^llama[\d.:-]/i,
   /^mistral[\d.:-]/i,
   /^gemma[\d.:-]/i,
   /^phi[\d.:-]/i,
-  /^qwen[\d.:-]/i,
   /^deepseek-r[\d.:-]/i,
 ];
 
@@ -553,7 +554,7 @@ function isRecognisedOllamaModel(name: string, family: RegExp): boolean {
  * copy-pasteable, therefore stale by design. Resolution never consults it:
  * resolveOllamaModel picks from what the live registry actually has.
  */
-export const RECOMMENDED_OLLAMA_PULL = 'llama3.2';
+export const RECOMMENDED_OLLAMA_PULL = 'qwen2.5:7b';
 
 export type OllamaModelChoice =
   | { ok: true; model: string }
