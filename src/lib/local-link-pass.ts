@@ -45,7 +45,11 @@ export async function linkPass(
     'candidate-first',
   );
   const typedBy = new Map(known.map(({ c }, i) => [c.decisionId, outcomes[i]!]));
-  // Every edge the v1 pass writes is stamped v1, the untyped fallback included (schema v12).
+  // A typed edge carries the detector that judged it (schema v12). The untyped cosine fallback
+  // below was judged by NO detector (classification off, no provider, or a failed call), so it
+  // keeps the v0 stamp: `align local relink` only re-types v0 links, and a v1 stamp here would
+  // both claim a verdict nobody made and lock the edge out of relink. v1 is the default now, so
+  // this is every import and background sync, not only an opt-in.
   const detectorVersion = version;
   for (const c of candidates) {
     const outcome = typedBy.get(c.decisionId);
@@ -61,7 +65,7 @@ export async function linkPass(
     // ALI-503: `relates`, not `conflicts_with`. This is a cosine score with no judgement
     // behind it, and labelling it a conflict made `align local status` and the
     // align_get_conflicts MCP tool report manufactured findings as detections.
-    db.insertLink({ sourceId: id, targetId: c.decisionId, relation: 'relates', confidence: c.score, detectorVersion });
+    db.insertLink({ sourceId: id, targetId: c.decisionId, relation: 'relates', confidence: c.score, detectorVersion: 'v0' });
   }
   return candidates;
 }

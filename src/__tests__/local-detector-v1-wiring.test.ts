@@ -18,6 +18,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
 import { PROVIDER_ENV_VARS } from '../lib/llm-providers.js';
 import { setSavedLlmSource } from '../lib/local-llm.js';
 import { V0_SYSTEM_PROMPT } from '../lib/local-relationship-classifier.js';
+import { buildV1SystemPrompt } from '../detector/relationship-prompt.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
@@ -67,9 +68,12 @@ afterEach(() => {
   fs.rmSync(scratch, { recursive: true, force: true });
 });
 
+/** Seeds under an explicit v0 (so the seed's links are stamped v0), then leaves ALIGN_DETECTOR unset again. */
 async function seed(n: number): Promise<void> {
+  vi.stubEnv('ALIGN_DETECTOR', 'v0');
   provider(V0_RELATES);
   await client.ingestBatch(items(n), { classify: false });
+  vi.stubEnv('ALIGN_DETECTOR', undefined);
 }
 
 describe('align check under ALIGN_DETECTOR', () => {
@@ -101,15 +105,16 @@ describe('align check under ALIGN_DETECTOR', () => {
     expect((await client.checkAlignment('switch the queue to SQS')).status).toBe('unknown');
   });
 
-  it('unset: v0, one call per candidate, with the v0 system prompt', async () => {
+  it('unset: v1 (the default), one call over every candidate, with the v1 system prompt', async () => {
     await seed(3);
-    const sent = provider(V0_RELATES);
-    await client.checkAlignment('switch the queue to SQS');
-    expect(sent).toHaveLength(3);
-    for (const s of sent) expect(s.system).toBe(JSON.stringify(V0_SYSTEM_PROMPT));
+    const sent = provider(V1_CONFLICT);
+    const result = await client.checkAlignment('switch the queue to SQS');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.system).toBe(JSON.stringify(buildV1SystemPrompt()));
+    expect(result.status).toBe('conflicting');
   });
 
-  it('explicit v0: the same as unset', async () => {
+  it('explicit v0: still selectable, one call per candidate, with the v0 system prompt', async () => {
     await seed(3);
     vi.stubEnv('ALIGN_DETECTOR', 'v0');
     const sent = provider(V0_RELATES);
@@ -144,8 +149,36 @@ describe('capture link pass under ALIGN_DETECTOR', () => {
     expect(v1Rows.map((r) => r.relation).sort()).toEqual(['refines', 'relates']);
   });
 
-  it('unset: v0 pairwise, links stamped v0', async () => {
+  it('unset: v1 (the default), one call, new links stamped v1', async () => {
     await seed(2);
+    const sent = provider(JSON.stringify({ similar: [{ decision_ref: 1, type: 'refines', confidence: 0.7 }] }));
+    await client.ingestBatch([{ source_url: 'https://github.com/o/r/pull/99', platform: 'github', title: 'Queue retries', raw_text: 'Queue retries use backoff' }], { classify: true });
+    expect(sent).toHaveLength(1);
+    expect(linkVersions().filter((r) => r.v === 'v1').map((r) => r.relation).sort()).toEqual(['refines', 'relates']);
+  });
+
+  it('unset (v1): an edge no detector judged keeps the v0 stamp, so relink can still type it', async () => {
+    await seed(1);
+    const sent = provider(JSON.stringify({ similar: [] }));
+    await client.ingestBatch([{ source_url: 'https://github.com/o/r/pull/97', platform: 'github', title: 'Queue retries', raw_text: 'Queue retries use backoff' }], { classify: false });
+    expect(sent).toHaveLength(0);
+    const rows = linkVersions();
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.relation === 'relates' && r.v === 'v0')).toBe(true);
+  });
+
+  it('unset (v1): a failed v1 call leaves the cosine edge stamped v0, never v1', async () => {
+    await seed(1);
+    provider('no json here');
+    await client.ingestBatch([{ source_url: 'https://github.com/o/r/pull/96', platform: 'github', title: 'Queue retries', raw_text: 'Queue retries use backoff' }], { classify: true });
+    const rows = linkVersions();
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.filter((r) => r.v === 'v1')).toEqual([]);
+  });
+
+  it('explicit v0: pairwise, links stamped v0', async () => {
+    await seed(2);
+    vi.stubEnv('ALIGN_DETECTOR', 'v0');
     const sent = provider(V0_RELATES);
     await client.ingestBatch([{ source_url: 'https://github.com/o/r/pull/99', platform: 'github', title: 'Queue retries', raw_text: 'Queue retries use backoff' }], { classify: true });
     expect(sent.length).toBeGreaterThanOrEqual(2);

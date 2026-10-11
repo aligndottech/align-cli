@@ -38,6 +38,11 @@ import { shellFiles } from '../lib/curation/guardrail.js';
  * - N6: a classifier's replaceLink does not take away a mark-owned supersedes link, so --undo still removes it.
  * - Honesty: a banner only when an agent's mark APPLIED to this check; no annotation on a set with no key; ask says "answer".
  */
+// These cases mock the v0 pairwise classifier (classifyRelationship), so they pin ALIGN_DETECTOR=v0:
+// v1 became the default, and an unpinned run would send the set classifier a v0-shaped mock.
+beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 let dir: string;
 let dbPath: string;
 let client: ReturnType<typeof createLocalGatewayClient>;

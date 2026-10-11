@@ -55,6 +55,11 @@ function cleanup(dbPath: string) {
   }
 }
 
+// These cases mock the v0 pairwise classifier (classifyRelationship), so they pin ALIGN_DETECTOR=v0:
+// v1 became the default, and an unpinned run would send the set classifier a v0-shaped mock.
+beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 describe("ALI-1065 capture-time classification: budget and gating", () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;

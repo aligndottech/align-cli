@@ -38,6 +38,11 @@ import { classifyRelationship } from '../lib/local-relationship-classifier.js';
 import { RECOMMENDED_OLLAMA_PULL } from '../lib/local-llm.js';
 import { createLocalDb } from '../lib/local-db.js';
 
+// These cases mock the v0 pairwise classifier (classifyRelationship), so they pin ALIGN_DETECTOR=v0:
+// v1 became the default, and an unpinned run would send the set classifier a v0-shaped mock.
+beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 describe('local-gateway-client', () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;

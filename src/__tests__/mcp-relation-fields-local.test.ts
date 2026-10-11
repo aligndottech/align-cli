@@ -18,7 +18,7 @@
  * `conflicts_with` link really is on disk, under that relation, before the search runs.
  * Without both, "the field appeared" would be unfalsifiable.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -48,6 +48,12 @@ import { createCallToolHandler, type dispatchTool } from "../commands/mcp.js";
 import type { EnvironmentConfig } from "../lib/config.js";
 
 type Client = Parameters<typeof dispatchTool>[2];
+// These cases mock the v0 pairwise classifier (classifyRelationship), so they pin ALIGN_DETECTOR=v0:
+// v1 became the default, and an unpinned run would reach the real set classifier (and, with a
+// provider key exported, a real model).
+beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 const local: EnvironmentConfig = {
   gatewayUrl: "",
   authToken: null,

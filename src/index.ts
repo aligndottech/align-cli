@@ -34,7 +34,7 @@ try {
   if (process.env['ALIGN_DEBUG']) console.error('align: startup migration failed (non-fatal):', e);
 }
 
-// An unknown ALIGN_DETECTOR is fatal before any command runs: a typo must never run v0 silently.
+// An unknown ALIGN_DETECTOR is fatal before any command runs: a typo must never run the default silently.
 try {
   resolveDetectorVersion();
 } catch (e) {

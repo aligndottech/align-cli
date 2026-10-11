@@ -1,9 +1,10 @@
 /**
  * Type a set of candidate edges with whichever local detector ALIGN_DETECTOR selects.
  *
- * v0 (default): the pairwise classifier, one call per candidate, stopping after a provider stop
- * (ALI-692) - moved here verbatim from `checkAlignment` and `linkPass` so both callers share it.
- * v1: one call over the whole set (local-set-classifier.ts). A candidate v1 judged as having no
+ * v0 (ALIGN_DETECTOR=v0): the pairwise classifier, one call per candidate, stopping after a
+ * provider stop (ALI-692) - moved here verbatim from `checkAlignment` and `linkPass` so both
+ * callers share it.
+ * v1 (the default): one call over the whole set (local-set-classifier.ts). A candidate v1 judged as having no
  * relationship comes back typed `relates` at its similarity, exactly what a judged, unrelated
  * pair reads as to every caller today; a whole-call failure is reported on every candidate.
  *
