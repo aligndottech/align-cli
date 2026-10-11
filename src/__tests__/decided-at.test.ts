@@ -37,6 +37,12 @@ vi.setConfig({ testTimeout: 30_000 });
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { cosineSimilarity } from '../lib/local-embeddings.js';
 
+// These cases mock the v0 pairwise classifier (classifyRelationship), so they pin ALIGN_DETECTOR=v0:
+// v1 became the default, and an unpinned run would reach the real set classifier (and, with a
+// provider key exported, a real model).
+beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 let dir: string;
 let dbPath: string;
 const opened: Array<{ close(): void }> = [];

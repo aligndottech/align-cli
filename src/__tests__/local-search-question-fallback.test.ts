@@ -27,6 +27,12 @@ import { contentWordQuery } from '../lib/search-query.js';
 // Distinct vectors per query text, so cosineSimilarity can tell which query it is
 // scoring. Without this both attempts embed identically and the test cannot
 // distinguish a real fallback from the raw query happening to match.
+// These cases mock the v0 pairwise classifier (classifyRelationship), so they pin ALIGN_DETECTOR=v0:
+// v1 became the default, and an unpinned run would reach the real set classifier (and, with a
+// provider key exported, a real model).
+beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 const RAW = 1;
 const REDUCED = 2;
 function vectorFor(text: string): Float32Array {

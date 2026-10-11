@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { DETECTOR_VERSIONS, resolveDetectorVersion } from '../detector-version.js';
 
 describe('ALIGN_DETECTOR', () => {
-  it('unset -> v0 (the default does not move until Phase A says so)', () => {
-    expect(resolveDetectorVersion({})).toBe('v0');
-    expect(resolveDetectorVersion({ ALIGN_DETECTOR: '' })).toBe('v0');
+  it('unset -> v1 (the Phase A confirmatory run licensed the flip; see docs/local-mode.md)', () => {
+    expect(resolveDetectorVersion({})).toBe('v1');
+    expect(resolveDetectorVersion({ ALIGN_DETECTOR: '' })).toBe('v1');
+    expect(resolveDetectorVersion({ ALIGN_DETECTOR: '  ' })).toBe('v1');
   });
 
   it('explicit v0 and v1 are read as given', () => {

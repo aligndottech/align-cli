@@ -38,6 +38,12 @@ import { localValueRollup, renderValueReadout, type ValueRollup } from '../lib/v
 
 // ---------------------------------------------------------------- A. the write
 
+// These cases mock the v0 pairwise classifier (classifyRelationship), so they pin ALIGN_DETECTOR=v0:
+// v1 became the default, and an unpinned run would reach the real set classifier (and, with a
+// provider key exported, a real model).
+beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 describe('ALI-503 the write: cosine similarity is `relates`, never a conflict', () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;

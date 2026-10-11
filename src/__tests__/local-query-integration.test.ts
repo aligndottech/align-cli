@@ -50,6 +50,12 @@ import { registerAskCommand } from '../commands/why.js';
 import { registerSearchCommand } from '../commands/search.js';
 import type * as LocalLlm from '../lib/local-llm.js';
 
+// These cases mock the v0 pairwise classifier (classifyRelationship), so they pin ALIGN_DETECTOR=v0:
+// v1 became the default, and an unpinned run would reach the real set classifier (and, with a
+// provider key exported, a real model).
+beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { output.push(a.join(' ')); });
 // Surface a command's process.exit(1) as a throw so a crash fails the test loudly

@@ -33,6 +33,12 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
+// These cases mock the v0 pairwise classifier (classifyRelationship), so they pin ALIGN_DETECTOR=v0:
+// v1 became the default, and an unpinned run would reach the real set classifier (and, with a
+// provider key exported, a real model).
+beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 let dir: string;
 let dbPath: string;
 const opened: Array<{ close(): void }> = [];
