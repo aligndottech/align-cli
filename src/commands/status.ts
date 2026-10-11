@@ -6,7 +6,6 @@ import { destinationLines } from '../lib/destination-summary.js';
 import { readValueRollup } from '../lib/read-value-rollup.js';
 import { renderValueReadout } from '../lib/value-rollup.js';
 import { detectorSource, resolveDetectorVersion } from '../detector/detector-version.js';
-import { classifierRoute } from '../detector/classifier-route.js';
 
 export function registerStatusCommand(program: Command): void {
   program
@@ -31,10 +30,9 @@ export function registerStatusCommand(program: Command): void {
         console.log(`\n${renderValueReadout(rollup, { mode })}\n`);
         // Which relationship detector runs, and how to change it: the one place a user learns the
         // setting exists (align config detector), so it is printed rather than left in the docs.
-        const route = classifierRoute(process.env, config);
-        const detector = resolveDetectorVersion(process.env, config.getDetector(), route);
+        const detector = resolveDetectorVersion(process.env, config.getDetector());
         const other = detector === 'v0' ? 'v1' : 'v0';
-        console.log(`Detector: ${detector} (${detectorSource(process.env, config.getDetector(), route)}). Change it: align config detector ${other}\n`);
+        console.log(`Detector: ${detector} (${detectorSource(process.env, config.getDetector())}). Change it: align config detector ${other}\n`);
         const destinations = destinationLines(config);
         if (destinations.length > 0) console.log(`Team destinations:\n${destinations.join('\n')}\n`);
       } catch (err) {
