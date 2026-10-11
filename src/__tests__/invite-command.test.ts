@@ -1,39 +1,44 @@
 /**
- * ALI-938: `align invite <email>` - Test List
+ * `align invite [email]` - Test List
  *
- * 1. an invalid email exits 1, prints why, and never touches config/gateway
- * 2. env resolves to local-embedded: exits 1, tells the user to log in to a cloud env,
- *    never calls whoami/createInvite
- * 3. not logged in (no token, mode !== demo): exits 1, tells the user to `align login`
- * 4. logged in, personal-email tenant: explains, does NOT call createInvite, exit 0
- * 5. logged in, work-domain member (not org_admin): tells them to ask their admin,
- *    does NOT call createInvite, exit 0
- * 6. logged in, work-domain org_admin: calls createInvite(email), prints the invite URL
- * 7. createInvite throws: prints the message, exits 1
- * 8. teammate_requested fires once the login gate is passed, for the admin success case
- * 9. teammate_requested does NOT fire for an invalid email or when not logged in
+ * The gateway accepts POST /admin/invites only from an interactive org-admin login, never from
+ * an api_token: an agent's token must not add team members. So this command creates nothing. It
+ * points the admin at Settings > Team invites in the web app.
+ *
+ * 1. an invalid email exits 1, prints why, and never touches config or the gateway
+ * 2. a local-embedded env exits 1: a local graph has no team and no web app
+ * 3. it prints two short lines saying invites are made in the browser by an admin, then the
+ *    settings URL, and exits 0; it never posts to /admin/invites
+ * 4. the URL comes from the team destination's saved app, or the gateway's app_url, else the guess
+ * 5. at an interactive terminal it opens the URL with the allowlisted opener
+ * 6. under ALIGN_WRAPPED, or with no TTY, it only prints
+ * 7. when the opener fails it says so and still exits 0
+ * 8. teammate_requested still fires for a cloud env (the ALI-938 demand signal)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
-
-vi.mock('ora', () => ({
-  default: vi.fn(() => ({ start: vi.fn().mockReturnThis(), stop: vi.fn(), fail: vi.fn(), succeed: vi.fn() })),
-}));
+import type * as DeliveryModule from '../lib/share/delivery.js';
+import type { DeliveryEnv } from '../lib/share/delivery.js';
 
 const resolveEnv = vi.hoisted(() => vi.fn().mockReturnValue('prod'));
 vi.mock('../lib/resolve-env.js', () => ({ resolveEnv }));
 
-const getEnvironment = vi.hoisted(() => vi.fn().mockReturnValue({
-  gatewayUrl: 'https://api.align.tech', authToken: 'tok', tenantId: 'tenant-1', mode: 'auth',
-}));
+const getEnvironment = vi.hoisted(() => vi.fn());
 vi.mock('../lib/config.js', () => ({ createConfigStore: vi.fn(() => ({ getEnvironment })) }));
 
-const whoami = vi.hoisted(() => vi.fn());
+const shareRequestsConfig = vi.hoisted(() => vi.fn());
 const createInvite = vi.hoisted(() => vi.fn());
-vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({ whoami, createInvite })) }));
+vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({ shareRequestsConfig, createInvite })) }));
 
 const recordFunnelStage = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
+
+const delivery = vi.hoisted(() => ({ env: null as DeliveryEnv | null, open: vi.fn() }));
+vi.mock('../lib/share/delivery.js', async (orig) => ({
+  ...(await orig<typeof DeliveryModule>()),
+  currentDeliveryEnv: () => delivery.env,
+  openSettingsLink: delivery.open,
+}));
 
 import { registerInviteCommand } from '../commands/invite.js';
 
@@ -58,135 +63,116 @@ async function run(args: string[]): Promise<void> {
   }
 }
 
-const WORK_ADMIN = { user: { id: 'u1', email: 'tom@align.tech', role: 'org_admin' }, tenant: { id: 't1', name: 'Align' } };
-const WORK_MEMBER = { user: { id: 'u2', email: 'dan@align.tech', role: 'member' }, tenant: { id: 't1', name: 'Align' } };
-const PERSONAL = { user: { id: 'u3', email: 'me@gmail.com', role: 'org_admin' }, tenant: { id: 't2', name: 'me' } };
+const PROD = { gatewayUrl: 'https://api.align.tech', authToken: 'tok', tenantId: 'tenant-1', mode: 'auth' };
+const TEAM = { kind: 'team', gatewayUrl: 'https://api.acme.example', appUrl: 'https://align.acme.example', authToken: 'tok', tenantId: 't-2', mode: 'auth' };
+const TTY: DeliveryEnv = { platform: 'darwin', env: {}, stdoutIsTTY: true, stdinIsTTY: true, inContainer: false };
+const text = (): string => out.join('\n');
 
 beforeEach(() => {
-  whoami.mockReset();
+  shareRequestsConfig.mockReset().mockResolvedValue({ mode: 'available', pendingTtlS: null, completeTtlS: null, appUrl: null });
   createInvite.mockReset();
   recordFunnelStage.mockClear();
-  getEnvironment.mockReset().mockReturnValue({
-    gatewayUrl: 'https://api.align.tech', authToken: 'tok', tenantId: 'tenant-1', mode: 'auth',
-  });
+  getEnvironment.mockReset().mockReturnValue(PROD);
   resolveEnv.mockReset().mockReturnValue('prod');
+  delivery.env = TTY;
+  delivery.open.mockReset().mockResolvedValue(true);
 });
 afterEach(() => vi.clearAllMocks());
 
-describe('align invite - input validation', () => {
-  it('an invalid email exits 1, says why, and never touches config or gateway', async () => {
+describe('align invite - input', () => {
+  it('an invalid email exits 1, says why, and never touches config or the gateway', async () => {
     await run(['not-an-email']);
     expect(exitCode).toBe(1);
-    expect(out.join('\n')).toMatch(/email/i);
+    expect(text()).toMatch(/email/i);
     expect(getEnvironment).not.toHaveBeenCalled();
-    expect(whoami).not.toHaveBeenCalled();
+    expect(shareRequestsConfig).not.toHaveBeenCalled();
   });
-});
 
-describe('align invite - not usable without a cloud account', () => {
-  it('local-embedded env: exits 1, points at align login, never calls the gateway', async () => {
+  it('a local graph exits 1: there is no team or web app to invite into', async () => {
     getEnvironment.mockReturnValue({ gatewayUrl: 'http://x', authToken: null, tenantId: null, mode: 'local-embedded', localDbPath: '/tmp/x.db' });
-    await run(['dan@align.tech']);
+    await run([]);
     expect(exitCode).toBe(1);
-    expect(out.join('\n')).toMatch(/cloud account/i);
-    expect(out.join('\n')).toContain('align login');
-    expect(whoami).not.toHaveBeenCalled();
-  });
-
-  it('not logged in: exits 1, tells the user to run align login', async () => {
-    getEnvironment.mockReturnValue({ gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: 'auth' });
-    await run(['dan@align.tech']);
-    expect(exitCode).toBe(1);
-    expect(out.join('\n')).toMatch(/not logged in/i);
-    expect(out.join('\n')).toContain('align login --env prod');
-    expect(whoami).not.toHaveBeenCalled();
+    expect(text()).toMatch(/cloud account/i);
+    expect(delivery.open).not.toHaveBeenCalled();
   });
 });
 
-describe('align invite - personal-email tenant', () => {
-  it('explains instead of inviting, and never calls createInvite', async () => {
-    whoami.mockResolvedValue(PERSONAL);
-    await run(['dan@align.tech']);
+describe('align invite - points at Settings > Team invites', () => {
+  it('explains in two short lines, prints the settings URL, opens it, and exits 0', async () => {
+    await run(['dan@acme.example']);
     expect(exitCode).toBeUndefined();
-    expect(out.join('\n')).toMatch(/personal graph/i);
-    expect(out.join('\n')).toContain('me@gmail.com');
+    expect(text()).toContain('Invites are created in the web app, by an org admin.');
+    expect(text()).toContain('Open Team invites, create a link for dan@acme.example, and send it to them.');
+    expect(text()).toContain('https://app.align.tech/settings?tab=invites');
+    expect(delivery.open).toHaveBeenCalledWith('https://app.align.tech/settings?tab=invites', 'https://app.align.tech');
+  });
+
+  it('works with no email and says to send the link to the person joining', async () => {
+    await run([]);
+    expect(exitCode).toBeUndefined();
+    expect(text()).toContain('Open Team invites, create a link, and send it to the person joining.');
+  });
+
+  it('never posts to /admin/invites', async () => {
+    await run(['dan@acme.example']);
     expect(createInvite).not.toHaveBeenCalled();
   });
-});
 
-describe('align invite - work-domain, not an org_admin', () => {
-  it('tells the member to ask their admin, and never calls createInvite', async () => {
-    whoami.mockResolvedValue(WORK_MEMBER);
-    await run(['dan@align.tech']);
+  it('uses a team destination\'s saved web app', async () => {
+    getEnvironment.mockReturnValue(TEAM);
+    await run([]);
+    expect(text()).toContain('https://align.acme.example/settings?tab=invites');
+    expect(delivery.open).toHaveBeenCalledWith('https://align.acme.example/settings?tab=invites', 'https://align.acme.example');
+    expect(shareRequestsConfig).not.toHaveBeenCalled();
+  });
+
+  it('uses the web app the gateway names for a builtin', async () => {
+    shareRequestsConfig.mockResolvedValue({ mode: 'available', pendingTtlS: null, completeTtlS: null, appUrl: 'https://web.selfhost.example' });
+    await run([]);
+    expect(text()).toContain('https://web.selfhost.example/settings?tab=invites');
+  });
+
+  it('only prints inside an agent align launched (ALIGN_WRAPPED)', async () => {
+    delivery.env = { ...TTY, env: { ALIGN_WRAPPED: '1' } };
+    await run([]);
     expect(exitCode).toBeUndefined();
-    expect(out.join('\n')).toMatch(/not an admin|ask your org/i);
-    expect(out.join('\n')).toContain('align invite dan@align.tech');
-    expect(createInvite).not.toHaveBeenCalled();
+    expect(text()).toContain('https://app.align.tech/settings?tab=invites');
+    expect(delivery.open).not.toHaveBeenCalled();
   });
-});
 
-describe('align invite - work-domain org_admin', () => {
-  it('creates the invite and prints the link', async () => {
-    whoami.mockResolvedValue(WORK_ADMIN);
-    createInvite.mockResolvedValue({ inviteId: 'inv-1', inviteUrl: 'https://app.align.tech/join?token=abc' });
-    await run(['dan@align.tech']);
+  it('only prints when stdout or stdin is not a terminal', async () => {
+    delivery.env = { ...TTY, stdoutIsTTY: false };
+    await run([]);
+    delivery.env = { ...TTY, stdinIsTTY: false };
+    await run([]);
+    expect(text()).toContain('https://app.align.tech/settings?tab=invites');
+    expect(delivery.open).not.toHaveBeenCalled();
+  });
+
+  it('says so when the browser could not be opened, and still exits 0', async () => {
+    delivery.open.mockResolvedValue(false);
+    await run([]);
     expect(exitCode).toBeUndefined();
-    expect(createInvite).toHaveBeenCalledWith('dan@align.tech');
-    expect(out.join('\n')).toContain('https://app.align.tech/join?token=abc');
+    expect(text()).toContain('Could not open a browser here. Open the link above yourself.');
   });
 
-  it('tells the admin what to send: one person, works once, expires in 7 days, and the join command (join C6)', async () => {
-    whoami.mockResolvedValue(WORK_ADMIN);
-    createInvite.mockResolvedValue({ inviteId: 'inv-1', inviteUrl: 'https://align.acme.example/join?token=abc&gw=https%3A%2F%2Fapi.acme.example' });
-    await run(['dan@align.tech']);
-    const text = out.join('\n');
-    expect(text).toContain('Send this to one person. It works once and expires in 7 days.');
-    expect(text).toContain("align join 'https://align.acme.example/join?token=abc&gw=https%3A%2F%2Fapi.acme.example'");
-  });
-
-  it('a link that carries a quote is not pasted into a shell line', async () => {
-    whoami.mockResolvedValue(WORK_ADMIN);
-    createInvite.mockResolvedValue({ inviteId: 'inv-1', inviteUrl: "https://app.align.tech/join?token=a'b" });
-    await run(['dan@align.tech']);
-    expect(out.join('\n')).not.toContain('align join');
-    expect(out.join('\n')).toContain('Send this to one person.');
-  });
-
-  it('exits 1 and prints the message when the gateway call fails', async () => {
-    whoami.mockResolvedValue(WORK_ADMIN);
-    createInvite.mockRejectedValue(new Error('Gateway returned 429 for /admin/invites: rate limited'));
-    await run(['dan@align.tech']);
-    expect(exitCode).toBe(1);
-    expect(out.join('\n')).toContain('rate limited');
+  it('does not claim a failure when it never tried to open', async () => {
+    delivery.env = { ...TTY, stdoutIsTTY: false };
+    await run([]);
+    expect(text()).not.toContain('Could not open');
   });
 });
 
 describe('align invite - the teammate_requested funnel signal (ALI-938)', () => {
-  it('fires once the login gate is passed, for the admin success path', async () => {
-    whoami.mockResolvedValue(WORK_ADMIN);
-    createInvite.mockResolvedValue({ inviteId: 'inv-1', inviteUrl: 'https://app.align.tech/join?token=abc' });
-    await run(['dan@align.tech']);
-    expect(recordFunnelStage).toHaveBeenCalledWith(
-      expect.objectContaining({ authToken: 'tok' }),
-      'teammate_requested',
-      'invite',
-    );
+  it('fires for a cloud env', async () => {
+    await run(['dan@acme.example']);
+    expect(recordFunnelStage).toHaveBeenCalledWith(expect.objectContaining({ authToken: 'tok' }), 'teammate_requested', 'invite');
   });
 
-  it('fires for a blocked member too - demand exists even when the invite is not sent', async () => {
-    whoami.mockResolvedValue(WORK_MEMBER);
-    await run(['dan@align.tech']);
-    expect(recordFunnelStage).toHaveBeenCalledWith(expect.anything(), 'teammate_requested', 'invite');
-  });
-
-  it('does NOT fire for an invalid email', async () => {
+  it('does NOT fire for an invalid email or a local graph', async () => {
     await run(['not-an-email']);
-    expect(recordFunnelStage).not.toHaveBeenCalled();
-  });
-
-  it('does NOT fire when not logged in', async () => {
-    getEnvironment.mockReturnValue({ gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: 'auth' });
-    await run(['dan@align.tech']);
+    getEnvironment.mockReturnValue({ gatewayUrl: 'http://x', authToken: null, tenantId: null, mode: 'local-embedded', localDbPath: '/tmp/x.db' });
+    await run([]);
     expect(recordFunnelStage).not.toHaveBeenCalled();
   });
 });

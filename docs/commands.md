@@ -106,7 +106,7 @@ align use [agent]             Choose the coding agent bare `align` opens (no arg
 
 # Invite a teammate to your graph
 
-align invite <email>          Invite a teammate to your shared Align decision graph
+align invite [email]          Open Team invites in the web app, where an org admin creates invite links
                               flags: --env
 
 # Join your team's graph from an invite link

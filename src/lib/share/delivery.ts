@@ -17,7 +17,7 @@ import { type ChildProcess, spawn as nodeSpawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 type Platform = typeof process.platform;
-import { checkApproveLink } from './approve-link.js';
+import { checkApproveLink, checkSettingsLink } from './approve-link.js';
 import { tryOpenUrl } from '../open-url.js';
 
 export interface DeliveryEnv {
@@ -96,7 +96,16 @@ export interface OpenDeps {
 
 /** False without spawning anything when the link does not pass the allowlist. */
 export async function openApprovalLink(url: string, appUrl: string, deps: OpenDeps = {}): Promise<boolean> {
-  if (!checkApproveLink(url, appUrl).ok) return false;
+  return checkApproveLink(url, appUrl).ok ? spawnOpener(url, deps) : false;
+}
+
+/** `align invite`'s Settings > Team invites link, through its own allowlist and the same argv-only opener. */
+export async function openSettingsLink(url: string, appUrl: string, deps: OpenDeps = {}): Promise<boolean> {
+  return checkSettingsLink(url, appUrl).ok ? spawnOpener(url, deps) : false;
+}
+
+/** Only ever called with a link an allowlist above has passed. */
+async function spawnOpener(url: string, deps: OpenDeps): Promise<boolean> {
   const { command, args } = browserLaunch(deps.platform ?? process.platform, url, deps.env);
   const spawnFn = deps.spawn ?? nodeSpawn;
   const opener = async (): Promise<ChildProcess> => {
