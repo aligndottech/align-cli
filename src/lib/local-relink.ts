@@ -2,102 +2,172 @@
  * `align local relink --detector v1`: re-type existing v0 links with the v1 detector, explicitly.
  *
  * Schema v12 stamped every existing link 'v0' and nothing re-types a link silently, so this is
- * the one path that does. Its rules:
- * - It reads v0 links only, never a person's mark link (`mark:<judgement>`), and skips a pair
- *   that already carries a v1 row, so a second run does not pay for the same pairs.
- * - One model call per SOURCE decision, over every target it links to: the source is the NEW
- *   DECISION, the targets the SIMILAR DECISIONS (the orientation the capture pass writes).
- * - A target v1 gives no relationship reads `relates`, the edge the capture pass would write.
- * - Dry run (apply false) writes nothing. apply without replace ADDS a v1 row for each pair whose
- *   type changed and keeps every v0 row. apply with replace swaps each re-classified pair's edge
- *   for the v1 row (a person's mark link survives, as replaceLink guarantees).
- * - A failed call writes nothing for that source; a stopped provider ends the run.
+ * the one path that does. Its rules (review F1, F2, F5 of 2026-10-11):
+ * - The unit is the UNORDERED PAIR. However many v0 rows a pair carries, in either direction, it
+ *   is judged once, in one call, and appears once in that call. Pairs are grouped into calls by
+ *   the source of the pair's earliest row (the NEW DECISION; its partners are the candidates).
+ * - A pair a person has judged is never touched: any `local_judgements` row naming both
+ *   decisions (a `replaces` mark, a conflict verdict), a `mark:` link on the pair, or a
+ *   not-a-decision mark on either side. Judgements are read, not inferred from link ids, because
+ *   a mark written over an existing classifier row keeps that row's id.
+ * - A pair that already has a v1 row is skipped, so a second run does not pay for it again.
+ * - An omitted verdict (the model gave the pair no relationship, or the resolver refused the
+ *   edge) leaves the pair exactly as it is. Omission is not a verdict to apply.
+ * - Candidates carry status 'superseded' when another decision supersedes them, so the prompt
+ *   marks them RETIRED and the resolver refuses a verdict edge against them.
+ * - Dry run (apply false) writes nothing. apply without replace adds a v1 row only where the
+ *   type is new for the pair; apply with replace swaps the pair's non-mark rows for the v1 row.
+ * - At most `maxCalls` calls; a failed call writes nothing for its group; a stopped provider ends
+ *   the run. `written` lists only what was written.
  */
 import { DatabaseSync } from 'node:sqlite';
+import { buildV1SystemPrompt, buildV1UserPrompt, v1MaxTokens } from '../detector/relationship-prompt.js';
 import { createLocalDb } from './local-db.js';
 import { classifyCandidateSet, type SetCandidate } from './local-set-classifier.js';
+import { estimateTokens } from './token-estimate.js';
 
-export interface RelinkOptions { apply: boolean; replace: boolean; limit?: number }
+export interface RelinkOptions { apply: boolean; replace: boolean; maxCalls: number }
+
+export interface RelinkChange { sourceId: string; targetId: string; from: string[]; to: string }
 
 export interface RelinkReport {
-  sources: number;
-  remainingSources: number;
   calls: number;
-  changes: Array<{ sourceId: string; targetId: string; from: string; to: string }>;
+  remainingCalls: number;
+  proposed: RelinkChange[];
+  written: RelinkChange[];
   unchanged: number;
-  written: number;
+  omitted: number;
+  skippedJudged: number;
   failed: number;
   stopped?: string;
 }
 
-interface PendingLink { id: string; sourceId: string; targetId: string; relation: string; confidence: number }
-interface Row { id: string; title: string; summary: string; platform: string | null; decided_at: string | null }
+interface Row { id: string; title: string; summary: string; platform: string | null; decided_at: string | null; superseded: number }
+interface PendingPair { targetId: string; relations: string[]; confidence: number }
+interface Group { sourceId: string; pairs: PendingPair[] }
 
-function pendingLinks(dbPath: string): { links: PendingLink[]; decision: (id: string) => Row | undefined } {
+export interface RelinkPlan {
+  groups: Group[];
+  decision: (id: string) => Row | undefined;
+  calls: number;
+  pairs: number;
+  skippedJudged: number;
+  /** Estimated prompt tokens over every call (estimateTokens, the CLI's own estimator). */
+  inputTokens: number;
+  /** The max_tokens ceiling summed over every call: an upper bound on output. */
+  maxOutputTokens: number;
+}
+
+const pairKey = (a: string, b: string): string => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
+
+/** What relink would do, from the graph alone. No model call. */
+export function planRelink(dbPath: string): RelinkPlan {
+  createLocalDb(dbPath).close(); // migrate to v12 before reading detector_version
   const raw = new DatabaseSync(dbPath);
+  let links: Array<{ id: string; sourceId: string; targetId: string; relation: string; confidence: number; v: string }>;
+  let judged: Set<string>;
+  let notDecisions: Set<string>;
+  let rows: Map<string, Row>;
   try {
     raw.exec('PRAGMA busy_timeout = 30000');
-    const links = raw.prepare(
-      `SELECT l.id, l.source_id AS sourceId, l.target_id AS targetId, l.relation, l.confidence FROM decision_links l
-       WHERE l.detector_version = 'v0' AND l.id NOT LIKE 'mark:%'
-         AND EXISTS (SELECT 1 FROM decisions s WHERE s.id = l.source_id)
-         AND EXISTS (SELECT 1 FROM decisions t WHERE t.id = l.target_id)
-         AND NOT EXISTS (SELECT 1 FROM decision_links v WHERE v.detector_version = 'v1'
-           AND ((v.source_id = l.source_id AND v.target_id = l.target_id) OR (v.source_id = l.target_id AND v.target_id = l.source_id)))
-       ORDER BY l.rowid`,
-    ).all() as unknown as PendingLink[];
-    const rows = new Map((raw.prepare('SELECT id, title, summary, platform, decided_at FROM decisions').all() as unknown as Row[]).map((r) => [r.id, r]));
-    return { links, decision: (id) => rows.get(id) };
+    links = raw.prepare(
+      `SELECT id, source_id AS sourceId, target_id AS targetId, relation, confidence, detector_version AS v FROM decision_links
+       WHERE source_id <> target_id
+         AND EXISTS (SELECT 1 FROM decisions s WHERE s.id = source_id) AND EXISTS (SELECT 1 FROM decisions t WHERE t.id = target_id)
+       ORDER BY rowid`,
+    ).all() as unknown as typeof links;
+    const judgements = raw.prepare(`SELECT decision_id AS d, counterpart_id AS c, kind FROM local_judgements`).all() as Array<{ d: string; c: string | null; kind: string }>;
+    judged = new Set(judgements.filter((j) => j.c !== null).map((j) => pairKey(j.d, j.c!)));
+    notDecisions = new Set(judgements.filter((j) => j.kind === 'not_a_decision').map((j) => j.d));
+    rows = new Map((raw.prepare(
+      `SELECT d.id, d.title, d.summary, d.platform, d.decided_at,
+         EXISTS (SELECT 1 FROM decision_links l JOIN decisions s ON s.id = l.source_id
+                 WHERE l.target_id = d.id AND l.relation IN ('supersedes', 'partially_supersedes')) AS superseded
+       FROM decisions d`,
+    ).all() as unknown as Row[]).map((r) => [r.id, r]));
   } finally {
     raw.close();
   }
+
+  const blocked = new Set<string>();
+  for (const l of links) {
+    const key = pairKey(l.sourceId, l.targetId);
+    if (l.v !== 'v0' || l.id.startsWith('mark:')) blocked.add(key);
+  }
+  const pairs = new Map<string, { sourceId: string; pair: PendingPair }>();
+  const skipped = new Set<string>();
+  for (const l of links) {
+    const key = pairKey(l.sourceId, l.targetId);
+    if (blocked.has(key)) {
+      if (judged.has(key) || links.some((x) => x.id.startsWith('mark:') && pairKey(x.sourceId, x.targetId) === key)) skipped.add(key);
+      continue;
+    }
+    if (judged.has(key) || notDecisions.has(l.sourceId) || notDecisions.has(l.targetId)) { skipped.add(key); continue; }
+    const seen = pairs.get(key);
+    if (seen) {
+      if (!seen.pair.relations.includes(l.relation)) seen.pair.relations.push(l.relation);
+      seen.pair.confidence = Math.max(seen.pair.confidence, l.confidence);
+    } else {
+      pairs.set(key, { sourceId: l.sourceId, pair: { targetId: l.targetId, relations: [l.relation], confidence: l.confidence } });
+    }
+  }
+  const bySource = new Map<string, PendingPair[]>();
+  for (const { sourceId, pair } of pairs.values()) bySource.set(sourceId, [...(bySource.get(sourceId) ?? []), pair]);
+  const groups = [...bySource.entries()].map(([sourceId, ps]) => ({ sourceId, pairs: ps.map((p) => ({ ...p, relations: [...p.relations].sort() })) }));
+
+  const decision = (id: string): Row | undefined => rows.get(id);
+  const system = estimateTokens(buildV1SystemPrompt());
+  let inputTokens = 0;
+  let maxOutputTokens = 0;
+  for (const g of groups) {
+    const out = v1MaxTokens(g.pairs.length);
+    inputTokens += system + estimateTokens(buildV1UserPrompt(subjectOf(decision(g.sourceId)!), candidatesOf(g, decision), 1_000_000, out));
+    maxOutputTokens += out;
+  }
+  return { groups, decision, calls: groups.length, pairs: pairs.size, skippedJudged: skipped.size, inputTokens, maxOutputTokens };
+}
+
+function subjectOf(r: Row) {
+  return { title: r.title, summary: r.summary, decidedAt: r.decided_at, platform: r.platform };
+}
+
+function candidatesOf(g: Group, decision: (id: string) => Row | undefined): SetCandidate[] {
+  return g.pairs.map((p) => {
+    const t = decision(p.targetId)!;
+    return { id: t.id, title: t.title, summary: t.summary, similarity: p.confidence, platform: t.platform, decidedAt: t.decided_at, status: t.superseded ? 'superseded' : null };
+  });
 }
 
 export async function relinkWithV1(dbPath: string, opts: RelinkOptions, classify: typeof classifyCandidateSet = classifyCandidateSet): Promise<RelinkReport> {
-  createLocalDb(dbPath).close(); // migrate to v12 before reading detector_version
-  const { links, decision } = pendingLinks(dbPath);
-  const bySource = new Map<string, PendingLink[]>();
-  for (const l of links) bySource.set(l.sourceId, [...(bySource.get(l.sourceId) ?? []), l]);
-  const sourceIds = [...bySource.keys()];
-  const chosen = opts.limit === undefined ? sourceIds : sourceIds.slice(0, Math.max(0, opts.limit));
-  const report: RelinkReport = { sources: 0, remainingSources: sourceIds.length - chosen.length, calls: 0, changes: [], unchanged: 0, written: 0, failed: 0 };
-
+  const plan = planRelink(dbPath);
+  const report: RelinkReport = { calls: 0, remainingCalls: 0, proposed: [], written: [], unchanged: 0, omitted: 0, skippedJudged: plan.skippedJudged, failed: 0 };
   const db = opts.apply ? createLocalDb(dbPath) : null;
   try {
-    for (const sourceId of chosen) {
-      const source = decision(sourceId)!;
-      const pairs = bySource.get(sourceId)!;
-      const candidates: SetCandidate[] = pairs.map((l) => {
-        const t = decision(l.targetId)!;
-        return { id: t.id, title: t.title, summary: t.summary, similarity: l.confidence, platform: t.platform, decidedAt: t.decided_at };
-      });
-      report.sources += 1;
+    for (const [gi, g] of plan.groups.entries()) {
+      if (report.calls >= opts.maxCalls) { report.remainingCalls = plan.groups.length - gi; break; }
       report.calls += 1;
-      const result = await classify({ title: source.title, summary: source.summary, decidedAt: source.decided_at, platform: source.platform }, candidates);
+      const result = await classify(subjectOf(plan.decision(g.sourceId)!), candidatesOf(g, plan.decision));
       if (!result.ok) {
         report.failed += 1;
         if (result.failure?.kind === 'provider_stopped') {
           report.stopped = `${result.failure.model} (${result.failure.provider}) stopped answering: ${result.failure.detail}`;
+          report.remainingCalls = plan.groups.length - gi - 1;
           break;
         }
         continue;
       }
-      pairs.forEach((l, i) => {
+      g.pairs.forEach((p, i) => {
         const verdict = result.verdicts[i]!;
-        const to = verdict.relation ?? 'relates';
-        const confidence = verdict.relation === null ? l.confidence : verdict.confidence;
-        const changed = to !== l.relation;
-        if (changed) report.changes.push({ sourceId, targetId: l.targetId, from: l.relation, to });
+        if (verdict.relation === null) { report.omitted += 1; return; }
+        const change: RelinkChange = { sourceId: g.sourceId, targetId: p.targetId, from: p.relations, to: verdict.relation };
+        const isNew = !p.relations.includes(verdict.relation);
+        if (isNew) report.proposed.push(change);
         else report.unchanged += 1;
-        if (!db) return;
-        const link = { sourceId, targetId: l.targetId, relation: to, confidence, detectorVersion: 'v1' as const };
-        if (opts.replace) {
-          db.replaceLink(link);
-          report.written += 1;
-        } else if (changed) {
-          db.insertLink(link);
-          report.written += 1;
-        }
+        if (!db || (!opts.replace && !isNew)) return;
+        const link = { sourceId: g.sourceId, targetId: p.targetId, relation: verdict.relation, confidence: verdict.confidence, detectorVersion: 'v1' as const };
+        if (opts.replace) db.replaceLink(link);
+        else db.insertLink(link);
+        report.written.push(change);
       });
     }
   } finally {

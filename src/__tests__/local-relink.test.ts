@@ -1,125 +1,197 @@
-// P3: `align local relink --detector v1`. Re-types existing v0 links with the v1 detector,
-// explicitly. Dry run (the default) writes nothing; --apply adds v1 rows beside the v0 ones;
-// --apply --replace swaps them. The set classifier is faked at its own boundary.
+// P3 + review F1/F2/F3/F5: `align local relink --detector v1`. Re-types existing v0 links with the
+// v1 detector, explicitly. The set classifier is faked at its own boundary; every other write
+// (the capture-time classifier edge, a person's `align mark ... replaces`) goes through the REAL
+// writer, so the fixtures are the populations those writers leave behind.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { applyJudgement } from '../lib/curation/mark.js';
 import { createLocalDb } from '../lib/local-db.js';
-import { relinkWithV1 } from '../lib/local-relink.js';
-import type { SetOutcome } from '../lib/local-set-classifier.js';
+import { planRelink, relinkWithV1 } from '../lib/local-relink.js';
+import type { SetCandidate, SetOutcome, SetSubject } from '../lib/local-set-classifier.js';
 
 let dir: string;
 let dbPath: string;
+const me = { judgeId: 'me', judgeLabel: null };
+
+function exec(sql: string): void { const x = new DatabaseSync(dbPath); try { x.exec(sql); } finally { x.close(); } }
+const rows = () => {
+  const x = new DatabaseSync(dbPath);
+  try {
+    return x.prepare('SELECT source_id, target_id, relation, confidence, detector_version FROM decision_links ORDER BY source_id, target_id, detector_version, relation').all();
+  } finally { x.close(); }
+};
+const hash = () => createHash('sha256').update(JSON.stringify(rows())).digest('hex');
+/** A capture-time v0 classifier edge, written the way linkPass writes it. */
+function classifierEdge(sourceId: string, targetId: string, relation: string, confidence = 0.9): void {
+  const db = createLocalDb(dbPath);
+  try { db.replaceLink({ sourceId, targetId, relation, confidence }); } finally { db.close(); }
+}
+
+type Verdict = { relation: string | null; confidence: number };
+function fake(byTarget: Record<string, Verdict>) {
+  return vi.fn(async (_s: SetSubject, cands: readonly SetCandidate[]): Promise<SetOutcome> => ({
+    ok: true, verdicts: cands.map((c) => byTarget[c.id] ?? { relation: null, confidence: 0 }),
+  }));
+}
+const run = (classify: ReturnType<typeof fake>, opts: Partial<{ apply: boolean; replace: boolean; maxCalls: number }> = {}) =>
+  relinkWithV1(dbPath, { apply: false, replace: false, maxCalls: 50, ...opts }, classify);
+
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-relink-'));
   dbPath = path.join(dir, 'graph.db');
-  const db = createLocalDb(dbPath);
-  db.close();
-  const raw = new DatabaseSync(dbPath);
-  raw.exec(`INSERT INTO decisions (id, title, summary, decided_at) VALUES
-    ('n', 'New', 'new text', '2026-02-01T00:00:00Z'), ('a', 'A', 'a text', '2026-01-01T00:00:00Z'), ('b', 'B', 'b text', NULL), ('m', 'M', 'm text', NULL)`);
-  raw.exec(`INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES
-    ('l1', 'n', 'a', 'conflicts_with', 0.9), ('l2', 'n', 'b', 'relates', 0.7), ('mark:j1', 'm', 'a', 'supersedes', 1.0)`);
-  raw.close();
+  createLocalDb(dbPath).close();
+  exec(`INSERT INTO decisions (id, title, summary, decided_at) VALUES
+    ('n', 'New', 'new text', '2026-02-01T00:00:00Z'), ('a', 'A', 'a text', '2026-01-01T00:00:00Z'),
+    ('b', 'B', 'b text', NULL), ('c', 'C', 'c text', NULL)`);
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-const rows = () => {
-  const x = new DatabaseSync(dbPath);
-  try { return x.prepare('SELECT id, source_id, target_id, relation, confidence, detector_version FROM decision_links ORDER BY source_id, target_id, detector_version, relation').all(); } finally { x.close(); }
-};
-const hash = () => createHash('sha256').update(JSON.stringify(rows())).digest('hex');
-
-// a: v1 says refines (changed from conflicts_with); b: v1 omits it (no relationship -> relates, unchanged).
-const answer = vi.fn(async (_s: unknown, cands: readonly { id: string }[]): Promise<SetOutcome> => ({
-  ok: true, verdicts: cands.map((c) => (c.id === 'a' ? { relation: 'refines', confidence: 0.8 } : { relation: null, confidence: 0.7 })),
-}));
-
-describe('relinkWithV1', () => {
-  it('dry run (the default) reports the change and writes nothing', async () => {
+describe('F1: a person\'s judgement and an omitted verdict are never overwritten', () => {
+  it('a mark written over an existing classifier supersedes row (mark.ts real sequence) is never touched, even with --replace', async () => {
+    classifierEdge('n', 'a', 'supersedes', 0.9);
+    applyJudgement({ dbPath, judge: me, origin: { via: 'cli' } }, { action: 'replaces', newer: 'n', older: 'a' });
     const before = hash();
-    const r = await relinkWithV1(dbPath, { apply: false, replace: false }, answer);
+    const classify = fake({ a: { relation: 'relates', confidence: 0.4 } });
+    const r = await run(classify, { apply: true, replace: true });
     expect(hash()).toBe(before);
-    expect(rows()).toHaveLength(3);
-    expect(r.changes).toEqual([{ sourceId: 'n', targetId: 'a', from: 'conflicts_with', to: 'refines' }]);
-    expect(r).toMatchObject({ sources: 1, calls: 1, unchanged: 1, written: 0 });
+    expect(rows()).toContainEqual(expect.objectContaining({ source_id: 'n', target_id: 'a', relation: 'supersedes' }));
+    expect(classify).not.toHaveBeenCalled();
+    expect(r.skippedJudged).toBe(1);
   });
 
-  it('one call per source decision, never per link, and a person\'s mark link is never re-typed', async () => {
-    answer.mockClear();
-    await relinkWithV1(dbPath, { apply: false, replace: false }, answer);
-    expect(answer).toHaveBeenCalledTimes(1);
-    expect(answer.mock.calls[0]![0]).toMatchObject({ title: 'New', decidedAt: '2026-02-01T00:00:00Z' });
-    expect(answer.mock.calls[0]![1].map((c) => c.id)).toEqual(['a', 'b']);
+  it('a conflict verdict on the pair also keeps relink away', async () => {
+    classifierEdge('n', 'b', 'conflicts_with');
+    applyJudgement({ dbPath, judge: me, origin: { via: 'cli' } }, { action: 'conflict', a: 'b', b: 'n', verdict: 'false' });
+    const classify = fake({ b: { relation: 'relates', confidence: 0.4 } });
+    await run(classify, { apply: true, replace: true });
+    expect(classify).not.toHaveBeenCalled();
+    expect(rows()).toContainEqual(expect.objectContaining({ source_id: 'n', target_id: 'b', relation: 'conflicts_with', detector_version: 'v0' }));
   });
 
-  it('--apply adds a v1 row beside the v0 row and keeps every v0 row', async () => {
-    const r = await relinkWithV1(dbPath, { apply: true, replace: false }, answer);
-    expect(r.written).toBe(1);
+  it('positive control: the same classifier row with no judgement IS relinked', async () => {
+    classifierEdge('n', 'a', 'supersedes', 0.9);
+    const classify = fake({ a: { relation: 'refines', confidence: 0.4 } });
+    await run(classify, { apply: true, replace: true });
+    expect(classify).toHaveBeenCalledTimes(1);
+    expect(rows()).toEqual([expect.objectContaining({ source_id: 'n', target_id: 'a', relation: 'refines', detector_version: 'v1' })]);
+  });
+
+  it('an omitted (null) verdict leaves a typed v0 row exactly as it is, with --replace', async () => {
+    classifierEdge('n', 'a', 'supersedes', 0.9);
+    const before = hash();
+    const r = await run(fake({}), { apply: true, replace: true });
+    expect(hash()).toBe(before);
+    expect(r).toMatchObject({ omitted: 1, written: [] });
+  });
+
+  it('an omitted verdict leaves a relates v0 row as it is too, without --replace', async () => {
+    classifierEdge('n', 'b', 'relates', 0.7);
+    const before = hash();
+    await run(fake({}), { apply: true });
+    expect(hash()).toBe(before);
+  });
+});
+
+describe('F2: one judgement per unordered pair', () => {
+  it('links in both directions on one pair -> one call, the candidate once, and the report equals the graph', async () => {
+    exec(`INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES
+      ('x1', 'n', 'a', 'relates', 0.5), ('x2', 'n', 'a', 'conflicts_with', 0.8), ('x3', 'a', 'n', 'relates', 0.5)`);
+    const classify = fake({ a: { relation: 'refines', confidence: 0.6 } });
+    const r = await run(classify, { apply: true, replace: true });
+    expect(classify).toHaveBeenCalledTimes(1);
+    expect(classify.mock.calls[0]![1].map((c) => c.id)).toEqual(['a']);
+    expect(r.written).toEqual([{ sourceId: 'n', targetId: 'a', from: ['conflicts_with', 'relates'], to: 'refines' }]);
+    expect(rows()).toEqual([expect.objectContaining({ source_id: 'n', target_id: 'a', relation: 'refines', detector_version: 'v1' })]);
+  });
+
+  it('several pairs from one source share one call, each candidate once', async () => {
+    classifierEdge('n', 'a', 'relates');
+    classifierEdge('n', 'b', 'relates');
+    const classify = fake({});
+    await run(classify);
+    expect(classify).toHaveBeenCalledTimes(1);
+    expect(classify.mock.calls[0]![1].map((c) => c.id)).toEqual(['a', 'b']);
+  });
+
+  it('a dry run writes nothing and lists proposals, never as written', async () => {
+    classifierEdge('n', 'a', 'conflicts_with');
+    const before = hash();
+    const r = await run(fake({ a: { relation: 'refines', confidence: 0.6 } }));
+    expect(hash()).toBe(before);
+    expect(r.proposed).toEqual([{ sourceId: 'n', targetId: 'a', from: ['conflicts_with'], to: 'refines' }]);
+    expect(r.written).toEqual([]);
+  });
+
+  it('without --replace a changed pair gains a v1 row beside the v0 row; an unchanged pair gains nothing', async () => {
+    classifierEdge('n', 'a', 'conflicts_with');
+    classifierEdge('n', 'b', 'relates', 0.7);
+    const r = await run(fake({ a: { relation: 'refines', confidence: 0.6 }, b: { relation: 'relates', confidence: 0.6 } }), { apply: true });
+    expect(r.written).toEqual([{ sourceId: 'n', targetId: 'a', from: ['conflicts_with'], to: 'refines' }]);
+    expect(r.unchanged).toBe(1);
     expect(rows()).toEqual([
-      { id: 'mark:j1', source_id: 'm', target_id: 'a', relation: 'supersedes', confidence: 1, detector_version: 'v0' },
-      { id: 'l1', source_id: 'n', target_id: 'a', relation: 'conflicts_with', confidence: 0.9, detector_version: 'v0' },
-      expect.objectContaining({ source_id: 'n', target_id: 'a', relation: 'refines', confidence: 0.8, detector_version: 'v1' }),
-      { id: 'l2', source_id: 'n', target_id: 'b', relation: 'relates', confidence: 0.7, detector_version: 'v0' },
-    ]);
-  });
-
-  it('a second --apply does not re-classify pairs that already have a v1 row', async () => {
-    await relinkWithV1(dbPath, { apply: true, replace: false }, answer);
-    answer.mockClear();
-    const r = await relinkWithV1(dbPath, { apply: true, replace: false }, answer);
-    expect(answer).toHaveBeenCalledTimes(1);
-    expect(answer.mock.calls[0]![1].map((c) => c.id)).toEqual(['b']);
-    expect(r.written).toBe(0);
-  });
-
-  it('--apply --replace swaps each re-classified v0 row for a v1 row, unchanged ones included', async () => {
-    await relinkWithV1(dbPath, { apply: true, replace: true }, answer);
-    expect(rows()).toEqual([
-      { id: 'mark:j1', source_id: 'm', target_id: 'a', relation: 'supersedes', confidence: 1, detector_version: 'v0' },
+      expect.objectContaining({ source_id: 'n', target_id: 'a', relation: 'conflicts_with', detector_version: 'v0' }),
       expect.objectContaining({ source_id: 'n', target_id: 'a', relation: 'refines', detector_version: 'v1' }),
-      expect.objectContaining({ source_id: 'n', target_id: 'b', relation: 'relates', confidence: 0.7, detector_version: 'v1' }),
+      expect.objectContaining({ source_id: 'n', target_id: 'b', relation: 'relates', detector_version: 'v0' }),
     ]);
   });
 
-  it('a failed call writes nothing for that source and is reported; a stopped provider stops the run', async () => {
+  it('a pair that already has a v1 row is not asked again', async () => {
+    classifierEdge('n', 'a', 'conflicts_with');
+    await run(fake({ a: { relation: 'refines', confidence: 0.6 } }), { apply: true });
+    const classify = fake({});
+    await run(classify, { apply: true });
+    expect(classify).not.toHaveBeenCalled();
+  });
+});
+
+describe('F3: the call cap and the plan', () => {
+  it('planRelink counts calls and pairs without calling anything', () => {
+    classifierEdge('n', 'a', 'relates');
+    classifierEdge('n', 'b', 'relates');
+    classifierEdge('c', 'a', 'relates');
+    const plan = planRelink(dbPath);
+    expect(plan).toMatchObject({ calls: 2, pairs: 3 });
+    expect(plan.inputTokens).toBeGreaterThan(0);
+    expect(plan.maxOutputTokens).toBe(2 * 2048);
+  });
+
+  it('maxCalls stops before the call that would exceed it, and says how many remain', async () => {
+    classifierEdge('n', 'a', 'relates');
+    classifierEdge('c', 'b', 'relates');
+    const classify = fake({});
+    const r = await run(classify, { maxCalls: 1 });
+    expect(classify).toHaveBeenCalledTimes(1);
+    expect(r.remainingCalls).toBe(1);
+  });
+
+  it('a stopped provider asks nothing more', async () => {
+    classifierEdge('n', 'a', 'relates');
+    classifierEdge('c', 'b', 'relates');
     const stopped = vi.fn(async (): Promise<SetOutcome> => ({ ok: false, reason: 'classifier_error', failure: { kind: 'provider_stopped', provider: 'anthropic', model: 'm', detail: '429' } }));
-    const before = hash();
-    const r = await relinkWithV1(dbPath, { apply: true, replace: true }, stopped);
-    expect(hash()).toBe(before);
-    expect(r.failed).toBe(1);
+    const r = await relinkWithV1(dbPath, { apply: true, replace: false, maxCalls: 50 }, stopped);
+    expect(stopped).toHaveBeenCalledTimes(1);
     expect(r.stopped).toMatch(/anthropic/);
   });
+});
 
-  it('a v0 typed link that v1 gives no relationship becomes relates (a change), at its old confidence', async () => {
-    const raw = new DatabaseSync(dbPath);
-    raw.exec(`UPDATE decision_links SET relation = 'contradicts' WHERE id = 'l2'`);
-    raw.close();
-    const r = await relinkWithV1(dbPath, { apply: true, replace: true }, answer);
-    expect(r.changes).toContainEqual({ sourceId: 'n', targetId: 'b', from: 'contradicts', to: 'relates' });
-    expect(rows()).toContainEqual(expect.objectContaining({ source_id: 'n', target_id: 'b', relation: 'relates', confidence: 0.7, detector_version: 'v1' }));
+describe('F5: relink tells the detector a candidate is retired', () => {
+  it('a candidate superseded by a third decision is passed as superseded', async () => {
+    classifierEdge('n', 'a', 'relates');
+    classifierEdge('c', 'a', 'supersedes');
+    const classify = fake({});
+    await run(classify);
+    const call = classify.mock.calls.find((c) => c[0].title === 'New')!;
+    expect(call[1]).toEqual([expect.objectContaining({ id: 'a', status: 'superseded' })]);
   });
 
-  it('a stopped provider asks nothing more: the next source is not called', async () => {
-    const raw = new DatabaseSync(dbPath);
-    raw.exec(`INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES ('l3', 'b', 'a', 'relates', 0.6)`);
-    raw.close();
-    const stopped = vi.fn(async (): Promise<SetOutcome> => ({ ok: false, reason: 'classifier_error', failure: { kind: 'provider_stopped', provider: 'anthropic', model: 'm', detail: '429' } }));
-    await relinkWithV1(dbPath, { apply: true, replace: false }, stopped);
-    expect(stopped).toHaveBeenCalledTimes(1);
-  });
-
-  it('--limit caps the source decisions classified', async () => {
-    const raw = new DatabaseSync(dbPath);
-    raw.exec(`INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES ('l3', 'b', 'a', 'relates', 0.6)`);
-    raw.close();
-    answer.mockClear();
-    const r = await relinkWithV1(dbPath, { apply: false, replace: false, limit: 1 }, answer);
-    expect(answer).toHaveBeenCalledTimes(1);
-    expect(r.sources).toBe(1);
-    expect(r.remainingSources).toBe(1);
+  it('a candidate nobody superseded is passed with no status', async () => {
+    classifierEdge('n', 'b', 'relates');
+    const classify = fake({});
+    await run(classify);
+    expect(classify.mock.calls[0]![1]).toEqual([expect.objectContaining({ id: 'b', status: null })]);
   });
 });
