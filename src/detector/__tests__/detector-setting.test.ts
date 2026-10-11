@@ -11,8 +11,8 @@ describe('detector precedence: ALIGN_DETECTOR, then the saved setting, then the 
     expect(resolveDetectorVersion({}, 'v1')).toBe('v1');
   });
 
-  it('neither set means v0, the default', () => {
-    expect(resolveDetectorVersion({}, undefined)).toBe('v0');
+  it('neither set means v1, the default (the same detector the paid product runs)', () => {
+    expect(resolveDetectorVersion({}, undefined)).toBe('v1');
   });
 
   it('an invalid saved setting is an error that names where it came from', () => {

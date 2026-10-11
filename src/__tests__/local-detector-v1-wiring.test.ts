@@ -105,12 +105,13 @@ describe('align check under ALIGN_DETECTOR', () => {
     expect((await client.checkAlignment('switch the queue to SQS')).status).toBe('unknown');
   });
 
-  it('unset: v0 (the default), one call per candidate, with the v0 system prompt', async () => {
+  it('unset: v1 (the default), one call over every candidate, with the v1 system prompt', async () => {
     await seed(3);
-    const sent = provider(V0_RELATES);
-    await client.checkAlignment('switch the queue to SQS');
-    expect(sent).toHaveLength(3);
-    expect(sent.every((c) => c.system !== JSON.stringify(buildV1SystemPrompt()))).toBe(true);
+    const sent = provider(V1_CONFLICT);
+    const result = await client.checkAlignment('switch the queue to SQS');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.system).toBe(JSON.stringify(buildV1SystemPrompt()));
+    expect(result.status).toBe('conflicting');
   });
 
   it('explicit v1: one call over every candidate, with the v1 system prompt', async () => {
