@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import ts from 'typescript';
 
 // The local graph must never be reachable over the network. This scans the
@@ -46,28 +46,47 @@ function visit(sf: ts.SourceFile, fn: (n: ts.Node) => void): void {
   walk(sf);
 }
 
-function identifiers(file: string): Set<string> {
+interface Scan {
+  ids: Set<string>;
+  listens: boolean;
+}
+
+// One parse per file, shared by every test below. Parsing the whole tree used to happen inside
+// each test body (up to three times over), which ran past the 5 s test timeout on a loaded CI
+// runner. The walk now runs once, in beforeAll, under its own explicit hook timeout.
+const scans = new Map<string, Scan>();
+
+function scan(file: string): Scan {
+  const cached = scans.get(file);
+  if (cached) return cached;
   const ids = new Set<string>();
+  let listens = false;
   visit(parse(file), (n) => {
     if (ts.isIdentifier(n)) ids.add(n.text);
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'listen') {
+      listens = true;
+    }
   });
-  return ids;
+  const result = { ids, listens };
+  scans.set(file, result);
+  return result;
+}
+
+function identifiers(file: string): Set<string> {
+  return scan(file).ids;
 }
 
 function listenSites(files: string[]): string[] {
-  const hits = new Set<string>();
-  for (const f of files) {
-    visit(parse(f), (n) => {
-      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'listen') {
-        hits.add(f);
-      }
-    });
-  }
-  return [...hits].sort();
+  return files.filter((f) => scan(f).listens).sort();
 }
 
 describe('local graph is never network-shareable', () => {
-  const files = listSrcFiles();
+  let files: string[] = [];
+
+  beforeAll(() => {
+    files = listSrcFiles();
+    for (const f of files) scan(f);
+  }, 60_000);
 
   it('scans the real tree and can match a transport (positive controls)', () => {
     expect(files.length).toBeGreaterThan(50);
