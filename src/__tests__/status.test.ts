@@ -30,7 +30,7 @@ const { getEnvironmentMock, localDb, createLocalDbMock, getConnectorFieldsMock }
 });
 
 vi.mock('../lib/config.js', () => ({
-  createConfigStore: vi.fn(() => ({ getEnvironment: getEnvironmentMock, getConnectorFields: getConnectorFieldsMock, listTeamDestinationNames: () => [], getShareDestination: () => null, getDetector: () => undefined })),
+  createConfigStore: vi.fn(() => ({ getEnvironment: getEnvironmentMock, getConnectorFields: getConnectorFieldsMock, listTeamDestinationNames: () => [], getShareDestination: () => null, getDetector: () => undefined, getProviderKey: () => null })),
 }));
 vi.mock('../lib/resolve-env.js', () => ({ resolveEnv: vi.fn((e: string) => e ?? 'prod') }));
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => client) }));
