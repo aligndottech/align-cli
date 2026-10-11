@@ -26,12 +26,12 @@ const rec = (o: Partial<PendingRequest> = {}): PendingRequest => ({
   hash: 'h', localIds: ['l1'], agentId: 'agent', userCode: 'KJ4M-9XQT', expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), ...o,
 });
 
-function rig(init: Parameters<typeof fakeRequests>[0] = { states: ['pending'] }, over: { cloudEnv?: ShareDeps['cloudEnv']; plan?: ShareDeps['approval']['plan']; teamAppUrl?: string } = {}) {
+function rig(init: Parameters<typeof fakeRequests>[0] = { states: ['pending'] }, over: { cloudEnv?: ShareDeps['cloudEnv']; plan?: ShareDeps['approval']['plan']; teamAppUrl?: string; wrapped?: boolean } = {}) {
   const gw: FakeRequests = fakeRequests(init);
   const out: string[] = []; const err: string[] = []; const opened: string[] = [];
   const deps = {
     cloudEnv: over.cloudEnv ?? { mode: 'auth', gatewayUrl: 'https://api.align.test', authToken: 't', tenantId: 'T1' },
-    localDbPath: null, salt: 's', defaultGatewayUrl: 'https://api.align.test', client: () => ({ ...gw.api }), judge: async () => { throw new Error('no'); }, owner: async () => 'x', wrapped: false,
+    localDbPath: null, salt: 's', defaultGatewayUrl: 'https://api.align.test', client: () => ({ ...gw.api }), judge: async () => { throw new Error('no'); }, owner: async () => 'x', wrapped: over.wrapped ?? false,
     ttyConfirm: async () => null,
     ...(over.teamAppUrl ? { teamAppUrl: over.teamAppUrl } : {}),
     approval: {
@@ -114,6 +114,29 @@ describe('align share --open', () => {
     const r = rig();
     expect(await r.run(RID, 'prod')).toBe(1);
     expect(r.err.join('\n')).toContain(`align share --open ${RID} --to acme`);
+  });
+  it('from inside an agent align launched, a non-Align gateway is refused before the pending file or the gateway is read, and prints no key', async () => {
+    saveRequest(rec());
+    const r = rig({ states: ['pending'] }, { wrapped: true, plan: { open: true, qr: false, qrIfOpenFails: false, why: 't' } });
+    expect(await r.run(RID)).toBe(1);
+    expect(r.err.join('\n')).toMatch(/not an Align address/);
+    expect(r.gw.gets).toBe(0); expect(r.opened).toEqual([]); expect(r.all()).not.toContain(KEY);
+  });
+  it('from inside an agent align launched, an Align gateway still re-opens', async () => {
+    saveRequest(rec({ gatewayUrl: 'https://api.align.tech' }));
+    const r = rig({ states: ['pending'] }, { wrapped: true, cloudEnv: { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't', tenantId: 'T1' } as never, plan: { open: true, qr: false, qrIfOpenFails: false, why: 't' } });
+    expect(await r.run(RID)).toBe(0);
+    expect(r.opened).toHaveLength(1);
+  });
+  it('refuses when the signed-in workspace cannot be established (no tenant id, or an empty one), and prints no key', async () => {
+    for (const [tenantId, staged] of [[undefined, 'T1'], ['', '']] as const) {
+      saveRequest(rec({ tenantId: staged }));
+      const cloudEnv = { mode: 'auth', gatewayUrl: 'https://api.align.test', authToken: 't', ...(tenantId === undefined ? {} : { tenantId }) };
+      const r = rig({ states: ['pending'] }, { cloudEnv: cloudEnv as never, plan: { open: true, qr: false, qrIfOpenFails: false, why: 't' } });
+      expect(await r.run(RID), JSON.stringify({ tenantId, staged })).toBe(1);
+      expect(r.err.join('\n')).toMatch(/workspace/);
+      expect(r.gw.gets).toBe(0); expect(r.opened).toEqual([]); expect(r.all()).not.toContain(KEY);
+    }
   });
   it('needs a team login like every other share path', async () => {
     saveRequest(rec());
