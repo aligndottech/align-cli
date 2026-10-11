@@ -723,7 +723,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // ALIGN_DETECTOR (local-candidate-classify.ts): v0 types each candidate in turn, v1 types the set in one call.
       const { outcomes } = await classifyCandidates(subject, candidates.map(c => ({
         id: c.id, title: c.title, summary: c.summary, similarity: c.score, platform: c.platform, decidedAt: c.decidedAt,
-        status: relationFieldsFor(c.id).status === 'superseded' ? 'superseded' : null,
+        status: db.isSuperseded(c.id) ? 'superseded' : null,
       })), 'subject-first');
       const typed = [];
       for (const [i, c] of candidates.entries()) {

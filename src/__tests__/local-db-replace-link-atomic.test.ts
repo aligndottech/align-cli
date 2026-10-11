@@ -36,3 +36,22 @@ describe('replaceLink is atomic', () => {
     expect(rows()).toEqual([expect.objectContaining({ relation: 'relates' })]);
   });
 });
+
+// Review F1, the capture-path half: a person's `replaces` mark written over an existing classifier
+// supersedes row keeps that row's id (the triple already exists), so the `mark:` id rule alone
+// cannot protect it. replaceLink reads the judgement instead.
+describe('replaceLink keeps a supersedes row a person marked', () => {
+  it('mark over a classifier row, then a capture-time upgrade of the same pair: the supersedes row survives', async () => {
+    const { applyJudgement } = await import('../lib/curation/mark.js');
+    applyJudgement({ dbPath, judge: { judgeId: 'me', judgeLabel: null }, origin: { via: 'cli' } }, { action: 'replaces', newer: 'a', older: 'b' });
+    const db = createLocalDb(dbPath);
+    try { db.replaceLink({ sourceId: 'a', targetId: 'b', relation: 'relates', confidence: 0.5 }); } finally { db.close(); }
+    expect(rows()).toEqual(expect.arrayContaining([{ id: 'old', relation: 'supersedes' }, expect.objectContaining({ relation: 'relates' })]));
+  });
+
+  it('control: with no mark the same upgrade replaces the supersedes row', () => {
+    const db = createLocalDb(dbPath);
+    try { db.replaceLink({ sourceId: 'a', targetId: 'b', relation: 'relates', confidence: 0.5 }); } finally { db.close(); }
+    expect(rows()).toEqual([expect.objectContaining({ relation: 'relates' })]);
+  });
+});

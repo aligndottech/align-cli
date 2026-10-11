@@ -151,4 +151,27 @@ describe('capture link pass under ALIGN_DETECTOR', () => {
     expect(sent.length).toBeGreaterThanOrEqual(2);
     expect(linkVersions().every((r) => r.v === 'v0')).toBe(true);
   });
+
+  it('F5 v1: a candidate another decision supersedes is shown RETIRED and gets no verdict edge', async () => {
+    await seed(3);
+    const raw = new DatabaseSync(dbPath);
+    const ids = raw.prepare('SELECT id, title FROM decisions ORDER BY title').all() as Array<{ id: string; title: string }>;
+    raw.prepare(`INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES ('s1', ?, ?, 'supersedes', 1)`).run(ids[2]!.id, ids[0]!.id);
+    raw.close();
+    vi.stubEnv('ALIGN_DETECTOR', 'v1');
+    const ev = { new_quote: 'use SQS', existing_quote: 'use Postgres' };
+    const sent = provider(JSON.stringify({ similar: [1, 2, 3, 4].map((n) => ({ decision_ref: n, type: 'incompatible', confidence: 0.9, evidence: ev, replaced: 'new' })) }));
+    await client.ingestBatch([{ source_url: 'https://github.com/o/r/pull/98', platform: 'github', title: 'Queue on SQS', raw_text: 'Use SQS for the queue' }], { classify: true });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.user).toContain(`${ids[0]!.title} (similarity:`);
+    expect(sent[0]!.user).toMatch(/\[RETIRED\]/);
+    const db = new DatabaseSync(dbPath);
+    try {
+      const edges = db.prepare(`SELECT relation FROM decision_links WHERE detector_version = 'v1' AND (source_id = ? OR target_id = ?)`).all(ids[0]!.id, ids[0]!.id) as Array<{ relation: string }>;
+      expect(edges.map((e) => e.relation)).not.toContain('conflicts_with');
+      expect(edges.map((e) => e.relation)).not.toContain('supersedes');
+      const others = db.prepare(`SELECT relation FROM decision_links WHERE detector_version = 'v1' AND relation = 'conflicts_with'`).all();
+      expect(others.length).toBeGreaterThan(0);
+    } finally { db.close(); }
+  });
 });

@@ -680,8 +680,12 @@ export function createLocalDb(dbPath: string) {
       // SAVEPOINT, not BEGIN, so a caller already inside a transaction can still call this.
       db.exec('SAVEPOINT replace_link');
       try {
+        // Review F1: a `replaces` mark written over an existing classifier row keeps that row's id,
+        // so the judgement itself is what protects it, not only the `mark:` id.
         db.prepare(
-          `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%'`,
+          `DELETE FROM decision_links WHERE ((source_id = ? AND target_id = ?) OR (source_id = ? AND target_id = ?)) AND id NOT LIKE 'mark:%'
+             AND NOT (relation = 'supersedes' AND EXISTS (SELECT 1 FROM local_judgements j
+               WHERE j.kind = 'supersede' AND j.decision_id = decision_links.source_id AND j.counterpart_id = decision_links.target_id))`,
         ).run(link.sourceId, link.targetId, link.targetId, link.sourceId);
         insertLinkRow(link);
         db.exec('RELEASE replace_link');
@@ -783,6 +787,14 @@ export function createLocalDb(dbPath: string) {
       if (filter?.decisionId) { sql += ` AND (source_id = ? OR target_id = ?)`; params.push(filter.decisionId, filter.decisionId); }
       if (filter?.createdBefore) { sql += ` AND julianday(created_at) < julianday(?)`; params.push(filter.createdBefore); }
       return db.prepare(sql).all(...params) as unknown as LinkRow[];
+    },
+
+    /** True when another stored decision supersedes this one: the v1 detector shows it RETIRED and refuses a verdict edge (review F5). */
+    isSuperseded(decisionId: string): boolean {
+      return db.prepare(
+        `SELECT 1 FROM decision_links l JOIN decisions s ON s.id = l.source_id
+         WHERE l.target_id = ? AND l.relation IN ('supersedes', 'partially_supersedes') LIMIT 1`,
+      ).get(decisionId) !== undefined;
     },
 
     getStats(): DbStats {

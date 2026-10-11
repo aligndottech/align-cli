@@ -41,7 +41,7 @@ export async function linkPass(
   const self = db.getDecisionById(id);
   const { version, outcomes } = await classifyCandidates(
     { title, summary, decidedAt: self?.decidedAt ?? null, platform: self?.platform ?? null },
-    known.map(({ c, row }) => ({ id: c.decisionId, title: row.title, summary: row.summary, similarity: c.score, platform: row.platform, decidedAt: row.decidedAt })),
+    known.map(({ c, row }) => ({ id: c.decisionId, title: row.title, summary: row.summary, similarity: c.score, platform: row.platform, decidedAt: row.decidedAt, status: db.isSuperseded(c.decisionId) ? 'superseded' : null })),
     'candidate-first',
   );
   const typedBy = new Map(known.map(({ c }, i) => [c.decisionId, outcomes[i]!]));
