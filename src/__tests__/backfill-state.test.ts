@@ -31,7 +31,8 @@ const deadPid = (): number => {
   const r = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
   return Number(r.stdout);
 };
-const running = (source: string, pid: number): BackfillStatus => ({ source, pid, started_at: '2026-10-10T12:00:00.000Z', state: 'running' });
+// Relative to now: a fixed date goes stale after STALE_RUNNING_MS and the fixture silently stops matching.
+const running = (source: string, pid: number): BackfillStatus => ({ source, pid, started_at: new Date(Date.now() - 60_000).toISOString(), state: 'running' });
 
 describe('where the files live', () => {
   it('is align-cli/backfill under XDG_STATE_HOME, created private', () => {
@@ -53,8 +54,9 @@ describe('a status file', () => {
     const dir = backfillDir()!;
     const file = statusPath(dir, 'github');
     expect(readStatus(file)).toBeNull();
-    writeStatus(file, running('github', process.pid));
-    expect(readStatus(file)).toEqual(running('github', process.pid));
+    const status = running('github', process.pid);
+    writeStatus(file, status);
+    expect(readStatus(file)).toEqual(status);
     fs.writeFileSync(file, '{not json');
     expect(readStatus(file)).toBeNull();
     fs.writeFileSync(file, JSON.stringify({ source: 'github', pid: 'x' }));
