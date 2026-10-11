@@ -73,6 +73,7 @@ A removed command stays registered so an old script gets the new spelling and a 
 
 align env                     Get or set the default environment (local, preview, prod)
 align env set <env>           Set the default environment for all commands
+align env list                List the environments and every team destination joined with align join, with both hosts
 align env get                 Show the current default environment
 
 # Usage telemetry on, off, status
@@ -107,6 +108,11 @@ align use [agent]             Choose the coding agent bare `align` opens (no arg
 
 align invite <email>          Invite a teammate to your shared Align decision graph
                               flags: --env
+
+# Join your team's graph from an invite link
+
+align join <link>             Join your team's graph from an invite link, as a named destination (a terminal only; additive: nothing you already have is moved)
+                              flags: --name --gateway --replace
 
 # Choose the AI model align ask uses in the terminal
 
@@ -192,7 +198,7 @@ align ratify <id>             Stand behind an agent-made decision as a human: ma
 # Share ratified decisions, with your judgements, with your team (alias: push)
 
 align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
-                              flags: --env --all-ratified --since --yes --confirm --typed --retract --open --no-open --qr --no-qr --copy
+                              flags: --env --to --all-ratified --since --yes --confirm --typed --retract --open --no-open --qr --no-qr --copy
 align push                    same as align share
 
 # The local graph: start, status, reset, forget
@@ -247,6 +253,8 @@ phone with Face ID or a fingerprint is the strongest way. A QR code is never pri
 you pass `--qr`. If your agent staged the request, `align share --open <request id>` shows the link again on the machine that
 staged it (it needs the private file that machine holds). `--copy` asks your terminal to put the link on the clipboard.
 That works only in terminals that support OSC 52, and clipboard managers may keep the link.
+
+The CLI never collects your email on its own. When you try to share and have no team login, it may ask once for an optional work email. You can skip it. It is separate from usage telemetry, and we only email you after you confirm. It asks only at a terminal. It never asks in an agent that Align launched, in CI, with no terminal, or from a pipe. An agent that opens its own pseudo-terminal could still see the question. That is why nothing is stored as confirmed until the owner of the address clicks the link in the email. It asks only when the CLI is pointed at Align's own service, which is the default. The address is sent once and is not kept on your machine. The config stores only when you were asked and what you chose. Set `ALIGN_NO_LEAD_PROMPT=1` to never be asked.
 
 `align use --undo` puts back a file Align wrote for a written-once agent (Auggie, Cline, Amp,
 Kiro, Grok Build, pi, Cursor). The restore is exact only while nobody else has touched the file.

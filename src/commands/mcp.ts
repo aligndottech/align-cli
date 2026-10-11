@@ -731,7 +731,8 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
         return;
       }
       if (opts.setup || opts.install) {
-        await runMcpSetup(opts.env);
+        // A typed name is checked before it is written into an agent's config: `--env acmee` must not be stored as if it meant something.
+        await runMcpSetup(opts.env === undefined ? undefined : resolveEnv(opts.env));
         return;
       }
 

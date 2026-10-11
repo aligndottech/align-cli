@@ -26,11 +26,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const sibling = process.env['ALIGN_STACK_DIR'] ?? resolve(root, '..', 'align-stack');
 const ref = process.env['ALIGN_TELEMETRY_PARITY_REF'] ?? 'origin/main';
 
-// Pinned from THERE at e213dcdca (align-stack #3082).
+// Pinned from THERE at the merge of align-stack #3101 (adds `join`).
 const SERVER_COMMANDS = [
   'adjudicate', 'align', 'ask', 'capture', 'check', 'connect', 'context', 'decisions', 'drift',
-  'env', 'export', 'import', 'invite', 'links', 'login', 'logout', 'mark', 'mcp', 'push', 'ratify',
-  'search', 'setup', 'share', 'spaces', 'status', 'sync', 'telemetry', 'use', 'whoami',
+  'env', 'export', 'import', 'invite', 'join', 'links', 'login', 'logout', 'mark', 'mcp', 'push',
+  'ratify', 'search', 'setup', 'share', 'spaces', 'status', 'sync', 'telemetry', 'use', 'whoami',
 ];
 const SERVER_SUBCOMMAND_PARENTS = ['connect', 'context', 'decisions', 'env', 'import', 'links', 'spaces', 'telemetry'];
 const SERVER_STAGES = [
@@ -52,6 +52,8 @@ const NOT_SENT = new Set(['local', 'dev', 'connector']);
  * not on the gateway's list, so their `cli.command` pings 400 silently today. Not fixed by L7 (the
  * fix is a gateway change, outside this slice). Listed exactly, so the day the gateway adds them
  * this test fails until they are removed from here: it can only shrink.
+ *
+ * `join` was on this list until align-stack #3101 added it to the gateway's command enum.
  */
 const KNOWN_DRIFT = ['agents', 'ai'];
 

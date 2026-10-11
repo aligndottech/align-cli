@@ -19,6 +19,14 @@ function rig(p: DeliveryPlan, o: Partial<PresentDeps> = {}) {
 }
 
 describe('presentLink', () => {
+  it('tells the opener which web app the link was checked against, so a team destination\'s own app is not refused as foreign', async () => {
+    const team = 'https://align.acme.example';
+    const teamLink = `${team}/share/approve/${ID}#k=${'C'.repeat(43)}`;
+    const seen: Array<[string, string]> = [];
+    const r = rig(plan({ open: true }), { appUrl: team, openUrl: async (u, app) => { seen.push([u, app]); return true; } });
+    await presentLink(teamLink, r.deps);
+    expect(seen).toEqual([[teamLink, team]]);
+  });
   it('opens and stops there: no QR, no instructions', async () => {
     const r = rig(plan({ open: true }));
     await presentLink(LINK, r.deps);

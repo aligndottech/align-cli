@@ -42,11 +42,15 @@ let noticeShownAt: string | undefined;
 vi.mock('../lib/config.js', () => ({
   createConfigStore: () => ({
     getDefaultEnv: () => 'prod',
-    getEnvironment: (name: string) =>
-      FIXTURE_ENVS[name as keyof typeof FIXTURE_ENVS] as EnvironmentConfig,
+    getEnvironment: (name: string) => {
+      if (name === 'badhttp') { const e = new Error('api.evil.example must be reached over https'); e.name = 'TransportError'; throw e; }
+      return FIXTURE_ENVS[name as keyof typeof FIXTURE_ENVS] as EnvironmentConfig;
+    },
     getTelemetryConsent,
     getTelemetryNoticeShownAt: () => noticeShownAt,
     getInstallId,
+    hasTeamDestination: (n: string) => n === 'badhttp',
+    listTeamDestinationNames: () => ['badhttp'],
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
 }));
@@ -76,6 +80,37 @@ describe('recordInvocationUsage - genuinely local-only user, bare command', () =
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0]?.[0]).toBe(`${HOSTED_URL}/telemetry/anonymous`);
+  });
+
+  // F4 (join review): a stale or mistyped ALIGN_ENV makes resolveEnv throw, and the postAction hook ran AFTER the command had
+  // already acted, so a command that worked (even `align telemetry off`) exited 2. Telemetry must never decide an exit code.
+  it('an unknown ALIGN_ENV is swallowed by the hook: nothing sent, nothing thrown', async () => {
+    vi.stubEnv('ALIGN_ENV', 'bogus');
+    await expect(recordInvocationUsage(undefined, 'search')).resolves.toBeUndefined();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('an unknown --env flag is swallowed the same way', async () => {
+    await expect(recordInvocationUsage('bogus', 'search')).resolves.toBeUndefined();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('a saved destination the transport rule refuses is swallowed with a one-line warning naming it (second review N5)', async () => {
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await expect(recordInvocationUsage('badhttp', 'logout')).resolves.toBeUndefined();
+    const said = err.mock.calls.map((c) => String(c[0])).join('');
+    err.mockRestore();
+    expect(said.split('\n').filter(Boolean)).toHaveLength(1);
+    expect(said).toContain('"badhttp"');
+    expect(said).toContain('https');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('a real error from the send path is NOT swallowed by that guard (only UnknownEnvError is)', async () => {
+    mockFetch.mockRejectedValue(new Error('boom'));
+    // sends are fire-and-forget inside recordCommandUsage; the point is the guard is narrow, so a known env still reaches it
+    await recordInvocationUsage(undefined, 'search');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('sends nothing when local consent has not been granted, same as before', async () => {

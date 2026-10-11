@@ -111,8 +111,8 @@ export async function openApprovalLink(url: string, appUrl: string, deps: OpenDe
 export interface PresentDeps {
   appUrl: string;
   plan: DeliveryPlan;
-  /** Absent: nothing is opened. */
-  openUrl?: (url: string) => Promise<boolean>;
+  /** Absent: nothing is opened. Called with the web app the link was checked against (a team destination's own, not a guess). */
+  openUrl?: (url: string, appUrl: string) => Promise<boolean>;
   /** Builds the QR lines for a link; absent: no QR. */
   qr?: (url: string) => { lines: string[]; columns: number };
   /** Terminal width when known: a QR wider than this is not printed (it would wrap and not scan). */
@@ -149,7 +149,7 @@ export async function presentLink(url: string, d: PresentDeps): Promise<void> {
   if (d.plan.qr) shownQr = showQr();
   if (d.copy) { d.copy(url); d.out('Asked your terminal to copy the link. Not every terminal allows it, so check before you paste.'); }
   if (d.plan.open && d.openUrl) {
-    if (await d.openUrl(url)) return;
+    if (await d.openUrl(url, d.appUrl)) return;
     d.out('Could not open a browser here. Open the link above yourself.');
     if (!shownQr && d.plan.qrIfOpenFails) shownQr = showQr();
   }

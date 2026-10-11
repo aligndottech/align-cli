@@ -77,12 +77,16 @@ export function ratifiedRows(dbPath: string, opts: { owner?: string; sinceIso?: 
   } finally { db.close(); }
 }
 
+const hostOf = (url: string): string => { try { return new URL(url).host; } catch { return url; } };
+
 export async function prepare(ctx: ShareContext, ids: string[]): Promise<Prepared> {
   const who = await ctx.client.whoami();
   const tenantId = who.tenant.id;
   const dest: Destination = {
     workspace: who.tenant.name, env: ctx.envName, email: who.user.email,
-    ...(ctx.gatewayUrl !== ctx.defaultGatewayUrl ? { gateway: ctx.gatewayUrl } : {}),
+    gatewayHost: hostOf(ctx.gatewayUrl),
+    // A team destination has no default gateway (defaultGatewayUrl is ''), so only a builtin can be "pointed elsewhere".
+    ...(ctx.defaultGatewayUrl !== '' && ctx.gatewayUrl !== ctx.defaultGatewayUrl ? { gateway: ctx.gatewayUrl } : {}),
   };
   const rows: DecisionRow[] = [];
   const db = createLocalDb(ctx.dbPath);

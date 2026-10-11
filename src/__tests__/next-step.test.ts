@@ -96,6 +96,21 @@ describe('firstQuestion', () => {
   });
 });
 
+describe('agentAskLine with a team destination', () => {
+  it('names --env <destination> so the line runs as printed', () => {
+    const line = agentAskLine({ agents: [], firstTitle: undefined, inRepo: true, envName: 'acme' as never });
+    expect(line).toContain('align mcp --setup --env acme');
+  });
+  it('prod still prints the bare command', () => {
+    const line = agentAskLine({ agents: [], firstTitle: undefined, inRepo: true, envName: 'prod' });
+    expect(line).toContain('align mcp --setup,');
+    expect(line).not.toContain('--env');
+  });
+  it('a name that is not shell-safe is refused, never printed', () => {
+    expect(() => agentAskLine({ agents: [], firstTitle: undefined, inRepo: true, envName: 'a;rm -rf' as never })).toThrow(/not a safe/);
+  });
+});
+
 describe('agentAskLine', () => {
   it('names the agent and the first found decision, in this repo', () => {
     const line = agentAskLine({ agents: ['Claude Code'], firstTitle: 'switch to postgres', inRepo: true, envName: 'local' });

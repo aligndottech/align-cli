@@ -50,7 +50,7 @@ function fixture(init: Parameters<typeof fakeRequests>[0] = {}): Fx {
   const gw = fakeRequests(init);
   const f = { out: [] as string[], err: [] as string[], gw, asks: [] as string[], batches: 0, opened: [] as string[], sleeps: [] as number[], abort: new AbortController(), teamReads: 0 } as Fx;
   f.deps = {
-    cloudEnv: { mode: 'auth', gatewayUrl: 'https://api.align.test', authToken: 't', tenantId: 'T1' }, localDbPath: dbPath, salt: 'salt-1', defaultGatewayUrl: 'https://api.align.test',
+    cloudEnv: { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't', tenantId: 'T1' }, localDbPath: dbPath, salt: 'salt-1', defaultGatewayUrl: 'https://api.align.tech',
     client: () => ({
       ...gw.api,
       whoami: async () => ({ user: { email: ME, id: 'U1' }, tenant: { id: 'T1', name: 'Acme' } }),
@@ -90,7 +90,7 @@ describe('available: the person approves in a browser', () => {
     expect(f.gw.completes[0]!.id).toBe(rowId);
     expect(f.asks).toEqual([]);          // never prompted on a terminal
     expect(f.batches).toBe(0);           // never called shareBatch
-    expect(say(f)).toContain('To: Acme (prod) as me@co.com');   // the destination, as before
+    expect(say(f)).toContain('To: "Acme" via api.align.tech, as me@co.com');   // the destination, host named
     expect(say(f)).toContain('Code: KJ4M-9XQT');
     expect(say(f)).toMatch(/expires in 1[45] minutes/);
     expect(say(f)).toContain('Approved in your browser. Sending...');
@@ -112,7 +112,7 @@ describe('available: the person approves in a browser', () => {
     const opened = await openInBrowserWay(staged.envelope, keyOf(url), { envelopeId: staged.envelope_id, tenantId: 'T1', userId: 'U1', kind: 'share' });
     expect(opened.toString('base64')).toBe(f.gw.completes[0]!.payloadB64);
     expect(createHash('sha256').update(opened).digest('hex')).toBe(staged.payload_sha256);
-    expect(JSON.parse(opened.toString())).toMatchObject({ v: 1, kind: 'share', tenant_id: 'T1', gateway_url: 'https://api.align.test' });
+    expect(JSON.parse(opened.toString())).toMatchObject({ v: 1, kind: 'share', tenant_id: 'T1', gateway_url: 'https://api.align.tech' });
     expect(new URL(url).pathname).toBe(`/share/approve/${f.gw.rowIds.get(staged.envelope_id)}`);
   });
   it('never sends the key: it is in no request, and in the link only after the # (printed once)', async () => {
@@ -523,5 +523,125 @@ describe('delivery of the approval link (QR, open, narrow terminal)', () => {
     f.deps.approval.appUrl = 'https://app.align.test"; calc; "';
     expect(await run(f, { ids: [id] })).toBe(0);
     expect(f.opened).toEqual([]); expect(say(f)).not.toContain('Scan this'); expect(say(f)).toMatch(/not in the expected form/);
+  });
+});
+
+describe('which web app the approval link opens on (C4, S15)', () => {
+  const ACME_APP = 'https://align.acme.example';
+  const link = (f: Fx) => urlIn(f.out);
+
+  it('a team destination opens its saved web app, not the guess', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.teamAppUrl = ACME_APP;
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(link(f).startsWith(`${ACME_APP}/share/approve/`)).toBe(true);
+    expect(f.opened).toEqual([link(f)]);
+  });
+
+  it('a team destination whose gateway now names another web app stops before anything is staged, naming both', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.teamAppUrl = ACME_APP;
+    f.gw.appUrl = 'https://align.evil.example';
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(f.gw.staged).toHaveLength(0);
+    expect(f.opened).toEqual([]);
+    expect(say(f)).toContain('align.acme.example');
+    expect(say(f)).toContain('align.evil.example');
+    expect(say(f)).not.toContain('/share/approve/');
+  });
+
+  it('a team destination whose gateway agrees (trailing slash apart) proceeds', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.teamAppUrl = ACME_APP;
+    f.gw.appUrl = `${ACME_APP}/`;
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.gw.staged).toHaveLength(1);
+  });
+
+  it('a builtin uses the gateway\'s app_url when it gives one, and the guess when it does not', async () => {
+    const withUrl = fixture(); const id = seed();
+    withUrl.gw.appUrl = 'https://app.selfhost.example';
+    expect(await run(withUrl, { ids: [id] })).toBe(0);
+    expect(link(withUrl).startsWith('https://app.selfhost.example/share/approve/')).toBe(true);
+
+    const without = fixture();
+    expect(await run(without, { ids: [seed('another', 2)] })).toBe(0);
+    expect(link(without).startsWith('https://app.align.test/share/approve/')).toBe(true);
+  });
+
+  it('a builtin whose app_url is unusable is refused rather than replaced by the guess', async () => {
+    const f = fixture(); const id = seed();
+    f.gw.appUrl = 'http://app.selfhost.example';
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(f.gw.staged).toHaveLength(0);
+  });
+
+  it('the typed flow (browser approval off) never looks at app_url', async () => {
+    const f = fixture({ mode: 'off' }); const id = seed();
+    f.deps.teamAppUrl = ACME_APP;
+    f.gw.appUrl = 'https://align.evil.example';
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(say(f)).not.toContain('align.evil.example');
+  });
+});
+
+
+describe('browser mode names the destination before anything is staged (join review F6)', () => {
+  it('the preview, with the gateway host and the org name, is printed before the request is staged', async () => {
+    const f = fixture(); const id = seed();
+    const order: string[] = [];
+    const out = f.deps.out;
+    f.deps.out = (l) => { if (l.includes('To: "Acme" via api.align.tech')) order.push('preview'); out(l); };
+    const stage = f.gw.api.stageShareRequest;
+    f.gw.api.stageShareRequest = async (...a) => { order.push('stage'); return stage(...a); };
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(order).toEqual(['preview', 'stage']);
+  });
+});
+
+
+describe('a gateway that is not Align\'s needs the terminal yes even in browser mode (second review N4)', () => {
+  const selfHost = (f: Fx) => { f.deps.cloudEnv = { ...f.deps.cloudEnv, gatewayUrl: 'https://api.acme.example', kind: 'team' }; f.deps.defaultGatewayUrl = ''; f.deps.teamAppUrl = 'https://align.acme.example'; };
+
+  it('asks at the terminal after the preview; yes stages and goes on', async () => {
+    const f = fixture(); const id = seed(); selfHost(f);
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.asks).toHaveLength(1);
+    expect(f.asks[0]).toContain('api.acme.example');
+    expect(f.gw.staged).toHaveLength(1);
+  });
+
+  it('no stages nothing and sends nothing; no terminal says so', async () => {
+    const f = fixture(); const id = seed(); selfHost(f);
+    f.deps.ttyConfirm = async (_s, q) => { f.asks.push(q); return false; };
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.gw.staged).toHaveLength(0);
+    expect(f.opened).toEqual([]);
+
+    const g = fixture(); selfHost(g);
+    g.deps.ttyConfirm = async () => null;
+    expect(await run(g, { ids: [seed('another', 2)] })).toBe(1);
+    expect(g.gw.staged).toHaveLength(0);
+  });
+
+  it('a caller inside an agent is refused before anything is staged', async () => {
+    const f = fixture(); const id = seed(); selfHost(f); f.deps.wrapped = true;
+    expect(await run(f, { ids: [id] })).toBe(1);
+    expect(f.gw.staged).toHaveLength(0);
+    expect(f.asks).toEqual([]);
+  });
+
+  it('an Align gateway (under align.tech) keeps the browser-only flow: no terminal question, and a wrapped caller may still ask', async () => {
+    const f = fixture(); const id = seed(); f.deps.wrapped = true;
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.asks).toEqual([]);
+    expect(f.gw.staged).toHaveLength(1);
+  });
+
+  it('a look-alike host (api.align.tech.evil.example) is not an Align gateway', async () => {
+    const f = fixture(); const id = seed();
+    f.deps.cloudEnv = { ...f.deps.cloudEnv, gatewayUrl: 'https://api.align.tech.evil.example' }; f.deps.defaultGatewayUrl = 'https://api.align.tech.evil.example';
+    expect(await run(f, { ids: [id] })).toBe(0);
+    expect(f.asks).toHaveLength(1);
   });
 });

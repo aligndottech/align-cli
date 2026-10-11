@@ -91,6 +91,8 @@ const mockClearLlmPreference = vi.hoisted(() => vi.fn());
 const makeDefaultConfig = () => ({
     getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: 'tok' }),
     getDefaultEnv: vi.fn().mockReturnValue('prod'),
+    hasTeamDestination: vi.fn().mockReturnValue(false),
+    listTeamDestinationNames: vi.fn().mockReturnValue([]),
     setAuthToken: vi.fn(),
     setTenantId: vi.fn(),
     getConnectorToken: mockGetConnectorToken,
@@ -1347,6 +1349,8 @@ describe('align setup', () => {
         const noLogin = () => ({
           getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: null, mode: 'demo' }),
           getDefaultEnv: vi.fn().mockReturnValue('prod'),
+          hasTeamDestination: vi.fn().mockReturnValue(false),
+          listTeamDestinationNames: vi.fn().mockReturnValue([]),
           setAuthToken: vi.fn(),
           setTenantId: vi.fn(),
           getConnectorToken: mockGetConnectorToken,
@@ -1836,6 +1840,8 @@ describe('align setup', () => {
           ? { gatewayUrl: 'http://localhost:8080', authToken: null, tenantId: null, mode: state.localInitialised ? 'local-embedded' : 'demo' }
           : { gatewayUrl: 'http://localhost', authToken: state.cloudToken, tenantId: 't1', mode: 'auth' }),
       getDefaultEnv: vi.fn().mockReturnValue('prod'),
+      hasTeamDestination: vi.fn().mockReturnValue(false),
+      listTeamDestinationNames: vi.fn().mockReturnValue([]),
       setAuthToken: vi.fn(),
       setTenantId: vi.fn(),
       getConnectorToken: mockGetConnectorToken,

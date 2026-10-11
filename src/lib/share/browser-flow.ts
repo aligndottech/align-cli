@@ -26,7 +26,7 @@ export interface BrowserFlowDeps extends Omit<PollDeps, 'client'> {
   label: string;
   agent?: string;
   /** Try to open the link here. The link is printed either way. */
-  openUrl?: (url: string) => Promise<boolean>;
+  openUrl?: (url: string, appUrl: string) => Promise<boolean>;
   /** What to do with the link (open, QR). Absent: open when `openUrl` is given, never a QR. */
   plan?: DeliveryPlan;
   /** Build the QR lines for a link. */

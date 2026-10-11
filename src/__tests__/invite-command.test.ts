@@ -135,6 +135,23 @@ describe('align invite - work-domain org_admin', () => {
     expect(out.join('\n')).toContain('https://app.align.tech/join?token=abc');
   });
 
+  it('tells the admin what to send: one person, works once, expires in 7 days, and the join command (join C6)', async () => {
+    whoami.mockResolvedValue(WORK_ADMIN);
+    createInvite.mockResolvedValue({ inviteId: 'inv-1', inviteUrl: 'https://align.acme.example/join?token=abc&gw=https%3A%2F%2Fapi.acme.example' });
+    await run(['dan@align.tech']);
+    const text = out.join('\n');
+    expect(text).toContain('Send this to one person. It works once and expires in 7 days.');
+    expect(text).toContain("align join 'https://align.acme.example/join?token=abc&gw=https%3A%2F%2Fapi.acme.example'");
+  });
+
+  it('a link that carries a quote is not pasted into a shell line', async () => {
+    whoami.mockResolvedValue(WORK_ADMIN);
+    createInvite.mockResolvedValue({ inviteId: 'inv-1', inviteUrl: "https://app.align.tech/join?token=a'b" });
+    await run(['dan@align.tech']);
+    expect(out.join('\n')).not.toContain('align join');
+    expect(out.join('\n')).toContain('Send this to one person.');
+  });
+
   it('exits 1 and prints the message when the gateway call fails', async () => {
     whoami.mockResolvedValue(WORK_ADMIN);
     createInvite.mockRejectedValue(new Error('Gateway returned 429 for /admin/invites: rate limited'));

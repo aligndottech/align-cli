@@ -22,7 +22,7 @@ vi.mock('../lib/gateway-client.js', async (importActual) => {
   return { ...actual, createGatewayClient: vi.fn(() => ({ whoami: mockWhoami })) };
 });
 
-import { loginInteractive } from '../lib/login-flow.js';
+import { loginInteractive, saveTeamToken } from '../lib/login-flow.js';
 import { GatewayError } from '../lib/gateway-client.js';
 import type { EnvironmentConfig } from '../lib/config.js';
 
@@ -85,6 +85,39 @@ describe('loginInteractive', () => {
   });
 });
 
+describe('renewing a team destination fails closed (join review F10)', () => {
+  const team: EnvironmentConfig = { ...env, kind: 'team', appUrl: 'https://align.acme.example' };
+  const good = { user: { email: 'a@b.example' }, tenant: { id: 't1', name: 'Acme' } };
+  beforeEach(() => { mockWaitForCallback.mockReset(); mockWhoami.mockReset(); });
+
+  it('an unreachable gateway saves nothing and returns false (a builtin still saves, above)', async () => {
+    mockWaitForCallback.mockResolvedValue({ data: { token: 'tok' }, port: 1 });
+    mockWhoami.mockRejectedValue(new GatewayError('Cannot reach gateway', 0));
+    const config = fakeConfig();
+    expect(await loginInteractive(team, 'acme' as never, cast(config))).toBe(false);
+    expect(config.setAuthToken).not.toHaveBeenCalled();
+  });
+
+  it('a reply that is not an Align whoami saves nothing', async () => {
+    mockWaitForCallback.mockResolvedValue({ data: { token: 'tok' }, port: 1 });
+    for (const bad of [{}, { user: { email: 7 }, tenant: { id: 't', name: 'x' } }, { user: { email: 'a@b.example' }, tenant: { id: { x: 1 }, name: 'x' } }]) {
+      mockWhoami.mockResolvedValue(bad);
+      const config = fakeConfig();
+      expect(await loginInteractive(team, 'acme' as never, cast(config))).toBe(false);
+      expect(config.setAuthToken).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a good answer saves the token and the tenant id', async () => {
+    mockWaitForCallback.mockResolvedValue({ data: { token: 'tok' }, port: 1 });
+    mockWhoami.mockResolvedValue(good);
+    const config = fakeConfig();
+    expect(await loginInteractive(team, 'acme' as never, cast(config))).toBe(true);
+    expect(config.setAuthToken).toHaveBeenCalledWith('acme', 'tok');
+    expect(config.setTenantId).toHaveBeenCalledWith('acme', 't1');
+  });
+});
+
 describe('the spinner message follows the opener verdict', () => {
   // The message fires inside onBound, which the shared mock never invokes - so this
   // block drives it: the callback mock calls onBound (as the real server does on
@@ -125,5 +158,89 @@ describe('the spinner message follows the opener verdict', () => {
     expect(said).toMatch(/could not open/i);
     expect(said).not.toContain('Browser opened');
     expect(said).toContain('https://');
+  });
+});
+
+
+describe('renewal: the browser URL the gateway hands back is checked before it is opened or printed (second review N3)', () => {
+  const team: EnvironmentConfig = { ...env, gatewayUrl: 'https://api.acme.example', kind: 'team', appUrl: 'https://align.acme.example' };
+  async function renewWith(url: string) {
+    mockTryOpenUrl.mockClear(); mockSpinnerStop.mockClear(); mockWhoami.mockReset();
+    mockWhoami.mockResolvedValue({ user: { email: 'a@b.example' }, tenant: { id: 't1', name: 'Acme' } });
+    let aborted = false;
+    mockWaitForCallback.mockImplementation(async (opts: { onBound?: (p: number, n: string) => Promise<void>; signal?: AbortSignal }) => {
+      await opts.onBound?.(7654, 'nonce');
+      if (opts.signal?.aborted) { aborted = true; throw new Error('cancelled'); }
+      return { data: { token: 'tok' }, port: 7654 };
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ url }) }));
+    const config = fakeConfig();
+    try {
+      const ok = await loginInteractive(team, 'acme' as never, cast(config));
+      return { ok, config, aborted, said: mockSpinnerStop.mock.calls.map((c) => String(c[0])).join('\n') };
+    } finally { vi.unstubAllGlobals(); }
+  }
+
+  it.each([
+    ['a file URL', 'file:///etc/passwd'],
+    ['a custom scheme', 'vscode://evil/x'],
+    ['a foreign origin', 'https://login.evil.example/cli?x=1'],
+    ['plain http to the right host', 'http://api.acme.example/auth/cli-login'],
+  ])('%s is not opened, nothing is saved, and the wait is stopped', async (_n, url) => {
+    const r = await renewWith(url);
+    expect(mockTryOpenUrl).not.toHaveBeenCalled();
+    expect(r.ok).toBe(false);
+    expect(r.config.setAuthToken).not.toHaveBeenCalled();
+    expect(r.aborted).toBe(true);
+  });
+
+  it('a URL on the saved gateway or web app is opened (both origins are the destination\'s own)', async () => {
+    for (const url of ['https://api.acme.example/auth/cli-login?p=1', 'https://align.acme.example/cli-login']) {
+      const r = await renewWith(url);
+      expect(mockTryOpenUrl).toHaveBeenCalledWith(url);
+      expect(r.ok).toBe(true);
+    }
+  });
+
+  it('a builtin environment gets the scheme check too: a file URL is not opened, an https one is', async () => {
+    const { checkLoginUrl } = await import('../lib/login-flow.js');
+    expect(checkLoginUrl('file:///etc/passwd', env).startsWith('!')).toBe(true);
+    expect(checkLoginUrl('vscode://x', env).startsWith('!')).toBe(true);
+    expect(checkLoginUrl('https://app.align.tech/cli', env)).toBe('https://app.align.tech/cli');
+  });
+
+  it('escape sequences in the URL are never printed raw', async () => {
+    const esc = String.fromCharCode(27);
+    const r = await renewWith(`https://api.acme.example/x${esc}]0;PWNED`);
+    expect(r.said.includes(esc)).toBe(false);
+  });
+});
+
+describe('align login --env <team> --token (second review N2)', () => {
+  const team: EnvironmentConfig = { ...env, gatewayUrl: 'https://api.acme.example', kind: 'team', appUrl: 'https://align.acme.example', tenantId: 'T-old', authToken: 'old' };
+  beforeEach(() => mockWhoami.mockReset());
+
+  it('refuses under ALIGN_WRAPPED or without a terminal, before any request, and changes nothing', async () => {
+    for (const ctx of [{ wrapped: true, tty: true }, { wrapped: false, tty: false }]) {
+      const config = fakeConfig();
+      expect(typeof await saveTeamToken(team, 'acme' as never, 'tok', cast(config), ctx)).toBe('string');
+      expect(config.setAuthToken).not.toHaveBeenCalled();
+    }
+    expect(mockWhoami).not.toHaveBeenCalled();
+  });
+
+  it('at a terminal, a token the destination does not vouch for is refused and nothing is saved', async () => {
+    mockWhoami.mockResolvedValue({});
+    const config = fakeConfig();
+    expect(typeof await saveTeamToken(team, 'acme' as never, 'tok', cast(config), { wrapped: false, tty: true })).toBe('string');
+    expect(config.setAuthToken).not.toHaveBeenCalled();
+  });
+
+  it('a verified token is saved with ITS tenant, never the old one', async () => {
+    mockWhoami.mockResolvedValue({ user: { email: 'a@b.example' }, tenant: { id: 'T-new', name: 'Other' } });
+    const config = fakeConfig();
+    expect(await saveTeamToken(team, 'acme' as never, 'tok', cast(config), { wrapped: false, tty: true })).toMatchObject({ tenantId: 'T-new' });
+    expect(config.setAuthToken).toHaveBeenCalledWith('acme', 'tok');
+    expect(config.setTenantId).toHaveBeenCalledWith('acme', 'T-new');
   });
 });

@@ -26,13 +26,14 @@ const rec = (o: Partial<PendingRequest> = {}): PendingRequest => ({
   hash: 'h', localIds: ['l1'], agentId: 'agent', userCode: 'KJ4M-9XQT', expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), ...o,
 });
 
-function rig(init: Parameters<typeof fakeRequests>[0] = { states: ['pending'] }, over: { cloudEnv?: ShareDeps['cloudEnv']; plan?: ShareDeps['approval']['plan'] } = {}) {
+function rig(init: Parameters<typeof fakeRequests>[0] = { states: ['pending'] }, over: { cloudEnv?: ShareDeps['cloudEnv']; plan?: ShareDeps['approval']['plan']; teamAppUrl?: string } = {}) {
   const gw: FakeRequests = fakeRequests(init);
   const out: string[] = []; const err: string[] = []; const opened: string[] = [];
   const deps = {
     cloudEnv: over.cloudEnv ?? { mode: 'auth', gatewayUrl: 'https://api.align.test', authToken: 't', tenantId: 'T1' },
     localDbPath: null, salt: 's', defaultGatewayUrl: 'https://api.align.test', client: () => ({ ...gw.api }), judge: async () => { throw new Error('no'); }, owner: async () => 'x', wrapped: false,
     ttyConfirm: async () => null,
+    ...(over.teamAppUrl ? { teamAppUrl: over.teamAppUrl } : {}),
     approval: {
       appUrl: 'https://app.align.test', label: 'l', sleep: async () => undefined, now: () => Date.now(),
       openUrl: async (u: string) => { opened.push(u); return true; }, ...(over.plan ? { plan: over.plan } : {}),
@@ -84,6 +85,35 @@ describe('align share --open', () => {
     expect(await a.run(RID)).toBe(1); expect(a.err.join('\n')).toMatch(/approved/); expect(a.all()).not.toContain(KEY);
     const b = rig({ states: ['pending'] }); b.gw.getError = () => new Error('boom');
     expect(await b.run(RID)).toBe(1); expect(b.all()).not.toContain(KEY);
+  });
+  it('a team destination re-opens on the web app it was joined with, the same one its share was staged for', async () => {
+    saveRequest(rec());
+    const r = rig({ states: ['pending'] }, { teamAppUrl: 'https://align.acme.example', plan: { open: true, qr: false, qrIfOpenFails: false, why: 't' } });
+    expect(await r.run(RID)).toBe(0);
+    const link = `https://align.acme.example/share/approve/${RID}#k=${KEY}`;
+    expect(r.out.join('\n')).toContain(`Approve in your browser: ${link}`);
+    expect(r.opened).toEqual([link]);
+  });
+  it('a builtin re-opens on the web app its gateway names, as the share did', async () => {
+    saveRequest(rec());
+    const r = rig({ states: ['pending'] });
+    r.gw.mode = 'available'; r.gw.appUrl = 'https://app.selfhost.example';
+    expect(await r.run(RID)).toBe(0);
+    expect(r.out.join('\n')).toContain(`https://app.selfhost.example/share/approve/${RID}#k=`);
+  });
+  it('a team destination whose gateway now names another web app is refused, naming both, and prints no key', async () => {
+    saveRequest(rec());
+    const r = rig({ states: ['pending'] }, { teamAppUrl: 'https://align.acme.example' });
+    r.gw.mode = 'available'; r.gw.appUrl = 'https://align.evil.example';
+    expect(await r.run(RID)).toBe(1);
+    expect(r.all()).toContain('align.acme.example'); expect(r.all()).toContain('align.evil.example');
+    expect(r.all()).not.toContain(KEY); expect(r.opened).toEqual([]);
+  });
+  it('a request staged for another destination names the --to that re-opens it (--env is refused once a share destination is set)', async () => {
+    saveRequest(rec({ envName: 'acme' }));
+    const r = rig();
+    expect(await r.run(RID, 'prod')).toBe(1);
+    expect(r.err.join('\n')).toContain(`align share --open ${RID} --to acme`);
   });
   it('needs a team login like every other share path', async () => {
     saveRequest(rec());

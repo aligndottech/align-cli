@@ -1,4 +1,5 @@
 import type { EnvName } from './config.js';
+import { envFlag } from './destination-name.js';
 
 /**
  * ALI-950: after the wizard, the next step is in the agent.
@@ -85,7 +86,7 @@ export function firstQuestion(firstTitle: string | undefined): string {
 
 /** Runnable AS PRINTED: bare `align mcp --setup` wires the cloud default, which is not a local user's graph. */
 function mcpSetupCommand(envName: EnvName): string {
-  return envName === 'prod' ? 'align mcp --setup' : `align mcp --setup --env ${envName}`;
+  return `align mcp --setup${envFlag(envName)}`;
 }
 
 /**

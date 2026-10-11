@@ -1,0 +1,32 @@
+{
+  "version": 3,
+  "endpoint": "POST /leads/team-interest",
+  "auth": "none (public, no cookies, JSON only, no CORS headers)",
+  "request": {
+    "email": "string, required, max 254",
+    "source": "cli-share",
+    "consent_version": "string, required, max 64",
+    "cli_version": "string, optional, max 32",
+    "os": "darwin | linux | win32, optional"
+  },
+  "responses": {
+    "202": {
+      "status": "pending_confirmation"
+    },
+    "422": {
+      "error": "invalid_email | invalid_body"
+    },
+    "429": {
+      "error": "rate_limited",
+      "retry_after_s": "integer"
+    }
+  },
+  "notes": [
+    "202 is identical for new, duplicate, confirmed, unsubscribed and suppressed addresses (no enumeration oracle)",
+    "One double opt-in confirmation email is sent; nothing is confirmed or notified until the owner clicks",
+    "GET|POST /leads/confirm and GET|POST /leads/unsubscribe (token in the query) are for people and mail clients, not the CLI",
+    "Both email links are scanner-safe (v3): GET /leads/confirm?token= and GET /leads/unsubscribe?token= only show a page with one button and change nothing. POST /leads/confirm?token= confirms and notifies once; POST /leads/unsubscribe?token= (the button, form-encoded, or the RFC 8058 one-click) unsubscribes. Unknown or expired token: 404 neutral page on both verbs.",
+    "The endpoint exists only where the gateway runs with LEADS_ENABLED=true (Align's hosted environments); anywhere else POST /leads/team-interest is a 404. A CLI must treat a 404 as 'not offered here', not as an error to show the user.",
+    "Rate limits are keyed on the canonical mailbox (+tag stripped, gmail dots folded) so a+1@ and a+2@ count as one address, and per caller network (IPv6 by /64)."
+  ]
+}
