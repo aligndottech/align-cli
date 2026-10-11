@@ -14,8 +14,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertIsolatedHome } from './helpers/isolated-home.js';
 
 import {
   DECISION_MEMORY_TYPES,
@@ -36,6 +37,10 @@ function writeMemory(name: string, contents: string): string {
 }
 
 beforeEach(() => {
+  // locateMemoryFiles reads ~/.claude/settings.json and walks ~/.claude/projects. Against a
+  // real home that is every session the developer has ever run; the setup file must have
+  // moved it into the temp folder.
+  assertIsolatedHome(join(homedir(), '.claude'));
   root = mkdtempSync(join(tmpdir(), 'ali810-'));
   memoryDir = join(root, 'projects', '-home-user-repo', 'memory');
   mkdirSync(memoryDir, { recursive: true });

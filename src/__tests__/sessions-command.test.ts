@@ -75,6 +75,9 @@ vi.mock('../lib/personal-import.js', async (importOriginal) => {
 });
 
 import { registerImportSessionsCommand } from '../commands/import/sessions.js';
+import os from 'node:os';
+import path from 'node:path';
+import { assertIsolatedHome } from './helpers/isolated-home.js';
 
 const out: string[] = [];
 const err: string[] = [];
@@ -100,6 +103,11 @@ async function run(): Promise<void> {
 }
 
 beforeEach(() => {
+  // Pass C (memory-files.ts) is not mocked here, so every run reads
+  // ~/.claude/settings.json and walks ~/.claude/projects. Against a real home that is every
+  // session the developer has ever run (4-8 s a case on one box); the setup file must have
+  // moved it into the temp folder.
+  assertIsolatedHome(path.join(os.homedir(), '.claude'));
   getEnvironment.mockReturnValue({ mode: 'local-embedded', localDbPath: '/tmp/x.db' });
   detectAgents.mockReturnValue([]);
   extractStructuredDecisions.mockReturnValue([]);
