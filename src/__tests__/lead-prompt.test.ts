@@ -20,6 +20,23 @@ import {
  *   map to one outcome.
  * - Disk: after a submit the address is in no file under the config or state directories.
  */
+/**
+ * The real `conf`, pointed at a scratch directory. Stubbing HOME/XDG_* is not enough in-process: env-paths reads
+ * os.homedir() once at import, and on macOS the config lives under ~/Library/Preferences, so a stubbed env still wrote the
+ * REAL home's config (red on macos-latest, and a write to a developer's own config on a Mac). `cwd` bypasses env-paths on
+ * every platform, and with no scratch directory set the constructor throws rather than fall back to the real home.
+ */
+const confDir = vi.hoisted(() => ({ value: '' }));
+vi.mock('conf', async (importOriginal) => {
+  const Real = (await importOriginal<{ default: new (o: Record<string, unknown>) => object }>()).default;
+  // A plain function called with `new` that returns the real instance: the product's `new Conf(...)` gets a real store.
+  function ScratchConf(opts: Record<string, unknown>): object {
+    if (!confDir.value) throw new Error('lead-prompt.test: no scratch config directory set; refusing the real home');
+    return new Real({ ...opts, cwd: confDir.value });
+  }
+  return { default: ScratchConf };
+});
+
 const HOSTED = 'https://api.align.tech';
 const person: LeadGateInput = { env: {}, tty: true, hasLogin: false, inCi: false, state: {}, gatewayUrl: HOSTED, hostedGatewayUrl: HOSTED, hasTeamDestination: false };
 const asked = (over: Partial<LeadState> = {}): LeadState => ({ shownAt: '2026-10-10T10:00:00.000Z', version: LEAD_CONSENT_VERSION, outcome: 'skipped', ...over });
@@ -307,8 +324,9 @@ describe('on disk', () => {
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-lead-disk-'));
     for (const k of ['HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_DATA_HOME', 'APPDATA', 'LOCALAPPDATA']) vi.stubEnv(k, path.join(dir, k));
+    confDir.value = path.join(dir, 'config');
   });
-  afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(dir, { recursive: true, force: true }); });
+  afterEach(() => { confDir.value = ''; vi.unstubAllEnvs(); fs.rmSync(dir, { recursive: true, force: true }); });
   const walk = (d: string): string[] => (fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)])) : []);
 
   it('the config keeps a timestamp and an outcome, and the address is in no file anywhere', async () => {
