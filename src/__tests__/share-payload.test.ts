@@ -58,7 +58,7 @@ describe('what a share carries', () => {
   it('sends a check verdict as kind, value and time only, never its context key', () => {
     const p = build([j({ kind: 'check_verdict', context_key: 'sha-of-files-src/secret/path.ts', value: 'false' })]);
     expect(p.item.judgements[1]).toEqual({ kind: 'check_verdict', value: 'false_positive', judged_at: expect.any(String), origin: 'local_share' });
-    const shown = JSON.stringify(p.item) + renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c' });
+    const shown = JSON.stringify(p.item) + renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c', gatewayHost: 'api.align.tech' });
     expect(shown).not.toContain('sha-of-files');
     expect(shown).not.toContain('secret/path');
   });
@@ -77,7 +77,7 @@ describe('pair judgements need the other decision on the team graph', () => {
     expect(p.item.judgements.map((x) => x.kind)).toEqual(['ratify']);
     expect(p.leftLocal).toEqual([{ kind: 'conflict_verdict', why: 'counterpart_not_shared', counterpartTitle: `title of ${OTHER}` }]);
     expect(p.deferredPairs).toHaveLength(1);
-    expect(renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c' })).toMatch(/Stays on this machine:\s+- a conflict verdict about "title of 2222.*not on your team graph/);
+    expect(renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c', gatewayHost: 'api.align.tech' })).toMatch(/Stays on this machine:\s+- a conflict verdict about "title of 2222.*not on your team graph/);
   });
   it('sends it with the remote id of the counterpart when the pair is the other way round too', () => {
     const p = build([j({ decision_id: OTHER, counterpart_id: row().id, kind: 'conflict_verdict', value: 'real' })], { [OTHER]: REMOTE });
@@ -101,7 +101,7 @@ describe('judgements an agent relayed', () => {
     const mine = p.item.judgements.find((x) => x.note === 'mine')!;
     expect(mine.origin).toBe('local_share');
     expect('agent' in mine).toBe(false);
-    const text = renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c' });
+    const text = renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c', gatewayHost: 'api.align.tech' });
     expect(text).toMatch(/Recorded by your agent \(claude-code\):\s+- note: "relayed"/);
     expect(text).toMatch(/Goes with it:[\s\S]*note: "mine"/);
   });
@@ -110,7 +110,7 @@ describe('judgements an agent relayed', () => {
     const w = p.item.judgements.find((x) => x.note === 'x')!;
     expect(w.origin).toBe('local_share_mcp');
     expect('agent' in w).toBe(false);
-    expect(renderPreview([build([j({ kind: 'note', note: 'y' })])], { workspace: 'W', env: 'prod', email: 'a@b.c' })).not.toContain('Recorded by your agent');
+    expect(renderPreview([build([j({ kind: 'note', note: 'y' })])], { workspace: 'W', env: 'prod', email: 'a@b.c', gatewayHost: 'api.align.tech' })).not.toContain('Recorded by your agent');
   });
 });
 
@@ -122,8 +122,8 @@ describe('the item and its hash', () => {
     expect(a.hash).toBe(b.hash);
     expect(c.hash).not.toBe(a.hash);
     expect(a.hash).toBe(hashItem(a.item));
-    const text = renderPreview([a], { workspace: 'Acme', env: 'prod', email: 'me@co.com' }, { updates: new Set([a.localId]) });
-    expect(text).toContain('To: Acme (prod) as me@co.com');
+    const text = renderPreview([a], { workspace: 'Acme', env: 'prod', email: 'me@co.com', gatewayHost: 'api.align.tech' }, { updates: new Set([a.localId]) });
+    expect(text).toContain('To: "Acme" via api.align.tech, as me@co.com');
     expect(text).toContain('Use sqlite for the cache');
     expect(text).toContain('Settled on sqlite because it ships with node.');
     expect(text).toContain('Source: https://github.com/o/r/pull/12 (github)');
@@ -141,7 +141,7 @@ describe('the item and its hash', () => {
   });
   it('flags a legacy push in the preview', () => {
     const p = build([]);
-    expect(renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c' }, { legacy: new Set([p.localId]) })).toContain('may create a second copy');
+    expect(renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c', gatewayHost: 'api.align.tech' }, { legacy: new Set([p.localId]) })).toContain('may create a second copy');
   });
 });
 
@@ -187,7 +187,7 @@ describe('summary, and what was already sent', () => {
     const sentHash = judgementHash(all.item.judgements.find((x) => x.note === 'old note')!);
     const p = build([n, fresh], {}, row(), [sentHash]);
     expect(p.item.judgements.map((x) => x.note ?? x.kind)).toEqual(['ratify', 'new note']);
-    expect(renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c' })).not.toContain('old note');
+    expect(renderPreview([p], { workspace: 'W', env: 'prod', email: 'a@b.c', gatewayHost: 'api.align.tech' })).not.toContain('old note');
     expect(p.fullHash).toBe(all.fullHash);
     expect(p.hash).not.toBe(all.hash);
   });

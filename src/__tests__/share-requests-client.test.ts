@@ -20,7 +20,15 @@ describe('config', () => {
   it('reads each mode', async () => {
     for (const mode of ['off', 'available', 'required']) {
       vi.stubGlobal('fetch', answer({ mode, pending_ttl_s: 900, complete_ttl_s: 600 }));
-      expect(await client().shareRequestsConfig()).toEqual({ mode, pendingTtlS: 900, completeTtlS: 600 });
+      expect(await client().shareRequestsConfig()).toEqual({ mode, pendingTtlS: 900, completeTtlS: 600, appUrl: null });
+    }
+  });
+  it('reads app_url when the gateway gives one, and null when it is absent, empty or not a string', async () => {
+    vi.stubGlobal('fetch', answer({ mode: 'available', app_url: 'https://align.acme.example' }));
+    expect((await client().shareRequestsConfig())?.appUrl).toBe('https://align.acme.example');
+    for (const app_url of [undefined, '', 7, null]) {
+      vi.stubGlobal('fetch', answer({ mode: 'available', app_url }));
+      expect((await client().shareRequestsConfig())?.appUrl).toBeNull();
     }
   });
   it('treats a 404 as an older gateway (null), but a 500 and a 401 as errors', async () => {

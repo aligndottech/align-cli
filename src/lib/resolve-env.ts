@@ -17,17 +17,20 @@ export class UnknownEnvError extends Error {
   }
 }
 
-function acceptName(name: string, config: ReturnType<typeof createConfigStore>): EnvName {
+type ConfigStore = ReturnType<typeof createConfigStore>;
+
+/** A builtin or a saved team destination, or UnknownEnvError. The one place a typed name is accepted. */
+export function acceptEnvName(name: string, config: Pick<ConfigStore, 'hasTeamDestination' | 'listTeamDestinationNames'>): EnvName {
   if ((VALID_ENVS as string[]).includes(name)) return name as EnvName;
   if (config.hasTeamDestination(name)) return name as EnvName;
   throw new UnknownEnvError(name, config.listTeamDestinationNames());
 }
 
-export function resolveEnv(flagValue?: string, opts: { preferLocalEmbedded?: boolean } = {}): EnvName {
-  const config = createConfigStore();
-  if (flagValue) return acceptName(flagValue, config);
+export function resolveEnv(flagValue?: string, opts: { preferLocalEmbedded?: boolean; config?: ConfigStore } = {}): EnvName {
+  const config = opts.config ?? createConfigStore();
+  if (flagValue) return acceptEnvName(flagValue, config);
   const fromEnvVar = process.env['ALIGN_ENV'];
-  if (fromEnvVar) return acceptName(fromEnvVar, config);
+  if (fromEnvVar) return acceptEnvName(fromEnvVar, config);
   const defaultEnv = config.getDefaultEnv();
   // A user who ran `align setup --local` has local-embedded configured but the
   // default env stays a cloud env (deliberate, so cloud-only commands are not

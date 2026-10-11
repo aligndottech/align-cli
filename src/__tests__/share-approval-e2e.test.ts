@@ -1,7 +1,5 @@
-import { spawn } from 'node:child_process';
-import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { type Harness, ROOT, startHarness } from './helpers/share-harness.js';
+import { type Harness, startHarness } from './helpers/share-harness.js';
 
 /**
  * ALI-1540, the real binary against a fake gateway on loopback (the gateway side is a contract, not the real routes):
@@ -29,9 +27,9 @@ const reset = (mode: 'off' | 'available' | 'required' | null, states: string[]):
 };
 
 describe.skipIf(!posix)('browser approval through the real command', () => {
-  it('from inside an agent: stages, sees the approval, completes, and never posts directly or prompts', async () => {
+  it('a person at a terminal, to a gateway that is not Align\'s: the terminal yes comes first, then it stages, sees the approval, completes, and never posts directly', async () => {
     reset('available', ['approved']);
-    const r = await h.plain([h.ids[0]!, '--no-open'], { ALIGN_WRAPPED: '1' });
+    const r = await h.ptyAlign(['share', h.ids[0]!, '--no-open'], [['[y/N]', 'y\n']]);
     expect(r.code).toBe(0);
     expect(r.out).toContain('Approve in your browser: ');
     expect(r.out).toContain('#k=');
@@ -45,6 +43,14 @@ describe.skipIf(!posix)('browser approval through the real command', () => {
     expect(h.requests.map((q) => q.url + q.body).join('\n')).not.toContain(key);
     expect(h.requests.every((q) => q.auth === 'Bearer tok')).toBe(true);
   });
+  it('from inside an agent, to a gateway that is not Align\'s: refused before any request (second review N4)', async () => {
+    reset('available', ['approved']);
+    const r = await h.plain([h.ids[0]!, '--no-open'], { ALIGN_WRAPPED: '1' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('not an Align address');
+    expect(h.requests).toEqual([]);
+    expect(h.posts).toEqual([]);
+  });
   it('required: --typed is refused on the real command line and nothing is staged', async () => {
     reset('required', ['approved']);
     const r = await h.plain([h.ids[0]!, '--typed']);
@@ -55,14 +61,9 @@ describe.skipIf(!posix)('browser approval through the real command', () => {
   });
   it('a real Ctrl-C while waiting cancels the request and exits 130', async () => {
     reset('available', ['pending']);
-    const p = spawn(path.join(ROOT, 'node_modules/.bin/tsx'), [path.join(ROOT, 'src/index.ts'), 'share', h.ids[0]!, '--no-open'], { detached: true, env: h.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    const waiting = new Promise<void>((resolve) => { const on = (b: Buffer): void => { out += b; if (out.includes('Waiting for your approval')) resolve(); }; p.stdout!.on('data', on); p.stderr!.on('data', on); });
-    const closed = new Promise<number | null>((resolve) => p.on('close', (c) => resolve(c)));
-    await waiting;
-    process.kill(-p.pid!, 'SIGINT');
-    expect(await closed).toBe(130);
-    expect(out).toContain('Cancelled the request. Nothing was sent.');
+    const r = await h.ptyAlign(['share', h.ids[0]!, '--no-open'], [['[y/N]', 'y\n'], ['Waiting for your approval', '\x03']]);
+    expect(r.code).toBe(130);
+    expect(r.out).toContain('Cancelled the request. Nothing was sent.');
     expect(h.requests.some((q) => q.method === 'POST' && q.url.endsWith('/cancel'))).toBe(true);
     expect(h.requests.some((q) => q.url.endsWith('/complete'))).toBe(false);
   });

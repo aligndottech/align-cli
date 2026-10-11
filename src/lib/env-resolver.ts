@@ -11,6 +11,8 @@ export function resolveWebhookUrl(connectorKey: string, env: EnvironmentConfig):
 }
 
 export function resolveAppUrl(env: EnvironmentConfig): string {
+  // A team destination saved the web app its gateway named at join time; guessing it from the gateway is for the builtins only.
+  if (env.kind === 'team' && env.appUrl) return env.appUrl;
   if (env.gatewayUrl.includes('localhost')) return 'http://localhost:5173';
   return env.gatewayUrl.replace('://api.', '://app.');
 }

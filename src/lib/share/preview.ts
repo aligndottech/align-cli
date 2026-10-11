@@ -16,7 +16,9 @@ export interface Destination {
   env: string;
   /** The signed-in account. */
   email: string;
-  /** The gateway URL, present only when it is not the environment's default (an ALIGN_GATEWAY_URL override). */
+  /** The gateway's host (host:port), always shown: the server the share goes to is the thing a person must be able to read. */
+  gatewayHost: string;
+  /** The gateway URL, present only when a BUILTIN environment is pointed away from its default (an ALIGN_GATEWAY_URL override). */
   gateway?: string;
 }
 
@@ -26,6 +28,9 @@ export interface PreviewOptions {
   /** Local ids an old `align push` sent without a workspace: a second share may make a second copy. */
   legacy?: ReadonlySet<string>;
 }
+
+/** Said on the destination line itself: the organisation picks the name it shows, and Align checks nothing about it. */
+export const NAME_NOTE = 'the organisation chose that name; Align does not verify it';
 
 const day = (iso: string): string => iso.slice(0, 10);
 const quoted = (t: string | null): string => (t ? `"${visible(t)}"` : 'another decision');
@@ -84,6 +89,6 @@ export function renderPreview(payloads: readonly SharePayload[], dest: Destinati
     lines.push('');
   });
   // The destination is the LAST thing printed, directly above the question, so it is what is read last.
-  lines.push(visible("A shared decision stays with your team, as the team's record. If you leave and your account is erased, your name and your judgements are removed from it and the decision stays."), 'Nothing is sent until you say yes.', `To: ${visible(dest.workspace)} (${visible(dest.env)}) as ${visible(dest.email)}${dest.gateway ? `, via ${visible(dest.gateway)} (not the default for ${visible(dest.env)})` : ''}`);
+  lines.push(visible("A shared decision stays with your team, as the team's record. If you leave and your account is erased, your name and your judgements are removed from it and the decision stays."), 'Nothing is sent until you say yes.', `To: "${visible(dest.workspace)}" via ${visible(dest.gatewayHost)}, as ${visible(dest.email)} (${NAME_NOTE}${dest.gateway ? `; this gateway is not the default for ${visible(dest.env)}` : ''})`);
   return lines.join('\n');
 }

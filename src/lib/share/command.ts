@@ -19,6 +19,8 @@ import { type EnvironmentConfig } from '../config.js';
 import { teamCtaLine } from '../team-cta.js';
 import { runBrowserShare } from './browser-flow.js';
 import { combinedHash, consumeCode, lookupCode, sweepPending } from './pending.js';
+import { isAlignHost } from '../destination-trust.js';
+import { resolveApprovalAppUrl } from './target.js';
 import { prepare, type Prepared, ratifiedRows, renderResults, renderTeamText, retract, secretRefusal, send, type ShareClient, ShareError } from './run.js';
 import type { Judge } from '../curation/judgements-db.js';
 
@@ -52,6 +54,8 @@ export interface ApprovalDeps {
 
 export interface ShareDeps {
   cloudEnv: EnvironmentConfig;
+  /** Set for a team destination: the web app saved when it was joined. Approval links use it, and a gateway that disagrees stops the share. */
+  teamAppUrl?: string;
   /** This install's salt for the opaque client_key. */
   salt: string;
   /** The environment's default gateway URL: anything else is shown in the preview. */
@@ -71,6 +75,8 @@ export interface ShareDeps {
 }
 
 const WRAPPED = 'align share needs your own answer typed at a terminal here, and this is not run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.';
+const WRAPPED_FOREIGN = 'This destination is not an Align address, so a share to it needs your own answer typed at a terminal here, and this is run from inside an agent that align launched. Open a normal terminal of your own and run it there. Nothing was sent.';
+const hostOf = (url: string): string => { try { return new URL(url).host; } catch { return ''; } };
 const NO_TERMINAL = 'Confirm this in your own terminal: there is no interactive terminal here (an agent shell, a pipe and a hook have none). Nothing was sent.';
 
 export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<number> {
@@ -91,6 +97,10 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     return 1;
   }
   const dbPath = deps.localDbPath;
+  // A gateway that is not Align's is not an independent approver: its own web page "approving" proves nothing about the person.
+  // So a share to one needs the person at a terminal, in either mode, and an agent is refused before any request goes out.
+  const foreignGateway = !isAlignHost(hostOf(deps.cloudEnv.gatewayUrl));
+  if (foreignGateway && deps.wrapped) { err(WRAPPED_FOREIGN); return 1; }
   sweepPending(); // codes are 10 minutes; a file a day old is leftover
   const ctx = async () => ({ dbPath, envName: opts.envName, client: deps.client(), judge: await deps.judge(), salt: deps.salt, gatewayUrl: deps.cloudEnv.gatewayUrl, defaultGatewayUrl: deps.defaultGatewayUrl });
 
@@ -116,6 +126,9 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
       return 1;
     }
     if (!browser && deps.wrapped) { err(WRAPPED); return 1; }
+    // Where the approval link opens is settled before anything is prepared or staged: the link carries the share's key.
+    const appChoice = browser ? resolveApprovalAppUrl({ stored: deps.teamAppUrl ?? null, cfgAppUrl: cfg?.appUrl ?? null, guessed: deps.approval.appUrl }) : null;
+    if (appChoice && !appChoice.ok) { err(appChoice.message); return 1; }
     // No silent downgrade: when the typed flow runs because the gateway has no browser approval, say so.
     if (!browser && !opts.typed) out(cfg === null ? 'This gateway does not offer browser approval (it has no such route), so this uses the typed answer at your terminal.' : 'This gateway has browser approval turned off, so this uses the typed answer at your terminal.');
 
@@ -149,10 +162,16 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
     if (prep.payloads.length === 0) return 0;
 
     if (browser) {
-      out(prep.preview);
+      if (foreignGateway) {
+        const yes = await deps.ttyConfirm(prep.preview, `Share ${prep.payloads.length} decision${prep.payloads.length === 1 ? '' : 's'} with ${visible(prep.dest.workspace)} at ${visible(prep.dest.gatewayHost)}?`);
+        if (yes === null) { err(NO_TERMINAL); return 1; }
+        if (!yes) { out('Nothing was sent.'); return 0; }
+      } else {
+        out(prep.preview);
+      }
       const { guard, ...rest } = deps.approval;
       const maxWaitMs = ((cfg?.pendingTtlS ?? 900) + (cfg?.completeTtlS ?? 600)) * 1000;
-      return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, signal, maxWaitMs, client: c.client, out, err, ...(deps.wrapped ? { agent: 'wrapped' } : {}) }));
+      return await (guard ?? ((run) => run(undefined)))((signal) => runBrowserShare(c, prep, { ...rest, appUrl: appChoice?.ok ? appChoice.appUrl : rest.appUrl, signal, maxWaitMs, client: c.client, out, err, ...(deps.wrapped ? { agent: 'wrapped' } : {}) }));
     }
 
     if (pendingCode !== undefined) {

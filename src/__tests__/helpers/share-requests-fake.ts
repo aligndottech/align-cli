@@ -48,6 +48,8 @@ export interface FakeRequests {
   reply: (n: number, payload: Record<string, unknown>) => BatchResponse;
   /** Replies for later completes (a second approval), consumed in order before `reply`. */
   replies: BatchResponse[];
+  /** The `app_url` this gateway reports in /share-requests/config (null: an older one that does not). */
+  appUrl?: string | null;
   /** Overrides the expiry the fake gateway reports at staging (a hostile gateway says the far future). */
   expiresAt?: string;
   /** Run when a poll happens, with the poll count: lets a test approve or abort at a chosen moment. */
@@ -69,7 +71,7 @@ export function fakeRequests(init: Partial<Pick<FakeRequests, 'mode' | 'states'>
     api: undefined as unknown as ShareRequestsApi,
   };
   f.api = {
-    shareRequestsConfig: async () => (f.mode === null ? null : { mode: f.mode, pendingTtlS: 900, completeTtlS: 600 }),
+    shareRequestsConfig: async () => (f.mode === null ? null : { mode: f.mode, pendingTtlS: 900, completeTtlS: 600, appUrl: f.appUrl ?? null }),
     stageShareRequest: async (body) => {
       f.staged.push(body); f.wire.push(JSON.stringify(body));
       const rowId = randomUUID(); f.rowIds.set(body.envelope_id, rowId);
