@@ -55,11 +55,14 @@ describe.skipIf(!posix)('inside an agent align launched', () => {
 
 describe.skipIf(!posix)('an unknown --env', () => {
   it('is refused with exit 2 and no request, never falling back to the default environment', async () => {
-    for (const env of ['prd', 'local', '']) {
+    for (const env of ['prd', '']) {
       const r = await h.plain([h.ids[0]!, '--env', env]);
       expect(r.code).toBe(2);
       expect(r.out).toContain('Unknown environment');
     }
+    const local = await h.plain([h.ids[0]!, '--env', 'local']);
+    expect(local.code).toBe(2);
+    expect(local.out).toContain('where they go');
     expect(h.posts).toHaveLength(0);
   });
 });
@@ -72,7 +75,7 @@ describe.skipIf(!canPty)('on a real pseudo-terminal', () => {
     const yes = await h.pty([h.ids[0]!], [['[y/N]', 'y\n']]);
     expect(yes.code).toBe(0);
     expect(yes.out).not.toMatch(/EBADF/);
-    expect(yes.out).toContain('To: Acme');
+    expect(yes.out).toContain('To: "Acme"');
     expect(h.posts).toHaveLength(1);
   });
   it('the team-text question gets its own answer', async () => {

@@ -33,6 +33,14 @@ This repository is the open-source Align CLI and MCP server (`@aligndottech/cli`
 We support the latest published version on npm. Please upgrade to the latest
 release before reporting, in case the issue is already fixed.
 
+## Team destinations (`align join`)
+
+`align join` runs only for a person at a terminal, never inside an agent `align` launched, and makes you type the
+gateway host (or answer `y` for an Align host) before anything is saved. Two limits: an agent with its own
+pseudo-terminal can answer those prompts itself, and anything that can write the CLI's config file can add a
+destination directly. A share to a team destination that is not your share destination, or to any gateway outside
+`align.tech`, needs your answer at a terminal. See [docs/join-your-team.md](docs/join-your-team.md).
+
 ## Sharing from inside a coding agent (`align share`, `align_share`)
 
 `align share` sends decisions from your local graph, and your judgements on them, to your team's

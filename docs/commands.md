@@ -73,6 +73,7 @@ A removed command stays registered so an old script gets the new spelling and a 
 
 align env                     Get or set the default environment (local, preview, prod)
 align env set <env>           Set the default environment for all commands
+align env list                List the environments and every team destination joined with align join, with both hosts
 align env get                 Show the current default environment
 
 # Usage telemetry on, off, status
@@ -107,6 +108,11 @@ align use [agent]             Choose the coding agent bare `align` opens (no arg
 
 align invite <email>          Invite a teammate to your shared Align decision graph
                               flags: --env
+
+# Join your team's graph from an invite link
+
+align join <link>             Join your team's graph from an invite link, as a named destination (a terminal only; additive: nothing you already have is moved)
+                              flags: --name --gateway --replace
 
 # Choose the AI model align ask uses in the terminal
 
@@ -192,7 +198,7 @@ align ratify <id>             Stand behind an agent-made decision as a human: ma
 # Share ratified decisions, with your judgements, with your team (alias: push)
 
 align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
-                              flags: --env --all-ratified --since --yes --confirm --no-open --typed --retract
+                              flags: --env --to --all-ratified --since --yes --confirm --no-open --typed --retract
 align push                    same as align share
 
 # The local graph: start, status, reset, forget

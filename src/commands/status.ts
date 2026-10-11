@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import ora from 'ora';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createConfigStore, type EnvName } from '../lib/config.js';
+import { destinationLines } from '../lib/destination-summary.js';
 import { readValueRollup } from '../lib/read-value-rollup.js';
 import { renderValueReadout } from '../lib/value-rollup.js';
 
@@ -26,6 +27,8 @@ export function registerStatusCommand(program: Command): void {
         const { mode, rollup } = await readValueRollup(config, envName);
         spinner?.stop();
         console.log(`\n${renderValueReadout(rollup, { mode })}\n`);
+        const destinations = destinationLines(config);
+        if (destinations.length > 0) console.log(`Team destinations:\n${destinations.join('\n')}\n`);
       } catch (err) {
         spinner?.stop();
         throw err;

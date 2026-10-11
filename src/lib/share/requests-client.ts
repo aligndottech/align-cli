@@ -7,7 +7,7 @@
  * default: a gateway that says something this CLI does not know is not asked to approve anything.
  *
  * Routes (the plan's Routes table; the gateway side is built separately, so these shapes are the contract):
- *   GET  /share-requests/config            -> { mode, pending_ttl_s, complete_ttl_s }   (404: an older gateway)
+ *   GET  /share-requests/config            -> { mode, pending_ttl_s, complete_ttl_s, app_url? }   (404: an older gateway; app_url: gateway PR #3094)
  *   POST /share-requests                   -> 201 { id (the SERVER's row id), user_code, expires_at }; 409 on a repeated envelope_id for this tenant and user
  *   GET  /share-requests/:id               -> { state, expires_at? }
  *   POST /share-requests/:id/cancel        -> any 2xx
@@ -18,7 +18,7 @@ import type { BatchResponse } from './wire.js';
 export type ShareMode = 'off' | 'available' | 'required';
 const MODES: readonly string[] = ['off', 'available', 'required'];
 
-export interface ShareRequestsConfig { mode: ShareMode; pendingTtlS: number | null; completeTtlS: number | null }
+export interface ShareRequestsConfig { mode: ShareMode; pendingTtlS: number | null; completeTtlS: number | null; /** The gateway's own web app address (its FRONTEND_URL origin), when it says one. Not yet validated: see resolveApprovalAppUrl. */ appUrl: string | null }
 
 export type RequestState = 'pending' | 'approved' | 'completing' | 'completed' | 'declined' | 'expired' | 'cancelled' | 'failed';
 const STATES: readonly string[] = ['pending', 'approved', 'completing', 'completed', 'declined', 'expired', 'cancelled', 'failed'];
@@ -81,7 +81,7 @@ export function shareRequestMethods(request: Requester): ShareRequestsApi {
       }
       if (!isObj(raw) || typeof raw['mode'] !== 'string' || !MODES.includes(raw['mode'])) throw bad('the approval mode');
       const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
-      return { mode: raw['mode'] as ShareMode, pendingTtlS: num(raw['pending_ttl_s']), completeTtlS: num(raw['complete_ttl_s']) };
+      return { mode: raw['mode'] as ShareMode, pendingTtlS: num(raw['pending_ttl_s']), completeTtlS: num(raw['complete_ttl_s']), appUrl: typeof raw['app_url'] === 'string' && raw['app_url'] !== '' ? raw['app_url'] : null };
     },
     async stageShareRequest(body, signal) {
       const raw = await call<unknown>('/share-requests', { method: 'POST', body: JSON.stringify(body) }, { signal });
