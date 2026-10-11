@@ -94,12 +94,18 @@ line says Align does not verify it.
 
 ## For the admin
 
+Invite links are created in the web app, by an org admin signed in in the browser: **Settings > Team
+invites**. The gateway refuses to create one with a CLI token, on purpose, so an agent cannot add people to
+your team.
+
 ```bash
 align invite dan@yourcompany.example
 ```
 
-prints a link. Send it to one person: it works once and expires in 7 days. Listing and revoking invites is
-available on the gateway admin API.
+prints that page and opens it in your browser (inside an agent, or without a terminal, it only prints). There
+you can create a link, optionally for one email, and copy it or the `align join '<link>'` command to send.
+Send it to one person: it works once and expires in 7 days. The same page lists your invites and revokes them.
+Revoking a used invite signs that member out of any CLI they connected with it. Their web sign-in stays.
 
 ### Self-hosted
 

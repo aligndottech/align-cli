@@ -1,15 +1,15 @@
 /**
  * ALI-938: the invite nudge - what replaces the three "Share this graph with your team:
- * https://align.tech/pricing" lines in mcp.ts, why.ts and value-rollup.ts. A URL asks
- * someone to go somewhere else and figure it out; `align invite <email>` is a command
- * they can run right there.
+ * https://align.tech/pricing" lines in mcp.ts, why.ts and value-rollup.ts. Invites are
+ * created in the web app by an org admin (the gateway refuses the CLI token), so the hint
+ * says who does it and that `align invite` opens the page.
  *
  * Pure and I/O-free, same discipline as connect-prompt.ts's gap lines: the callers
  * (why.ts, in particular) gather whatever local git/graph state the decision requires,
  * and this module only turns already-known facts into copy.
  */
 
-export const INVITE_HINT = 'align invite <their-email>';
+export const INVITE_HINT = 'ask an org admin to invite them (align invite opens the page)';
 
 export type InviteNudgeReason = 'value' | 'answered-by-other' | 'empty-with-committers';
 

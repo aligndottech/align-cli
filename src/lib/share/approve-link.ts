@@ -41,3 +41,19 @@ export function checkApproveLink(url: string, appUrl: string): LinkCheck {
   if (`${scheme}://${authority}`.toLowerCase() !== `${app[1]}://${app[2]}`.toLowerCase()) return refuse('not the configured app');
   return { ok: true, url };
 }
+
+/** The Team invites page `align invite` opens. Fixed path and query, so nothing from config but the origin varies. */
+const SETTINGS_RE = new RegExp(`^(https?)://(${AUTHORITY})/settings\\?tab=invites$`);
+
+/** The same gate as checkApproveLink, for the one settings link: exact shape, the configured app's origin, https or a localhost http app. */
+export function checkSettingsLink(url: string, appUrl: string): LinkCheck {
+  if (typeof url !== 'string' || typeof appUrl !== 'string') return refuse('not a string');
+  const app = APP_RE.exec(appUrl);
+  if (!app) return refuse('the configured app URL is not a plain origin');
+  const m = SETTINGS_RE.exec(url);
+  if (!m) return refuse('not the shape of the settings link');
+  const [, scheme, authority] = m as unknown as [string, string, string];
+  if (scheme === 'http' && !isLocalHost(authority)) return refuse('http is only for a localhost app');
+  if (`${scheme}://${authority}`.toLowerCase() !== `${app[1]}://${app[2]}`.toLowerCase()) return refuse('not the configured app');
+  return { ok: true, url };
+}
