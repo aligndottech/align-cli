@@ -74,10 +74,10 @@ describe('F1: a person\'s judgement and an omitted verdict are never overwritten
 
   it('positive control: the same classifier row with no judgement IS relinked', async () => {
     classifierEdge('n', 'a', 'supersedes', 0.9);
-    const classify = fake({ a: { relation: 'refines', confidence: 0.4 } });
+    const classify = fake({ a: { relation: 'conflicts_with', confidence: 0.4 } });
     await run(classify, { apply: true, replace: true });
     expect(classify).toHaveBeenCalledTimes(1);
-    expect(rows()).toEqual([expect.objectContaining({ source_id: 'n', target_id: 'a', relation: 'refines', detector_version: 'v1' })]);
+    expect(rows()).toEqual([expect.objectContaining({ source_id: 'n', target_id: 'a', relation: 'conflicts_with', detector_version: 'v1' })]);
   });
 
   it('an omitted (null) verdict leaves a typed v0 row exactly as it is, with --replace', async () => {
@@ -195,3 +195,38 @@ describe('F5: relink tells the detector a candidate is retired', () => {
     expect(classify.mock.calls[0]![1]).toEqual([expect.objectContaining({ id: 'b', status: null })]);
   });
 });
+
+describe('R2: a classifier supersedes is not undone by a non-conflict answer', () => {
+  it('S supersedes C (v0), v1 says duplicates, --apply --replace: the supersedes stays', async () => {
+    classifierEdge('n', 'a', 'supersedes');
+    const before = hash();
+    const r = await run(fake({ a: { relation: 'duplicates', confidence: 0.9 } }), { apply: true, replace: true });
+    expect(hash()).toBe(before);
+    expect(r.written).toEqual([]);
+    expect(r.keptSupersedes).toBe(1);
+  });
+
+  it('control: v1 says conflicts_with on the same pair, --apply --replace: it is replaced', async () => {
+    classifierEdge('n', 'a', 'supersedes');
+    const r = await run(fake({ a: { relation: 'conflicts_with', confidence: 0.9 } }), { apply: true, replace: true });
+    expect(r.written).toEqual([{ sourceId: 'n', targetId: 'a', from: ['supersedes'], to: 'conflicts_with' }]);
+    expect(rows()).toEqual([expect.objectContaining({ relation: 'conflicts_with', detector_version: 'v1' })]);
+  });
+
+  it('the pair\'s own supersedes does not make its target RETIRED', async () => {
+    classifierEdge('n', 'a', 'supersedes');
+    const classify = fake({});
+    await run(classify);
+    expect(classify.mock.calls[0]![1]).toEqual([expect.objectContaining({ id: 'a', status: null })]);
+  });
+
+  it('control: a supersedes from a third decision still does', async () => {
+    classifierEdge('n', 'a', 'supersedes');
+    classifierEdge('c', 'a', 'supersedes');
+    const classify = fake({});
+    await run(classify);
+    const forN = classify.mock.calls.find((c) => c[0].title === 'New')!;
+    expect(forN[1]).toEqual([expect.objectContaining({ id: 'a', status: 'superseded' })]);
+  });
+});
+

@@ -80,7 +80,7 @@ export async function runRelinkCommand(opts: RelinkCommandOptions, d: RelinkComm
   const r = await d.relink(dbPath, { apply, replace: opts.replace === true, maxCalls });
   if (apply) for (const c of r.written) d.out(`  wrote: ${fmt(c)}`);
   else for (const c of r.proposed) d.out(`  would change: ${fmt(c)}`);
-  d.out(`${r.calls} call(s): ${apply ? `${r.written.length} link(s) written` : `${r.proposed.length} link(s) would change type`}, ${r.unchanged} unchanged, ${r.omitted} given no relationship (left as they are), ${r.failed} failed.`);
+  d.out(`${r.calls} call(s): ${apply ? `${r.written.length} link(s) written` : `${r.proposed.length} link(s) would change type`}, ${r.unchanged} unchanged, ${r.omitted} given no relationship (left as they are), ${r.keptSupersedes} supersedes kept (only a conflict answer changes one), ${r.failed} failed.`);
   if (!apply) d.out('Dry run: nothing was written.');
   else if (!opts.replace && r.written.length > 0) d.out('The v0 links stay beside the new v1 ones; add --replace to swap them.');
   if (r.remainingCalls > 0) d.out(`${r.remainingCalls} more call(s) not made (--max-calls).`);

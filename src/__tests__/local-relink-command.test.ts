@@ -7,7 +7,7 @@ import { costEstimate } from '../lib/relink-estimate.js';
 import type { RelinkPlan, RelinkReport } from '../lib/local-relink.js';
 
 const plan = (calls: number): RelinkPlan => ({ groups: [], decision: () => undefined, calls, pairs: calls * 2, skippedJudged: 1, inputTokens: calls * 1000, maxOutputTokens: calls * 2048 });
-const report: RelinkReport = { calls: 1, remainingCalls: 0, proposed: [{ sourceId: 'n', targetId: 'a', from: ['conflicts_with'], to: 'refines' }], written: [], unchanged: 1, omitted: 2, skippedJudged: 1, failed: 0 };
+const report: RelinkReport = { calls: 1, remainingCalls: 0, proposed: [{ sourceId: 'n', targetId: 'a', from: ['conflicts_with'], to: 'refines' }], written: [], unchanged: 1, omitted: 2, skippedJudged: 1, keptSupersedes: 0, failed: 0 };
 
 let out: string[];
 let err: string[];
