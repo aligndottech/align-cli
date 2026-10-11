@@ -1,7 +1,6 @@
 import type { Command } from 'commander';
 import { createConfigStore } from '../lib/config.js';
 import { DETECTOR_VERSIONS, detectorSource, resolveDetectorVersion } from '../detector/detector-version.js';
-import { classifierRoute } from '../detector/classifier-route.js';
 
 /**
  * `align config detector [v0|v1]`: the saved choice of relationship detector. With no argument it
@@ -16,9 +15,8 @@ export function registerConfigCommand(program: Command): void {
     .action((version: string | undefined) => {
       const store = createConfigStore();
       if (version === undefined) {
-        const route = classifierRoute(process.env, store);
-        const active = resolveDetectorVersion(process.env, store.getDetector(), route);
-        console.log(`Detector: ${active} (${detectorSource(process.env, store.getDetector(), route)})`);
+        const active = resolveDetectorVersion(process.env, store.getDetector());
+        console.log(`Detector: ${active} (${detectorSource(process.env, store.getDetector())})`);
         console.log(`Change it with: align config detector ${active === 'v0' ? 'v1' : 'v0'}`);
         return;
       }

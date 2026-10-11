@@ -109,11 +109,8 @@ is listed on its own page, and a test keeps that page true.
   conflicts with, depends on) are typed at query time using **your own AI provider key**.
   Without one, related decisions still surface, just not typed. The heavier cross-tool
   relationship detection runs in the hosted gateway.
-- **Two relationship detectors, chosen by where your model runs.** With a hosted model key set
-  (Anthropic, OpenAI and the like), the default is `v1`, the same detector the hosted product runs. With
-  no hosted key, and a local Ollama model instead, the default is `v0`, the pairwise classifier, because
-  `v1` loses recall on small local models. Override either with `ALIGN_DETECTOR=v0|v1`, or save a choice
-  with `align config detector v0|v1`. `v1` is the
+- **Two relationship detectors, picked with `ALIGN_DETECTOR`.** `v0` (the default) is the
+  pairwise classifier. `v1` is opt-in with `ALIGN_DETECTOR=v1`. It is the
   detector the hosted product's base prompt uses: one call per check over every related
   decision, shown with its date and whether it was replaced. The model only says whether two
   decisions are *incompatible*; whether that is a conflict or a replacement is worked out from
