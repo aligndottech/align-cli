@@ -52,6 +52,37 @@ describe('loadSnapshot', () => {
     expect(() => loadSnapshot(snap(), path.join(dir, 'x.db'), { links: false, realDbPath: path.join(dir, 'x.db') })).toThrow(/real local graph/);
   });
 
+  // Creating a symlink needs a privilege Windows runners do not grant by default.
+  it.skipIf(process.platform === 'win32')('F9: refuses a dangling symlink that points at the not-yet-created real graph, and creates nothing', () => {
+    const real = path.join(dir, 'real', 'local.db');
+    fs.mkdirSync(path.dirname(real));
+    const link = path.join(dir, 'link.db');
+    fs.symlinkSync(real, link);
+    expect(() => loadSnapshot(snap(), link, { links: false, realDbPath: real })).toThrow(/already exists|real local graph/);
+    expect(fs.existsSync(real)).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')('F9: refuses a path through a symlinked directory that lands on the real graph', () => {
+    const realDir = path.join(dir, 'real');
+    fs.mkdirSync(realDir);
+    fs.symlinkSync(realDir, path.join(dir, 'alias'), 'dir');
+    expect(() => loadSnapshot(snap(), path.join(dir, 'alias', 'local.db'), { links: false, realDbPath: path.join(realDir, 'local.db') })).toThrow(/real local graph/);
+    expect(fs.existsSync(path.join(realDir, 'local.db'))).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')('F9: refuses the place a symlinked real-graph path points at, before that graph exists', () => {
+    const realLink = path.join(dir, 'local.db');
+    const elsewhere = path.join(dir, 'store.db');
+    fs.symlinkSync(elsewhere, realLink);
+    expect(() => loadSnapshot(snap(), elsewhere, { links: false, realDbPath: realLink })).toThrow(/real local graph/);
+    expect(fs.existsSync(elsewhere)).toBe(false);
+  });
+
+  it('F9: refuses every configured real path, not only the default one', () => {
+    const configured = path.join(dir, 'configured.db');
+    expect(() => loadSnapshot(snap(), configured, { links: false, realDbPath: path.join(dir, 'default.db'), alsoRefuse: [configured] })).toThrow(/real local graph/);
+  });
+
   it('refuses a link naming an id the snapshot does not hold, before writing any file', () => {
     const bad = snap();
     bad.links!.push({ source_id: 'id-b', target_id: 'missing', relation: 'relates', confidence: 1 });

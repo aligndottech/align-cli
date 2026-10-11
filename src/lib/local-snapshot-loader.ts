@@ -7,11 +7,12 @@
  * snapshot's links only when asked, stamped detector_version 'snapshot' so `align local relink`
  * (which reads v0 rows only) never re-types them and a count by version separates them.
  *
- * It never writes the user's real graph: it refuses a path that already exists and the default
- * local.db path, and it validates the whole snapshot before creating any file.
+ * It never writes the user's real graph: it refuses a path that already exists (a dangling
+ * symlink included), and any path that lands on the default or the configured local.db, through
+ * symlinks; it validates the whole snapshot before creating any file.
  */
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { lstatSync, readlinkSync, realpathSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { RELATIONSHIP_CONTRACT } from '../detector/relationship-contract.js';
 import { createLocalDb } from './local-db.js';
@@ -46,10 +47,35 @@ function validate(s: Snapshot, withLinks: boolean): void {
   }
 }
 
-export function loadSnapshot(s: Snapshot, dbPath: string, opts: { links: boolean; realDbPath?: string }): { decisions: number; links: number } {
-  const real = resolve(opts.realDbPath ?? getLocalDbPath());
-  if (resolve(dbPath) === real) throw new Error(`${dbPath} is the real local graph; load a snapshot into a throwaway path instead.`);
-  if (existsSync(dbPath)) throw new Error(`${dbPath} already exists; the loader only writes a new, throwaway graph.`);
+/**
+ * Where a path really lands, without requiring it to exist (review F9): the parent directory's
+ * realpath plus the name, following a symlink at the name even when it dangles, so a link to a
+ * real graph that has not been created yet still resolves to that graph's location.
+ */
+function landsAt(p: string, hops = 0): string {
+  const abs = resolve(p);
+  let parent: string;
+  try { parent = realpathSync(dirname(abs)); } catch { parent = dirname(abs); }
+  const here = resolve(parent, basename(abs));
+  if (hops < 40) {
+    try {
+      if (lstatSync(here).isSymbolicLink()) return landsAt(resolve(parent, readlinkSync(here)), hops + 1);
+    } catch { /* nothing there: here is where it lands */ }
+  }
+  return here;
+}
+
+function occupied(p: string): boolean {
+  try { lstatSync(p); return true; } catch { return false; }
+}
+
+export function loadSnapshot(s: Snapshot, dbPath: string, opts: { links: boolean; realDbPath?: string; alsoRefuse?: readonly string[] }): { decisions: number; links: number } {
+  const target = landsAt(dbPath);
+  for (const real of [opts.realDbPath ?? getLocalDbPath(), ...(opts.alsoRefuse ?? [])]) {
+    if (target === landsAt(real)) throw new Error(`${dbPath} is the real local graph; load a snapshot into a throwaway path instead.`);
+  }
+  // lstat, not exists: a dangling symlink is occupied too.
+  if (occupied(dbPath) || occupied(target)) throw new Error(`${dbPath} already exists; the loader only writes a new, throwaway graph.`);
   validate(s, opts.links);
 
   createLocalDb(dbPath).close(); // creates and migrates the schema

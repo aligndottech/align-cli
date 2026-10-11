@@ -7,6 +7,7 @@
  * is `Snapshot` in src/lib/local-snapshot-loader.ts. No network, no model call.
  */
 import { readFileSync } from 'node:fs';
+import { createConfigStore } from '../src/lib/config.js';
 import { loadSnapshot, type Snapshot } from '../src/lib/local-snapshot-loader.js';
 
 const args = process.argv.slice(2);
@@ -18,5 +19,6 @@ if (!file || !db) {
   process.exit(2);
 }
 const snapshot = JSON.parse(readFileSync(file, 'utf8')) as Snapshot;
-const r = loadSnapshot(snapshot, db, { links: args.includes('--links') });
+const configured = createConfigStore().getEnvironment('local').localDbPath;
+const r = loadSnapshot(snapshot, db, { links: args.includes('--links'), alsoRefuse: configured ? [configured] : [] });
 console.log(`Loaded ${r.decisions} decisions and ${r.links} links from ${snapshot.snapshot} into ${db}.`);
