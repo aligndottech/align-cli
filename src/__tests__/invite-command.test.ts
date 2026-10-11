@@ -8,7 +8,7 @@
  * 1. an invalid email exits 1, prints why, and never touches config or the gateway
  * 2. a local-embedded env exits 1: a local graph has no team and no web app
  * 3. it prints two short lines saying invites are made in the browser by an admin, then the
- *    settings URL, and exits 0; it never posts to /admin/invites
+ *    settings URL, and exits 0 (the client has no createInvite: gateway-client.test.ts)
  * 4. the URL comes from the team destination's saved app, or the gateway's app_url, else the guess
  * 5. at an interactive terminal it opens the URL with the allowlisted opener
  * 6. under ALIGN_WRAPPED, or with no TTY, it only prints
@@ -27,8 +27,7 @@ const getEnvironment = vi.hoisted(() => vi.fn());
 vi.mock('../lib/config.js', () => ({ createConfigStore: vi.fn(() => ({ getEnvironment })) }));
 
 const shareRequestsConfig = vi.hoisted(() => vi.fn());
-const createInvite = vi.hoisted(() => vi.fn());
-vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({ shareRequestsConfig, createInvite })) }));
+vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({ shareRequestsConfig })) }));
 
 const recordFunnelStage = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
@@ -70,7 +69,6 @@ const text = (): string => out.join('\n');
 
 beforeEach(() => {
   shareRequestsConfig.mockReset().mockResolvedValue({ mode: 'available', pendingTtlS: null, completeTtlS: null, appUrl: null });
-  createInvite.mockReset();
   recordFunnelStage.mockClear();
   getEnvironment.mockReset().mockReturnValue(PROD);
   resolveEnv.mockReset().mockReturnValue('prod');
@@ -111,11 +109,6 @@ describe('align invite - points at Settings > Team invites', () => {
     await run([]);
     expect(exitCode).toBeUndefined();
     expect(text()).toContain('Open Team invites, create a link, and send it to the person joining.');
-  });
-
-  it('never posts to /admin/invites', async () => {
-    await run(['dan@acme.example']);
-    expect(createInvite).not.toHaveBeenCalled();
   });
 
   it('uses a team destination\'s saved web app', async () => {

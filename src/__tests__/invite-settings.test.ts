@@ -51,6 +51,14 @@ describe('resolveInviteAppUrl', () => {
     expect(await resolveInviteAppUrl(preview, async () => { throw new Error('ECONNREFUSED'); })).toBe('https://app.preview.align.tech');
   });
 
+  it('stops waiting for a gateway that does not answer, and aborts the request', async () => {
+    let seen: AbortSignal | undefined;
+    const hang = (signal: AbortSignal) => { seen = signal; return new Promise<string | null>(() => {}); };
+    expect(await resolveInviteAppUrl(prod, hang, 30)).toBe('https://app.align.tech');
+    expect(seen?.aborted).toBe(true);
+    expect(await resolveInviteAppUrl(preview, hang, 30)).toBe('https://app.preview.align.tech');
+  });
+
   it('does not ask the gateway without a token', async () => {
     const ask = vi.fn(async () => 'https://web.acme.example');
     expect(await resolveInviteAppUrl({ ...prod, authToken: null } as EnvironmentConfig, ask)).toBe('https://app.align.tech');

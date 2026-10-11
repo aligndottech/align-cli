@@ -18,14 +18,22 @@ export function inviteSettingsUrl(appUrl: string): string {
   return `${appUrl.replace(/\/+$/, '')}/settings?tab=invites`;
 }
 
-export async function resolveInviteAppUrl(env: EnvironmentConfig, gatewayAppUrl: () => Promise<string | null>): Promise<string> {
+/** Nothing is on screen until this resolves, and the guess is a fine answer, so the gateway gets a short wait. */
+export const GATEWAY_WAIT_MS = 3000;
+
+export async function resolveInviteAppUrl(env: EnvironmentConfig, gatewayAppUrl: (signal: AbortSignal) => Promise<string | null>, waitMs = GATEWAY_WAIT_MS): Promise<string> {
   if (env.kind === 'team' && env.appUrl) return env.appUrl.replace(/\/+$/, '');
   if (env.authToken) {
+    const ac = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => { ac.abort(); reject(new Error('timeout')); }, waitMs); });
     try {
-      const named = await gatewayAppUrl();
+      const named = await Promise.race([gatewayAppUrl(ac.signal), late]);
       if (named !== null) return assertTransport(named);
     } catch {
-      // No answer, or one that is not a plain origin: use the guess below.
+      // No answer in time, or one that is not a plain origin: use the guess below.
+    } finally {
+      clearTimeout(timer);
     }
   }
   return resolveAppUrl(env);

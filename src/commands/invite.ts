@@ -47,7 +47,7 @@ export function registerInviteCommand(program: Command): void {
       // telemetry must never delay or fail the command it rides on.
       void recordFunnelStage(env, 'teammate_requested', 'invite');
 
-      const appUrl = await resolveInviteAppUrl(env, async () => (await createGatewayClient(env).shareRequestsConfig())?.appUrl ?? null);
+      const appUrl = await resolveInviteAppUrl(env, async (signal) => (await createGatewayClient(env).shareRequestsConfig(signal))?.appUrl ?? null);
       const url = inviteSettingsUrl(appUrl);
       const who = email ? `a link for ${visible(email)}, and send it to them` : 'a link, and send it to the person joining';
       console.log('\n  Invites are created in the web app, by an org admin.');

@@ -261,8 +261,8 @@ function commandPathOf(command: string): string {
  * server-side from install_id timestamps, so a client event would be a second writer.
  *
  * ALI-938: `teammate_requested` is the bottom-up-thesis signal - fired by `align invite`
- * for every genuine attempt to bring a teammate in, whether or not the invite is
- * actually sent (a member blocked by the org_admin gate is still demand). `align invite`
+ * for every genuine attempt to bring a teammate in. The command only opens the web app's
+ * Team invites page now, so this counts the intent, not an invite sent. `align invite`
  * refuses local-embedded mode outright (it needs a real cloud tenant to invite anyone
  * into), so in practice this ALWAYS reaches recordFunnelStage with a cloud env and takes
  * the /telemetry/ingest path, which accepts any eventName as a string. The gateway's
