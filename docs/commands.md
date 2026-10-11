@@ -108,6 +108,11 @@ align use [agent]             Choose the coding agent bare `align` opens (no arg
 align invite <email>          Invite a teammate to your shared Align decision graph
                               flags: --env
 
+# Join your team's graph from an invite link
+
+align join <link>             Join your team's graph from an invite link, as a named destination (a terminal only; additive: nothing you already have is moved)
+                              flags: --name --gateway --replace
+
 # Choose the AI model align ask uses in the terminal
 
 align ai                      Choose the AI model `align ask` writes terminal answers with, or add a key
