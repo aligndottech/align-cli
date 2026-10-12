@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.53.0](https://github.com/aligndottech/align-cli/compare/cli-v0.52.0...cli-v0.53.0) (2026-10-12)
+
+
+### Features
+
+* **detector:** a local model that did not pass runs v0 by default (ALI-1564) ([#406](https://github.com/aligndottech/align-cli/issues/406)) ([c86ff51](https://github.com/aligndottech/align-cli/commit/c86ff515b8aa0a73f8d29041d96342a992619cf4))
+
+
+### Bug Fixes
+
+* **config:** an upgraded user's saved graph path follows the move to ~/.align ([#408](https://github.com/aligndottech/align-cli/issues/408)) ([bcfb556](https://github.com/aligndottech/align-cli/commit/bcfb556cb41a385bc8998c3d9f6bc3cdcd7a10b9))
+
 ## [0.52.0](https://github.com/aligndottech/align-cli/compare/cli-v0.51.0...cli-v0.52.0) (2026-10-12)
 
 
