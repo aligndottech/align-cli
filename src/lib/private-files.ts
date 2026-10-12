@@ -91,7 +91,7 @@ export function writePrivateFile(file: string, data: string | Uint8Array): void 
  * `localDbPath`) sits in a folder that is not ours to chmod, such as a repo or the home folder.
  */
 /**
- * The one folder align keeps its config and its local graph in: ~/.align (ALI-1622). One place a user
+ * The one folder align keeps its config and its local graph in: ~/.align. One place a user
  * can find, back up or delete, like ~/.claude and ~/.codex. Older installs kept these under the OS config
  * directory; index.ts copies them here once at startup (migrateConfigDirectory, migrateLocalDb).
  */
