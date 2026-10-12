@@ -2,11 +2,12 @@
 import './lib/startup-env.js'; // FIRST: snapshot the shell's env before any module can change it
 import './lib/startup-xdg.js'; // SECOND: drop a relative XDG_* before anything computes a directory from it
 import './lib/startup-backfill-track.js'; // THIRD: if align_backfill started this process, record how it ends
-import { writeSync } from 'node:fs';
+import fs, { writeSync } from 'node:fs';
+import path from 'node:path';
 import envPaths from 'env-paths';
 import { alignConfigDir } from './lib/private-files.js';
-import { migrateConfigDirectory } from './lib/config.js';
-import { getLocalDbPath, legacyLocalDbDir, migrateLocalDb } from './lib/local-mode.js';
+import { createConfigStore, migrateConfigDirectory } from './lib/config.js';
+import { getLocalDbPath, isLegacyGraphPath, legacyLocalDbDir, migrateLocalDb, repointLegacyLocalDb } from './lib/local-mode.js';
 import { excludeGraphFromBackups } from './lib/backup-exclusion.js';
 import { buildProgram } from './cli.js';
 import { resolveDetectorVersion } from './detector/detector-version.js';
@@ -42,6 +43,16 @@ try {
   for (const dir of legacyConfigDirs) migrateConfigDirectory(dir, alignConfigDir());
   migrateLocalDb(legacyLocalDbDir(), alignConfigDir());
   migrateLocalDb(envPaths('align-cli', { suffix: '' }).config, alignConfigDir());
+  // A saved localDbPath that still names a legacy folder would keep the graph there and leave the copy unused.
+  // Only when a config already exists: reading the store must not create one on a fresh machine.
+  // The saved path is read straight from the file, and the store is opened only when a repoint is needed:
+  // opening it normalises (rewrites) the config, which startup must not do on every run.
+  const legacyGraphDirs = [legacyLocalDbDir(), envPaths('align-cli', { suffix: '' }).config];
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(alignConfigDir(), 'config.json'), 'utf8')) as { environments?: { local?: { localDbPath?: unknown } } };
+    const saved = raw.environments?.local?.localDbPath;
+    if (typeof saved === 'string' && isLegacyGraphPath(saved, legacyGraphDirs)) repointLegacyLocalDb(createConfigStore(), legacyGraphDirs, alignConfigDir());
+  } catch { /* no config yet, or unreadable: nothing to repoint */ }
   // An existing local graph is excluded from Time Machine and cache-aware backups on its first run
   // after an upgrade (once; a no-op without a graph). Best effort, never fatal (backup-exclusion.ts).
   excludeGraphFromBackups(getLocalDbPath());
