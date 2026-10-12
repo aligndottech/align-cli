@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.54.0](https://github.com/aligndottech/align-cli/compare/cli-v0.53.1...cli-v0.54.0) (2026-10-12)
+
+
+### Features
+
+* align share is a visible command, the upgrade path from the local graph to a team graph ([#412](https://github.com/aligndottech/align-cli/issues/412)) ([b961b20](https://github.com/aligndottech/align-cli/commit/b961b20557199e2e9738e97302db3a1391b2142d))
+* **setup:** a model step that asks once, only when conflict checks cannot run ([#415](https://github.com/aligndottech/align-cli/issues/415)) ([bcb6ece](https://github.com/aligndottech/align-cli/commit/bcb6ece2a86aa7cd447012fb8268e003681f369f))
+* **setup:** say at the end of the wizard when no AI model is set up, so conflict checks will not run ([#414](https://github.com/aligndottech/align-cli/issues/414)) ([30ead3f](https://github.com/aligndottech/align-cli/commit/30ead3f9e2e41dca903d523cb19c9c969f8563ed))
+
 ## [0.53.1](https://github.com/aligndottech/align-cli/compare/cli-v0.53.0...cli-v0.53.1) (2026-10-12)
 
 
