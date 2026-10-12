@@ -37,7 +37,7 @@ import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
 import { agentAskLine, agentConnectedLine, firstQuestion, orderAgents, projectAgentsFromWritten } from '../lib/next-step.js';
 import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
-import { modelReadinessLines } from '../lib/model-readiness.js';
+import { runModelStep } from '../lib/model-step.js';
 import { InvalidEnvError, routeSetup } from '../lib/setup-route.js';
 import { agentByName } from '../lib/launch/agents.js';
 import { launchesAfterWizard } from '../lib/launch/launch.js';
@@ -1062,8 +1062,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // The 0.48.0 outro said "Open Claude Code in this repo and ask: ..." and align then opened
   // Claude Code itself. When it is about to, the last line says so instead.
   // Said before the outro, once, only when true: with no model the checks the graph exists for cannot run.
-  const noModel = await modelReadinessLines();
-  if (noModel) p.log.warn(noModel.join('\n'));
+  await runModelStep({ interactive });
   const launching = willLaunchAgent(agent, Boolean(opts.launchNext));
   const launchLabel = launching && agent ? agentByName(agent)?.label : undefined;
   const nextStep = nextStepLine(agent, launching);

@@ -86,7 +86,7 @@ export async function promptForProviderKey(config: KeyStore): Promise<StoredProv
 }
 
 /** "Get a free Groq key": today's guided path, Gemini backup included. */
-async function freeGroqKey(config: KeyStore): Promise<boolean> {
+export async function freeGroqKey(config: KeyStore): Promise<boolean> {
   p.log.info(`Groq's free tier needs no card, ever.`);
   const groq = await pasteKey('groq');
   if (typeof groq !== 'string') {
