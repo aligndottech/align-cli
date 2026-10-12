@@ -4,6 +4,7 @@ import './lib/startup-xdg.js'; // SECOND: drop a relative XDG_* before anything 
 import './lib/startup-backfill-track.js'; // THIRD: if align_backfill started this process, record how it ends
 import { writeSync } from 'node:fs';
 import envPaths from 'env-paths';
+import { alignConfigDir } from './lib/private-files.js';
 import { migrateConfigDirectory } from './lib/config.js';
 import { getLocalDbPath, legacyLocalDbDir, migrateLocalDb } from './lib/local-mode.js';
 import { excludeGraphFromBackups } from './lib/backup-exclusion.js';
@@ -35,8 +36,12 @@ process.on('exit', () => printRedactionNotice((line) => { try { writeSync(2, `${
 // ~/.config on some machine must not stop align from running the command the user
 // actually asked for, so failures here are swallowed rather than reaching handleFatal.
 try {
-  migrateConfigDirectory(envPaths('align-cli', { suffix: 'nodejs' }).config, envPaths('align-cli', { suffix: '' }).config);
-  migrateLocalDb(legacyLocalDbDir(), envPaths('align-cli', { suffix: '' }).config);
+  // ~/.align is the one home now (ALI-1622). Copy anything an older install left under the OS config
+  // directory, from every place one was ever written.
+  const legacyConfigDirs = [envPaths('align-cli', { suffix: 'nodejs' }).config, envPaths('align-cli', { suffix: '' }).config];
+  for (const dir of legacyConfigDirs) migrateConfigDirectory(dir, alignConfigDir());
+  migrateLocalDb(legacyLocalDbDir(), alignConfigDir());
+  migrateLocalDb(envPaths('align-cli', { suffix: '' }).config, alignConfigDir());
   // An existing local graph is excluded from Time Machine and cache-aware backups on its first run
   // after an upgrade (once; a no-op without a graph). Best effort, never fatal (backup-exclusion.ts).
   excludeGraphFromBackups(getLocalDbPath());

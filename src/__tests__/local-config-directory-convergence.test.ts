@@ -1,6 +1,7 @@
+import envPaths from 'env-paths';
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
-import envPaths from 'env-paths';
+import { alignConfigDir } from '../lib/private-files.js';
 import { getLocalDbPath } from '../lib/local-mode.js';
 
 /**
@@ -26,7 +27,7 @@ import { getLocalDbPath } from '../lib/local-mode.js';
  */
 describe('the local DB directory and the conf config directory are the same directory', () => {
   it('getLocalDbPath sits inside the suffix-free env-paths config directory', () => {
-    const expectedDir = envPaths('align-cli', { suffix: '' }).config;
+    const expectedDir = alignConfigDir();
 
     expect(path.dirname(getLocalDbPath())).toBe(expectedDir);
   });

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import envPaths from 'env-paths';
+import { alignConfigDir } from '../lib/private-files.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createConfigStore, migrateConfigDirectory } from '../lib/config.js';
 import { migrateLocalDb } from '../lib/local-mode.js';
@@ -28,7 +28,7 @@ afterEach(() => { vi.unstubAllEnvs(); rmDir(dir); });
 
 describe.skipIf(!posix)('the config directory and config.json', () => {
   // The real conf, against the isolated test home (never the developer's real ~/.config).
-  const configDir = envPaths('align-cli', { suffix: '' }).config;
+  const configDir = alignConfigDir();
   const configFile = path.join(configDir, 'config.json');
 
   it('a pre-existing 0755 directory and 0644 config.json are tightened when the store opens', () => {

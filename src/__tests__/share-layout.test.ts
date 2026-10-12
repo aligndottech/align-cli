@@ -21,9 +21,9 @@ const seed = (db: { insertDecision: (r: Record<string, unknown>) => string; mark
 };
 
 describe.skipIf(!posix)('the macOS layout (simulated)', () => {
-  it('the product puts the graph under HOME/Library/Preferences, not XDG', async () => {
+  it('the product puts the graph under ~/.align on every platform (ALI-1622), not XDG', async () => {
     const h = await startHarness(seed as never, { simulateMac: true }); harnesses.push(h);
-    expect(h.dbPath).toBe(path.join(h.dir, 'Library', 'Preferences', 'align-cli', 'local.db'));
+    expect(h.dbPath).toBe(path.join(h.dir, '.align', 'local.db'));
     expect(h.env['XDG_CONFIG_HOME']).toBeUndefined();
   });
   it('a share finds the graph it was seeded into by the product helper', async () => {

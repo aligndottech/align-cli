@@ -166,7 +166,7 @@ is listed on its own page, and a test keeps that page true.
 
 | What | Where (Linux / macOS / Windows) |
 |---|---|
-| The decision graph: `local.db` plus its `local.db-wal` and `local.db-shm` files | `~/.config/align-cli/` / `~/Library/Preferences/align-cli/` / `%APPDATA%\align-cli\Config\` |
+| The decision graph: `local.db` plus its `local.db-wal` and `local.db-shm` files | `~/.align/` (on every platform) |
 | Settings and the read-only tokens you pasted: `config.json` | the same folder |
 | Short-lived state: sync locks, share requests waiting for approval, the last check | `~/.local/state/align-cli/` (Linux and macOS) / `%LOCALAPPDATA%\align-cli\` |
 | Editor-hook scratch files: recent check verdicts and which decisions were just shown | `align-<your user id>/` in the system temp folder (`$TMPDIR` or `/tmp`) |
@@ -209,7 +209,7 @@ best effort and never stop a command.
 trace, also delete the folders in the table above, for example on Linux:
 
 ```bash
-rm -rf ~/.config/align-cli ~/.local/state/align-cli ~/.cache/align-cli "${TMPDIR:-/tmp}/align-$(id -u)"
+rm -rf ~/.align ~/.config/align-cli ~/.local/state/align-cli ~/.cache/align-cli "${TMPDIR:-/tmp}/align-$(id -u)"
 ```
 
 Deleting a file does not overwrite where it was on disk. Disk encryption is what keeps deleted data unreadable.

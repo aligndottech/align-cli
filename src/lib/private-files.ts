@@ -20,7 +20,8 @@
  * filesystem) is not a reason to refuse to open the user's own graph.
  */
 import fs from 'node:fs';
-import envPaths from 'env-paths';
+import os from 'node:os';
+import path from 'node:path';
 
 /**
  * The graph is one logical database spread over three files: the DB itself plus the WAL sidecars
@@ -89,6 +90,11 @@ export function writePrivateFile(file: string, data: string | Uint8Array): void 
  * makes). Only this folder is narrowed when the graph opens: a graph somewhere else (a snapshot, a hand-set
  * `localDbPath`) sits in a folder that is not ours to chmod, such as a repo or the home folder.
  */
+/**
+ * The one folder align keeps its config and its local graph in: ~/.align (ALI-1622). One place a user
+ * can find, back up or delete, like ~/.claude and ~/.codex. Older installs kept these under the OS config
+ * directory; index.ts copies them here once at startup (migrateConfigDirectory, migrateLocalDb).
+ */
 export function alignConfigDir(): string {
-  return envPaths('align-cli', { suffix: '' }).config;
+  return path.join(os.homedir(), '.align');
 }
