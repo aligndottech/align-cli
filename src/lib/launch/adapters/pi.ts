@@ -1,5 +1,5 @@
 import { alignNudgeBody, piExtensionBody } from '../../agent-rules.js';
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { ConfigWrite } from '../config-writes.js';
 import { withInjectedFlags } from './args.js';
 import type { LaunchContext, LaunchFile, LaunchSpec } from './claude-code.js';
@@ -42,7 +42,7 @@ export function buildPiLaunch(c: PiLaunchContext): LaunchSpec {
     injected.push('--append-system-prompt', c.cachePath('align-instructions.md'));
   }
   if (c.mcpAdapterInstalled && !c.projectHasMcp) {
-    writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: alignServerEntry('pi', 'local') });
+    writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: launchAlignEntry('pi') });
   }
   return { bin: 'pi', args: withInjectedFlags(c.passthrough, injected), env: { ALIGN_WRAPPED: '1' }, files, ...(writes.length > 0 ? { writes } : {}) };
 }

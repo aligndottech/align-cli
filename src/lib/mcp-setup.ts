@@ -51,11 +51,12 @@ function alignArgs(env?: string): string[] {
  * ONE writer of this fact, used by every format including the Codex TOML block, because the
  * reported site is a lower bound: every client in detectEditors() spawns the same way.
  */
-function alignSpawn(env?: string): { command: string; args: string[] } {
+function alignSpawn(env?: string, trustedBin?: string | null): { command: string; args: string[] } {
   const args = alignArgs(env);
-  return process.platform === 'win32'
-    ? { command: 'cmd', args: ['/c', 'align', ...args] }
-    : { command: 'align', args };
+  // ALI-1515: a per-session entry names align by the absolute path the launcher resolved, so the agent
+  // does not resolve a bare `align` through its own PATH, where a repo-local copy could shadow it.
+  const bin = trustedBin ?? 'align';
+  return process.platform === 'win32' ? { command: 'cmd', args: ['/c', bin, ...args] } : { command: bin, args };
 }
 
 // The per-format entry shape for the `align` server. VS Code requires `type`;
@@ -65,7 +66,7 @@ function alignSpawn(env?: string): { command: string; args: string[] } {
 export function alignServerEntry(
   format: McpFormat,
   env?: string,
-  opts: { committed?: boolean } = {},
+  opts: { committed?: boolean; trustedBin?: string | null } = {},
 ): Record<string, unknown> {
   // `committed` is for a file that TRAVELS between machines - today only the project-local
   // `.mcp.json`, which agent-rules.ts writes once for the whole team. There is no string that
@@ -73,7 +74,7 @@ export function alignServerEntry(
   // the command and wrong for everyone else's checkout. A per-machine config takes the
   // wrapper; a committed one stays portable and its Windows readers use their user-level
   // entry, which `align mcp --setup` writes with the wrapper (ALI-1135).
-  const { command, args } = opts.committed ? { command: 'align', args: alignArgs(env) } : alignSpawn(env);
+  const { command, args } = opts.committed ? { command: 'align', args: alignArgs(env) } : alignSpawn(env, opts.trustedBin);
   switch (format) {
     case 'vscode':
       return { type: 'stdio', command, args };

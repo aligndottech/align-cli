@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { ClineProjectState } from '../cline-state.js';
 import type { ConfigWrite } from '../config-writes.js';
 import { mcpChildEnv } from '../mcp-child-env.js';
@@ -40,10 +40,10 @@ export function buildClineLaunch(c: ClineLaunchContext): LaunchSpec {
     notes.push(`Align does not add its graph to a Cline directory chosen for one session (${flag}). Run cline without it once, or add align-local to ${clineMcpFileDefault(c)} yourself.`);
   } else if (c.stale && !c.oneSession) {
     // Align's own entry from an older key set, or with values that changed: rewrite it (backup and undo as for any write).
-    writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: { ...alignServerEntry('mcpServers', 'local'), env: mcpChildEnv(c.env ?? {}) }, replace: true });
+    writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: { ...launchAlignEntry('mcpServers'), env: mcpChildEnv(c.env ?? {}) }, replace: true });
   } else if (!c.present) {
     // With its env block: Cline's MCP children (spawned by its hub) inherit a repo `.env`.
-    writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: { ...alignServerEntry('mcpServers', 'local'), env: mcpChildEnv(c.env ?? {}) } });
+    writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: { ...launchAlignEntry('mcpServers'), env: mcpChildEnv(c.env ?? {}) } });
   }
   return { bin: 'cline', args: [...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [], ...(writes.length > 0 ? { writes } : {}), ...(notes.length > 0 ? { notes } : {}) };
 }

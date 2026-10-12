@@ -1,5 +1,5 @@
 import { alignNudgeBody } from '../../agent-rules.js';
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { DroidProjectState } from '../droid-state.js';
 import type { LaunchContext, LaunchFile, LaunchSpec } from './claude-code.js';
 
@@ -29,7 +29,7 @@ export function buildDroidLaunch(c: DroidLaunchContext): LaunchSpec {
   if (c.ownSettings !== undefined) {
     notes.push(`Droid is using your own runtime settings (${c.ownSettings}), so Align did not add its graph tools to this session.`);
   } else if (c.overridden.length > 0 || !c.present) {
-    files.push({ name: SETTINGS_FILE, content: `${JSON.stringify({ mcp: { mcpServers: { [INJECTED_SERVER_NAME]: alignServerEntry('vscode', 'local') } } }, null, 2)}\n` });
+    files.push({ name: SETTINGS_FILE, content: `${JSON.stringify({ mcp: { mcpServers: { [INJECTED_SERVER_NAME]: launchAlignEntry('vscode') } } }, null, 2)}\n` });
     injected.push('--settings', c.cachePath(SETTINGS_FILE));
     if (c.overridden.length > 0) notes.push(`Droid will use Align's own align-local MCP server this session, not the one in ${c.overridden.join(', ')}.`);
   }

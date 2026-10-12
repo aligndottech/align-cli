@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { AlignLocalState } from '../strict-entry.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
@@ -35,7 +35,7 @@ export function buildCodexLaunch(c: CodexLaunchContext): LaunchSpec {
     // -c can set keys but never remove one: injecting would launch a merged, repo-shaped server.
     notes.push(`${c.conflict} redefines the align-local MCP server, so Align's graph is off for this Codex session. Remove that entry to use the graph here.`);
   } else if (c.overridden.length > 0 || !c.present) {
-    const { command, args } = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };
+    const { command, args } = launchAlignEntry('mcpServers') as { command: string; args: string[] };
     const key = `mcp_servers.${INJECTED_SERVER_NAME}`;
     injected.push('-c', `${key}.command=${tomlLiteral(command)}`, '-c', `${key}.args=[${args.map(tomlLiteral).join(',')}]`);
     if (c.overridden.length > 0) {

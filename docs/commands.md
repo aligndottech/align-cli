@@ -281,6 +281,8 @@ when it launches them, and leaves alone any variable you exported. Their `align-
 carries an `env` block. It names these classes of variable, so a repo's value for any of them
 does not reach Align's server:
 
+When `align` opens an agent, the Align MCP entry it hands over names `align` by its absolute path, found on the absolute entries of your PATH only. A relative or empty PATH entry, or one inside the current repo, is skipped, so a repo cannot plant an `align` for the agent to run. If none is found the entry falls back to the bare name. Set `ALIGN_NO_TRUSTED_BIN=1` to always use the bare name. Configs Align writes once (and the committed `.mcp.json`) still use the bare name.
+
 - every variable `align` reads (`ALIGN_*`, `OLLAMA_HOST`, `OLLAMA_CONTEXT_LENGTH`, the `XDG_*`
   directories, and the provider key and model variables);
 - where Node sends traffic and what it trusts: `HTTP(S)_PROXY`, `ALL_PROXY`, `NO_PROXY` (both

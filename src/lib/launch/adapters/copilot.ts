@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { AlignLocalState } from '../strict-entry.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
@@ -26,7 +26,7 @@ export function buildCopilotLaunch(c: CopilotLaunchContext): LaunchSpec {
   if (c.conflict) {
     notes.push(`${c.conflict} redefines the align-local MCP server, so Align's graph is off for this Copilot session. Remove that entry to use the graph here.`);
   } else if (!c.present) {
-    files.push({ name: MCP_FILE, content: `${JSON.stringify({ mcpServers: { [INJECTED_SERVER_NAME]: alignServerEntry('copilot', 'local') } }, null, 2)}\n` });
+    files.push({ name: MCP_FILE, content: `${JSON.stringify({ mcpServers: { [INJECTED_SERVER_NAME]: launchAlignEntry('copilot') } }, null, 2)}\n` });
     injected.push('--additional-mcp-config', `@${c.cachePath(MCP_FILE)}`);
   }
   return { bin: 'copilot', args: [...injected, ...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files, ...(notes.length > 0 ? { notes } : {}) };

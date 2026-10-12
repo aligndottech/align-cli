@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { AuggieProjectState } from '../auggie-state.js';
 import type { ConfigWrite } from '../config-writes.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
@@ -27,7 +27,7 @@ export function buildAuggieLaunch(c: AuggieLaunchContext): LaunchSpec {
   } else if (!c.present && c.commented) {
     notes.push(`${c.settingsFile} has comments or trailing commas, and Align does not rewrite a file it would strip them from. Add the graph yourself: auggie mcp add align-local --command align --args "mcp --env local"`);
   } else if (!c.present) {
-    writes.push({ kind: 'mcp-entry', file: c.settingsFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: alignServerEntry('mcpServers', 'local') });
+    writes.push({ kind: 'mcp-entry', file: c.settingsFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: launchAlignEntry('mcpServers') });
   }
   // The user's own --mcp-config replaces the settings servers for this session (see above), so
   // whatever is in the settings file, the graph is not loaded. Say so; the file is left as it is.

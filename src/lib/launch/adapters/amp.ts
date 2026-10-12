@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { AmpProjectState } from '../amp-state.js';
 import type { ConfigWrite } from '../config-writes.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
@@ -27,7 +27,7 @@ export function buildAmpLaunch(c: AmpLaunchContext): LaunchSpec {
   } else if (!c.present && c.commented) {
     notes.push(`${c.settingsFile} has comments, and Align does not rewrite a file it would strip them from. Add the graph yourself: amp mcp add align-local -- align mcp --env local`);
   } else if (!c.present) {
-    writes.push({ kind: 'mcp-entry', file: c.settingsFile, topKey: 'amp.mcpServers', name: INJECTED_SERVER_NAME, entry: alignServerEntry('mcpServers', 'local') });
+    writes.push({ kind: 'mcp-entry', file: c.settingsFile, topKey: 'amp.mcpServers', name: INJECTED_SERVER_NAME, entry: launchAlignEntry('mcpServers') });
   }
   return { bin: 'amp', args: [...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [], ...(writes.length > 0 ? { writes } : {}), ...(notes.length > 0 ? { notes } : {}) };
 }

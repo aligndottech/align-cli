@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { ConfigWrite } from '../config-writes.js';
 import { COPY_PREFIX, type GeminiProjectState } from '../gemini-state.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
@@ -41,7 +41,7 @@ export function buildGeminiLaunch(c: GeminiLaunchContext): LaunchSpec {
       file: c.settingsFile,
       topKey: 'mcpServers',
       name: INJECTED_SERVER_NAME,
-      entry: alignServerEntry('mcpServers', 'local'),
+      entry: launchAlignEntry('mcpServers'),
       invalidJsonAdvice: ' (Gemini accepts comments in this file and align does not, so remove any comments or fix the syntax), then run align again',
     });
   }
