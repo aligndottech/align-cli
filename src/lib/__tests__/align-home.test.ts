@@ -10,6 +10,9 @@ let home: string;
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'align-home-'));
   vi.stubEnv('HOME', home);
+  // os.homedir() reads USERPROFILE on Windows and HOME elsewhere. Stub both, or the Windows CI leg
+  // resolves the runner's real home folder and every assertion below compares the wrong directory.
+  vi.stubEnv('USERPROFILE', home);
   vi.stubEnv('XDG_CONFIG_HOME', path.join(home, '.config'));
 });
 afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(home, { recursive: true, force: true }); });
