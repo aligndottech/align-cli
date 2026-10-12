@@ -56,6 +56,10 @@ align check                   Check current changes against the decision graph (
                               flags: --env --all --hook --advisory --format --block-on-critical --adjudicate-deferred --ci --json --title --base --depth --resolve
 align review                  same as align check
 
+align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
+                              flags: --env --to --all-ratified --since --yes --confirm --typed --retract --open --no-open --qr --no-qr --copy
+align push                    same as align share
+
 align mcp                     Run Align as an MCP server for any MCP-capable agent (Claude, Cursor, VS Code, Windsurf, Zed, Codex, Gemini, ...)
                               flags: --env --setup --install --remove --created-before
 
@@ -200,12 +204,6 @@ align adjudicate <event-id>   Answer an alignment check that reached the judge a
 
 align ratify <id>             Stand behind an agent-made decision as a human: mark it as governing, not just said
                               flags: --env
-
-# Share ratified decisions, with your judgements, with your team (alias: push)
-
-align share [ids]             Share ratified local decisions, and your judgements on them, with your team (previewed first; never without a yes)
-                              flags: --env --to --all-ratified --since --yes --confirm --typed --retract --open --no-open --qr --no-qr --copy
-align push                    same as align share
 
 # The local graph: start, status, reset, forget
 

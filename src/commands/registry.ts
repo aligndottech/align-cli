@@ -119,7 +119,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['adjudicate'], visible: false, summary: 'Answer a check the judge declined to rule on', register: registerAdjudicateCommand },
   // ALI-831: agent decisions as claims - the human act, and the per-item promotion after it.
   { names: ['ratify'], visible: false, summary: 'Stand behind an agent-made decision', register: registerRatifyCommand },
-  { names: ['share'], visible: false, summary: 'Share ratified decisions, with your judgements, with your team (alias: push)', register: registerShareCommand },
+  { names: ['share'], visible: true, summary: 'Bring your local decisions to your team graph (alias: push)', register: registerShareCommand },
 
   // Customer: MCP server
   { names: ['mcp'], visible: true, summary: 'Serve the graph to your agent (--setup wires it)', register: registerMcpCommand },
