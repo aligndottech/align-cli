@@ -119,3 +119,30 @@ export async function initLocalMode(opts: { backupDeps?: BackupDeps } = {}) {
   // a question.
   return { dbPath };
 }
+
+/** Exactly `<legacy dir>/local.db`: a path the user chose, or another file name, is not a legacy graph. */
+export function isLegacyGraphPath(saved: string, legacyDirs: readonly string[]): boolean {
+  const norm = (p: string): string => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  return path.basename(saved) === 'local.db' && legacyDirs.some((d) => norm(path.dirname(saved)) === norm(d));
+}
+
+/**
+ * An upgraded user's config stores an ABSOLUTE localDbPath, and every command opens that exact path. After
+ * the move to ~/.align (migrateLocalDb copies the graph there) a saved path that still names a legacy folder
+ * keeps the graph in the OLD place, and the copy in ~/.align sits unused. So when the saved path is exactly
+ * `<legacy dir>/local.db` and the copy exists, point the config at the copy. A path the user chose, a
+ * non-local environment, and a copy that was never made are all left alone: the saved path then keeps working.
+ */
+export function repointLegacyLocalDb(
+  config: { getEnvironment(env: 'local'): { mode: string; localDbPath?: string }; setLocalMode(dbPath: string): void },
+  legacyDirs: readonly string[],
+  newDir: string,
+): boolean {
+  const env = config.getEnvironment('local');
+  const saved = env.localDbPath;
+  if (env.mode !== 'local-embedded' || !saved) return false;
+  const target = path.join(newDir, 'local.db');
+  if (!isLegacyGraphPath(saved, legacyDirs) || !fs.existsSync(target)) return false;
+  config.setLocalMode(target);
+  return true;
+}
