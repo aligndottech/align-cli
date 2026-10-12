@@ -190,6 +190,10 @@ vi.mock('../lib/launch/pick-agent.js', async (importOriginal) => ({
   pickAgent: mockPickAgent,
 }));
 
+// The model step has its own suite (model-step.test.ts). Here it is a stub, so these wizard tests say WHEN it runs.
+const mockRunModelStep = vi.hoisted(() => vi.fn().mockResolvedValue('ready'));
+vi.mock('../lib/model-step.js', () => ({ runModelStep: mockRunModelStep }));
+
 const mockLoginInteractive = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 vi.mock('../lib/login-flow.js', () => ({
   loginInteractive: mockLoginInteractive,
@@ -1646,10 +1650,13 @@ describe('align setup', () => {
 
     // The wizard used to end on ALI-1284's guided Groq + Gemini key offer, right before bare
     // `align` opened Claude Code - read in that position, the keys looked like something
-    // Claude needed. They only serve align's own terminal `align ask`, which now asks for one
-    // itself the first time it has nothing to write prose with (ask-lazy-key-offer.test.ts).
-    // So the wizard asks for no key, on any path; --reset still clears saved ones.
-    describe('no AI-provider key step in the wizard', () => {
+    // Claude needed, so the wizard was changed to ask for none. That also hid the one real need:
+    // Align's conflict checks run in Align's own process and need a model of their own, so a fresh
+    // user with no key and no Ollama got "could not check" from every check and no word at setup.
+    // The model step (model-step.ts) asks only when that is true and says whose model it is for.
+    // These tests pin WHERE it runs: the local wizard only, once, never on the cloud or --approve
+    // paths, and the wizard itself still prompts for no key. --reset still clears saved ones.
+    describe('the wizard and AI-provider keys', () => {
       const PROVIDER_ENV_KEYS = [
         'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY',
         'GROQ_API_KEY', 'MISTRAL_API_KEY', 'GROK_API_KEY', 'XAI_API_KEY', 'ALIGN_LLM_BASE_URL',
@@ -1691,23 +1698,31 @@ describe('align setup', () => {
         expect(mockSetProviderKey).not.toHaveBeenCalled();
       });
 
-      it('interactive local setup never asks for a provider key', async () => {
+      it('interactive local setup runs the model step once, and prompts for no key itself', async () => {
         await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        expect(mockRunModelStep).toHaveBeenCalledTimes(1);
+        expect(mockRunModelStep).toHaveBeenCalledWith(expect.objectContaining({ interactive: expect.any(Boolean) }));
         expect(await keyPromptShown()).toBe(false);
         expect(await outroReached()).toBe(true);
         expect(mockSetProviderKey).not.toHaveBeenCalled();
       });
 
-      it('the bare-`align` first run (launchNext) never asks for a provider key', async () => {
+      it('the bare-`align` first run (launchNext) runs the model step too, before the outro', async () => {
         const { runSetup } = await import('../commands/setup.js');
         await runSetup({ launchNext: true, local: true });
+        expect(mockRunModelStep).toHaveBeenCalledTimes(1);
         expect(await keyPromptShown()).toBe(false);
         expect(await outroReached()).toBe(true);
-        expect(mockSetProviderKey).not.toHaveBeenCalled();
       });
 
-      it('--approve never asks for one either', async () => {
+      it('cloud setup never runs the model step (a team has its own model)', async () => {
+        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+        expect(mockRunModelStep).not.toHaveBeenCalled();
+      });
+
+      it('--approve on the local path runs it non-interactively, and the cloud --approve path does not run it', async () => {
         await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+        expect(mockRunModelStep).not.toHaveBeenCalled();
         expect(await keyPromptShown()).toBe(false);
         expect(await outroReached()).toBe(true);
       });
