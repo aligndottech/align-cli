@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { ConfigWrite } from '../config-writes.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
 
@@ -28,7 +28,7 @@ export function buildCursorLaunch(c: CursorLaunchContext): LaunchSpec {
       file: c.mcpFile,
       topKey: 'mcpServers',
       name: INJECTED_SERVER_NAME,
-      entry: alignServerEntry('mcpServers', 'local'),
+      entry: launchAlignEntry('mcpServers'),
       hint: 'Cursor asks before it loads a new MCP server. Approve it once: cursor-agent mcp enable align-local',
     });
   }

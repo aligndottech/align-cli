@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { GooseProjectState } from '../goose-state.js';
 import { unreadableNote } from './notes.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
@@ -37,7 +37,7 @@ export function buildGooseLaunch(c: GooseLaunchContext): LaunchSpec {
     return { ...spec, notes: [`${c.recipeDefinesAlignLocal} defines its own align-local extension, so Align did not add its graph to Goose. Remove or rename that entry to use the graph.`] };
   }
   if (c.present) return spec;
-  const { command, args } = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };
+  const { command, args } = launchAlignEntry('mcpServers') as { command: string; args: string[] };
   const ext = ['--with-extension', `align-local:${[command, ...args].join(' ')}`];
   const [first, ...rest] = c.passthrough;
   if (first === undefined || (first.startsWith('-') && !ROOT_ONLY.has(first))) return { ...spec, args: ['session', ...ext, ...c.passthrough] };

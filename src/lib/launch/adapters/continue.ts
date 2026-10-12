@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { ContinueProjectState } from '../continue-state.js';
 import { mcpChildEnv } from '../mcp-child-env.js';
 import { unreadableNote } from './notes.js';
@@ -34,7 +34,7 @@ export function buildContinueLaunch(c: ContinueLaunchContext): LaunchSpec {
     return { ...spec, notes: [`${c.conflict} defines its own align-local MCP server, so Align did not add its graph to Continue CLI. Remove that entry to use the graph.`] };
   }
   if (c.present) return spec;
-  const { command, args } = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };
+  const { command, args } = launchAlignEntry('mcpServers') as { command: string; args: string[] };
   const content = [
     'name: align-local',
     'version: 0.0.1',

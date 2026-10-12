@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { ConfigWrite } from '../config-writes.js';
 import type { GrokProjectState } from '../grok-state.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
@@ -23,7 +23,7 @@ export function buildGrokLaunch(c: GrokLaunchContext): LaunchSpec {
   if (c.conflict) {
     notes.push(`${c.conflict} defines its own align-local MCP server, so Align did not add its graph to Grok Build. Remove that entry to use the graph.`);
   } else if (!c.present) {
-    const { command, args } = alignServerEntry('mcpServers', 'local') as { command: string; args: string[] };
+    const { command, args } = launchAlignEntry('mcpServers') as { command: string; args: string[] };
     writes.push({ kind: 'toml-mcp-entry', file: c.configFile, topKey: 'mcp_servers', name: INJECTED_SERVER_NAME, entry: { command, args } });
   }
   return { bin: 'grok', args: [...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [], ...(writes.length > 0 ? { writes } : {}), ...(notes.length > 0 ? { notes } : {}) };

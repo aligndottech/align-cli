@@ -1,5 +1,5 @@
 import { alignClaudeHooks, alignNudgeBody } from '../../agent-rules.js';
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { ConfigWrite } from '../config-writes.js';
 
 export interface LaunchFile {
@@ -69,7 +69,7 @@ export function buildClaudeLaunch(c: LaunchContext): LaunchSpec {
     args.push('--append-system-prompt-file', c.cachePath('align-instructions.md'));
   }
   if (!c.projectHasMcp) {
-    files.push({ name: 'claude-mcp.json', content: json({ mcpServers: { [INJECTED_SERVER_NAME]: alignServerEntry('mcpServers', 'local') } }) });
+    files.push({ name: 'claude-mcp.json', content: json({ mcpServers: { [INJECTED_SERVER_NAME]: launchAlignEntry('mcpServers') } }) });
     args.push('--mcp-config', c.cachePath('claude-mcp.json'));
   }
   return { bin: 'claude', args, env: { ALIGN_WRAPPED: '1' }, files };

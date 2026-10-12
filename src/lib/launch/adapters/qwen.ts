@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import { QWEN_COPY_PREFIX, qwenCopyName, type QwenProjectState } from '../qwen-state.js';
 import { qwenSystemDefaultsPath } from '../qwen-trust.js';
 import { parseJsonc } from '../strict-entry.js';
@@ -53,7 +53,7 @@ export function buildQwenLaunch(c: QwenLaunchContext): LaunchSpec {
     if (!theirs) {
       notes.push(`Qwen Code's system settings file ${c.systemSettings.path} is not readable JSON with an object "mcpServers", so Align's graph tools were not added to this session. Fix the file, or point QWEN_CODE_SYSTEM_SETTINGS_PATH at one that is.`);
     } else {
-      const merged = { ...theirs, mcpServers: { ...((theirs['mcpServers'] as Json | undefined) ?? {}), [INJECTED_SERVER_NAME]: alignServerEntry('mcpServers', 'local') } };
+      const merged = { ...theirs, mcpServers: { ...((theirs['mcpServers'] as Json | undefined) ?? {}), [INJECTED_SERVER_NAME]: launchAlignEntry('mcpServers') } };
       files.push({ name: copy, content: `${JSON.stringify(merged, null, 2)}\n`, mode: 0o600 });
       env['QWEN_CODE_SYSTEM_SETTINGS_PATH'] = c.cachePath(copy);
       if (!c.env['QWEN_CODE_SYSTEM_DEFAULTS_PATH']) env['QWEN_CODE_SYSTEM_DEFAULTS_PATH'] = qwenSystemDefaultsPath(c.systemSettings.path, c.platform);

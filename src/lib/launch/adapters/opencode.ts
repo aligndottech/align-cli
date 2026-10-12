@@ -1,5 +1,5 @@
 import { alignNudgeBody, openCodePluginBody } from '../../agent-rules.js';
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { LaunchContext, LaunchFile, LaunchSpec } from './claude-code.js';
 
 export interface OpenCodeLaunchContext extends Pick<LaunchContext, 'passthrough' | 'cachePath'> {
@@ -47,7 +47,7 @@ export function buildOpenCodeLaunch(c: OpenCodeLaunchContext): LaunchSpec {
   const files: LaunchFile[] = [];
   const ours: Json = {};
 
-  if (!c.projectHasMcp) ours['mcp'] = { [INJECTED_SERVER_NAME]: alignServerEntry('opencode', 'local') };
+  if (!c.projectHasMcp) ours['mcp'] = { [INJECTED_SERVER_NAME]: launchAlignEntry('opencode') };
   if (!c.projectHasBlock) {
     files.push({ name: 'align-instructions.md', content: `${alignNudgeBody()}\n` });
     ours['instructions'] = [c.cachePath('align-instructions.md')];

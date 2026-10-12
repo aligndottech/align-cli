@@ -9,7 +9,7 @@ export default defineConfig({
     testTimeout: process.platform === 'win32' ? 60_000 : 5_000,
     hookTimeout: process.platform === 'win32' ? 60_000 : 10_000,
     // L6: the launcher starts a detached `align sync` for a due source. No test may start a real one from a developer's own state directory.
-    env: { ALIGN_NO_SYNC: '1' },
+    env: { ALIGN_NO_SYNC: '1', ALIGN_NO_TRUSTED_BIN: '1' },
     // No test may read or write the developer's real home folder (~/.claude, ~/.config/align-cli, ~/.local/state).
     // This points HOME at a temp folder before any test module is imported; see helpers/isolated-home.ts.
     setupFiles: ['src/__tests__/helpers/isolated-home.setup.ts'],

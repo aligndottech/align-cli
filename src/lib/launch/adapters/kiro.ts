@@ -1,4 +1,4 @@
-import { alignServerEntry } from '../../mcp-setup.js';
+import { launchAlignEntry } from '../../trusted-align-bin.js';
 import type { ConfigWrite } from '../config-writes.js';
 import type { KiroProjectState } from '../kiro-state.js';
 import type { LaunchContext, LaunchSpec } from './claude-code.js';
@@ -24,7 +24,7 @@ export function buildKiroLaunch(c: KiroLaunchContext): LaunchSpec {
   if (c.conflict) {
     notes.push(`${c.conflict} defines its own align-local MCP server, so Align did not add its graph to Kiro. Remove that entry to use the graph.`);
   } else if (!c.present) {
-    writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: alignServerEntry('mcpServers', 'local') });
+    writes.push({ kind: 'mcp-entry', file: c.mcpFile, topKey: 'mcpServers', name: INJECTED_SERVER_NAME, entry: launchAlignEntry('mcpServers') });
   }
   return { bin: 'kiro-cli', args: [...c.passthrough], env: { ALIGN_WRAPPED: '1' }, files: [], ...(writes.length > 0 ? { writes } : {}), ...(notes.length > 0 ? { notes } : {}) };
 }
