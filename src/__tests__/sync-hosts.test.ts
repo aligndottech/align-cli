@@ -20,8 +20,12 @@ vi.setConfig({ testTimeout: 60_000 });
 const VENDOR_HOSTS: Record<string, string[]> = { github: ['api.github.com'] };
 
 /** Throws, naming the first host that is not a vendor host of a connected source. */
+// The user's OWN Ollama on loopback: the classifier looks up which local model is installed to pick the
+// default detector (ALI-1564). It is this machine, not a vendor, and it is the only non-vendor host allowed.
+const LOOPBACK_OLLAMA = ['localhost:11434', '127.0.0.1:11434'];
+
 export function assertOnlyVendorHosts(requested: readonly string[], connected: readonly string[]): void {
-  const allowed = new Set(connected.flatMap((s) => VENDOR_HOSTS[s] ?? []));
+  const allowed = new Set([...connected.flatMap((s) => VENDOR_HOSTS[s] ?? []), ...LOOPBACK_OLLAMA]);
   const stray = requested.find((h) => !allowed.has(h));
   if (stray !== undefined) throw new Error(`a sync asked for host ${stray}, which is not a vendor host of ${connected.join(', ')}`);
 }
