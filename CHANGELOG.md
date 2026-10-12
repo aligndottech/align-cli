@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.0](https://github.com/aligndottech/align-cli/compare/cli-v0.51.0...cli-v0.52.0) (2026-10-12)
+
+
+### Features
+
+* **config:** one home folder, ~/.align, for config and the local graph (ALI-1622) ([#402](https://github.com/aligndottech/align-cli/issues/402)) ([c9e9865](https://github.com/aligndottech/align-cli/commit/c9e98652d73536f7a911f964f93d2367f91d07a2))
+
 ## [0.51.0](https://github.com/aligndottech/align-cli/compare/cli-v0.50.0...cli-v0.51.0) (2026-10-11)
 
 
