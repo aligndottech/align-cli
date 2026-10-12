@@ -79,15 +79,18 @@ back: `align setup --env local` builds the local graph on purpose and leaves the
 | | What you get |
 |---|---|
 | **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI, pi and OpenCode query the graph inline |
-| **Edit hooks** | Prior decisions reach the model before it writes. Claude Code, pi, Gemini CLI, OpenCode |
+| **Edit hooks** | Every edit is checked against prior decisions as it happens. Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
 | **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
 | **Shared `.mcp.json`** | One committed file wires up the whole team |
 
 The hook is **non-blocking and fail-open**. It never denies an edit by default, and if Align is
 missing, slow or unreachable the edit proceeds untouched. It needs no AI provider key.
 
-Cursor and Codex CLI can't do the pre-edit hook, and that's a limit of those hosts. They get the
-other three. Full per-host matrix: [docs/agent-hooks.md](docs/agent-hooks.md).
+Codex, Cursor and Copilot CLI get the pre-edit check through a user-level hook file
+(`~/.codex/hooks.json`, `~/.cursor/hooks.json`, `~/.copilot/hooks/align.json`). Cursor, Copilot
+CLI and Gemini CLI can only hand context to the model after an edit lands, and none of the three
+user-level hosts has been checked against a real session's payload yet. Full per-host matrix:
+[docs/agent-hooks.md](docs/agent-hooks.md).
 
 > The first time Claude Code loads a project with a committed hook, it shows a one-time "approve
 > hooks" prompt. Accept it to enable automatic alignment.
