@@ -36,7 +36,7 @@ process.on('exit', () => printRedactionNotice((line) => { try { writeSync(2, `${
 // ~/.config on some machine must not stop align from running the command the user
 // actually asked for, so failures here are swallowed rather than reaching handleFatal.
 try {
-  // ~/.align is the one home now (ALI-1622). Copy anything an older install left under the OS config
+  // ~/.align is the one home now. Copy anything an older install left under the OS config
   // directory, from every place one was ever written.
   const legacyConfigDirs = [envPaths('align-cli', { suffix: 'nodejs' }).config, envPaths('align-cli', { suffix: '' }).config];
   for (const dir of legacyConfigDirs) migrateConfigDirectory(dir, alignConfigDir());

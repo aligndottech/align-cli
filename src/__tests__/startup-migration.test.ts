@@ -61,7 +61,7 @@ function makeHome() {
   // implementation by construction, including when both are wrong.
   const legacyDir =
     process.platform === 'win32' ? join(appData, 'align-cli') : join(home, '.config', 'align-cli');
-  // ~/.align on every platform (ALI-1622): the one place the config and local graph now live.
+  // ~/.align on every platform: the one place the config and local graph now live.
   const currentDir = join(home, '.align');
   const legacyConfigDir =
     process.platform === 'win32'

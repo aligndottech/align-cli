@@ -70,7 +70,7 @@ function probeScript(): string {
  * parameter (Copilot review, PR #323, high severity: the first version of this test
  * hardcoded the Linux form and would silently assert against the wrong path on darwin/win32).
  */
-// ~/.align on every platform (ALI-1622): the one folder for config and the local graph.
+// ~/.align on every platform: the one folder for config and the local graph.
 function expectedConfigDir(home: string, _platform: typeof process.platform): string {
   return join(home, '.align');
 }
