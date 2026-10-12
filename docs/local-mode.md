@@ -119,8 +119,9 @@ is listed on its own page, and a test keeps that page true.
 
   Local model: the CLI uses `qwen2.5:7b` when it is installed (`ollama pull qwen2.5:7b`). It is the
   local model that passes the v1 detector on our labelled pairs. The 3B `llama3.2` does not: it found
-  30 of 51 real conflicts against v0's 46, so if `llama3.2` is your only local model, set
-  `ALIGN_DETECTOR=v0`.
+  30 of 51 real conflicts against v0's 46. So with no hosted key and any local model other than qwen2.5
+  (at its default size or 7B and above), the default is `v0`. A hosted key, `ALIGN_DETECTOR` or
+  `align config detector` overrides that, in either direction.
 
   Measured on 183 labelled decision pairs (177 scored), majority of 3 runs, conflict precision and
   recall. The pairs were picked from conflicts the hosted product had already flagged, so they are not a

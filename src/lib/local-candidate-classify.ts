@@ -14,8 +14,27 @@ import { createConfigStore } from './config.js';
  * is A). v1 always puts the new/proposed side as the NEW DECISION.
  */
 import { type DetectorVersion, resolveDetectorVersion } from '../detector/detector-version.js';
+import { defaultDetectorForLocalModel } from '../detector/local-model-default.js';
+import { hasConfiguredProvider, probeOllama } from './local-llm.js';
 import { type ClassificationOutcome, classifyRelationship, type RelationshipType } from './local-relationship-classifier.js';
 import { classifyCandidateSet, type SetCandidate, type SetSubject } from './local-set-classifier.js';
+
+// One local probe per process: the model on disk does not change mid-run, and every classification calls this.
+let localModelProbe: Promise<string | null> | undefined;
+
+/**
+ * The detector for this call. An explicit choice (ALIGN_DETECTOR or `align config detector`) always wins. With
+ * none, v1 is the default, except on a LOCAL route (no hosted key) where only a model that passed the
+ * preregistered rule runs it and anything else runs v0 (ALI-1564, detector/local-model-default.ts).
+ */
+async function chooseDetectorVersion(): Promise<DetectorVersion> {
+  const store = createConfigStore();
+  const explicit = (process.env['ALIGN_DETECTOR'] ?? '').trim() !== '' || store.getDetector() !== undefined;
+  const version = resolveDetectorVersion(process.env, store.getDetector());
+  if (explicit || version !== 'v1' || hasConfiguredProvider()) return version;
+  localModelProbe ??= probeOllama();
+  return defaultDetectorForLocalModel(await localModelProbe);
+}
 
 export interface CandidateClassification {
   version: DetectorVersion;
@@ -28,7 +47,7 @@ export async function classifyCandidates(
   order: 'subject-first' | 'candidate-first',
   deps: { pair?: typeof classifyRelationship; set?: typeof classifyCandidateSet } = {},
 ): Promise<CandidateClassification> {
-  const version = resolveDetectorVersion(process.env, createConfigStore().getDetector());
+  const version = await chooseDetectorVersion();
   if (version === 'v1') {
     if (!candidates.length) return { version, outcomes: [] };
     const result = await (deps.set ?? classifyCandidateSet)(subject, candidates);
