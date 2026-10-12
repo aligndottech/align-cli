@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.53.1](https://github.com/aligndottech/align-cli/compare/cli-v0.53.0...cli-v0.53.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* hand agents a trusted absolute align path, not a bare PATH lookup (ALI-1515) ([#409](https://github.com/aligndottech/align-cli/issues/409)) ([358a6e2](https://github.com/aligndottech/align-cli/commit/358a6e2929c6a372d33dd475e11e978d0d1ff323))
+* strict MCP judges accept the trusted absolute align path, and only that one (ALI-1515) ([#411](https://github.com/aligndottech/align-cli/issues/411)) ([b6aef0e](https://github.com/aligndottech/align-cli/commit/b6aef0ee3898839e6596f72e4fcd82314bef6cc6))
+
 ## [0.53.0](https://github.com/aligndottech/align-cli/compare/cli-v0.52.0...cli-v0.53.0) (2026-10-12)
 
 
