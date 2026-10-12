@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isCanonicalLocalEntry, stripJsonComments } from '../lib/launch/strict-entry.js';
 
 /*
@@ -90,5 +93,42 @@ describe('stripJsonComments (Gemini parses its JSON files through strip-json-com
   it('leaves plain JSON byte-identical', () => {
     const plain = '{ "a": [1, 2], "b": "c" }';
     expect(stripJsonComments(plain)).toBe(plain);
+  });
+});
+
+// ALI-1515: the entry align itself writes names the trusted absolute path. That exact path is canonical; any other
+// absolute path (a repo file pointing at its own binary) is not.
+describe.skipIf(process.platform === 'win32')('isCanonicalLocalEntry with the trusted absolute path', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trusted-'));
+  const bin = path.join(dir, 'align');
+  fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+  const saved = { PATH: process.env['PATH'], hatch: process.env['ALIGN_NO_TRUSTED_BIN'] };
+  beforeAll(() => {
+    process.env['PATH'] = dir;
+    delete process.env['ALIGN_NO_TRUSTED_BIN'];
+  });
+  afterAll(() => {
+    process.env['PATH'] = saved.PATH;
+    if (saved.hatch !== undefined) process.env['ALIGN_NO_TRUSTED_BIN'] = saved.hatch;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('the resolved path is canonical, and so is the bare name', () => {
+    expect(canon({ command: bin, args: LOCAL })).toBe(true);
+    expect(canon({ command: 'align', args: LOCAL })).toBe(true);
+  });
+
+  it('a different absolute path is not canonical, with the right args or with extra ones', () => {
+    expect(canon({ command: '/somewhere/else/align', args: LOCAL })).toBe(false);
+    expect(canon({ command: bin, args: [...LOCAL, '--verbose'] })).toBe(false);
+  });
+
+  it('with the escape hatch set the absolute path is no longer accepted', () => {
+    process.env['ALIGN_NO_TRUSTED_BIN'] = '1';
+    try {
+      expect(canon({ command: bin, args: LOCAL })).toBe(false);
+    } finally {
+      delete process.env['ALIGN_NO_TRUSTED_BIN'];
+    }
   });
 });
