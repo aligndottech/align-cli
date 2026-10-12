@@ -7,6 +7,8 @@
  * Deliberately separate from project-state.ts's isLocalAlignServer (Claude Code, pi, Cursor),
  * which matches any command line that mentions align and mcp.
  */
+import { resolveTrustedAlignBin } from '../trusted-align-bin.js';
+
 export type StrictHost = 'mcpServers' | 'codex' | 'copilot' | 'droid' | 'auggie';
 
 export interface CanonicalOptions {
@@ -46,10 +48,15 @@ export function isCanonicalLocalEntry(entry: unknown, o: CanonicalOptions): bool
   }
   if (!REQUIRED[o.host].every((k) => Object.hasOwn(entry, k))) return false;
   // On win32 an npm global install is align.cmd, which only cmd can spawn (mcp-setup.ts, ALI-1135).
-  const [command, prefix] = o.platform === 'win32' ? ['cmd', ['/c', 'align']] : ['align', []];
-  if (entry['command'] !== command) return false;
+  // ALI-1515: align writes the absolute path it resolved. Accept exactly THAT path and no other absolute one: a project
+  // file naming /repo/evil/align must not read as Align's own server.
+  const trusted = process.env['ALIGN_NO_TRUSTED_BIN'] === '1' ? null : resolveTrustedAlignBin();
   const accepted = o.localIsDefault ? [['mcp'], ['mcp', '--env', 'local']] : [['mcp', '--env', 'local']];
-  return accepted.some((a) => sameArgs(entry['args'], [...prefix, ...a]));
+  for (const bin of trusted === null ? ['align'] : ['align', trusted]) {
+    const [command, prefix] = o.platform === 'win32' ? ['cmd', ['/c', bin]] : [bin, []];
+    if (entry['command'] === command && accepted.some((a) => sameArgs(entry['args'], [...prefix, ...a]))) return true;
+  }
+  return false;
 }
 
 /**
