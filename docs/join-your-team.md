@@ -19,7 +19,7 @@ gives a server a credential and a place to send your decisions, so a person answ
 
 Two limits, stated plainly. An agent that opens its own pseudo-terminal can still get past a terminal check and type
 the answers itself; that is a limit of any such check, not something this command solves. And anything able to write
-the CLI's config file (`~/.config/align-cli/config.json` on Linux) can add a destination directly, without
+the CLI's config file (`~/.align/config.json`) can add a destination directly, without
 `align join` at all.
 
 What happens, in order:

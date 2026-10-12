@@ -70,11 +70,9 @@ function probeScript(): string {
  * parameter (Copilot review, PR #323, high severity: the first version of this test
  * hardcoded the Linux form and would silently assert against the wrong path on darwin/win32).
  */
-function expectedConfigDir(home: string, platform: typeof process.platform): string {
-  const name = 'align-cli';
-  if (platform === 'darwin') return join(home, 'Library', 'Preferences', name);
-  if (platform === 'win32') return join(home, 'AppData', 'Roaming', name, 'Config');
-  return join(home, '.config', name); // linux and other XDG-following POSIX platforms
+// ~/.align on every platform (ALI-1622): the one folder for config and the local graph.
+function expectedConfigDir(home: string, _platform: typeof process.platform): string {
+  return join(home, '.align');
 }
 
 function makeIsolatedHome() {

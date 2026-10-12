@@ -8,7 +8,7 @@ import type { ActiveScope, StoredScope } from './scope-values.js';
 
 import { asDestinationName, type TeamDestinationName, validateDestinationName } from './destination-name.js';
 import { assertTransport } from './destination-trust.js';
-import { ensurePrivateDir, tightenFile } from './private-files.js';
+import { alignConfigDir, ensurePrivateDir, tightenFile } from './private-files.js';
 
 export type BuiltinEnv = 'local' | 'preview' | 'prod';
 /** A builtin, or the name of a team destination saved by `align join`. */
@@ -155,6 +155,9 @@ export function createConfigStore() {
     teamScopeDisclosedFor?: string[];
     shareDestination?: string;
   }>({
+    // ~/.align (alignConfigDir): one folder for config and the local graph. cwd overrides the OS config
+    // directory conf would otherwise pick from projectName.
+    cwd: alignConfigDir(),
     projectName: 'align-cli',
     // conf's own default is 'nodejs' (node_modules/conf/dist/source/index.js), which
     // writes to ~/.config/align-cli-nodejs - a DIFFERENT directory from the one
