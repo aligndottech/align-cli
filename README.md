@@ -18,7 +18,8 @@ align
 
 Run it inside a git repository. The first time, `align` asks which coding agent you use, builds a
 graph from your commit history and wires your agent up to it. After that, `align` opens your agent
-with the graph already connected.
+with the graph already connected, and refreshes your connected sources in the background, at most
+every 15 minutes per source (`align sync --off` turns that off).
 
 MIT licensed, no account needed. It's in beta, pre-1.0.
 
