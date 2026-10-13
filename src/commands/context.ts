@@ -24,6 +24,7 @@ import { createConfigStore } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { localCitationFor } from '../lib/commit-cite.js';
+import { ensureGitignored, isTrackedByGit } from '../lib/context-local-only.js';
 import { navigableSourceUrl } from '../lib/decision-links.js';
 import {
   ALIGN_CONTEXT_PATH,
@@ -48,7 +49,8 @@ export function registerContextCommand(program: Command): void {
       // preferLocalEmbedded: the launch's flagship command must work for the
       // no-account user it is pitched at - bare resolution sent them to an
       // unauthenticated cloud 401 (ALI-675, the ALI-160/423 family).
-      const client = createGatewayClient(config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true })));
+      const syncEnv = config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true }));
+      const client = createGatewayClient(syncEnv);
       const spinner = ora('Fetching decisions...').start();
 
       // Fetch BEFORE writing anything: a failed fetch must not leave a
@@ -104,6 +106,18 @@ export function registerContextCommand(program: Command): void {
           `No CLAUDE.md here - add this line to your agent's context file to load it:\n` +
           `  ${chalk.bold(ALIGN_IMPORT_LINE)}`,
         );
+      }
+      // A local graph is private to this machine, so its decisions file stays out of git. Sharing with a team
+      // goes through `align share`; a team graph's file is already team content and is left alone.
+      if (syncEnv.mode === 'local-embedded') {
+        const status = ensureGitignored(repoRoot, ALIGN_CONTEXT_PATH);
+        console.log(chalk.dim(
+          `${status === 'added' ? 'Kept out of git (added to .gitignore)' : 'Kept out of git'}: this comes from your local graph, which stays on this machine. ` +
+          `To bring decisions to your team, run ${chalk.bold('align share')}.`,
+        ));
+        if (isTrackedByGit(repoRoot, ALIGN_CONTEXT_PATH)) {
+          console.log(chalk.yellow(`${ALIGN_CONTEXT_PATH} is already tracked by git, so it can reach your team. Stop tracking it: git rm --cached ${ALIGN_CONTEXT_PATH}`));
+        }
       }
       console.log(chalk.dim('Re-run `align context sync` after new decisions land.'));
     });
