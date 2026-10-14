@@ -1,11 +1,12 @@
 /**
  * Align brand rendering for the terminal.
  *
- * The mark is AUTHORED at terminal resolution, not downsampled from the vector logo.
- * Resampling the detailed mark to this size was tried first and read as mud: the thin
- * strokes and the inner triangle turn to noise below about 40 rows. So this is pixel
- * art of the mark - chevron, inner triangle, the teal bar and the two feet - drawn to
- * survive at 16x5 cells, packed two pixel rows per terminal row with half blocks.
+ * The mark is a small robot/agent glyph (ALI-1642), not the vector Align mark: a
+ * deliberate brand-direction change, not a correction of the prior chevron art. It is
+ * authored at terminal resolution using only block and half-block glyphs - no shading
+ * characters (▓▒░), which read as dithered noise rather than a crisp silhouette at this
+ * size, and no quadrant characters, which were tried for the previous mark in 0.26.2 and
+ * render blurry and inset in many terminal fonts.
  *
  * On a dark terminal the navy strokes are rendered WHITE, following the brand pack's
  * own knockout variant (F 4 R): navy on a dark background is invisible, which is why
@@ -46,42 +47,51 @@ export const TAGLINE_LINES = [
 export const TAGLINE_ACCENT = "don't know the company.";
 
 /**
- * The mark, DERIVED from the real logo rather than hand-drawn.
+ * The robot mark: a flat-top head, two square eyes cut through to the background
+ * (not coloured - a filled eye would either clash on a half-block cell shared with
+ * the surrounding visor colour, or vanish into a same-colour background, see below),
+ * a single teal antenna, and a teal collar bar echoing the old mark's teal bar.
  *
- * Downscaled (stroke-preserving area coverage, 2026-08-31) from the approved 32x10
- * sprite, which was itself sampled from the brand pack's F 1 R.png at 32x20 pixels -
- * so the geometry is the actual mark and not an approximation of it: a hollow
- * triangle with a nested hollow triangle inside, a navy base bar that overhangs to the
- * RIGHT only, a teal bar that overhangs to the LEFT, two short teal segments, and two
- * slanted navy feet. Earlier hand-drawn versions got every one of those details wrong,
- * because they were reconstructed from memory instead of read off the asset. The one
- * hand edit at this size is the feet row's COLOUR mask: the teal bar's lower edge
- * bleeds into it when multiple source pixel rows are averaged into a single cell row at this scale, and the approved
- * sprite's bottom row is navy feet throughout - coverage was left exactly as derived.
+ * Built from a 10-column LEFT HALF mirrored into the full 20-column row
+ * (`half + reverse(half)`), so left/right symmetry holds by construction instead of
+ * by eye - the previous attempt at hand-balancing a 20-character string got four rows
+ * wrong before this was caught.
  *
- * Only block and half-block glyphs are used. Quadrant characters were tried in 0.26.2
- * and render blurry and inset in many terminal fonts, which is the one thing a logo
- * cannot afford; these three are universally hinted.
+ * A half-block terminal cell packs two pixel-rows into one glyph, and can only carry
+ * ONE colour: whichever pixel-row is present sets both the glyph (█/▀/▄) and the
+ * colour. So no cell may have a non-background colour on both its top and bottom
+ * pixel-row where those two colours differ - two rows of the same shape with
+ * DIFFERENT colours in the same column is unrepresentable here. The eyes are
+ * background cutouts (not teal) specifically so this never collides with the
+ * antenna/collar teal, and so the shape is clash-free without a hand-patched
+ * exception the way the old mark's feet row needed one.
  *
- * GLYPHS holds the shape, COLOURS names each cell's brand colour, and a test asserts
- * they agree cell for cell.
+ * The eye row also deliberately carries no teal for a second reason: it lands on the
+ * same output row as the first tagline line in `banner()` (row `textTop + 1`), and
+ * brand.test.ts asserts that row is never teal from the mark - only from text.
+ *
+ * GLYPHS holds the shape, COLOURS names each cell's brand colour ('N' navy/white-
+ * knockout, 'T' teal, ' ' none); the two must agree cell for cell (space iff space).
+ * Both constants are private, so brand.test.ts checks this through the public
+ * `logoLines` output instead of importing them directly: every visible glyph
+ * character must carry a colour escape, and every space must carry none.
  */
 const GLYPHS: readonly string[] = [
-  '         ▄██        ',
-  '       ▄█▀▄ █▄      ',
-  '      █▀▄█▀█▄▀█     ',
-  '     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ',
-  '▀▀▀██████▀▀▀▀█████  ',
-  '  ██▄▄██      █▄▄██▄',
+  '         ██         ',
+  '    ▄▄████████▄▄    ',
+  '   ███  ████  ███   ',
+  '   ▀████████████▀   ',
+  '    ▀▀██▄▄▄▄██▀▀    ',
+  '    ▄▄██▄▄▄▄██▄▄    ',
 ];
 
 const COLOURS: readonly string[] = [
-  '         NNN        ',
-  '       NNNN NN      ',
-  '      NNNNNNNNN     ',
-  '     NNNNNNNNNNNNNN ',
-  'TTTTTTTTTTTTTTTTTT  ',
-  '  NNNNNN      NNNNNN',
+  '         TT         ',
+  '    NNNNNNNNNNNN    ',
+  '   NNN  NNNN  NNN   ',
+  '   NNNNNNNNNNNNNN   ',
+  '    NNNNNNNNNNNN    ',
+  '    TTTTTTTTTTTT    ',
 ];
 
 /** Which brand colour the mark's strokes take. The pack ships a teal-only variant

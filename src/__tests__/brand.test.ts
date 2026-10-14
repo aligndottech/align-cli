@@ -70,6 +70,27 @@ describe('logoLines', () => {
     const light = logoLines({ color: true, truecolor: true, dark: false }).join('');
     expect(light).toContain('38;2;2;40;99');
   });
+
+  it('colours every visible glyph cell and none of the background ones', () => {
+    // GLYPHS (the shape) and COLOURS (the mask) are two parallel private arrays; a
+    // cell where one names a block and the other names a space would print an
+    // uncoloured glyph (default terminal fg, off the brand palette) silently, since
+    // nothing else reads these arrays together. logoLines wraps every coloured
+    // character individually as `${fg}${ch}${RESET}` and leaves a background
+    // character bare, so counting RESETs per row against non-space characters in the
+    // plain render catches a mismatch either way without needing to import the
+    // private arrays.
+    const plainRows = logoLines({ color: false });
+    const colouredRows = logoLines({ color: true, truecolor: true });
+    // eslint-disable-next-line no-control-regex -- ESC is the thing under test here
+    const RESET_COUNT = (s: string) => (s.match(/\x1b\[0m/g) ?? []).length;
+
+    for (let y = 0; y < plainRows.length; y++) {
+      const plain = plainRows[y] as string;
+      const nonSpaceCount = [...plain].filter((ch) => ch !== ' ').length;
+      expect(RESET_COUNT(colouredRows[y] as string), `row ${y}`).toBe(nonSpaceCount);
+    }
+  });
 });
 
 describe('banner', () => {
