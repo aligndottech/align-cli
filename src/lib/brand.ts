@@ -27,8 +27,8 @@ const TEAL_256 = 79;
 const NAVY_256 = 24;
 const WHITE_256 = 231;
 
-export const LOGO_WIDTH = 20;
-export const LOGO_ROWS = 6;
+export const LOGO_WIDTH = 8;
+export const LOGO_ROWS = 5;
 
 /**
  * The live positioning line, taken from align-frontend's hero (src/lib/seo.ts).
@@ -47,15 +47,18 @@ export const TAGLINE_LINES = [
 export const TAGLINE_ACCENT = "don't know the company.";
 
 /**
- * The robot mark: a flat-top head, two square eyes cut through to the background
- * (not coloured - a filled eye would either clash on a half-block cell shared with
- * the surrounding visor colour, or vanish into a same-colour background, see below),
- * a single teal antenna, and a teal collar bar echoing the old mark's teal bar.
+ * The robot mark: a small head, two square eyes cut through to the background (not
+ * coloured - see the clash note below), a single teal antenna, and a teal base nub
+ * echoing the old mark's teal bar.
  *
- * Built from a 10-column LEFT HALF mirrored into the full 20-column row
+ * Sized as a compact mascot (ALI-1647), not a banner-width logo: the first robot
+ * version shipped at the old mark's 20x6 footprint, which read as too large next to
+ * the wordmark - closer to Claude Code's small mascot icon is the target size.
+ *
+ * Built from a 4-column LEFT HALF mirrored into the full 8-column row
  * (`half + reverse(half)`), so left/right symmetry holds by construction instead of
- * by eye - the previous attempt at hand-balancing a 20-character string got four rows
- * wrong before this was caught.
+ * by eye - the first (20-wide) attempt at hand-balancing a wide string got four rows
+ * wrong before this technique was adopted.
  *
  * A half-block terminal cell packs two pixel-rows into one glyph, and can only carry
  * ONE colour: whichever pixel-row is present sets both the glyph (█/▀/▄) and the
@@ -63,12 +66,13 @@ export const TAGLINE_ACCENT = "don't know the company.";
  * pixel-row where those two colours differ - two rows of the same shape with
  * DIFFERENT colours in the same column is unrepresentable here. The eyes are
  * background cutouts (not teal) specifically so this never collides with the
- * antenna/collar teal, and so the shape is clash-free without a hand-patched
- * exception the way the old mark's feet row needed one.
+ * head's body colour, and so the shape is clash-free without a hand-patched
+ * exception the way the old triangular mark's feet row needed one.
  *
- * The eye row also deliberately carries no teal for a second reason: it lands on the
- * same output row as the first tagline line in `banner()` (row `textTop + 1`), and
- * brand.test.ts asserts that row is never teal from the mark - only from text.
+ * At this height (`LOGO_ROWS=5`) the teal rows (antenna, base) land on the `ALIGN®`
+ * and version lines of `banner()`'s `right[]` column, never on the two tagline rows
+ * (`textTop + 1`, `textTop + 2`) - brand.test.ts asserts those two are never teal from
+ * the mark, only from text, so a future resize must keep teal off rows 1 and 2.
  *
  * GLYPHS holds the shape, COLOURS names each cell's brand colour ('N' navy/white-
  * knockout, 'T' teal, ' ' none); the two must agree cell for cell (space iff space).
@@ -76,23 +80,9 @@ export const TAGLINE_ACCENT = "don't know the company.";
  * `logoLines` output instead of importing them directly: every visible glyph
  * character must carry a colour escape, and every space must carry none.
  */
-const GLYPHS: readonly string[] = [
-  '         ██         ',
-  '    ▄▄████████▄▄    ',
-  '   ███  ████  ███   ',
-  '   ▀████████████▀   ',
-  '    ▀▀██▄▄▄▄██▀▀    ',
-  '    ▄▄██▄▄▄▄██▄▄    ',
-];
+const GLYPHS: readonly string[] = ['   ██   ', ' ██████ ', ' █ ██ █ ', '  ████  ', '  ████  '];
 
-const COLOURS: readonly string[] = [
-  '         TT         ',
-  '    NNNNNNNNNNNN    ',
-  '   NNN  NNNN  NNN   ',
-  '   NNNNNNNNNNNNNN   ',
-  '    NNNNNNNNNNNN    ',
-  '    TTTTTTTTTTTT    ',
-];
+const COLOURS: readonly string[] = ['   TT   ', ' NNNNNN ', ' N NN N ', '  NNNN  ', '  TTTT  '];
 
 /** Which brand colour the mark's strokes take. The pack ships a teal-only variant
  * (F 2 R) as well as the white knockout (F 4 R), so both are on-brand.
