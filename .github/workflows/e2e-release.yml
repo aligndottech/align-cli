@@ -158,7 +158,7 @@ jobs:
           cd "$RUNNER_TEMP/fixture"
 
           "$ALIGN" telemetry on
-          "$ALIGN" setup --local --approve > "$RUNNER_TEMP/setup.log" 2>&1 || {
+          "$ALIGN" --local --approve > "$RUNNER_TEMP/setup.log" 2>&1 || {
             echo "FATAL: setup failed"; cat "$RUNNER_TEMP/setup.log"; exit 1; }
           cat "$RUNNER_TEMP/setup.log"
 
