@@ -32,13 +32,25 @@ describe('detectDeterministicHits', () => {
   });
   it('finds known credential formats and names the secrets rule', () => {
     const cases = [
-      'key=AKIAIOSFODNN7EXAMPLE',
+      'key=AKIAJ3Q7ZK2MWB5TXN4P',
       `tok ghp_${'a'.repeat(36)}`,
       `sk-ant-api03-${'b'.repeat(40)}`,
       'xoxb-123456789012-abcdefghijkl',
       '-----BEGIN RSA PRIVATE KEY-----',
     ];
     for (const c of cases) expect(detectDeterministicHits(c).map((h) => h.ruleId)).toEqual(['no-plaintext-secrets']);
+  });
+  it('does not mistake common non-matches for customer data or secrets', () => {
+    const clean = [
+      'pad 0000000000000000', 'ts 1760000000000', 'id 1234-5678-9012-3456-7890', 'logo@2x.png',
+      'Co-authored-by: Bot <1+bot@users.noreply.github.com>', 'key=AKIAIOSFODNN7EXAMPLE',
+    ];
+    for (const c of clean) expect(detectDeterministicHits(c)).toEqual([]);
+  });
+  it('a huge run of email characters with no @ stays fast', () => {
+    const t0 = Date.now();
+    detectDeterministicHits('a'.repeat(200_000));
+    expect(Date.now() - t0).toBeLessThan(500);
   });
   it('plain prose and short tokens hit nothing', () => {
     expect(detectDeterministicHits('rename the ghp_ prefix constant; AKIA is a prefix')).toEqual([]);

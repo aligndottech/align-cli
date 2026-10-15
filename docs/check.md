@@ -39,7 +39,7 @@ that passes the Luhn check, a known credential format (AWS, GitHub, Anthropic, S
 key blocks). A match is a **deny on the first attempt** only when your team has accepted the
 matching starter rule (`customer-data-in-tickets`, `no-plaintext-secrets`) in Align, because
 a ratified rule is a person saying "enforce this". The message names the rule and the kind of
-thing found, never the value. No ratified rule means no deny.
+thing found, never the value. No ratified rule means no deny. This deny does not need `--block-on-critical`: it rests on a rule a person ratified plus a computed match, not on a model's judgement. If the user confirms an edit is intended, set `ALIGN_RULES_ACK=1` for that session.
 
 The tenant's rules are fetched only when the text matches, so an ordinary edit costs no extra
 request. If they cannot be read (offline, local mode, timeout) the edit proceeds and stderr says

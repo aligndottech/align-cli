@@ -413,15 +413,23 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // so an ordinary edit pays no request. No ratified rule, an unreadable answer or local
     // mode (no starter rules) all fall through to the normal path: a deny rests on a person
     // having said "enforce this", never on a guess. Pre only - a landed edit cannot be refused.
-    if (pre) {
+    // ALI-1648 break glass: ALIGN_RULES_ACK=1 skips this check for the session. The deny says
+    // "confirm with the user", and nothing else records that confirmation, so without a way
+    // out an agent retrying identical text would be refused forever.
+    // Deliberately NOT gated on --block-on-critical: that flag opts into blocking on a model's
+    // guess; this denies only what a person ratified AND a computed match proves.
+    if (pre && process.env.ALIGN_RULES_ACK !== '1') {
       const hits = detectDeterministicHits(text);
       if (hits.length) {
         let denial: unknown | null = null;
+        let timer: ReturnType<typeof setTimeout> | undefined;
         try {
+          // Local mode has no starter rules: skip without a misleading note.
+          if (typeof client.getStarterRules !== 'function' || envName === 'local') throw new LocalSkip();
           const ratified = ratifiedDeterministicRules(
             await Promise.race([
               client.getStarterRules(),
-              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), RETRIEVAL_TIMEOUT_MS)),
+              new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), RETRIEVAL_TIMEOUT_MS); }),
             ]),
           );
           const broken = hits.flatMap((h) => {
@@ -429,9 +437,10 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
             return rule ? [{ rule, kind: h.kind }] : [];
           });
           if (broken.length) denial = renderForHost(ruleDenyReason(broken), renderOpts, true);
-        } catch {
-          process.stderr.write('align: this edit matches a starter rule, but could not read your ratified rules, so it was not checked against them.\n');
+        } catch (err) {
+          if (!(err instanceof LocalSkip)) process.stderr.write('align: this edit matches a starter rule, but could not read your ratified rules, so it was not checked against them.\n');
         }
+        clearTimeout(timer);
         if (denial !== null) {
           emit(denial);
           process.exit(0);
@@ -531,6 +540,8 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
   }
   process.exit(0);
 }
+
+class LocalSkip extends Error {}
 
 type AdvisoryConflict = NonNullable<AlignmentResult['conflicts']>[number];
 

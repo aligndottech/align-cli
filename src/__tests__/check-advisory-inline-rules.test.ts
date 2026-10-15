@@ -134,4 +134,17 @@ describe('inline deterministic deny', () => {
     expect((await runCheck(['--advisory', '--format', 'cursor'])).stdout).toContain('"permission":"deny"');
     expect((await runCheck(['--advisory', '--format', 'pi'])).stdout).toContain('"block":true');
   });
+
+  it('ALIGN_RULES_ACK=1 is the break glass: a confirmed edit goes through', async () => {
+    mockReadHookPayload.mockResolvedValue(payload('{"reporter":"jane.doe@acmecorp.io"}'));
+    mockGetStarterRules.mockResolvedValue(RULES('accepted'));
+    vi.stubEnv('ALIGN_RULES_ACK', '1');
+    try {
+      const { stdout } = await runCheck(['--advisory']);
+      expect(stdout).not.toContain('deny');
+      expect(mockGetStarterRules).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

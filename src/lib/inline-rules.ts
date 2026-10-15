@@ -36,14 +36,20 @@ export interface DeterministicHit {
 const CUSTOMER_DATA = 'customer-data-in-tickets';
 const SECRETS = 'no-plaintext-secrets';
 
-const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b/g;
-const RESERVED_DOMAIN = /(^|\.)(example\.(com|org|net)|localhost|invalid|test|example)$/i;
+// Lookbehind: only a run START is tried, so a long blob with no @ is linear, not quadratic.
+const EMAIL = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,24})(?![A-Za-z0-9-])/g;
+const FILE_LIKE_TLD = /\.(png|jpe?g|gif|svg|webp|css|js|ts|json|md|html?|woff2?|py|rb|go|rs)$/i;
+const RESERVED_DOMAIN = /(^|\.)(example\.(com|org|net)|localhost|invalid|test|example|noreply\.github\.com)$/i;
 const AUTOMATED_LOCAL = /^(no-?reply|donotreply|do-not-reply)@/i;
 
-const CARD = /\b(?:\d[ -]?){13,19}\b/g;
+// One unbroken run, or digits in groups of 4 (spaces or dashes), not part of a longer number.
+const CARD = /(?<![\d-])(?:\d{13,19}|\d{4}(?:[ -]\d{4}){3}|\d{4}[ -]\d{6}[ -]\d{5})(?![\d-])/g;
+// Issuer prefixes with their lengths (Visa, Mastercard, Amex, Discover). Keeps all-zero runs,
+// epoch timestamps and ordinary ids out: Luhn alone passes about one number in ten.
+const CARD_BRAND = /^(?:4(?:\d{12}|\d{15}|\d{18})|(?:5[1-5]\d{2}|222[1-9]|22[3-9]\d|2[3-6]\d{2}|27[01]\d|2720)\d{12}|3[47]\d{13}|6011\d{12}|65\d{14})$/;
 
 const SECRET_FORMATS: ReadonlyArray<{ kind: string; re: RegExp }> = [
-  { kind: 'AWS access key id', re: /\bAKIA[0-9A-Z]{16}\b/ },
+  { kind: 'AWS access key id', re: /\bAKIA(?![0-9A-Z]*EXAMPLE)[0-9A-Z]{16}\b/ },
   { kind: 'GitHub token', re: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/ },
   { kind: 'Anthropic API key', re: /\bsk-ant-[A-Za-z0-9_-]{20,}/ },
   { kind: 'Slack token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/ },
@@ -68,7 +74,7 @@ function luhnValid(digits: string): boolean {
 function hasRealEmail(text: string): boolean {
   for (const m of text.matchAll(EMAIL)) {
     if (AUTOMATED_LOCAL.test(m[0])) continue;
-    if (RESERVED_DOMAIN.test(m[1] ?? '')) continue;
+    if (RESERVED_DOMAIN.test(m[1] ?? '') || FILE_LIKE_TLD.test(m[1] ?? '')) continue;
     return true;
   }
   return false;
@@ -77,7 +83,7 @@ function hasRealEmail(text: string): boolean {
 function hasLuhnCard(text: string): boolean {
   for (const m of text.matchAll(CARD)) {
     const digits = m[0].replace(/[ -]/g, '');
-    if (digits.length >= 13 && digits.length <= 19 && luhnValid(digits)) return true;
+    if (CARD_BRAND.test(digits) && luhnValid(digits)) return true;
   }
   return false;
 }
@@ -114,6 +120,6 @@ export function ruleDenyReason(hits: Array<{ rule: StarterRuleOffer; kind: strin
   return [
     'Blocked by a rule your team ratified in Align:',
     ...lines,
-    'Remove it from the change and try again, or confirm with the user before proceeding.',
+    'Remove it from the change and try again. If the user confirms this is intended, they can set ALIGN_RULES_ACK=1 for the session.',
   ].join('\n');
 }
