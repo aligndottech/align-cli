@@ -8,6 +8,17 @@ export default defineConfig({
     // default beats a per-file number that the next slow test needs again. Tests that need more still set their own.
     testTimeout: process.platform === 'win32' ? 60_000 : 5_000,
     hookTimeout: process.platform === 'win32' ? 60_000 : 10_000,
+    // ALI-1669: on win32, a parallel run of 2 worker threads on the runner's 2 cores leaves no
+    // slack for vitest's own internal worker<->main-process RPC heartbeat (onTaskUpdate) to be
+    // serviced in time under load, which throws "[vitest-worker]: Timeout calling 'onTaskUpdate'"
+    // as an UNHANDLED error and fails the whole run even when every test passed (confirmed: a
+    // run with 7039/7039 tests green still exited 1 from exactly this). That RPC round-trip's
+    // timeout is internal to vitest/birpc and not configurable directly; the lever that is
+    // configurable is removing the contention that makes it slow. singleThread trades wall-clock
+    // time (roughly 2x on a 2-core runner) for that reliability - acceptable here because this
+    // config only takes effect on win32, which already only runs cross-platform on a push to
+    // main or a manual proof-before-merge dispatch (ci.yaml), never on every PR.
+    poolOptions: process.platform === 'win32' ? { threads: { singleThread: true } } : undefined,
     // L6: the launcher starts a detached `align sync` for a due source. No test may start a real one from a developer's own state directory.
     env: { ALIGN_NO_SYNC: '1', ALIGN_NO_TRUSTED_BIN: '1' },
     // No test may read or write the developer's real home folder (~/.claude, ~/.config/align-cli, ~/.local/state).
