@@ -47,25 +47,20 @@ export const TAGLINE_LINES = [
 export const TAGLINE_ACCENT = "don't know the company.";
 
 /**
- * The robot mark: a small flat-topped head with a single horizontal VISOR band (not
- * two eyes - see below), a teal antenna, and a teal base nub echoing the old mark's
- * teal bar.
+ * The robot mark: a small head with two TEAL eyes (a bright accent, not a void - see
+ * below), a single teal antenna, and a teal base nub echoing the old mark's teal bar.
  *
- * Two prior versions of this mark both read wrong to Tom on sight (ALI-1649):
+ * Sized as a compact mascot (ALI-1647), not a banner-width logo: the first robot
+ * version shipped at the old mark's 20x6 footprint, which read as too large next to
+ * the wordmark - closer to Claude Code's small mascot icon is the target size.
  *
- * - Background-cutout eyes (two square holes, not coloured) read as a skull's eye
- *   sockets - two dark voids on a light, white-knockout face - regardless of what
- *   colour the "void" technically was.
- * - Filled TEAL eyes (two separate squares) fixed the dark-hole problem but not the
- *   shape: two separate bilateral square/round marks is the single strongest
- *   skull/death-mask visual cue there is, independent of colour.
- *
- * A single CONTINUOUS horizontal band reads as neither - it is the ordinary simple
- * sci-fi-robot face (a sensor/visor bar), and nothing about a skull looks like one
- * solid band. The visor here is a background cutout rather than teal, because the
- * row it has to live on (see the row-budget note below) cannot carry teal - but a
- * single band of background reads as "visor", where two squares of the exact same
- * colour read as "eye sockets". Shape, not colour, is what was reading as a skull.
+ * The eyes were first tried as background cutouts (dark holes, not coloured), which
+ * avoided a half-block colour clash cheaply but read as a skull's eye sockets - two
+ * dark voids on a light, white-knockout face, independent of what colour the "void"
+ * technically was (ALI-1649, caught by Tom looking at it). Filled teal eyes fix the
+ * read (a bright accent rather than a dark hole), which moves the clash problem
+ * instead of removing it: they now have to land on a row this mark is allowed to put
+ * teal on at all. See the row-budget note below.
  *
  * Built from a 4-column LEFT HALF mirrored into the full 8-column row
  * (`half + reverse(half)`), so left/right symmetry holds by construction instead of
@@ -76,19 +71,18 @@ export const TAGLINE_ACCENT = "don't know the company.";
  * ONE colour: whichever pixel-row is present sets both the glyph (█/▀/▄) and the
  * colour. So no cell may have a non-background colour on both its top and bottom
  * pixel-row where those two colours differ - two rows of the same shape with
- * DIFFERENT colours in the same column is unrepresentable here. Every row-pair here
- * is either all-teal, all-body, or (the visor row) body-over-background, so the
- * shape is clash-free without a hand-patched exception the way the old triangular
- * mark's feet row needed one.
+ * DIFFERENT colours in the same column is unrepresentable here. Both pixel-rows of
+ * the eye row carry the identical teal pattern (and every other row-pair is likewise
+ * either all-teal or all-body), so the shape is clash-free without a hand-patched
+ * exception the way the old triangular mark's feet row needed one.
  *
  * Row budget: `banner()` places `ALIGN®`, the two tagline lines, and the version at
  * `right[textTop]`..`right[textTop + 2]` and `right[textTop + 4]`; brand.test.ts
  * asserts the two tagline rows are never teal from the mark, only from text. At
- * `LOGO_ROWS=6` (`textTop=1`) that's rows 2 and 3 - this mark keeps the visor on row
- * 2 (background, not teal, so the constraint is moot there) and the antenna/base on
- * rows 0 and 5 (outside the four text rows entirely), leaving rows 2-3 a plain face
- * and chin with no teal in them. A future resize must keep every teal cell off
- * whichever rows map to the tagline.
+ * `LOGO_ROWS=6` (`textTop=1`) that's rows 2 and 3 - this mark keeps the eyes on row 1
+ * (the `ALIGN®` row, unconstrained) and the antenna/base on rows 0 and 5 (outside the
+ * four text rows entirely), leaving rows 2-3 as a plain, teal-free face and chin. A
+ * future resize must keep every teal cell off whichever rows map to the tagline.
  *
  * GLYPHS holds the shape, COLOURS names each cell's brand colour ('N' navy/white-
  * knockout, 'T' teal, ' ' none); the two must agree cell for cell (space iff space).
@@ -96,9 +90,9 @@ export const TAGLINE_ACCENT = "don't know the company.";
  * `logoLines` output instead of importing them directly: every visible glyph
  * character must carry a colour escape, and every space must carry none.
  */
-const GLYPHS: readonly string[] = ['   ██   ', ' ██████ ', ' █▀▀▀▀█ ', ' ██████ ', ' ██████ ', '  ████  '];
+const GLYPHS: readonly string[] = ['   ██   ', ' ██████ ', ' ██████ ', '  ████  ', '        ', '  ████  '];
 
-const COLOURS: readonly string[] = ['   TT   ', ' NNNNNN ', ' NNNNNN ', ' NNNNNN ', ' NNNNNN ', '  TTTT  '];
+const COLOURS: readonly string[] = ['   TT   ', ' NTNNTN ', ' NNNNNN ', '  NNNN  ', '        ', '  TTTT  '];
 
 /** Which brand colour the mark's strokes take. The pack ships a teal-only variant
  * (F 2 R) as well as the white knockout (F 4 R), so both are on-brand.
