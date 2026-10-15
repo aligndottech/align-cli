@@ -38,6 +38,7 @@ import { agentAskLine, agentConnectedLine, firstQuestion, orderAgents, projectAg
 import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
 import { offerSavedTokens } from '../lib/saved-token-offer.js';
+import { readOnlyTokenNote } from '../lib/read-only-token-note.js';
 import { runModelStep } from '../lib/model-step.js';
 import { InvalidEnvError, routeSetup } from '../lib/setup-route.js';
 import { agentByName } from '../lib/launch/agents.js';
@@ -338,18 +339,14 @@ async function collectTokens(
     // mint a PAT by hand. Asked for by an outside tester on 2026-08-30 who already had
     // `gh` set up. Declining falls through to the browser flow unchanged.
     const cliSource = CLI_TOKEN_SOURCES[source.id];
+    let refusal: { cliLabel: string; refused: string } | undefined;
     if (cliSource) {
       // Detection verifies read-only-ness BEFORE the decision layer, so --approve can
       // never auto-accept a token that was not positively confirmed (ALI-98). A
       // refusal is said out loud: a silent skip here reads as "gh not installed" when
       // the truth is "gh is installed and its token can write".
       const detected = await detectVerifiedCliToken(cliSource);
-      if (detected && 'refused' in detected) {
-        p.log.info(chalk.dim(
-          `  Found ${cliSource.label}, but will not reuse its token: ${detected.refused}.\n` +
-          `  Local mode only ever reads, so paste a read-only token below instead.`,
-        ));
-      }
+      if (detected && 'refused' in detected) refusal = { cliLabel: cliSource.label, refused: detected.refused };
       const cliToken = detected && 'token' in detected ? detected.token : null;
       const decision = cliTokenDecision({ token: cliToken, approve: opts.approve ?? false });
       let useCli = decision === 'use';
@@ -380,6 +377,8 @@ async function collectTokens(
       if (!opened) {
         p.log.warn(`  Could not open a browser here (the opener failed). Use the link above.`);
       }
+      // One note, after the link it refers to: why a read-only token, then the three steps (readOnlyTokenNote).
+      for (const line of readOnlyTokenNote(refusal ?? {})) p.log.info(chalk.dim(`  ${line}`));
     }
     if (source.tokenHint) {
       p.log.info(chalk.dim(`  ${source.tokenHint}`));
