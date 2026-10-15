@@ -11,9 +11,17 @@ Align pulls your team's decisions out of commits, tickets, chat and meetings int
 Your coding agent checks that graph before it edits code.
 
 ```bash
-curl -fsSL https://align.tech/install.sh | sh
+npm install -g @aligndottech/cli
 align
 ```
+
+No Node? `curl -fsSL https://align.tech/install.sh | sh` installs a standalone binary instead.
+
+![The same prompt to Claude Code, without Align and with it](docs/demo/demo.gif)
+
+*The same prompt, two real runs on Align's own repo, replayed from their transcripts
+([how](docs/demo/demo.tape)). Without Align the agent plans to skip signature checks; with
+it, the agent stops and cites the decision that ruled that out.*
 
 Run it in a git repo. The first run asks which agent you use, builds a graph from your commit
 history and wires the agent up. After that, `align` opens your agent with the graph connected
@@ -24,9 +32,10 @@ MIT, no account needed. Beta, pre-1.0.
 
 ## Install
 
-- **macOS / Linux:** the `curl` line above. It installs a standalone binary (no Node) and checks
-  it against the release checksums. Read [install.sh](install.sh) first if you like.
 - **npm:** `npm install -g @aligndottech/cli` (Node 22.16+).
+- **macOS / Linux, no Node:** `curl -fsSL https://align.tech/install.sh | sh` installs a
+  standalone binary and checks it against the release checksums. Read [install.sh](install.sh)
+  first if you like.
 - **Windows:** npm in PowerShell. The `curl` line needs a POSIX shell (Git Bash or WSL). Without
   Node, download `align-windows-x64.exe` (or `-arm64`) from the
   [releases page](https://github.com/aligndottech/align-cli/releases/latest), rename it to
