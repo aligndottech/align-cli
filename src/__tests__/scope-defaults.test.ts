@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLocalDb } from '../lib/local-db.js';
 import { citedProjectKeys } from '../lib/scope-defaults.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 /**
  * L4 Test List (what to preselect in a Jira or Linear picker):

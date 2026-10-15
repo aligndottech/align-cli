@@ -27,7 +27,7 @@ import { beginRun, readRows } from '../lib/sync/sync-state.js';
  * - Given no --purge: only the token and the source_sync row go, and the line says how many rows stay.
  * - --purge with no connector is refused (exit 2) and deletes nothing. Forgetting drops the source from the launch summary.
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 let dir: string;
 let said: string[];
 let errs: string[];

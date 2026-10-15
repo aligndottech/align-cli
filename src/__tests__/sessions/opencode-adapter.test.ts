@@ -19,8 +19,15 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { locateSessionFilesUnder, opencodeAdapter } from '../../lib/sessions/adapters/opencode.js';
+
+// beforeEach is synchronous (mkdtemp + a node:sqlite exec of a small fixture dump), so hitting
+// vitest.config.ts's already-raised 60s win32 hookTimeout here means the worker itself was
+// starved of CPU for that long, not that this hook is slow in the way DB-commit-heavy tests are
+// (see local-ingest-classify.test.ts). Same mitigation anyway: more headroom than the platform
+// default against a contended runner, since nothing here is parallelizable or cacheable further.
+vi.setConfig({ hookTimeout: process.platform === 'win32' ? 120_000 : 10_000 });
 
 const FIXTURE_SQL = join(__dirname, '..', 'fixtures', 'sessions', 'opencode', 'retry-policy-decision.sql');
 

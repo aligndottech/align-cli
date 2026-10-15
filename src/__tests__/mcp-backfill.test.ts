@@ -329,4 +329,4 @@ describe('journey 5: returns inside the budget', () => {
   });
 });
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });

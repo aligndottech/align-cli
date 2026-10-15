@@ -11,7 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
 import { createV6Graph } from './helpers/v6-graph.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 let dir: string;
 let dbPath: string;

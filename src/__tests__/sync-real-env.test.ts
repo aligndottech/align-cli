@@ -16,8 +16,16 @@ import { localGraphPath, realStatusDeps, realSyncEnv } from '../lib/sync/real-en
 /**
  * L5: the production wiring. A fake config store and a scratch state directory stand in for the
  * person's machine; nothing here opens the real graph or the real config.
+ *
+ * Real file-lock/backfill-status I/O (the lock and backfill-running tests) needs more than
+ * vitest.config.ts's 5s POSIX default. This used to be a flat 30_000 (#363), which predates
+ * vitest.config.ts's platform-aware default (#409, 60s on win32) - a flat number here SHADOWED
+ * that default and silently CAPPED Windows below it, which is exactly backwards: Windows is the
+ * platform that needs MORE time, not less (two of these tests timed out there at the stale 30s).
+ * Scale the same way vitest.config.ts does, so raising the global default later does not require
+ * remembering this file has its own number to update too.
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 type Config = ReturnType<typeof createConfigStore>;
 let dir: string;
 let saved: string | undefined;

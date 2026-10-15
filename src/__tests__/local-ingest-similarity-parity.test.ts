@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 // The two tests that seed 500 rows do about 1000 separate commits. 6 s on Linux, 30 s+ on the Windows runner (fsync), which timed out at 30 s.
 const SEED_TIMEOUT_MS = 180_000;
 const DIM = 32;

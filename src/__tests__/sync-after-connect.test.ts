@@ -7,7 +7,7 @@ import { afterSourceConnected } from '../lib/sync/after-connect.js';
 import { readSummary } from '../lib/sync/summary.js';
 import { markNeedsReauth, readRows } from '../lib/sync/sync-state.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 let dir: string;
 let dbPath: string;
 let saved: string | undefined;

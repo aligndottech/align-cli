@@ -23,7 +23,7 @@ import { forgetSourceData } from '../lib/sync/forget.js';
  * - SURVIVAL: with an extra column on the source (the day after such a migration), a purge and a twin fold still work,
  *   instead of failing on every ingest with "table has N columns but M values were supplied".
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 let dir: string;
 let dbPath: string;
 beforeEach(() => {

@@ -14,7 +14,7 @@ import { beginRun, markNeedsReauth, saveRun } from '../lib/sync/sync-state.js';
  * - Given rows awaiting re-link, the count; given none, no line. Given nothing connected, the command to connect.
  * - A running sync or backfill is said to be running.
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 let dir: string;
 let dbPath: string;
 beforeEach(() => {

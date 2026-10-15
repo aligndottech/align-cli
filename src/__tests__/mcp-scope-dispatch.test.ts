@@ -28,7 +28,7 @@ vi.mock('../lib/config.js', async (orig) => ({
 import { dispatchTool, instructionsFor, TOOL_SCHEMAS, toolSchemasFor } from '../commands/mcp.js';
 import { createLocalDb } from '../lib/local-db.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 let dir: string;
 let env: EnvironmentConfig;

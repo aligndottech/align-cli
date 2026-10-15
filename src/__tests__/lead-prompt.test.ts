@@ -356,4 +356,4 @@ describe('on disk', () => {
   });
 });
 
-vi.setConfig({ testTimeout: 15_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 15_000 });

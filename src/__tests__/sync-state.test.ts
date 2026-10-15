@@ -17,7 +17,7 @@ import {
  * - markNeedsReauth marks EVERY scope of the source (and creates a row when there is none); clearNeedsReauth undoes only that status.
  * - Activity: the newest stamp per platform; thread rows join it; an item with no record reads null.
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 let dir: string;
 let dbPath: string;
 beforeEach(() => {

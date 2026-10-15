@@ -11,7 +11,7 @@ import { checkScopeFlags, type ConnectScopeCtx, decideConnectScope, fetchUnderSc
 import { beginRun, readRows } from '../lib/sync/sync-state.js';
 import { FIELDS, jiraProjects, makeDeps, memStore, type Route } from './helpers/scope-deps.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 /**
  * L4 Test List (choosing a scope during `align connect --source <x>` and `align setup`):

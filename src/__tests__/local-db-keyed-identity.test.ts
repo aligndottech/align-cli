@@ -24,7 +24,7 @@ import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { createV6Graph } from './helpers/v6-graph.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 const PR = 'https://github.com/o/r/pull/5';
 const COMMIT = 'https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567';

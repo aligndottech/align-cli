@@ -10,7 +10,7 @@ import { readSyncStatus, recordWindowSince, WINDOW_SCOPE_KEY } from '../lib/sour
  * L3: the part of source_sync that `align_backfill` needs before L5 exists - read whether a source
  * needs re-authentication, and record the window the user asked for. L5 owns the watermark.
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 let dir: string;
 let dbPath: string;

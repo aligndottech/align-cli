@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createLocalDb } from '../lib/local-db.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 describe('local-db repo reads for an additive setup re-run', () => {
   let dbPath: string;
