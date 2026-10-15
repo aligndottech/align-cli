@@ -480,7 +480,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
   function assertLocalModeConfigured(): void {
     if (env.mode !== 'demo' || authToken || tenantId || gatewayUrl !== LOCAL_DEFAULT_GATEWAY_URL) return;
     throw new Error(
-      'Local mode is not set up here. Run `align setup --local` to create a local decision graph, ' +
+      'Local mode is not set up here. Run `align --local` to create a local decision graph, ' +
       'or pass --env preview / --env prod to use a cloud environment instead.',
     );
   }

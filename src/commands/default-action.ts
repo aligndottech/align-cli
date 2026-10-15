@@ -25,7 +25,15 @@ import { launchesAfterWizard, launchIfChosen } from '../lib/launch/launch.js';
  *
  * `align --help` still prints the full command list; Commander handles that before this runs.
  */
-export async function runDefaultAction(): Promise<void> {
+/** The hidden setup flags on the bare command. Any one of them means the wizard, not the launcher. */
+const SETUP_FLAGS = ['env', 'approve', 'local', 'reset', 'verbose'] as const;
+
+export async function runDefaultAction(opts: Record<string, unknown> = {}): Promise<void> {
+  if (SETUP_FLAGS.some((k) => opts[k] !== undefined)) {
+    const { runSetup } = await import('./setup.js');
+    await runSetup(opts);
+    return;
+  }
   const config = createConfigStore();
   const local = config.getEnvironment('local');
   const defaultEnv = config.getDefaultEnv();
@@ -48,11 +56,11 @@ export async function runDefaultAction(): Promise<void> {
       console.log('  Align is not set up yet, and setup asks a couple of questions.');
       console.log('  Run it from a terminal:');
       console.log('');
-      console.log('    align setup');
+      console.log('    align');
       console.log('');
       console.log('  Or skip the questions:');
       console.log('');
-      console.log('    align setup --approve');
+      console.log('    align --approve');
       console.log('');
       return;
     }

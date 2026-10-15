@@ -34,7 +34,7 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
     .command('confluence')
     .description('Import your Confluence pages')
     .option('--email <email>', 'Atlassian account email (for API token auth)')
-    .option('--token <token>', 'Atlassian API token (or uses cached OAuth token from align setup)')
+    .option('--token <token>', 'Atlassian API token (or uses cached OAuth token from align)')
     .option('--personal', 'Connect via browser OAuth (Align personal Atlassian app) instead of a token')
     .option('--domain <domain>', 'Confluence domain, e.g. company.atlassian.net (for API token auth)')
     .option('--limit <n>', 'Max pages to import', String(SYNC_CEILINGS.confluence))
@@ -87,11 +87,11 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
       }
 
       if (!token) {
-        p.log.error('No Confluence credentials found. Run align setup or align connect confluence --personal to connect via OAuth, or pass --email, --token, and --domain.');
+        p.log.error('No Confluence credentials found. Run align or align connect confluence --personal to connect via OAuth, or pass --email, --token, and --domain.');
         process.exit(1);
       }
       if (!cloudId && (!opts.email || !opts.domain)) {
-        p.log.error('OAuth metadata incomplete. Run align setup --reset to reconnect Confluence via OAuth, or pass --email, --token, and --domain.');
+        p.log.error('OAuth metadata incomplete. Run align --reset to reconnect Confluence via OAuth, or pass --email, --token, and --domain.');
         process.exit(1);
       }
 

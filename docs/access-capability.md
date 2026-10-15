@@ -34,7 +34,7 @@ all 8 input combinations in
 [`src/__tests__/access-capability.test.ts`](../src/__tests__/access-capability.test.ts). It
 does no capability *detection* itself (no filesystem or TTY reads) - it only decides, given
 already-known booleans, which path to recommend. Detection and wiring the recommendation into
-`align setup` is tracked separately.
+`align` is tracked separately.
 
 ## What this is not
 

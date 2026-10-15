@@ -247,7 +247,7 @@ skip_upstream() { # <name>
 # trusting a count written here, which goes stale the first time someone adds a step.
 #
 # Output is captured rather than streamed because the exit code alone cannot classify these:
-# `align setup --local` and `align connect git` both report a failed batch as a WARNING and
+# `align --local` and `align connect git` both report a failed batch as a WARNING and
 # exit 0, which is how the ALI-713 run reported PASS for both while importing nothing.
 # classify_step_result therefore reads the 429 before the exit code (see smoke-model.sh).
 STEP_OUT=""
@@ -289,8 +289,8 @@ step "align --help"             30  align --help
 # the ~23MB embedding model is downloaded - the long timeout is that download, not
 # the work. (It said ~90MB, quoting the fp32 file the q8 pin exists to avoid; the
 # figure local-embeddings.ts already carries is the right one.)
-step_model "align setup --local" 600 align setup --local
-if [ "$STEP_RESULT" = pass ]; then assert_import_complete "align setup --local" "$STEP_OUT"; fi
+step_model "align --local" 600 align --local
+if [ "$STEP_RESULT" = pass ]; then assert_import_complete "align --local" "$STEP_OUT"; fi
 step_model "align connect git"   300 align connect git --approve --env local --limit 20
 if [ "$STEP_RESULT" = pass ]; then assert_import_complete "align connect git" "$STEP_OUT"; fi
 step "align local status"       60  align local status

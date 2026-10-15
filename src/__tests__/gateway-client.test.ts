@@ -673,7 +673,7 @@ describe('ALI-786 an unconfigured local env fails fast with a setup hint, not a 
 
   it('names the fix instead of dialing a dead port', async () => {
     await expect(createGatewayClient(neverConfiguredLocalEnv).listConnectors())
-      .rejects.toThrow(/align setup --local/);
+      .rejects.toThrow(/align --local/);
   });
 
   it('never attempts the request at all', async () => {

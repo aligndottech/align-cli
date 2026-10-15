@@ -19,12 +19,12 @@ on a `critical` conflict, and only on a **retry** of a change a background adjud
 judged. See "Blocking is opt-in, everywhere" for why.
 
 Two kinds of file appear in the second column. A **project** file lives in the repo you ran
-`align setup` in, is committed, and covers the whole team. A **user** file lives under your
-home directory, is written by `align setup` / `align mcp --setup` next to that host's MCP
+`align` in, is committed, and covers the whole team. A **user** file lives under your
+home directory, is written by `align` / `align mcp --setup` next to that host's MCP
 entry, covers every project on this machine, and comes out again with `align mcp --remove`
 (ALI-952). The vendor docs for each host are linked from the row.
 
-| Host | File `align setup` writes | Pre-edit check | Non-blocking context to the model | Can block | Payload fixture |
+| Host | File `align` writes | Pre-edit check | Non-blocking context to the model | Can block | Payload fixture |
 |---|---|---|---|---|---|
 | **Claude Code** | project `.claude/settings.json` | yes (`PreToolUse`) | yes, on both Pre and Post | opt-in, critical retry only | real (Claude Code is the canonical shape) |
 | **pi** | project `.pi/extensions/align.ts` | yes (`tool_call`) | yes, via the `tool_result` content patch | opt-in, critical retry only | from pi's source |
@@ -150,7 +150,7 @@ never runs `align context sync` gets nothing injected (fails open, correctly), a
 it a week ago gets a week-old snapshot. Fetching live inside the hook was considered and
 rejected for this pass - `align context sync`'s own command (`registerContextCommand`) uses a
 spinner, exits the process on failure, and needs network + auth, none of which belong inside a
-10-second hook window. Wiring `align setup` to also run `context sync` once, or having the
+10-second hook window. Wiring `align` to also run `context sync` once, or having the
 hook trigger a background refresh, are both reasonable follow-ups this ticket does not take.
 
 ### Gemini CLI: real hook, disputed output shape

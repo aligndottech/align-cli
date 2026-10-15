@@ -285,14 +285,14 @@ const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
 // ---- Import under test after all mocks are hoisted -----------------------
 
-import { registerSetupCommand } from '../commands/setup.js';
+import { addSetupOptions, runSetup } from '../commands/setup.js';
 
 // ---- Helpers --------------------------------------------------------------
 
 function makeProgram(): Command {
   const p = new Command();
   p.exitOverride(); // prevent process.exit in commander
-  registerSetupCommand(p);
+  addSetupOptions(p).action(runSetup);
   return p;
 }
 
@@ -331,12 +331,12 @@ describe('align setup', () => {
   it('registers the setup command without throwing', () => {
     expect(() => {
       const p = new Command();
-      registerSetupCommand(p);
+      addSetupOptions(p).action(runSetup);
     }).not.toThrow();
   });
 
   it('calls whoami to verify authentication on the happy path', async () => {
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     expect(mockWhoami).toHaveBeenCalled();
   });
 
@@ -345,7 +345,7 @@ describe('align setup', () => {
     const { log } = await import('@clack/prompts');
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
     await expect(
-      makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
+      makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']),
     ).rejects.toThrow();
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align login'));
     expect(mockLoginInteractive).not.toHaveBeenCalled();
@@ -358,7 +358,7 @@ describe('align setup', () => {
     mockWhoami.mockRejectedValueOnce(new Error('401'));
     mockConfirm.mockResolvedValueOnce(true);
     mockLoginInteractive.mockResolvedValueOnce(true);
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
     expect(mockLoginInteractive).toHaveBeenCalled();
     // Proceeded past auth into the cloud flow (git import ran)
     expect(mockIngestBatch).toHaveBeenCalled();
@@ -369,21 +369,21 @@ describe('align setup', () => {
     mockWhoami.mockRejectedValueOnce(new Error('401'));
     mockConfirm.mockResolvedValueOnce(false); // decline "Log in now?"
     mockConfirm.mockResolvedValueOnce(true);   // accept "Set up local instead?"
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
     expect(mockLoginInteractive).not.toHaveBeenCalled();
     expect(mockInitLocalMode).toHaveBeenCalled();
   });
 
   it('shows the connector multiselect with a "connect more sources" message', async () => {
     const { multiselect } = await import('@clack/prompts');
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     expect(multiselect).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining('Connect more sources') }),
     );
   });
 
   it('orders connectors personal-frictionless first, then site-scoped, then workspace-admin', async () => {
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     const connectorCall = mockMultiselect.mock.calls.find(
       (c: any[]) => c[0]?.message?.includes('Connect more sources'),
     );
@@ -401,7 +401,7 @@ describe('align setup', () => {
     // The flow is "pick your tools, then it runs": every question up front, then the
     // automatic phase. It also keeps the picker off the bottom of a screenful of git
     // output, which is the condition that corrupted clack's redraw for a tester.
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     const askedAt = mockMultiselect.mock.invocationCallOrder[0];
     const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
     expect(askedAt).toBeDefined();
@@ -413,7 +413,7 @@ describe('align setup', () => {
     // An outside tester saw the picker paint "Notion" three times and scroll badly.
     // clack redraws in place and miscounts once the option list is taller than the
     // terminal, which is reachable here: 8+ connectors under a screenful of git output.
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     const connectorCall = mockMultiselect.mock.calls.find(
       (c: any[]) => c[0]?.message?.includes('Connect more sources'),
     );
@@ -425,7 +425,7 @@ describe('align setup', () => {
   });
 
   it('labels Slack and Teams as needing workspace/org admin', async () => {
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     const connectorCall = mockMultiselect.mock.calls.find(
       (c: any[]) => c[0]?.message?.includes('Connect more sources'),
     );
@@ -435,7 +435,7 @@ describe('align setup', () => {
   });
 
   it('auto-imports git commits without showing git in the connector multiselect', async () => {
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     expect(mockIngestBatch).toHaveBeenCalled();
     // git should not appear as an option in the connector multiselect
     const { multiselect } = await import('@clack/prompts');
@@ -448,7 +448,7 @@ describe('align setup', () => {
 
   it('stops the git spinner before batch import begins (no overlapping spinners)', async () => {
     spinnerInstances.length = 0;
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
     // The git phase uses a clack spinner; runPersonalImport uses its own ora spinner.
     // Find the git-phase spinner by its start/stop message.
@@ -469,21 +469,21 @@ describe('align setup', () => {
 
   describe('deterministic auto-alignment (ALI-121)', () => {
     it('writes the PostToolUse hook + nudge files in the cloud path', async () => {
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       expect(mockSetupAgentAlignment).toHaveBeenCalledWith(
         expect.objectContaining({ cwd: expect.any(String), env: 'prod' }),
       );
     });
 
     it('writes the hook + nudge files in the local path too', async () => {
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       expect(mockSetupAgentAlignment).toHaveBeenCalled();
     });
 
     it('does not abort setup if writing agent rules fails', async () => {
       mockSetupAgentAlignment.mockImplementationOnce(() => { throw new Error('EACCES'); });
       await expect(
-        makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
+        makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']),
       ).resolves.not.toThrow();
     });
   });
@@ -493,14 +493,14 @@ describe('align setup', () => {
     (detectEditors as ReturnType<typeof vi.fn>).mockReturnValueOnce([
       { name: 'Claude Code', configPath: '/tmp/.claude.json', format: 'mcpServers' },
     ]);
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     expect(writeMcpConfig).toHaveBeenCalled();
   });
 
   it('git import skips silently when no commits found', async () => {
     const { getCommitHistoryDetailed } = await import('../lib/git.js');
     (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ commits: [], scanned: 0, rejectedByRationale: 0 });
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     expect(mockIngestBatch).not.toHaveBeenCalled();
   });
 
@@ -508,7 +508,7 @@ describe('align setup', () => {
     const { getCommitHistoryDetailed } = await import('../lib/git.js');
     (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('no git'));
     await expect(
-      makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
+      makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']),
     ).resolves.not.toThrow();
   });
 
@@ -543,7 +543,7 @@ describe('align setup', () => {
       const { resolveEnv } = await import('../lib/resolve-env.js');
       vi.mocked(resolveEnv).mockReturnValue('prod');
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align env set local'));
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('prod'));
     });
@@ -555,7 +555,7 @@ describe('align setup', () => {
       // in this same PR when a formatter moved the call sites out from under an edit.
       mockMultiselect.mockResolvedValue(['github']);
       const { confirm } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       const asked = (confirm as ReturnType<typeof vi.fn>).mock.calls
         .map((c) => String((c[0] as { message?: string })?.message ?? ''))
         .filter((m) => m.includes('Use its token'));
@@ -567,7 +567,7 @@ describe('align setup', () => {
       // path never runs at all, which is the empty-world failure tdd.md warns about.
       mockMultiselect.mockResolvedValue(['github']);
       const { confirm } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const asked = (confirm as ReturnType<typeof vi.fn>).mock.calls
         .map((c) => String((c[0] as { message?: string })?.message ?? ''))
         .filter((m) => m.includes('Use its token'));
@@ -584,7 +584,7 @@ describe('align setup', () => {
       mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'token can write' });
       mockMultiselect.mockResolvedValue(['github']);
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
         .map((c: unknown[]) => String(c[0]))
         .join('\n');
@@ -600,7 +600,7 @@ describe('align setup', () => {
       mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'token can write' });
       mockMultiselect.mockResolvedValue(['github']);
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const warned = (log.warn as ReturnType<typeof vi.fn>).mock.calls
         .map((c: unknown[]) => String(c[0]))
         .join('\n');
@@ -616,7 +616,7 @@ describe('align setup', () => {
       mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'token can write' });
       mockMultiselect.mockResolvedValue(['github']);
       const open = (await import('open')).default;
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const urls = (open as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
       const pat = urls.find((u) => u.includes('personal-access-tokens/new'));
       expect(pat).toBeDefined();
@@ -639,7 +639,7 @@ describe('align setup', () => {
       const { text } = await import('@clack/prompts');
       (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('gitlab.mycompany.com');
       const open = (await import('open')).default;
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const urls = (open as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
       const pat = urls.find((u) => u.includes('personal_access_tokens'));
       expect(pat).toBeDefined();
@@ -655,7 +655,7 @@ describe('align setup', () => {
       mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'token can write (scopes: repo)' });
       mockMultiselect.mockResolvedValue(['github']);
       const { confirm, log, password } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       // Never offered for reuse...
       const asked = (confirm as ReturnType<typeof vi.fn>).mock.calls
         .map((c) => String((c[0] as { message?: string })?.message ?? ''))
@@ -676,7 +676,7 @@ describe('align setup', () => {
       mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'could not confirm' });
       mockMultiselect.mockResolvedValue(['github']);
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       const used = (log.success as ReturnType<typeof vi.fn>).mock.calls
         .map((c: unknown[]) => String(c[0]))
         .filter((m) => m.includes('Using your GitHub CLI'));
@@ -697,7 +697,7 @@ describe('align setup', () => {
       (password as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new TypeError("Cannot read properties of undefined (reading 'replaceAll')"),
       );
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       // The process must not have died: reaching the outro is proof of that, since
       // handleFatal in index.ts calls process.exit(1) and this test would then never
       // observe anything after the throw.
@@ -716,7 +716,7 @@ describe('align setup', () => {
       // Align app is not published yet").
       mockMultiselect.mockResolvedValue([]);
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
         .map((c: unknown[]) => String(c[0]))
         .join('\n');
@@ -741,11 +741,11 @@ describe('align setup', () => {
           key === 'github' ? { token: 'ghp_saved_last_time' } : null,
         );
         mockMultiselect.mockResolvedValueOnce(['github']);
-        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import|token you connected before/i.test(String(o?.message)));
         const { password } = await import('@clack/prompts');
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(fetchGitHubItems).toHaveBeenCalledWith(
           expect.objectContaining({ token: 'ghp_saved_last_time' }),
@@ -761,10 +761,10 @@ describe('align setup', () => {
           key === 'github' ? { token: 'ghp_saved_last_time' } : null,
         );
         mockMultiselect.mockResolvedValueOnce(['github']);
-        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import|token you connected before/i.test(String(o?.message)));
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ repo: 'o/r' }));
         // L3 review 5: the local graph reads the whole repo (named in the report); see the cloud case below.
@@ -776,11 +776,11 @@ describe('align setup', () => {
           key === 'jira' ? { token: 'atl_saved', email: 'ada@x.io', domain: 'acme.atlassian.net' } : null,
         );
         mockMultiselect.mockResolvedValueOnce(['jira']);
-        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import|token you connected before/i.test(String(o?.message)));
         const { password, text } = await import('@clack/prompts');
         const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(fetchJiraItems).toHaveBeenCalledWith(
           expect.objectContaining({ token: 'atl_saved', email: 'ada@x.io', domain: 'acme.atlassian.net' }),
@@ -798,7 +798,7 @@ describe('align setup', () => {
         const { password } = await import('@clack/prompts');
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(password).toHaveBeenCalled();
         expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
@@ -814,7 +814,7 @@ describe('align setup', () => {
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
         (fetchGitHubItems as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('401 Bad credentials'));
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(mockSaveConnectorFields).not.toHaveBeenCalled();
         expect(mockForgetConnector).not.toHaveBeenCalled(); // a failed PASTE says nothing about the saved token
@@ -827,7 +827,7 @@ describe('align setup', () => {
         mockMultiselect.mockResolvedValueOnce(['github']);
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
 
         // Other confirms in the flow are not this test's subject; the reuse question must not be asked.
         const asked = mockConfirm.mock.calls.map((c: unknown[]) => String((c[0] as { message?: string })?.message));
@@ -850,13 +850,15 @@ describe('align setup', () => {
         const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
         const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(fetchJiraItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
         expect(fetchConfluenceItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
         const asked = mockConfirm.mock.calls.map((c: unknown[]) => String((c[0] as { message?: string })?.message));
-        expect(asked.some((m) => /re-import jira/i.test(m))).toBe(true);
-        expect(asked.some((m) => /re-import confluence/i.test(m))).toBe(false);
+        // One question for the shared Atlassian token, asked before the pasted one exists, so Confluence is never
+        // offered the old token on its own.
+        expect(asked.filter((m) => /token you connected before/i.test(m))).toHaveLength(1);
+        expect(asked.some((m) => /Jira and Confluence/.test(m))).toBe(true);
       });
 
       it('without a terminal, a re-run still names what is connected and that it was left alone', async () => {
@@ -870,7 +872,7 @@ describe('align setup', () => {
         const { log } = await import('@clack/prompts');
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
 
         expect(fetchGitHubItems).not.toHaveBeenCalled();
         const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
@@ -885,7 +887,7 @@ describe('align setup', () => {
         );
         mockMultiselect.mockResolvedValueOnce(['teams']);
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         const teamsAsk = mockConfirm.mock.calls.map((c: unknown[]) => c[0] as { message?: string; initialValue?: boolean })
           .find((o) => /Teams/.test(String(o?.message)));
@@ -900,7 +902,7 @@ describe('align setup', () => {
         );
         mockMultiselect.mockResolvedValueOnce(['github']);
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         const ask = mockConfirm.mock.calls.map((c: unknown[]) => c[0] as { message?: string; initialValue?: boolean })
           .find((o) => /GitHub/.test(String(o?.message)));
@@ -916,11 +918,11 @@ describe('align setup', () => {
           key === 'github' ? { token: 'ghp_saved_last_time' } : null,
         );
         mockMultiselect.mockResolvedValueOnce(['github']);
-        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import|token you connected before/i.test(String(o?.message)));
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
         (fetchGitHubItems as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('GitHub auth failed (401). Check your token has repo scope.'));
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(mockForgetConnector).toHaveBeenCalledWith('local', 'github');
         const stops = spinnerInstances.flatMap((s) => s.stop.mock.calls.map((c) => String(c[0])));
@@ -932,11 +934,11 @@ describe('align setup', () => {
           key === 'github' ? { token: 'ghp_saved_last_time' } : null,
         );
         mockMultiselect.mockResolvedValueOnce(['github']);
-        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import/i.test(String(o?.message)));
+        mockConfirm.mockImplementation(async (o: { message?: string }) => /re-import|token you connected before/i.test(String(o?.message)));
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
         (fetchGitHubItems as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fetch failed: ECONNRESET'));
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(mockForgetConnector).not.toHaveBeenCalled();
       });
@@ -947,7 +949,7 @@ describe('align setup', () => {
         );
         mockMultiselect.mockResolvedValueOnce([]);
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         const picker = mockMultiselect.mock.calls.find(
           (c: any[]) => c[0]?.message?.toLowerCase().includes('read-only token'),
@@ -963,7 +965,7 @@ describe('align setup', () => {
         mockGetConnectorFields.mockReturnValue(null);
         mockMultiselect.mockResolvedValueOnce([]);
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         const picker = mockMultiselect.mock.calls.find(
           (c: any[]) => c[0]?.message?.toLowerCase().includes('read-only token'),
@@ -985,7 +987,7 @@ describe('align setup', () => {
         mockMultiselect.mockResolvedValueOnce([]);
         const { log } = await import('@clack/prompts');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
           .map((c: unknown[]) => String(c[0]))
@@ -1000,7 +1002,7 @@ describe('align setup', () => {
         mockGetConnectorFields.mockReturnValue(null);
         mockMultiselect.mockResolvedValueOnce(['github']);
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(mockSaveConnectorFields).toHaveBeenCalledWith(
           'local',
@@ -1015,7 +1017,7 @@ describe('align setup', () => {
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
         (fetchGitHubItems as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('401 Bad credentials'));
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(mockSaveConnectorFields).not.toHaveBeenCalled();
       });
@@ -1034,7 +1036,7 @@ describe('align setup', () => {
         (isCancel as unknown as ReturnType<typeof vi.fn>).mockImplementation((v: unknown) => v === cancelled);
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(fetchGitHubItems).not.toHaveBeenCalled();
       });
@@ -1049,7 +1051,7 @@ describe('align setup', () => {
         const { password } = await import('@clack/prompts');
         const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(fetchGitHubItems).not.toHaveBeenCalled();
         expect(password).not.toHaveBeenCalled();
@@ -1064,7 +1066,7 @@ describe('align setup', () => {
         const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
         const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(fetchLinearItems).toHaveBeenCalled();
         expect(fetchGitHubItems).not.toHaveBeenCalled();
@@ -1080,7 +1082,7 @@ describe('align setup', () => {
         mockMultiselect.mockResolvedValueOnce([]);
         const { log } = await import('@clack/prompts');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         const said = (log.info as ReturnType<typeof vi.fn>).mock.calls
           .map((c: unknown[]) => String(c[0]))
@@ -1101,7 +1103,7 @@ describe('align setup', () => {
       vi.mocked(text).mockResolvedValueOnce('ada@x.io').mockResolvedValueOnce('acme.atlassian.net');
       const { fetchJiraItems } = await import('../lib/fetchers/jira.js');
       const { fetchConfluenceItems } = await import('../lib/fetchers/confluence.js');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
 
       const emailAsks = (text as ReturnType<typeof vi.fn>).mock.calls
         .map((c) => String((c[0] as { message?: string })?.message ?? ''))
@@ -1134,7 +1136,7 @@ describe('align setup', () => {
       // was on when the picker corrupted itself under a screenful of git output (2026-08-30)
       // - see the next test for the mitigation that ordering now needs.
       const { note } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
       const summaryAt = vi.mocked(note).mock.invocationCallOrder[0];
       const askedAt = mockMultiselect.mock.invocationCallOrder[0];
@@ -1154,7 +1156,7 @@ describe('align setup', () => {
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
       process.stdout.write = ((chunk: string) => { writes.push(String(chunk)); return origWrite(chunk); }) as typeof process.stdout.write;
       try {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
       } finally {
         process.stdout.write = origWrite;
         Object.defineProperty(process.stdout, 'isTTY', { value: origIsTTY, configurable: true });
@@ -1172,7 +1174,7 @@ describe('align setup', () => {
       const { resolveEnv } = await import('../lib/resolve-env.js');
       vi.mocked(resolveEnv).mockReturnValue('preview');
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('ALIGN_ENV=preview'));
       const warns = vi.mocked(log.warn).mock.calls.map((c) => String(c[0]));
       expect(warns.filter((w) => w.includes('align env set local'))).toEqual([]);
@@ -1189,13 +1191,13 @@ describe('align setup', () => {
           opts?.preferLocalEmbedded ? 'local' : 'prod') as never,
       );
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const warns = vi.mocked(log.warn).mock.calls.map((c) => String(c[0]));
       expect(warns.filter((w) => w.includes('align env set local'))).toEqual([]);
     });
 
     it('--local sets up local mode without cloud auth, and imports git', async () => {
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       expect(mockInitLocalMode).toHaveBeenCalled();
       // Local escape hatch never calls whoami (no cloud login required) and never OAuths
       expect(mockWhoami).not.toHaveBeenCalled();
@@ -1209,7 +1211,7 @@ describe('align setup', () => {
       const { password } = await import('@clack/prompts');
       const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
       mockIngestBatch.mockClear();
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       // pasted a token (no OAuth) and fetched + imported into the local graph -
       // with the browser pointed at the key-CREATION dialog, not the settings landing
       const open = (await import('open')).default;
@@ -1226,7 +1228,7 @@ describe('align setup', () => {
       const rows = Object.getOwnPropertyDescriptor(process.stdout, 'rows');
       Object.defineProperty(process.stdout, 'rows', { value: 12, configurable: true });
       try {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
       } finally {
         if (rows) Object.defineProperty(process.stdout, 'rows', rows);
         else delete (process.stdout as { rows?: number }).rows;
@@ -1240,7 +1242,7 @@ describe('align setup', () => {
       const rows = Object.getOwnPropertyDescriptor(process.stdout, 'rows');
       Object.defineProperty(process.stdout, 'rows', { value: 40, configurable: true });
       try {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
       } finally {
         if (rows) Object.defineProperty(process.stdout, 'rows', rows);
         else delete (process.stdout as { rows?: number }).rows;
@@ -1255,7 +1257,7 @@ describe('align setup', () => {
       // impossible by construction; the only path was align import teams --token, which
       // saved nothing. A Graph access token from Graph Explorer is a token a person can
       // mint themselves, which is the local-mode rule.
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const connectorCall = mockMultiselect.mock.calls.find(
         (c: any[]) => c[0]?.message?.toLowerCase().includes('read-only token'),
       );
@@ -1272,7 +1274,7 @@ describe('align setup', () => {
       const { fetchTeamsItems } = await import('../lib/fetchers/teams.js');
       const open = (await import('open')).default;
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
 
       expect(open).toHaveBeenCalledWith(expect.stringContaining('graph-explorer'));
       expect(password).toHaveBeenCalled();
@@ -1288,7 +1290,7 @@ describe('align setup', () => {
         const { getCommitHistoryDetailed } = await import('../lib/git.js');
         const { log } = await import('@clack/prompts');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(getCommitHistoryDetailed).not.toHaveBeenCalled();
         const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
@@ -1303,7 +1305,7 @@ describe('align setup', () => {
         mockLocalDb.gitDecisionCount.mockReturnValue(0);
         const { getCommitHistoryDetailed } = await import('../lib/git.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(getCommitHistoryDetailed).toHaveBeenCalled();
         expect(mockLocalDb.gitDecisionCount).toHaveBeenCalledWith('github.com/o/r');
@@ -1314,7 +1316,7 @@ describe('align setup', () => {
         const { fetchDocsItems } = await import('../lib/fetchers/docs.js');
         const { log } = await import('@clack/prompts');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(fetchDocsItems).not.toHaveBeenCalled();
         const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
@@ -1326,7 +1328,7 @@ describe('align setup', () => {
         mockLocalDb.hasDocsForRepo.mockReturnValue(false);
         const { fetchDocsItems } = await import('../lib/fetchers/docs.js');
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(fetchDocsItems).toHaveBeenCalled();
       });
@@ -1336,7 +1338,7 @@ describe('align setup', () => {
         const { getCommitHistoryDetailed } = await import('../lib/git.js');
         mockCurrentRepoIdentity.mockResolvedValueOnce(null);
 
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
 
         expect(getCommitHistoryDetailed).not.toHaveBeenCalled();
         expect(mockLocalDb.gitDecisionCount).not.toHaveBeenCalled();
@@ -1402,7 +1404,7 @@ describe('align setup', () => {
       describe('solo: no login anywhere', () => {
         it('a fresh machine on a TTY builds the local graph and is never asked a cloud question', async () => {
           await mockNoLogin();
-          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          await makeProgram().parseAsync(['node', 'align']);
           expect(mockInitLocalMode).toHaveBeenCalled();
           expect(mockWhoami).not.toHaveBeenCalled();
           expect(askedMessages().filter((m) => cloudQuestion.test(m))).toEqual([]);
@@ -1411,7 +1413,7 @@ describe('align setup', () => {
 
         it('--approve builds the LOCAL graph, with no prompt and no auth check', async () => {
           await mockNoLogin();
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+          await makeProgram().parseAsync(['node', 'align', '--approve']);
           expect(mockInitLocalMode).toHaveBeenCalled();
           expect(mockWhoami).not.toHaveBeenCalled();
           expect(mockSelect).not.toHaveBeenCalled();
@@ -1419,14 +1421,14 @@ describe('align setup', () => {
 
         it('--local --approve still builds the local graph (the flag is accepted)', async () => {
           await mockNoLogin();
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--approve']);
+          await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
           expect(mockInitLocalMode).toHaveBeenCalled();
           expect(mockWhoami).not.toHaveBeenCalled();
         });
 
         it('prints no "team login is untouched" line when there is no team login', async () => {
           await mockNoLogin();
-          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          await makeProgram().parseAsync(['node', 'align']);
           expect((await infoLines()).filter((l) => /team login/i.test(l))).toEqual([]);
         });
       });
@@ -1447,7 +1449,7 @@ describe('align setup', () => {
           vi.stubEnv('ALIGN_ENV', 'prod');
           try {
             const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-            await expect(makeProgram().parseAsync(['node', 'align', 'setup'])).rejects.toThrow('exit');
+            await expect(makeProgram().parseAsync(['node', 'align'])).rejects.toThrow('exit');
             exitSpy.mockRestore();
             expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
             expect(mockInitLocalMode).not.toHaveBeenCalled();
@@ -1455,7 +1457,7 @@ describe('align setup', () => {
         });
 
         it.each([['--env', 'local'], ['--local']])('%s on a logged-in machine builds local AND says the team login is untouched', async (...flags) => {
-          await makeProgram().parseAsync(['node', 'align', 'setup', ...flags.flat()]);
+          await makeProgram().parseAsync(['node', 'align', ...flags.flat()]);
           expect(mockInitLocalMode).toHaveBeenCalled();
           expect(mockWhoami).not.toHaveBeenCalled();
           const lines = (await infoLines()).filter((l) => /team login/i.test(l));
@@ -1465,7 +1467,7 @@ describe('align setup', () => {
         });
 
         it.each(['prod', 'preview'])('--env %s with a token reaches the team (cloud) path', async (env) => {
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', env]);
+          await makeProgram().parseAsync(['node', 'align', '--env', env]);
           expect(mockWhoami).toHaveBeenCalled();
           expect(mockInitLocalMode).not.toHaveBeenCalled();
           expect(mockPickAgent).not.toHaveBeenCalled();
@@ -1475,7 +1477,7 @@ describe('align setup', () => {
           await mockNoLogin();
           mockWhoami.mockRejectedValueOnce(new Error('401'));
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-          await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', env])).rejects.toThrow('exit');
+          await expect(makeProgram().parseAsync(['node', 'align', '--env', env])).rejects.toThrow('exit');
           exitSpy.mockRestore();
           expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
           expect(mockInitLocalMode).not.toHaveBeenCalled();
@@ -1486,7 +1488,7 @@ describe('align setup', () => {
           const { log } = await import('@clack/prompts');
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
           await asNonTty(async () => {
-            await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', env])).rejects.toThrow('exit');
+            await expect(makeProgram().parseAsync(['node', 'align', '--env', env])).rejects.toThrow('exit');
           });
           expect(exitSpy).toHaveBeenCalledWith(1);
           expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('align login'));
@@ -1498,7 +1500,7 @@ describe('align setup', () => {
         it.each(['production', 'stage'])('an unrecognised --env %s exits 1 naming the valid ones, and runs nothing', async (bad) => {
           const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-          await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', bad])).rejects.toThrow('exit');
+          await expect(makeProgram().parseAsync(['node', 'align', '--env', bad])).rejects.toThrow('exit');
           expect(exitSpy).toHaveBeenCalledWith(1);
           expect(err.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/local, preview, prod/);
           expect(mockWhoami).not.toHaveBeenCalled();
@@ -1510,7 +1512,7 @@ describe('align setup', () => {
         it('the team login prompt (expired token) calls it a team graph, not a personal cloud graph', async () => {
           mockWhoami.mockRejectedValueOnce(new Error('401'));
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-          await expect(makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod'])).rejects.toThrow('exit');
+          await expect(makeProgram().parseAsync(['node', 'align', '--env', 'prod'])).rejects.toThrow('exit');
           exitSpy.mockRestore();
           expect(askedMessages().filter((m) => /personal/i.test(m))).toEqual([]);
           expect(askedMessages().some((m) => /log in to align now/i.test(m))).toBe(true);
@@ -1520,7 +1522,7 @@ describe('align setup', () => {
       describe('the agent pick', () => {
         it('happens before the local graph is created or anything is imported', async () => {
           await mockNoLogin();
-          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          await makeProgram().parseAsync(['node', 'align']);
           const pickedAt = mockPickAgent.mock.invocationCallOrder[0];
           const builtAt = mockInitLocalMode.mock.invocationCallOrder[0];
           const importedAt = mockIngestBatch.mock.invocationCallOrder[0];
@@ -1532,7 +1534,7 @@ describe('align setup', () => {
 
         it('--approve asks the pick to choose without a prompt', async () => {
           await mockNoLogin();
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--approve']);
+          await makeProgram().parseAsync(['node', 'align', '--approve']);
           expect(mockPickAgent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ approve: true }));
         });
 
@@ -1542,7 +1544,7 @@ describe('align setup', () => {
           mockPickAgent.mockResolvedValueOnce(PICK_CANCELLED);
           const { cancel } = await import('@clack/prompts');
           const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-          await expect(makeProgram().parseAsync(['node', 'align', 'setup'])).rejects.toThrow('exit');
+          await expect(makeProgram().parseAsync(['node', 'align'])).rejects.toThrow('exit');
           expect(exitSpy).toHaveBeenCalledWith(0);
           expect(cancel).toHaveBeenCalled();
           expect(mockInitLocalMode).not.toHaveBeenCalled();
@@ -1560,7 +1562,7 @@ describe('align setup', () => {
           });
           const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
           const { log } = await import('@clack/prompts');
-          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          await makeProgram().parseAsync(['node', 'align']);
           const named = (calls: unknown[][]) => calls.map((c) => String(c[0])).filter((m) => /left .*as is/i.test(m));
           expect(named(vi.mocked(log.warn).mock.calls)).toHaveLength(0);
           const infos = named(vi.mocked(log.info).mock.calls);
@@ -1582,7 +1584,7 @@ describe('align setup', () => {
         it('with an agent chosen, `align setup` tells you to run align to open it', async () => {
           await mockNoLogin();
           mockPickAgent.mockResolvedValueOnce('claude-code');
-          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          await makeProgram().parseAsync(['node', 'align']);
           const text = await outroText();
           expect(text).toContain('Run align to open Claude Code with your graph.');
           expect(text).not.toMatch(/pricing|align\.tech|https?:/i);
@@ -1632,14 +1634,14 @@ describe('align setup', () => {
         it('`align setup` (nothing launches after it) never says "Opening"', async () => {
           await mockNoLogin();
           mockPickAgent.mockResolvedValueOnce('claude-code');
-          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          await makeProgram().parseAsync(['node', 'align']);
           expect(await outroText()).not.toContain('Opening');
         });
 
         it('with no agent, the outro says what to do next without repeating the install hints', async () => {
           await mockNoLogin();
           mockPickAgent.mockResolvedValueOnce(null);
-          await makeProgram().parseAsync(['node', 'align', 'setup']);
+          await makeProgram().parseAsync(['node', 'align']);
           const text = await outroText();
           expect(text).toContain('Run align once a coding agent is installed.');
           expect(text).not.toMatch(/npm i|install claude|cursor\.com|pi\.dev/i);
@@ -1692,14 +1694,14 @@ describe('align setup', () => {
       };
 
       it('interactive cloud setup never asks for a provider key', async () => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+        await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
         expect(await keyPromptShown()).toBe(false);
         expect(await outroReached()).toBe(true);
         expect(mockSetProviderKey).not.toHaveBeenCalled();
       });
 
       it('interactive local setup runs the model step once, and prompts for no key itself', async () => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
         expect(mockRunModelStep).toHaveBeenCalledTimes(1);
         expect(mockRunModelStep).toHaveBeenCalledWith(expect.objectContaining({ interactive: expect.any(Boolean) }));
         expect(await keyPromptShown()).toBe(false);
@@ -1716,12 +1718,12 @@ describe('align setup', () => {
       });
 
       it('cloud setup never runs the model step (a team has its own model)', async () => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+        await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
         expect(mockRunModelStep).not.toHaveBeenCalled();
       });
 
       it('--approve on the local path runs it non-interactively, and the cloud --approve path does not run it', async () => {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
         expect(mockRunModelStep).not.toHaveBeenCalled();
         expect(await keyPromptShown()).toBe(false);
         expect(await outroReached()).toBe(true);
@@ -1731,7 +1733,7 @@ describe('align setup', () => {
         it('interactive --reset clears every saved key, without asking', async () => {
           mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' || p === 'anthropic' ? 'already-stored' : null));
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--reset']);
 
           expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
           expect(mockClearProviderKey).toHaveBeenCalledWith('anthropic');
@@ -1742,7 +1744,7 @@ describe('align setup', () => {
         it('M3: --reset names each key it clears, one line per saved key', async () => {
           mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' || p === 'anthropic' ? 'already-stored' : null));
           const { log } = await import('@clack/prompts');
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--reset']);
           const lines = vi.mocked(log.info).mock.calls.map((c) => String(c[0]));
           expect(lines).toContain('Cleared the saved Anthropic key.');
           expect(lines).toContain('Cleared the saved Groq key.');
@@ -1751,32 +1753,32 @@ describe('align setup', () => {
 
         it('M3: --reset with nothing saved prints no "Cleared" line', async () => {
           const { log } = await import('@clack/prompts');
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--reset']);
           expect(vi.mocked(log.info).mock.calls.map((c) => String(c[0])).some((l) => l.startsWith('Cleared the saved'))).toBe(false);
         });
 
         it('M3: --reset also clears the saved provider choice, and says so', async () => {
           mockGetLlmPreference.mockReturnValue({ provider: 'openai' });
           const { log } = await import('@clack/prompts');
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', '--local', '--reset']);
           expect(mockClearLlmPreference).toHaveBeenCalled();
           expect(vi.mocked(log.info).mock.calls.map((c) => String(c[0]))).toContain('Cleared your saved AI provider choice (openai).');
         });
 
         it('M3: a plain run leaves the saved provider choice alone', async () => {
           mockGetLlmPreference.mockReturnValue({ provider: 'openai' });
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+          await makeProgram().parseAsync(['node', 'align', '--local']);
           expect(mockClearLlmPreference).not.toHaveBeenCalled();
         });
 
         it('--reset re-arms the first-ask offer that "Not now" turned off', async () => {
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', '--local', '--reset']);
           expect(mockSetAskKeyOfferDismissed).toHaveBeenCalledWith(false);
         });
 
         it('a plain run (no --reset) clears nothing', async () => {
           mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+          await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
           expect(mockClearProviderKey).not.toHaveBeenCalled();
           expect(mockSetAskKeyOfferDismissed).not.toHaveBeenCalled();
         });
@@ -1785,7 +1787,7 @@ describe('align setup', () => {
           vi.stubEnv('ANTHROPIC_API_KEY', 'already-set-and-unrelated');
           mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset', '--approve']);
+          await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--reset', '--approve']);
 
           expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
         });
@@ -1797,7 +1799,7 @@ describe('align setup', () => {
           Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
           mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'already-stored' : null));
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--local', '--reset', '--approve']);
+          await makeProgram().parseAsync(['node', 'align', '--local', '--reset', '--approve']);
 
           expect(mockClearProviderKey).toHaveBeenCalledWith('groq');
         });
@@ -1808,7 +1810,7 @@ describe('align setup', () => {
           vi.stubEnv('GROQ_API_KEY', 'gsk_the_real_one_i_just_exported');
           mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'gsk_stale_stored' : null));
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset', '--approve']);
+          await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--reset', '--approve']);
 
           expect(process.env['GROQ_API_KEY']).toBe('gsk_the_real_one_i_just_exported');
         });
@@ -1817,7 +1819,7 @@ describe('align setup', () => {
           vi.stubEnv('GROQ_API_KEY', 'gsk_same_value_coincidentally');
           mockGetProviderKey.mockImplementation((p: string) => (p === 'groq' ? 'gsk_same_value_coincidentally' : null));
 
-          await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset']);
+          await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--reset']);
 
           expect(process.env['GROQ_API_KEY']).toBe('gsk_same_value_coincidentally');
           expect(mockClearProviderKey).toHaveBeenCalledWith('groq'); // the STORED value is still cleared
@@ -1907,7 +1909,7 @@ describe('align setup', () => {
       mockRecordFunnelStage.mockResolvedValue(true);
       const { outro } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       const started = stageCalls('setup_started');
       const completed = stageCalls('setup_completed');
@@ -1925,7 +1927,7 @@ describe('align setup', () => {
     it('--local: every setup_started offer carries the LOCAL env, even with a cloud token stored; offers follow local init', async () => {
       // state.cloudToken is 'tok': the machine is logged in. The emitter stays "unsent"
       // (mock default false), so every offer the wizard makes is visible here.
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
 
       const initAt = mockInitLocalMode.mock.invocationCallOrder[0]!;
       const started = stageCalls('setup_started');
@@ -1941,7 +1943,7 @@ describe('align setup', () => {
     // (cli.ts's preAction), so the wizard no longer asks. On a TTY - where it used to ask - the
     // question is gone, the stored decision is untouched, and the wizard still completes.
     it('--local on a TTY: no consent question is asked and no decision is stored', async () => {
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
 
       const asked = mockConfirm.mock.calls.some((c) => /Help improve Align|telemetry|usage/i.test(String((c[0] as { message?: string })?.message)));
       expect(asked).toBe(false);
@@ -1956,7 +1958,7 @@ describe('align setup', () => {
       state.consent = 'declined';
       const { outro } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
 
       expect(state.consent).toBe('declined');
       const completed = stageCalls('setup_completed');
@@ -1977,7 +1979,7 @@ describe('align setup', () => {
       mockConfirm.mockResolvedValueOnce(true); // "Log in to Align now?"
       mockLoginInteractive.mockImplementationOnce(async () => { state.cloudToken = 'fresh'; return true; });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
 
       const loginAt = mockLoginInteractive.mock.invocationCallOrder[0]!;
       const started = stageCalls('setup_started');
@@ -2002,7 +2004,7 @@ describe('align setup', () => {
         return { user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } };
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       expect(offersDuringWhoami).toBe(0);
       expect(stageCalls('setup_started')).toHaveLength(1);
@@ -2011,7 +2013,7 @@ describe('align setup', () => {
     it('a fresh install: setup_started offered after local init, setup_completed against the local env', async () => {
       state.cloudToken = null;
 
-      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      await makeProgram().parseAsync(['node', 'align']);
 
       expect(mockInitLocalMode).toHaveBeenCalled();
       const initAt = mockInitLocalMode.mock.invocationCallOrder[0]!;
@@ -2028,7 +2030,7 @@ describe('align setup', () => {
     it('a fresh install never offers a stage against a cloud identity', async () => {
       state.cloudToken = null;
 
-      await makeProgram().parseAsync(['node', 'align', 'setup']);
+      await makeProgram().parseAsync(['node', 'align']);
 
       const offered = mockRecordFunnelStage.mock.calls.map((c) => c[0] as Env);
       expect(offered.length).toBeGreaterThan(0);
@@ -2046,7 +2048,7 @@ describe('align setup', () => {
         return { user: { email: 'test@test.com' }, tenant: { name: 'Test Org' } };
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       expect(offersDuringWhoami).toBe(0);
       expect(stageCalls('setup_started')).toHaveLength(1);
@@ -2056,7 +2058,7 @@ describe('align setup', () => {
   describe('--local names its own gaps at the end of setup (ALI-796)', () => {
     it('names an unresolved-ref gap and the command that fills it in', async () => {
       mockLocalDb.getAllRefs.mockReturnValueOnce([{ decisionId: 'a', ref: 'ALI-1', platform: 'jira' }]);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const { outro } = await import('@clack/prompts');
       const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(text).toContain("1 decision references Jira keys I can't read - align connect jira when you want it filled in.");
@@ -2064,7 +2066,7 @@ describe('align setup', () => {
 
     it('says nothing when the graph has no gap to name', async () => {
       mockLocalDb.getAllRefs.mockReturnValueOnce([]);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const { outro } = await import('@clack/prompts');
       const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(text).not.toMatch(/I can't read/);
@@ -2073,7 +2075,7 @@ describe('align setup', () => {
     it('says nothing once the connector is already connected', async () => {
       mockLocalDb.getAllRefs.mockReturnValueOnce([{ decisionId: 'a', ref: 'ALI-1', platform: 'jira' }]);
       mockGetConnectorFields.mockImplementation((_env: string, id: string) => (id === 'jira' ? { token: 'x' } : null));
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const { outro } = await import('@clack/prompts');
       const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
       expect(text).not.toMatch(/I can't read/);
@@ -2122,20 +2124,20 @@ describe('align setup', () => {
 
     it('--local, wired only through the project .mcp.json: says the agent is connected and names it', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       expect(await infoLines()).toContain('Your agent is connected: Claude Code.');
     });
 
     it('--local, nothing wired at all: does not claim a connection', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(['CLAUDE.md']);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       expect(await infoLines()).not.toContain('Your agent is connected');
     });
 
     it('--local outro ends on the agent and the first decision git import found, with no CLI verb', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const last = await outroLastLine();
       expect(last).toBe('Open Claude Code in this repo and ask: why did we switch to postgres?');
       expect(last).not.toMatch(/\balign\s+[a-z-]+/);
@@ -2151,14 +2153,14 @@ describe('align setup', () => {
       } as never);
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'adopt trunk-based development' }]);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       expect(await outroLastLine()).toBe('Open Claude Code in this repo and ask: why did we adopt trunk-based development?');
     });
 
     it('--local outro with no agent detected says so and names align mcp once', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(['CLAUDE.md']);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const last = await outroLastLine();
       expect(last).toBe('No agent detected. Run align mcp --setup --env local, then ask it: why did we switch to postgres?');
       expect(last.match(/align mcp/g)).toHaveLength(1);
@@ -2168,7 +2170,7 @@ describe('align setup', () => {
       const { detectEditors } = await import('../lib/mcp-setup.js');
       vi.mocked(detectEditors).mockReturnValue([CURSOR]);
       mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       const last = await outroLastLine();
       expect(last).toBe('Open Cursor in this repo and ask: why did we switch to postgres?');
       expect(last).not.toMatch(/\balign\s+[a-z-]+/);
@@ -2180,7 +2182,7 @@ describe('align setup', () => {
       vi.mocked(detectEditors).mockReturnValue([CURSOR]);
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       expect(await outroLastLine()).toBe('Open Claude Code in this repo and ask: why did we switch to postgres?');
       expect(await infoLines()).toContain('Your agent is connected: Claude Code, Cursor.');
     });
@@ -2189,21 +2191,21 @@ describe('align setup', () => {
   it('completes setup without calling startCliOAuth when no connectors are selected', async () => {
     mockMultiselect.mockResolvedValue([]);
     await expect(
-      makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
+      makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']),
     ).resolves.not.toThrow();
     expect(mockStartCliOAuth).not.toHaveBeenCalled();
   });
 
   it('shows pricing link in outro regardless of import count', async () => {
     mockMultiselect.mockResolvedValue([]);
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     const { outro } = await import('@clack/prompts');
     expect((outro as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('app.align.tech/pricing');
   });
 
   it('cloud outro mentions upgrading to a team and notes connectors re-auth after joining', async () => {
     mockMultiselect.mockResolvedValue([]);
-    await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     const { outro } = await import('@clack/prompts');
     const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     // Upgrade path is the web join flow; decisions carry over, connectors do not.
@@ -2215,14 +2217,14 @@ describe('align setup', () => {
     it('warns with install command when align is not on PATH', async () => {
       mockExeca.mockRejectedValueOnce(new Error('not found'));
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('npm install -g @aligndottech/cli'));
     });
 
     it('does not warn about PATH when align is found', async () => {
       mockExeca.mockResolvedValueOnce({ stdout: '/usr/local/bin/align' });
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       const warnCalls = (log.warn as ReturnType<typeof vi.fn>).mock.calls as string[][];
       expect(warnCalls.every(c => !String(c[0]).includes('npm install -g'))).toBe(true);
     });
@@ -2236,7 +2238,7 @@ describe('align setup', () => {
         port: 7654,
       });
       const { password } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
       expect(mockWaitForCallback).toHaveBeenCalled();
       expect(password).not.toHaveBeenCalled();
     });
@@ -2248,14 +2250,14 @@ describe('align setup', () => {
         port: 7654,
       });
       const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
       expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'ghu_from_oauth' }));
     });
 
     it('caches the OAuth token and skips browser flow on repeat run', async () => {
       mockMultiselect.mockResolvedValue(['github']);
       mockGetConnectorToken.mockReturnValueOnce('ghu_cached_token');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
       expect(mockWaitForCallback).not.toHaveBeenCalled();
       const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
       expect(fetchGitHubItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'ghu_cached_token' }));
@@ -2267,7 +2269,7 @@ describe('align setup', () => {
         data: { connector: 'github', credentials: { access_token: 'ghu_new_token' } },
         port: 7654,
       });
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
       expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'github-personal', 'ghu_new_token');
     });
 
@@ -2288,7 +2290,7 @@ describe('align setup', () => {
       mockGetConnectorToken.mockImplementation((_env: string, key: string) =>
         key === 'confluence-personal' ? 'atl_token' : null,
       );
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'jira-personal', 'atl_token');
       expect(mockSetConnectorToken).toHaveBeenCalledWith('prod', 'confluence-personal', 'atl_token');
       // Only ONE browser OAuth flow despite two Atlassian connectors selected
@@ -2318,7 +2320,7 @@ describe('align setup', () => {
         port: 7654,
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       // The sibling reconnected by the shared app must NOT open a second browser flow.
       expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
@@ -2344,7 +2346,7 @@ describe('align setup', () => {
       mockGetConnectorToken.mockImplementation((_env: string, key: string) =>
         key === 'confluence-personal' ? 'atl_token' : null,
       );
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--reset', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--reset', '--approve']);
       expect(mockWaitForCallback).toHaveBeenCalledTimes(1);
     });
   });
@@ -2355,7 +2357,7 @@ describe('align setup', () => {
       mockWaitForCallback.mockResolvedValue({ data: { connector: 'x', credentials: { access_token: 'tok' } }, port: 7654 });
       const { fetchGitHubItems } = await import('../lib/fetchers/github.js');
       const { fetchSlackItems } = await import('../lib/fetchers/slack.js');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       expect(mockWaitForCallback).toHaveBeenCalledTimes(2);
       const lastConsent = Math.max(...mockWaitForCallback.mock.invocationCallOrder);
       const fetchOrders = [
@@ -2389,7 +2391,7 @@ describe('align setup', () => {
       });
 
       try {
-        await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+        await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
         expect(order).toContain('slack-start');
         expect(order).toContain('gh-end');
         expect(order.indexOf('slack-start')).toBeLessThan(order.indexOf('gh-end'));
@@ -2414,7 +2416,7 @@ describe('align setup', () => {
         report: { scanned: 1, skips: [] },
       });
       const { log } = await import('@clack/prompts');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       // The parallel import phase announces itself...
       expect((log.step as ReturnType<typeof vi.fn>).mock.calls.some((c) => /parallel/i.test(String(c[0])))).toBe(true);
       // ...and every connected source is ingested (github + linear items both sent).
@@ -2432,7 +2434,7 @@ describe('align setup', () => {
       // start the CLI OAuth flow, not open the settings/API token page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['linear']);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       // OAuth path runs the browser callback flow; paste path would instead open
       // the settings/API token page.
       expect(mockWaitForCallback).toHaveBeenCalled();
@@ -2450,7 +2452,7 @@ describe('align setup', () => {
       // OAuth flow, not open the my-integrations page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['notion']);
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       expect(mockWaitForCallback).toHaveBeenCalled();
       expect(open).not.toHaveBeenCalledWith('https://www.notion.so/my-integrations');
     });
@@ -2461,7 +2463,7 @@ describe('align setup', () => {
       mockMultiselect.mockResolvedValueOnce(['gitlab']);
       const { text } = await import('@clack/prompts');
       (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined); // blank submit returns undefined
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       expect(mockWaitForCallback).toHaveBeenCalled();
       expect(open).not.toHaveBeenCalledWith(
         expect.stringContaining('/-/user_settings/personal_access_tokens'),
@@ -2473,7 +2475,7 @@ describe('align setup', () => {
       mockMultiselect.mockResolvedValueOnce(['gitlab']);
       const { text } = await import('@clack/prompts');
       (text as ReturnType<typeof vi.fn>).mockResolvedValueOnce('gitlab.mycompany.com');
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       // self-managed → token page on that host, no OAuth callback
       expect(open).toHaveBeenCalledWith(
         'https://gitlab.mycompany.com/-/user_settings/personal_access_tokens?name=Align+CLI&scopes=read_api',
@@ -2488,7 +2490,7 @@ describe('align setup', () => {
     (multiselect as ReturnType<typeof vi.fn>).mockResolvedValueOnce(Symbol('cancel'));
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
     await expect(
-      makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']),
+      makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']),
     ).rejects.toThrow();
     expect(cancel).toHaveBeenCalled();
     exitSpy.mockRestore();
@@ -2519,7 +2521,7 @@ describe('align setup', () => {
         port: 7654,
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       expect(mockConfirm).toHaveBeenCalledWith(
         expect.objectContaining({ message: expect.stringContaining('Linear token expired') }),
@@ -2546,7 +2548,7 @@ describe('align setup', () => {
         port: 7654,
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       expect(mockConfirm).toHaveBeenCalledWith(
         expect.objectContaining({ message: expect.stringContaining('Zoom token expired') }),
@@ -2566,7 +2568,7 @@ describe('align setup', () => {
       mockConfirm.mockResolvedValue(false); // decline "Reconnect now?"
       const { log } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       expect(mockConfirm).toHaveBeenCalledWith(
         expect.objectContaining({ message: expect.stringContaining('Linear token expired') }),
@@ -2589,7 +2591,7 @@ describe('align setup', () => {
       mockWaitForCallback.mockRejectedValue(new Error('callback timed out')); // ...but OAuth fails
       const { log } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('re-auth cancelled or failed'));
       expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(1); // no successful retry
@@ -2611,7 +2613,7 @@ describe('align setup', () => {
         port: 7654,
       });
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(2); // initial + retry, both fail
       expect(
@@ -2628,7 +2630,7 @@ describe('align setup', () => {
       vi.mocked(fetchLinearItems).mockRejectedValueOnce(new Error('Linear API failed (500). Server error.'));
       const { log } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       expect(mockConfirm).not.toHaveBeenCalled(); // no reconnect prompt for a 500
       expect(mockWaitForCallback).not.toHaveBeenCalled();
@@ -2657,7 +2659,7 @@ describe('align setup', () => {
       });
       const { log } = await import('@clack/prompts');
 
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
 
       expect(vi.mocked(fetchGitHubItems)).toHaveBeenCalled(); // github imported (default mock returns a PR)
       expect(mockConfirm).toHaveBeenCalledWith(
@@ -2693,7 +2695,7 @@ describe('align setup', () => {
         items: [{ source_url: 'https://linear.app/team/issue/ISS-1', title: 'Issue', raw_text: 'x', type: 'issue' }],
         report: { scanned: 1, requested: 250, skips: [] },
       });
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--env', 'prod', '--approve']);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       // L3 review 5: the hosted path narrows to the repo but never asks for team scope until L4 discloses it.
       const cloudCall = vi.mocked(fetchGitHubItems).mock.calls.at(-1)![0] as unknown as Record<string, unknown>;
       expect(cloudCall['repo']).toBe('o/r');
@@ -2709,7 +2711,7 @@ describe('align setup', () => {
     });
 
     it('--local prints ONE report at the end of the connector phase', async () => {
-      await makeProgram().parseAsync(['node', 'align', 'setup', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local']);
       const reports = reportsPrinted();
       expect(reports).toHaveLength(1);
       expect(reports[0]).toContain('Git: 1 commits');

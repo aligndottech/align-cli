@@ -196,7 +196,7 @@ export function registerImportSessionsCommand(importCmd: Command): void {
 
       if (env.mode !== 'local-embedded' || !env.localDbPath) {
         console.error(chalk.red('\n  align connect sessions only works against your local graph.'));
-        console.error(chalk.dim('  decider_kind, confirmed_by and confirmed_at are local-only columns today - run `align setup --local` first, or add --env local.\n'));
+        console.error(chalk.dim('  decider_kind, confirmed_by and confirmed_at are local-only columns today - run `align --local` first, or add --env local.\n'));
         process.exit(1);
         return;
       }

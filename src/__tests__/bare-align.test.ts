@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as LaunchModule from '../lib/launch/launch.js';
 
 const runSetup = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-vi.mock('../commands/setup.js', () => ({ runSetup, registerSetupCommand: vi.fn() }));
+vi.mock('../commands/setup.js', () => ({ runSetup, addSetupOptions: (c: unknown) => c }));
 
 const printBanner = vi.hoisted(() => vi.fn().mockReturnValue(true));
 vi.mock('../lib/brand.js', () => ({ printBanner }));
@@ -80,11 +80,11 @@ describe('bare `align`', () => {
       getEnvironment.mockImplementation(() => ({ mode: 'cloud' }));
       const out = await bare();
       expect(runSetup).not.toHaveBeenCalled();
-      expect(out).toContain('align setup');
+      expect(out).not.toContain('align setup');
       // The non-interactive escape hatch, so a scripted first run has an answer too. Local
       // is the only graph a solo run builds now (C5), so the hint names no cloud and needs
       // no --local.
-      expect(out).toContain('align setup --approve');
+      expect(out).toContain('align --approve');
       expect(out).not.toMatch(/--local|cloud|account/i);
     } finally {
       Object.defineProperty(process.stdin, 'isTTY', { value: inTty, configurable: true });

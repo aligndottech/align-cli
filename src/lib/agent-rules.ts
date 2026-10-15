@@ -81,7 +81,7 @@ export function writeClaudeCodeHook(cwd: string, env?: string, onForeign?: OnFor
     settings = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
   } catch (err) {
     if ((err as { code?: string }).code !== 'ENOENT') {
-      throw new Error(`${file} contains invalid JSON - fix it manually before running align setup`);
+      throw new Error(`${file} contains invalid JSON - fix it manually before running align`);
     }
   }
 
@@ -128,7 +128,7 @@ export function writeClaudeCodeSessionHook(cwd: string): void {
     settings = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
   } catch (err) {
     if ((err as { code?: string }).code !== 'ENOENT') {
-      throw new Error(`${file} contains invalid JSON - fix it manually before running align setup`);
+      throw new Error(`${file} contains invalid JSON - fix it manually before running align`);
     }
   }
 
@@ -259,7 +259,7 @@ export function writeProjectMcpConfig(cwd: string, env?: string, onForeign?: OnF
     try {
       config = JSON.parse(raw) as Record<string, unknown>;
     } catch {
-      throw new Error(`${file} contains invalid JSON - fix it manually before running align setup`);
+      throw new Error(`${file} contains invalid JSON - fix it manually before running align`);
     }
   }
 
@@ -446,7 +446,7 @@ export function writeGeminiHooks(cwd: string, env?: string, onForeign?: OnForeig
     try {
       settings = JSON.parse(raw) as Record<string, unknown>;
     } catch {
-      throw new Error(`${file} contains invalid JSON - fix it manually before running align setup`);
+      throw new Error(`${file} contains invalid JSON - fix it manually before running align`);
     }
   }
 

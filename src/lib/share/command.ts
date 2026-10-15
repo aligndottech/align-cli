@@ -114,7 +114,7 @@ export async function runShare(opts: ShareOptions, deps: ShareDeps): Promise<num
   if (foreignGateway && deps.wrapped) { err(WRAPPED_FOREIGN); return 1; }
   if (opts.openRequest !== undefined) return await reopenRequest(opts, deps, out, err);
   if (!deps.localDbPath) {
-    err('There is no local graph on this machine to share from. `align setup --local` creates one.');
+    err('There is no local graph on this machine to share from. `align --local` creates one.');
     return 1;
   }
   const dbPath = deps.localDbPath;

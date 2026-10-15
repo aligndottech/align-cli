@@ -32,7 +32,7 @@ export function registerImportJiraCommand(importCmd: Command): void {
     .command('jira')
     .description('Import your Jira issues')
     .option('--email <email>', 'Atlassian account email (for API token auth)')
-    .option('--token <token>', 'Atlassian API token (or uses cached OAuth token from align setup)')
+    .option('--token <token>', 'Atlassian API token (or uses cached OAuth token from align)')
     .option('--personal', 'Connect via browser OAuth (Align personal Atlassian app) instead of a token')
     .option('--domain <domain>', 'Jira domain, e.g. company.atlassian.net (for API token auth)')
     .option('--limit <n>', 'Max items to import', String(SYNC_CEILINGS.jira))
@@ -72,11 +72,11 @@ export function registerImportJiraCommand(importCmd: Command): void {
       }
 
       if (!token) {
-        p.log.error('No Jira credentials found. Run align setup or align connect jira --personal to connect via OAuth, or pass --email, --token, and --domain.');
+        p.log.error('No Jira credentials found. Run align or align connect jira --personal to connect via OAuth, or pass --email, --token, and --domain.');
         process.exit(1);
       }
       if (!cloudId && (!opts.email || !opts.domain)) {
-        p.log.error('OAuth metadata incomplete. Run align setup --reset to reconnect Jira via OAuth, or pass --email, --token, and --domain.');
+        p.log.error('OAuth metadata incomplete. Run align --reset to reconnect Jira via OAuth, or pass --email, --token, and --domain.');
         process.exit(1);
       }
 

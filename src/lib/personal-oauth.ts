@@ -71,7 +71,7 @@ export async function collectTokensViaOAuth(
   if (!reset) {
     const cached = readCachedTokens();
     if (cached) {
-      p.log.info(chalk.dim(`  ${source.label}: using cached OAuth token (run align setup --reset to re-auth)`));
+      p.log.info(chalk.dim(`  ${source.label}: using cached OAuth token (run align --reset to re-auth)`));
       return cached;
     }
   }

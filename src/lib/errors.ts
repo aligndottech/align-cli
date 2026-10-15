@@ -2,7 +2,7 @@ import { FetcherAuthError } from '@aligndottech/connector-core';
 
 export class AuthExpiredError extends Error {
   constructor(public readonly source: string) {
-    super(`${source} token expired or revoked. Run: align setup to reconnect.`);
+    super(`${source} token expired or revoked. Run: align to reconnect.`);
     this.name = 'AuthExpiredError';
   }
 }

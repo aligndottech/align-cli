@@ -1,5 +1,5 @@
 import { resolveEnv } from '../lib/resolve-env.js';
-import type { Command } from 'commander';
+import { type Command, Option } from 'commander';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { tryOpenUrl } from '../lib/open-url.js';
@@ -37,6 +37,8 @@ import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
 import { agentAskLine, agentConnectedLine, firstQuestion, orderAgents, projectAgentsFromWritten } from '../lib/next-step.js';
 import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
+import { offerSavedTokens } from '../lib/saved-token-offer.js';
+import { readOnlyTokenNote } from '../lib/read-only-token-note.js';
 import { runModelStep } from '../lib/model-step.js';
 import { InvalidEnvError, routeSetup } from '../lib/setup-route.js';
 import { agentByName } from '../lib/launch/agents.js';
@@ -337,18 +339,14 @@ async function collectTokens(
     // mint a PAT by hand. Asked for by an outside tester on 2026-08-30 who already had
     // `gh` set up. Declining falls through to the browser flow unchanged.
     const cliSource = CLI_TOKEN_SOURCES[source.id];
+    let refusal: { cliLabel: string; refused: string } | undefined;
     if (cliSource) {
       // Detection verifies read-only-ness BEFORE the decision layer, so --approve can
       // never auto-accept a token that was not positively confirmed (ALI-98). A
       // refusal is said out loud: a silent skip here reads as "gh not installed" when
       // the truth is "gh is installed and its token can write".
       const detected = await detectVerifiedCliToken(cliSource);
-      if (detected && 'refused' in detected) {
-        p.log.info(chalk.dim(
-          `  Found ${cliSource.label}, but will not reuse its token: ${detected.refused}.\n` +
-          `  Local mode only ever reads, so paste a read-only token below instead.`,
-        ));
-      }
+      if (detected && 'refused' in detected) refusal = { cliLabel: cliSource.label, refused: detected.refused };
       const cliToken = detected && 'token' in detected ? detected.token : null;
       const decision = cliTokenDecision({ token: cliToken, approve: opts.approve ?? false });
       let useCli = decision === 'use';
@@ -379,6 +377,8 @@ async function collectTokens(
       if (!opened) {
         p.log.warn(`  Could not open a browser here (the opener failed). Use the link above.`);
       }
+      // One note, after the link it refers to: why a read-only token, then the three steps (readOnlyTokenNote).
+      for (const line of readOnlyTokenNote(refusal ?? {})) p.log.info(chalk.dim(`  ${line}`));
     }
     if (source.tokenHint) {
       p.log.info(chalk.dim(`  ${source.tokenHint}`));
@@ -846,12 +846,20 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
     // tool meant re-importing all of them. A log line rather than a prompt, so a scripted
     // run with no terminal still says what it left alone instead of silently doing nothing.
     if (interactive) {
-      p.log.info(chalk.dim(`Connected: ${names} (saved read-only tokens). Select one to re-import it, or to replace its token.`));
+      p.log.info(chalk.dim(`Connected: ${names} (saved read-only tokens). You will be asked about each one before the picker.`));
     } else {
       const refresh = connected.map((s) => `align connect --source ${s.id} --yes`).join(', ');
       p.log.info(chalk.dim(`Connected: ${names} (saved read-only tokens), left alone: no terminal to pick from. Refresh with ${refresh}.`));
     }
   }
+  // Before the picker, so a connector that was not ticked is still offered its saved token (David, 14 Oct). A
+  // yes reuses it without a fetch; a no pastes a fresh one when the connector is picked. --approve reuses silently.
+  const offerIds = (o.preselected ? localConnectors.filter((s) => o.preselected!.includes(s.id)) : localConnectors)
+    .map((s) => ({ ...s, group: s.id === 'jira' || s.id === 'confluence' ? 'atlassian' : s.id }));
+  const { reuse: reuseSaved, answeredYes } = await offerSavedTokens(offerIds, savedTokens, { approve: Boolean(approve), interactive }, {
+    ask: (message, initialValue) => p.confirm({ message, initialValue }),
+    isCancel: (v) => p.isCancel(v),
+  });
   // `interactive` computed once, by the caller - see runLocalValuePhase.
   // ALI-794: the found-summary above sits between this picker and the last clean screen,
   // which is the exact condition that used to corrupt clack's in-place redraw for an
@@ -884,7 +892,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   const localReady: Array<{ source: SetupSource; tokens: Record<string, string>; reused: boolean }> = [];
   if (!p.isCancel(selected)) {
     const atlassianShared: Record<string, string> = {};
-    for (const id of selected as string[]) {
+    for (const id of [...new Set([...(selected as string[]), ...answeredYes])]) {
       const source = localConnectors.find((s) => s.id === id);
       if (!source) continue;
       if (!quiet) {
@@ -910,22 +918,13 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       // so a token just pasted for Jira is the one Confluence uses, and offering the saved
       // (older) one instead would hand it a dead credential while the line above says
       // otherwise. A token that lasts hours (Teams) defaults to pasting a fresh one.
+      // The saved-token question was asked before the picker (offerSavedTokens). Reuse happens only on a yes there,
+      // or under --approve, and never when the seed already carries a token: one Atlassian token is one fact.
       const saved = savedTokens.get(source.id);
       let reused = false;
-      if (saved && seed['token'] === undefined) {
-        const reuse = approve
-          ? true
-          : await p.confirm({
-              message: source.tokenShortLived
-                ? `Re-import ${source.label} with its saved token? It lasts about an hour, so No (paste a fresh one) is usually right`
-                : `Re-import ${source.label} with its saved token? (No pastes a new one)`,
-              initialValue: !source.tokenShortLived,
-            });
-        if (p.isCancel(reuse)) continue;
-        if (reuse) {
-          seed = { ...seed, ...saved };
-          reused = true;
-        }
+      if (saved && seed['token'] === undefined && reuseSaved.has(source.id)) {
+        seed = { ...seed, ...saved };
+        reused = true;
       }
       // ALI-951: with no terminal there is nothing to paste into. Name the flag rather than
       // letting clack crash on a closed stdin, which reads as the tool breaking (align-cli#118).
@@ -1090,16 +1089,17 @@ async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchN
   await runLocalConnectorPhase(ctx);
 }
 
-export function registerSetupCommand(program: Command): void {
-  program
-    .command('setup')
-    .description('Guided onboarding: your local graph by default, your team graph when you are logged in')
-    .option('--env <env>', 'local, preview or prod. Logged in to a team? Setup uses it; --env local builds the local graph instead')
-    .option('--approve', 'Skip confirmation prompts (for scripted use)')
-    .option('--local', 'Same as --env local: build the local graph even if you are logged in to a team')
-    .option('--reset', 'Clear cached OAuth tokens, saved AI provider keys and the saved AI provider choice, and redo their setup')
-    .option('--verbose', 'List every agent config file setup left as is, with the command to switch it')
-    .action(runSetup);
+/**
+ * The setup flags, on the bare `align` command (there is no `align setup` any more). Hidden from --help: a
+ * person types `align` and the wizard runs; these exist for the rare scripted or reset run.
+ */
+export function addSetupOptions(cmd: Command): Command {
+  return cmd
+    .addOption(new Option('--env <env>', 'local, preview or prod. Logged in to a team? Setup uses it; --env local builds the local graph instead').hideHelp())
+    .addOption(new Option('--approve', 'Skip confirmation prompts (for scripted use)').hideHelp())
+    .addOption(new Option('--local', 'Same as --env local: build the local graph even if you are logged in to a team').hideHelp())
+    .addOption(new Option('--reset', 'Clear cached OAuth tokens, saved AI provider keys and the saved AI provider choice, and redo their setup').hideHelp())
+    .addOption(new Option('--verbose', 'List every agent config file setup left as is, with the command to switch it').hideHelp());
 }
 
 /**
@@ -1140,18 +1140,18 @@ export async function runSetup(
       const env = config.getEnvironment(route.env);
       // Without a terminal there is nobody to log in; with one, runCloudSetup offers it inline.
       if (!env.authToken && !interactive) {
-        p.log.warn(`Run ${chalk.bold(`align login --env ${route.env}`)} first, then re-run ${chalk.bold('align setup')}.`);
+        p.log.warn(`Run ${chalk.bold(`align login --env ${route.env}`)} first, then re-run ${chalk.bold('align')}.`);
         process.exit(1);
       }
       printBanner({ version });
-      p.intro(commandIntro('align setup'));
+      p.intro(commandIntro('align'));
       await runCloudSetup({ opts, config, env, client: createGatewayClient(env), envName: route.env, funnel: createSetupFunnel() });
       return;
     }
 
     // The one place a full brand moment belongs: first run, before any questions.
     printBanner({ version });
-    p.intro(commandIntro('align setup'));
+    p.intro(commandIntro('align'));
     if (route.teamLoginUntouched) {
       p.log.info(`Your ${route.teamLoginUntouched} team login is untouched. This sets up the local graph only.`);
     }
@@ -1196,7 +1196,7 @@ async function runCloudSetup(ctx: {
 
     // Scripted runs (--approve) must not block on a browser; fail fast.
     if (opts.approve) {
-      p.log.warn(`Run ${chalk.bold('align login')} first, then re-run ${chalk.bold('align setup')}.`);
+      p.log.warn(`Run ${chalk.bold('align login')} first, then re-run ${chalk.bold('align')}.`);
       process.exit(1);
     }
 
@@ -1204,7 +1204,7 @@ async function runCloudSetup(ctx: {
     if (!p.isCancel(wantLogin) && wantLogin) {
       const ok = await loginInteractive(env, envName, config);
       if (!ok) {
-        p.log.warn(`Login did not complete. Run ${chalk.bold('align login')} and re-run ${chalk.bold('align setup')}.`);
+        p.log.warn(`Login did not complete. Run ${chalk.bold('align login')} and re-run ${chalk.bold('align')}.`);
         process.exit(1);
       }
       // Re-create the client so it carries the freshly stored token.
@@ -1219,7 +1219,7 @@ async function runCloudSetup(ctx: {
         await runLocalSetup({ approve: opts.approve, reset: opts.reset, funnel });
         return;
       }
-      p.log.warn(`Run ${chalk.bold('align login')} when ready, then ${chalk.bold('align setup')}.`);
+      p.log.warn(`Run ${chalk.bold('align login')} when ready, then ${chalk.bold('align')}.`);
       process.exit(1);
     }
   }
@@ -1441,7 +1441,7 @@ async function runCloudSetup(ctx: {
       if (!alreadyReconnected) {
         const reauth = await p.confirm({ message: `${oauthFlowLabel(source)} token expired. Reconnect now?` });
         if (p.isCancel(reauth) || !reauth) {
-          p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align setup')} to reconnect.`);
+          p.log.warn(`Skipping ${source.label}. Run ${chalk.bold('align')} to reconnect.`);
           continue;
         }
       }
