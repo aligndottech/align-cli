@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.0](https://github.com/aligndottech/align-cli/compare/cli-v0.55.1...cli-v0.56.0) (2026-10-15)
+
+
+### Features
+
+* **setup:** offer saved tokens before the picker; remove align setup ([#425](https://github.com/aligndottech/align-cli/issues/425)) ([b2238f7](https://github.com/aligndottech/align-cli/commit/b2238f737841dbf0644dcdccd18946974c1b80ee))
+
 ## [0.55.1](https://github.com/aligndottech/align-cli/compare/cli-v0.55.0...cli-v0.55.1) (2026-10-15)
 
 
