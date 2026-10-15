@@ -12,6 +12,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// Each of the 20 items in the classify:false/true tests below is its own ingestOne call, and
+// each does several individual (non-batched) sqlite commits - real fsync-bearing writes, not
+// mocked. vitest.config.ts's 60s win32 default already accounts for "DB tests... an order of
+// magnitude slower" there; a 20-item batch is heavier still, and timed out at that default on a
+// contended CI run even though the same test took ~4.5s on the previous (unrelated) run. Give it
+// more headroom on top of the platform default rather than racing the next contended run.
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 120_000 : 5_000 });
+
 // Ranking is driven by the mocked cosineSimilarity below; see helpers/mocked-cosine-matrix.ts.
 vi.mock('../lib/similarity/embedding-matrix.js', async () =>
   (await import('./helpers/mocked-cosine-matrix.js')).mockedCosineMatrixModule());
