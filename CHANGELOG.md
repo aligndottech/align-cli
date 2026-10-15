@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.55.0](https://github.com/aligndottech/align-cli/compare/cli-v0.54.0...cli-v0.55.0) (2026-10-15)
+
+
+### Features
+
+* replace the CLI mark with an Align robot icon (ALI-1642) ([#419](https://github.com/aligndottech/align-cli/issues/419)) ([4b705a6](https://github.com/aligndottech/align-cli/commit/4b705a6dce6cd53415395a306b77f1a3f700dd13))
+
+
+### Bug Fixes
+
+* **context:** a local graph's decisions file stays out of git ([#418](https://github.com/aligndottech/align-cli/issues/418)) ([498c3dc](https://github.com/aligndottech/align-cli/commit/498c3dc8ca331ebf23b23e6422c790c826592a44))
+* **deps:** bump the MCP SDK and proxy-addr inside their ranges to clear the runtime critical ([#417](https://github.com/aligndottech/align-cli/issues/417)) ([439db67](https://github.com/aligndottech/align-cli/commit/439db676dabe8d318d07b1719a1f96ad5711113d))
+
 ## [0.54.0](https://github.com/aligndottech/align-cli/compare/cli-v0.53.1...cli-v0.54.0) (2026-10-12)
 
 
