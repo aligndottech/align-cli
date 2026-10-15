@@ -63,6 +63,19 @@ describe('align context sync, local graph', () => {
     await run();
     expect(logs.join('\n')).not.toMatch(/already tracked/);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'ALI-1652: .align/decisions.md is a SYMLINK pointing outside the repo, not a real file - gitignore is belt-and-suspenders, not the only protection',
+    async () => {
+      await run();
+      const local = path.join(repo, '.align/decisions.md');
+      expect(fs.lstatSync(local).isSymbolicLink()).toBe(true);
+      expect(path.resolve(path.dirname(local), fs.readlinkSync(local)).startsWith(repo)).toBe(false);
+      // The gitignore/tracked-by-git messaging above still fires unchanged - this is the same
+      // run as the first test in this describe block, just asserting the on-disk mechanism too.
+      expect(fs.readFileSync(local, 'utf8')).toContain('Use Postgres 16');
+    },
+  );
 });
 
 describe('align context sync, team graph', () => {
@@ -74,5 +87,11 @@ describe('align context sync, team graph', () => {
     fs.writeFileSync(path.join(repo, '.gitignore'), 'dist\n');
     await run();
     expect(gitignore()).toBe('dist\n');
+  });
+
+  it('ALI-1652: writes a REAL file, never a symlink - team content is meant to be shared/committed', async () => {
+    state.mode = 'cloud';
+    await run();
+    expect(fs.lstatSync(path.join(repo, '.align/decisions.md')).isSymbolicLink()).toBe(false);
   });
 });

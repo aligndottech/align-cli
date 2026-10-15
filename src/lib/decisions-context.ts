@@ -15,11 +15,30 @@
  * OPEN CORE. Nothing here selects or ranks anything. Which decisions are current, relevant and
  * unsuperseded is a gateway query; this module formats a list and writes a file, which is
  * plumbing.
+ *
+ * EXTERNAL STORAGE (ALI-1652). A LOCAL graph's content is personal (built with the user's own
+ * read-only tokens), so it must never be representable in the git working tree at all - not
+ * even gitignored, which is a convention a `git add -f`, an edited line, or a merge dropping it
+ * can all bypass silently. `{ external: true }` writes the real bytes to
+ * `~/.align/contexts/<hash>/decisions.md` (the same home-directory convention that already
+ * holds the saved connector tokens and the local graph DB itself - see private-files.ts) and
+ * leaves a SYMLINK at `.align/decisions.md` pointing there. Every existing reader - the
+ * CLAUDE.md import, `align context inject`, the gitignore/tracked-by-git checks in
+ * commands/context.ts - keeps working completely unchanged, because `fs.readFileSync` and
+ * `fs.existsSync` follow a symlink transparently; only the WRITE path needed to change.
+ *
+ * Symlinks need POSIX semantics Windows does not give an unprivileged process, so on win32 this
+ * falls back to the plain in-repo file - today's behaviour, unprotected beyond gitignore, but
+ * no worse than before. Best effort by platform, the same shape as every other
+ * platform-dependent hardening in private-files.ts.
  */
 
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { deciderLabel } from './decider-kind.js';
+import { alignConfigDir, ensurePrivateDir, writePrivateFile } from './private-files.js';
 
 export interface ContextDecision {
   title: string;
@@ -135,6 +154,40 @@ export interface WriteResult {
 }
 
 /**
+ * Where a LOCAL graph's decisions file lives outside the repo, keyed by the repo's resolved
+ * absolute path so two repos (or two worktrees of the same repo) never collide and never share
+ * a file. A regenerable cache, not identity-critical data: re-running `align context sync`
+ * rebuilds it, so a hash collision or a moved/renamed checkout costs a re-sync, not data loss.
+ */
+export function externalContextPath(repoRoot: string): string {
+  const key = createHash('sha256').update(path.resolve(repoRoot)).digest('hex').slice(0, 16);
+  return path.join(alignConfigDir(), 'contexts', key, 'decisions.md');
+}
+
+/**
+ * Best effort: write `rendered` to the external per-repo path and leave a symlink at
+ * `inRepoTarget` pointing there. Returns false (never throws) on any failure - a read-only
+ * filesystem, a POSIX symlink permission denied by an unusual mount, or simply win32, which
+ * this does not even attempt - so the caller can fall through to a plain in-repo file exactly
+ * as before this option existed.
+ */
+function tryWriteExternalAndLink(repoRoot: string, inRepoTarget: string, rendered: string): boolean {
+  if (process.platform === 'win32') return false;
+  try {
+    const external = externalContextPath(repoRoot);
+    ensurePrivateDir(path.dirname(external));
+    writePrivateFile(external, rendered);
+    // A prior run (plain file, or an old version's committed copy - the migration case) must
+    // not block the symlink: unlink whatever is there first, ENOENT included.
+    fs.rmSync(inRepoTarget, { force: true });
+    fs.symlinkSync(external, inRepoTarget);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Write the owned context file, and add the import line to CLAUDE.md if it is there.
  *
  * Deliberately does NOT create CLAUDE.md when the repo has none. Inventing a file the user
@@ -144,14 +197,20 @@ export interface WriteResult {
  * Idempotent on disk, which is the acceptance test for the whole feature rather than a detail:
  * a file that differs between runs turns every regeneration into a git diff in someone else's
  * repo. The renderer carries no timestamp for exactly this reason.
+ *
+ * `opts.external`: the local-graph case (ALI-1652, see the file header). Every existing caller
+ * omits it and gets byte-for-byte the same plain-file behaviour as before this option existed.
  */
 export async function writeDecisionsContext(
   repoRoot: string,
   decisions: ContextDecision[],
+  opts: { external?: boolean } = {},
 ): Promise<WriteResult> {
   const target = path.join(repoRoot, ALIGN_CONTEXT_PATH);
   await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, renderDecisionsFile(decisions), 'utf8');
+  const rendered = renderDecisionsFile(decisions);
+  const linked = opts.external ? tryWriteExternalAndLink(repoRoot, target, rendered) : false;
+  if (!linked) await writeFile(target, rendered, 'utf8');
 
   const claudePath = path.join(repoRoot, 'CLAUDE.md');
   let importAdded = false;
