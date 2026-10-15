@@ -1,12 +1,18 @@
 /**
  * Align brand rendering for the terminal.
  *
- * The mark is a small robot/agent glyph (ALI-1642), not the vector Align mark: a
- * deliberate brand-direction change, not a correction of the prior chevron art. It is
- * authored at terminal resolution using only block and half-block glyphs - no shading
- * characters (▓▒░), which read as dithered noise rather than a crisp silhouette at this
- * size, and no quadrant characters, which were tried for the previous mark in 0.26.2 and
- * render blurry and inset in many terminal fonts.
+ * The mark is a small 'A' glyph (ALI-1649), not the vector Align mark: a deliberate
+ * brand-direction change, not a correction of the prior chevron art. It went through
+ * two mascot attempts first - a robot head (ALI-1642/ALI-1647), then an alien head -
+ * both of which Tom read as a skull on sight, in the robot's case through two
+ * different eye treatments (background-void eyes, then filled teal eyes: the
+ * shape - two separate bilateral marks - was the cue, not the colour). A plain
+ * geometric 'A' sidesteps the whole class of problem by not having a face to misread.
+ * It is authored at terminal resolution using only block and half-block glyphs - no
+ * shading characters (▓▒░), which read as dithered noise rather than a crisp
+ * silhouette at this size, and no quadrant characters, which were tried for the
+ * original triangular mark in 0.26.2 and render blurry and inset in many terminal
+ * fonts.
  *
  * On a dark terminal the navy strokes are rendered WHITE, following the brand pack's
  * own knockout variant (F 4 R): navy on a dark background is invisible, which is why
@@ -27,8 +33,8 @@ const TEAL_256 = 79;
 const NAVY_256 = 24;
 const WHITE_256 = 231;
 
-export const LOGO_WIDTH = 20;
-export const LOGO_ROWS = 6;
+export const LOGO_WIDTH = 10;
+export const LOGO_ROWS = 7;
 
 /**
  * The live positioning line, taken from align-frontend's hero (src/lib/seo.ts).
@@ -47,28 +53,31 @@ export const TAGLINE_LINES = [
 export const TAGLINE_ACCENT = "don't know the company.";
 
 /**
- * The robot mark: a flat-top head, two square eyes cut through to the background
- * (not coloured - a filled eye would either clash on a half-block cell shared with
- * the surrounding visor colour, or vanish into a same-colour background, see below),
- * a single teal antenna, and a teal collar bar echoing the old mark's teal bar.
+ * The 'A' mark: an apex that widens into a triangle, a full-width teal crossbar, and
+ * two legs with an open counter between them - a plain geometric letterform, chosen
+ * (ALI-1649) specifically because it has no face and so nothing on it can be misread
+ * as eyes. Tom: "kinda look like A or rocket" - the crossbar reads as a fuel-line
+ * stripe and the legs as fins/landing legs, which is a fair reading and not a
+ * contradiction of the brief.
  *
- * Built from a 10-column LEFT HALF mirrored into the full 20-column row
+ * Built from a 5-column LEFT HALF mirrored into the full 10-column row
  * (`half + reverse(half)`), so left/right symmetry holds by construction instead of
- * by eye - the previous attempt at hand-balancing a 20-character string got four rows
- * wrong before this was caught.
+ * by eye - the original (20-wide) triangular mark's hand-balanced string got four
+ * rows wrong before this technique was adopted.
  *
  * A half-block terminal cell packs two pixel-rows into one glyph, and can only carry
  * ONE colour: whichever pixel-row is present sets both the glyph (█/▀/▄) and the
  * colour. So no cell may have a non-background colour on both its top and bottom
- * pixel-row where those two colours differ - two rows of the same shape with
- * DIFFERENT colours in the same column is unrepresentable here. The eyes are
- * background cutouts (not teal) specifically so this never collides with the
- * antenna/collar teal, and so the shape is clash-free without a hand-patched
- * exception the way the old mark's feet row needed one.
+ * pixel-row where those two colours differ. Every row-pair here uses an identical
+ * half pattern for both its pixel-rows, so the shape is clash-free without a
+ * hand-patched exception the way the original triangular mark's feet row needed one.
  *
- * The eye row also deliberately carries no teal for a second reason: it lands on the
- * same output row as the first tagline line in `banner()` (row `textTop + 1`), and
- * brand.test.ts asserts that row is never teal from the mark - only from text.
+ * Row budget: `banner()` places `ALIGN®`, the two tagline lines, and the version at
+ * `right[textTop]`..`right[textTop + 2]` and `right[textTop + 4]`; brand.test.ts
+ * asserts the two tagline rows are never teal from the mark, only from text. At
+ * `LOGO_ROWS=7` (`textTop=1`) that's rows 2 and 3 - this mark keeps its only teal
+ * (the apex tip and the crossbar) on rows 0 and 4, both outside that pair. A future
+ * resize must keep every teal cell off whichever rows map to the tagline.
  *
  * GLYPHS holds the shape, COLOURS names each cell's brand colour ('N' navy/white-
  * knockout, 'T' teal, ' ' none); the two must agree cell for cell (space iff space).
@@ -77,21 +86,23 @@ export const TAGLINE_ACCENT = "don't know the company.";
  * character must carry a colour escape, and every space must carry none.
  */
 const GLYPHS: readonly string[] = [
-  '         ██         ',
-  '    ▄▄████████▄▄    ',
-  '   ███  ████  ███   ',
-  '   ▀████████████▀   ',
-  '    ▀▀██▄▄▄▄██▀▀    ',
-  '    ▄▄██▄▄▄▄██▄▄    ',
+  '    ██    ',
+  '   ████   ',
+  '  ██████  ',
+  ' ████████ ',
+  '██████████',
+  '██      ██',
+  '█        █',
 ];
 
 const COLOURS: readonly string[] = [
-  '         TT         ',
-  '    NNNNNNNNNNNN    ',
-  '   NNN  NNNN  NNN   ',
-  '   NNNNNNNNNNNNNN   ',
-  '    NNNNNNNNNNNN    ',
-  '    TTTTTTTTTTTT    ',
+  '    TT    ',
+  '   NNNN   ',
+  '  NNNNNN  ',
+  ' NNNNNNNN ',
+  'TTTTTTTTTT',
+  'NN      NN',
+  'N        N',
 ];
 
 /** Which brand colour the mark's strokes take. The pack ships a teal-only variant
