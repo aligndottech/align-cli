@@ -13,7 +13,7 @@ import { SLACK_TOMBSTONE_TITLE } from '../lib/local-db-migrate.js';
 import { connectorItemKey } from '../lib/source-key.js';
 import { createV6Graph } from './helpers/v6-graph.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 const PR = 'https://github.com/o/r/pull/9';
 const vec = (x: number) => Float32Array.from([x, 1, 2]);

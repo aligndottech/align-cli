@@ -16,7 +16,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { rmDir } from './helpers/rm-dir.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 const PR1 = 'https://github.com/o/r/pull/1';
 const PR2 = 'https://github.com/o/r/pull/2';

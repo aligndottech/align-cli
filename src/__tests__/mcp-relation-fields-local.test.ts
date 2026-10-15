@@ -61,7 +61,7 @@ const local: EnvironmentConfig = {
   mode: "local-embedded",
 };
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 let dir: string;
 let dbPath: string;

@@ -8,7 +8,7 @@ import { runScopeTool, SCOPE_TOOL, SCOPE_TOOL_SCHEMA } from '../lib/mcp-scope.js
 import { beginRun, readRows } from '../lib/sync/sync-state.js';
 import { jiraProjects, makeDeps, memStore, type Route, TOKEN } from './helpers/scope-deps.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 /**
  * L4 Test List (align_scope):

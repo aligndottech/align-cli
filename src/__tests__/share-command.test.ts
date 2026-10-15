@@ -29,7 +29,7 @@ import { approvalDeps, noShareRequests } from './helpers/share-requests-fake.js'
  * - --all-ratified shares only what the person ratified; no selector at all is a usage error.
  */
 // Windows runs the local DB roughly 10x slower than Linux (fsync per commit): several tests here open two or three fresh graphs.
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 let dir: string; let dbPath: string; let stateDir: string;
 const ME = 'me@co.com';
 const TENANT = { id: 'T1', name: 'Acme' };

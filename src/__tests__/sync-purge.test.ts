@@ -17,7 +17,7 @@ import { beginRun, readRows, recordActivity } from '../lib/sync/sync-state.js';
  * - every deleted row is copied to the *_purged_backup tables first, in the same transaction.
  * - one transaction: a failure leaves rows, sync state and everything else as it was. A newer-schema file is refused.
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 let dir: string;
 let dbPath: string;
 beforeEach(() => {

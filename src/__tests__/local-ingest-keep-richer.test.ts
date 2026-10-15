@@ -30,7 +30,7 @@ import type { FetcherItem } from '@aligndottech/connector-core';
 import { rmDir } from './helpers/rm-dir.js';
 import { PR_URL, type PrState, realShapes } from './helpers/github-real-shapes.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 const PR1 = PR_URL(1);
 let dir: string;

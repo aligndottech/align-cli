@@ -16,7 +16,7 @@ import { approvalDeps, noShareRequests } from './helpers/share-requests-fake.js'
  * - `align share` WITH a login, in demo mode, or on any later refusal: never.
  * - align_share and align_share_status (MCP) with and without a login: never, and their text never asks for an email.
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 let dir: string; let dbPath: string; let id: string; let calls: number;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'align-lead-wire-'));

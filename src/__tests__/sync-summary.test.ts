@@ -11,7 +11,7 @@ import { beginRun, markNeedsReauth, saveRun } from '../lib/sync/sync-state.js';
  * - One entry per CONNECTED source, with its worst status and latest success; a never-synced source reads "never"; Teams is not background-eligible.
  * - Written atomically with mode 0600; a missing, corrupt or foreign file reads as undefined (launch then spawns nothing).
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 let dir: string;
 let dbPath: string;
 const NOW = new Date('2026-10-10T12:00:00.000Z');

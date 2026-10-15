@@ -28,7 +28,7 @@ import { createLocalDb } from '../lib/local-db.js';
 import { dispatchTool, instructionsFor, TOOL_SCHEMAS, toolSchemasFor } from '../commands/mcp.js';
 import { BACKFILL_SOURCES } from '../lib/mcp-backfill.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 const saved: Record<string, string | undefined> = {};
 let dir: string;

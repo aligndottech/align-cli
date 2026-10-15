@@ -32,7 +32,7 @@ import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
  * temp path) is nothing like real use, which opens the graph once. Worth measuring properly
  * before anyone treats this number as a product fact.
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 const COMMIT_URL = 'git://commit/d0364cabfef7c371b0773c2d469c3ad1f304a1b2';
 

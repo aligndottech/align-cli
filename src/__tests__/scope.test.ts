@@ -10,7 +10,7 @@ import { markTold, resolveScope, ScopeRefusal, setScope, viewScopes } from '../l
 import { beginRun, readRows } from '../lib/sync/sync-state.js';
 import { jiraProjects, makeDeps, memStore, type Route, TOKEN } from './helpers/scope-deps.js';
 
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 /**
  * L4 Test List (which scope is in force, and changing it):
