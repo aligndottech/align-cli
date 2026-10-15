@@ -3,6 +3,7 @@ import { LOCAL_DEFAULT_GATEWAY_URL } from './config.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
 import type { TopicTimelineResult } from './mcp-timeline-tools.js';
 import type { DecisionRelation } from './decision-relations.js';
+import type { StarterRuleOffer } from './inline-rules.js';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -595,6 +596,11 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     async listDecisions(params: Record<string, string | number | boolean> = {}): Promise<CapturedDecision[]> {
       const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)] as [string, string]));
       return request<CapturedDecision[]>(`/snapshots?${qs}`);
+    },
+
+    /** ALI-1648: the tenant's starter rules and which it accepted (GET /starter-rules). Cloud only. */
+    async getStarterRules(): Promise<{ templates: StarterRuleOffer[] }> {
+      return request<{ templates: StarterRuleOffer[] }>('/starter-rules');
     },
 
     /**

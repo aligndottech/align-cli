@@ -40,7 +40,8 @@ const NODE_PLAIN = ['NODE_DEBUG', 'NODE_PRESERVE_SYMLINKS'] as const;
 
 /** Code loading or trust switches: always empty, whatever the user has. */
 const ALWAYS_EMPTY = [
-  'NODE_OPTIONS', 'NODE_PATH', 'NODE_REPL_EXTERNAL_MODULE', 'NODE_TLS_REJECT_UNAUTHORIZED',
+  // ALIGN_RULES_ACK (ALI-1648) is a person's override of a ratified-rule deny: an agent's child must never carry it.
+  'NODE_OPTIONS', 'NODE_PATH', 'ALIGN_RULES_ACK', 'NODE_REPL_EXTERNAL_MODULE', 'NODE_TLS_REJECT_UNAUTHORIZED',
   'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH',
 ];
 
