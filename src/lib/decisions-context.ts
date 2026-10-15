@@ -16,7 +16,7 @@
  * unsuperseded is a gateway query; this module formats a list and writes a file, which is
  * plumbing.
  *
- * EXTERNAL STORAGE (ALI-1652). A LOCAL graph's content is personal (built with the user's own
+ * EXTERNAL STORAGE (ALI-1668). A LOCAL graph's content is personal (built with the user's own
  * read-only tokens), so it must never be representable in the git working tree at all - not
  * even gitignored, which is a convention a `git add -f`, an edited line, or a merge dropping it
  * can all bypass silently. `{ external: true }` writes the real bytes to
@@ -198,7 +198,7 @@ function tryWriteExternalAndLink(repoRoot: string, inRepoTarget: string, rendere
  * a file that differs between runs turns every regeneration into a git diff in someone else's
  * repo. The renderer carries no timestamp for exactly this reason.
  *
- * `opts.external`: the local-graph case (ALI-1652, see the file header). Every existing caller
+ * `opts.external`: the local-graph case (ALI-1668, see the file header). Every existing caller
  * omits it and gets byte-for-byte the same plain-file behaviour as before this option existed.
  */
 export async function writeDecisionsContext(

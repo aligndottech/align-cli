@@ -9,7 +9,7 @@
  * separate owned file makes augment-never-overwrite structural, so no marker
  * parser exists to get wrong).
  *
- * For a LOCAL graph that path is usually a symlink to `~/.align/contexts/...` (ALI-1652),
+ * For a LOCAL graph that path is usually a symlink to `~/.align/contexts/...` (ALI-1668),
  * never a real file - see decisions-context.ts's file header for why gitignore alone was not
  * enough. Every reader here (CLAUDE.md's import, `inject` below, the gitignore/tracked-by-git
  * checks) resolves the relative path transparently either way, so nothing in this file needs
@@ -97,7 +97,7 @@ export function registerContextCommand(program: Command): void {
       spinner.stop();
 
       const repoRoot = process.cwd();
-      // external: true moves the LOCAL case's real bytes to ~/.align (ALI-1652) - a symlink is
+      // external: true moves the LOCAL case's real bytes to ~/.align (ALI-1668) - a symlink is
       // left at ALIGN_CONTEXT_PATH, so every read below (and align context inject) is unchanged.
       const result = await writeDecisionsContext(repoRoot, decisions, { external: syncEnv.mode === 'local-embedded' });
 

@@ -65,7 +65,7 @@ describe('align context sync, local graph', () => {
   });
 
   it.skipIf(process.platform === 'win32')(
-    'ALI-1652: .align/decisions.md is a SYMLINK pointing outside the repo, not a real file - gitignore is belt-and-suspenders, not the only protection',
+    'ALI-1668: .align/decisions.md is a SYMLINK pointing outside the repo, not a real file - gitignore is belt-and-suspenders, not the only protection',
     async () => {
       await run();
       const local = path.join(repo, '.align/decisions.md');
@@ -89,7 +89,7 @@ describe('align context sync, team graph', () => {
     expect(gitignore()).toBe('dist\n');
   });
 
-  it('ALI-1652: writes a REAL file, never a symlink - team content is meant to be shared/committed', async () => {
+  it('ALI-1668: writes a REAL file, never a symlink - team content is meant to be shared/committed', async () => {
     state.mode = 'cloud';
     await run();
     expect(fs.lstatSync(path.join(repo, '.align/decisions.md')).isSymbolicLink()).toBe(false);
