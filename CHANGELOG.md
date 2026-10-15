@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.1](https://github.com/aligndottech/align-cli/compare/cli-v0.55.0...cli-v0.55.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* Windows CI red on main - real bug + timeout headroom (ALI-1669) ([#422](https://github.com/aligndottech/align-cli/issues/422)) ([89b6cbf](https://github.com/aligndottech/align-cli/commit/89b6cbf27223afe4bc28609bcd52c74cb4ae1e78))
+
 ## [0.55.0](https://github.com/aligndottech/align-cli/compare/cli-v0.54.0...cli-v0.55.0) (2026-10-15)
 
 
