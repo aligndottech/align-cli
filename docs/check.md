@@ -31,6 +31,22 @@ repository also exits `1`.
 
 `--advisory` detects pre versus post from the hook payload on stdin.
 
+### Ratified rules stop the first attempt
+
+The advisory hook also checks each proposed edit, with no model call, for things that have one
+right answer: an email address (not an `example.*`, `.test` or `noreply` one), a card number
+that passes the Luhn check, a known credential format (AWS, GitHub, Anthropic, Slack, private
+key blocks). A match is a **deny on the first attempt** only when your team has accepted the
+matching starter rule (`customer-data-in-tickets`, `no-plaintext-secrets`) in Align, because
+a ratified rule is a person saying "enforce this". The message names the rule and the kind of
+thing found, never the value. No ratified rule means no deny.
+
+The tenant's rules are fetched only when the text matches, so an ordinary edit costs no extra
+request. If they cannot be read (offline, local mode, timeout) the edit proceeds and stderr says
+the check was skipped. Semantic parts of a rule (a name in free text, a pasted contract) are not
+matched here. Those wait for `--hook`, the git pre-commit check, which refuses a commit on a
+critical conflict, lets a warning through, and never blocks when the check could not run.
+
 ### What `--block-on-critical` changes
 
 When retrieval finds related decisions, the hook additionally spawns a background full check,

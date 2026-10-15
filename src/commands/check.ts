@@ -24,6 +24,7 @@ import {
 import { CHECK_DEPTHS, type CheckDepth } from '../lib/check-depth.js';
 import { gitHead, lastCheckFor, writeLastCheck } from '../lib/curation/last-check.js';
 import { quote } from '../lib/curation/text.js';
+import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } from '../lib/inline-rules.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
 // execFile timeout in the pi and OpenCode shims). Adjudication measured ~11s whenever
@@ -406,6 +407,37 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
         process.stdout.write(`${format === 'text' ? output : JSON.stringify(output)}\n`);
       }
     };
+
+    // ALI-1648: a RATIFIED deterministic rule stops the FIRST attempt, inline. The pure
+    // matcher runs first and costs nothing; the tenant's rules are fetched only when it hits,
+    // so an ordinary edit pays no request. No ratified rule, an unreadable answer or local
+    // mode (no starter rules) all fall through to the normal path: a deny rests on a person
+    // having said "enforce this", never on a guess. Pre only - a landed edit cannot be refused.
+    if (pre) {
+      const hits = detectDeterministicHits(text);
+      if (hits.length) {
+        let denial: unknown | null = null;
+        try {
+          const ratified = ratifiedDeterministicRules(
+            await Promise.race([
+              client.getStarterRules(),
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), RETRIEVAL_TIMEOUT_MS)),
+            ]),
+          );
+          const broken = hits.flatMap((h) => {
+            const rule = ratified.get(h.ruleId);
+            return rule ? [{ rule, kind: h.kind }] : [];
+          });
+          if (broken.length) denial = renderForHost(ruleDenyReason(broken), renderOpts, true);
+        } catch {
+          process.stderr.write('align: this edit matches a starter rule, but could not read your ratified rules, so it was not checked against them.\n');
+        }
+        if (denial !== null) {
+          emit(denial);
+          process.exit(0);
+        }
+      }
+    }
 
     // ALI-570: a deferred verdict answers a RETRY before any retrieval runs. CHANGE
     // identity, not file identity and not text identity - only a proposal matching what the
