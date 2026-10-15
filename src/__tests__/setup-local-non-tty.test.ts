@@ -31,7 +31,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const TSX = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const ENTRY = join(ROOT, 'src', 'index.ts');
 
-describe('align setup --local without a TTY', () => {
+describe('align --local without a TTY', () => {
   it('exits 0 and reaches the outro instead of crashing at the connector prompt', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'align-nontty-'));
     const home = mkdtempSync(join(tmpdir(), 'align-nontty-home-'));
@@ -41,7 +41,7 @@ describe('align setup --local without a TTY', () => {
     // developer's real align config.
     const { stdout, stderr } = await exec(
       process.execPath,
-      [TSX, ENTRY, 'setup', '--local'],
+      [TSX, ENTRY, '--local'],
       {
         cwd,
         env: {

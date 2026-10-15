@@ -98,11 +98,6 @@ align logout                  Clear stored credentials
 align whoami                  Show current authenticated user and tenant
                               flags: --env
 
-# Guided onboarding (bare `align` runs it)
-
-align setup                   Guided onboarding: your local graph by default, your team graph when you are logged in
-                              flags: --env --approve --local --reset --verbose
-
 # Choose the coding agent bare `align` opens
 
 align use [agent]             Choose the coding agent bare `align` opens (no argument shows the current one)
@@ -193,7 +188,7 @@ align status                  Show what your decision graph has done for you (va
 align context                 Manage the decisions file agents read (.align/decisions.md)
 align context sync            Write current decisions to .align/decisions.md and import it from CLAUDE.md
                               flags: --env --limit
-align context inject          Print the decisions file as SessionStart hook output (written by `align setup`, not meant to be run by hand)
+align context inject          Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)
 
 # Answer a check the judge declined to rule on
 
@@ -226,7 +221,7 @@ align local reset             Wipe local graph and reset config
 the repo you are standing in (plus anything not attributed to a repo), never to every repo
 you have ever imported.
 
-`align connect` with no source opens the same picker `align setup` uses. `align connect
+`align connect` with no source opens the same picker `align` uses. `align connect
 <source>` runs that source's import directly; `align connect --source <id> --token <token>
 --yes` does the same with no prompt, for a script or an agent, and `--json` on that form
 prints one summary line. `align import ...` was the old spelling: deprecated in 0.38.0 and

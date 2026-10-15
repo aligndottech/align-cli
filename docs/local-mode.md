@@ -1,6 +1,6 @@
 # Cloud or local-only
 
-`align setup` offers two modes.
+`align` offers two modes.
 
 - **Cloud** (default). Your graph is hosted at Align: synced across machines, backed up, and
   cross-tool relationship detection runs server-side. Connectors connect via **read-only
@@ -14,7 +14,7 @@
     company tenant later is a web-only invite flow, and everything you brought over stays
     private (`creator_only`) until you or an admin change that. There is no automatic merge of
     a personal graph into a team's.
-- **Local-only** (`align setup --local`). **No account, and no Align servers.** The graph,
+- **Local-only** (`align --local`). **No account, and no Align servers.** The graph,
   embeddings and search all live in a SQLite database on your machine, and the CLI never sends
   your decisions, your code, or any file content to us. It sends anonymous usage counts, and
   tells you so once, before the first one; `align telemetry off` or `DO_NOT_TRACK=1` stops all
@@ -96,7 +96,7 @@ is listed on its own page, and a test keeps that page true.
   token anyway; the reuse is a convenience for the minority who already minted one.
 - **Re-importing is safe.** A decision is identified by its source URL and title, so running the
   same import twice updates what changed rather than duplicating the graph.
-- **Re-running setup is additive.** `align setup --local` a second time skips the git scan
+- **Re-running setup is additive.** `align --local` a second time skips the git scan
   when this repo's history is already in your graph and the docs read when its docs are (it
   names `align connect git --env local` and `align connect docs --env local` as the refresh
   commands; a repo with no GitHub or GitLab remote re-reads its docs, which is quick), lists

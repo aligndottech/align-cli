@@ -22,7 +22,7 @@ on a terminal, it offers one before answering:
 - **Not now - just show matching decisions** (the default). Remembered, so it does not ask
   again. Without a terminal, or with `--json`, it never asks.
 
-To add a key or change your mind later, run `align ai`. `align setup --reset` clears every
+To add a key or change your mind later, run `align ai`. `align --reset` clears every
 saved key and your saved provider choice (it prints one line per key it clears) and turns the
 offer back on.
 
@@ -137,7 +137,7 @@ have no fixed entry: point `ALIGN_LLM_BASE_URL` at them instead.
 >
 > A saved key is re-applied on every invocation, so **unsetting `GROQ_API_KEY` in your shell
 > does not work** as a way to prefer Gemini for the rest of the day - the stored value comes
-> straight back. Run `align ai --provider gemini` instead, or `align setup --reset` to clear
+> straight back. Run `align ai --provider gemini` instead, or `align --reset` to clear
 > every saved key.
 
 ### 3. Ollama
@@ -178,7 +178,7 @@ align search "auth" --env local   # one-off override on any command
 ```
 
 > **One naming trap.** `--env local` means your embedded SQLite graph only after
-> `align setup --local` has configured it. On a machine that never ran that, `local` is a
+> `align --local` has configured it. On a machine that never ran that, `local` is a
 > developer convenience that addresses a gateway on `localhost:8080`.
 
 ## Environment variables
@@ -225,7 +225,7 @@ Tokens are stored locally in your OS config directory. To create one manually, g
 **Settings > API Tokens** in the Align web app.
 
 > **Seeing `401 unauthorized`?** Every command defaults to the hosted gateway, so it needs
-> `align login` first. If you meant the no-account path, run `align setup --local` (or
+> `align login` first. If you meant the no-account path, run `align --local` (or
 > `align local start`) and the same commands will use your local graph instead.
 
 ## Self-hosted

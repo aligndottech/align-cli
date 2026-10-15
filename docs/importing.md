@@ -7,7 +7,7 @@ cross-tool relationship detection.
 
 ```bash
 align login     # team graph only; a solo setup is local and needs no login
-align setup
+align
 ```
 
 On a team graph, setup connects each source through a **read-only browser OAuth** consent, so
@@ -22,7 +22,7 @@ org bot apps.
 > names the replacement; it was deprecated in 0.38.0 with a line on every run.
 
 The same OAuth flow works per source: `align connect <source> --personal` opens the browser
-consent, or reuses a token `align setup` already cached. The `--token` forms below are the
+consent, or reuses a token `align` already cached. The `--token` forms below are the
 manual and CI alternative, and how you connect self-managed hosts.
 
 Every import previews what it will import and asks before sending anything. Use `--approve` to
@@ -212,7 +212,7 @@ and every item as they were.
 
 ## Git
 
-No auth needed. This is what `align setup` seeds from.
+No auth needed. This is what `align` seeds from.
 
 ```bash
 align connect git
@@ -231,7 +231,7 @@ align connect git
 
 No auth needed, same as Git. Reads ADR directories (`docs/adr`, `doc/adr`, `docs/decisions`,
 `doc/decisions`, `adr/` - whichever convention your repo uses) and your own CLAUDE.md/AGENTS.md
-content, split by section. It never re-imports what `align setup` already wrote into those files
+content, split by section. It never re-imports what `align` already wrote into those files
 (the managed nudge block and the `.align/decisions.md` import line) - that would be a feedback
 loop, not a decision.
 
@@ -317,13 +317,13 @@ In local mode, paste a Microsoft Graph access token: sign in to
 [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer), open the
 "Access token" tab and copy it. Reading channel messages needs `ChannelMessage.Read.All`,
 which your Microsoft 365 admin may have to consent to. The token expires after about an
-hour, so re-run `align setup --local` and pick Teams to paste a fresh one when you want to
+hour, so re-run `align --local` and pick Teams to paste a fresh one when you want to
 refresh. `align connect teams --token <Graph token> --env local` imports once from the
 command line without remembering the token; setup is what makes Teams show as connected.
 
 ## Zoom
 
-Use `align setup` with a cloud account. Zoom has no personal token a human can create
+Use `align` with a cloud account. Zoom has no personal token a human can create
 in-app, so it isn't offered in local-only setup. `align connect zoom --token <OAuth token>`
 exists for a token you got elsewhere.
 

@@ -41,7 +41,7 @@ More in [docs/installation.md](docs/installation.md).
 2. **Link.** Records what was decided, why, by whom, what replaced what, and what conflicts.
 3. **Check.** Your agent queries the graph over MCP, an edit hook, CI or `align ask`.
 
-`align setup` wires it in four ways, so the check runs whether or not the model thinks to ask:
+`align` wires it in four ways, so the check runs whether or not the model thinks to ask:
 
 | | |
 |---|---|
@@ -98,12 +98,12 @@ and are on by default. Either way, `align telemetry off` stops them.
 
 ## Teams
 
-Run `align login`, then `align setup`. A work email puts you in your company's graph: the first
+Run `align login`, then `align`. A work email puts you in your company's graph: the first
 person in is the admin, and colleagues on the same domain join automatically. Setup connects your
 tools with read-only OAuth and wires up your editors.
 
 A personal email doesn't get a cloud graph, so solo use is the local graph. Logging in never
-switches you to local mode behind your back, and `align setup --env local` builds the local
+switches you to local mode behind your back, and `align --env local` builds the local
 graph without touching your login. [Joining your team](docs/join-your-team.md).
 
 ## Docs

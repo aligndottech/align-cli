@@ -133,7 +133,7 @@ export function registerContextCommand(program: Command): void {
   context
     .command('inject')
     .description(
-      'Print the decisions file as SessionStart hook output (written by `align setup`, not meant to be run by hand)',
+      'Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)',
     )
     .action(() => {
       // ALI-933: the read-path counterpart to `align check --advisory`. A SessionStart

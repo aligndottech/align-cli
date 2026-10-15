@@ -2,6 +2,7 @@ import { Command, Help } from 'commander';
 import pkg from '../package.json' with { type: 'json' };
 import { COMMAND_REGISTRY, ROOT_SUMMARY, visibleEntries } from './commands/registry.js';
 import { runDefaultAction } from './commands/default-action.js';
+import { addSetupOptions } from './commands/setup.js';
 import { createConfigStore, savedLlmConfig } from './lib/config.js';
 import { setSavedLlmSource } from './lib/local-llm.js';
 import { setWriteRecorder } from './lib/safe-config-write.js';
@@ -56,7 +57,7 @@ export interface BuildProgramOptions {
  * running anything.
  */
 export function buildProgram(options: BuildProgramOptions = {}): Command {
-  const program = new Command();
+  const program = new Command().enablePositionalOptions();
   if (options.exitOverride) program.exitOverride();
   if (options.output) program.configureOutput(options.output);
 
@@ -151,7 +152,16 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // wall, which is what a new user's first instinct gets them. Registered AFTER every command
   // so it only fires when none of them matched; `align --help` and `align -V` are handled by
   // Commander before this runs.
-  program.action(runDefaultAction);
+  // The setup flags (hidden) ride on the bare command: `align --reset`, `align --local --approve`.
+  // Extra words on the bare command are an operand of the root action, not a subcommand: `align setup` (removed)
+  // would otherwise run the launcher and exit 0. Name the replacement and fail.
+  addSetupOptions(program).action((opts: Record<string, unknown>, cmd: Command) => {
+    if (cmd.args.length > 0) {
+      console.error(`align ${cmd.args[0]} is not a command. The setup wizard is the bare command now: run align. (align --help lists the rest.)`);
+      process.exit(1);
+    }
+    return runDefaultAction(opts);
+  });
 
   // After registration, so subcommands (created above) keep the default help - configureHelp
   // is copied into subcommands at creation time, not looked up through the parent.

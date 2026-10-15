@@ -45,13 +45,13 @@ launchable by a client that spawns without one, which most do not. `align mcp --
 writes the wrapped form on Windows; this is only for the files you edit yourself.
 
 One file is deliberately left on the bare form on every platform: the project-local `.mcp.json`
-that `align setup` writes, because it is committed and read by the whole team, and there is no
+that `align` writes, because it is committed and read by the whole team, and there is no
 one string that spawns on both platforms. A Windows machine that wrapped it would commit a
 config that fails for every macOS and Linux checkout.
 
 **So on Windows that file is not enough by itself.** Claude Code and pi read it, and neither can
 spawn the bare `align` it contains, so run `align mcp --setup` as well - the per-machine entry it
-writes is wrapped. `align setup` says so on Windows when it finds no global agent config.
+writes is wrapped. `align` says so on Windows when it finds no global agent config.
 
 **Claude Desktop** - `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 or `~/.config/Claude/claude_desktop_config.json` (Linux):
@@ -121,7 +121,7 @@ That is what `align mcp --setup` now writes on Windows, for every client it wire
 Windows note under [Manual configuration](#manual-configuration) if you are pasting by hand.
 
 **What Copilot gets, and what it does not.** Copilot Chat can call every tool in the table
-above, and it reads the managed block `align setup` writes into `CLAUDE.md` and `AGENTS.md`.
+above, and it reads the managed block `align` writes into `CLAUDE.md` and `AGENTS.md`.
 It does **not** get the deterministic pre-edit check, because VS Code exposes no hook API for
 the CLI to write to. The model decides whether to look, on every edit.
 [Agent hooks](agent-hooks.md) is the per-host matrix.
@@ -130,7 +130,7 @@ GitHub Copilot CLI is a different client with a different file, `~/.copilot/mcp-
 and `align mcp --setup` offers that one too. It does get a pre-edit hook.
 
 **pi** - MCP isn't built in. Install the adapter first with `pi install npm:pi-mcp-adapter`,
-then restart pi. `align setup` writes `~/.pi/agent/mcp.json`, or `$PI_CODING_AGENT_DIR/mcp.json`:
+then restart pi. `align` writes `~/.pi/agent/mcp.json`, or `$PI_CODING_AGENT_DIR/mcp.json`:
 
 ```json
 {
