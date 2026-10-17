@@ -426,13 +426,18 @@ function removeMcpEntry(target: EditorTarget): boolean {
  * one (ALI-952). Returns every file it wrote, in order, for the caller to disclose - the
  * hook file is the one a user would not expect to have been touched.
  */
-export function writeMcpConfig(target: EditorTarget, env?: string, onForeign?: OnForeign): string[] {
+export function writeMcpConfig(
+  target: EditorTarget,
+  env?: string,
+  onForeign?: OnForeign,
+  onEditedHook?: (file: string) => void,
+): string[] {
   const written: string[] = [];
   const wroteMcp = target.format === 'codex'
     ? writeCodexConfig(target.configPath, env, onForeign)
     : writeJsonConfig(target, env, onForeign);
   if (wroteMcp) written.push(target.configPath);
-  if (target.hooks && writeUserHooks(target.hooks, env, onForeign)) written.push(target.hooks.path);
+  if (target.hooks && writeUserHooks(target.hooks, env, onForeign, onEditedHook)) written.push(target.hooks.path);
   return written;
 }
 

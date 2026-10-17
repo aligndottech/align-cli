@@ -64,13 +64,13 @@ describe('connectDetectedAgents', () => {
   it('threads the env, or a local user\'s agent reads the cloud graph', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
     await connectDetectedAgents('local');
-    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, 'local', expect.any(Function));
+    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, 'local', expect.any(Function), expect.any(Function));
   });
 
   it('passes undefined for prod, so the agent gets the default env', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
     await connectDetectedAgents('prod');
-    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, undefined, expect.any(Function));
+    expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, undefined, expect.any(Function), expect.any(Function));
   });
 
   describe('an existing align entry is never overwritten by the local wiring', () => {

@@ -315,7 +315,7 @@ describe('property: nothing that was there before is ever lost', () => {
     const servers: Record<string, any> = {};
     for (const n of ['align', 'linear', 'other']) if (r() < 0.6) servers[n] = { command: pick(r, ['align', 'npx', 'node']), args: ['mcp', ...(r() < 0.5 ? ['--env', pick(r, ['prod', 'local'])] : [])] };
     const hooks: Record<string, any[]> = {};
-    for (const ev of ['preToolUse', 'postToolUse']) if (r() < 0.7) hooks[ev] = [...(r() < 0.6 ? [{ command: 'lint' }] : []), ...(r() < 0.5 ? [{ command: 'align check --advisory --format cursor', matcher: 'Write' }] : [])];
+    for (const ev of ['preToolUse', 'postToolUse']) if (r() < 0.7) hooks[ev] = [...(r() < 0.6 ? [{ command: 'lint' }] : []), ...(r() < 0.5 ? [{ command: 'align check --advisory --format cursor', matcher: 'Write', timeout: 10 }] : [])];
     return { ...(r() < 0.5 ? { version: 1 } : {}), mcpServers: servers, hooks, ...(r() < 0.5 ? { theirs: { n: Math.floor(r() * 9) } } : {}) };
   }
 
@@ -326,8 +326,8 @@ describe('property: nothing that was there before is ever lost', () => {
 
   /**
    * The user's touch: sometimes an unrelated key, sometimes an edit INSIDE an entry align wrote or
-   * replaced. (Editing inside align's own HOOK element is a known, separately tracked gap, so it
-   * is not generated.) Returns what was edited.
+   * replaced. (An edit inside align's own HOOK element is kept by writeUserHooks since ALI-1476 and
+   * pinned in user-hooks.test.ts, so it is not generated here.) Returns what was edited.
    */
   const userTouch = (r: () => number, seed: number): 'unrelated' | 'align-local' | 'align' => {
     let edited: 'unrelated' | 'align-local' | 'align' = 'unrelated';
