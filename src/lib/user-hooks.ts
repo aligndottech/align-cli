@@ -98,9 +98,12 @@ function isOurs(spec: HostSpec, entry: unknown): boolean {
 // ALI-1476: an element of ours is ours to refresh only while it is exactly what align writes
 // for the command it carries. Anything else (a nested command added, a timeout changed) is the
 // user's edit, and replacing it would discard that edit without a word.
-function isPristine(spec: HostSpec, entry: unknown): boolean {
+function isPristine(host: HookHost, spec: HostSpec, entry: unknown): boolean {
   const command = spec.commandsOf(entry).find((c) => c.includes(OURS));
-  return command !== undefined && isDeepStrictEqual(entry, spec.entry(command));
+  // The command itself must be one align writes: an appended flag or a wrapper is an edit too.
+  return command !== undefined
+    && new RegExp(`^${OURS} --format ${host}( --env \\S+)?$`).test(command)
+    && isDeepStrictEqual(entry, spec.entry(command));
 }
 
 // Throws on a file we cannot parse rather than rewriting it - the same rule every JSON
@@ -163,12 +166,14 @@ export function writeUserHooks(
       foreign = true;
       return undefined;
     }
+    // All events or none: Cursor and Copilot need both, and a pair on different envs checks two graphs.
+    const eventList = (event: string) => (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
+    if (spec.events.some((event) => eventList(event).some((e) => isOurs(spec, e) && !isPristine(target.host, spec, e)))) {
+      edited = true;
+      return undefined;
+    }
     for (const event of spec.events) {
-      const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
-      if (existing.some((e) => isOurs(spec, e) && !isPristine(spec, e))) {
-        edited = true;
-        continue;
-      }
+      const existing = eventList(event);
       const preserved = existing.filter((e) => !isOurs(spec, e));
       preserved.push(spec.entry(command));
       hooks[event] = preserved;
@@ -234,5 +239,5 @@ export function removeUserHooks(target: UserHookTarget): boolean {
 
 /** The line shown when a user-edited align hook element was kept (ALI-1476). */
 export function editedHookNotice(file: string): string {
-  return `Kept your edits to the align hook in ${file}. To refresh it, delete that hook entry and run align mcp --setup again.`;
+  return `Kept your edits to the align hook in ${file}, so it still runs its old command and env. To refresh it, delete that hook entry and run align mcp --setup again.`;
 }

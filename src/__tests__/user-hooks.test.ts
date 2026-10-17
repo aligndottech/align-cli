@@ -210,6 +210,33 @@ describe('writeUserHooks - a user edit inside our own element survives the next 
     expect(edited).toHaveLength(1);
   });
 
+  it('Cursor: an edit in ONE event keeps both, so the pair never checks two different envs', () => {
+    const file = '.cursor/hooks.json';
+    writeUserHooks(target('cursor', file));
+    const cfg = readJson(file);
+    cfg.hooks.preToolUse[0].timeout = 3;
+    writeFileSync(join(dir, file), JSON.stringify(cfg));
+    writeUserHooks(target('cursor', file), 'local');
+    expect(readJson(file).hooks.postToolUse[0].command).toBe('align check --advisory --format cursor');
+    expect(readJson(file).hooks.preToolUse[0].command).toBe('align check --advisory --format cursor');
+  });
+
+  it.each(['align check --advisory --format codex --verbose', 'FOO=1 align check --advisory --format codex'])(
+    'Codex: a command the user edited (%s) is kept',
+    (command) => {
+      const file = 'c.json';
+      writeUserHooks(target('codex', file));
+      const cfg = readJson(file);
+      cfg.hooks.PreToolUse[0].hooks[0].command = command;
+      writeFileSync(join(dir, file), JSON.stringify(cfg));
+      const edited: string[] = [];
+      writeUserHooks(target('codex', file), undefined, undefined, (f) => edited.push(f));
+      expect(readJson(file).hooks.PreToolUse).toHaveLength(1);
+      expect(readJson(file).hooks.PreToolUse[0].hooks[0].command).toBe(command);
+      expect(edited).toHaveLength(1);
+    },
+  );
+
   it('still refreshes an untouched element when the env changes, and does not warn', () => {
     const file = 'a.json';
     writeUserHooks(target('codex', file));
