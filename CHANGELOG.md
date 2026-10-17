@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.1](https://github.com/aligndottech/align-cli/compare/cli-v0.56.0...cli-v0.56.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* **hooks:** keep a user's edit inside align's own hook element (ALI-1476) ([#429](https://github.com/aligndottech/align-cli/issues/429)) ([14b4a6b](https://github.com/aligndottech/align-cli/commit/14b4a6b5fd5ddcfcef256d394c7f67a3b650631a))
+
 ## [0.56.0](https://github.com/aligndottech/align-cli/compare/cli-v0.55.1...cli-v0.56.0) (2026-10-15)
 
 
