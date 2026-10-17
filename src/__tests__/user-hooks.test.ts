@@ -157,3 +157,94 @@ describe.each([
     expect(readFileSync(join(dir, 'shape.json'), 'utf8')).toBe(before);
   });
 });
+
+// ALI-1476: an element carrying our command is ours to refresh only while it is exactly what
+// we wrote. A user who added a nested command, or changed the timeout, inside it has edited it.
+describe('writeUserHooks - a user edit inside our own element survives the next write', () => {
+  it('Codex: keeps a group the user added a command to, once, and says so', () => {
+    const file = '.codex/hooks.json';
+    writeUserHooks(target('codex', file));
+    const cfg = readJson(file);
+    cfg.hooks.PreToolUse[0].hooks.push({ type: 'command', command: 'my-own-linter', timeout: 5 });
+    mkdirSync(join(dir, '.codex'), { recursive: true });
+    writeFileSync(join(dir, file), JSON.stringify(cfg));
+
+    const edited: string[] = [];
+    writeUserHooks(target('codex', file), undefined, undefined, (f) => edited.push(f));
+
+    const groups = readJson(file).hooks.PreToolUse;
+    expect(groups).toHaveLength(1);
+    expect(groups[0].hooks.map((h: any) => h.command)).toEqual(['align check --advisory --format codex', 'my-own-linter']);
+    expect(edited).toEqual([join(dir, file)]);
+  });
+
+  it('Cursor: keeps an entry whose timeout the user changed, on both events, and warns once', () => {
+    const file = '.cursor/hooks.json';
+    writeUserHooks(target('cursor', file));
+    const cfg = readJson(file);
+    for (const event of ['preToolUse', 'postToolUse']) cfg.hooks[event][0].timeout = 3;
+    writeFileSync(join(dir, file), JSON.stringify(cfg));
+
+    const edited: string[] = [];
+    writeUserHooks(target('cursor', file), undefined, undefined, (f) => edited.push(f));
+
+    for (const event of ['preToolUse', 'postToolUse']) {
+      expect(readJson(file).hooks[event]).toHaveLength(1);
+      expect(readJson(file).hooks[event][0].timeout).toBe(3);
+    }
+    expect(edited).toHaveLength(1);
+  });
+
+  it('Copilot: keeps an entry whose matcher the user narrowed, and warns once', () => {
+    const file = '.copilot/hooks/align.json';
+    writeUserHooks(target('copilot', file));
+    const cfg = readJson(file);
+    for (const event of ['preToolUse', 'postToolUse']) cfg.hooks[event][0].matcher = 'edit';
+    writeFileSync(join(dir, file), JSON.stringify(cfg));
+
+    const edited: string[] = [];
+    writeUserHooks(target('copilot', file), undefined, undefined, (f) => edited.push(f));
+
+    expect(readJson(file).hooks.preToolUse).toHaveLength(1);
+    expect(readJson(file).hooks.preToolUse[0].matcher).toBe('edit');
+    expect(edited).toHaveLength(1);
+  });
+
+  it('Cursor: an edit in ONE event keeps both, so the pair never checks two different envs', () => {
+    const file = '.cursor/hooks.json';
+    writeUserHooks(target('cursor', file));
+    const cfg = readJson(file);
+    cfg.hooks.preToolUse[0].timeout = 3;
+    writeFileSync(join(dir, file), JSON.stringify(cfg));
+    writeUserHooks(target('cursor', file), 'local');
+    expect(readJson(file).hooks.postToolUse[0].command).toBe('align check --advisory --format cursor');
+    expect(readJson(file).hooks.preToolUse[0].command).toBe('align check --advisory --format cursor');
+  });
+
+  it.each(['align check --advisory --format codex --verbose', 'FOO=1 align check --advisory --format codex'])(
+    'Codex: a command the user edited (%s) is kept',
+    (command) => {
+      const file = 'c.json';
+      writeUserHooks(target('codex', file));
+      const cfg = readJson(file);
+      cfg.hooks.PreToolUse[0].hooks[0].command = command;
+      writeFileSync(join(dir, file), JSON.stringify(cfg));
+      const edited: string[] = [];
+      writeUserHooks(target('codex', file), undefined, undefined, (f) => edited.push(f));
+      expect(readJson(file).hooks.PreToolUse).toHaveLength(1);
+      expect(readJson(file).hooks.PreToolUse[0].hooks[0].command).toBe(command);
+      expect(edited).toHaveLength(1);
+    },
+  );
+
+  it('still refreshes an untouched element when the env changes, and does not warn', () => {
+    const file = 'a.json';
+    writeUserHooks(target('codex', file));
+    const edited: string[] = [];
+    writeUserHooks(target('codex', file), 'local', undefined, (f) => edited.push(f));
+    const groups = readJson(file).hooks.PreToolUse;
+    expect(groups).toHaveLength(1);
+    expect(groups[0].hooks[0].command).toBe('align check --advisory --format codex --env local');
+    expect(edited).toEqual([]);
+  });
+});

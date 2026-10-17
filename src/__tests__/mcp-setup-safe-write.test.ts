@@ -133,7 +133,7 @@ describe('the wizard guard is unchanged (C5)', () => {
 
   it('Cursor hooks: a team hook is left alone for the wizard, backed up and replaced otherwise', () => {
     const t = cursor();
-    const team = JSON.stringify({ version: 1, hooks: { preToolUse: [{ command: 'align check --advisory --format cursor', matcher: 'Write' }] } });
+    const team = JSON.stringify({ version: 1, hooks: { preToolUse: [{ command: 'align check --advisory --format cursor', matcher: 'Write', timeout: 10 }] } });
     put(t.hooks!.path, team);
     const foreign = vi.fn();
     writeMcpConfig({ ...t, configPath: path.join(dir, 'unused.json') }, 'local', foreign);

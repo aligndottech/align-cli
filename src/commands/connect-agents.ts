@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import * as p from '@clack/prompts';
 import { alignServerEntry, detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
+import { editedHookNotice } from '../lib/user-hooks.js';
 import type { EnvName } from '../lib/config.js';
 import { envFlag } from '../lib/destination-name.js';
 import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
@@ -83,7 +84,7 @@ export async function connectDetectedAgents(
       const files = writeMcpConfig(target, envArg, (file) => {
         skipped.push(file);
         if (!keptAgents.includes(target.name)) keptAgents.push(target.name);
-      });
+      }, (file) => p.log.warn(editedHookNotice(file)));
       touched.push(...files);
       // Connected only if the MCP entry itself was written. A skipped one (the local wizard
       // leaves an existing non-local entry alone) is reported by the warning below instead.

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 import { safeWriteJson } from './safe-config-write.js';
 
@@ -94,6 +95,17 @@ function isOurs(spec: HostSpec, entry: unknown): boolean {
   return spec.commandsOf(entry).some((c) => c.includes(OURS));
 }
 
+// ALI-1476: an element of ours is ours to refresh only while it is exactly what align writes
+// for the command it carries. Anything else (a nested command added, a timeout changed) is the
+// user's edit, and replacing it would discard that edit without a word.
+function isPristine(host: HookHost, spec: HostSpec, entry: unknown): boolean {
+  const command = spec.commandsOf(entry).find((c) => c.includes(OURS));
+  // The command itself must be one align writes: an appended flag or a wrapper is an edit too.
+  return command !== undefined
+    && new RegExp(`^${OURS} --format ${host}( --env \\S+)?$`).test(command)
+    && isDeepStrictEqual(entry, spec.entry(command));
+}
+
 // Throws on a file we cannot parse rather than rewriting it - the same rule every JSON
 // writer in mcp-setup.ts follows, for the same reason: a rewrite destroys whatever the user
 // was part-way through editing.
@@ -133,10 +145,17 @@ function hooksOf(config: Record<string, unknown>, file: string): Record<string, 
  */
 const SAFE_HOSTS: ReadonlySet<HookHost> = new Set(['codex', 'cursor']);
 
-export function writeUserHooks(target: UserHookTarget, env?: string, onForeign?: OnForeign): boolean {
+export function writeUserHooks(
+  target: UserHookTarget,
+  env?: string,
+  onForeign?: OnForeign,
+  /** Called once per file where a user-edited align element was kept instead of refreshed. */
+  onEdited?: (file: string) => void,
+): boolean {
   const spec = HOSTS[target.host];
   const command = advisoryHookCommand(target.host, env);
   let foreign = false;
+  let edited = false;
 
   // Mutates and returns `config`; undefined means "leave the file alone".
   const merge = (config: Record<string, unknown>): Record<string, unknown> | undefined => {
@@ -147,8 +166,14 @@ export function writeUserHooks(target: UserHookTarget, env?: string, onForeign?:
       foreign = true;
       return undefined;
     }
+    // All events or none: Cursor and Copilot need both, and a pair on different envs checks two graphs.
+    const eventList = (event: string) => (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
+    if (spec.events.some((event) => eventList(event).some((e) => isOurs(spec, e) && !isPristine(target.host, spec, e)))) {
+      edited = true;
+      return undefined;
+    }
     for (const event of spec.events) {
-      const existing = (Array.isArray(hooks[event]) ? hooks[event] : []) as unknown[];
+      const existing = eventList(event);
       const preserved = existing.filter((e) => !isOurs(spec, e));
       preserved.push(spec.entry(command));
       hooks[event] = preserved;
@@ -164,6 +189,7 @@ export function writeUserHooks(target: UserHookTarget, env?: string, onForeign?:
       onForeign!(target.path);
       return false;
     }
+    if (edited) onEdited?.(target.path);
     return status !== 'symlink';
   }
 
@@ -173,6 +199,7 @@ export function writeUserHooks(target: UserHookTarget, env?: string, onForeign?:
     onForeign!(target.path);
     return false;
   }
+  if (edited) onEdited?.(target.path);
   const dir = path.dirname(target.path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(target.path, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -208,4 +235,9 @@ export function removeUserHooks(target: UserHookTarget): boolean {
   config['hooks'] = hooks;
   writeFileSync(target.path, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   return true;
+}
+
+/** The line shown when a user-edited align hook element was kept (ALI-1476). */
+export function editedHookNotice(file: string): string {
+  return `Kept your edits to the align hook in ${file}, so it still runs its old command and env. To refresh it, delete that hook entry and run align mcp --setup again.`;
 }
