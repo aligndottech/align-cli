@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { Command } from 'commander';
 import { projectFilesWithAlignText } from '../lib/agent-rules.js';
 import { agentByName, LAUNCH_AGENTS, resolveAgentBin } from '../lib/launch/agents.js';
@@ -42,6 +43,12 @@ export async function runUse(name: string | undefined, d: UseDeps, opts: { none?
       return 0;
     }
     const report = undoWrittenConfigs(manifest);
+    // Files that still carry align text and were never in the record (an older build wrote them, or a
+    // re-run found them unchanged): named, never touched, and they make the exit code non-zero.
+    const recorded = new Set(Object.keys(manifest));
+    const cwd = d.cwd ?? process.cwd();
+    const unrecorded = projectFilesWithAlignText(cwd).filter((f) => !recorded.has(path.join(cwd, f)));
+    if (unrecorded.length > 0) report.skipped.push(`${unrecorded.join(', ')}: align has no record of writing ${unrecorded.length === 1 ? 'it' : 'them'}, so ${unrecorded.length === 1 ? 'it was' : 'they were'} not touched. Remove align's text by hand; check \`git diff\` first`);
     for (const f of report.restored) d.log(`Restored ${f} from its backup.`);
     for (const f of report.removed) d.log(`Removed ${f} (align created it).`);
     for (const f of report.cleaned) d.log(`Took align's own entries out of ${f}. Your entries are kept; the file was reformatted.`);

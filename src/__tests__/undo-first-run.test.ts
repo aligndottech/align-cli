@@ -159,6 +159,30 @@ describe('undo after first run', () => {
     expect(read('.mcp.json')).toContain('align'); // nothing was touched
   });
 
+  it('f. a re-run with another env does not strand the generated plugins', async () => {
+    firstRun();
+    setupAgentAlignment({ cwd: repo, env: 'staging' });
+    expect(read('.pi/extensions/align.ts')).toContain('staging');
+    expect(await undo()).toBe(0);
+    expect(files()).toEqual([]);
+  });
+
+  it('g. a user file inside a directory align made keeps that directory', async () => {
+    firstRun();
+    writeFileSync(path.join(repo, '.cursor/mine.txt'), 'x');
+    expect(await undo()).toBe(0);
+    expect(read('.cursor/mine.txt')).toBe('x');
+    expect(existsSync(path.join(repo, '.cursor/rules'))).toBe(false);
+  });
+
+  it('h. an unrelated ledger entry does not hide files align has no record of', async () => {
+    firstRun();
+    manifest = { [path.join(os.tmpdir(), 'elsewhere-not-there.json')]: { created: true, sha256: 'x', firstSha256: 'x', backup: 'none' } };
+    expect(await undo()).toBe(1);
+    expect(errs.join('\n')).toContain('.mcp.json');
+    expect(read('.mcp.json')).toContain('align');
+  });
+
   it('e2. still says nothing to undo in a repo align never wrote to', async () => {
     expect(await undo()).toBe(0);
     expect(out.join('\n')).toContain('Nothing to undo');

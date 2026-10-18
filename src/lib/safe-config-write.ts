@@ -828,7 +828,10 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
     };
 
     // Whole-file only when align wrote this file exactly once and nobody has touched it since.
-    if (sha(cur) === entry.sha256 && entry.firstSha256 === entry.sha256) {
+    // A file align wrote WHOLE (no block, no owned keys: a generated plugin or rule) and created is all
+    // align's even after a re-run with other content, as long as it still equals the last write.
+    const wholeAlign = entry.created && !entry.block && !(entry.owned && entry.owned.length > 0);
+    if (sha(cur) === entry.sha256 && (entry.firstSha256 === entry.sha256 || wholeAlign)) {
       if (entry.created) {
         if (moved()) continue;
         fs.unlinkSync(file);
