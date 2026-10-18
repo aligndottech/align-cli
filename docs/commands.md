@@ -384,7 +384,7 @@ align env get                Show current environment
 ## Telemetry
 
 ```
-align telemetry on           Turn usage pings back on in local-only mode (they're on by default after a one-time notice)
+align telemetry on           Send anonymous usage counts in local-only mode (also the default once the notice has printed)
 align telemetry off          Stop all of it, the two default anonymous counts included
 align telemetry status       Show the effective state and why
 ```

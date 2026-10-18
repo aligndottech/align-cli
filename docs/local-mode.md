@@ -1,12 +1,11 @@
 # Cloud or local-only
 
-`align` offers two modes. With no team login, `align` runs local-only (`routeSetup` in
-`src/lib/setup-route.ts` returns local). A team login sends setup to the team graph.
+`align` offers two modes. With no team login, setup runs local-only. A team login sends it to the team graph.
 
 - **Cloud** (a team login). Your graph is hosted at Align: synced across machines, backed up, and
   cross-tool relationship detection runs server-side. Connectors connect via **read-only
   browser OAuth**, and `align ask` retrieval runs server-side. Which tenant you land in is
-  decided by the server, not the CLI. A personal email doesn't get a
+  decided by the server. A personal email doesn't get a
   cloud graph, so solo use is local-only. A team graph comes by invitation (`align join`) or,
   for a new team, a call (`align share` with no login prints the booking link).
 - **Local-only** (`align --local`). **No account, and no Align servers.** The graph,

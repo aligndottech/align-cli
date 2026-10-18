@@ -19,8 +19,8 @@ No Node? `curl -fsSL https://align.tech/install.sh | sh` installs a standalone b
 
 ![The same prompt to Claude Code, without Align and with it](docs/demo/demo.gif)
 
-*The same prompt, two real runs on Align's own repo (14 Oct 2026). The text is shortened from
-those runs, not reworded, and the GIF is a replay, not a live session ([how](docs/demo/demo.tape)).
+*The same prompt, two real runs on Align's own repo (14 Oct 2026). The text is
+copied from those runs and shortened. The GIF replays it, so it isn't a live session ([how](docs/demo/demo.tape)).
 Without Align the agent plans to skip signature checks; with it, the agent stops and cites the
 decision that ruled that out.*
 
@@ -46,9 +46,9 @@ More in [docs/installation.md](docs/installation.md).
 
 ## How it works
 
-1. **Import.** Reads decisions from Git (commits that state a reason, picked by a filter, not a model), GitHub, GitLab, Jira, Confluence, Linear, Notion, Slack,
+1. **Import.** Reads decisions from Git (commits that state a reason), GitHub, GitLab, Jira, Confluence, Linear, Notion, Slack,
    Teams and Zoom. Read-only.
-2. **Link.** Records what was decided, why and by whom. Related decisions are linked. Typing them as replaced or conflicting needs an AI key locally, or a team graph.
+2. **Link.** Records what was decided, why and by whom. Related decisions surface as related. Telling replaced from conflicting needs an AI key locally, or a team graph.
 3. **Check.** Your agent queries the graph over MCP, an edit hook, CI or `align ask`.
 
 `align` wires it in four ways, so the check runs whether or not the model thinks to ask:
@@ -61,8 +61,8 @@ More in [docs/installation.md](docs/installation.md).
 | **Shared `.mcp.json`** | One committed file sets up the whole team |
 
 The hook never blocks on a model's judgement unless you turn blocking on, and that needs an AI
-key. One thing can deny without it: a rule your team ratified (secrets, card numbers, emails), when
-the text matches exactly. If Align is missing, slow or down, the edit goes ahead.
+key. One thing can deny without it, on a team graph: a rule your team ratified (secrets, card numbers,
+emails), when the edit contains one. If Align is missing, slow or down, the edit goes ahead.
 
 Hook limits worth knowing:
 
@@ -110,7 +110,8 @@ The local graph is a SQLite file on your machine, and embeddings run on-device a
 ~23MB model download from huggingface.co. In local-only mode your decisions and code never go to
 Align. If you set an AI key or run Ollama, `align ask` sends your question plus the titles and
 summaries of the decisions it found, and `align check` sends up to 2,000 characters of the proposed
-change, to your provider and not to Align. Team graphs are hosted by Align, or self-hosted,
+change, to your provider and not to Align (the MCP check does the same). Ollama counts as yours, wherever
+`OLLAMA_HOST` points. Team graphs are hosted by Align, or self-hosted,
 so the team can share them.
 
 Local-only mode sends anonymous usage counts. It tells you once before the first one and sends
@@ -120,7 +121,7 @@ and are on by default. Either way, `align telemetry off` stops them.
 
 ## Teams
 
-Team graphs are by invitation: your admin sends a link, and you run `align join` (see below). Already
+Team graphs are by invitation: your admin sends a link, and you run `align join` ([docs](docs/join-your-team.md)). Already
 have a team graph? Run `align login`, then `align`. Setup connects your tools with read-only OAuth
 and wires up your editors. Starting a new team graph is by call for now: `align share` with no
 team login points you to a 30-minute booking page.
