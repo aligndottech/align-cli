@@ -1,7 +1,11 @@
 import { defineConfig } from 'vitest/config';
+import { availableParallelism } from 'node:os';
+import { maxWorkersFor } from './vitest.workers.js';
 
 export default defineConfig({
   test: {
+    // See vitest.workers.ts: Windows commits to the local graph under fsync, and three workers starved each other (ALI-1771).
+    maxWorkers: maxWorkersFor(process.platform, availableParallelism()),
     // The default 5 s is right for Linux and macOS. The Windows runner opens and commits to the local graph an order of
     // magnitude slower (fsync per commit) and runs two workers on two cores, so ordinary DB tests there take 6-15 s and a
     // different handful timed out on every run (22 on main, then a different 4 once those were fixed). One platform-scaled
