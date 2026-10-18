@@ -33,6 +33,14 @@ export const SIMILARITY_THRESHOLD = 0.65;
  */
 export const SEARCH_THRESHOLD = 0.25;
 /**
+ * How many dense candidates `searchDecisions` retrieves before the title rerank cuts to the
+ * caller's limit: max(limit * RERANK_POOL_FACTOR, RERANK_POOL_MIN). The motivating miss
+ * (ALI-1775) sat at dense rank 12 of 20, so a pool of the bare limit (8) could never have
+ * promoted it; 30 clears that with room, and the scan reads every stored vector either way.
+ */
+export const RERANK_POOL_FACTOR = 4;
+export const RERANK_POOL_MIN = 30;
+/**
  * Candidate floor for ADJUDICATION - the path that then pays an LLM per candidate.
  *
  * Deliberately higher than the retrieval floor below, because this surface is expensive in
