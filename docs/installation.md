@@ -32,8 +32,8 @@ align
 
 Node 22.16 or newer, which is the floor in this package's `engines` field. The local graph is a
 SQLite file held through `node:sqlite`, and 22.16 is where that module is unflagged and
-`DatabaseSync.isTransaction` exists. npm warns rather than stops on an older runtime, so check
-`node --version` yourself if `align` behaves oddly on first run.
+`DatabaseSync.isTransaction` exists. npm warns rather than stops on an older runtime, but `align`
+itself checks first: on an older Node it prints the version it found and the floor, and exits 1.
 
 ## Windows
 

@@ -38,8 +38,8 @@ Every substantial change is tracked in Linear and traceable branch → ticket �
   tag release-please creates is component-prefixed (`cli-v0.19.0`), so a `v*` trigger would not
   match it even if one existed. **Merging is not shipping:** verify with
   `npm view @aligndottech/cli version`, which lags the merge by a few minutes.
-- `bin.align → ./dist/index.js`; `files: ["dist", "README.md"]`. Build with `npm run build` (tsc).
-- **Running a local build:** `align` on PATH is the *globally installed* package, not your working tree. To test changes, run `node dist/index.js …` (after `npm run build`) or reinstall: `npm run build && npm pack && npm i -g ./aligndottech-cli-*.tgz --force`.
+- `bin.align → ./dist/bin.js`; `files: ["dist", "README.md"]`. Build with `npm run build` (tsc).
+- **Running a local build:** `align` on PATH is the *globally installed* package, not your working tree. To test changes, run `node dist/bin.js …` (after `npm run build`) or reinstall: `npm run build && npm pack && npm i -g ./aligndottech-cli-*.tgz --force`.
 
 ## Pre-push gate (before every PR)
 
