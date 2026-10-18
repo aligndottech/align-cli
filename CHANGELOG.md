@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.57.1](https://github.com/aligndottech/align-cli/compare/cli-v0.57.0...cli-v0.57.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* **cli:** say align is not set up instead of a bare 401 ([#435](https://github.com/aligndottech/align-cli/issues/435)) ([2fef93d](https://github.com/aligndottech/align-cli/commit/2fef93d8e1c0c60570de5ed538df5d7d9f6510cb))
+* **cli:** say why align will not start on a Node older than 22.16 ([#434](https://github.com/aligndottech/align-cli/issues/434)) ([ff03030](https://github.com/aligndottech/align-cli/commit/ff03030b13b161258317f482e4560604386c0e77))
+* **search:** rerank dense candidates by title so a why-removed question shows its commit ([#436](https://github.com/aligndottech/align-cli/issues/436)) ([b3fecf6](https://github.com/aligndottech/align-cli/commit/b3fecf672fa1717f1e88aa011937c29a92ecbad0))
+* **setup:** rank housekeeping commits last in the first-run found box ([#432](https://github.com/aligndottech/align-cli/issues/432)) ([bee3b97](https://github.com/aligndottech/align-cli/commit/bee3b97acdc167ace2694199f9ffe9d4b5772dfc))
+
 ## [0.57.0](https://github.com/aligndottech/align-cli/compare/cli-v0.56.0...cli-v0.57.0) (2026-10-18)
 
 
