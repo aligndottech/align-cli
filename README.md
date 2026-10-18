@@ -62,7 +62,8 @@ More in [docs/installation.md](docs/installation.md).
 
 The hook never blocks on a model's judgement unless you turn blocking on, and that needs an AI
 key. One thing can deny without it, on a team graph: a rule your team ratified (secrets, card numbers,
-emails), when the edit contains one. If Align is missing, slow or down, the edit goes ahead.
+emails), when the edit contains one. If Align is slow, errors or times out, the edit goes ahead. If you uninstall `align`, rerun
+`align mcp --setup`: an older Copilot CLI hook file can deny edits until it is rewritten.
 
 Hook limits worth knowing:
 
