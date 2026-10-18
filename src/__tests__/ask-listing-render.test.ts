@@ -107,7 +107,7 @@ describe('display cap', () => {
     respond(Array.from({ length: 30 }, (_, n) => hit(n + 1, 0.6, `s${n}`)));
     const out = await ask();
     expect(out).toContain('Decision 5');
-    expect(out).not.toContain('Decision 6\n');
+    expect(out).not.toContain('Decision 6 (');
     expect(out).toContain('... and 25 more (use --limit 30)');
   });
   it('an explicit --limit shows every match returned', async () => {
@@ -132,6 +132,22 @@ describe('weak matches', () => {
     expect(out).not.toContain('weak matches');
     expect(out).toContain('(62% match)');
     expect(out).toContain('(27% weak match)');
+  });
+  it('judges weakness over the rows shown: a strong match hidden past the cap does not change the header', async () => {
+    respond([...Array.from({ length: 5 }, (_, n) => hit(n + 1, 0.3, 's')), hit(6, 0.62, 's')]);
+    const out = await ask();
+    expect(out).toContain('all weak matches');
+    expect(out).not.toContain('Decision 6 (');
+  });
+  it('does not add the weak marker to a file-path lookup', async () => {
+    respond([hit(1, 0.3, 'a')]);
+    const { existsSync } = await import('node:fs');
+    vi.mocked(existsSync).mockReturnValue(true);
+    const out = await ask('--json').then(() => { output.length = 0; const p = new Command(); registerAskCommand(p); return p.parseAsync(['node', 'align', 'ask', './src/x.ts']).then(() => output.join('\n')); });
+    vi.mocked(existsSync).mockReturnValue(false);
+    expect(out).toContain('Decision 1');
+    expect(out).toContain('(30% match)');
+    expect(out).not.toContain('related decision');
   });
   it('marks nothing weak outside local mode, where scores are on another scale', async () => {
     envMode.mode = 'auth';

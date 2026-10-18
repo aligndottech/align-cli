@@ -36,7 +36,9 @@ export function excerptOf(summary: string, max: number = EXCERPT_MAX_CHARS): str
   if (flat.length <= max) return flat;
   // The character right after the cap decides: a space there means the cut is already on a boundary.
   const cut = flat[max] === ' ' ? flat.slice(0, max) : flat.slice(0, max).replace(/\s*\S*$/, '');
-  return `${cut.trimEnd()}...`;
+  // One token longer than the cap (a URL, a hash): keep it whole rather than print an empty excerpt.
+  const kept = cut.trimEnd() || flat.split(' ')[0];
+  return `${kept}...`;
 }
 
 export function isWeak(similarity: number | undefined): boolean {

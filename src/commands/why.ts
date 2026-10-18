@@ -392,7 +392,6 @@ export function registerAskCommand(program: Command): void {
         // ALI-1780: scores are only comparable to the weak-match floor in local mode, where
         // they are dense cosine; a cloud result is on the gateway's own scale.
         const localScores = config.getEnvironment(envName).mode === 'local-embedded';
-        const weakSet = localScores && allWeak(results.results.map((d) => d.similarity));
 
         // The guidance for "no answer was written", built first so a terminal can show it
         // ABOVE the list (it is the one honest line, and used to sit under up to 500 lines).
@@ -443,6 +442,16 @@ export function registerAskCommand(program: Command): void {
         // payload and the caller reads top to bottom.
         const guidanceFirst = Boolean(process.stdout.isTTY);
 
+        // Width: the terminal's when there is one, else a fixed 74 so piped output is the
+        // same everywhere. Never below 40, never above 100 (long lines are the wall).
+        const cols = process.stdout.isTTY ? process.stdout.columns : undefined;
+        const wrapWidth = cols ? Math.min(100, Math.max(40, cols - 6)) : 74;
+        // Typing --limit means "show me this many"; otherwise cap what the list prints.
+        const explicitLimit = cmd.getOptionValueSource('limit') === 'cli';
+        const listed = explicitLimit ? results.results : results.results.slice(0, LIST_DISPLAY_CAP);
+        // Weak is judged over what is SHOWN, so the summary never contradicts the rows under it.
+        const weakSet = localScores && allWeak(listed.map((d) => d.similarity));
+
         if (filePath) {
           console.log(chalk.bold(`\n  Decisions related to ${query}\n`));
         } else {
@@ -450,7 +459,7 @@ export function registerAskCommand(program: Command): void {
           // "matching": no model has judged any of them relevant, and the old header read
           // as if they answered. Still the size of the RESULT SET, not of the graph (`align
           // local status` prints a count of the graph; ALI-771 - two commands, two numbers).
-          const best = Math.max(...results.results.map((d) => d.similarity ?? 0));
+          const best = Math.max(...listed.map((d) => d.similarity ?? 0));
           const lead = weakSet
             ? `all weak matches (best ${(best * 100).toFixed(0)}%)`
             : 'none judged relevant yet';
@@ -461,17 +470,10 @@ export function registerAskCommand(program: Command): void {
           }
         }
 
-        // Width: the terminal's when there is one, else a fixed 74 so piped output is the
-        // same everywhere. Never below 40, never above 100 (long lines are the wall).
-        const cols = process.stdout.isTTY ? process.stdout.columns : undefined;
-        const wrapWidth = cols ? Math.min(100, Math.max(40, cols - 6)) : 74;
-        // Typing --limit means "show me this many"; otherwise cap what the list prints.
-        const explicitLimit = cmd.getOptionValueSource('limit') === 'cli';
-        const listed = explicitLimit ? results.results : results.results.slice(0, LIST_DISPLAY_CAP);
 
         for (const d of listed) {
           const score = d.similarity !== undefined
-            ? chalk.dim(` (${(d.similarity * 100).toFixed(0)}%${localScores && isWeak(d.similarity) ? ' weak' : ''} match)`)
+            ? chalk.dim(` (${(d.similarity * 100).toFixed(0)}%${localScores && !filePath && isWeak(d.similarity) ? ' weak' : ''} match)`)
             : '';
           console.log(chalk.bold(`  ${d.title}`) + score);
 

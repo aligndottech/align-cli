@@ -33,6 +33,10 @@ describe('excerptOf', () => {
     expect(excerptOf('aaaa bbbbb', 9)).toBe('aaaa...');
   });
 
+  it('keeps a single token longer than the cap rather than printing nothing', () => {
+    expect(excerptOf('x'.repeat(30) + ' tail', 10)).toBe('x'.repeat(30) + '...');
+  });
+
   it('re-flows hard wraps into one line', () => {
     expect(excerptOf('first half\nsecond half\n\nthird', 200)).toBe('first half second half third');
   });
