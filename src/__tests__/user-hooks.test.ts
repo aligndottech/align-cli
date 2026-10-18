@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { chmodSync } from 'node:fs';
 import { removeUserHooks, type UserHookTarget, writeUserHooks } from '../lib/user-hooks.js';
 
 /**
@@ -68,12 +70,66 @@ describe('writeUserHooks - Copilot CLI (~/.copilot/hooks/align.json, preToolUse 
       expect(cfg.hooks[event]).toHaveLength(1);
       const entry = cfg.hooks[event][0];
       expect(entry.type).toBe('command');
-      expect(entry.bash).toBe('align check --advisory --format copilot');
+      expect(entry.bash).toContain('align check --advisory --format copilot');
       // Copilot's own names for its file-editing tools (hooks reference): edit,
       // str_replace_editor, apply_patch map to Edit; create maps to Write.
       for (const tool of ['edit', 'create', 'str_replace_editor', 'apply_patch']) expect(entry.matcher).toContain(tool);
       expect(entry.timeoutSec).toBeLessThanOrEqual(10);
     }
+  });
+});
+
+// ALI-1749: Copilot CLI is the one host whose docs say a non-zero preToolUse exit DENIES the
+// tool call, and this hook lives in the USER's home, so it fires in every project. With align
+// uninstalled or off the hook shell's PATH the bare command exits 127, which would block every
+// edit. The command must exit 0 when align is absent, and must not alter what a present align
+// returns. Run the written string through bash, the shell Copilot's `bash` field names.
+describe.skipIf(process.platform === 'win32')('Copilot hook command - align absent vs present', () => {
+  const payload = '{"toolName":"edit","toolArgs":{"path":"a.txt"}}';
+  function run(pathDirs: string[]): { status: number | null; stdout: string; stderr: string } {
+    writeUserHooks(target('copilot', '.copilot/hooks/align.json'), 'local');
+    const cfg = readJson('.copilot/hooks/align.json');
+    const r = spawnSync('bash', ['-c', cfg.hooks.preToolUse[0].bash], {
+      input: payload, encoding: 'utf8', env: { PATH: pathDirs.join(':') },
+    });
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+  }
+  function fakeAlign(body: string): string {
+    const bin = join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'align'), `#!/bin/sh\n${body}\n`);
+    chmodSync(join(bin, 'align'), 0o755);
+    return bin;
+  }
+
+  it('exits 0 and prints nothing when align is not on PATH', () => {
+    const r = run(['/usr/bin', '/bin']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+  });
+
+  it('hands the payload and arguments to a present align and returns its deny output untouched', () => {
+    const bin = fakeAlign('cat >"$0.stdin"; echo "$@" >"$0.args"; echo \'{"permissionDecision":"deny"}\'');
+    const r = run([bin, '/usr/bin', '/bin']);
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe('{"permissionDecision":"deny"}');
+    expect(readFileSync(join(bin, 'align.stdin'), 'utf8')).toBe(payload);
+    expect(readFileSync(join(bin, 'align.args'), 'utf8').trim()).toBe('check --advisory --format copilot --env local');
+  });
+
+  it('migrates a hook file written with the old bare command, without calling it a user edit', () => {
+    mkdirSync(join(dir, '.copilot/hooks'), { recursive: true });
+    const old = { type: 'command', matcher: 'edit|str_replace_editor|apply_patch|create', bash: 'align check --advisory --format copilot', timeoutSec: 10 };
+    writeFileSync(join(dir, '.copilot/hooks/align.json'), JSON.stringify({ version: 1, hooks: { preToolUse: [old], postToolUse: [old] } }));
+    const edited: string[] = [];
+    writeUserHooks(target('copilot', '.copilot/hooks/align.json'), undefined, undefined, (f) => edited.push(f));
+    expect(edited).toEqual([]);
+    expect(readJson('.copilot/hooks/align.json').hooks.preToolUse[0].bash).toMatch(/^command -v align .*; align check --advisory --format copilot$/);
+  });
+
+  it('keeps a present align\'s non-zero exit (the guard only covers the absent case)', () => {
+    const bin = fakeAlign('exit 3');
+    expect(run([bin, '/usr/bin', '/bin']).status).toBe(3);
   });
 });
 
