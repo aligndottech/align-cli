@@ -55,20 +55,41 @@ export function agentConnectedLine(agents: string[]): string | undefined {
 }
 
 /**
- * A decision title is only safe to drop into "why did we X?" when X reads as an action
- * phrase (what WAS decided), not when it already reads as its own policy statement (what
- * MUST happen). "why did we All PRs must pass typecheck...?" is not a sentence - the title
- * was the rule, not the topic. Heuristic, not a parser: a handful of quantifier/modal
- * openers plus a length cap catch the real failure (ALI-934 preview QA, 2026-09-11) without
- * needing to understand the title's grammar.
+ * ALI-1779: a decision title is only quoted into "why did we X?" when X is a base-form verb
+ * phrase, so the result is a sentence. A raw commit subject is not one: "fix: error throwing in
+ * reply (#6299)" has a conventional prefix and a PR number, and "Improved links to MADR" is past
+ * tense. The prefix and PR number are stripped, and the rest must open with a verb from the list
+ * below; anything else (noun phrases, past tense, a leftover colon, policy statements such as
+ * "All PRs must ...", over twelve words) falls back to the generic question. The list is
+ * deliberately short and quoting a subject is optional, so a miss costs only a generic question.
  */
-const POLICY_STATEMENT_OPENERS = /^(all|every|no|never|always|nobody|everyone)\b/i;
+const CONVENTIONAL_PREFIX = /^(?:feat|fix|refactor|perf|revert|types?|deps?|security)(?:\([^)]*\))?!?:\s*/i;
+const TRAILING_PR_NUMBER = /\s*\(#\d+\)\s*$/;
 const MAX_TOPIC_WORDS = 12;
+const BASE_VERBS = new Set([
+  'add', 'adopt', 'allow', 'avoid', 'change', 'close', 'consolidate', 'default', 'delegate', 'deprecate',
+  'disable', 'drop', 'enable', 'enforce', 'ensure', 'extract', 'fix', 'handle', 'ignore', 'implement',
+  'introduce', 'keep', 'make', 'merge', 'migrate', 'move', 'prefer', 'prevent', 'put', 'refactor',
+  'reject', 'remove', 'rename', 'replace', 'require', 'restrict', 'return', 'reuse', 'run', 'send',
+  'set', 'simplify', 'skip', 'split', 'stop', 'store', 'support', 'switch', 'throw', 'treat', 'update',
+  'upgrade', 'use', 'validate', 'warn',
+]);
 
-function looksLikeTopic(title: string): boolean {
-  if (POLICY_STATEMENT_OPENERS.test(title.trim())) return false;
-  if (title.trim().split(/\s+/).length > MAX_TOPIC_WORDS) return false;
-  return true;
+/** The quotable phrase inside a commit subject or decision title, or undefined. */
+function askablePhrase(title: string | undefined): string | undefined {
+  if (!title) return undefined;
+  const phrase = title.trim().replace(CONVENTIONAL_PREFIX, '').replace(TRAILING_PR_NUMBER, '').trim();
+  if (phrase === '' || phrase.includes(':') || phrase.includes('?')) return undefined;
+  const words = phrase.split(/\s+/);
+  if (words.length > MAX_TOPIC_WORDS) return undefined;
+  const verb = words[0]!.toLowerCase();
+  if (!BASE_VERBS.has(verb)) return undefined;
+  return verb + phrase.slice(words[0]!.length);
+}
+
+/** The first title in the list that makes a grammatical question, as it was given. */
+export function pickAskableTitle(titles: readonly string[]): string | undefined {
+  return titles.find((t) => askablePhrase(t) !== undefined);
 }
 
 /**
@@ -79,9 +100,8 @@ function looksLikeTopic(title: string): boolean {
  * list tool rather than a similarity search.
  */
 export function firstQuestion(firstTitle: string | undefined): string {
-  return firstTitle && looksLikeTopic(firstTitle)
-    ? `why did we ${firstTitle}?`
-    : 'what decisions exist in this codebase?';
+  const phrase = askablePhrase(firstTitle);
+  return phrase ? `why did we ${phrase}?` : 'what decisions exist in this codebase?';
 }
 
 /** Runnable AS PRINTED: bare `align mcp --setup` wires the cloud default, which is not a local user's graph. */

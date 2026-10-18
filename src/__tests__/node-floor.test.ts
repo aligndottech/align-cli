@@ -40,7 +40,12 @@ describe('the npm entry point', () => {
     const src = readFileSync(resolve(root, 'src', 'bin.ts'), 'utf8');
     const staticImports = src.split('\n').filter((l) => /^import\s/.test(l));
     // The only static import allowed is the pure floor check.
-    expect(staticImports).toEqual(["import { nodeFloorMessage } from './lib/node-floor.js';"]);
+    // ...plus the warning filter, which has to be installed before the CLI (and node:sqlite) loads.
+    expect(staticImports).toEqual([
+      "import { nodeFloorMessage } from './lib/node-floor.js';",
+      "import { installSqliteWarningFilter } from './lib/suppress-sqlite-warning.js';",
+    ]);
+    expect(src.indexOf('installSqliteWarningFilter(process)')).toBeLessThan(src.indexOf("await import('./index.js')"));
     expect(src).toContain("await import('./index.js')");
     expect(src.indexOf('nodeFloorMessage(')).toBeLessThan(src.indexOf("await import('./index.js')"));
   });

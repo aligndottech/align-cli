@@ -190,6 +190,11 @@ vi.mock('../lib/launch/pick-agent.js', async (importOriginal) => ({
   pickAgent: mockPickAgent,
 }));
 
+// ALI-1779: whether Claude Code exists on this machine decides if the project .mcp.json counts as a
+// connected agent. Default present, so the pre-existing wizard tests keep their subject.
+const mockClaudePresent = vi.hoisted(() => vi.fn().mockReturnValue(true));
+vi.mock('../lib/claude-presence.js', () => ({ claudeCodeExists: mockClaudePresent }));
+
 // The model step has its own suite (model-step.test.ts). Here it is a stub, so these wizard tests say WHEN it runs.
 const mockRunModelStep = vi.hoisted(() => vi.fn().mockResolvedValue('ready'));
 vi.mock('../lib/model-step.js', () => ({ runModelStep: mockRunModelStep }));
@@ -1643,7 +1648,8 @@ describe('align setup', () => {
           mockPickAgent.mockResolvedValueOnce(null);
           await makeProgram().parseAsync(['node', 'align']);
           const text = await outroText();
-          expect(text).toContain('Run align once a coding agent is installed.');
+          expect(text).toContain('No coding agent was found, so none is connected.');
+          expect(text).not.toContain('once a coding agent is installed');
           expect(text).not.toMatch(/npm i|install claude|cursor\.com|pi\.dev/i);
           expect(text).not.toMatch(/pricing/i);
         });
@@ -2126,6 +2132,51 @@ describe('align setup', () => {
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       await makeProgram().parseAsync(['node', 'align', '--local']);
       expect(await infoLines()).toContain('Your agent is connected: Claude Code.');
+    });
+
+    // ALI-1779: writing .mcp.json is not connecting an agent. With no coding agent on the machine the
+    // wizard used to print a 17-line install list, then "Your agent is connected: Claude Code.", then
+    // "Run align once a coding agent is installed." in the same run.
+    describe('no coding agent on this machine (ALI-1779)', () => {
+      async function fullOutro(): Promise<string> {
+        const { outro } = await import('@clack/prompts');
+        return ((outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string).replace(ANSI, '');
+      }
+      afterEach(() => { mockClaudePresent.mockReturnValue(true); mockPickAgent.mockResolvedValue('claude-code'); });
+
+      it('no agent: never says connected, says once that none was found, and keeps the next step', async () => {
+        mockClaudePresent.mockReturnValue(false);
+        mockPickAgent.mockResolvedValue(null);
+        mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+        mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        const out = await fullOutro();
+        expect(await infoLines()).not.toContain('Your agent is connected');
+        expect(out).not.toMatch(/Open Claude Code/);
+        expect(out).not.toContain('once a coding agent is installed');
+        expect(out.match(/No coding agent was found/g)).toHaveLength(1);
+        expect(out).toContain('Graph: /tmp/local.db');
+        expect(out).toContain('ask: why did we switch to postgres?');
+      });
+
+      it('an agent exists: says connected and names it (the two outputs differ)', async () => {
+        mockClaudePresent.mockReturnValue(true);
+        mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+        mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        expect(await infoLines()).toContain('Your agent is connected: Claude Code.');
+        expect(await fullOutro()).not.toContain('No coding agent was found');
+      });
+
+      it('config present but the binary is not on PATH still counts as connected', async () => {
+        // claudeCodeExists is the one place that decides; true here stands for "~/.claude.json exists".
+        mockClaudePresent.mockReturnValue(true);
+        mockPickAgent.mockResolvedValue(null);
+        mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        expect(await infoLines()).toContain('Your agent is connected: Claude Code.');
+        expect(await fullOutro()).not.toContain('once a coding agent is installed');
+      });
     });
 
     it('--local, nothing wired at all: does not claim a connection', async () => {

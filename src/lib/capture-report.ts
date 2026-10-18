@@ -97,9 +97,15 @@ export function renderCaptureReport(sources: CaptureSource[]): string {
   for (const s of ordered) {
     // Said only when fewer came back than were asked for: a full result is not a
     // shortfall, and a clause printed every time stops being read.
-    const shortfall = s.requested !== undefined && s.fetched < s.requested
-      ? ` of up to ${s.requested} requested`
-      : '';
+    // ALI-1779: a source that scanned more than it kept and explains the difference in skip lines
+    // names its denominator instead, so "124 kept of 500 scanned" sits beside skips of 189 and 187
+    // and the three add up. The ceiling is named only when the scan actually reached it.
+    const keptOfScanned = s.window === undefined && s.fetched > 0 && s.skips.length > 0 && s.scanned !== undefined && s.scanned > s.fetched;
+    const shortfall = keptOfScanned
+      ? ` kept of ${s.scanned} scanned${s.requested !== undefined && s.scanned! >= s.requested ? ` (stopped at the limit of ${s.requested})` : ''}`
+      : s.requested !== undefined && s.fetched < s.requested
+        ? ` of up to ${s.requested} requested`
+        : '';
     // ALI-786: a zero-item source with no skip line is otherwise silent about whether
     // anything was even looked at - "Found 0 items" reads the same for an empty account
     // as for a token that could not see anything. Say what was measured (never a REASON

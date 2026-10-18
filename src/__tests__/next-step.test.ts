@@ -4,6 +4,7 @@ import {
   agentConnectedLine,
   firstQuestion,
   orderAgents,
+  pickAskableTitle,
   projectAgentsFromWritten,
   renderSecondRunCard,
 } from '../lib/next-step.js';
@@ -210,5 +211,46 @@ describe('renderSecondRunCard', () => {
     const card = renderSecondRunCard({ ...full, value: undefined });
     expect(card).not.toMatch(/So far|This week/);
     expect(card).toContain('Open Claude Code and ask:');
+  });
+});
+
+/**
+ * ALI-1779 (Show HN cold read): the suggested first question was a raw commit subject dropped
+ * into "why did we ...?", giving "why did we fix: error throwing in reply (#6299)?". A
+ * subject is only quoted when it reads as a base-form verb phrase once its conventional prefix
+ * and PR number are stripped; anything else falls back to the generic question.
+ */
+describe('firstQuestion with real commit subjects (ALI-1779)', () => {
+  const GENERIC = 'what decisions exist in this codebase?';
+  const cases: Array<[string, string | undefined, string]> = [
+    ['conventional prefix and PR number stripped', 'fix: close fastify instance (#6177)', 'why did we close fastify instance?'],
+    ['fix: with a noun phrase cannot be turned into a verb phrase, so it falls back', 'fix: error throwing in reply (#6299)', GENERIC],
+    ['scoped conventional prefix', 'feat(types): add missing error types (#6217)', 'why did we add missing error types?'],
+    ['past-tense subject falls back', 'Improved links to MADR, added one template', GENERIC],
+    ['a second colon (not a clean phrase) falls back', 'fix typo: closure -> clojure in the docs', GENERIC],
+    ['capitalised base verb is lowercased', 'Update Recommendations.md (#6238)', 'why did we update Recommendations.md?'],
+    ['PR number only, no prefix', 'delegate options processing to a dedicated function (#6333)', 'why did we delegate options processing to a dedicated function?'],
+    ['longer than a sane length falls back', `add ${'very '.repeat(14)}long subject`, GENERIC],
+    ['noun phrase falls back', 'Fluent-Schema docs', GENERIC],
+    ['empty string falls back', '', GENERIC],
+    ['undefined falls back', undefined, GENERIC],
+    ['only a prefix falls back', 'fix:', GENERIC],
+  ];
+  it.each(cases)('%s', (_name, title, expected) => {
+    const q = firstQuestion(title);
+    expect(q).toBe(expected);
+    expect(q).not.toMatch(/why did we \w+:/);
+    expect(q).not.toMatch(/\(#\d+\)/);
+  });
+});
+
+describe('pickAskableTitle (ALI-1779)', () => {
+  it('returns the first title that makes a grammatical question, raw', () => {
+    expect(pickAskableTitle(['Improved links to MADR', 'fix: close fastify instance (#6177)', 'use postgres']))
+      .toBe('fix: close fastify instance (#6177)');
+  });
+  it('returns undefined when none does, or the list is empty', () => {
+    expect(pickAskableTitle(['Improved links', 'Fluent-Schema docs'])).toBeUndefined();
+    expect(pickAskableTitle([])).toBeUndefined();
   });
 });
