@@ -37,6 +37,14 @@ export interface FoundSummaryDb {
   listLinks(filter?: { relation?: string }): Array<{ sourceId: string; targetId: string }>;
 }
 
+/**
+ * ALI-1772: subjects that read as housekeeping, not as a choice. The importer keeps them (a
+ * docs commit can state a reason), so this only decides what the first-run box SHOWS first.
+ * Conventional `type:` / `type(scope):` shapes only, so prose like "document the retry
+ * policy" is not demoted; plus a Merge subject and a `[DRAFT` / `[WIP` marker.
+ */
+const HOUSEKEEPING_SUBJECT = /^(?:(?:docs|chore|ci|test|style|build)(?:\([^)]*\))?!?:|merge\b|\[(?:draft|wip)\b)/i;
+
 export function buildFoundSummary(db: FoundSummaryDb): FoundSummary {
   // The graph total comes from the db's COUNT, never from the length of the page
   // below - those differ by two orders of magnitude on a real repo, and reporting
@@ -55,7 +63,14 @@ export function buildFoundSummary(db: FoundSummaryDb): FoundSummary {
   // listDecisions() is already ordered created_at DESC, so the head of it is the
   // recent page. The cap is applied here rather than in the renderer so a caller
   // reading `recent.length` gets the number that will actually be printed.
-  const recent = db.listDecisions().slice(0, FOUND_SUMMARY_MAX).map((row) => {
+  // Housekeeping subjects sort after the rest (stable, so db order holds inside each group)
+  // and still fill the sample when too few real changes exist.
+  const rows = db.listDecisions();
+  const ranked = [
+    ...rows.filter((r) => !HOUSEKEEPING_SUBJECT.test(r.title)),
+    ...rows.filter((r) => HOUSEKEEPING_SUBJECT.test(r.title)),
+  ];
+  const recent = ranked.slice(0, FOUND_SUMMARY_MAX).map((row) => {
     const cite = localCitationFor(row.sourceUrl);
     return { title: row.title, ...(cite ? { cite } : {}) };
   });
@@ -75,9 +90,11 @@ export function renderFoundSummary(s: FoundSummary): string {
   // be a permanent zero beside a real one - the same broken-counter read this ticket
   // removes from `align status`.
   const counts = s.linked > 0
-    ? `  ${s.total} decisions found, ${s.linked} with connections`
-    : `  ${s.total} decisions found`;
+    ? `  ${s.total} candidate decisions found, ${s.linked} with connections`
+    : `  ${s.total} candidate decisions found`;
 
+  // "candidate": the importer keeps commits whose message states a reason. That is a text
+  // heuristic, so the box does not claim to know which of them were real decisions.
   const lines = [counts];
   if (s.recent.length > 0) {
     lines.push('');
