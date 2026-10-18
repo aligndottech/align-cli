@@ -1,5 +1,5 @@
 import type { EnvironmentConfig } from './config.js';
-import { LOCAL_DEFAULT_GATEWAY_URL } from './config.js';
+import { defaultGatewayUrlFor, hasCredential, LOCAL_DEFAULT_GATEWAY_URL } from './config.js';
 import { createLocalGatewayClient } from './local-gateway-client.js';
 import type { TopicTimelineResult } from './mcp-timeline-tools.js';
 import type { DecisionRelation } from './decision-relations.js';
@@ -485,9 +485,30 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     );
   }
 
+  /**
+   * ALI-1777: a built-in cloud env (prod, preview) at its own default URL with no token
+   * means this machine was never set up, which a bare "Gateway returned 401 ... unauthorized"
+   * did not say. Thrown before the dial, like the two checks above. A SAVED token the gateway
+   * rejects is not this case and still reports the 401. A self-hosted
+   * URL (ALIGN_GATEWAY_URL) is left alone: there, no token may be a real request. A tenant with no token is
+   * refused by assertAuthenticatedIdentity first. The env is named from the URL, so an ALIGN_GATEWAY_URL
+   * pointing a built-in env at the other built-in's URL gets that URL's hint (refusal is still correct).
+   */
+  function assertSetUp(): void {
+    if (env.mode !== 'auth' || hasCredential(env)) return;
+    const name = (['prod', 'preview'] as const).find((n) => defaultGatewayUrlFor(n) === gatewayUrl);
+    if (!name) return;
+    throw new Error(
+      name === 'prod'
+        ? 'Align is not set up on this machine. Run `align` to set it up.'
+        : 'Align is not set up for preview on this machine. Run `align login --env preview`.',
+    );
+  }
+
   async function request<T>(path: string, options: Parameters<typeof fetch>[1] & { maxBytes?: number } = {}): Promise<T> {
     assertAuthenticatedIdentity();
     assertLocalModeConfigured();
+    assertSetUp();
     const { maxBytes, ...fetchOptions } = options;
     try {
       const res = await fetch(`${gatewayUrl}${path}`, {

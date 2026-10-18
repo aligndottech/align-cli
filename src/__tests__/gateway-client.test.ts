@@ -78,10 +78,11 @@ describe('ALI-462 a tenant with no token must not be sent to a cloud gateway', (
   });
 
   it('leaves an anonymous cloud request alone when no tenant is configured either', async () => {
-    // Both absent is the fresh-install state and is not what this guard is about.
+    // Both absent is not what THIS guard is about. On the built-in prod URL it is the "not set up"
+    // refusal instead (ALI-1777, gateway-client-not-set-up.test.ts), so this uses a self-hosted URL.
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ all: [], enabled: [] }) });
 
-    await createGatewayClient({ ...authEnv, tenantId: null }).listConnectors();
+    await createGatewayClient({ ...authEnv, gatewayUrl: 'https://align.corp.example', tenantId: null }).listConnectors();
 
     expect(mockFetch).toHaveBeenCalled();
     expect(sentHeaders()).not.toHaveProperty('x-tenant-id');
