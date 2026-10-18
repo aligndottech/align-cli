@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.57.0](https://github.com/aligndottech/align-cli/compare/cli-v0.56.0...cli-v0.57.0) (2026-10-18)
+
+
+### Features
+
+* **doctor:** align doctor, an install preflight that makes a real tools/call (ALI-1740) ([#431](https://github.com/aligndottech/align-cli/issues/431)) ([29ba1f3](https://github.com/aligndottech/align-cli/commit/29ba1f3f6a983e773424e0a2417a17501e36bad1))
+
+
+### Bug Fixes
+
+* **hooks:** keep a user's edit inside align's own hook element (ALI-1476) ([#429](https://github.com/aligndottech/align-cli/issues/429)) ([14b4a6b](https://github.com/aligndottech/align-cli/commit/14b4a6b5fd5ddcfcef256d394c7f67a3b650631a))
+
 ## [0.56.0](https://github.com/aligndottech/align-cli/compare/cli-v0.55.1...cli-v0.56.0) (2026-10-15)
 
 
