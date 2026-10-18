@@ -15,11 +15,14 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { parse as parseToml } from 'smol-toml';
+import { stateHomeFor } from './backfill-state.js';
 
 /*
  * The one way align writes to a config file that belongs to someone else (an agent's MCP
  * config, its hook file). Promises, each of which a plain writeFileSync breaks:
- *  1. The FIRST content is kept in `<file>.align-backup` and never overwritten.
+ *  1. The FIRST content is kept in `<file>.align-backup` and never overwritten. A PROJECT file
+ *     (a committed AGENTS.md) is the exception: its copy goes under the user's state directory, so
+ *     `git status` shows nothing of it and `git add -A` cannot commit it.
  *  2. The file is re-read after our new content is staged. If another program changed it in
  *     the meantime we recompute once from what is there now, and give up if it moves again.
  *  3. The new content lands by an exclusive temp file + rename, keeping the old file's mode.
@@ -97,6 +100,11 @@ export interface WrittenConfig {
   /** 'made': align made the backup. 'foreign': one was already there and is not trusted. 'none': no original to keep. */
   backup: 'made' | 'foreign' | 'none';
   backupSha256?: string;
+  /**
+   * Where the backup lives when it is not beside the file (project files). Snapshots are
+   * `<backupAt>.<n>`. Absent: `<file>.align-backup`.
+   */
+  backupAt?: string;
   owned?: OwnedItem[];
   /**
    * Extra copies of the file taken just before a write that found it changed by someone else
@@ -152,6 +160,7 @@ export function mergeWrittenConfig(prev: WrittenConfig | undefined, next: Writte
     firstSha256: prev.firstSha256,
     backup: prev.backup,
     ...(prev.backupSha256 ? { backupSha256: prev.backupSha256 } : {}),
+    ...(prev.backupAt ? { backupAt: prev.backupAt } : {}),
     ...(owned.size > 0 ? { owned: [...owned.values()] } : {}),
     ...((prev.createdDirs?.length || next.createdDirs?.length) ? { createdDirs: [...new Set([...(prev.createdDirs ?? []), ...(next.createdDirs ?? [])])] } : {}),
     ...((prev.snapshots?.length || next.snapshots?.length) ? { snapshots: [...(prev.snapshots ?? []), ...(next.snapshots ?? [])] } : {}),
@@ -257,11 +266,12 @@ function modeOf(fs: SafeFs, file: string): number | null {
 }
 
 /** 'made' only when this call created the backup. Anything already at that path is not ours. */
-function backupOnce(fs: SafeFs, file: string): { state: 'made' | 'foreign'; sha256?: string } {
-  const backup = `${file}${BACKUP_SUFFIX}`;
+function backupOnce(fs: SafeFs, file: string, backup: string, private_: boolean): { state: 'made' | 'foreign'; sha256?: string } {
   if (linkAt(fs, backup) !== 'missing') return { state: 'foreign' };
+  if (private_) fs.mkdirSync(path.dirname(backup), { recursive: true, mode: 0o700 });
   try {
     fs.copyFileSync(file, backup, 1); // COPYFILE_EXCL
+    if (private_) fs.chmodSync(backup, 0o600);
   } catch (err) {
     if ((err as { code?: string }).code === 'EEXIST') return { state: 'foreign' };
     throw err;
@@ -274,9 +284,10 @@ function backupOnce(fs: SafeFs, file: string): { state: 'made' | 'foreign'; sha2
  * last write: the backup from before align's first write cannot hold what they added since.
  * `<file>.align-backup.<n>`, exclusive, 0600 (it may hold secrets), never overwritten.
  */
-function takeSnapshot(fs: SafeFs, file: string, content: string, taken: number[]): { n: number; sha256: string } {
+function takeSnapshot(fs: SafeFs, file: string, base: string, content: string, taken: number[]): { n: number; sha256: string } {
+  if (base !== `${file}${BACKUP_SUFFIX}`) fs.mkdirSync(path.dirname(base), { recursive: true, mode: 0o700 });
   for (let n = Math.max(0, ...taken) + 1; n <= MAX_SNAPSHOTS; n++) {
-    const target = `${file}${BACKUP_SUFFIX}.${n}`;
+    const target = `${base}.${n}`;
     if (linkAt(fs, target) !== 'missing') continue;
     try {
       fs.writeFileSync(target, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
@@ -290,15 +301,27 @@ function takeSnapshot(fs: SafeFs, file: string, content: string, taken: number[]
 }
 
 /** Delete snapshots THIS call made (verified: a regular file whose hash is the one taken). */
-function dropSnapshots(fs: SafeFs, file: string, list: Array<{ n: number; sha256: string }>): void {
+function dropSnapshots(fs: SafeFs, base: string, list: Array<{ n: number; sha256: string }>): void {
   for (const { n, sha256: want } of list) {
-    const target = `${file}${BACKUP_SUFFIX}.${n}`;
+    const target = `${base}.${n}`;
     try {
       if (fs.lstatSync(target).isFile() && sha(fs.readFileSync(target)) === want) fs.unlinkSync(target);
     } catch {
       // already gone
     }
   }
+}
+
+/**
+ * Where a PROJECT file's backup goes: `<state home>/align-cli/undo-backups/<sha of the full path>/<name>.align-backup`.
+ * Out of the repo on purpose, so nothing shows in `git status`. Keyed on the full path, the same key
+ * the ledger uses, so a moved repo loses both together and a same-named file elsewhere never collides.
+ * XDG_STATE_HOME is honoured; %LOCALAPPDATA% on Windows (case-folded there, as its paths are).
+ */
+export function projectBackupBase(file: string): string {
+  const abs = path.resolve(file);
+  const key = sha(process.platform === 'win32' ? abs.toLowerCase() : abs).slice(0, 24);
+  return path.join(stateHomeFor(process.env, os.homedir(), process.platform), 'align-cli', 'undo-backups', key, `${path.basename(file)}${BACKUP_SUFFIX}`);
 }
 
 const MAX_SNAPSHOTS = 200;
@@ -484,6 +507,9 @@ function safeWrite(
   }
 
   let backup: { state: 'made' | 'foreign' | 'none'; sha256?: string } = { state: 'none' };
+  // A file already recorded keeps the place its first backup went; a new project file gets a place outside the repo.
+  const backupAt = lookup?.(file)?.backupAt ?? (opts.projectFile ? projectBackupBase(file) : undefined);
+  const backupBase = backupAt ?? `${file}${BACKUP_SUFFIX}`;
   const snapshots: Array<{ n: number; sha256: string }> = [];
   let createdDirs: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -503,9 +529,9 @@ function safeWrite(
     const prev = lookup?.(file);
     if (before !== null) {
       if (!prev) {
-        if (backup.state === 'none') backup = backupOnce(fs, file);
+        if (backup.state === 'none') backup = backupOnce(fs, file, backupBase, backupAt !== undefined);
       } else if (sha(before) !== prev.sha256 && !snapshots.some((x) => x.sha256 === sha(before))) {
-        snapshots.push(takeSnapshot(fs, file, before, [...(prev.snapshots ?? []).map((x) => x.n), ...snapshots.map((x) => x.n)]));
+        snapshots.push(takeSnapshot(fs, file, backupBase, before, [...(prev.snapshots ?? []).map((x) => x.n), ...snapshots.map((x) => x.n)]));
       }
     }
 
@@ -513,7 +539,7 @@ function safeWrite(
     try {
       staged = stageAndRename(fs, file, next, mode, () => readCurrent(fs, file) === before, opts.projectFile ? 0o666 : 0o600);
     } catch (err) {
-      dropSnapshots(fs, file, snapshots);
+      dropSnapshots(fs, backupBase, snapshots);
       throw err;
     }
     if (!staged) continue;
@@ -534,7 +560,7 @@ function safeWrite(
       ...(block?.replaced ? [block.snapshot ?? 0] : []),
     ]);
     const kept = snapshots.filter((x) => referenced.has(x.n));
-    dropSnapshots(fs, file, snapshots.filter((x) => !referenced.has(x.n)));
+    dropSnapshots(fs, backupBase, snapshots.filter((x) => !referenced.has(x.n)));
     try {
       recorder?.(file, {
         created: before === null,
@@ -542,6 +568,7 @@ function safeWrite(
         firstSha256: sha(next),
         backup: backup.state,
         ...(backup.sha256 ? { backupSha256: backup.sha256 } : {}),
+        ...(backupAt ? { backupAt } : {}),
         ...(kept.length > 0 ? { snapshots: kept } : {}),
         ...(createdDirs.length > 0 ? { createdDirs } : {}),
         ...owned,
@@ -553,7 +580,7 @@ function safeWrite(
     }
     return 'written';
   }
-  dropSnapshots(fs, file, snapshots);
+  dropSnapshots(fs, backupBase, snapshots);
   throw new SafeWriteConflictError(file);
 }
 
@@ -777,7 +804,7 @@ function removeOwned(cur: Json, owned: OwnedItem[], originalOf: (snapshot: numbe
 export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: SafeFs = realFs()): UndoReport {
   const report: UndoReport = { restored: [], removed: [], cleaned: [], skipped: [], done: [] };
   for (const [file, entry] of Object.entries(manifest)) {
-    const backupPath = `${file}${BACKUP_SUFFIX}`;
+    const backupPath = entry.backupAt ?? `${file}${BACKUP_SUFFIX}`;
     const link = linkAt(fs, file);
     if (link && link !== 'missing') {
       report.skipped.push(`${file}: it is a symlink to ${link.target}, left alone`);
@@ -825,6 +852,8 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       for (const n of [0, ...(entry.snapshots ?? []).map((x) => x.n)]) {
         try { if (snapText(n) !== null) fs.unlinkSync(snapPath(n)); } catch { /* gone */ }
       }
+      // The directory holding an out-of-repo copy: removed only while empty.
+      if (entry.backupAt) { try { fs.rmdirSync(path.dirname(entry.backupAt)); } catch { /* not empty, or gone */ } }
     };
 
     // Whole-file only when align wrote this file exactly once and nobody has touched it since.
@@ -853,6 +882,14 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
         report.done.push(file);
         continue;
       }
+    }
+
+    // The file is exactly what align wrote, so only the original is missing. A copy kept outside the repo
+    // can go missing (a cleaned state directory, a moved repo): say so and leave the file, rather than
+    // guess at what to take out. The record stays, so a restored copy lets undo run again.
+    if (entry.backupAt && !entry.created && entry.backup === 'made' && !backupTrusted() && sha(cur) === entry.sha256 && entry.firstSha256 === entry.sha256) {
+      report.skipped.push(`${file}: align's saved copy of the original (${backupPath}) is missing or changed, so align left the file as it is. Take align's lines out by hand`);
+      continue;
     }
 
     // Surgical: only align's own entries, and the user's own values back where align overwrote them.
