@@ -182,10 +182,24 @@ describe('project-file backups live outside the repo', () => {
     }
   });
 
-  it('e. the saved copy is gone at undo time: the file is left as it is and the line names the copy', async () => {
+  const OLD_BLOCK = '<!-- align:start (managed by `align setup` - do not edit) -->\nolder wording\n<!-- align:end -->\n';
+
+  it('e. the saved copy is gone and the original is not needed: align\'s block still comes out', async () => {
     writeFileSync(path.join(repo, 'AGENTS.md'), AGENTS);
     firstRun();
+    for (const f of backupsIn(stateHome)) rmSync(f);
+
+    expect(await undo()).toBe(0);
+    expect(read('AGENTS.md')).not.toContain('align:start');
+    expect(read('AGENTS.md').startsWith(AGENTS)).toBe(true); // the user's text is intact; only whitespace around the block may differ
+    expect(errs).toEqual([]);
+  });
+
+  it('e2. the saved copy is gone and holds a block of the user\'s that align replaced: the file is left, the line names the copy', async () => {
+    writeFileSync(path.join(repo, 'AGENTS.md'), `# Agents\n\n${OLD_BLOCK}`);
+    firstRun();
     const written = read('AGENTS.md');
+    expect(written).not.toContain('older wording');
     for (const f of backupsIn(stateHome)) rmSync(f);
 
     expect(await undo()).toBe(1);
@@ -195,7 +209,7 @@ describe('project-file backups live outside the repo', () => {
   });
 
   it('f. a saved copy that was changed is not trusted: the file is left', async () => {
-    writeFileSync(path.join(repo, 'AGENTS.md'), AGENTS);
+    writeFileSync(path.join(repo, 'AGENTS.md'), `# Agents\n\n${OLD_BLOCK}`);
     firstRun();
     const written = read('AGENTS.md');
     for (const f of backupsIn(stateHome)) writeFileSync(f, 'not what align saved');
@@ -203,5 +217,17 @@ describe('project-file backups live outside the repo', () => {
     expect(await undo()).toBe(1);
     expect(read('AGENTS.md')).toBe(written);
     expect(errs.join('\n')).toMatch(/AGENTS\.md.*saved copy/s);
+  });
+
+  it('g. the user deleted the file before undo: its saved copy goes too, so a recreated file is backed up again', async () => {
+    writeFileSync(path.join(repo, 'AGENTS.md'), AGENTS);
+    firstRun();
+    rmSync(path.join(repo, 'AGENTS.md'));
+    expect(await undo()).toBe(0);
+    expect(backupsIn(stateHome)).toEqual([]);
+
+    writeFileSync(path.join(repo, 'AGENTS.md'), '# New\n');
+    firstRun();
+    expect(manifest[path.join(repo, 'AGENTS.md')]?.backup).toBe('made');
   });
 });

@@ -811,10 +811,6 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       continue;
     }
     const cur = readCurrent(fs, file);
-    if (cur === null) {
-      report.done.push(file); // already gone: nothing of align's is left
-      continue;
-    }
 
     // Compare-and-swap: the agent may rewrite its own file (Gemini saves settings) between the read
     // above and our write. Re-read right before every destructive step; if it moved, touch nothing.
@@ -856,6 +852,12 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       if (entry.backupAt) { try { fs.rmdirSync(path.dirname(entry.backupAt)); } catch { /* not empty, or gone */ } }
     };
 
+    if (cur === null) {
+      dropBackup(); // already gone: nothing of align's is left, and its saved copy must not linger as a stale 'foreign' one
+      report.done.push(file);
+      continue;
+    }
+
     // Whole-file only when align wrote this file exactly once and nobody has touched it since.
     // A file align wrote WHOLE (no block, no owned keys: a generated plugin or rule) and created is all
     // align's even after a re-run with other content, as long as it still equals the last write.
@@ -887,7 +889,8 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
     // The file is exactly what align wrote, so only the original is missing. A copy kept outside the repo
     // can go missing (a cleaned state directory, a moved repo): say so and leave the file, rather than
     // guess at what to take out. The record stays, so a restored copy lets undo run again.
-    if (entry.backupAt && !entry.created && entry.backup === 'made' && !backupTrusted() && sha(cur) === entry.sha256 && entry.firstSha256 === entry.sha256) {
+    const needsOriginal = !!entry.block?.replaced || (entry.owned ?? []).some((i) => i.replaced || i.removed) || (!entry.block && !(entry.owned && entry.owned.length > 0));
+    if (entry.backupAt && !entry.created && entry.backup === 'made' && !backupTrusted() && needsOriginal && sha(cur) === entry.sha256 && entry.firstSha256 === entry.sha256) {
       report.skipped.push(`${file}: align's saved copy of the original (${backupPath}) is missing or changed, so align left the file as it is. Take align's lines out by hand`);
       continue;
     }
