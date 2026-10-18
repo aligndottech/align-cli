@@ -15,14 +15,14 @@ export function gitCaptureSkips(counts: { scanned: number; kept: number; rejecte
   const mechanical = counts.scanned - counts.kept - counts.rejectedByRationale;
   return [
     ...(counts.rejectedByRationale > 0
-      ? [{ count: counts.rejectedByRationale, detail: 'commits stated no reason beyond the subject' }]
+      ? [{ count: counts.rejectedByRationale, detail: 'skipped: commit message states no reason beyond the subject' }]
       : []),
     ...(mechanical > 0
       ? [{
           count: mechanical,
           // The list is the one the predicate is built from, so the line cannot name a
           // different set than the one that did the rejecting.
-          detail: `commits with a mechanical or too-short subject (${MECHANICAL_SUBJECT_PREFIXES.join(', ')})`,
+          detail: `skipped as housekeeping: mechanical or too-short subject (${MECHANICAL_SUBJECT_PREFIXES.join(', ')})`,
         }]
       : []),
   ];

@@ -98,11 +98,13 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     await run(['connect', 'git']);
     const printed = logSpy.mock.calls.flat().join('\n');
     expect(printed).toContain('Git: 3 commits');
-    expect(printed).toContain('2 commits stated no reason beyond the subject');
-    expect(printed).toContain('5 commits with a mechanical');            // 10 - 3 - 2
-    expect(printed).not.toContain('7 commits');                         // the conflated number
+    expect(printed).toContain('2 skipped: commit message states no reason beyond the subject');
+    expect(printed).toContain('5 skipped as housekeeping');                // 10 - 3 - 2
+    expect(printed).toContain('Git: 3 commits kept of 10 scanned');
+    expect(printed).not.toContain('7 skipped');                         // the conflated number
     // 10 scanned against the default --limit of 500: the repo ran out, not the cap.
     expect(printed).not.toContain('of up to');
+    expect(printed).not.toContain('limit of');
   });
 
   it('the capture report names the cap when the scan reached it', async () => {
@@ -113,7 +115,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     });
     await run(['connect', 'git', '--limit', '10']);
     const printed = logSpy.mock.calls.flat().join('\n');
-    expect(printed).toContain('Git: 3 commits of up to 10 requested');
+    expect(printed).toContain('Git: 3 commits kept of 10 scanned (stopped at the limit of 10)');
   });
 
   // ALI-829: the row's decided_at comes from the commit's own date, so the command has to
@@ -141,7 +143,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     const printed = logSpy.mock.calls.flat().join('\n');
     expect(printed).toContain('Git: 8 commits');
     expect(printed).not.toContain('stated no reason');
-    expect(printed).not.toContain('mechanical subject');
+    expect(printed).not.toContain('housekeeping');
   });
 
   // L3 review 7: git stays what it was (the newest 500, however old) unless --since is passed.

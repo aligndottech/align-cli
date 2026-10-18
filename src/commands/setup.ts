@@ -34,7 +34,8 @@ import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
 import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
-import { agentAskLine, agentConnectedLine, firstQuestion, orderAgents, projectAgentsFromWritten } from '../lib/next-step.js';
+import { agentAskLine, agentConnectedLine, firstQuestion, orderAgents, pickAskableTitle, projectAgentsFromWritten } from '../lib/next-step.js';
+import { claudeCodeExists } from '../lib/claude-presence.js';
 import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
 import { offerSavedTokens } from '../lib/saved-token-offer.js';
@@ -522,10 +523,20 @@ function willLaunchAgent(agent: LaunchAgentId | null, launchNext: boolean): bool
  * second and then be false, so it is dropped. With no agent the install hints were already
  * printed once by the pick, and are not repeated here.
  */
-function nextStepLine(agent: LaunchAgentId | null, launching: boolean): string | null {
+function nextStepLine(agent: LaunchAgentId | null, launching: boolean, agents: string[]): string | null {
   const label = agent ? agentByName(agent)?.label : undefined;
   if (label) return launching ? null : `Run ${chalk.bold('align')} to open ${label} with your graph.`;
-  return `Run ${chalk.bold('align')} once a coding agent is installed.`;
+  // ALI-1779: said once, and only when it is true. With a configured agent the ask line below names it.
+  if (agents.length > 0) return null;
+  return `No coding agent was found, so none is connected. Install one from the list above, then run ${chalk.bold('align')}.`;
+}
+
+/**
+ * ALI-1779: the project `.mcp.json` is written whether or not anyone can read it, so it only
+ * counts as a connected agent when Claude Code (the agent that reads it) exists on this machine.
+ */
+function connectedProjectAgents(written: string[]): string[] {
+  return written.length > 0 && claudeCodeExists() ? written : [];
 }
 
 /** Thrown inside the docs block to leave it without starting a read; never surfaces. */
@@ -625,7 +636,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         const summaryDb = createLocalDb(dbPath);
         try {
           const summary = buildFoundSummary(summaryDb);
-          firstFoundTitle = summary.recent[0]?.title;
+          firstFoundTitle = pickAskableTitle(summary.recent.map((d) => d.title)) ?? summary.recent[0]?.title;
           p.note(renderFoundSummary(summary), 'Found in your history');
         } finally {
           summaryDb.close();
@@ -685,7 +696,8 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
       if (!firstFoundTitle) {
         const docsDb = createLocalDb(dbPath);
         try {
-          firstFoundTitle = buildFoundSummary(docsDb).recent[0]?.title;
+          const titles = buildFoundSummary(docsDb).recent.map((d) => d.title);
+          firstFoundTitle = pickAskableTitle(titles) ?? titles[0];
         } finally {
           docsDb.close();
         }
@@ -697,7 +709,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     if (!(e instanceof SkipDocs)) localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
   }
 
-  const projectAgents = projectAgentsFromWritten(writeAgentAlignment('local'));
+  const projectAgents = connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment('local')));
 
   // The agents installed on this machine, not just the ones this project configures. Local
   // setup skipped this and cloud did not, which is backwards: local mode is the one whose
@@ -1064,10 +1076,12 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   await runModelStep({ interactive });
   const launching = willLaunchAgent(agent, Boolean(opts.launchNext));
   const launchLabel = launching && agent ? agentByName(agent)?.label : undefined;
-  const nextStep = nextStepLine(agent, launching);
+  const nextStep = nextStepLine(agent, launching, agents);
   const askLine = launchLabel
     ? `Opening ${launchLabel}. Ask it: ${firstQuestion(firstFoundTitle)}`
-    : agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName: 'local' });
+    : agents.length === 0 && agent === null
+      ? `Once one is installed, open it in this repo and ask: ${firstQuestion(firstFoundTitle)}`
+      : agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName: 'local' });
   p.outro(
     `${chalk.green('You are set up in local mode.')}\n` +
     `  Graph: ${chalk.dim(dbPath)}\n` +
@@ -1324,7 +1338,7 @@ async function runCloudSetup(ctx: {
   const globalAgents = await connectDetectedAgents(envName, { verbose: ctx.opts.verbose });
 
   // ---- Step 5b: Deterministic auto-alignment files (hook + nudges) ----
-  const projectAgents = projectAgentsFromWritten(writeAgentAlignment(envName));
+  const projectAgents = connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment(envName)));
   // ALI-950: project config first - it is the one the user is most likely sitting in.
   const agents = orderAgents({ project: projectAgents, global: globalAgents.wired });
 

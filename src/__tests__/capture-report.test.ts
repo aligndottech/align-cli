@@ -185,3 +185,44 @@ describe('toCaptureSource', () => {
     expect('requested' in source).toBe(false);
   });
 });
+
+
+/**
+ * ALI-1779: "Git: 124 commits of up to 500 requested" printed beside skip lines of 189 and 187
+ * read as counts that exceed their total. 124 + 189 + 187 = 500 scanned, and the report never
+ * said so. Every number must now sit next to what it is over.
+ */
+describe('git capture report denominators (ALI-1779)', () => {
+  it('says kept-of-scanned, and the skip counts add up to what was scanned', async () => {
+    const { gitCaptureReport } = await import('../lib/fetchers/git.js');
+    const report = gitCaptureReport({ scanned: 500, kept: 124, rejectedByRationale: 189, limit: 500 });
+    const out = renderCaptureReport([toCaptureSource({ label: 'Git', unit: 'commits' }, { items: new Array(124).fill({}), report } as never)]);
+    expect(out).toContain('Git: 124 commits kept of 500 scanned');
+    expect(out).toContain('189 skipped: commit message states no reason beyond the subject');
+    expect(out).toContain('187 skipped as housekeeping');
+    expect(out).not.toContain('of up to');
+    const skipTotal = report.skips.reduce((n, k) => n + k.count, 0);
+    expect(124 + skipTotal).toBe(500);
+    for (const k of report.skips) expect(k.count).toBeLessThanOrEqual(500);
+  });
+
+  it('a scan that ended before the limit says so and still names its denominator', async () => {
+    const { gitCaptureReport } = await import('../lib/fetchers/git.js');
+    const report = gitCaptureReport({ scanned: 40, kept: 12, rejectedByRationale: 20, limit: 500 });
+    const out = renderCaptureReport([toCaptureSource({ label: 'Git', unit: 'commits' }, { items: new Array(12).fill({}), report } as never)]);
+    expect(out).toContain('Git: 12 commits kept of 40 scanned');
+    expect(out).not.toContain('limit');
+  });
+
+  it('prints no kept-of-scanned claim when the skips do not account for the difference', () => {
+    const out = renderCaptureReport([{ label: 'Docs', unit: 'pages', fetched: 5, scanned: 9, skips: [{ count: 1, detail: 'too short' }] }]);
+    expect(out).not.toContain('kept of');
+  });
+
+  it('names the limit only when the scan reached it', async () => {
+    const { gitCaptureReport } = await import('../lib/fetchers/git.js');
+    const report = gitCaptureReport({ scanned: 500, kept: 124, rejectedByRationale: 189, limit: 500 });
+    const out = renderCaptureReport([toCaptureSource({ label: 'Git', unit: 'commits' }, { items: new Array(124).fill({}), report } as never)]);
+    expect(out).toContain('(stopped at the limit of 500)');
+  });
+});
