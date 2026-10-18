@@ -34,7 +34,8 @@ describe('excerptOf', () => {
   });
 
   it('keeps a single token longer than the cap rather than printing nothing', () => {
-    expect(excerptOf('x'.repeat(30) + ' tail', 10)).toBe('x'.repeat(30) + '...');
+    const long = 'x'.repeat(30);
+    expect(excerptOf(`${long} tail`, 10)).toBe(`${long}...`);
   });
 
   it('re-flows hard wraps into one line', () => {
