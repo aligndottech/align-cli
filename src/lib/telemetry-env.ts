@@ -26,3 +26,11 @@ export function telemetryDisabledByEnv(): TelemetryEnvSwitch | undefined {
   if (ours !== undefined && ours !== '' && !ON_VALUES.has(ours)) return 'ALIGN_TELEMETRY';
   return undefined;
 }
+
+/**
+ * ALI-1740: set (to '1') in `align doctor` and in the `align mcp` it starts. A marked process sends
+ * nothing, and writes nothing about telemetry to the user's config: no opt-out stored, no notice
+ * marked, no install beacon consumed. It is not DO_NOT_TRACK on purpose, because an env opt-out is
+ * stored as a permanent opt-out.
+ */
+export const DOCTOR_ENV = 'ALIGN_DOCTOR';

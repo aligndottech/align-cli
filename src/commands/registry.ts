@@ -16,6 +16,7 @@ import { registerSpacesCommand } from './spaces.js';
 import { registerLinksCommand } from './links.js';
 import { registerDriftCommand } from './drift.js';
 import { registerStatusCommand } from './status.js';
+import { registerDoctorCommand } from './doctor.js';
 import { registerConfigCommand } from './config.js';
 import { registerContextCommand } from './context.js';
 import { registerEnvCommand } from './env.js';
@@ -102,6 +103,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['drift'], visible: false, summary: 'Decisions that may be out of date (cloud)', register: registerDriftCommand },
   { names: ['config'], visible: false, summary: 'Change align settings (the detector)', register: registerConfigCommand },
   { names: ['status'], visible: false, summary: 'What your graph has done for you', register: registerStatusCommand },
+  { names: ['doctor'], visible: false, summary: 'Check this install end to end, with one real tool call', register: registerDoctorCommand },
   { names: ['context'], visible: false, summary: 'Write decisions to .align/decisions.md', register: registerContextCommand },
 
   // Customer: CI/alignment check

@@ -183,6 +183,11 @@ align config detector [version]
 align status                  Show what your decision graph has done for you (value readout)
                               flags: --env
 
+# Check this install end to end, with one real tool call
+
+align doctor                  Check this install end to end: Node, align on PATH, the gateway, your token, and one real tool call
+                              flags: --env
+
 # Write decisions to .align/decisions.md
 
 align context                 Manage the decisions file agents read (.align/decisions.md)

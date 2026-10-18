@@ -1,5 +1,5 @@
 import { ALIGN_HOSTED_GATEWAY_URL, type EnvironmentConfig, type TelemetryConsent } from './config.js';
-import { telemetryDisabledByEnv } from './telemetry-env.js';
+import { DOCTOR_ENV, telemetryDisabledByEnv } from './telemetry-env.js';
 import { inHookContext, markHookContext } from './hook-context.js';
 import { inCi } from './telemetry-ci.js';
 import { maybeShowTelemetryNotice, storeEnvOptOut } from './telemetry-consent.js';
@@ -26,8 +26,18 @@ import pkg from '../../package.json' with { type: 'json' };
  */
 export const TELEMETRY_TIMEOUT_MS = 2_000;
 
+/**
+ * ALI-1740: `align doctor` sends nothing, and neither does the `align mcp` it starts. A process
+ * marked with DOCTOR_ENV (telemetry-env.ts) is opted out here, in the one gate every send path
+ * already passes through. The marker is not DO_NOT_TRACK, because an env opt-out is STORED as a
+ * permanent opt-out (telemetry-consent.ts storeEnvOptOut) and a preflight must not change a choice.
+ */
+
+/** Commands that never send telemetry and never show the notice or consume the install beacon. */
+const TELEMETRY_FREE_COMMANDS: ReadonlySet<string> = new Set(['doctor']);
+
 function telemetryOptedOut(): boolean {
-  return telemetryDisabledByEnv() !== undefined || inCi();
+  return telemetryDisabledByEnv() !== undefined || inCi() || process.env[DOCTOR_ENV] === '1';
 }
 
 /**
@@ -712,6 +722,12 @@ export async function recordInvocationUsage(
  * `--advisory`), marked here because the command's action, which also marks it, runs later.
  */
 export async function beginInvocationTelemetry(commandPath: string, opts: { hook: boolean }): Promise<boolean> {
+  // Before the notice (showing it marks it shown, which switches later sends on) and before the beacon (which consumes the first run).
+  // The marker is what silences the rest of the run (the postAction usage ping, every funnel stage) and is inherited by children.
+  if (TELEMETRY_FREE_COMMANDS.has(commandPath)) {
+    process.env[DOCTOR_ENV] = '1';
+    return false;
+  }
   if (opts.hook) markHookContext();
   try {
     const { createConfigStore } = await import('./config.js');

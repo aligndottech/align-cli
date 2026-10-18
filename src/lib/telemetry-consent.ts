@@ -1,4 +1,4 @@
-import { telemetryDisabledByEnv } from './telemetry-env.js';
+import { DOCTOR_ENV, telemetryDisabledByEnv } from './telemetry-env.js';
 import { inCi } from './telemetry-ci.js';
 import type { TelemetryConsent } from './config.js';
 
@@ -92,6 +92,8 @@ export interface EnvOptOutStore {
  */
 export function storeEnvOptOut(config: EnvOptOutStore): boolean {
   try {
+    // A doctor run (and the align mcp it starts) changes nothing the user chose, so it stores nothing either.
+    if (process.env[DOCTOR_ENV] === '1') return false;
     const via = telemetryDisabledByEnv();
     if (via === undefined) return false;
     const stored = config.getTelemetryConsent();
