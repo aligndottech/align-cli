@@ -10,8 +10,7 @@ Align exposes the same authoritative decision-graph check through three equivale
   client
 
 All three call the identical gateway route with the identical auth/tenant resolution, so this
-is not a speed ranking or a "which is faster" claim - see
-[ALI-1004](https://linear.app/aligndottech/issue/ALI-1004) for the measured comparison. This
+is not a speed ranking or a "which is faster" claim. This
 page is about which one a given runtime should default to.
 
 ## The matrix
@@ -46,5 +45,4 @@ already-known booleans, which path to recommend. Detection and wiring the recomm
   idempotency and auth-safety guarantees (never retry across interfaces on an auth denial, never
   double-spend on a cross-interface retry after a timeout) and is intentionally out of scope
   here.
-- **Not a universal speed claim.** No path is asserted to be faster in general; see ALI-1004 for
-  the measured comparison, run against identical fixtures.
+- **Not a universal speed claim.** No path is asserted to be faster in general.

@@ -1,27 +1,22 @@
 # Cloud or local-only
 
-`align` offers two modes.
+`align` offers two modes. With no team login, `align` runs local-only (`routeSetup` in
+`src/lib/setup-route.ts` returns local). A team login sends setup to the team graph.
 
-- **Cloud** (default). Your graph is hosted at Align: synced across machines, backed up, and
+- **Cloud** (a team login). Your graph is hosted at Align: synced across machines, backed up, and
   cross-tool relationship detection runs server-side. Connectors connect via **read-only
   browser OAuth**, and `align ask` retrieval runs server-side. Which tenant you land in is
-  decided entirely by the email you sign in with - there's no separate personal-vs-team
-  picker:
-  - **Work email** - you join the tenant already registered for that domain, or a new one is
-    created and you're its admin if you're first. The next colleague who signs in with the same
-    domain lands in that same tenant automatically. No invite needed.
-  - **Personal email** (gmail, outlook, icloud, ...) - you get a tenant of one. Moving into a
-    company tenant later is a web-only invite flow, and everything you brought over stays
-    private (`creator_only`) until you or an admin change that. There is no automatic merge of
-    a personal graph into a team's.
+  decided by the server, not the CLI. A personal email doesn't get a
+  cloud graph, so solo use is local-only. A team graph comes by invitation (`align join`) or,
+  for a new team, a call (`align share` with no login prints the booking link).
 - **Local-only** (`align --local`). **No account, and no Align servers.** The graph,
   embeddings and search all live in a SQLite database on your machine, and the CLI never sends
   your decisions, your code, or any file content to us. It sends anonymous usage counts, and
   tells you so once, before the first one; `align telemetry off` or `DO_NOT_TRACK=1` stops all
   of it. See Telemetry below, and [every field](telemetry.md).
 
-Pick cloud on a work email to land straight in your company's graph, local for maximum
-privacy. You can start local and move to cloud later.
+Join a team graph to share decisions with your company, local for maximum privacy. You can
+start local and move to cloud later.
 
 ## What touches the network in local-only mode
 

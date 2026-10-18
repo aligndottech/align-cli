@@ -384,13 +384,13 @@ align env get                Show current environment
 ## Telemetry
 
 ```
-align telemetry on           Send anonymous usage pings in local-only mode (off until you say yes)
+align telemetry on           Turn usage pings back on in local-only mode (they're on by default after a one-time notice)
 align telemetry off          Stop all of it, the two default anonymous counts included
 align telemetry status       Show the effective state and why
 ```
 
-Local-only mode sends two anonymous counts by default (install, setup completed); usage only
-with your consent; `align telemetry off` or `DO_NOT_TRACK=1` stops all of it. See
+Local-only mode sends anonymous counts: install, setup completed, and which commands you run,
+after a one-time notice; `align telemetry off` or `DO_NOT_TRACK=1` stops all of it. See
 [Telemetry](telemetry.md) for every event and field, and
 [Cloud or local-only](local-mode.md#telemetry) for how the two modes differ.
 
