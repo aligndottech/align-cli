@@ -38,7 +38,7 @@ export function advisoryHookCommand(host: HookHost, env?: string): string {
   // Copilot CLI denies a tool call when a preToolUse hook exits non-zero, and this file is the
   // user's, so it fires in every project. A missing align (uninstalled, or not on the hook
   // shell's PATH) is exit 127 and would block every edit. Guard the absent case only: a present
-  // align keeps its own exit status and output. `bash` is the field's shell on every platform.
+  // align keeps its own exit status and output. The entry only has a `bash` field, so this guard covers hosts that run it; Windows is unchanged.
   // The other hosts treat a non-zero exit as a non-blocking error, so they keep the bare form.
   return host === 'copilot' ? `${COPILOT_ABSENT_GUARD}${command}` : command;
 }

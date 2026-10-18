@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { chmodSync } from 'node:fs';
 import { removeUserHooks, type UserHookTarget, writeUserHooks } from '../lib/user-hooks.js';
 
 /**
@@ -70,7 +69,7 @@ describe('writeUserHooks - Copilot CLI (~/.copilot/hooks/align.json, preToolUse 
       expect(cfg.hooks[event]).toHaveLength(1);
       const entry = cfg.hooks[event][0];
       expect(entry.type).toBe('command');
-      expect(entry.bash).toContain('align check --advisory --format copilot');
+      expect(entry.bash).toBe('command -v align >/dev/null 2>&1 || exit 0; align check --advisory --format copilot');
       // Copilot's own names for its file-editing tools (hooks reference): edit,
       // str_replace_editor, apply_patch map to Edit; create maps to Write.
       for (const tool of ['edit', 'create', 'str_replace_editor', 'apply_patch']) expect(entry.matcher).toContain(tool);
@@ -89,7 +88,7 @@ describe.skipIf(process.platform === 'win32')('Copilot hook command - align abse
   function run(pathDirs: string[]): { status: number | null; stdout: string; stderr: string } {
     writeUserHooks(target('copilot', '.copilot/hooks/align.json'), 'local');
     const cfg = readJson('.copilot/hooks/align.json');
-    const r = spawnSync('bash', ['-c', cfg.hooks.preToolUse[0].bash], {
+    const r = spawnSync('/bin/bash', ['-c', cfg.hooks.preToolUse[0].bash], {
       input: payload, encoding: 'utf8', env: { PATH: pathDirs.join(':') },
     });
     return { status: r.status, stdout: r.stdout, stderr: r.stderr };
@@ -103,7 +102,9 @@ describe.skipIf(process.platform === 'win32')('Copilot hook command - align abse
   }
 
   it('exits 0 and prints nothing when align is not on PATH', () => {
-    const r = run(['/usr/bin', '/bin']);
+    const empty = join(dir, 'empty');
+    mkdirSync(empty);
+    const r = run([empty]);
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('');
   });
@@ -125,6 +126,12 @@ describe.skipIf(process.platform === 'win32')('Copilot hook command - align abse
     writeUserHooks(target('copilot', '.copilot/hooks/align.json'), undefined, undefined, (f) => edited.push(f));
     expect(edited).toEqual([]);
     expect(readJson('.copilot/hooks/align.json').hooks.preToolUse[0].bash).toMatch(/^command -v align .*; align check --advisory --format copilot$/);
+  });
+
+  it('removes the guarded entry on remove', () => {
+    writeUserHooks(target('copilot', '.copilot/hooks/align.json'));
+    expect(removeUserHooks(target('copilot', '.copilot/hooks/align.json'))).toBe(true);
+    expect(existsSync(join(dir, '.copilot/hooks/align.json'))).toBe(false);
   });
 
   it('keeps a present align\'s non-zero exit (the guard only covers the absent case)', () => {
