@@ -8,6 +8,7 @@ import {
   readFileSync,
   readlinkSync,
   renameSync,
+  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -43,11 +44,12 @@ export interface SafeFs {
   unlinkSync: typeof unlinkSync;
   mkdirSync: typeof mkdirSync;
   readdirSync: typeof readdirSync;
+  rmdirSync: typeof rmdirSync;
 }
 
 // Built on use, not at import: a test that mocks node:fs with a few names must still be able
 // to import anything that reaches this module.
-const realFs = (): SafeFs => ({ readFileSync, writeFileSync, renameSync, copyFileSync, lstatSync, readlinkSync, chmodSync, unlinkSync, mkdirSync, readdirSync });
+const realFs = (): SafeFs => ({ readFileSync, writeFileSync, renameSync, copyFileSync, lstatSync, readlinkSync, chmodSync, unlinkSync, mkdirSync, readdirSync, rmdirSync });
 
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -101,6 +103,11 @@ export interface WrittenConfig {
    * (`<file>.align-backup.<n>`, 0600). Hashes only: the manifest never holds config values.
    */
   snapshots?: Array<{ n: number; sha256: string }>;
+  /**
+   * Directories align's first write made on the way to this file (outermost first). Undo removes
+   * each one only if it is empty by then, so a directory that held anything else stays.
+   */
+  createdDirs?: string[];
   /** Text files: the managed block align wrote. */
   block?: {
     start: string;
@@ -146,6 +153,7 @@ export function mergeWrittenConfig(prev: WrittenConfig | undefined, next: Writte
     backup: prev.backup,
     ...(prev.backupSha256 ? { backupSha256: prev.backupSha256 } : {}),
     ...(owned.size > 0 ? { owned: [...owned.values()] } : {}),
+    ...((prev.createdDirs?.length || next.createdDirs?.length) ? { createdDirs: [...new Set([...(prev.createdDirs ?? []), ...(next.createdDirs ?? [])])] } : {}),
     ...((prev.snapshots?.length || next.snapshots?.length) ? { snapshots: [...(prev.snapshots ?? []), ...(next.snapshots ?? [])] } : {}),
     ...(next.block
       ? { block: { ...next.block, ...(prev.block ? (prev.block.replaced ? { replaced: true } : {}) : next.block.replaced ? { replaced: true } : {}) } }
@@ -178,6 +186,11 @@ export interface SafeWriteOptions {
   markers?: { start: string; end: string };
   /** TOML only: the table (e.g. ['mcp_servers', 'align-local']) the managed block holds. */
   tomlTable?: string[];
+  /**
+   * A file in the user's repo, not in an agent's private config: new files and directories get the
+   * default mode (the umask decides) instead of owner-only, since a team shares them.
+   */
+  projectFile?: boolean;
   /** The tail of the invalid-JSON message: what to do about it. */
   invalidJsonAdvice?: string;
 }
@@ -307,12 +320,12 @@ function sweepStaleTemps(fs: SafeFs, file: string): void {
 }
 
 /** Stage `text` beside `file` and rename it over. Never leaves the temp file behind on failure. */
-function stageAndRename(fs: SafeFs, file: string, text: string, mode: number | null, beforeRename?: () => boolean): boolean {
+function stageAndRename(fs: SafeFs, file: string, text: string, mode: number | null, beforeRename?: () => boolean, newMode = 0o600): boolean {
   let tmp = '';
   for (let i = 0; i < 5; i++) {
     tmp = path.join(path.dirname(file), `.${path.basename(file)}.${randomBytes(4).toString('hex')}.align-tmp`);
     try {
-      fs.writeFileSync(tmp, text, { encoding: 'utf8', mode: mode ?? 0o600, flag: 'wx' });
+      fs.writeFileSync(tmp, text, { encoding: 'utf8', mode: mode ?? newMode, flag: 'wx' });
       break;
     } catch (err) {
       if ((err as { code?: string }).code === 'EEXIST' && i < 4) continue;
@@ -438,6 +451,21 @@ function blockOf(before: string | null, next: string, markers: { start: string; 
   return { start: markers.start, end: markers.end, sha256: sha(region), ...(old !== null && old !== region ? { replaced: true } : {}), ...(table ? { table } : {}) };
 }
 
+/** The directories on the way to `dir` that do not exist yet, outermost first. */
+function missingDirs(fs: SafeFs, dir: string): string[] {
+  const missing: string[] = [];
+  for (let d = dir; ; d = path.dirname(d)) {
+    try {
+      fs.lstatSync(d);
+      break;
+    } catch {
+      missing.unshift(d);
+    }
+    if (path.dirname(d) === d) break;
+  }
+  return missing;
+}
+
 function safeWrite(
   file: string,
   compute: (current: string | null) => string | undefined,
@@ -457,13 +485,16 @@ function safeWrite(
 
   let backup: { state: 'made' | 'foreign' | 'none'; sha256?: string } = { state: 'none' };
   const snapshots: Array<{ n: number; sha256: string }> = [];
+  let createdDirs: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const before = readCurrent(fs, file);
     const next = compute(before);
     if (next === undefined) return 'declined';
     if (next === before) return 'unchanged';
 
-    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    const madeDirs = missingDirs(fs, path.dirname(file));
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: opts.projectFile ? 0o777 : 0o700 });
+    if (madeDirs.length > 0) createdDirs = madeDirs;
     sweepStaleTemps(fs, file);
     const mode = modeOf(fs, file);
     // The first time align writes a file that exists, the original is kept. After that, if the file
@@ -480,7 +511,7 @@ function safeWrite(
 
     let staged = false;
     try {
-      staged = stageAndRename(fs, file, next, mode, () => readCurrent(fs, file) === before);
+      staged = stageAndRename(fs, file, next, mode, () => readCurrent(fs, file) === before, opts.projectFile ? 0o666 : 0o600);
     } catch (err) {
       dropSnapshots(fs, file, snapshots);
       throw err;
@@ -512,6 +543,7 @@ function safeWrite(
         backup: backup.state,
         ...(backup.sha256 ? { backupSha256: backup.sha256 } : {}),
         ...(kept.length > 0 ? { snapshots: kept } : {}),
+        ...(createdDirs.length > 0 ? { createdDirs } : {}),
         ...owned,
         ...(block ? { block } : {}),
       });
@@ -566,12 +598,20 @@ export function ownedOf(before: Json, after: Json, prev: OwnedItem[] = [], snaps
       return !ownsElement(here, h);
     });
   };
+  /**
+   * A container that is already in the file but that align's own earlier write made: its
+   * createdDepth, so an entry added to it now is still pruned with it. null when it was the user's.
+   */
+  const madeByAlign = (here: string[]): number | null => {
+    const depths = prev.filter((i) => i.path.length > here.length && samePath(i.path.slice(0, here.length), here) && i.createdDepth <= here.length).map((i) => i.createdDepth);
+    return depths.length > 0 ? Math.min(...depths) : null;
+  };
   const walk = (b: Json | undefined, a: Json, p: string[], created: number | null): void => {
     for (const [k, av] of Object.entries(a)) {
       const here = [...p, k];
       const has = b !== undefined && Object.prototype.hasOwnProperty.call(b, k);
       const bv = has ? b![k] : undefined;
-      const createdAt = created ?? (has ? null : here.length);
+      const createdAt = created ?? (has ? madeByAlign(here) : here.length);
       if (has && shaOf(av) === shaOf(bv)) continue;
       if (isObject(av) && Object.keys(av).length > 0 && here.length < 2 && (!has || isObject(bv))) {
         walk(has ? (bv as Json) : undefined, av, here, createdAt);
@@ -774,6 +814,12 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       }
     };
     const backupTrusted = (): boolean => snapText(0) !== null;
+    /** Directories align made for this file, innermost first, each only while empty. */
+    const dropDirs = () => {
+      for (const d of [...(entry.createdDirs ?? [])].reverse()) {
+        try { fs.rmdirSync(d); } catch { break; /* not empty (or gone): the outer ones hold it too */ }
+      }
+    };
     /** Only after a fully clean undo, and only copies that are still align's own. */
     const dropBackup = () => {
       for (const n of [0, ...(entry.snapshots ?? []).map((x) => x.n)]) {
@@ -786,6 +832,7 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
       if (entry.created) {
         if (moved()) continue;
         fs.unlinkSync(file);
+        dropDirs();
         report.removed.push(file);
         report.done.push(file);
         continue;
@@ -886,16 +933,18 @@ export function undoWrittenConfigs(manifest: Record<string, WrittenConfig>, fs: 
     }
     // A file align created that holds nothing but align's own content once that is out: remove it, as
     // an untouched one is.
-    if (entry.created && entry.owned && !entry.block && next.trim() === '{}') {
+    if (entry.created && ((entry.owned && !entry.block && next.trim() === '{}') || (entry.block && next.trim() === ''))) {
       if (moved()) continue;
       fs.unlinkSync(file);
       dropBackup();
+      dropDirs();
       report.removed.push(file);
       report.done.push(file);
       continue;
     }
     if (next !== cur && !stageAndRename(fs, file, next, modeOf(fs, file), () => !moved())) continue;
     dropBackup();
+    dropDirs();
     report.cleaned.push(file);
     report.done.push(file);
   }

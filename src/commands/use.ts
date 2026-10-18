@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { projectFilesWithAlignText } from '../lib/agent-rules.js';
 import { agentByName, LAUNCH_AGENTS, resolveAgentBin } from '../lib/launch/agents.js';
 import { findOnPath } from '../lib/launch/detect.js';
 import { undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
@@ -10,6 +11,8 @@ export interface UseDeps {
   writtenConfigs: { get(): Record<string, WrittenConfig>; drop(files: string[]): void };
   env: Record<string, string | undefined>;
   platform: string;
+  /** The directory undo looks in for files align wrote that it has no record of. Default: the process cwd. */
+  cwd?: string;
   log(line: string): void;
   err(line: string): void;
 }
@@ -27,6 +30,14 @@ export async function runUse(name: string | undefined, d: UseDeps, opts: { none?
     }
     const manifest = d.writtenConfigs.get();
     if (Object.keys(manifest).length === 0) {
+      // The record is empty, but a build that kept none may have written files here. Say so rather
+      // than claim there is nothing: undo cannot tell align's text from the user's without a record.
+      const unrecorded = projectFilesWithAlignText(d.cwd ?? process.cwd());
+      if (unrecorded.length > 0) {
+        d.err(`align has no record of writing these files, so it left them alone: ${unrecorded.join(', ')}.`);
+        d.err('They carry align text (a block between "align:start" and "align:end" markers, or an "align check" / "align context inject" hook or "align" MCP entry). Remove those by hand; check `git diff` first.');
+        return 1;
+      }
       d.log('Nothing to undo: align has not written to any agent config.');
       return 0;
     }
@@ -83,7 +94,7 @@ export function registerUseCommand(program: Command): void {
   program
     .command('use [agent]')
     .option('--none', 'Clear the choice, so bare `align` picks again')
-    .option('--undo', 'Put back every agent config file align wrote (restores each from its .align-backup)')
+    .option('--undo', 'Undo what align wrote: removes its entries and blocks, deletes files it created that you have not edited, restores the rest from .align-backup')
     .description('Choose the coding agent bare `align` opens (no argument shows the current one)')
     .action(async (agent: string | undefined, opts: { none?: boolean; undo?: boolean }) => {
       const { createConfigStore } = await import('../lib/config.js');
@@ -94,6 +105,7 @@ export function registerUseCommand(program: Command): void {
         findOnPath,
         env: process.env,
         platform: process.platform,
+        cwd: process.cwd(),
         log: (l) => console.log(l),
         err: (l) => console.error(l),
       }, opts);
