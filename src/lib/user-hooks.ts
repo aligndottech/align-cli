@@ -29,11 +29,18 @@ export interface UserHookTarget {
 // The hook budget on every host is <=10s (check.ts); the same number Claude Code's hook uses.
 const HOOK_TIMEOUT_SECONDS = 10;
 const OURS = 'align check --advisory';
+const COPILOT_ABSENT_GUARD = 'command -v align >/dev/null 2>&1 || exit 0; ';
 
 export function advisoryHookCommand(host: HookHost, env?: string): string {
   // prod is the default env, so leave it off - the same rule agent-rules.ts follows.
   const envArg = env && env !== 'prod' ? ` --env ${env}` : '';
-  return `${OURS} --format ${host}${envArg}`;
+  const command = `${OURS} --format ${host}${envArg}`;
+  // Copilot CLI denies a tool call when a preToolUse hook exits non-zero, and this file is the
+  // user's, so it fires in every project. A missing align (uninstalled, or not on the hook
+  // shell's PATH) is exit 127 and would block every edit. Guard the absent case only: a present
+  // align keeps its own exit status and output. The entry only has a `bash` field, so this guard covers hosts that run it; Windows is unchanged.
+  // The other hosts treat a non-zero exit as a non-blocking error, so they keep the bare form.
+  return host === 'copilot' ? `${COPILOT_ABSENT_GUARD}${command}` : command;
 }
 
 interface HostSpec {
@@ -101,8 +108,11 @@ function isOurs(spec: HostSpec, entry: unknown): boolean {
 function isPristine(host: HookHost, spec: HostSpec, entry: unknown): boolean {
   const command = spec.commandsOf(entry).find((c) => c.includes(OURS));
   // The command itself must be one align writes: an appended flag or a wrapper is an edit too.
-  return command !== undefined
-    && new RegExp(`^${OURS} --format ${host}( --env \\S+)?$`).test(command)
+  // Copilot's command carries the absent-align guard (ALI-1749); the bare form older versions
+  // wrote is pristine too, which is what lets a re-run migrate it.
+  const bare = host === 'copilot' && command?.startsWith(COPILOT_ABSENT_GUARD) ? command.slice(COPILOT_ABSENT_GUARD.length) : command;
+  return command !== undefined && bare !== undefined
+    && new RegExp(`^${OURS} --format ${host}( --env \\S+)?$`).test(bare)
     && isDeepStrictEqual(entry, spec.entry(command));
 }
 
