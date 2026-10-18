@@ -18,6 +18,9 @@ import { SCAFFOLDING } from './search-query.js';
  * Pure and deterministic: no model call, no I/O. Ties keep input order (Array.sort is stable).
  */
 export const TITLE_WEIGHT = 0.35;
+/** A row more than this far below the best dense score gets no boost, so a weak row with a
+ *  matching title cannot climb past strong ones (measured: the motivating miss sat 0.14 down). */
+export const MAX_CLIMB = 0.25;
 
 /** Cheap suffix strip so "removed", "removes" and "remove" meet. Not a linguistic stemmer. */
 function stem(token: string): string {
@@ -40,19 +43,22 @@ export function rerankByTitle<T>(
   weight = TITLE_WEIGHT,
 ): T[] {
   const queryTerms = [...new Set(
-    query.split(/[^\p{L}\p{N}]+/u).filter(w => w && !SCAFFOLDING.has(w.toLowerCase())).map(stem),
+    query.replace(/['\u2019](s|t|re|m|ll|ve|d)\b/giu, '').split(/[^\p{L}\p{N}]+/u).filter(w => w && !SCAFFOLDING.has(w.toLowerCase())).map(stem),
   )];
   const titleTerms = rows.map(r => new Set(stems(title(r))));
   const idf = new Map<string, number>();
   for (const term of queryTerms) {
     const df = titleTerms.filter(s => s.has(term)).length;
     // A term in no title cannot separate anyone, so it is left out of the denominator too.
-    if (df > 0) idf.set(term, Math.log(1 + rows.length / df));
+    // A term in EVERY title (more than one row) discriminates nothing, so it stays out too.
+    if (df > 0 && (df < rows.length || rows.length === 1)) idf.set(term, Math.log(1 + rows.length / df));
   }
   const total = [...idf.values()].reduce((a, b) => a + b, 0);
   if (total === 0) return [...rows];
+  const best = Math.max(...rows.map(score));
   return rows
     .map((row, i) => {
+      if (score(row) < best - MAX_CLIMB) return { row, rank: score(row) };
       let hit = 0;
       for (const [term, w] of idf) if (titleTerms[i].has(term)) hit += w;
       return { row, rank: score(row) + weight * (hit / total) };

@@ -29,6 +29,19 @@ describe('rerankByTitle', () => {
     expect(rank('why was align setup removed zzzunknown', [MENTION, REMOVAL, OTHER])[0]).toBe('removal');
   });
 
+  it('gives a weak row no boost, so it cannot climb past strong ones', () => {
+    const strong = { id: 'strong', score: 0.7, title: 'feat: unrelated' };
+    const weak = { id: 'weak', score: 0.3, title: 'remove align setup' };
+    const mid = { id: 'mid', score: 0.5, title: 'docs: other' };
+    expect(rank('why was align setup removed', [strong, mid, weak])).toEqual(['strong', 'mid', 'weak']);
+  });
+
+  it('does not treat contraction fragments as query words', () => {
+    const a = { id: 'a', score: 0.6, title: 'docs: notes' };
+    const b = { id: 'b', score: 0.5, title: "fix: user's t s thing" };
+    expect(rank("what's the plan", [a, b])).toEqual(['a', 'b']);
+  });
+
   it('keeps the dense order when no title shares a content word with the query', () => {
     const rows = [
       { id: 'x', score: 0.7, title: 'feat: add retries' },
