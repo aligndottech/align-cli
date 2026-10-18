@@ -92,7 +92,7 @@ describe('the first `align ask` with nothing configured, on a terminal', () => {
     const out = await ask();
     expect(offerAskProviderKey).toHaveBeenCalledTimes(1);
     expect(out).toContain('Chose Postgres');
-    expect(out).toMatch(/1 matching decision/);
+    expect(out).toMatch(/1 related decision/);
   });
 
   it('a key saved at the offer answers THIS question, with prose', async () => {

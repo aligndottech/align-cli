@@ -82,7 +82,7 @@ describe('align ask', () => {
     expect(output.some(l => /decisions? in your graph/i.test(l))).toBe(false);
     // Positive control: it still reports how many it found, so this is a relabel and not a
     // deletion. The shared fixture at the top of this file reports `count: 2`.
-    expect(output.some(l => /2 matching decisions/i.test(l))).toBe(true);
+    expect(output.some(l => /2 related decisions/i.test(l))).toBe(true);
   });
 
   it('prints a conversational synthesised answer when an AI provider is available', async () => {

@@ -16,6 +16,7 @@ import { resolveScopeOpts } from '../lib/repo-identity.js';
 import { askTrailingLine } from '../lib/connect-prompt.js';
 import { getGitIdentities, hasOtherCommitters } from '../lib/git.js';
 import { answeredBySomeoneElse, inviteNudgeLine } from '../lib/invite-prompt.js';
+import { allWeak, excerptOf, isWeak, LIST_DISPLAY_CAP, matchNoun, withoutTitle } from '../lib/ask-listing.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -114,7 +115,7 @@ export function registerAskCommand(program: Command): void {
     .option('--repo <name>', 'Scope to one repo - short name, owner/repo, or full identity (local mode only)')
     .option('--all', 'Search every repo, not just the current one (local mode only)')
     .option('--json', 'Print the matching decisions as JSON (no prose answer, no AI call)')
-    .action(async (query: string, opts: { env?: EnvName; limit: string; repo?: string; all?: boolean; json?: boolean }) => {
+    .action(async (query: string, opts: { env?: EnvName; limit: string; repo?: string; all?: boolean; json?: boolean }, cmd: Command) => {
       const config = createConfigStore();
       const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const client = createGatewayClient(config.getEnvironment(envName));
@@ -388,25 +389,94 @@ export function registerAskCommand(program: Command): void {
           }
         }
 
+        // ALI-1780: scores are only comparable to the weak-match floor in local mode, where
+        // they are dense cosine; a cloud result is on the gateway's own scale.
+        const localScores = config.getEnvironment(envName).mode === 'local-embedded';
+        const weakSet = localScores && allWeak(results.results.map((d) => d.similarity));
+
+        // The guidance for "no answer was written", built first so a terminal can show it
+        // ABOVE the list (it is the one honest line, and used to sit under up to 500 lines).
+        const guidance: string[] = [];
+        let reason = '';
+        if (!filePath) {
+          // ALI-420: a running Ollama with no vetted model used to answer anyway, with
+          // whatever it listed first. It now declines, so name the models it has rather
+          // than telling someone who is already running a provider to configure one.
+          const unvetted = synthFailure?.kind === 'unrecognised_local_models' ? synthFailure.models : null;
+          const failure = synthFailure?.kind === 'provider_stopped' ? synthFailure : null;
+          const unavailable = synthFailure?.kind === 'providers_unavailable' ? synthFailure : null;
+          if (unvetted) {
+            reason = 'no recognised AI model is running, so no answer was written';
+            guidance.push(chalk.dim('  No answer written: Ollama is running, but none of these'));
+            guidance.push(chalk.dim('  models are recognised for decision synthesis.'));
+            for (const m of unvetted) guidance.push(chalk.dim(`    - ${m}`));
+            guidance.push(chalk.dim(`  Pull one:     ollama pull ${RECOMMENDED_OLLAMA_PULL}`));
+            guidance.push(chalk.dim('  Or name one:  ALIGN_OLLAMA_MODEL=<model>'));
+          } else if (failure) {
+            // ALI-692: the chain stopped rather than demoting to a weaker model. Name
+            // the model that failed - the key hint would be wrong for a user whose
+            // provider is configured and answering.
+            reason = 'the AI model returned an unusable response, so no answer was written';
+            guidance.push(chalk.dim(`  No answer written: ${failure.model} (${failure.provider}) returned an`));
+            guidance.push(chalk.dim(`  unusable response (${failure.detail}). A weaker model was not asked in`));
+            guidance.push(chalk.dim('  its place. Retry, or configure a different provider.'));
+          } else if (unavailable) {
+            // ALI-766: a provider WAS configured and none of them answered. The key nudge
+            // below would be the wrong signpost - it reads as "your provider is not
+            // supported" to the one user who took the trouble to configure us.
+            // "did not answer", not "unreachable": this path also carries availability-class
+            // REJECTIONS (401/403/404), where the endpoint answered perfectly well and turned
+            // us down. The first wording contradicted this file's own test fixture, which
+            // asserts an HTTP 401 case.
+            reason = 'no configured AI model answered, so no answer was written';
+            guidance.push(chalk.dim('  No answer written: no configured provider answered.'));
+            for (const t of unavailable.tried) {
+              guidance.push(chalk.dim(`    - ${t.provider}: ${t.detail}`));
+            }
+            guidance.push(chalk.dim('  Check the endpoint and key, or configure a different provider.'));
+          } else {
+            reason = 'no AI model is set up, so no answer was written';
+            for (const line of noProviderHintLines()) guidance.push(chalk.dim(`  ${line}`));
+          }
+        }
+        // Guidance above the list on a terminal; after it when piped, where the list is the
+        // payload and the caller reads top to bottom.
+        const guidanceFirst = Boolean(process.stdout.isTTY);
+
         if (filePath) {
           console.log(chalk.bold(`\n  Decisions related to ${query}\n`));
         } else {
-          // "matching", not "in your graph": this is the size of the RESULT SET, and
-          // `align local status` prints the identical sentence with the real graph size. Two
-          // commands using one sentence for two different numbers is how a CI comparison of
-          // ask-output against status-output produced two confidently wrong findings.
-          const count = results.count;
-          console.log(chalk.bold(`\n  ${count} matching decision${count === 1 ? '' : 's'}\n`));
+          // ALI-1780: ONE summary line, first, saying what the list is. "related", not
+          // "matching": no model has judged any of them relevant, and the old header read
+          // as if they answered. Still the size of the RESULT SET, not of the graph (`align
+          // local status` prints a count of the graph; ALI-771 - two commands, two numbers).
+          const best = Math.max(...results.results.map((d) => d.similarity ?? 0));
+          const lead = weakSet
+            ? `all weak matches (best ${(best * 100).toFixed(0)}%)`
+            : 'none judged relevant yet';
+          console.log(chalk.bold(`\n  ${matchNoun(results.count)}, ${lead}: ${reason}\n`));
+          if (guidanceFirst) {
+            for (const line of guidance) console.log(line);
+            console.log('');
+          }
         }
 
-        for (const d of results.results) {
+        // Width: the terminal's when there is one, else a fixed 74 so piped output is the
+        // same everywhere. Never below 40, never above 100 (long lines are the wall).
+        const cols = process.stdout.isTTY ? process.stdout.columns : undefined;
+        const wrapWidth = cols ? Math.min(100, Math.max(40, cols - 6)) : 74;
+        // Typing --limit means "show me this many"; otherwise cap what the list prints.
+        const explicitLimit = cmd.getOptionValueSource('limit') === 'cli';
+        const listed = explicitLimit ? results.results : results.results.slice(0, LIST_DISPLAY_CAP);
+
+        for (const d of listed) {
           const score = d.similarity !== undefined
-            ? chalk.dim(` (${(d.similarity * 100).toFixed(0)}% match)`)
+            ? chalk.dim(` (${(d.similarity * 100).toFixed(0)}%${localScores && isWeak(d.similarity) ? ' weak' : ''} match)`)
             : '';
           console.log(chalk.bold(`  ${d.title}`) + score);
 
           if (d.summary) {
-            const summaryLines = wrapText(`"${d.summary}"`, '  ', 74);
+            const summaryLines = wrapText(`"${excerptOf(withoutTitle(d.summary, d.title))}"`, '  ', wrapWidth);
             for (const line of summaryLines) {
               console.log(chalk.dim(line));
             }
@@ -438,44 +508,13 @@ export function registerAskCommand(program: Command): void {
           console.log('');
         }
 
-        // We only reach the list for a non-file query when synthesis was
-        // unavailable - say why, and what to do about it.
-        if (!filePath) {
-          // ALI-420: a running Ollama with no vetted model used to answer anyway, with
-          // whatever it listed first. It now declines, so name the models it has rather
-          // than telling someone who is already running a provider to configure one.
-          const unvetted = synthFailure?.kind === 'unrecognised_local_models' ? synthFailure.models : null;
-          const failure = synthFailure?.kind === 'provider_stopped' ? synthFailure : null;
-          const unavailable = synthFailure?.kind === 'providers_unavailable' ? synthFailure : null;
-          if (unvetted) {
-            console.log(chalk.dim('  No answer written: Ollama is running, but none of these'));
-            console.log(chalk.dim('  models are recognised for decision synthesis.'));
-            for (const m of unvetted) console.log(chalk.dim(`    - ${m}`));
-            console.log(chalk.dim(`  Pull one:     ollama pull ${RECOMMENDED_OLLAMA_PULL}`));
-            console.log(chalk.dim('  Or name one:  ALIGN_OLLAMA_MODEL=<model>'));
-          } else if (failure) {
-            // ALI-692: the chain stopped rather than demoting to a weaker model. Name
-            // the model that failed - the key hint would be wrong for a user whose
-            // provider is configured and answering.
-            console.log(chalk.dim(`  No answer written: ${failure.model} (${failure.provider}) returned an`));
-            console.log(chalk.dim(`  unusable response (${failure.detail}). A weaker model was not asked in`));
-            console.log(chalk.dim('  its place. Retry, or configure a different provider.'));
-          } else if (unavailable) {
-            // ALI-766: a provider WAS configured and none of them answered. The key nudge
-            // below would be the wrong signpost - it reads as "your provider is not
-            // supported" to the one user who took the trouble to configure us.
-            // "did not answer", not "unreachable": this path also carries availability-class
-            // REJECTIONS (401/403/404), where the endpoint answered perfectly well and turned
-            // us down. The first wording contradicted this file's own test fixture, which
-            // asserts an HTTP 401 case.
-            console.log(chalk.dim('  No answer written: no configured provider answered.'));
-            for (const t of unavailable.tried) {
-              console.log(chalk.dim(`    - ${t.provider}: ${t.detail}`));
-            }
-            console.log(chalk.dim('  Check the endpoint and key, or configure a different provider.'));
-          } else {
-            for (const line of noProviderHintLines()) console.log(chalk.dim(`  ${line}`));
-          }
+        if (listed.length < results.results.length) {
+          console.log(chalk.dim(`  ... and ${results.results.length - listed.length} more (use --limit ${results.results.length})`));
+          console.log('');
+        }
+
+        if (!filePath && !guidanceFirst) {
+          for (const line of guidance) console.log(line);
           console.log('');
         }
 
