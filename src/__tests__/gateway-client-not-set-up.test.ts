@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const localSearch = vi.fn().mockResolvedValue({ results: [], count: 0, strategy: 'local' });
 vi.mock('../lib/local-gateway-client.js', () => ({
@@ -13,6 +13,8 @@ vi.stubGlobal('fetch', mockFetch);
 
 const PROD: EnvironmentConfig = { gatewayUrl: 'https://api.align.tech', authToken: null, tenantId: null, mode: 'auth' };
 const PREVIEW: EnvironmentConfig = { gatewayUrl: 'https://api.preview.align.tech', authToken: null, tenantId: null, mode: 'auth' };
+
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -61,7 +63,20 @@ describe('ALI-1777: a built-in cloud env with no credential says align is not se
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [], count: 0 }) });
     await createGatewayClient(env).searchDecisions('q', 5);
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    vi.unstubAllEnvs();
+  });
+
+  it('an ALIGN_GATEWAY_URL override to the default URL is still "not set up"; to another URL it is left alone', async () => {
+    vi.stubEnv('XDG_CONFIG_HOME', `/tmp/ali1777/xdg-${process.pid}-b`);
+    vi.stubEnv('ALIGN_GATEWAY_URL', 'https://api.align.tech');
+    await expect(createGatewayClient(createConfigStore().getEnvironment('prod')).whoami()).rejects.toThrow(/not set up/);
+    vi.stubEnv('ALIGN_GATEWAY_URL', 'https://align.corp.example');
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    await createGatewayClient(createConfigStore().getEnvironment('prod')).whoami();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a tenant with no token keeps its own, earlier refusal', async () => {
+    await expect(createGatewayClient({ ...PROD, tenantId: 't1' }).whoami()).rejects.toThrow(/tenant is configured/);
   });
 
   it('a self-hosted gateway URL is left alone: no token there is a real request, not "not set up"', async () => {
