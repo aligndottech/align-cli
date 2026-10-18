@@ -32,6 +32,12 @@ The short version, for local-only mode:
   commands align's installed hooks run (`align check --hook`, `align check --advisory`,
   `align context inject`). `align mcp`, and a run inside an agent `align` launched, show no
   notice, so they send nothing until it has printed in a terminal.
+- **`align doctor` sends nothing of any kind**, in either mode, whatever you have chosen: no usage
+  count, no install count, no notice, and the `align mcp` it starts for its one test question
+  sends nothing either, and neither stores nor changes anything about your telemetry choice. It
+  talks to the gateway you have configured (a health check, `whoami`, and one real question). On a
+  local-only graph there is no gateway, and the one question may download the on-device
+  embedding model once, as any first local question does.
 
 Nothing about your repo, your decisions, your files or you is ever sent.
 `align telemetry status` prints the effective state and why.

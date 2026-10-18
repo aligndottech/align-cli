@@ -88,6 +88,11 @@ align mcp --setup                    # wire your agent to the graph
 That's all of `align --help`. The rest (`search`, `decisions`, `export`, `ratify`, `push`,
 `context`, `local`, ...) still work and are in [docs/commands.md](docs/commands.md).
 
+Something not working? `align doctor` checks Node, that `align` is on your PATH, that the gateway
+answers, that your token is accepted, and that one real question comes back through `align mcp`.
+It names the next step for each failure and exits non-zero if any check fails. It sends no
+telemetry.
+
 Inside your agent, the agent writes the answers, so you don't need an AI key. Only `align ask`
 in a terminal writes its own. Give it a key (Anthropic, OpenAI, OpenRouter, Gemini, Groq,
 Mistral or xAI), a local Ollama, or any OpenAI-compatible endpoint. Without one it lists the

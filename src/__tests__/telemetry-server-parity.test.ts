@@ -45,8 +45,8 @@ const SERVER_OUTCOMES = ['ok', 'partial', 'needs_reauth', 'error'];
 const SERVER_SCOPES = ['yours', 'team'];
 const SERVER_TRIGGERS = ['connect', 'background', 'manual'];
 
-/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings. */
-const NOT_SENT = new Set(['local', 'dev', 'connector']);
+/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, and `doctor` sends no telemetry of any kind (ALI-1740). */
+const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
 
 /**
  * Found by this test on its first run (2026-10-10): `ai` and `agents` are registered here and are
@@ -71,7 +71,7 @@ describe('the CLI mirror of the gateway telemetry contract (pinned)', () => {
     expect(sorted(SYNC_SCOPES)).toEqual(sorted(SERVER_SCOPES));
     for (const t of SYNC_TRIGGERS) expect(SERVER_TRIGGERS).toContain(t);
   });
-  it('every command the CLI registers is on the gateway\'s list, bar the three it leaves out on purpose', () => {
+  it('every command the CLI registers is on the gateway\'s list, bar the four it leaves out on purpose', () => {
     const names = cliCommands();
     expect(names.length).toBeGreaterThan(10); // positive control: the tree was actually read
     const missing = names.filter((n) => !NOT_SENT.has(n) && !SERVER_COMMANDS.includes(n));
