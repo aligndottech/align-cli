@@ -36,6 +36,11 @@ const DEFAULTS: Record<BuiltinEnv, EnvironmentConfig> = {
   prod:    { gatewayUrl: 'https://api.align.tech',          authToken: null, tenantId: null, mode: 'auth' },
 };
 
+/** One writer of "does this env hold a credential": a saved token, or ALIGN_TOKEN (getEnvironment folds it into authToken). Doctor and the gateway client both ask this. */
+export function hasCredential(env: Pick<EnvironmentConfig, 'authToken'>): boolean {
+  return Boolean(env.authToken);
+}
+
 /** The gateway URL an environment uses when nothing overrides it (ALIGN_GATEWAY_URL, a saved value). */
 export function defaultGatewayUrlFor(env: string): string {
   return (DEFAULTS as Record<string, EnvironmentConfig | undefined>)[env]?.gatewayUrl ?? '';

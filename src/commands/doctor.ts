@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { createConfigStore, type EnvName } from '../lib/config.js';
+import { createConfigStore, type EnvName, hasCredential } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveTrustedAlignBin } from '../lib/trusted-align-bin.js';
@@ -36,7 +36,7 @@ export function registerDoctorCommand(program: Command): void {
         envName,
         mode: env.mode,
         gatewayUrl: env.gatewayUrl,
-        hasToken: Boolean(env.authToken) || env.mode === 'demo',
+        hasToken: hasCredential(env) || env.mode === 'demo',
         findAlign: () => resolveTrustedAlignBin(),
         probeGateway: () => probeGateway(env.gatewayUrl),
         whoami: async () => {
