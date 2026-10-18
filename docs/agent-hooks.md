@@ -174,9 +174,8 @@ settle before a shim is worth writing.
 learn.chatgpt.com/docs/hooks (the docs.openai.com and github.com/openai/codex/docs/config.md
 copies did not surface the hooks reference directly - this is one source, not
 cross-confirmed). This is genuinely promising and contradicts nothing this file already says
-about Codex: the existing "Codex CLI cannot do it" row above is specifically about
-`PreToolUse` covering Bash only, which is a different, older claim about tool interception,
-not about session lifecycle. What is missing is infrastructure, not evidence: Codex reads
+about Codex: the pre-edit row in the table above is about `PreToolUse` on
+`apply_patch`, which is tool interception, not session lifecycle. What is missing is infrastructure, not evidence: Codex reads
 hooks from `hooks.json` or an inline `[hooks]` table in `.codex/config.toml`, this repo has no
 TOML parser dependency today (`grep -n "toml" package.json` - no hits), and a hand-rolled TOML
 merge is exactly the kind of "looks fine, corrupts someone's file" risk `writeClaudeCodeHook`'s
