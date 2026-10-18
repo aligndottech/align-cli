@@ -60,6 +60,8 @@ More in [docs/installation.md](docs/installation.md).
 | **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
 | **Shared `.mcp.json`** | One committed file sets up the whole team |
 
+To undo everything align wrote, run `align use --undo`.
+
 The hook never blocks on a model's judgement unless you turn blocking on, and that needs an AI
 key. One thing can deny without it, on a team graph: a rule your team ratified (secrets, card numbers,
 emails), when the edit contains one. If Align is slow, errors or times out, the edit goes ahead. If you uninstall `align`, rerun
