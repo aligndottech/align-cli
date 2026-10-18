@@ -121,11 +121,12 @@ describe('undo after first run', () => {
 
     expect(await undo()).toBe(1);
     expect(read('.cursor/rules/align.md')).toBe(edited);
-    expect(errs.join('\n')).toContain('.cursor/rules/align.md');
+    // The message names the OS-native path (backslashes on Windows), so compare separator-normalised.
+    expect(errs.join('\n').replaceAll('\\', '/')).toContain('.cursor/rules/align.md');
     // everything else was still taken out
     expect(existsSync(path.join(repo, '.mcp.json'))).toBe(false);
     expect(existsSync(path.join(repo, '.claude'))).toBe(false);
-    expect(Object.keys(manifest).map((f) => path.relative(repo, f))).toEqual(['.cursor/rules/align.md']);
+    expect(Object.keys(manifest).map((f) => path.relative(repo, f).replaceAll('\\', '/'))).toEqual(['.cursor/rules/align.md']);
   });
 
   it('c2. keeps a user\'s own hook in .claude/settings.json and takes only align\'s out', async () => {
