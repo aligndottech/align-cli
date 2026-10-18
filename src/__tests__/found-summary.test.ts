@@ -87,6 +87,69 @@ describe('buildFoundSummary', () => {
   });
 });
 
+const titled = (titles: string[]) =>
+  titles.map((title, i) => ({ id: `t${i}`, title, sourceUrl: null }));
+
+describe('buildFoundSummary sample ranking (ALI-1772)', () => {
+  // The exact shapes a clean-room run of this repo showed first, newest first, then real changes.
+  const SHAPES = [
+    'docs: remove specific tool names from README intro',
+    '[DRAFT - hold] feat(setup): Linear via read-only OAuth instead of paste [ALI-101]',
+    'docs(readme): rewrite README intro with product positioning language',
+    'chore: bump dependencies for the release train',
+    'Merge pull request #25 from tnk/perf-connectors',
+    'perf(setup): fetch connectors concurrently instead of one-by-one [ALI-97] (#25)',
+    'fix(import): stop re-embedding commits already in the graph',
+    'feat(ask): answer from the local graph when offline',
+  ];
+
+  it('shows code-change commits before docs, chore, merge and draft subjects', () => {
+    const s = buildFoundSummary(db({ rows: titled(SHAPES) }));
+    expect(s.recent.map((d) => d.title)).toEqual([
+      'perf(setup): fetch connectors concurrently instead of one-by-one [ALI-97] (#25)',
+      'fix(import): stop re-embedding commits already in the graph',
+      'feat(ask): answer from the local graph when offline',
+      'docs: remove specific tool names from README intro',
+      '[DRAFT - hold] feat(setup): Linear via read-only OAuth instead of paste [ALI-101]',
+    ]);
+  });
+
+  it('keeps db order inside each group and still fills the sample when few qualify', () => {
+    const s = buildFoundSummary(db({ rows: titled(['docs: a long enough docs subject', 'fix: the only real change here', 'chore: another chore subject']) }));
+    expect(s.recent.map((d) => d.title)).toEqual([
+      'fix: the only real change here',
+      'docs: a long enough docs subject',
+      'chore: another chore subject',
+    ]);
+  });
+
+  it('demotes breaking-change, uppercase and [WIP shapes, but not a real decision that starts with Merge', () => {
+    const s = buildFoundSummary(db({ rows: titled([
+      'docs(readme)!: rewrite the intro for launch',
+      'Docs: capitalised docs subject line here',
+      '[WIP] feat: half finished retry policy work',
+      'Merge the two queue workers into one process',
+    ]) }));
+    expect(s.recent.map((d) => d.title)[0]).toBe('Merge the two queue workers into one process');
+    expect(s.recent).toHaveLength(4);
+    expect(s.recent.slice(1).map((d) => d.title)).toEqual([
+      'docs(readme)!: rewrite the intro for launch',
+      'Docs: capitalised docs subject line here',
+      '[WIP] feat: half finished retry policy work',
+    ]);
+  });
+
+  it('does not demote a plain subject that merely starts with a type word', () => {
+    // "docs" with no colon is prose ("documentation rewrite"), "test" likewise: only the
+    // conventional `type:` / `type(scope):` shape and a Merge subject are demoted.
+    const s = buildFoundSummary(db({ rows: titled(['document the retry policy for webhooks', 'testing moved to vitest from jest', 'fix: x marks the spot here']) }));
+    expect(s.recent.map((d) => d.title).slice(0, 2)).toEqual([
+      'document the retry policy for webhooks',
+      'testing moved to vitest from jest',
+    ]);
+  });
+});
+
 describe('renderFoundSummary', () => {
   it('leads with the two counts a first-run user can check against their own repo', () => {
     const out = renderFoundSummary({
@@ -94,7 +157,7 @@ describe('renderFoundSummary', () => {
       linked: 12,
       recent: [{ title: 'switch the queue to SQS', cite: 'align-cli#219' }],
     });
-    expect(out).toContain('47 decisions');
+    expect(out).toContain('47 candidate decisions');
     expect(out).toContain('12');
     expect(out).toContain('switch the queue to SQS');
     expect(out).toContain('align-cli#219');
@@ -118,7 +181,7 @@ describe('renderFoundSummary', () => {
     // A fresh git-only import links nothing, and "0 linked" beside a real decision
     // count is the same broken-counter read this ticket removes from the readout.
     const out = renderFoundSummary({ total: 9, linked: 0, recent: [{ title: 'a' }] });
-    expect(out).toContain('9 decisions');
+    expect(out).toContain('9 candidate decisions');
     expect(out).not.toMatch(/\b0\b/);
   });
 });
