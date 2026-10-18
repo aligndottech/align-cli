@@ -18,7 +18,7 @@
  * Returns null when there is nothing to strip, or when only scaffolding remains -
  * both mean a second embedding would be wasted.
  */
-const SCAFFOLDING = new Set([
+export const SCAFFOLDING = new Set([
   // interrogatives
   'why', 'how', 'what', 'when', 'where', 'who', 'whom', 'whose', 'which',
   // auxiliaries and copulas

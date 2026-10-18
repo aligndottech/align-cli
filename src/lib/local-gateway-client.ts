@@ -9,6 +9,7 @@ import { repositoryOf } from './decision-links.js';
 import { localCitationFor } from './commit-cite.js';
 import { extractRefs, refIdentityFor } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
+import { rerankByTitle } from './search-rerank.js';
 import { linkPass } from './local-link-pass.js';
 import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
@@ -26,13 +27,13 @@ import { notADecisionMarks } from './curation/judgements-db.js';
 import { contextKeyFor, filesFromDiff } from './curation/mark.js';
 
 import {
-  DRIFT_THRESHOLD, RELATED_FLOOR, RELATED_TOP_K, RELATES_THRESHOLD, RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD,
-  SIMILARITY_THRESHOLD,
+  DRIFT_THRESHOLD, RELATED_FLOOR, RELATED_TOP_K, RELATES_THRESHOLD, RERANK_POOL_FACTOR, RERANK_POOL_MIN,
+  RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD, SIMILARITY_THRESHOLD,
 } from './local-thresholds.js';
 
 export {
-  DRIFT_THRESHOLD, RELATED_FLOOR, RELATED_TOP_K, RELATES_THRESHOLD, RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD,
-  SIMILARITY_THRESHOLD,
+  DRIFT_THRESHOLD, RELATED_FLOOR, RELATED_TOP_K, RELATES_THRESHOLD, RERANK_POOL_FACTOR, RERANK_POOL_MIN,
+  RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD, SIMILARITY_THRESHOLD,
 };
 export { CAPTURE_CLASSIFY_TOP_K } from './local-ingest.js';
 
@@ -611,12 +612,17 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const judge = await activeJudge();
       const hidden = judge ? notADecisionMarks(dbPath, judge) : new Map();
       const dropNotes: string[] = [];
+      // ALI-1775: the dense order alone buried the commit that answers "why was X removed"
+      // under commits that merely repeat X, so retrieve a wider pool and let titles reorder it
+      // BEFORE the cut. The score each row reports stays its dense similarity.
+      const poolSize = Math.max(limit * RERANK_POOL_FACTOR, RERANK_POOL_MIN) + hidden.size;
       const visible = (rows: Awaited<ReturnType<typeof findSimilar>>) => {
-        const split = splitRetrieved(rows, hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
+        const reranked = rerankByTitle(query, rows, r => r.score, r => db.getDecisionById(r.decisionId)?.title ?? '');
+        const split = splitRetrieved(reranked, hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
         dropNotes.splice(0, dropNotes.length, ...split.notes);
         return split.kept;
       };
-      let similar = visible(await findSimilar(embedding, limit + hidden.size, SEARCH_THRESHOLD, undefined, boundedFilter));
+      let similar = visible(await findSimilar(embedding, poolSize, SEARCH_THRESHOLD, undefined, boundedFilter));
       // A natural-language question embeds less densely than its subject does, so on a
       // small graph it can miss a decision that its own content words hit. Retry once,
       // only on an empty result, mirroring the gateway's own keyword-to-semantic
@@ -625,7 +631,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       if (!similar.length) {
         const reduced = contentWordQuery(query);
         if (reduced) {
-          similar = visible(await findSimilar(await getEmbedding(reduced), limit + hidden.size, SEARCH_THRESHOLD, undefined, boundedFilter));
+          similar = visible(await findSimilar(await getEmbedding(reduced), poolSize, SEARCH_THRESHOLD, undefined, boundedFilter));
         }
       }
       const results = similar
