@@ -20,6 +20,7 @@ function harness(stored?: string, onPath: Record<string, string> = { claude: '/u
     findOnPath: (bin) => onPath[bin] ?? null,
     env: {},
     platform: 'linux',
+    cwd: os.tmpdir(), // never the checkout: its own CLAUDE.md carries align's block
     log: (l) => out.push(l),
     err: (l) => err.push(l),
   };
