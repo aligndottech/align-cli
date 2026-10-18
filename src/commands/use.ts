@@ -1,4 +1,6 @@
+import path from 'node:path';
 import type { Command } from 'commander';
+import { projectFilesWithAlignText } from '../lib/agent-rules.js';
 import { agentByName, LAUNCH_AGENTS, resolveAgentBin } from '../lib/launch/agents.js';
 import { findOnPath } from '../lib/launch/detect.js';
 import { undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
@@ -10,6 +12,8 @@ export interface UseDeps {
   writtenConfigs: { get(): Record<string, WrittenConfig>; drop(files: string[]): void };
   env: Record<string, string | undefined>;
   platform: string;
+  /** The directory undo looks in for files align wrote that it has no record of. Default: the process cwd. */
+  cwd?: string;
   log(line: string): void;
   err(line: string): void;
 }
@@ -27,10 +31,24 @@ export async function runUse(name: string | undefined, d: UseDeps, opts: { none?
     }
     const manifest = d.writtenConfigs.get();
     if (Object.keys(manifest).length === 0) {
+      // The record is empty, but a build that kept none may have written files here. Say so rather
+      // than claim there is nothing: undo cannot tell align's text from the user's without a record.
+      const unrecorded = projectFilesWithAlignText(d.cwd ?? process.cwd());
+      if (unrecorded.length > 0) {
+        d.err(`align has no record of writing these files, so it left them alone: ${unrecorded.join(', ')}.`);
+        d.err('They carry align text (a block between "align:start" and "align:end" markers, or an "align check" / "align context inject" hook or "align" MCP entry). Remove those by hand; check `git diff` first.');
+        return 1;
+      }
       d.log('Nothing to undo: align has not written to any agent config.');
       return 0;
     }
     const report = undoWrittenConfigs(manifest);
+    // Files that still carry align text and were never in the record (an older build wrote them, or a
+    // re-run found them unchanged): named, never touched, and they make the exit code non-zero.
+    const recorded = new Set(Object.keys(manifest));
+    const cwd = d.cwd ?? process.cwd();
+    const unrecorded = projectFilesWithAlignText(cwd).filter((f) => !recorded.has(path.join(cwd, f)));
+    if (unrecorded.length > 0) report.skipped.push(`${unrecorded.join(', ')}: align has no record of writing ${unrecorded.length === 1 ? 'it' : 'them'}, so ${unrecorded.length === 1 ? 'it was' : 'they were'} not touched. Remove align's text by hand; check \`git diff\` first`);
     for (const f of report.restored) d.log(`Restored ${f} from its backup.`);
     for (const f of report.removed) d.log(`Removed ${f} (align created it).`);
     for (const f of report.cleaned) d.log(`Took align's own entries out of ${f}. Your entries are kept; the file was reformatted.`);
@@ -83,7 +101,7 @@ export function registerUseCommand(program: Command): void {
   program
     .command('use [agent]')
     .option('--none', 'Clear the choice, so bare `align` picks again')
-    .option('--undo', 'Put back every agent config file align wrote (restores each from its .align-backup)')
+    .option('--undo', 'Undo what align wrote: removes its entries and blocks, deletes files it created that you have not edited, restores the rest from .align-backup')
     .description('Choose the coding agent bare `align` opens (no argument shows the current one)')
     .action(async (agent: string | undefined, opts: { none?: boolean; undo?: boolean }) => {
       const { createConfigStore } = await import('../lib/config.js');
@@ -94,6 +112,7 @@ export function registerUseCommand(program: Command): void {
         findOnPath,
         env: process.env,
         platform: process.platform,
+        cwd: process.cwd(),
         log: (l) => console.log(l),
         err: (l) => console.error(l),
       }, opts);

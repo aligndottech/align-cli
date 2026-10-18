@@ -793,7 +793,7 @@ async function runMcpRemove(): Promise<void> {
 
   const editors = detectEditors();
   if (!editors.length) {
-    p.log.info('No MCP agent detected on this machine, so there is nothing to remove.');
+    p.log.info('No MCP agent detected on this machine, so there is nothing to remove here. Files align wrote into a project (.mcp.json, CLAUDE.md, AGENTS.md, hooks) are taken out by `align use --undo`.');
     p.outro('Done.');
     return;
   }

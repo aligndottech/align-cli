@@ -20,6 +20,7 @@ function harness(stored?: string, onPath: Record<string, string> = { claude: '/u
     findOnPath: (bin) => onPath[bin] ?? null,
     env: {},
     platform: 'linux',
+    cwd: os.tmpdir(), // never the checkout: its own CLAUDE.md carries align's block
     log: (l) => out.push(l),
     err: (l) => err.push(l),
   };
@@ -126,7 +127,12 @@ describe('align use --undo (C4)', () => {
 
   it('with an empty manifest it is a no-op that says so', async () => {
     const h = harness('claude-code');
-    expect(await runUse(undefined, h.deps, { undo: true })).toBe(0);
+    const empty = mkdtempSync(path.join(os.tmpdir(), 'align-undo-empty-'));
+    try {
+      expect(await runUse(undefined, { ...h.deps, cwd: empty }, { undo: true })).toBe(0);
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
     expect(h.out.join('\n')).toContain('Nothing to undo');
     expect(h.clearAgent).not.toHaveBeenCalled();
     expect(h.setLaunchOff).not.toHaveBeenCalled();
