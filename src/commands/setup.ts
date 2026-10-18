@@ -696,7 +696,8 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
       if (!firstFoundTitle) {
         const docsDb = createLocalDb(dbPath);
         try {
-          { const r = buildFoundSummary(docsDb).recent.map((d) => d.title); firstFoundTitle = pickAskableTitle(r) ?? r[0]; }
+          const titles = buildFoundSummary(docsDb).recent.map((d) => d.title);
+          firstFoundTitle = pickAskableTitle(titles) ?? titles[0];
         } finally {
           docsDb.close();
         }

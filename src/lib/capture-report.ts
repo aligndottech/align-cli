@@ -100,7 +100,9 @@ export function renderCaptureReport(sources: CaptureSource[]): string {
     // ALI-1779: a source that scanned more than it kept and explains the difference in skip lines
     // names its denominator instead, so "124 kept of 500 scanned" sits beside skips of 189 and 187
     // and the three add up. The ceiling is named only when the scan actually reached it.
-    const keptOfScanned = s.window === undefined && s.fetched > 0 && s.skips.length > 0 && s.scanned !== undefined && s.scanned > s.fetched;
+    const keptOfScanned = s.window === undefined && s.fetched > 0 && s.skips.length > 0 && s.scanned !== undefined && s.scanned > s.fetched
+      // Only when the skip lines account for every dropped item: otherwise "kept of N" would be a claim nothing measured.
+      && s.skips.reduce((n, k) => n + k.count, 0) === s.scanned - s.fetched;
     const shortfall = keptOfScanned
       ? ` kept of ${s.scanned} scanned${s.requested !== undefined && s.scanned! >= s.requested ? ` (stopped at the limit of ${s.requested})` : ''}`
       : s.requested !== undefined && s.fetched < s.requested

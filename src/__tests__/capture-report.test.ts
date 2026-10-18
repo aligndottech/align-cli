@@ -214,6 +214,11 @@ describe('git capture report denominators (ALI-1779)', () => {
     expect(out).not.toContain('limit');
   });
 
+  it('prints no kept-of-scanned claim when the skips do not account for the difference', () => {
+    const out = renderCaptureReport([{ label: 'Docs', unit: 'pages', fetched: 5, scanned: 9, skips: [{ count: 1, detail: 'too short' }] }]);
+    expect(out).not.toContain('kept of');
+  });
+
   it('names the limit only when the scan reached it', async () => {
     const { gitCaptureReport } = await import('../lib/fetchers/git.js');
     const report = gitCaptureReport({ scanned: 500, kept: 124, rejectedByRationale: 189, limit: 500 });
