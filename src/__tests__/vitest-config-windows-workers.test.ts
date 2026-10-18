@@ -7,10 +7,15 @@ import { maxWorkersFor } from '../../vitest.workers.js';
 // every test green. Windows runs fewer workers; other platforms keep vitest's default.
 describe('vitest worker cap', () => {
   it('caps workers at 2 on win32', () => {
-    expect(maxWorkersFor('win32')).toBe(2);
+    expect(maxWorkersFor('win32', 4)).toBe(2);
+  });
+
+  it('never raises the default on a small win32 runner', () => {
+    expect(maxWorkersFor('win32', 2)).toBe(1);
+    expect(maxWorkersFor('win32', 1)).toBe(1);
   });
 
   it.each(['linux', 'darwin'] as const)('leaves the default worker count on %s', (p) => {
-    expect(maxWorkersFor(p)).toBeUndefined();
+    expect(maxWorkersFor(p, 4)).toBeUndefined();
   });
 });
