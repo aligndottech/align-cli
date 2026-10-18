@@ -21,7 +21,7 @@
     "url": "https://github.com/aligndottech/align-cli/issues"
   },
   "bin": {
-    "align": "./dist/index.js"
+    "align": "./dist/bin.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
