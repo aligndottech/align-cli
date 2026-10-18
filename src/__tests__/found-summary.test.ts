@@ -123,6 +123,22 @@ describe('buildFoundSummary sample ranking (ALI-1772)', () => {
     ]);
   });
 
+  it('demotes breaking-change, uppercase and [WIP shapes, but not a real decision that starts with Merge', () => {
+    const s = buildFoundSummary(db({ rows: titled([
+      'docs(readme)!: rewrite the intro for launch',
+      'Docs: capitalised docs subject line here',
+      '[WIP] feat: half finished retry policy work',
+      'Merge the two queue workers into one process',
+    ]) }));
+    expect(s.recent.map((d) => d.title)[0]).toBe('Merge the two queue workers into one process');
+    expect(s.recent).toHaveLength(4);
+    expect(s.recent.slice(1).map((d) => d.title)).toEqual([
+      'docs(readme)!: rewrite the intro for launch',
+      'Docs: capitalised docs subject line here',
+      '[WIP] feat: half finished retry policy work',
+    ]);
+  });
+
   it('does not demote a plain subject that merely starts with a type word', () => {
     // "docs" with no colon is prose ("documentation rewrite"), "test" likewise: only the
     // conventional `type:` / `type(scope):` shape and a Merge subject are demoted.

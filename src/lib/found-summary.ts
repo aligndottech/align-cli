@@ -41,9 +41,9 @@ export interface FoundSummaryDb {
  * ALI-1772: subjects that read as housekeeping, not as a choice. The importer keeps them (a
  * docs commit can state a reason), so this only decides what the first-run box SHOWS first.
  * Conventional `type:` / `type(scope):` shapes only, so prose like "document the retry
- * policy" is not demoted; plus a Merge subject and a `[DRAFT` / `[WIP` marker.
+ * policy" is not demoted; plus git's own Merge subjects (not prose like "Merge the two workers") and a `[DRAFT` / `[WIP` marker.
  */
-const HOUSEKEEPING_SUBJECT = /^(?:(?:docs|chore|ci|test|style|build)(?:\([^)]*\))?!?:|merge\b|\[(?:draft|wip)\b)/i;
+const HOUSEKEEPING_SUBJECT = /^(?:(?:docs|chore|ci|test|style|build)(?:\([^)]*\))?!?:|merge\s+(?:pull request|branch|remote-tracking|tag)\b|\[(?:draft|wip)\b)/i;
 
 export function buildFoundSummary(db: FoundSummaryDb): FoundSummary {
   // The graph total comes from the db's COUNT, never from the length of the page
