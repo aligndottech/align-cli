@@ -58,7 +58,7 @@ fi
 # Preconditions are FATAL, not test failures (a missing subject passes any
 # exit-code assertion for the wrong reason - tdd.md, "assert the subject ran").
 # ---------------------------------------------------------------------------
-[ -f "$REPO_ROOT/dist/index.js" ] || { echo "FATAL: dist/index.js missing - run 'npm run build' first"; exit 1; }
+[ -f "$REPO_ROOT/dist/bin.js" ] || { echo "FATAL: dist/bin.js missing - run 'npm run build' first"; exit 1; }
 command -v node >/dev/null || { echo "FATAL: node not on PATH"; exit 1; }
 command -v npm  >/dev/null || { echo "FATAL: npm not on PATH"; exit 1; }
 command -v git  >/dev/null || { echo "FATAL: git not on PATH"; exit 1; }

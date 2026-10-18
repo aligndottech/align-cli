@@ -138,7 +138,7 @@ jobs:
         run: npm run build
 
       - name: Smoke - CLI binary runs
-        run: node dist/index.js --version
+        run: node dist/bin.js --version
 
   # Windows tests on a pull request, but only for a diff that can change Windows behaviour in
   # the launcher or the config writers. cross-platform above is skipped on PRs for cost, which
