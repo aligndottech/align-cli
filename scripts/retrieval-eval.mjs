@@ -198,9 +198,7 @@ function pairsAll() {
 // ---------- build ----------
 const env = home => ({
   HOME: home, XDG_CONFIG_HOME: `${home}/.config`, XDG_DATA_HOME: `${home}/.local/share`, XDG_STATE_HOME: `${home}/.local/state`,
-  XDG_CACHE_HOME: `${home}/.cache`, ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('EVAL_'))),
-  // A fresh HOME per graph would download the on-device model nine times; point them at one cache.
-  ...(process.env.EVAL_MODEL_CACHE ? { ALIGN_MODEL_CACHE: process.env.EVAL_MODEL_CACHE } : {}), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, CI: 'true', NO_COLOR: '1',
+  XDG_CACHE_HOME: `${home}/.cache`, ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('EVAL_') || k === 'ALIGN_MODEL_CACHE')), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, CI: 'true', NO_COLOR: '1',
 });
 const alignCli = (home, cwd, ...a) => spawnSync(process.execPath, [path.join(CLI, 'dist/bin.js'), ...a], { cwd, env: env(home), encoding: 'utf8', maxBuffer: 1 << 28 });
 
