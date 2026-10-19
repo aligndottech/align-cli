@@ -396,33 +396,39 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     },
 
     async ingestBatch(items: LocalBatchItem[], opts: LocalBatchOptions = {}) {
-      const snapshots = [];
       const session: IngestSession = {};
-      for (const item of items) {
-        const r = await ingestOne(item.raw_text, item.platform ?? 'cli', {
-          titleOverride: item.title,
-          sourceUrlOverride: item.source_url ?? null,
-          createdAt: item.created_at,
-          classify: opts.classify, keyed: opts.keyed, detailPending: item.detail_pending,
-        }, session);
-        snapshots.push({
-          id: r.id,
-          created: r.created,
-          changed: r.changed,
-          title: r.title,
-          summary: r.summary,
-          analysis: {
-            relatedDecisions: r.related.map(c => ({
-              id: c.decisionId,
-              title: db.getDecisionById(c.decisionId)?.title ?? '',
-              // Must match the relation actually written above, or this is a second writer
-              // of the same fact that can drift from it (ALI-503).
-              relationship: 'relates',
-              confidence: c.score,
-            })),
-          },
-        });
-      }
+      // A connector import (classify: false) can be re-run, so it trades the per-commit sync for
+      // speed (see withRelaxedSync). A capture a person made by hand keeps the default.
+      const run = <T>(fn: () => Promise<T>) => (opts.classify === false ? db.withRelaxedSync(fn) : fn());
+      const snapshots = await run(async () => {
+        const out = [];
+        for (const item of items) {
+          const r = await ingestOne(item.raw_text, item.platform ?? 'cli', {
+            titleOverride: item.title,
+            sourceUrlOverride: item.source_url ?? null,
+            createdAt: item.created_at,
+            classify: opts.classify, keyed: opts.keyed, detailPending: item.detail_pending,
+          }, session);
+          out.push({
+            id: r.id,
+            created: r.created,
+            changed: r.changed,
+            title: r.title,
+            summary: r.summary,
+            analysis: {
+              relatedDecisions: r.related.map(c => ({
+                id: c.decisionId,
+                title: db.getDecisionById(c.decisionId)?.title ?? '',
+                // Must match the relation actually written above, or this is a second writer
+                // of the same fact that can drift from it (ALI-503).
+                relationship: 'relates',
+                confidence: c.score,
+              })),
+            },
+          });
+        }
+        return out;
+      });
       return { snapshots };
     },
 

@@ -146,19 +146,28 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     expect(printed).not.toContain('housekeeping');
   });
 
-  // L3 review 7: git stays what it was (the newest 500, however old) unless --since is passed.
+  // L3 review 7: git stays what it was (the newest commits, however old) unless --since is passed.
   describe('the window is opt-in for git', () => {
     const repoOldNewest = { commits: [commit], scanned: 1, rejectedByRationale: 0 };
 
-    it('by default asks git for the newest 500 with no lower bound, so a repo whose newest commit is 400 days old still imports', async () => {
+    it('by default scans the default bound with no lower bound and caps what is kept, so a repo whose newest commit is 400 days old still imports', async () => {
       vi.mocked(getCommitHistoryDetailed).mockResolvedValue({ ...repoOldNewest, commits: [{ ...commit, date: '2025-09-05T00:00:00Z' }] });
       await run(['connect', 'git']);
       const asked = vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0];
-      expect(asked.limit).toBe(500);
+      expect(asked.limit).toBe(20_000);
+      expect(asked.keep).toBe(2_000);
       expect(asked.from).toBeUndefined();
       const printed = logSpy.mock.calls.flat().join('\n');
       expect(printed).toContain('Git: 1 commits');
       expect(printed).not.toMatch(/from the last/);
+    });
+
+    it('an explicit --limit is the user\'s own bound: no keep cap rides along', async () => {
+      vi.mocked(getCommitHistoryDetailed).mockResolvedValue(repoOldNewest);
+      await run(['connect', 'git', '--limit', '300']);
+      const asked = vi.mocked(getCommitHistoryDetailed).mock.calls.at(-1)![0];
+      expect(asked.limit).toBe(300);
+      expect(asked.keep).toBeUndefined();
     });
 
     it('with --since 30d it sends the lower bound, lifts the scan bound to the ceiling, and says the window', async () => {

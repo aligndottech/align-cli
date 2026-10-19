@@ -1,0 +1,47 @@
+[
+  {
+    "name": "fastify",
+    "repo": "fastify/fastify",
+    "sha": "2cbb98e25f75e23cf8dafedc9a111943f2888669"
+  },
+  {
+    "name": "execa",
+    "repo": "sindresorhus/execa",
+    "sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3"
+  },
+  {
+    "name": "adr",
+    "repo": "joelparkerhenderson/architecture-decision-record",
+    "sha": "d977ad78619614789b0909e50f83c5e358250f8e"
+  },
+  {
+    "name": "align-cli",
+    "repo": "aligndottech/align-cli",
+    "sha": "2bd17222a744c746ee452b8754e550749f7a712c"
+  },
+  {
+    "name": "vite",
+    "repo": "vitejs/vite",
+    "sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f"
+  },
+  {
+    "name": "pnpm",
+    "repo": "pnpm/pnpm",
+    "sha": "60bd9778ecb9e4f71ef353e3901e1042af377087"
+  },
+  {
+    "name": "express",
+    "repo": "expressjs/express",
+    "sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8"
+  },
+  {
+    "name": "undici",
+    "repo": "nodejs/undici",
+    "sha": "e8f34234d10febe285ebc29c971c44c79220a123"
+  },
+  {
+    "name": "prettier",
+    "repo": "prettier/prettier",
+    "sha": "13cbabdccd32c31e202028df3a7eeccefa7d1f6f"
+  }
+]

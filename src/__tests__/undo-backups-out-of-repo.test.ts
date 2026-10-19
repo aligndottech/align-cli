@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -62,6 +62,8 @@ beforeEach(() => {
   errs = [];
   setWriteRecorder((f, e) => { manifest[f] = mergeWrittenConfig(manifest[f], e); }, (f) => manifest[f]);
   git(repo, 'init', '-q');
+  // A Windows runner's global core.autocrlf=true would rewrite LF to CRLF in a linked worktree checkout, so pin it off.
+  git(repo, 'config', 'core.autocrlf', 'false');
 });
 afterEach(() => {
   setWriteRecorder(undefined);
@@ -92,7 +94,7 @@ describe('project-file backups live outside the repo', () => {
 
   it('a2. a user-owned .claude/settings.json is backed up outside too, and comes back identical', async () => {
     const original = `${JSON.stringify({ permissions: { allow: ['Bash(ls)'] } }, null, 2)}\n`;
-    execFileSync('mkdir', ['-p', path.join(repo, '.claude')]);
+    mkdirSync(path.join(repo, '.claude'), { recursive: true });
     writeFileSync(path.join(repo, '.claude/settings.json'), original);
     commitAll();
 

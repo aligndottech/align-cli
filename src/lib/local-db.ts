@@ -824,6 +824,30 @@ export function createLocalDb(dbPath: string) {
       db.exec(`DELETE FROM decision_refs; DELETE FROM decision_links; DELETE FROM decision_embeddings; DELETE FROM decisions;`);
     },
 
+    /**
+     * ALI-1749: run `fn` with `synchronous = NORMAL`. In WAL mode the default (FULL) syncs the log on
+     * every commit, and an import commits about six statements per item: a CPU profile of a
+     * 1,000-commit git import put 28 of its 39 seconds in those commits, not in the embedding model.
+     * NORMAL syncs at checkpoints instead. The file cannot corrupt either way; what NORMAL risks is
+     * the last few commits if the OS itself (not this process) dies, and a connector import can be
+     * re-run. Used by connector imports only, never by a capture a person made by hand, and put
+     * back to FULL afterwards. Each commit stays its own, so the crash-and-retry contract of
+     * ingestOne (embedding stored, enriched_at last) and other connections' writes are unchanged.
+     */
+    async withRelaxedSync<T>(fn: () => Promise<T>): Promise<T> {
+      db.exec('PRAGMA synchronous = NORMAL');
+      try {
+        return await fn();
+      } finally {
+        db.exec('PRAGMA synchronous = FULL');
+      }
+    },
+
+    /** `PRAGMA synchronous` of this connection: 2 is FULL, 1 is NORMAL. Read by the test of withRelaxedSync. */
+    syncMode(): number {
+      return (db.prepare('PRAGMA synchronous').get() as { synchronous: number }).synchronous;
+    },
+
     /** Goes up whenever a decision is deleted or re-id'd or an embedding is deleted or replaced
      *  on this connection (see local-db-epoch.ts). A holder of a copy of the embeddings
      *  compares it to the value it built at. */

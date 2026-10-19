@@ -18,7 +18,7 @@ import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
 import { type CaptureSource, createCaptureCollector, toCaptureSource } from '../lib/capture-report.js';
 import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
-import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
+import { GIT_DEFAULT_LIMIT, GIT_KEEP_CAP, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
 import { type FetchExtras, fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
 import { initLocalMode } from '../lib/local-mode.js';
 import { afterSourceConnected } from '../lib/sync/after-connect.js';
@@ -98,7 +98,7 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       fetch: async () => {
         const { fetchGitItems } = await import('../lib/fetchers/git.js');
         // The newest commits however old, as before the window (GIT_DEFAULT_LIMIT); only --since changes it.
-        return fetchGitItems({ limit: GIT_DEFAULT_LIMIT });
+        return fetchGitItems({ limit: GIT_DEFAULT_LIMIT, keep: GIT_KEEP_CAP });
       },
     });
   }

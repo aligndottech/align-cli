@@ -38,10 +38,18 @@ export const SYNC_CEILINGS = {
   sessions: 250,     // review candidates per run; not a windowed read.
 } as const satisfies Record<SourceId, number>;
 
-/** Git is the one source whose default is NOT the window: the newest 500 commits however old, as
- *  before L3. A window is opt-in (`--since`), and only then does the scan bound rise to
- *  SYNC_CEILINGS.git. (A 400-day-old repo would otherwise import nothing by default.) */
-export const GIT_DEFAULT_LIMIT = 500;
+/** Git is the one source whose default is NOT the window: the newest commits however old, as
+ *  before L3. A window is opt-in (`--since`). (A 400-day-old repo would otherwise import nothing.)
+ *
+ *  ALI-1749: this bounds what `git log` SCANS, and it rose from 500 to 20,000. At 500 a repo of
+ *  4,906 commits (fastify) was read back only to 2025, so every "why did we drop X" about the
+ *  years before it found nothing: measured, 20% of such questions had their answer in the graph.
+ *  Reading is cheap (0.7 s for 15,000 commits of pnpm); writing and embedding are the cost, and GIT_KEEP_CAP bounds them. */
+export const GIT_DEFAULT_LIMIT = 20_000;
+
+/** ALI-1749: the most decision-shaped commits a default git import keeps, newest first. Each kept
+ *  commit is embedded on this machine, so this is what bounds the first run's time. */
+export const GIT_KEEP_CAP = 2_000;
 
 /** The SDK's own Slack budget (`SLACK_TIME_BUDGET_MS`), applied to every windowed source: the
  *  journey-2 promise is that the full window finishes within 8 minutes, or says what it cut. */
