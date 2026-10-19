@@ -37,7 +37,7 @@ export class EmbeddingAssetsMissing extends Error {
 export interface EnsureOptions {
   allowDownload: boolean;
   env?: Record<string, string | undefined>;
-  /** Cache root override (tests). Defaults to modelCacheDir(env). */
+  /** Cache root override (tests). Defaults to modelCacheDir(env, opts.platform ?? process.platform). */
   root?: string;
   platform?: string;
   arch?: string;
@@ -156,7 +156,7 @@ export async function ensureRuntime(opts: EnsureOptions): Promise<string> {
       'unsupported-platform',
     );
   }
-  const root = opts.root ?? modelCacheDir(env);
+  const root = opts.root ?? modelCacheDir(env, opts.platform ?? process.platform);
   const digest = (opts.pins?.runtimeSha256 ?? RUNTIME_SHA256)[key]!;
   const target = runtimeDir(root, key);
   const want = marker(digest);
@@ -191,7 +191,7 @@ function modelMarker(files: readonly ModelFile[]): string {
 
 export async function ensureModel(opts: EnsureOptions): Promise<string> {
   const env = opts.env ?? process.env;
-  const root = opts.root ?? modelCacheDir(env);
+  const root = opts.root ?? modelCacheDir(env, opts.platform ?? process.platform);
   const target = modelDir(root);
   const files = opts.pins?.modelFiles ?? MODEL_FILES;
   const want = modelMarker(files);
