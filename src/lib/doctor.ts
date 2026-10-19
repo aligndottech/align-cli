@@ -16,7 +16,7 @@ import type { EnvironmentConfig } from './config.js';
 export const MIN_NODE = '22.16.0';
 
 export type CheckStatus = 'pass' | 'fail' | 'skip';
-export type CheckId = 'node' | 'path' | 'gateway' | 'whoami' | 'ask';
+export type CheckId = 'node' | 'path' | 'gateway' | 'whoami' | 'embeddings' | 'ask';
 
 export interface DoctorCheck {
   id: CheckId;
@@ -37,6 +37,12 @@ export interface DoctorDeps {
   findAlign(): string | null;
   probeGateway(): Promise<{ reached: boolean; detail: string }>;
   whoami(): Promise<{ email: string; tenant: string }>;
+  /**
+   * Local graph only: make sure the on-device embedding runtime and model are present (downloading
+   * them if this is the first run) and verified. Throws with the reason on any failure. Absent on
+   * a cloud install, where nothing embeds on this machine (ALI-1781).
+   */
+  ensureEmbeddings?(): Promise<{ detail: string }>;
   /** One real `tools/call` of align_ask through `align mcp`. Resolves with the text content; throws on any error. */
   askViaMcp(alignBin: string): Promise<{ text: string }>;
 }
@@ -188,7 +194,30 @@ export async function runDoctor(d: DoctorDeps): Promise<DoctorCheck[]> {
     );
   }
 
-  // 5. the real tool call
+  // 5. on-device embeddings (local graph only)
+  if (local && d.ensureEmbeddings) {
+    checks.push(
+      await guarded(
+        async () => {
+          try {
+            const r = await d.ensureEmbeddings!();
+            return { id: 'embeddings', label: 'On-device embeddings', status: 'pass', detail: r.detail };
+          } catch (e) {
+            return {
+              id: 'embeddings',
+              label: 'On-device embeddings',
+              status: 'fail',
+              detail: message(e),
+              next: 'Check this machine can reach github.com and huggingface.co (a proxy or firewall is the usual cause; HF_ENDPOINT and ALIGN_ORT_RUNTIME_URL point at a mirror), then run: align doctor. Cloud mode (align login) needs none of this.',
+            };
+          }
+        },
+        { id: 'embeddings', label: 'On-device embeddings' },
+      ),
+    );
+  }
+
+  // 6. the real tool call
   if (!bin) {
     checks.push({ id: 'ask', label: 'Tool call (align_ask)', status: 'skip', detail: 'not run: no `align` on PATH to start' });
   } else {

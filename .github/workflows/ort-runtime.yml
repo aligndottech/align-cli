@@ -1,0 +1,113 @@
+# Publish the native ONNX Runtime bundles the CLI downloads on first local use (ALI-1781).
+#
+# WHY THIS EXISTS. `npm install @aligndottech/cli` was 779MB because the embedding library pulled
+# onnxruntime-node (every OS, CUDA included), onnxruntime-web and sharp. The CLI now installs at
+# ~45MB and fetches ONE platform's CPU runtime (10-18MB) from this release the first time local
+# mode needs it, verifying a SHA-256 pinned in src/lib/embedding-assets.ts before it keeps a byte.
+#
+# A SEPARATE, VERSION-INDEPENDENT RELEASE. The bundle depends on the ONNX Runtime version, not the
+# CLI version, so it lives at tag `ort-runtime-v<ORT_VERSION>` and every CLI release that pins that
+# runtime reuses it. e2e-release.yml ignores any tag that is not cli-v*.
+#
+# RUN IT ONCE, BEFORE the release that first ships the pinned digests, then leave it alone:
+#   gh workflow run ort-runtime.yml
+# It refuses to touch a tag that already exists, because a published bundle is a published
+# contract: replacing bytes under a pinned digest would break every installed CLI that has not yet
+# cached it. To change the runtime, bump ORT_VERSION and the table, and run this for the new tag.
+#
+# Not triggered by push or pull_request on purpose: it creates a public release.
+name: ORT runtime bundles
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload its assets
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Resolve the tag from the pinned version
+        id: tag
+        run: |
+          tag="$(npx tsx -e 'import("./src/lib/embedding-assets.ts").then((m) => process.stdout.write(m.RUNTIME_TAG))')"
+          case "$tag" in ort-runtime-v[0-9]*) ;; *) echo "FATAL: unexpected tag '$tag'"; exit 1 ;; esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to overwrite a published bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "FATAL: release $TAG already exists. Bundles are immutable; bump ORT_VERSION to publish new ones."
+            exit 1
+          fi
+
+      # --check fails unless every bundle's digest equals RUNTIME_SHA256, so nothing can be
+      # uploaded that the CLI would refuse.
+      - name: Build the bundles from the pinned upstream tarballs
+        run: npx tsx scripts/build-ort-runtime.ts --out dist-ort --check
+
+      - name: Create the release and upload the bundles
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist-ort/align-ort-*.tgz dist-ort/ort-runtime-sha256.json \
+            --title "ONNX Runtime bundles ($TAG)" \
+            --notes "Per-platform ONNX Runtime CPU bundles the Align CLI downloads on first local use. Built by scripts/build-ort-runtime.ts from the pinned upstream onnxruntime-node npm tarball; the SHA-256 of each is pinned in src/lib/embedding-assets.ts and checked before use. Not a CLI release." \
+            --latest=false
+
+      - name: Verify every bundle is on the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          listed="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          echo "$listed"
+          missing=0
+          for f in dist-ort/*.tgz; do
+            printf '%s\n' "$listed" | grep -qx "$(basename "$f")" || { echo "MISSING: $(basename "$f")"; missing=1; }
+          done
+          [ "$missing" -eq 0 ] || exit 1
+
+  # The real thing, on the real hosts: install the packed CLI, let it download the runtime from the
+  # release just published (no ALIGN_ORT_RUNTIME_URL override), and require the vector contract.
+  # This is the only job that exercises the hosted URL end to end.
+  verify:
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Download from the release and check vector parity
+        shell: bash
+        run: node scripts/verify-embedding-parity.mjs . --live

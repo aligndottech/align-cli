@@ -1,4 +1,8 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Command } from 'commander';
+import { alignDistribution } from '../lib/distribution.js';
 import { createConfigStore, type EnvName, hasCredential } from '../lib/config.js';
 import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
@@ -18,6 +22,22 @@ async function probeGateway(gatewayUrl: string): Promise<{ reached: boolean; det
     const err = e as { name?: string; message?: string; cause?: { code?: string } };
     return { reached: false, detail: err.name === 'TimeoutError' ? `no answer in ${PROBE_TIMEOUT_MS / 1000}s` : (err.cause?.code ?? err.message ?? 'connection failed') };
   }
+}
+
+/** Fetches (first run) and checks the on-device runtime and model. An explicit user action, so
+ *  unlike an agent hook it may download. The model files are re-hashed against the pinned digests;
+ *  the runtime is trusted by the marker written after its digest was checked at extraction. */
+async function ensureEmbeddingsForDoctor(): Promise<{ detail: string }> {
+  if (alignDistribution() === 'binary') return { detail: 'standalone binary: the runtime is bundled, the model caches on first use' };
+  const [{ ensureModel, ensureRuntime }, { MODEL_FILES, ORT_VERSION }] = await Promise.all([import('../lib/embedding-runtime.js'), import('../lib/embedding-assets.js')]);
+  const notice = (m: string) => console.error(m);
+  const runtime = await ensureRuntime({ allowDownload: true, notice });
+  const model = await ensureModel({ allowDownload: true, notice });
+  for (const f of MODEL_FILES) {
+    const actual = createHash('sha256').update(readFileSync(join(model, f.path))).digest('hex');
+    if (actual !== f.sha256) throw new Error(`${join(model, f.path)} no longer matches its pinned SHA-256 (corrupted cache). Delete ${model} and run: align doctor`);
+  }
+  return { detail: `ONNX Runtime ${ORT_VERSION} at ${runtime}; model verified at ${model}` };
 }
 
 export function registerDoctorCommand(program: Command): void {
@@ -51,6 +71,7 @@ export function registerDoctorCommand(program: Command): void {
             clearTimeout(timer);
           }
         },
+        ensureEmbeddings: env.mode === 'local-embedded' ? ensureEmbeddingsForDoctor : undefined,
         askViaMcp: (bin) => askViaMcp(bin, envName, env.mode === 'local-embedded' ? LOCAL_ASK_TIMEOUT_MS : undefined),
       };
 

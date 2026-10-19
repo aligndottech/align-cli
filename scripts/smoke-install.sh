@@ -5,8 +5,8 @@
 # and types `align`. Four layers sit between those two and none of them is
 # covered by any test: the tsc output in dist/, the package.json "files" list
 # (a file missing from it is missing from npm, invisible in a checkout), the
-# optional install step (@huggingface/transformers, still native - the local graph
-# stopped being, see ALI-740), and Commander's argv parsing (ALI-422 lived exactly
+# install weight (the tarball must not drag a 780MB ML runtime back in, ALI-1781), and
+# Commander's argv parsing (ALI-422 lived exactly
 # there - green tests, broken CLI). This script packs the real tarball, installs it
 # globally into a clean prefix, and runs the cold no-account first-run sequence,
 # asserting exit codes.
@@ -19,11 +19,12 @@
 #
 # WHICH FAILURES ARE OURS (ALI-713)
 # ---------------------------------
-# Every FAIL below is ours and blocks. Exactly one thing is not: huggingface.co returning
-# HTTP 429 for the ~23MB embedding model download, which it does to shared runner IPs on a
-# schedule nobody here controls or can see coming. That reports SKIP plus a workflow warning
-# and does not fail the run - see is_upstream_model_rate_limit in smoke-model.sh, which keys
-# on the exact upstream wording, the exact status and the huggingface host on one line.
+# Every FAIL below is ours and blocks. Exactly one thing is not: huggingface.co (or github.com)
+# returning HTTP 429 for the ~23MB embedding model or the ~20MB runtime download, which it does
+# to shared runner IPs on a schedule nobody here controls or can see coming. That reports SKIP
+# plus a workflow warning and does not fail the run - see is_upstream_model_rate_limit in
+# smoke-model.sh, which keys on our own download error wording, the exact status and the host
+# on one line.
 # A 404, a 503, a proxy failure or "model could not load" with no upstream status in it are
 # all OURS and stay red, because "the model would not load" is exactly what a genuinely
 # broken model path looks like.
@@ -118,73 +119,76 @@ ALIGN_BIN="$(command -v align.cmd 2>/dev/null || command -v align || true)"
 [ -n "$ALIGN_BIN" ] || { echo "FAIL: 'align' not on PATH after global install"; exit 1; }
 echo "installed: $ALIGN_BIN"
 
-# The embedding model's package is an OPTIONAL dependency, and npm drops a failed optional
-# subtree SILENTLY - no warning at default loglevel, exit 0. When that happens the failure
-# surfaces eight steps later as `align search` dying with "Cannot find package
-# '@huggingface/transformers'", which reads as a product bug. It happened twice in a row on
-# one PR (#147, node-22 leg): sharp had released that morning, the runner cache was cold, and
-# one dropped download failed the whole subtree. This matrix runs only on platforms the model
-# SUPPORTS, so absence here is an install failure, never a platform limitation.
-#
-# Resolved from the installed CLI package's own context - the same resolution the CLI performs
-# at runtime - not by peeking at a node_modules path, which hoisting would make a guess.
 CLI_PKG="$PREFIX/lib/node_modules/@aligndottech/cli"
 [ -d "$CLI_PKG" ] || CLI_PKG="$PREFIX/node_modules/@aligndottech/cli"   # Windows npm layout
-embeddings_dep_present() {
-  node -e 'require("module").createRequire(process.argv[1] + "/package.json").resolve("@huggingface/transformers")' "$CLI_PKG" >/dev/null 2>&1
-}
-if ! embeddings_dep_present; then
-  echo "WARN: optional dep @huggingface/transformers missing after install - retrying once (transient download drops are the observed cause)"
-  npm install -g --prefix "$PREFIX" --loglevel=error "$TARBALL" || true
-  if ! embeddings_dep_present; then
-    echo "FAIL: @huggingface/transformers did not install on a supported platform, twice."
-    echo "      npm skips failed optional deps silently. Before suspecting the CLI, check for a"
-    echo "      same-day release of sharp or onnxruntime (cold-cache downloads) or a registry issue."
-    exit 1
-  fi
-  echo "retry recovered the optional dep"
+
+# INSTALL WEIGHT (ALI-1781). A plain `npm install` of this package was 779MB because
+# @huggingface/transformers pulled onnxruntime-node (every OS plus CUDA), onnxruntime-web and
+# sharp. The on-device runtime is downloaded on first local use instead, so the install itself
+# must stay small and must not contain any of them. Two assertions, because they fail differently:
+# a re-added dependency shows up as a directory, a bloated tarball only as a size.
+INSTALL_KB="$(du -sk "$PREFIX" | cut -f1)"
+INSTALL_PKGS="$(find "$PREFIX" \( -path '*/node_modules/*/package.json' -o -path '*/node_modules/@*/*/package.json' \) 2>/dev/null | wc -l | tr -d ' ')"
+echo "install weight: $((INSTALL_KB / 1024)) MB across ~$INSTALL_PKGS packages (budget: ${ALIGN_SMOKE_INSTALL_BUDGET_MB:-100} MB)"
+HEAVY=""
+for d in onnxruntime-node onnxruntime-web onnxruntime-common sharp transformers; do
+  found="$(find "$PREFIX" -type d -name "$d" -path '*node_modules*' 2>/dev/null | head -1)"
+  [ -n "$found" ] && HEAVY="$HEAVY $found"
+done
+if [ -n "$(printf '%s' "$HEAVY" | tr -d '[:space:]')" ]; then
+  echo "FAIL: the installed package contains the heavy ML dependency chain again: $HEAVY"
+  exit 1
 fi
-echo "embeddings dep present"
+if [ "$((INSTALL_KB / 1024))" -gt "${ALIGN_SMOKE_INSTALL_BUDGET_MB:-100}" ]; then
+  echo "FAIL: install is $((INSTALL_KB / 1024)) MB, over the ${ALIGN_SMOKE_INSTALL_BUDGET_MB:-100} MB budget (was 779 MB before ALI-1781)"
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
-# Restore the embedding model into the freshly installed package, so the run does
-# not have to ask huggingface.co for it (ALI-713).
+# Where the on-device runtime and model cache for this run (ALI-713, ALI-1781).
 #
-# The CLI is installed into a mktemp prefix the EXIT trap deletes, so the model's
-# cache dies with the job unless it is copied in and out explicitly. There is no
-# environment variable for that directory - transformers.js reads only HF_TOKEN -
-# so the library is ASKED where it caches rather than the convention being rebuilt
-# here, which would be a second writer of its fact.
+# The CLI keeps both in the user cache dir, never in the install tree, and ALIGN_MODEL_CACHE
+# points that at a directory the smoke controls. In CI it is the actions/cache path, used IN
+# PLACE: every write is digest-checked and renamed into place, so an interrupted or failed run
+# cannot leave bytes a later run would trust, which is what the old copy-in/copy-out and its
+# "do not save a poisoned cache" conditions existed to approximate.
 #
-# Every branch reports what is actually on disk afterwards, never that the copy ran:
-# a WARM line means the weights are there, a COLD line means the download is about
-# to happen for real.
+# Every branch reports what is on disk afterwards, never that something ran: a WARM line means the
+# weights are there, a COLD line means the download is about to happen for real.
 # ---------------------------------------------------------------------------
 MODEL_RATE_LIMITED=0
-HF_CACHE_DIR=""
+EMBED_CACHE="${MODEL_CACHE:-$SMOKE_TMP/embed-cache}"
+mkdir -p "$EMBED_CACHE"
+# Git Bash hands node a POSIX-style /d/a/... path it would read as D:\d\a\...; cygpath -m gives it the
+# form it understands, and is absent (so skipped) everywhere else.
+if command -v cygpath >/dev/null 2>&1; then export ALIGN_MODEL_CACHE="$(cygpath -m "$EMBED_CACHE")"; else export ALIGN_MODEL_CACHE="$EMBED_CACHE"; fi
 model_weights_present() { # <dir>
   [ -d "$1" ] && [ -n "$(find "$1" -type f -name '*.onnx' 2>/dev/null | head -1)" ]
 }
-if [ -n "$MODEL_CACHE" ]; then
-  # A failure to locate the cache dir must not fail the smoke: running cold is the
-  # status quo, and losing a whole matrix leg over a cache miss would be worse than
-  # the problem this fixes.
-  if ! HF_CACHE_DIR="$(hf_model_cache_dir "$CLI_PKG")" || [ -z "$HF_CACHE_DIR" ]; then
-    HF_CACHE_DIR=""
-    echo "WARN: could not ask @huggingface/transformers where it caches - running cold"
-  else
-    mkdir -p "$HF_CACHE_DIR"
-    if [ -d "$MODEL_CACHE" ] && [ -n "$(ls -A "$MODEL_CACHE" 2>/dev/null)" ]; then
-      cp -R "$MODEL_CACHE/." "$HF_CACHE_DIR/" || echo "WARN: model cache restore copy failed"
-    fi
-    if model_weights_present "$HF_CACHE_DIR"; then
-      echo "model cache: WARM - weights already in $HF_CACHE_DIR, no download needed"
-    else
-      echo "model cache: COLD - $MODEL_CACHE holds no weights, downloading from huggingface.co"
-    fi
-  fi
+runtime_present() { # <dir>
+  [ -d "$1/ort" ] && [ -n "$(find "$1/ort" -type f -name '.verified' 2>/dev/null | head -1)" ]
+}
+if model_weights_present "$EMBED_CACHE" && runtime_present "$EMBED_CACHE"; then
+  echo "model cache: WARM - runtime and weights already in $EMBED_CACHE, no download needed"
 else
-  echo "model cache: COLD - ALIGN_SMOKE_MODEL_CACHE is unset, downloading from huggingface.co"
+  echo "model cache: COLD - $EMBED_CACHE is missing the runtime or the weights, downloading"
+fi
+
+# The runtime bundle's release asset does not exist until someone publishes it (see
+# .github/workflows/ort-runtime.yml), and a PR must not depend on that. So, unless the caller
+# asks for the hosted one (ALIGN_SMOKE_RUNTIME=hosted, used by the publish workflow's own verify
+# job), build the same reproducible bundle from the pinned upstream npm tarballs and point the
+# CLI at it. `--check` makes the build fail unless every digest equals the one the CLI will
+# demand, so what is tested here is byte-for-byte what gets published.
+if [ "${ALIGN_SMOKE_RUNTIME:-local}" != hosted ] && [ -z "${ALIGN_ORT_RUNTIME_URL:-}" ] && ! runtime_present "$EMBED_CACHE"; then
+  echo "== build the runtime bundle from the pinned upstream tarballs =="
+  ORT_OUT="$SMOKE_TMP/ort-runtime"
+  if ! (cd "$REPO_ROOT" && npx tsx scripts/build-ort-runtime.ts --out "$ORT_OUT" --check); then
+    echo "FAIL: could not build the runtime bundle (or its digests no longer match src/lib/embedding-assets.ts)"
+    exit 1
+  fi
+  ALIGN_ORT_RUNTIME_URL="$(node -e 'console.log(require("node:url").pathToFileURL(process.argv[1]).href)' "$ORT_OUT")"
+  export ALIGN_ORT_RUNTIME_URL
 fi
 
 # ---------------------------------------------------------------------------
@@ -235,9 +239,9 @@ step() { # <name> <timeout-s> <cmd...>
 skip_upstream() { # <name>
   SKIPPED=$((SKIPPED + 1))
   MODEL_RATE_LIMITED=1
-  echo "SKIP: $1 - huggingface.co returned HTTP 429 for the embedding model download."
+  echo "SKIP: $1 - an upstream host returned HTTP 429 for the embedding model or runtime download."
   echo "      Upstream rate limiting of a shared runner IP, not attributable to this change."
-  echo "::warning title=Embedding model download rate-limited (429)::$1 was skipped: huggingface.co rate-limited the ~23MB model download. Upstream, not this change - re-run the job."
+  echo "::warning title=Embedding download rate-limited (429)::$1 was skipped: huggingface.co or github.com rate-limited the model/runtime download. Upstream, not this change - re-run the job."
 }
 
 # The only steps that may report SKIP instead of FAIL are the ones that load the on-device
@@ -396,32 +400,16 @@ step "MCP config spawns as written" 60  node "$SCRIPT_DIR/smoke-mcp-config-spawn
 
 rm -f "$TARBALL"
 
-# ---------------------------------------------------------------------------
-# Save the model back out, for the NEXT run. Three conditions, all of them about not
-# poisoning the cache: a run that hit a 429 has an incomplete cache, a directory with
-# no weights in it is not worth restoring, and a run with ANY failure in it may have
-# failed BECAUSE of the model - measured, not theorised: truncating the cached weights
-# reproduces the incident's exact five failures, and without this condition the run
-# then saved the truncated file straight back. When none holds, MODEL_CACHE is left
-# ABSENT rather than created empty - actions/cache stores nothing for a path that does
-# not exist, where an empty directory would be stored and then restored forever,
-# quietly guaranteeing a cold download it also stops reporting as cold.
-# ---------------------------------------------------------------------------
-if [ -n "$MODEL_CACHE" ] && [ -n "$HF_CACHE_DIR" ]; then
-  if [ "$MODEL_RATE_LIMITED" -ne 0 ]; then
-    echo "model cache: NOT SAVED - this run hit an upstream 429, so its cache is incomplete"
-  elif [ "$FAILURES" -ne 0 ]; then
-    echo "model cache: NOT SAVED - $FAILURES step(s) failed, so these weights are not known good"
-  elif ! model_weights_present "$HF_CACHE_DIR"; then
-    echo "model cache: NOT SAVED - no model weights under $HF_CACHE_DIR"
-  else
-    mkdir -p "$MODEL_CACHE"
-    if cp -R "$HF_CACHE_DIR/." "$MODEL_CACHE/"; then
-      echo "model cache: saved to $MODEL_CACHE ($(find "$MODEL_CACHE" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
-    else
-      echo "WARN: model cache save copy failed"
-    fi
-  fi
+echo "embedding cache after run: $(find "$EMBED_CACHE" -type f 2>/dev/null | wc -l | tr -d ' ') file(s), $(du -sk "$EMBED_CACHE" | cut -f1) KB at $EMBED_CACHE"
+
+# The vector contract, on the CLI's real loader: cosine >= 0.9999 against the reference vectors
+# from the stack npm installs shipped before ALI-1781. Skipped when the cache is empty (a 429
+# upstream), because a parity run must not become a second download that fails for the same reason.
+if model_weights_present "$EMBED_CACHE" && runtime_present "$EMBED_CACHE"; then
+  step "embedding parity vs transformers.js on this machine" 300 node "$SCRIPT_DIR/verify-embedding-parity.mjs" "$CLI_PKG" --live
+  step "embedding sanity vs the committed vectors" 300 node "$SCRIPT_DIR/verify-embedding-parity.mjs" "$CLI_PKG"
+else
+  echo "SKIP: embedding parity - no cached runtime and weights to run it against"
 fi
 
 echo ""
@@ -434,7 +422,7 @@ if [ "$SKIPPED" -ne 0 ]; then
   # per step), and the alternative is a red gate nobody can act on: on the run that prompted
   # this, a re-run passed with no code change and the only remedy available to the author was
   # to notice the red was not theirs - which is the same reading that excuses a real failure.
-  echo "SMOKE RESULT: all steps passed except $SKIPPED skipped for an upstream huggingface.co 429"
+  echo "SMOKE RESULT: all steps passed except $SKIPPED skipped for an upstream 429 (huggingface.co or github.com)"
   exit 0
 fi
 echo "SMOKE RESULT: all steps passed"

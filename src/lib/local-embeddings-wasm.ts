@@ -29,27 +29,9 @@
  */
 import ortWasmPath from '../../node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm' with { type: 'file' };
 import ortMjsPath from '../../node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs' with { type: 'file' };
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { EMBEDDING_DTYPE, EMBEDDING_MODEL_ID, setEmbeddingBackend } from './local-embeddings.js';
-import { modelFileCache } from './model-cache.js';
+import { modelCacheDir, modelFileCache } from './model-cache.js';
 
-/**
- * Where the ~23MB model is cached between runs.
- *
- * The web build has no filesystem cache at all ("File System Cache is not available in this
- * environment"), so without the custom cache below every single command would re-download it.
- */
-export function modelCacheDir(): string {
-  const override = process.env['ALIGN_MODEL_CACHE'];
-  if (override) return override;
-  if (process.platform === 'win32') {
-    const base = process.env['LOCALAPPDATA'] || join(homedir(), 'AppData', 'Local');
-    return join(base, 'align-cli', 'models');
-  }
-  const base = process.env['XDG_CACHE_HOME'] || join(homedir(), '.cache');
-  return join(base, 'align-cli', 'models');
-}
 
 type EmbeddingPipeline = (text: string, options: Record<string, unknown>) => Promise<Array<{ data: Float32Array }>>;
 

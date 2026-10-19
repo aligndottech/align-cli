@@ -37,19 +37,38 @@ let _backend: EmbeddingBackend | null = null;
 
 export function setEmbeddingBackend(backend: EmbeddingBackend): void {
   _backend = backend;
-  _pipe = null; // a backend swapped after first use must not keep serving the old pipeline
+  _pipe = null;
+  _loading = null; // a backend swapped after first use must not keep serving the old pipeline
 }
 
 /** Test seam. Not for production paths - the binary registers exactly once, at startup. */
 export function resetEmbeddingBackend(): void {
   _backend = null;
   _pipe = null;
+  _loading = null;
+}
+
+let _loading: Promise<EmbeddingPipeline> | null = null;
+
+/** One setup in flight at a time: concurrent first calls (ingest runs several) must share one
+ *  download and one ORT session, not each start their own. A failure is not remembered. */
+async function pipeline(): Promise<EmbeddingPipeline> {
+  if (_pipe) return _pipe;
+  _loading ??= setupPipeline().then((p) => { _pipe = p; return p; }).finally(() => { _loading = null; });
+  return _loading;
 }
 
 export async function getEmbedding(text: string): Promise<Float32Array> {
-  if (!_pipe && _backend) {
+  const pipe = await pipeline();
+  const output = await pipe(text, { pooling: 'mean', normalize: true });
+  return output[0]!.data;
+}
+
+async function setupPipeline(): Promise<EmbeddingPipeline> {
+  let built: EmbeddingPipeline | null = null;
+  if (!built && _backend) {
     try {
-      _pipe = await _backend();
+      built = await _backend();
     } catch (err) {
       // Wrapped, because an unwrapped failure here reaches the user as a raw ORT or fetch
       // error. The overwhelmingly likely cause is the one-time model download, so say that.
@@ -60,57 +79,43 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
       );
     }
   }
-  if (!_pipe) {
-    let mod: { pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<unknown> };
-    try {
-      // @huggingface/transformers is an optionalDependency - its native deps (sharp,
-      // onnxruntime) can fail to install on Alpine/ARM/behind a proxy. If it's
-      // missing, point the user at cloud mode rather than a raw "Cannot find module".
-      //
-      // The specifier is a variable ON PURPOSE: a literal makes tsc resolve the
-      // module at typecheck time, so `npm run typecheck` fails with TS2307 on any
-      // machine where the OPTIONAL install was skipped - which npm does silently
-      // (a CI run installed 398 packages where its sibling installed 438, and the
-      // only trace was the red typecheck). An optional dep must be optional to
-      // the typechecker too.
-      const HF_TRANSFORMERS = '@huggingface/transformers';
-      mod = (await import(HF_TRANSFORMERS)) as unknown as typeof mod;
-    } catch (err) {
-      // Two different situations produce the same failure here, and the npm advice is
-      // unfollowable for someone who downloaded a binary: there is no package for them
-      // to reinstall (ALI-740). The binary carries no node_modules at all, because
-      // onnxruntime-node is a native addon PLUS sibling shared libraries it dlopens
-      // itself, which `bun build --compile` cannot embed.
-      const base = 'Local mode needs the on-device embedding model (@huggingface/transformers), ';
-      const cause = `(${(err as Error).message})`;
-      const advice =
-        alignDistribution() === 'binary'
-          ? 'and the standalone binary did not register its bundled WASM backend. That is a build defect rather than a limit of your machine - please report it. Cloud mode (`align login`) works meanwhile.'
-          : 'which is not installed on this platform. Use cloud mode (`align login`), or reinstall on a supported platform (macOS, glibc Linux, or Windows x64/arm64).';
-      throw new Error(`${base}${advice} ${cause}`);
-    }
-    try {
-      // First call downloads ~23MB from the Hugging Face Hub (huggingface.co), then caches.
-      // dtype 'q8' is load-bearing, not a perf tweak: @xenova/transformers@2 loaded
-      // quantized weights by default and v3+ default to fp32, which shifts pairwise
-      // cosine by up to 2.3e-02 against vectors already persisted in a user's local
-      // graph. Pinning q8 holds that to 6.6e-04. See local-embeddings-dtype.test.ts.
-      // The size follows from that pin: q8 fetches onnx/model_quantized.onnx (22.0MiB) plus
-      // the tokenizer, where fp32 would be 86.2MiB. This comment and the copy in setup.ts
-      // and README.md said "~90MB" for both, quoting the file the pin exists to avoid.
-      _pipe = (await mod.pipeline('feature-extraction', EMBEDDING_MODEL_ID, {
-        dtype: EMBEDDING_DTYPE,
-      })) as unknown as EmbeddingPipeline;
-    } catch (err) {
+  if (!built) {
+    if (alignDistribution() === 'binary') {
+      // The binary registers its bundled WASM backend at startup (index.bun.ts). Reaching this
+      // line means that registration did not happen: a build defect, and the npm advice
+      // ("reinstall on a supported platform") is unfollowable for someone with no package.
       throw new Error(
-        'Could not load the local embedding model (~23MB, Xenova/all-MiniLM-L6-v2, from huggingface.co). ' +
-        'Check your internet connection or proxy and try again. ' +
-        `(${(err as Error).message})`,
+        'Local mode needs the on-device embedding model, and the standalone binary did not register its bundled WASM backend. ' +
+        'That is a build defect rather than a limit of your machine - please report it. Cloud mode (`align login`) works meanwhile.',
+      );
+    }
+    // Dynamic: the tokenizer and runtime loader stay off the launch path of every command that
+    // never embeds (and `align --version`, the hook's stdin parse, ...).
+    const { EmbeddingAssetsMissing } = await import('./embedding-runtime.js');
+    try {
+      const { createNativeEmbeddingPipeline } = await import('./local-embeddings-native.js');
+      // ALI-1781: the npm package no longer depends on @huggingface/transformers. The native
+      // runtime for this os/arch and the model files are fetched once, digest-checked, into the
+      // user cache dir (embedding-runtime.ts), then everything runs offline.
+      built = await createNativeEmbeddingPipeline();
+    } catch (err) {
+      if (err instanceof EmbeddingAssetsMissing) {
+        throw new Error(
+          err.reason === 'unsupported-platform'
+            ? `Local mode needs the on-device embedding runtime, which is not available on this platform. Use cloud mode (\`align login\`), or reinstall on a supported platform (macOS arm64, glibc Linux, or Windows x64/arm64). (${err.message})`
+            : err.message,
+        );
+      }
+      // Wrapped, because an unwrapped failure here reaches the user as a raw fetch or dlopen
+      // error. The common cause is the one-time download, so say that and where it came from.
+      throw new Error(
+        'Could not set up the on-device embedding model (~23MB model, ~20MB runtime, downloaded once from ' +
+        'github.com and huggingface.co, then cached). Check your internet connection or proxy and try again. ' +
+        `Cloud mode (\`align login\`) works meanwhile. (${(err as Error).message})`,
       );
     }
   }
-  const output = await _pipe(text, { pooling: 'mean', normalize: true });
-  return output[0]!.data;
+  return built!;
 }
 
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {

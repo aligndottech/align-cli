@@ -33,7 +33,7 @@ const PLAIN_NAMES = [
  * The ALIGN_* names a sync child reads, and nothing else (checked against src/ by a parity test).
  * No ALIGN_LLM_*, ALIGN_TOKEN or provider setting: a sync makes no LLM call and takes connector tokens from the config file.
  */
-export const SYNC_CHILD_ALIGN_NAMES = ['ALIGN_ENV', 'ALIGN_GATEWAY_URL', 'ALIGN_MODEL_CACHE', 'ALIGN_TELEMETRY', 'ALIGN_INGEST_CONCURRENCY', 'ALIGN_DEBUG'] as const;
+export const SYNC_CHILD_ALIGN_NAMES = ['ALIGN_ENV', 'ALIGN_GATEWAY_URL', 'ALIGN_MODEL_CACHE', 'ALIGN_ORT_RUNTIME_URL', 'ALIGN_TELEMETRY', 'ALIGN_INGEST_CONCURRENCY', 'ALIGN_DEBUG'] as const;
 
 /** Names whose VALUE rule lives in mcp-child-env.ts (XDG dirs absolute only; proxies and certs kept unless credentialed or relative; NODE_OPTIONS always blank; CI as is). */
 const RULED_NAMES = CHILD_ENV_KEYS.filter((k) => !k.startsWith('ALIGN_') && !CHILD_ENV_SECRETS.includes(k) && !PROVIDER_ENV_VARS.includes(k));

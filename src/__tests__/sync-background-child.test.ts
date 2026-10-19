@@ -80,7 +80,7 @@ describe('syncChildEnv: the value rules are mcp-child-env.ts\'s', () => {
   it('ALIGN_* is an exact list: credential-shaped names that no prefix rule would catch are dropped, and the names the child reads are kept', () => {
     const planted = { ALIGN_AUTH_HEADER: 'a', ALIGN_COOKIE: 'c', ALIGN_PAT: 'p', ALIGN_PASS: 'p', ALIGN_PWD: 'p', ALIGN_DB_DSN: 'd', ALIGN_BEARER: 'b', ALIGN_SESSION: 's', ALIGN_LLM_PROVIDER: 'x', ALIGN_FOO: 'y' };
     expect(syncChildEnv(planted)).toEqual({});
-    const kept = Object.fromEntries(SYNC_CHILD_ALIGN_NAMES.map((n) => [n, n === 'ALIGN_GATEWAY_URL' ? 'https://gw.example' : '1']));
+    const kept = Object.fromEntries(SYNC_CHILD_ALIGN_NAMES.map((n) => [n, n === 'ALIGN_GATEWAY_URL' ? 'https://gw.example' : n === 'ALIGN_MODEL_CACHE' ? '/abs/cache' : '1']));
     expect(syncChildEnv(kept)).toEqual(kept);
   });
   it('every name on the ALIGN list is one align reads at all (the MCP block lists every read)', () => {

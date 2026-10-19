@@ -19,7 +19,7 @@ import { absoluteXdg, XDG_VARS } from '../xdg.js';
 const ALIGN_READS = [
   'ALIGN_DEBUG', 'ALIGN_DETECTOR', 'ALIGN_ENV', 'ALIGN_GATEWAY_URL', 'ALIGN_HEAD_SHA', 'ALIGN_INGEST_CONCURRENCY', 'ALIGN_INTERNAL',
   'ALIGN_LAUNCH_DRY_RUN', 'ALIGN_LAUNCH_TRACE', 'ALIGN_LLM_API_KEY', 'ALIGN_LLM_BASE_URL', 'ALIGN_LLM_PROVIDER',
-  'ALIGN_LLM_TIMEOUT_MS', 'ALIGN_MODEL_CACHE', 'ALIGN_NO_LAUNCH', 'ALIGN_NO_LEAD_PROMPT', 'ALIGN_NO_SYNC', 'ALIGN_NO_TRUSTED_BIN', 'ALIGN_OLLAMA_MODEL', 'ALIGN_PLATFORM',
+  'ALIGN_LLM_TIMEOUT_MS', 'ALIGN_MODEL_CACHE', 'ALIGN_NO_LAUNCH', 'ALIGN_NO_LEAD_PROMPT', 'ALIGN_NO_SYNC', 'ALIGN_NO_TRUSTED_BIN', 'ALIGN_OLLAMA_MODEL', 'ALIGN_ORT_RUNTIME_URL', 'ALIGN_PLATFORM',
   'ALIGN_SUBJECT_KEY', 'ALIGN_TELEMETRY', 'ALIGN_TENANT_ID', 'ALIGN_TOKEN', 'ALIGN_WRAPPED',
 ] as const;
 
@@ -27,7 +27,7 @@ const ALIGN_READS = [
  * Other variables align reads: where it sends data (local-llm.ts), and CI (telemetry-ci.ts: a
  * repo's CI=false would otherwise turn CI detection off, and with it telemetry's CI default).
  */
-const OTHER_READS = ['OLLAMA_HOST', 'OLLAMA_CONTEXT_LENGTH', 'CI'] as const;
+const OTHER_READS = ['OLLAMA_HOST', 'OLLAMA_CONTEXT_LENGTH', 'CI', 'HF_ENDPOINT'] as const;
 
 /** Where Node sends traffic, and which certificates it trusts: the user's own value is kept (a corporate proxy), unless credentialed. */
 const NETWORK = [
@@ -107,8 +107,9 @@ export function childEnvValue(k: string, env: Record<string, string | undefined>
   const v = env[k] ?? '';
   if (v === '') return '';
   if ((CERT_PATHS as readonly string[]).includes(k)) return isAbsolutePath(v) ? v : '';
+  if (k === 'ALIGN_MODEL_CACHE') return isAbsolutePath(v) ? v : '';
   if (/^NO_PROXY$|^no_proxy$/.test(k)) return v;
-  if (credentialedUrl(v) && (/URL|HOST|PROXY/i.test(k))) return '';
+  if (credentialedUrl(v) && (/URL|HOST|PROXY|ENDPOINT/i.test(k))) return '';
   return v;
 }
 
@@ -126,7 +127,7 @@ function canonicalValue(k: string, val: unknown): boolean {
   if (val === '') return true;
   if ((XDG_VARS as readonly string[]).includes(k)) return absoluteXdg({ [k]: val }, k) !== undefined;
   if ((CERT_PATHS as readonly string[]).includes(k)) return isAbsolutePath(val);
-  if (/URL|HOST|PROXY/i.test(k) && !/^NO_PROXY$|^no_proxy$/.test(k)) return !credentialedUrl(val);
+  if (/URL|HOST|PROXY|ENDPOINT/i.test(k) && !/^NO_PROXY$|^no_proxy$/.test(k)) return !credentialedUrl(val);
   return true;
 }
 
