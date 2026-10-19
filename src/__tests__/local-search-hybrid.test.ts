@@ -139,4 +139,12 @@ describe('local search on git commits: dense and lexical rankings fused (ALI-174
     const { results } = await client.searchDecisions('why did we switch to zorblax-match', 4, undefined, { all: true });
     expect(order(results)).toEqual(['a', 'b', 'c', 'd']);
   });
+
+  it('on a mixed graph, a git commit that only matches lexically does not suppress the empty answer', async () => {
+    // Every dense score is under the 0.25 search floor, so the answer is empty, as it was before the lexical list.
+    wire({ 1: 0.2, 2: 0.2, 3: 0.2, 4: 0.2, 5: 0.2 });
+    await client.captureDecision('we agreed on slack to use zorblax-match too (k)', 'slack');
+    const { results } = await client.searchDecisions('why zorblax-match', 4, undefined, { all: true });
+    expect(results).toEqual([]);
+  });
 });

@@ -69,7 +69,21 @@ export function createLexicalStore(db: DatabaseSync): LexicalStore {
 
   /** Bring lex_doc and lex_term in line with the git rows. Only rows whose signature moved are tokenised. */
   function refresh(): State {
+    // A search must not sit behind an import's write lock for the graph's 30 s (the DDL below needs that lock
+    // too): wait briefly, then the caller falls back to the dense order. Put back to 30 s afterwards.
+    db.exec('PRAGMA busy_timeout = 2000');
+    try {
+      return refreshLocked();
+    } finally {
+      db.exec('PRAGMA busy_timeout = 30000');
+    }
+  }
+
+  function refreshLocked(): State {
     db.exec(DDL);
+    // Stamped BEFORE reading, so a commit that lands while we read makes the next call refresh again
+    // instead of being hidden behind a stamp taken after it.
+    let key = stamp();
     let p = plan();
     if (p.gone.length || p.fresh.length) {
       const upsert = db.prepare(`INSERT INTO lex_doc (decision_id, sig, len) VALUES (?, ?, 0)
@@ -95,6 +109,8 @@ export function createLexicalStore(db: DatabaseSync): LexicalStore {
           setLen.run(len, num);
           p.docs.set(num, { id: r.id, len });
         }
+        // Inside the write lock no other process can commit, so this stamp covers exactly what we read and wrote.
+        key = stamp();
         db.exec('COMMIT');
       } catch (err) {
         db.exec('ROLLBACK');
@@ -103,8 +119,7 @@ export function createLexicalStore(db: DatabaseSync): LexicalStore {
     }
     let total = 0;
     for (const d of p.docs.values()) total += d.len;
-    // Stamped AFTER our own writes, so they do not read as somebody else's change on the next call.
-    return { key: stamp(), n: p.docs.size, avgLen: p.docs.size ? total / p.docs.size : 0, docs: p.docs };
+    return { key, n: p.docs.size, avgLen: p.docs.size ? total / p.docs.size : 0, docs: p.docs };
   }
 
   return {

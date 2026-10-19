@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createLocalDb } from '../lib/local-db.js';
-import { LEXICAL_RECIPE } from '../lib/lexical-store.js';
+import { deleteDecisionWithDependents } from '../lib/local-db-migrate.js';
+import { createLexicalStore, LEXICAL_RECIPE } from '../lib/lexical-store.js';
 import { queryTerms } from '../lib/lexical-terms.js';
 import { rmDir } from './helpers/rm-dir.js';
 
@@ -165,5 +166,32 @@ describe('lexical store: persisted, lazily, per row', () => {
   it('creates no lexical table for a graph that never searches', () => {
     add('feat: adopt zorblax', '');
     expect(rawCount(`SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'lex_%'`)).toBe(0);
+  });
+
+  it('removing a decision through the shared remover takes its lexical rows with it', () => {
+    const id = add('feat: adopt zorblax', 'body');
+    add('feat: adopt quuxmatic', 'body');
+    expect(ids('zorblax')).toHaveLength(1);
+    const raw = new DatabaseSync(dbPath);
+    deleteDecisionWithDependents(raw, id);
+    raw.close();
+    expect(rawCount('SELECT COUNT(*) FROM lex_doc')).toBe(1);
+    expect(rawCount(`SELECT COUNT(*) FROM lex_term WHERE term = 'zorblax'`)).toBe(0);
+  });
+
+  it('a search behind another connection\'s write lock gives up after a short wait and leaves the 30 s timeout in place', () => {
+    add('feat: adopt zorblax', 'body');
+    const mine = new DatabaseSync(dbPath);
+    mine.exec('PRAGMA busy_timeout = 30000');
+    const store = createLexicalStore(mine);
+    const other = new DatabaseSync(dbPath);
+    other.exec('BEGIN IMMEDIATE');
+    try {
+      const started = Date.now();
+      expect(() => store.search(queryTerms('zorblax'), 5)).toThrow();
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect((mine.prepare('PRAGMA busy_timeout').get() as { timeout: number }).timeout).toBe(30_000);
+    } finally { other.exec('ROLLBACK'); other.close(); mine.close(); }
+    expect(ids('zorblax')).toEqual(['feat: adopt zorblax']);
   });
 });

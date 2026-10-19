@@ -636,8 +636,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         // Scope and date bounds come from the dense pass (`all` is already filtered), so a lexical id
         // outside them has no dense score and is dropped. If the index cannot be read or written the
         // search degrades to the dense order rather than failing.
+        // A lexical row is admitted only beside a real dense hit. With no row over the search floor the
+        // answer is empty, as it always was, and the reduced-query retry below still gets its turn.
         let lexical: string[] = [];
-        try {
+        if (dense.length) try {
           lexical = db.lexicalStore().search(expandedTerms(text), poolSize * 4)
             .filter(r => (denseScore.get(r.id) ?? -1) >= LEXICAL_MIN_DENSE).slice(0, poolSize).map(r => r.id);
         } catch { /* dense only */ }
