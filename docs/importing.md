@@ -61,8 +61,10 @@ report says how far back it actually got and what stopped it, instead of printin
 looks like a quiet six months. "Imported" is what was stored: if a batch failed, the line says
 "imported 20 of 40 (a batch failed)".
 
-**Git is the exception.** It reads the newest 500 commits however old, as before; `--since` makes it
-a window and lifts the scan bound to the ceiling.
+**Git is the exception.** By default it scans up to 20,000 commits, newest first, however old, and
+keeps the newest 2,000 that have body text beyond trailers. `--since` makes it a window and lifts the
+scan bound to the ceiling (5,000), and the keep cap of 2,000 still applies. An explicit `--limit` is
+your own bound and has no keep cap.
 
 GitHub reads items first, then fetches comments and reviews for as many as 600 requests allow,
 newest first. The report says how many got their discussion ("discussion fetched for 188 of 312");
@@ -220,12 +222,17 @@ align connect git
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--limit` | `500` | Max commits to import (`5000` once `--since` is given) |
+| `--limit` | `20000` | Max commits to scan (`5000` once `--since` is given). Left at the default, a run keeps the newest 2,000 that have body text beyond trailers. An explicit `--limit` has no keep cap |
 | `--since` | - | Read only this far back (`30d`, `6m`, ...). Without it, the newest commits however old |
 | `--branch` | current branch | Git branch to scan |
 | `--from` | - | Start date (ISO, e.g. `2025-01-01`) |
 | `--to` | - | End date (ISO) |
 | `--approve` | - | Skip confirmation prompt |
+
+A plain commit is kept only if its message has body text beyond trailers and lines that repeat the
+subject. It does not have to state a reason in so many words. A merge commit that was promoted
+(its subject taken from the body) skips that check. The capture report counts the older commits
+that qualified but were not imported, and `--limit` reads further back.
 
 ## Docs
 
@@ -256,6 +263,30 @@ personal token that can see many repos otherwise returns everything you are invo
 across all of them, undifferentiated. If no github.com remote is detected, the import is
 unscoped unless you pass `--repo owner/repo`. Pass `--repo owner/repo` to name a different one, or
 `--all` for every repo the token can see.
+
+### PR descriptions on first run
+
+A commit rarely says why. In squash-merge repos the reason is in the pull request description, so
+the first run of `align --local` also reads the merged PR descriptions of a GitHub origin, with no
+prompt and no account:
+
+- It reads the newest 300 closed PRs by last update (3 pages; unmerged ones count against the 300) from the public GitHub API, unauthenticated, while
+  git is being scanned. It never waits on GitHub for more than about 10 seconds.
+- A PR becomes a decision only if its description states a reason (the same test the git import
+  applies to commits), so template checklists and bot PRs are skipped. The decision's source is the
+  PR url and its date is the merge date.
+- The squash commit of an imported PR (the PR's merge commit) is not imported again: the change appears
+  once, as the PR. `align connect git` afterwards skips those commits too. A PR merged by rebase leaves
+  its other commits as commits.
+- If GitHub's rate limit stops the read (HTTP 429, or 403 with no quota left), first run says "GitHub rate limit reached, imported commits
+  only; run `align connect github` for PR descriptions" and carries on with commits.
+- A `gh` token is used only when it is proven read-only (it can read, never write), and then the
+  read covers up to 1,000 PRs with a higher rate limit. A token that can write is never used for the PR
+  requests. (Proving it means one call to `api.github.com/user` with that token.)
+- A repo whose origin is not on github.com (GitLab, another host, no remote) is not read this way.
+
+`align connect github` writes the same row for the same PR, so running it afterwards adds
+discussion and does not duplicate anything.
 
 ## Jira
 

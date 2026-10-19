@@ -331,3 +331,19 @@ describe('wrong-polarity and look-alike inputs found in review give null', () =>
     expect(extractReason('x', 'Rename because.ts and so_that.md into the shared utils folder for clarity.')).toBeNull();
   });
 });
+
+describe('PR template checklists (ALI-1782)', () => {
+  it('never reads a ticked or unticked task-list item as a reason', () => {
+    const body = [
+      '## Checklist',
+      '- [ ] I added tests because the old suite missed the regression',
+      '- [x] I updated the docs so that users find the new flag',
+    ].join('\n');
+    expect(extractReason('feat: flag', body)).toBeNull();
+    expect(extractReason('feat: flag', '* [X] Ran the benchmarks to avoid a perf regression in the router')).toBeNull();
+  });
+  it('still reads the because-sentence that sits next to a checklist', () => {
+    const body = 'The router rebuilt its table on every call because the cache key ignored the prefix.\n\n- [ ] tests added\n- [x] docs updated';
+    expect(extractReason('fix: router cache', body)).toBe('The router rebuilt its table on every call because the cache key ignored the prefix.');
+  });
+});

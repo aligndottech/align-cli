@@ -219,8 +219,12 @@ describe('SYNTHESIS_SYSTEM_PROMPT carries the abstention contract (ollama-vet ev
   // abstention. There is deliberately NO deterministic strip for this (unlike the
   // em-dash): telling a self-contradiction from an honest "partially answers, here is
   // the part that is missing" is semantic, and a wrong trigger rewrites a good answer.
-  it('tells the model a partial or implicit answer is still an answer', () => {
-    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/partial or implicit answer is still an answer/i);
+  // ALI-1749: replaced "a partial or implicit answer is still an answer", which licensed a
+  // motive inferred from weak evidence. The partial case is now an explicit shape: say no reason
+  // is stated, then give what the history shows (see ask-grounding.test.ts).
+  it('no longer licenses an implicit answer to a why question', () => {
+    expect(SYNTHESIS_SYSTEM_PROMPT).not.toMatch(/partial or implicit answer is still an answer/i);
+    expect(SYNTHESIS_SYSTEM_PROMPT).toContain('No commit or decision here states why.');
   });
 
   it('names the deny-then-deliver shape as forbidden, by the sentinel itself (ALI-895)', () => {
@@ -469,11 +473,13 @@ describe('buildUserPrompt caps each summary to its share of the window', () => {
   // Positive control for the rule above: a summary that already fits its share must NOT be
   // cut - an inequality, not an unconditional slice.
   it('leaves every summary untouched when it already fits', () => {
-    const decisions = decisionsOf(8, 300);
+    // ALI-1749: a row's excerpt is capped at 240 characters, so a summary that fits means one under it.
+    const decisions = decisionsOf(8, 100);
     const prompt = buildUserPrompt('why?', decisions, 4096, SYNTHESIS_MAX_TOKENS);
 
     for (const d of decisions) {
-      expect(prompt).toContain(`- ${d.title}: ${d.summary}`);
+      expect(prompt).toContain(d.title);
+      expect(prompt).toContain(d.summary);
     }
   });
 
@@ -524,17 +530,18 @@ describe('buildUserPrompt caps each summary to its share of the window', () => {
  */
 describe('synthesisSentenceBudget scales with the number of retrieved decisions (ALI-894)', () => {
   it('keeps zero or one decision at the original tight budget - regression net', () => {
-    expect(synthesisSentenceBudget(0)).toBe('2-4 concise sentences');
-    expect(synthesisSentenceBudget(1)).toBe('2-4 concise sentences');
+    expect(synthesisSentenceBudget(0)).toBe('at most 3 sentences');
+    expect(synthesisSentenceBudget(1)).toBe('at most 3 sentences');
   });
 
   it('widens once composing across two decisions', () => {
-    expect(synthesisSentenceBudget(2)).toBe('3-6 concise sentences');
+    expect(synthesisSentenceBudget(2)).toBe('at most 4 sentences');
   });
 
   it('widens further for three or more decisions - the live ALI-894 repro retrieved five', () => {
-    expect(synthesisSentenceBudget(3)).toBe('4-8 concise sentences');
-    expect(synthesisSentenceBudget(5)).toBe('4-8 concise sentences');
+    // ALI-1749: the ceiling is the grounded-answer cap of 5, never more.
+    expect(synthesisSentenceBudget(3)).toBe('at most 5 sentences');
+    expect(synthesisSentenceBudget(5)).toBe('at most 5 sentences');
   });
 });
 
@@ -578,7 +585,7 @@ describe('SYNTHESIS_SYSTEM_PROMPT permits composition across decisions without l
   // flat 2-4 sentence cap only fit a single-decision answer.
   it('tells the model composing across several decisions is a correct answer, not a guess', () => {
     expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/more than one decision/i);
-    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/no single decision/i);
+    expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/what changed and when/i);
   });
 
   // The most important invariant here (ALI-894's own test list): composition and
@@ -586,7 +593,7 @@ describe('SYNTHESIS_SYSTEM_PROMPT permits composition across decisions without l
   // composition permission without also reading the attribution requirement it comes with.
   it('ties composition to attribution in the same instruction', () => {
     expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(
-      /no single decision states it but the decisions together do, compose the answer from all of them, attributing each part to the decision it came from/i,
+      /what changed and when may be assembled from more than one decision, attributing each part to the decision it came from/i,
     );
   });
 

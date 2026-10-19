@@ -18,6 +18,7 @@ import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
 import { type CaptureSource, createCaptureCollector, toCaptureSource } from '../lib/capture-report.js';
 import type { CaptureFetchResult } from '../lib/fetchers/capture.js';
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
+import { dropCoveredCommits, fetchFirstRunPrs } from '../lib/first-run-pr-import.js';
 import { GIT_DEFAULT_LIMIT, GIT_KEEP_CAP, SYNC_CEILINGS, SYNC_WINDOW_DEFAULT_DAYS } from '../lib/import-defaults.js';
 import { type FetchExtras, fetchWindow, parseSince, type SyncWindow, windowExtras, windowLabel } from '../lib/since.js';
 import { initLocalMode } from '../lib/local-mode.js';
@@ -59,6 +60,9 @@ import { firstDecision } from '../lib/first-decision.js';
 //  - 'workspace': needs a workspace/org admin install (Slack, Teams)
 type ConnectorTier = 'personal' | 'site' | 'workspace';
 const TIER_ORDER: Record<ConnectorTier, number> = { personal: 0, site: 1, workspace: 2 };
+
+/** The capture report's name for what first run reads from a GitHub origin's merged PRs (not a connector id, so not in CAPTURE_SOURCES). */
+const PR_DESCRIPTIONS_SOURCE = { label: 'GitHub', unit: 'PR descriptions' } as const;
 
 // How many connectors import concurrently after auth. Each import is itself
 // batch-parallel (runPersonalImport), so this bounds total gateway load.
@@ -608,11 +612,21 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   if (inGitRepo && !repoKnown) {
     console.log('');
     p.log.info(chalk.dim('First import downloads a local embedding model (~23MB, huggingface.co) and, on npm installs, its runtime (~20MB, github.com), one time.'));
+    // ALI-1749/ALI-1782: the reason behind a change usually lives in its PR, so a GitHub origin's merged PR
+    // descriptions are read WHILE git is scanned. Public, bounded, never a prompt, never fails first run.
+    const prRead = fetchFirstRunPrs(repo);
     const gitSpinner = p.spinner();
     gitSpinner.start('Scanning git history...');
     try {
       const gitSource = buildSources(true).find(s => s.id === 'git')!;
-      const fetched = await gitSource.fetch({});
+      const scanned = await gitSource.fetch({});
+      const prs = await prRead;
+      // A squash commit whose PR is imported below would be listed twice: the PR row stays, the commit row is not written.
+      const dedup = dropCoveredCommits(scanned.items, prs);
+      const fetched: CaptureFetchResult = dedup.covered === 0 ? scanned : {
+        items: dedup.items,
+        report: { ...scanned.report, skips: [...scanned.report.skips, { count: dedup.covered, detail: 'commits that are the squash of an imported PR, listed once as the PR' }] },
+      };
       const gitCs = capture.add(toCaptureSource(gitSource, fetched));
       const { items } = fetched;
       if (items.length) {
@@ -629,6 +643,23 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
           quiet: true,
           funnel: { env: localEnv, source: 'git' },
         });
+      } else {
+        gitSpinner.stop(prs.items.length > 0 ? `Found ${prs.items.length} PR descriptions worth importing` : 'No decisions found in git history');
+      }
+      let prStored = 0;
+      if (prs.items.length) {
+        const prCs = capture.add(toCaptureSource(PR_DESCRIPTIONS_SOURCE, {
+          items: prs.items,
+          report: { scanned: prs.scanned, skips: prs.scanned > prs.imported ? [{ count: prs.scanned - prs.imported, detail: 'merged PRs whose description states no reason, not imported' }] : [] },
+        }));
+        await runPersonalImport(prs.items, localClient, {
+          result: prCs, label: 'GitHub PR descriptions', approve: true, appUrl: resolveAppUrl(localEnv), local: true, quiet: true,
+          funnel: { env: localEnv, source: 'github' },
+        });
+        prStored = prCs.stored ?? prs.items.length;
+      }
+      if (prs.note) p.log.info(chalk.dim(prs.note));
+      if (items.length || prs.items.length) {
         // The payoff (ALI-215/ALI-794): name real decisions instead of a bare count, so a
         // first-run user can check the summary against their own repo. Read straight back
         // from the db rather than trusting the import's own tally - see buildFoundSummary's
@@ -637,12 +668,10 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         try {
           const summary = buildFoundSummary(summaryDb);
           firstFoundTitle = pickAskableTitle(summary.recent.map((d) => d.title)) ?? summary.recent[0]?.title;
-          p.note(renderFoundSummary(summary), 'Found in your history');
+          p.note(renderFoundSummary(summary, { prDescriptions: prStored }), 'Found in your history');
         } finally {
           summaryDb.close();
         }
-      } else {
-        gitSpinner.stop('No decisions found in git history');
       }
     } catch (e) {
       const msg = (e as Error).message;

@@ -64,6 +64,8 @@ const NEGATED = /(?:\bnot|\bnever|n't)\s+(?:just\s+|only\s+|simply\s+)?because\b
 const FILE_TOKEN = /\b[\w-]+\.(?:ts|tsx|js|jsx|mjs|md|json|py|rs|go|txt|yml|yaml|css|html|toml|sh)\b/gi;
 
 const CONVENTIONAL_PREFIX = /^[a-z]+(?:\([^)]*\))?!?:\s+/;
+// A PR template's task list ("- [ ] tests added", "* [x] docs updated") is a form someone ticked, never a reason.
+const TASK_ITEM = /^\s*(?:[*+-]|\d+[.)])\s+\[[ xX]\]/;
 const BULLET = /^\s*(?:[*+-]|\d+[.)])\s+/;
 const NOISE_SENTENCE = /^merge (?:pull request|branch|remote-tracking)\b|\b(?:sourced from|dependabot|renovate)\b/i;
 
@@ -158,7 +160,7 @@ function toUnits(text: string): Array<{ text: string; bullet: boolean }> {
     const line = raw.replace(/^\s*>+\s?/, '');
     if (!line.trim()) { flush(); continue; }
     if (/^\s*#{1,6}\s/.test(line) || /^\s*\|/.test(line) || /^\s*[-=*_|: ]{3,}\s*$/.test(line)) { flush(); continue; }
-    if (TRAILER.test(line) || FIXES_ONLY.test(line)) { flush(); continue; }
+    if (TRAILER.test(line) || FIXES_ONLY.test(line) || TASK_ITEM.test(line)) { flush(); continue; }
     if (/^\s*(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b/.test(line)) { flush(); continue; }
     if (BULLET.test(line)) { flush(); curBullet = true; cur.push(line.replace(BULLET, '')); continue; }
     // Short unpunctuated lines are list entries, not a wrapped paragraph: a wrapped line runs to the
