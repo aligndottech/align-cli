@@ -10,7 +10,7 @@ import { formatCommitAsText } from '../lib/git.js';
 
 const commit = (subject: string, body: string) => ({
   sha: 'abc1234abc1234abc1234abc1234abc1234abc12', subject, body,
-  author: 'Ada Lovelace', date: '2024-05-01T10:00:00Z', filesChanged: ['lib/avoid-prevent-because.js', 'test/x.js'],
+  author: 'Ada Lovelace', date: '2024-05-01T10:00:00Z', filesChanged: ['lib/avoid-prevent-because', 'test/x'],
 });
 const full = (subject: string, body: string) =>
   formatCommitAsText(commit(subject, body), 'https://github.com/o/r/commit/abc1234abc1234abc1234abc1234abc1234abc12');
@@ -186,7 +186,7 @@ describe('what is NOT a reason gives null', () => {
     expect(extractReason('x', 'Closes #13\nRefs: owner/repo#14\nFixes https://github.com/o/r/issues/15')).toBeNull();
   });
   it('a Fixes line is cut out of the paragraph it sits in, not glued onto the reason', () => {
-    expect(extractReason('x', 'Fixes #12\nWe dropped it because it was slow on big bodies.')).toBe('We dropped it because it was slow on big bodies.');
+    expect(extractReason('x', 'Fixes #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22, #23, #24\nWe dropped it because it was slow on big bodies.')).toBe('We dropped it because it was slow on big bodies.');
     expect(extractReason('x', 'We dropped it because it was slow on big bodies.\nCloses owner/repo#7')).toBe('We dropped it because it was slow on big bodies.');
   });
   it('a Fixes line carrying a real sentence is kept', () => {
@@ -286,10 +286,48 @@ describe('the importer metadata (formatCommitAsText) never leaks', () => {
     expect(extractReason('fix: parser', text)).toBeNull();
   });
   it('a title echoed on the line above the body is not glued to it', () => {
-    expect(extractReason('fix: drop the parser', 'fix: drop the parser\nWe dropped it because it was slow.')).toBe('We dropped it because it was slow.');
+    expect(extractReason('fix: drop the legacy parser from the request pipeline entirely now', 'fix: drop the legacy parser from the request pipeline entirely now\nWe dropped it because it was slow.')).toBe('We dropped it because it was slow.');
     expect(extractReason('feat: add a cache', full('feat: add a cache', 'It avoids repeat reads, which is needed because disks are slow.'))).toBe('It avoids repeat reads, which is needed because disks are slow.');
   });
   it('a body that is only a title echo plus metadata is null', () => {
     expect(extractReason('fix: parser', full('fix: parser', 'fix: parser'))).toBeNull();
+  });
+});
+
+describe('wrong-polarity and look-alike inputs found in review give null', () => {
+  it('negated reasons', () => {
+    expect(extractReason('x', 'This is not because of the cache. We changed the key format for fun.')).toBeNull();
+    expect(extractReason('x', 'We did it, but not because the old one was slow on big inputs.')).toBeNull();
+    expect(extractReason('x', "It isn't just because of speed that the old one went away today.")).toBeNull();
+  });
+  it('questions', () => {
+    expect(extractReason('x', 'Is this broken because of the proxy? We should look at the retry logic later.')).toBeNull();
+    expect(extractReason('x', 'Why not use the native one? Maybe because it is slower than the other one.')).toBe('Maybe because it is slower than the other one.');
+  });
+  it('a marker inside quotation marks is someone else\'s claim', () => {
+    expect(extractReason('x', 'The reporter wrote "it crashes because the cache is stale" but we could not reproduce that issue.')).toBeNull();
+  });
+  it('release-please entries and version headings are another change\'s text', () => {
+    expect(extractReason('chore(main): release 1.2.0', '## 1.2.0\n\n### Bug Fixes\n\n* fix crash because the parser was incorrect (#12)')).toBeNull();
+    expect(extractReason('x', 'Notes.\n\n### Bug Fixes\n\n* fix crash because the parser was incorrect (#12)')).toBeNull();
+    expect(extractReason('x', '## [1.2.0](https://x.test/compare)\n\nWe fixed it because the parser was incorrect today.')).toBeNull();
+  });
+  it('merge branch subjects', () => {
+    expect(extractReason("Merge branch 'x' into main", "Merge branch 'fix-bug-because-of-race' into main")).toBeNull();
+  });
+  it('short unpunctuated lines are not fused into one sentence', () => {
+    expect(extractReason('x', 'Add the billing feature flag to settings\nFix crash in login screen because token was null\nUpdate docs for the flag'))
+      .toBe('Fix crash in login screen because token was null');
+  });
+  it('abbreviations do not split a sentence', () => {
+    expect(extractReason('x', 'The old code did not work because of Mr. Jones bug in the Node release. It crashed.')).toBe('The old code did not work because of Mr. Jones bug in the Node release.');
+  });
+  it('a label with a placeholder or pointer is not a reason, and Problem is not a label', () => {
+    expect(extractReason('x', 'Reason: n/a for this one, just a trivial change really.')).toBeNull();
+    expect(extractReason('x', 'Why: see #123 for the longer discussion of why this change happened.')).toBeNull();
+    expect(extractReason('x', 'Problem: the foo module is in the wrong place and nothing else here.')).toBeNull();
+  });
+  it('a marker word inside a file name is not a marker', () => {
+    expect(extractReason('x', 'Rename because.ts and so_that.md into the shared utils folder for clarity.')).toBeNull();
   });
 });

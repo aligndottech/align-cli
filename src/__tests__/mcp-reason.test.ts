@@ -61,6 +61,9 @@ describe('withReasons / commitShaOf', () => {
   it('passes a non-object row through untouched', () => {
     expect(withReasons({ results: [null, 'x', [1], 4] }).results).toEqual([null, 'x', [1], 4]);
   });
+  it('keeps a reason the row already carries', () => {
+    expect(withReasons({ results: [{ title: 'T', summary: 'We did it because it was slow on big bodies.', reason: 'from gateway' }] }).results[0]).toMatchObject({ reason: 'from gateway' });
+  });
   it('does not mutate its input', () => {
     const p = { results: [{ ...WITH_REASON }] };
     withReasons(p, { sha: true });

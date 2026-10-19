@@ -38,7 +38,7 @@ const ISSUE_REF = '(?:#\\d+|gh-\\d+|[\\w.-]+\\/[\\w.-]+#\\d+|https?:\\/\\/\\S+)'
 const FIXES_ONLY = new RegExp(`^\\s*(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?|refs?|see|related to|part of)\\b:?\\s*${ISSUE_REF}(?:[\\s,;&]+(?:and\\s+)?${ISSUE_REF})*\\s*[.]?\\s*$`, 'i');
 
 // Sections that start a dump of someone else's changes.
-const DUMP_HEADING = /^\s{0,3}(?:#{1,6}\s*)?(?:\*\*)?(?:what'?s changed|release notes?|changelog|full changelog|commits|sourced from)\b/im;
+const DUMP_HEADING = /^\s{0,3}(?:#{1,6}\s*)?(?:\*\*)?(?:what'?s changed|release notes?|changelog|full changelog|commits|sourced from|bug fixes|features)\b|^\s{0,3}#{1,6}\s*\[?v?\d+\.\d+/im;
 const BUMP_BODY = /^\s*(?:bumps?|updates?|upgrades?)\s+(?:\[?`?[\w@/.-]+`?\]?(?:\([^)]*\))?\s+)?(?:from|to)\b|this pr contains the following updates|^\s*dependabot will resolve/im;
 
 const STRONG = [
@@ -57,11 +57,15 @@ const MEDIUM = [
 ];
 const PROBLEM = /\b(?:break(?:s|ing)?|broke|broken|fail(?:s|ed|ing|ure)?|crash(?:es|ed|ing)?|leak(?:s|ed|ing)?|incorrect(?:ly)?|wrong(?:ly)?|bugs?|errors?|slow(?:er|ly)?|hangs?|lead(?:s|ing)? to|result(?:s|ed|ing)? in|caus(?:e|es|ed|ing))\b/i;
 const WEAK = [/\bsecurity\b/i, /\bperformance\b/i, /\bvulnerab\w*/i, /\bmemory leak\b/i, /\bcrash(?:es|ed)?\b/i];
-const LABEL = /^(why|reason|rationale|motivation|problem)\s*:\s*/i;
+const LABEL = /^(why|reason|rationale|motivation)\s*:\s*/i;
+// A label followed by a placeholder or a pointer says nothing.
+const EMPTY_LABEL_BODY = /^(?:n\/?a|none|see|tbd|todo|-)\b/i;
+const NEGATED = /(?:\bnot|\bnever|n't)\s+(?:just\s+|only\s+|simply\s+)?because\b/i;
+const FILE_TOKEN = /\b[\w-]+\.(?:ts|tsx|js|jsx|mjs|md|json|py|rs|go|txt|yml|yaml|css|html|toml|sh)\b/gi;
 
 const CONVENTIONAL_PREFIX = /^[a-z]+(?:\([^)]*\))?!?:\s+/;
 const BULLET = /^\s*(?:[*+-]|\d+[.)])\s+/;
-const NOISE_SENTENCE = /^merge pull request\b|\b(?:sourced from|dependabot|renovate)\b/i;
+const NOISE_SENTENCE = /^merge (?:pull request|branch|remote-tracking)\b|\b(?:sourced from|dependabot|renovate)\b/i;
 
 // A removed URL leaves a marker, so a reason whose OBJECT was the link ("because of <url>") can be
 // dropped rather than printed with a hole in it. Only real HTML tags are stripped: `<path>` in a
@@ -157,13 +161,17 @@ function toUnits(text: string): Array<{ text: string; bullet: boolean }> {
     if (TRAILER.test(line) || FIXES_ONLY.test(line)) { flush(); continue; }
     if (/^\s*(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b/.test(line)) { flush(); continue; }
     if (BULLET.test(line)) { flush(); curBullet = true; cur.push(line.replace(BULLET, '')); continue; }
+    // Short unpunctuated lines are list entries, not a wrapped paragraph: a wrapped line runs to the
+    // width and the next one continues in lower case.
+    const prev = cur[cur.length - 1];
+    if (prev !== undefined && prev.length < 60 && !/[.!?:;,]$/.test(prev) && /^[A-Z]/.test(line.trim())) flush();
     cur.push(line.trim());
   }
   flush();
   return units;
 }
 
-const SENTENCE_SPLIT = /(?<=[.!?])(?<!\b(?:e\.g|i\.e|etc|vs|cf)\.)\s+(?=[A-Z0-9"'(`[])/;
+const SENTENCE_SPLIT = /(?<=[.!?])(?<!\b(?:e\.g|i\.e|etc|vs|cf|[Mm]r|[Mm]rs|[Mm]s|[Dd]r|Inc|Ltd|[Jj]r|[Ss]r|St)\.)\s+(?=[A-Z0-9"'(`[])/;
 
 export function extractReason(title: string, body: string | null | undefined): string | null {
   if (!body) return null;
@@ -191,7 +199,7 @@ export function extractReason(title: string, body: string | null | undefined): s
     let t = stripMarkup(unit.text);
     let labelled = false;
     const label = LABEL.exec(t);
-    if (label) { labelled = true; t = t.slice(label[0].length); }
+    if (label) { labelled = true; t = t.slice(label[0].length); if (EMPTY_LABEL_BODY.test(t)) continue; }
     // A squashed sub-commit title (a "* " list item, or "fix(router): ...") says what changed. Only a strong marker makes it a reason.
     const conventional = CONVENTIONAL_PREFIX.test(t);
     if (conventional) t = t.replace(CONVENTIONAL_PREFIX, '');
@@ -202,7 +210,12 @@ export function extractReason(title: string, body: string | null | undefined): s
       if (DANGLING_LINK.test(s)) continue;
       s = s.replace(/\s*\uE000\s*([.,;:!?])/g, '$1').replace(/\s*\uE000\s*/g, ' ').trim();
       if (words(s).length < MIN_WORDS || !isMostlyEnglish(s) || NOISE_SENTENCE.test(s) || repeatsTitle(s, titleWords, titleBodyWords)) continue;
-      const sc = score(s, labelled);
+      if (/\?$/.test(s)) continue;
+      // Score what the author asserts: not text in quotation marks (someone else's claim), not a
+      // file name that happens to contain a marker word, not a negated "because".
+      const asserted = s.replace(/"[^"]*"|\u201c[^\u201d]*\u201d/g, ' ').replace(FILE_TOKEN, ' ');
+      if (NEGATED.test(asserted)) continue;
+      const sc = score(asserted, labelled);
       if (sc < 2 || (subjectLike && sc < 3)) continue;
       const shown = fit(s, labelled);
       if (shown) scored.push({ pos, score: sc, text: shown });
@@ -237,7 +250,7 @@ export function withReasons<T extends { results?: unknown }>(payload: T, opts: {
       return {
         ...r,
         ...(sha && !('sha' in r) ? { sha } : {}),
-        reason: extractReason(String(r['title'] ?? ''), typeof r['summary'] === 'string' ? r['summary'] : null),
+        reason: 'reason' in r ? r['reason'] : extractReason(String(r['title'] ?? ''), typeof r['summary'] === 'string' ? r['summary'] : null),
       };
     }),
   };
