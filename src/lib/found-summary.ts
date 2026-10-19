@@ -78,7 +78,7 @@ export function buildFoundSummary(db: FoundSummaryDb): FoundSummary {
   return { total, linked: touched.size, recent };
 }
 
-export function renderFoundSummary(s: FoundSummary): string {
+export function renderFoundSummary(s: FoundSummary, opts: { prDescriptions?: number } = {}): string {
   if (s.total === 0) {
     // A row of zeros reads as a broken tool, which is the ALI-503 lesson applied to
     // the first run. Say what is true and let the caller suggest a next source.
@@ -96,6 +96,8 @@ export function renderFoundSummary(s: FoundSummary): string {
   // "candidate": the importer keeps commits whose message states a reason. That is a text
   // heuristic, so the box does not claim to know which of them were real decisions.
   const lines = [counts];
+  // What kind of source the count came from, said only when there is one to say (ALI-1782).
+  if (opts.prDescriptions !== undefined && opts.prDescriptions > 0) lines.push(`  including ${opts.prDescriptions} from PR descriptions`);
   if (s.recent.length > 0) {
     lines.push('');
     for (const d of s.recent) {

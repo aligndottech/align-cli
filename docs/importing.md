@@ -264,6 +264,27 @@ across all of them, undifferentiated. If no github.com remote is detected, the i
 unscoped unless you pass `--repo owner/repo`. Pass `--repo owner/repo` to name a different one, or
 `--all` for every repo the token can see.
 
+### PR descriptions on first run
+
+A commit rarely says why. In squash-merge repos the reason is in the pull request description, so
+the first run of `align --local` also reads the merged PR descriptions of a GitHub origin, with no
+prompt and no account:
+
+- It reads the newest 300 closed PRs (3 pages) from the public GitHub API, unauthenticated, while
+  git is being scanned. It never waits on GitHub for more than about 10 seconds.
+- A PR becomes a decision only if its description states a reason (the same test the git import
+  applies to commits), so template checklists and bot PRs are skipped. The decision's source is the
+  PR url and its date is the merge date.
+- A squash commit whose PR was imported is not imported again: the change appears once, as the PR.
+- If GitHub's rate limit stops the read, first run says "GitHub rate limit reached, imported commits
+  only; run `align connect github` for PR descriptions" and carries on with commits.
+- A `gh` token is used only when it is proven read-only (it can read, never write), and then the
+  read covers up to 1,000 PRs and private repos you can see. A token that can write is never sent.
+- A repo whose origin is not on github.com (GitLab, another host, no remote) is not read this way.
+
+`align connect github` writes the same row for the same PR, so running it afterwards adds
+discussion and does not duplicate anything.
+
 ## Jira
 
 ```bash

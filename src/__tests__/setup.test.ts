@@ -154,6 +154,14 @@ vi.mock('../lib/repo-identity.js', async (importOriginal) => ({
   currentRepoIdentity: mockCurrentRepoIdentity,
 }));
 
+// ALI-1782: first run reads a GitHub origin's merged PR descriptions. No test here may reach api.github.com or a
+// real `gh`, so the read is faked (default: nothing found). Its own behaviour is pinned in first-run-pr-reasons.test.ts.
+const mockFetchFirstRunPrs = vi.hoisted(() => vi.fn());
+vi.mock('../lib/first-run-pr-import.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  fetchFirstRunPrs: mockFetchFirstRunPrs,
+}));
+
 // ALI-794: the found-summary reads the local db directly (createLocalDb), separately
 // from the mocked ingest client above. Mocked here too, or every test that imports git
 // via --local opens a REAL sqlite file at the fixed dbPath the mocks share - across many
@@ -325,6 +333,8 @@ describe('align setup', () => {
     mockLocalDb.listDecisions.mockReturnValue([]);
     mockListDecisions.mockResolvedValue([]);
     mockCurrentRepoIdentity.mockResolvedValue('github.com/o/r');
+    mockFetchFirstRunPrs.mockReset();
+    mockFetchFirstRunPrs.mockResolvedValue({ items: [], scanned: 0, imported: 0, numbers: new Set(), shas: new Set() });
   });
 
   afterEach(() => {
@@ -1285,6 +1295,84 @@ describe('align setup', () => {
       expect(password).toHaveBeenCalled();
       expect(fetchTeamsItems).toHaveBeenCalledWith(expect.objectContaining({ token: 'test-token' }));
       expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'teams', expect.objectContaining({ token: 'test-token' }));
+    });
+
+    // ALI-1782: the reason behind a change usually lives in its PR description, so first run reads them too.
+    describe('first run reads merged PR descriptions of a GitHub origin', () => {
+      const prItem = (n: number) => ({
+        source_url: `https://github.com/o/r/pull/${n}`, platform: 'github', title: `fix: thing ${n} (#${n})`,
+        raw_text: `fix: thing ${n} (#${n})\n\nThe router rebuilt its table because the cache key ignored the prefix.\n\nStatus: merged\nRepo: o/r`,
+        created_at: '2026-03-08T10:00:00.000Z',
+      });
+      const outcome = (over: Record<string, unknown> = {}) => ({ items: [prItem(7)], scanned: 40, imported: 1, numbers: new Set([7]), shas: new Set<string>(), ...over });
+      const ingested = () => mockIngestBatch.mock.calls.flatMap((c) => c[0] as Array<{ title: string; source_url: string; platform: string }>);
+
+      it('imports the PR row and not the squash commit that carries the same change', async () => {
+        const { getCommitHistoryDetailed } = await import('../lib/git.js');
+        (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+          commits: [
+            { sha: 'aaa1111', subject: 'fix: thing 7 (#7)', body: '', author: 'a', date: '2026-03-08' },
+            { sha: 'bbb2222', subject: 'feat: unrelated change (#99)', body: 'because reasons stated here', author: 'a', date: '2026-03-09' },
+          ],
+          scanned: 2, rejectedByRationale: 0,
+        });
+        mockFetchFirstRunPrs.mockResolvedValue(outcome());
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        const rows = ingested();
+        expect(rows.filter((r) => r.title === 'fix: thing 7 (#7)')).toEqual([expect.objectContaining({ source_url: 'https://github.com/o/r/pull/7', platform: 'github' })]);
+        expect(rows.some((r) => r.title === 'feat: unrelated change (#99)' && r.platform === 'git')).toBe(true);
+        // and the report says where the dropped commit went, so its count still adds up
+        const printed = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+        expect(printed).toContain('1 commits that are the squash of an imported PR, listed once as the PR');
+        expect(mockFetchFirstRunPrs).toHaveBeenCalledWith('github.com/o/r');
+      });
+
+      it('names the PR descriptions in the capture report and the found box', async () => {
+        mockFetchFirstRunPrs.mockResolvedValue(outcome());
+        const { note } = await import('@clack/prompts');
+        mockLocalDb.getStats = () => ({ decisions: 2 });
+        try {
+          await makeProgram().parseAsync(['node', 'align', '--local']);
+          const printed = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+          expect(printed).toMatch(/GitHub: \d+ PR descriptions kept of 40 scanned/);
+          expect(printed).toMatch(/39 merged PRs whose description states no reason, not imported/);
+        } finally {
+          mockLocalDb.getStats = () => ({ decisions: 0 });
+        }
+        const boxes = (note as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+        expect(boxes.some((b) => /including \d+ from PR descriptions/.test(b))).toBe(true);
+      });
+
+      it('says the rate-limit line once, and still imports the commits', async () => {
+        mockFetchFirstRunPrs.mockResolvedValue({ items: [], scanned: 0, imported: 0, numbers: new Set(), shas: new Set(), note: 'GitHub rate limit reached, imported commits only; run `align connect github` for PR descriptions' });
+        const { log } = await import('@clack/prompts');
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        const said = (log.info as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => String(c[0])).filter((m) => m.includes('GitHub rate limit reached'));
+        expect(said).toHaveLength(1);
+        expect(said[0]).toContain('GitHub rate limit reached, imported commits only; run `align connect github` for PR descriptions');
+        expect(ingested().some((r) => r.platform === 'git')).toBe(true);
+      });
+
+      it('imports PRs even when git history has no commit worth importing', async () => {
+        const { getCommitHistoryDetailed } = await import('../lib/git.js');
+        (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ commits: [], scanned: 0, rejectedByRationale: 0 });
+        mockFetchFirstRunPrs.mockResolvedValue(outcome());
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        expect(ingested().map((r) => r.source_url)).toContain('https://github.com/o/r/pull/7');
+        const { note } = await import('@clack/prompts');
+        expect((note as ReturnType<typeof vi.fn>).mock.calls.some((c) => String(c[1]) === 'Found in your history')).toBe(true);
+      });
+
+      it('a PR read that fails never fails first run', async () => {
+        mockFetchFirstRunPrs.mockRejectedValue(new Error('boom'));
+        await expect(makeProgram().parseAsync(['node', 'align', '--local'])).resolves.not.toThrow();
+      });
+
+      it('does not read PRs again when this repo is already in the graph', async () => {
+        mockLocalDb.gitDecisionCount.mockReturnValue(219);
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        expect(mockFetchFirstRunPrs).not.toHaveBeenCalled();
+      });
     });
 
     // Additive re-run, the value phase: git and docs are the first-run value moment and
