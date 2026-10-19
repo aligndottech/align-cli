@@ -9,7 +9,7 @@
  * outside the cache, so anything beyond a regular file with a clean relative name throws.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
+import { dirname, join, posix } from 'node:path';
 
 const BLOCK = 512;
 
@@ -96,8 +96,10 @@ export function parseTar(buf: Buffer, limits: ExtractLimits): TarEntry[] {
     const size = parseInt(cString(buf, off + 124, 12).trim() || '0', 8);
     const mode = parseInt(cString(buf, off + 100, 8).trim() || '0', 8);
     if (!Number.isFinite(size) || size < 0) throw new Error(`bad size for ${path}`);
-    const norm = normalize(path);
-    if (!path || isAbsolute(path) || path.includes('\\') || path.includes('\0') || path.includes(':') || norm.split(sep).includes('..') || norm !== path) {
+    // Archive names are always '/'-separated, so judge them with POSIX rules on every OS (the host's
+    // normalize() would rewrite '/' to '\\' on Windows and reject every nested path).
+    const norm = posix.normalize(path);
+    if (!path || posix.isAbsolute(path) || path.includes('\\') || path.includes('\0') || path.includes(':') || norm.split('/').includes('..') || norm !== path) {
       throw new Error(`unsafe path in archive: ${JSON.stringify(path)}`);
     }
     total += size;
