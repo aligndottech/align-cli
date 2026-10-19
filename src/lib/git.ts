@@ -23,6 +23,9 @@ export interface CommitHistoryResult {
    *  subject-shape rejections (chore/wip/merge/too-short) - folding those into "no
    *  stated reason" overstates what THIS gate did (Copilot review, PR #223). */
   rejectedByRationale: number;
+  /** Commits that passed both gates but were not returned because `keep` was reached. Counted
+   *  apart so `scanned - commits.length - rejectedByRationale` stays the subject-shape count. */
+  droppedByCap: number;
 }
 
 /**
@@ -37,6 +40,10 @@ export async function getCommitHistoryDetailed(opts: {
   from?: string;
   to?: string;
   branch?: string;
+  /** Return at most this many qualifying commits, newest first. `limit` bounds what git SCANS;
+   *  this bounds what is KEPT, so a long history is read to its start while the import (which
+   *  embeds every kept commit) stays inside its time budget. Absent: no cap. */
+  keep?: number;
   /** Run git in this directory instead of the process cwd. Lets tests point at a
    *  fixture repo without process.chdir, which leaks across concurrent workers. */
   cwd?: string;
@@ -81,7 +88,7 @@ export async function getCommitHistoryDetailed(opts: {
     // Other git failures (e.g. a bad --branch) still surface.
     const e = err as { exitCode?: number; stderr?: string };
     if (e.exitCode === 128 && /does not have any commits|bad default revision/i.test(e.stderr ?? '')) {
-      return { commits: [], scanned: 0, rejectedByRationale: 0 };
+      return { commits: [], scanned: 0, rejectedByRationale: 0, droppedByCap: 0 };
     }
     throw err;
   }
@@ -89,6 +96,7 @@ export async function getCommitHistoryDetailed(opts: {
   const commits: GitCommit[] = [];
   let scanned = 0;
   let rejectedByRationale = 0;
+  let droppedByCap = 0;
   let sha = '', subject = '', author = '', date = '';
   let bodyLines: string[] = [];
   let files: string[] = [];
@@ -108,6 +116,10 @@ export async function getCommitHistoryDetailed(opts: {
     const wasPromotedMerge = shaped.subject !== subject;
     if (!wasPromotedMerge && !hasStatedRationale(shaped.subject, shaped.body)) {
       rejectedByRationale++;
+      return;
+    }
+    if (opts.keep !== undefined && commits.length >= opts.keep) {
+      droppedByCap++;
       return;
     }
     commits.push({ sha, subject: shaped.subject, body: shaped.body, author, date, filesChanged: files.slice(0, 10) });
@@ -161,7 +173,7 @@ export async function getCommitHistoryDetailed(opts: {
   }
   flush();
 
-  return { commits, scanned, rejectedByRationale };
+  return { commits, scanned, rejectedByRationale, droppedByCap };
 }
 
 export async function getCommitHistory(opts: Parameters<typeof getCommitHistoryDetailed>[0]): Promise<GitCommit[]> {

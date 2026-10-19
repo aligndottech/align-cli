@@ -78,7 +78,7 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
     expect(SYNC_WINDOW_DEFAULT_DAYS).toBe(180);
     expect(SYNC_TIME_BUDGET_MS).toBe(8 * 60_000);
     expect(GITHUB_DISCUSSION_BUDGET).toBe(600);
-    expect(GIT_DEFAULT_LIMIT).toBe(500);
+    expect(GIT_DEFAULT_LIMIT).toBe(20_000);
   });
 
   it('marks exactly the ceilings P0 could not measure as PROVISIONAL, and says why on the line', () => {
