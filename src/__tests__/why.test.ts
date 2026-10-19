@@ -623,3 +623,35 @@ describe('align ask drops a synthetic hosted source (ALI-923)', () => {
     expect(all).toContain('https://github.com/acme/api/pull/9');
   });
 });
+
+// ALI-1749 / ALI-1782: the synthesis call is handed structured evidence fields, not just a title
+// and a body, so the model has a stated reason to quote and an id to cite.
+describe('align ask hands the synthesiser structured evidence', () => {
+  beforeEach(() => { output.length = 0; });
+  afterEach(() => vi.clearAllMocks());
+
+  it('passes the citation, date, source and similarity of every decision', async () => {
+    const { createGatewayClient } = await import('../lib/gateway-client.js');
+    (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      searchDecisions: vi.fn().mockResolvedValue({
+        results: [
+          { id: 'u1', title: 'Drop node 14', summary: 'Drop node 14', status: 'active', similarity: 0.7, platform: 'github', decided_at: '2024-03-01T10:00:00Z', source_url: 'https://github.com/acme/api/pull/9' },
+          { id: 'u2', title: 'Use a map', summary: 'Use a map', status: 'active', similarity: 0.4, platform: 'github', created_at: '2023-01-09T10:00:00Z' },
+        ],
+        count: 2,
+        strategy: 'semantic' as const,
+      }),
+    });
+    mockSynthesise.mockResolvedValueOnce({ ok: true, text: 'An answer.' });
+    const program = new Command();
+    registerAskCommand(program);
+    await program.parseAsync(['node', 'align', 'ask', 'why drop node 14']);
+    const passed = mockSynthesise.mock.calls[0][1] as Array<Record<string, unknown>>;
+    expect(passed[0]).toMatchObject({ id: 'u1', ref: 'api#9', platform: 'github', similarity: 0.7 });
+    expect(passed[0]['date']).toMatch(/^2024-03-01/);
+    // no cite and no source_url: the id is the only handle there is
+    expect(passed[1]).toMatchObject({ id: 'u2', ref: 'u2', similarity: 0.4 });
+    // created_at is when the row was captured, not when it was decided: never offered as a date
+    expect(passed[1]['date']).toBeUndefined();
+  });
+});

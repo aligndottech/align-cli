@@ -9,6 +9,7 @@ import type { SearchResults } from '../lib/gateway-client.js';
 import { localCitationFor } from '../lib/commit-cite.js';
 import { navigableSourceUrl } from '../lib/decision-links.js';
 import { ABSTENTION_SENTINEL, explainAbstention, isAbstention, type LlmFailure, noProviderHintLines, RECOMMENDED_OLLAMA_PULL, synthesiseDetailed } from '../lib/local-llm.js';
+import type { EvidenceDecision } from '../lib/ask-evidence.js';
 import { renderAnswer } from '../lib/answer-render.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { formatWhen } from '../lib/format-date.js';
@@ -75,6 +76,25 @@ function sourceLine(d: SearchHit): string {
   const when = decidedWhen(d);
   const whenLabel = when ? chalk.dim(` · ${when}`) : '';
   return chalk.dim(`    - ${d.title}${ref}`) + platform + statusLabel + who + whenLabel;
+}
+
+/**
+ * ALI-1749: one retrieved decision as the structured evidence the synthesiser quotes from. `ref` is
+ * the SAME handle the source list below the answer prints (the cite, else the id), so a citation
+ * in the answer matches a line the reader can see. The date is the day it was DECIDED: created_at
+ * is capture time, which would present an import date as a decision date, so it is never used.
+ */
+function evidenceOf(d: SearchHit): EvidenceDecision {
+  const date = d.decided_at && !Number.isNaN(Date.parse(d.decided_at)) ? d.decided_at.slice(0, 10) : undefined;
+  return {
+    id: d.id,
+    title: d.title,
+    summary: d.summary ?? '',
+    ref: d.cite ?? localCitationFor(d.source_url) ?? d.id,
+    ...(date ? { date } : {}),
+    ...(d.platform ? { platform: d.platform } : {}),
+    ...(d.similarity !== undefined ? { similarity: d.similarity } : {}),
+  };
 }
 
 /** The indented link under a source line - where it was DECIDED, clickable. */
@@ -273,7 +293,7 @@ export function registerAskCommand(program: Command): void {
         if (!filePath) {
           const synth = await synthesiseDetailed(
             query,
-            results.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
+            results.results.map(evidenceOf),
           );
           answer = synth.ok ? synth.text : null;
           if (!synth.ok) synthFailure = synth.failure;
@@ -298,7 +318,7 @@ export function registerAskCommand(program: Command): void {
               spinner.start();
               const retry = await synthesiseDetailed(
                 query,
-                results.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
+                results.results.map(evidenceOf),
               );
               answer = retry.ok ? retry.text : null;
               synthFailure = retry.ok ? undefined : retry.failure;
@@ -317,7 +337,7 @@ export function registerAskCommand(program: Command): void {
             if (wholeGraph.results.length) {
               const second = await synthesiseDetailed(
                 query,
-                wholeGraph.results.map((d) => ({ id: d.id, title: d.title, summary: d.summary ?? '' })),
+                wholeGraph.results.map(evidenceOf),
               );
               // Adoption rule, measured against a real model (2026-09-02 probes): on
               // implicit-only context the model can emit the sentinel AND keep talking -
