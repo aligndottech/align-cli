@@ -39,6 +39,14 @@ export const SEARCH_THRESHOLD = 0.25;
  * promoted it; 30 clears that with room, and the scan reads every stored vector either way.
  */
 export const RERANK_POOL_FACTOR = 4;
+/**
+ * ALI-1749: the dense floor for a row only the LEXICAL ranking found. A rare identifier is worth
+ * a row below SEARCH_THRESHOLD (a commit that names "find-my-way" can embed at 0.2 beside a
+ * question about routing), but a row with no semantic resemblance at all that merely shares a
+ * common word ("support") is noise. 0.15 sits under the 0.25 search floor. Measured on eval v2:
+ * 0.25 scored 93.9% recall@8, 0.15 scored 95.7% and 0 scored 95.1%.
+ */
+export const LEXICAL_MIN_DENSE = 0.15;
 export const RERANK_POOL_MIN = 30;
 /**
  * Candidate floor for ADJUDICATION - the path that then pays an LLM per candidate.

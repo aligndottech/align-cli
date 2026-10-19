@@ -10,6 +10,8 @@ import { localCitationFor } from './commit-cite.js';
 import { extractRefs, refIdentityFor } from './decision-refs.js';
 import { contentWordQuery } from './search-query.js';
 import { rerankByTitle } from './search-rerank.js';
+import { reciprocalRankFusion } from './hybrid-rank.js';
+import { expandedTerms } from './query-expand.js';
 import { linkPass } from './local-link-pass.js';
 import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
@@ -27,7 +29,7 @@ import { notADecisionMarks } from './curation/judgements-db.js';
 import { contextKeyFor, filesFromDiff } from './curation/mark.js';
 
 import {
-  DRIFT_THRESHOLD, RELATED_FLOOR, RELATED_TOP_K, RELATES_THRESHOLD, RERANK_POOL_FACTOR, RERANK_POOL_MIN,
+  DRIFT_THRESHOLD, LEXICAL_MIN_DENSE, RELATED_FLOOR, RELATED_TOP_K, RELATES_THRESHOLD, RERANK_POOL_FACTOR, RERANK_POOL_MIN,
   RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD, SIMILARITY_THRESHOLD,
 } from './local-thresholds.js';
 
@@ -622,13 +624,29 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // under commits that merely repeat X, so retrieve a wider pool and let titles reorder it
       // BEFORE the cut. The score each row reports stays its dense similarity.
       const poolSize = Math.max(limit * RERANK_POOL_FACTOR, RERANK_POOL_MIN) + hidden.size;
-      const visible = (rows: Awaited<ReturnType<typeof findSimilar>>) => {
-        const reranked = rerankByTitle(query, rows, r => r.score, r => db.getDecisionById(r.decisionId)?.title ?? '');
-        const split = splitRetrieved(reranked, hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
+      // ALI-1749: the dense ranking and a lexical (BM25) ranking of git commits, fused by rank. The dense
+      // order alone lost a commit that names a rare identifier ("find-my-way") or states its reason in
+      // words the title lacks to commits that merely sound like the question. A graph with no git rows,
+      // or a query with no lexical hit, fuses an empty list, which leaves the dense-plus-title order as it was.
+      const hybrid = async (text: string, vec: Float32Array) => {
+        const all = await findSimilar(vec, Number.MAX_SAFE_INTEGER, 0, undefined, boundedFilter);
+        const denseScore = new Map(all.map(r => [r.decisionId, r.score]));
+        const dense = all.filter(r => r.score >= SEARCH_THRESHOLD).slice(0, poolSize);
+        const denseOrder = rerankByTitle(text, dense, r => r.score, r => db.getDecisionById(r.decisionId)?.title ?? '');
+        // Scope and date bounds come from the dense pass (`all` is already filtered), so a lexical id
+        // outside them has no dense score and is dropped. If the index cannot be read or written the
+        // search degrades to the dense order rather than failing.
+        let lexical: string[] = [];
+        try {
+          lexical = db.lexicalStore().search(expandedTerms(text), poolSize * 4)
+            .filter(r => (denseScore.get(r.id) ?? -1) >= LEXICAL_MIN_DENSE).slice(0, poolSize).map(r => r.id);
+        } catch { /* dense only */ }
+        const fused = reciprocalRankFusion([{ ids: denseOrder.map(r => r.decisionId), weight: 1 }, { ids: lexical, weight: 1 }]);
+        const split = splitRetrieved(fused.map(id => ({ decisionId: id, score: denseScore.get(id)! })), hidden, limit, (id) => db.getDecisionById(id)?.title, 'answer');
         dropNotes.splice(0, dropNotes.length, ...split.notes);
         return split.kept;
       };
-      let similar = visible(await findSimilar(embedding, poolSize, SEARCH_THRESHOLD, undefined, boundedFilter));
+      let similar = await hybrid(query, embedding);
       // A natural-language question embeds less densely than its subject does, so on a
       // small graph it can miss a decision that its own content words hit. Retry once,
       // only on an empty result, mirroring the gateway's own keyword-to-semantic
@@ -637,7 +655,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       if (!similar.length) {
         const reduced = contentWordQuery(query);
         if (reduced) {
-          similar = visible(await findSimilar(await getEmbedding(reduced), poolSize, SEARCH_THRESHOLD, undefined, boundedFilter));
+          similar = await hybrid(reduced, await getEmbedding(reduced));
         }
       }
       const results = similar
