@@ -62,6 +62,8 @@ beforeEach(() => {
   errs = [];
   setWriteRecorder((f, e) => { manifest[f] = mergeWrittenConfig(manifest[f], e); }, (f) => manifest[f]);
   git(repo, 'init', '-q');
+  // A Windows runner's global core.autocrlf=true would rewrite LF to CRLF in a linked worktree checkout, so pin it off.
+  git(repo, 'config', 'core.autocrlf', 'false');
 });
 afterEach(() => {
   setWriteRecorder(undefined);
