@@ -110,4 +110,4 @@ jobs:
 
       - name: Download from the release and check vector parity
         shell: bash
-        run: node scripts/verify-embedding-parity.mjs .
+        run: node scripts/verify-embedding-parity.mjs . --live

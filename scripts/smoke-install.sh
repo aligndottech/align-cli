@@ -406,7 +406,8 @@ echo "embedding cache after run: $(find "$EMBED_CACHE" -type f 2>/dev/null | wc 
 # from the stack npm installs shipped before ALI-1781. Skipped when the cache is empty (a 429
 # upstream), because a parity run must not become a second download that fails for the same reason.
 if model_weights_present "$EMBED_CACHE" && runtime_present "$EMBED_CACHE"; then
-  step "embedding parity vs the previous transformers.js stack" 300 node "$SCRIPT_DIR/verify-embedding-parity.mjs" "$CLI_PKG"
+  step "embedding parity vs transformers.js on this machine" 300 node "$SCRIPT_DIR/verify-embedding-parity.mjs" "$CLI_PKG" --live
+  step "embedding sanity vs the committed vectors" 300 node "$SCRIPT_DIR/verify-embedding-parity.mjs" "$CLI_PKG"
 else
   echo "SKIP: embedding parity - no cached runtime and weights to run it against"
 fi

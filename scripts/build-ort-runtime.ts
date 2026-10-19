@@ -39,10 +39,12 @@ function pack(spec: string, integrity: string, dir: string): string {
   const path = join(dir, file);
   const actual = `sha512-${createHash('sha512').update(readFileSync(path)).digest('base64')}`;
   if (actual !== integrity) throw new Error(`${spec}: tarball integrity ${actual} does not match the pinned ${integrity}`);
-  // mkdir + -C + --strip-components, the spelling GNU tar (Linux, Git Bash) and bsdtar (macOS) share.
-  const dest = join(dir, file.replace(/\.tgz$/, ''));
-  mkdirSync(dest);
-  execFileSync('tar', ['-xzf', path, '-C', dest, '--strip-components=1']);
+  // Relative names with cwd set: GNU tar on Windows (Git Bash) reads "C:\\..." as host:path and fails
+  // ("Cannot connect to C"), and bsdtar/GNU tar agree on plain relative arguments.
+  const name = file.replace(/\.tgz$/, '');
+  mkdirSync(join(dir, name));
+  execFileSync('tar', ['-xzf', file, '-C', name, '--strip-components=1'], { cwd: dir });
+  const dest = join(dir, name);
   return dest;
 }
 
