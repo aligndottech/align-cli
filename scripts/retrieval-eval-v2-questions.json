@@ -7,16 +7,6 @@
       "repo": "fastify",
       "clone_sha": "2cbb98e25f75e23cf8dafedc9a111943f2888669",
       "expected_sha": "0e9a3b35d8b13c9f261bf29bef46168a5d43c28f",
-      "kind": "concept",
-      "question": "Why does the framework now warn when you register a custom HTTP method that already exists?",
-      "subject": "fix: add http method override warning (#6879)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "fastify",
-      "clone_sha": "2cbb98e25f75e23cf8dafedc9a111943f2888669",
-      "expected_sha": "0e9a3b35d8b13c9f261bf29bef46168a5d43c28f",
       "kind": "symptom",
       "question": "Why do I get a deprecation warning when my own method name overrides a built-in one?",
       "subject": "fix: add http method override warning (#6879)",
@@ -40,46 +30,6 @@
       "kind": "symptom",
       "question": "Why does the same error get logged even though my own error handler already handled it?",
       "subject": "Log error after customErrorHandler (#1073)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "fastify",
-      "clone_sha": "2cbb98e25f75e23cf8dafedc9a111943f2888669",
-      "expected_sha": "7870f23bd6f99f141b32a50994ccb3bc8aaf4ebb",
-      "kind": "concept",
-      "question": "Why does the logger type accept any custom logger instead of requiring every property of the standard one?",
-      "subject": "feat(logger): use pino.BaseLogger as main interface for fastify logger (#4150)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "fastify",
-      "clone_sha": "2cbb98e25f75e23cf8dafedc9a111943f2888669",
-      "expected_sha": "7870f23bd6f99f141b32a50994ccb3bc8aaf4ebb",
-      "kind": "symptom",
-      "question": "Why can't I plug in my own logger without implementing the whole standard logger interface?",
-      "subject": "feat(logger): use pino.BaseLogger as main interface for fastify logger (#4150)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "fastify",
-      "clone_sha": "2cbb98e25f75e23cf8dafedc9a111943f2888669",
-      "expected_sha": "9d2da7586dc2ff02414f2e25245ab657244275ac",
-      "kind": "concept",
-      "question": "Why must a typed reply be an object keyed only by response status codes?",
-      "subject": "fix: ReplyTypeConstrainer array type inference (#4885)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "fastify",
-      "clone_sha": "2cbb98e25f75e23cf8dafedc9a111943f2888669",
-      "expected_sha": "9d2da7586dc2ff02414f2e25245ab657244275ac",
-      "kind": "symptom",
-      "question": "Why did the type checker infer the wrong reply type when I used an array type?",
-      "subject": "fix: ReplyTypeConstrainer array type inference (#4885)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -126,80 +76,10 @@
     {
       "repo": "execa",
       "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "708fed7dcadd9846e0f689b6528d54715f726932",
-      "kind": "concept",
-      "question": "Why do options set on a reusable bound command get replaced when you pass new ones later?",
-      "subject": "Fix result types for options bound with `execa(options)`",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "708fed7dcadd9846e0f689b6528d54715f726932",
-      "kind": "symptom",
-      "question": "Why did a bound default stay in place even after I overrode it with undefined?",
-      "subject": "Fix result types for options bound with `execa(options)`",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "580b250f1cf4f17bb2197693fc5476f7b6d7cb8e",
-      "kind": "concept",
-      "question": "Why does the template-string command inherit standard input unless I give it an input?",
-      "subject": "Add type tests for `$`'s stdin",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "580b250f1cf4f17bb2197693fc5476f7b6d7cb8e",
-      "kind": "symptom",
-      "question": "Why does the type of a template command's stdin change depending on whether I passed an input?",
-      "subject": "Add type tests for `$`'s stdin",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "af6264a995ef9070d8009e205f913276455cbd92",
-      "kind": "concept",
-      "question": "Why do blocking calls write raw bytes to a file or inherited output instead of decoded text?",
-      "subject": "Fix `execaSync()` writing decoded text instead of the output's bytes to files",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
       "expected_sha": "af6264a995ef9070d8009e205f913276455cbd92",
       "kind": "symptom",
       "question": "Why did invalid characters and utf16 output get mangled when a blocking call wrote to a file?",
       "subject": "Fix `execaSync()` writing decoded text instead of the output's bytes to files",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "31a8d87d5b906f6a162d84f739b118c9bc134d0c",
-      "kind": "concept",
-      "question": "Why does the library want one method instead of separate spawn and execFile styles?",
-      "subject": "Use spawn instead of execFile (#27)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "31a8d87d5b906f6a162d84f739b118c9bc134d0c",
-      "kind": "symptom",
-      "question": "Why was my stdio setting ignored when the process was started with the older helper?",
-      "subject": "Use spawn instead of execFile (#27)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -256,16 +136,6 @@
     {
       "repo": "execa",
       "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "ed80079bc4e21a259fdc521c5a4b27126b308c9a",
-      "kind": "symptom",
-      "question": "Why were the pieces of a split multi-byte character reordered inside a transform?",
-      "subject": "Fix synchronous transforms reordering mixed text and byte chunks",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
       "expected_sha": "51a45df9f4c5e2c5e24d809e851227b66a66eefd",
       "kind": "concept",
       "question": "Why was an internal, non-public Node call replaced with a newer official API?",
@@ -280,16 +150,6 @@
       "kind": "symptom",
       "question": "Why does the library keep an old code path around when the newer Node API is missing?",
       "subject": "Avoid relying on Node’s internals (#125)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "f5772f341ae481458c147f5df96799ac13d28f2a",
-      "kind": "concept",
-      "question": "Why are the output results typed separately for each variant of a union of options?",
-      "subject": "Fix `result` types for fd-specific and union options",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -327,29 +187,9 @@
       "repo": "execa",
       "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
       "expected_sha": "b2c3a54c87586f0441ba7e0178c1eef377a989dc",
-      "kind": "concept",
-      "question": "Why does the shown command not quote each argument when the shell option is on?",
-      "subject": "Fix `escapedCommand` and `verbose` quoting arguments when using the `shell` option",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "b2c3a54c87586f0441ba7e0178c1eef377a989dc",
       "kind": "symptom",
       "question": "Why did the displayed command differ from the one that actually ran with the shell enabled?",
       "subject": "Fix `escapedCommand` and `verbose` quoting arguments when using the `shell` option",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "0ba2b6ebaecfb68140817839863fa12c96d2b587",
-      "kind": "concept",
-      "question": "Why is the output of a failed blocking transform no longer returned?",
-      "subject": "Fix failed synchronous transforms exposing raw output and hiding errors",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -376,16 +216,6 @@
     {
       "repo": "execa",
       "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
-      "expected_sha": "a2912e5702821cef0cd42873180ff977bc1ec02f",
-      "kind": "symptom",
-      "question": "Why were chunks typed as plain strings or byte arrays instead of the original objects when I iterated over a subprocess?",
-      "subject": "Fix object-mode chunks being typed as text or bytes when iterating",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "execa",
-      "clone_sha": "e7e0664c25e3a6fa3f2162f3d7f0128a81a4b8f3",
       "expected_sha": "dbd9acd6d16efb14dc4a1392be159bda76c1923b",
       "kind": "concept",
       "question": "Why is there an option to kill spawned child processes when the parent dies?",
@@ -400,16 +230,6 @@
       "kind": "symptom",
       "question": "Why do child processes keep running after my main process exits?",
       "subject": "Add `cleanup` option (#53)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "adr",
-      "clone_sha": "d977ad78619614789b0909e50f83c5e358250f8e",
-      "expected_sha": "0f20a0ecd895787f71891f5cac6e221e9feebd21",
-      "kind": "concept",
-      "question": "Why do the site's guide, templates and examples pages live under an English locale prefix?",
-      "subject": "Serve the English site under /en/; redirect the old URLs",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -456,26 +276,6 @@
     {
       "repo": "adr",
       "clone_sha": "d977ad78619614789b0909e50f83c5e358250f8e",
-      "expected_sha": "0607f3331d666d576c644b09bc50dcb3bc2ce3d5",
-      "kind": "symptom",
-      "question": "Why did some themes fail the accessibility contrast checks for links?",
-      "subject": "Accessibility: pass axe on all pages; phone search panel; contrast in all 45 themes",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "adr",
-      "clone_sha": "d977ad78619614789b0909e50f83c5e358250f8e",
-      "expected_sha": "0caad611f3da58ed4dfd5dc1b73b9dede58415f4",
-      "kind": "concept",
-      "question": "Why does the readme explain how to surface decision records during pull request reviews?",
-      "subject": "docs: add decision guardrails for pull requests section",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "adr",
-      "clone_sha": "d977ad78619614789b0909e50f83c5e358250f8e",
       "expected_sha": "0caad611f3da58ed4dfd5dc1b73b9dede58415f4",
       "kind": "symptom",
       "question": "Why would a developer editing affected code miss a decision record that sits in a docs folder?",
@@ -510,26 +310,6 @@
       "kind": "concept",
       "question": "Why does the site manifest generator no longer read the main readme directly?",
       "subject": "Fix site build failing when published standalone",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "adr",
-      "clone_sha": "d977ad78619614789b0909e50f83c5e358250f8e",
-      "expected_sha": "a1c44c07a46c4440964d62b1276ceb48cad9edb7",
-      "kind": "symptom",
-      "question": "Why did the site build fail in the published standalone repo with a missing file error?",
-      "subject": "Fix site build failing when published standalone",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "3931ccb0b8468842d0c7e9ea0fc2912d31dff9a2",
-      "kind": "symptom",
-      "question": "Why did a local chat model run with a tiny window and quietly cut off my prompt?",
-      "subject": "fix(llm): size prompts to the model's real context window (ALI-845) (#258)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -576,59 +356,9 @@
     {
       "repo": "align-cli",
       "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "38b024725b638482f7bd8a622db02074ac46eef7",
-      "kind": "concept",
-      "question": "Why was the main readme cut down and the reference material moved into separate docs?",
-      "subject": "docs: cut the README from 576 to 113 lines, move reference into docs/ (#162)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "38b024725b638482f7bd8a622db02074ac46eef7",
-      "kind": "symptom",
-      "question": "Why is the package page on npm so short compared with before?",
-      "subject": "docs: cut the README from 576 to 113 lines, move reference into docs/ (#162)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "ae1ed9b75de2e25e3ab7a1b7cdb02e3f05db95ff",
-      "kind": "concept",
-      "question": "Why does Linear connect through browser sign-in instead of pasting an API key?",
-      "subject": "[DRAFT - hold] feat(setup): Linear via read-only OAuth instead of paste [ALI-101] (#28)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "ae1ed9b75de2e25e3ab7a1b7cdb02e3f05db95ff",
-      "kind": "symptom",
-      "question": "Why would Linear break with a begin-failed error if this shipped before the server secrets were deployed?",
-      "subject": "[DRAFT - hold] feat(setup): Linear via read-only OAuth instead of paste [ALI-101] (#28)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
       "expected_sha": "3d83e466240a2053624219e816c7a2db1f7c97c8",
       "kind": "concept",
       "question": "Why do the standalone binaries behave differently from Node for text and password prompts?",
-      "subject": "fix(setup): guard every crashing prompt, not just the password one (#191)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "3d83e466240a2053624219e816c7a2db1f7c97c8",
-      "kind": "symptom",
-      "question": "Why did the setup prompt crash on the compiled binary but work when run with Node?",
       "subject": "fix(setup): guard every crashing prompt, not just the password one (#191)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
@@ -650,36 +380,6 @@
       "kind": "symptom",
       "question": "Why does passing a misspelled environment name exit with a usage error?",
       "subject": "feat(share): shares go only to the chosen destination (join C4) (#383)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "c12b576f5be4a8bef9461b53a4f16026be9f6e2d",
-      "kind": "concept",
-      "question": "Why is a union field read without an explicit variant check after earlier returns?",
-      "subject": "docs(llm): say why settle() leaves the last narrow to exhaustion",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "c12b576f5be4a8bef9461b53a4f16026be9f6e2d",
-      "kind": "symptom",
-      "question": "Why did the review bot predict a type error that CI never showed?",
-      "subject": "docs(llm): say why settle() leaves the last narrow to exhaustion",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "c0ea263f2c9b109841835af495906f82204ee9fe",
-      "kind": "concept",
-      "question": "Why does the alignment result have an unknown status instead of reporting aligned when something fails?",
-      "subject": "fix(check): add an explicit \"unknown\" state so a check that could not run stops reporting \"aligned\" (ALI-414) (#76)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -736,46 +436,6 @@
     {
       "repo": "align-cli",
       "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "90b32b115e081fbaf037f8dc81cb1eeb9793a254",
-      "kind": "concept",
-      "question": "Why does a fresh install build the local graph before asking whether to use cloud or local?",
-      "subject": "feat(setup): value before the mode question - fresh align builds the local graph and shows what it found before asking anything (ALI-794) (#224)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "90b32b115e081fbaf037f8dc81cb1eeb9793a254",
-      "kind": "symptom",
-      "question": "Why did first-time setup demand a browser login before showing anything useful?",
-      "subject": "feat(setup): value before the mode question - fresh align builds the local graph and shows what it found before asking anything (ALI-794) (#224)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "b58ada8752cea733857465a2241cc5ef6c381b00",
-      "kind": "concept",
-      "question": "Why is there a CI job that checks the automated reviewer looks at every push?",
-      "subject": "ci: guard that Copilot reviews every push, which it does not here yet (ALI-1185) (#316)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
-      "expected_sha": "b58ada8752cea733857465a2241cc5ef6c381b00",
-      "kind": "symptom",
-      "question": "Why do commits that address review comments merge without being reviewed again?",
-      "subject": "ci: guard that Copilot reviews every push, which it does not here yet (ALI-1185) (#316)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "align-cli",
-      "clone_sha": "2bd17222a744c746ee452b8754e550749f7a712c",
       "expected_sha": "3529d151557866ad552e68d38d38017346feb1d8",
       "kind": "concept",
       "question": "Why does setup ask before changing a global editor configuration?",
@@ -810,16 +470,6 @@
       "kind": "symptom",
       "question": "Why did the old glob import syntax stop working after the breaking change?",
       "subject": "refactor: support glob import under `import.meta.glob`",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "vite",
-      "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
-      "expected_sha": "e6f7fbad75c1b406b9a95060c5d2a42d3a8994a8",
-      "kind": "concept",
-      "question": "Why is the css of async chunks loaded in parallel with the main chunk?",
-      "subject": "feat: async chunk loading optimizations",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -917,16 +567,6 @@
       "repo": "vite",
       "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
       "expected_sha": "3fdfe8a78c803b712c2064c1defb43845b2a0039",
-      "kind": "concept",
-      "question": "Why was the conditional exports handling removed from the resolver?",
-      "subject": "fix: remove incorrect conditional exports handling",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "vite",
-      "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
-      "expected_sha": "3fdfe8a78c803b712c2064c1defb43845b2a0039",
       "kind": "symptom",
       "question": "Why did package exports conditions not take effect during the build?",
       "subject": "fix: remove incorrect conditional exports handling",
@@ -956,50 +596,10 @@
     {
       "repo": "vite",
       "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
-      "expected_sha": "bd9e97bd1b9156059b78b531871a12f6f47c04b1",
-      "kind": "concept",
-      "question": "Why does the react plugin look for an import statement instead of checking for the word react in the code?",
-      "subject": "fix(plugin-react): check for import React statement in .js files (#6320)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "vite",
-      "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
-      "expected_sha": "bd9e97bd1b9156059b78b531871a12f6f47c04b1",
-      "kind": "symptom",
-      "question": "Why was react hot reload code injected into files that don't use react?",
-      "subject": "fix(plugin-react): check for import React statement in .js files (#6320)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "vite",
-      "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
-      "expected_sha": "f48255e6e0058e973b949fb4a2372974f0480e11",
-      "kind": "concept",
-      "question": "Why does the css plugin skip emitting during the legacy build?",
-      "subject": "fix(legacy): fix conflict with the modern build on css emitting (#6584)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "vite",
-      "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
       "expected_sha": "f48255e6e0058e973b949fb4a2372974f0480e11",
       "kind": "symptom",
       "question": "Why did no stylesheet get emitted when the legacy plugin was used?",
       "subject": "fix(legacy): fix conflict with the modern build on css emitting (#6584)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "vite",
-      "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
-      "expected_sha": "1c1f82f93bc49ce3a94e23fe99eff377be691b60",
-      "kind": "concept",
-      "question": "Why were source maps for the node code removed from the published package?",
-      "subject": "build: remove production source map for dist/node",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -1057,16 +657,6 @@
       "repo": "vite",
       "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
       "expected_sha": "ee8ec2887e06496475bdb1e6532cc1e155a7e790",
-      "kind": "concept",
-      "question": "Why does custom element mode no longer export the element constructor?",
-      "subject": "refactor: adjust custom element mode behavior",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "vite",
-      "clone_sha": "a3001c5e3f4febb3099b097f4828ea567e1b253f",
-      "expected_sha": "ee8ec2887e06496475bdb1e6532cc1e155a7e790",
       "kind": "symptom",
       "question": "Why can't I import the constructor from a custom element file any more?",
       "subject": "refactor: adjust custom element mode behavior",
@@ -1117,29 +707,9 @@
       "repo": "pnpm",
       "clone_sha": "60bd9778ecb9e4f71ef353e3901e1042af377087",
       "expected_sha": "351452e7d51c2719dce30520be8275ee7e3f157f",
-      "kind": "concept",
-      "question": "Why are cargo config files above the workspace read without the strict no-symlink reader?",
-      "subject": "fix(cargo): read a Cargo config above the checkout through its path (#15074)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "pnpm",
-      "clone_sha": "60bd9778ecb9e4f71ef353e3901e1042af377087",
-      "expected_sha": "351452e7d51c2719dce30520be8275ee7e3f157f",
       "kind": "symptom",
       "question": "Why did the install crash when my home cargo config was a symlink into a dotfiles repo?",
       "subject": "fix(cargo): read a Cargo config above the checkout through its path (#15074)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "pnpm",
-      "clone_sha": "60bd9778ecb9e4f71ef353e3901e1042af377087",
-      "expected_sha": "a7e8a29a8d7bc80cddb6ecbe84bc5c5ce27322d2",
-      "kind": "concept",
-      "question": "Why do read-only commands skip placing the default store?",
-      "subject": "fix(pacquet): skip the store probe for commands that never open the store (#15373)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -1237,16 +807,6 @@
       "repo": "pnpm",
       "clone_sha": "60bd9778ecb9e4f71ef353e3901e1042af377087",
       "expected_sha": "9cd124f665034799dacbf5e4cca5a95c091b2a53",
-      "kind": "concept",
-      "question": "Why were oversized structs refactored to at most eight fields?",
-      "subject": "refactor: limit Rust structs to eight fields (#14872)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "pnpm",
-      "clone_sha": "60bd9778ecb9e4f71ef353e3901e1042af377087",
-      "expected_sha": "9cd124f665034799dacbf5e4cca5a95c091b2a53",
       "kind": "symptom",
       "question": "Why did a lint rule force fields to be grouped by responsibility?",
       "subject": "refactor: limit Rust structs to eight fields (#14872)",
@@ -1279,16 +839,6 @@
       "expected_sha": "2ac554bee756f11cf69481e423d6ceab46f37660",
       "kind": "concept",
       "question": "Why was the hardcoded check for the latest tag removed from the resolver?",
-      "subject": "fix: bound minimumReleaseAge fallbacks for custom dist-tags (#13706)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "pnpm",
-      "clone_sha": "60bd9778ecb9e4f71ef353e3901e1042af377087",
-      "expected_sha": "2ac554bee756f11cf69481e423d6ceab46f37660",
-      "kind": "symptom",
-      "question": "Why didn't a custom dist-tag resolve to the newest release that satisfies the minimum release age?",
       "subject": "fix: bound minimumReleaseAge fallbacks for custom dist-tags (#13706)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
@@ -1364,16 +914,6 @@
       "date": "2026-10-19"
     },
     {
-      "repo": "pnpm",
-      "clone_sha": "60bd9778ecb9e4f71ef353e3901e1042af377087",
-      "expected_sha": "55fb7c8b6138361ca271b154e3977da4264d5b59",
-      "kind": "symptom",
-      "question": "Why did resolution fail on a graph that Cargo can resolve because an index file was never fetched?",
-      "subject": "fix(cargo-resolver): fetch index entries only a feature union reaches (#14964)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
       "repo": "express",
       "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
       "expected_sha": "1684a8792a5caf894d6e1b1b4d59b6d0cdaa6dc9",
@@ -1417,39 +957,9 @@
       "repo": "express",
       "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
       "expected_sha": "e4907ce8e8c4fb53be9cccd086e326cf5faf14bb",
-      "kind": "concept",
-      "question": "Why do routers expose the HTTP method verbs directly?",
-      "subject": "add http verbs methods to Router",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "express",
-      "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
-      "expected_sha": "e4907ce8e8c4fb53be9cccd086e326cf5faf14bb",
       "kind": "symptom",
       "question": "Why did I have to hardcode full paths in a separate file that exports a router?",
       "subject": "add http verbs methods to Router",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "express",
-      "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
-      "expected_sha": "17bf04d1efeab0f220ad59fc0467bb3816f8c4b5",
-      "kind": "concept",
-      "question": "Why is everything after the first colon treated as the password in basic auth?",
-      "subject": "Allow colons in passwords for req.auth",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "express",
-      "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
-      "expected_sha": "17bf04d1efeab0f220ad59fc0467bb3816f8c4b5",
-      "kind": "symptom",
-      "question": "Why did the request auth value come out wrong when a password contained a colon?",
-      "subject": "Allow colons in passwords for req.auth",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -1480,26 +990,6 @@
       "kind": "concept",
       "question": "Why was a function declaration moved out of the try block in the prefix trimming code?",
       "subject": "trim_prefix causing --use-strict flag to fail",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "express",
-      "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
-      "expected_sha": "4ac7474e4e83c3b5f8557e591bae9da54e4420d8",
-      "kind": "symptom",
-      "question": "Why did the server fail to start under the strict-mode flag?",
-      "subject": "trim_prefix causing --use-strict flag to fail",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "express",
-      "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
-      "expected_sha": "f4bd86ed361ea9710ed0f7b4634e66c8e3b88b40",
-      "kind": "concept",
-      "question": "Why did windows testing move off Appveyor to GitHub Actions?",
-      "subject": "Replace Appveyor windows testing with GHA (#5599)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -1537,69 +1027,9 @@
       "repo": "undici",
       "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
       "expected_sha": "2e284f03aaf14171e86a29136ba6c34111943856",
-      "kind": "concept",
-      "question": "Why does the parser tell the HTTP parser to skip the body for HEAD requests?",
-      "subject": "fix(client): skip body if method is `head` (#9)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "2e284f03aaf14171e86a29136ba6c34111943856",
       "kind": "symptom",
       "question": "Why did a HEAD response get treated as if it had a body?",
       "subject": "fix(client): skip body if method is `head` (#9)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "eb04cc39954e63e9b46bdf824e6efad9fff2e7b5",
-      "kind": "concept",
-      "question": "Why is the fetch mode metadata header only sent to trustworthy URLs?",
-      "subject": "fix(fetch): only send Sec-Fetch-Mode to potentially trustworthy URLs (#5738)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "eb04cc39954e63e9b46bdf824e6efad9fff2e7b5",
-      "kind": "symptom",
-      "question": "Why was a metadata header sent to plain http addresses on a local network when browsers don't do that?",
-      "subject": "fix(fetch): only send Sec-Fetch-Mode to potentially trustworthy URLs (#5738)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "4f4bf4f1a6e985e7144be5b142c84e9a4823e3de",
-      "kind": "symptom",
-      "question": "Why did uploading a stream as the body fail instead of retrying with credentials?",
-      "subject": "fix: avoid 401 failures for stream-backed request bodies (#4941)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "90775009148e5956ac58ace0eb493001db8b2b7c",
-      "kind": "concept",
-      "question": "Why do only immutable cached responses get a one year deletion time?",
-      "subject": "fix(cache): only apply 1-year deleteAt for immutable responses (#4913)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "90775009148e5956ac58ace0eb493001db8b2b7c",
-      "kind": "symptom",
-      "question": "Why were cached entries with a short max-age kept around for a year?",
-      "subject": "fix(cache): only apply 1-year deleteAt for immutable responses (#4913)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -1640,26 +1070,6 @@
       "kind": "symptom",
       "question": "Why can a small compressed message from a malicious server exhaust memory?",
       "subject": "fix(websocket): add maxDecompressedMessageSize limit for permessage-deflate",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "32ea0ea9693c47105c578f76fe6381d38a1565cb",
-      "kind": "concept",
-      "question": "Why are last event IDs encoded as UTF-8 before they go into headers?",
-      "subject": "fix(eventsource): validate Last-Event-ID on reconnect (#5746)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "32ea0ea9693c47105c578f76fe6381d38a1565cb",
-      "kind": "symptom",
-      "question": "Why were event IDs that can't be sent as header values left out?",
-      "subject": "fix(eventsource): validate Last-Event-ID on reconnect (#5746)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -1767,29 +1177,9 @@
       "repo": "prettier",
       "clone_sha": "13cbabdccd32c31e202028df3a7eeccefa7d1f6f",
       "expected_sha": "e82a7745685ed4d1cca5008bfe565a8eb38075cb",
-      "kind": "concept",
-      "question": "Why does the list-different flag work when input comes from standard input?",
-      "subject": "Make --list-different to work with --stdin (#2393)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "prettier",
-      "clone_sha": "13cbabdccd32c31e202028df3a7eeccefa7d1f6f",
-      "expected_sha": "e82a7745685ed4d1cca5008bfe565a8eb38075cb",
       "kind": "symptom",
       "question": "Why did piping input in with the list-different flag not report properly?",
       "subject": "Make --list-different to work with --stdin (#2393)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "prettier",
-      "clone_sha": "13cbabdccd32c31e202028df3a7eeccefa7d1f6f",
-      "expected_sha": "ed0ecdad18d715eed9b6314dbb0de8d510f557c8",
-      "kind": "concept",
-      "question": "Why does the JSON printer keep values on the same line as the key?",
-      "subject": "fix(json): do not put values on a separate line from the key (#4852)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -1850,16 +1240,6 @@
       "kind": "symptom",
       "question": "Why did the Korean heading for a deep dive read like a machine translation?",
       "subject": "doc(:kr:): titles of decision-record-template-for-business-case",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "adr",
-      "clone_sha": "d977ad78619614789b0909e50f83c5e358250f8e",
-      "expected_sha": "4ea6eaa81b24b0d670630aea519326831dca634d",
-      "kind": "concept",
-      "question": "Why is the Hindi locale directory named with the India region code?",
-      "subject": "Add hi-in locale, a copy of hi-001 (Hindi, India)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -1966,16 +1346,6 @@
     {
       "repo": "express",
       "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
-      "expected_sha": "d40c5e3aac2c2533ac910d7bcd07b14d46b374ee",
-      "kind": "symptom",
-      "question": "Why did form posts from Firefox not get parsed when the header included a charset?",
-      "subject": "Fix the form post to work with firefox.",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "express",
-      "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
       "expected_sha": "39ee6f8e79a294823c6ff3a33b10557c59486cd4",
       "kind": "concept",
       "question": "Why is a copy of the cookie options made before they are serialized?",
@@ -2017,16 +1387,6 @@
       "repo": "express",
       "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
       "expected_sha": "0a174ad219373629fbb660fd4c6342822bbe3da7",
-      "kind": "concept",
-      "question": "Why was the old download helper removed in favour of the static plugin?",
-      "subject": "move Request#download to Static plugin",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "express",
-      "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
-      "expected_sha": "0a174ad219373629fbb660fd4c6342822bbe3da7",
       "kind": "symptom",
       "question": "Why had the download helper stopped working?",
       "subject": "move Request#download to Static plugin",
@@ -2057,16 +1417,6 @@
       "repo": "express",
       "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
       "expected_sha": "9a8166d6499110084db9279e549b9c930888e6f0",
-      "kind": "concept",
-      "question": "Why can a template extension be mapped to a different engine without editing the engine module?",
-      "subject": "Added app.register() for template engine mapping. Closes #390",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "express",
-      "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
-      "expected_sha": "9a8166d6499110084db9279e549b9c930888e6f0",
       "kind": "symptom",
       "question": "Why was having double extensions like foo.ejs.html for every engine too verbose?",
       "subject": "Added app.register() for template engine mapping. Closes #390",
@@ -2077,39 +1427,9 @@
       "repo": "express",
       "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
       "expected_sha": "9a3f7ff4120d7920a2d13809ff5ae78648c8a3d6",
-      "kind": "concept",
-      "question": "Why does the redirect response body have a proper HTML structure?",
-      "subject": "Polish HTML structure of the response in the res.redirect() function (#5167)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "express",
-      "clone_sha": "0dee2c52c7c873498f8ed7d8ee4ddd0a04d3ada8",
-      "expected_sha": "9a3f7ff4120d7920a2d13809ff5ae78648c8a3d6",
       "kind": "symptom",
       "question": "Why did browsers have compatibility problems with the redirect page body?",
       "subject": "Polish HTML structure of the response in the res.redirect() function (#5167)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "2764d9963eb6764b15b43ca39a59e57fe7cfbfff",
-      "kind": "symptom",
-      "question": "Why can I pick a different HTTP parser when I start the process?",
-      "subject": "feat: Added @perseveranza-pets/milo as alternative experimental HTTP parser (#5492)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "d863782c5eb56c82271c63d5060f688761cd1135",
-      "kind": "symptom",
-      "question": "Why did HTTP/2 requests lose the type of their timeout error?",
-      "subject": "fix: preserve timeout errors for HTTP/2 requests (#5091)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -2150,16 +1470,6 @@
       "kind": "symptom",
       "question": "Why can disabling the content length check enable request smuggling?",
       "subject": "docs: add security warning for strictContentLength option (#4726)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "undici",
-      "clone_sha": "e8f34234d10febe285ebc29c971c44c79220a123",
-      "expected_sha": "47ea3d23d29655f0f267d5518c3319a7fb34ae57",
-      "kind": "concept",
-      "question": "Why is the request stream's writable side closed when a final response arrives before the body is sent over HTTP/2?",
-      "subject": "fix(h2): deliver an early final response to an Expect: 100-continue request (#5470)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"
     },
@@ -2306,29 +1616,9 @@
     {
       "repo": "prettier",
       "clone_sha": "13cbabdccd32c31e202028df3a7eeccefa7d1f6f",
-      "expected_sha": "91c701886d565cc4fb86e8e27d5147d601454ae8",
-      "kind": "symptom",
-      "question": "Why did formatting a template attribute remove spaces next to a mustache?",
-      "subject": "fix(glimmer): preserve leading/trailing spaces in text nodes undernea… (#4288)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "prettier",
-      "clone_sha": "13cbabdccd32c31e202028df3a7eeccefa7d1f6f",
       "expected_sha": "3a99fe5d65f683e1c63fe41fc888ff9d2abf71ad",
       "kind": "concept",
       "question": "Why does the options panel no longer outgrow the editors panel?",
-      "subject": "[playground] fix overflow in safari (#4406)",
-      "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
-      "date": "2026-10-19"
-    },
-    {
-      "repo": "prettier",
-      "clone_sha": "13cbabdccd32c31e202028df3a7eeccefa7d1f6f",
-      "expected_sha": "3a99fe5d65f683e1c63fe41fc888ff9d2abf71ad",
-      "kind": "symptom",
-      "question": "Why did the playground layout overflow in Safari?",
       "subject": "[playground] fix overflow in safari (#4406)",
       "generator": "claude-sonnet-5-5 (agent-written from the commit body only; claude-haiku-5-5 API refused: credit balance too low)",
       "date": "2026-10-19"

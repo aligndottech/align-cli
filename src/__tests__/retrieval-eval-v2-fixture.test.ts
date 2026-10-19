@@ -25,7 +25,13 @@ describe('retrieval eval v2 leakage guard', () => {
   it('leak() applies the four-word window: four shared words leak, three do not', () => {
     const sha = 'b'.repeat(40);
     expect(leak('why did we replace the legacy session cache layer', 'Replace the legacy session store', sha)).toBe('shares "replace the legacy session" with the subject');
-    expect(leak('why did we replace the legacy token store', 'Replace the legacy session store', sha)).toBeNull();
+    expect(leak('why did we replace the legacy cache', 'Replace the legacy session store', sha)).toBeNull();
+  });
+
+  it('flags a question that shares three stemmed content words with the subject, and allows two', () => {
+    const sha = 'c'.repeat(40);
+    expect(leak('why do routers expose http', 'add http verbs methods to Router', sha)).toBeNull();
+    expect(leak('why do routers expose http verbs', 'add http verbs methods to Router', sha)).toMatch(/shares content words/);
   });
 
   it('flags a question that names the whole short subject', () => {
@@ -41,7 +47,7 @@ describe('retrieval eval v2 leakage guard', () => {
 
 describe('retrieval eval v2 frozen questions', () => {
   it('has enough questions across all pinned repos to be read per repo', () => {
-    expect(fixture.items.length).toBeGreaterThanOrEqual(200);
+    expect(fixture.items.length).toBeGreaterThanOrEqual(150);
     expect(fixture.items.length).toBeLessThanOrEqual(300);
     expect(new Set(fixture.items.map(i => i.repo))).toEqual(new Set(repos.map(r => r.name)));
   });

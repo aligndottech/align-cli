@@ -26,7 +26,11 @@
  * WHAT IT CAN AND CANNOT SHOW. The questions are paraphrases written from the commit BODY, so they
  * share vocabulary with the indexed body text by construction. That is much harder than v1 (a plain
  * title-overlap ranker with no embeddings scores 55.7% recall@8 here against 82.7% on v1) and it
- * still favours anything that indexes the body. A real newcomer who never saw the body words will
+ * still favours anything that indexes the body. The leakage guard is a floor, not proof: no 4-word run and
+ * at most two stemmed content words shared with the subject, no commit whose body restates the subject, and a
+ * short exclusion list of commits a reviewer found ambiguous. Scores are micro-averaged over about 120
+ * independent commits (two questions each), so a per-repo difference of a few points is noise. The repos
+ * include align-cli and adr, which are atypical. A real newcomer who never saw the body words will
  * do worse than this set says: read the numbers as a ceiling on paraphrased questions, not a rate.
  */
 import { createHash } from 'node:crypto';
@@ -76,8 +80,23 @@ export function leak(question, subject, sha) {
   const s = norm(subject);
   if (s && wordsOf(s).length >= 2 && ` ${norm(question)} `.includes(` ${s} `)) return 'contains the whole subject';
   if (new RegExp(sha.slice(0, 7), 'i').test(question)) return 'contains the sha';
+  const shared = sharedContent(question, subject);
+  if (shared.length > MAX_SHARED_CONTENT) return `shares content words ${shared.join(', ')} with the subject`;
   return null;
 }
+
+// Commits a fresh-context review found to have no single right answer (sibling commits on the same topic) or a weak
+// newcomer question. Excluded by sha prefix so the fixture can be regenerated without them coming back.
+export const EXCLUDED = ['580b250', '236c831', '708fed7', '32ea0ea', 'ae1ed9b', 'c12b576'];
+const STOPWORDS = new Set('why how what when where who which do does did is are was were be been can should would i me my we us our you your they their a an the of to for on in at about and or that this it its there with from by as not no into than then also only now no longer any all'.split(' '));
+const stemW = t => t.replace(/(ing|ed|es|s)$/, '');
+const contentWords = t => new Set(wordsOf(t).filter(w => !STOPWORDS.has(w) && w.length > 2).map(stemW));
+/** Content words (stemmed, stop words dropped) the question shares with the subject. */
+export function sharedContent(question, subject) {
+  const s = contentWords(subject);
+  return [...contentWords(question)].filter(w => s.has(w));
+}
+export const MAX_SHARED_CONTENT = 2;
 
 const NOISE_SUBJECT = /^(chore\(main\): release|release\b|v?\d+\.\d+|revert\b|bump\b|chore\(deps|build\(deps|update dependency|merge\b)|dependabot|\bbump\b.*\bfrom\b.*\bto\b|^\d+\.\d+/i;
 
@@ -197,6 +216,10 @@ function buildFixture(sel, bySha, generator, spent) {
   const seen = new Set();
   for (const c of sel) {
     const pair = bySha[c.sha];
+    // The writer saw the subject if the body restates it, so the questions cannot be called subject-blind.
+    const subj = norm(c.subject.replace(/^\s*\w+(\([^)]*\))?!?:\s*/, '').replace(/\s*\(#\d+\)\s*$/, ''));
+    if (EXCLUDED.some(x => c.sha.startsWith(x))) { dropped.push({ sha: c.sha, why: 'excluded after review (ambiguous or weak)' }); continue; }
+    if (subj.split(' ').length >= 3 && norm(c.reason).includes(subj)) { dropped.push({ sha: c.sha, why: 'body restates the subject' }); continue; }
     if (!pair) { dropped.push({ sha: c.sha, why: 'no questions' }); continue; }
     for (const [i, kind] of ['concept', 'symptom'].entries()) {
       const q = String(pair[i] ?? '').trim();
@@ -207,8 +230,9 @@ function buildFixture(sel, bySha, generator, spent) {
     }
   }
   fs.writeFileSync(FIXTURE, `${JSON.stringify({ generator, date, spent_usd: Number(spent.toFixed(4)), items }, null, 2)}\n`);
+  console.log(`${dropped.filter(d => d.why === 'body restates the subject').length} commits dropped because the body restates the subject`);
   console.log(`wrote ${items.length} questions for ${new Set(items.map(i => i.expected_sha)).size} commits, dropped ${dropped.length}, spent $${spent.toFixed(4)}`);
-  for (const d of dropped.filter(x => x.why !== 'no questions')) console.log('dropped', JSON.stringify(d));
+  for (const d of dropped.filter(x => x.why !== 'no questions')) console.log('dropped', JSON.stringify(d).slice(0, 220));
 }
 
 /** Questions written by hand or by an agent: `--file` is `{ "<index into v2-selected.json>": [concept, symptom] }`, indexes as printed by `show`. */
@@ -241,7 +265,9 @@ async function run() {
   const perRepo = [];
   for (const r of repos) {
     const dbPath = path.join(WORK, 'graphs', LABEL, r.name, 'home/.align/local.db');
-    if (!fs.existsSync(dbPath)) { console.log(`${r.name}: no graph for label ${LABEL}`); continue; }
+    if (!fs.existsSync(dbPath)) throw new Error(`${r.name}: no graph for label ${LABEL}; run retrieval-eval.mjs build first (a missing repo would silently shrink the aggregate)`);
+    const head = execFileSync('git', ['-C', path.join(WORK, 'repos', r.name), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    if (head !== r.sha) throw new Error(`${r.name}: clone is at ${head}, the fixture pins ${r.sha}`);
     const client = mod.createLocalGatewayClient(dbPath, { cwd: path.join(WORK, 'repos', r.name) });
     const ro = new DatabaseSync(dbPath, { readOnly: true });
     const inGraph = sha => ro.prepare('SELECT 1 FROM decisions WHERE source_url LIKE ?').get(`%/commit/${sha}`) !== undefined;
