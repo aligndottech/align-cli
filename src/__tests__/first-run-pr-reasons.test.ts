@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
-  dropCoveredCommits, fetchFirstRunPrs, partialRateLimitLine, RATE_LIMIT_LINE,
+  dropCommitsOfStoredPrs, dropCoveredCommits, fetchFirstRunPrs, partialRateLimitLine, RATE_LIMIT_LINE,
 } from '../lib/first-run-pr-import.js';
 import { CLI_TOKEN_SOURCES, detectVerifiedCliToken } from '../lib/setup-ux.js';
 import { verifyReadOnlyGithubToken } from '../lib/token-scope-gate.js';
@@ -168,8 +168,8 @@ describe('token safety', () => {
 });
 
 describe('degrading', () => {
-  it.each([403, 429])('HTTP %i on the first page: no PRs, and the exact one-line explanation', async (status) => {
-    const gh = fakeGitHub([[pr(1)]], { status: () => status });
+  it.each([[403, '0'], [429, '50']])('HTTP %i on the first page: no PRs, and the exact one-line explanation', async (status, remaining) => {
+    const gh = fakeGitHub([[pr(1)]], { status: () => status, remaining });
     const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
     expect(out.items).toEqual([]);
     expect(out.note).toBe('GitHub rate limit reached, imported commits only; run `align connect github` for PR descriptions');
@@ -179,11 +179,26 @@ describe('degrading', () => {
 
   it('a limit hit on page 2 keeps page 1 and says how many PR descriptions it did import', async () => {
     const full = Array.from({ length: 100 }, (_, i) => pr(1 + i));
-    const gh = fakeGitHub([full, full], { status: (p) => (p === 2 ? 403 : 200) });
-    const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
+    const fetchFn = vi.fn(async (u: string | URL | Request) => {
+      const page = Number(new URL(String(u)).searchParams.get('page'));
+      return page === 2 ? new Response('{}', { status: 429 }) : new Response(JSON.stringify(full.map(row)), { status: 200, headers: { 'x-ratelimit-remaining': '9' } });
+    }) as unknown as typeof fetch;
+    const out = await fetchFirstRunPrs(REPO, { fetchFn, detectToken: none });
     expect(out.imported).toBe(100);
     expect(out.note).toBe(partialRateLimitLine(100));
     expect(out.note).toContain('100 PR descriptions');
+  });
+
+  it('a 403 that is not about quota (a blocked repo) is silent, not a rate-limit line', async () => {
+    const gh = fakeGitHub([[pr(1)]], { status: () => 403, remaining: '50' });
+    const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
+    expect(out.items).toEqual([]);
+    expect(out.note).toBeUndefined();
+  });
+
+  it('a 403 that says when to retry is a rate limit even with quota shown', async () => {
+    const fetchFn = vi.fn(async () => new Response('{}', { status: 403, headers: { 'retry-after': '60' } })) as unknown as typeof fetch;
+    expect((await fetchFirstRunPrs(REPO, { fetchFn, detectToken: none })).note).toBe(RATE_LIMIT_LINE);
   });
 
   it('a private repo with no token (404) is silent', async () => {
@@ -191,6 +206,12 @@ describe('degrading', () => {
     const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
     expect(out.items).toEqual([]);
     expect(out.note).toBeUndefined();
+  });
+
+  it.each(['acme/..', '../widgets', './widgets'])('refuses a dot-segment repo path %s', async (name) => {
+    const gh = fakeGitHub([[pr(1)]]);
+    await fetchFirstRunPrs(`github.com/${name}`, { fetchFn: gh.fetchFn, detectToken: none });
+    expect(gh.calls).toHaveLength(0);
   });
 
   it('a network failure never throws', async () => {
@@ -233,39 +254,45 @@ describe('a squash commit and its PR appear once', () => {
   const commit = (sha: string, title: string) => ({ source_url: `https://github.com/acme/widgets/commit/${sha}`, platform: 'git', raw_text: title, title });
   const sha7 = `07${'a'.repeat(38)}`;
 
-  it('drops the commit whose subject ends in (#N) of an imported PR', async () => {
-    const gh = fakeGitHub([[pr(7), pr(12)]]);
-    const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
-    const commits = [commit('b'.repeat(40), 'fix: thing 7 (#7)'), commit('c'.repeat(40), 'fix: other (#13)'), commit('d'.repeat(40), 'fix: no number')];
-    const kept = dropCoveredCommits(commits, out);
-    expect(kept.items.map((c) => c.title)).toEqual(['fix: other (#13)', 'fix: no number']);
-    expect(kept.covered).toBe(1);
-  });
-
-  it('drops the commit that IS the PR merge commit, whatever its subject says', async () => {
+  it('drops the commit that IS the imported PR merge commit, whatever its subject says', async () => {
     const gh = fakeGitHub([[pr(7)]]);
     const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
-    const kept = dropCoveredCommits([commit(sha7, 'Reworded subject with no number'), commit('e'.repeat(40), 'something else')], out);
+    const kept = dropCoveredCommits([commit(sha7, 'fix: thing 7 (#7)'), commit(`12${'b'.repeat(38)}`, 'something else')], out);
     expect(kept.items.map((c) => c.title)).toEqual(['something else']);
+    expect(kept.covered).toBe(1);
+    const reworded = dropCoveredCommits([commit(sha7, 'Reworded subject with no number')], out);
+    expect(reworded.covered).toBe(1);
+  });
+
+  it('keeps a commit that only CLAIMS the number (an upstream commit in a fork)', async () => {
+    const gh = fakeGitHub([[pr(7)]]);
+    const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
+    expect(dropCoveredCommits([commit('b'.repeat(40), 'fix: thing 7 (#7)')], out)).toMatchObject({ covered: 0 });
   });
 
   it('a PR that was not imported (no stated reason) does not cover its commit', async () => {
     const gh = fakeGitHub([[pr(7, { body: TEMPLATE })]]);
     const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
-    const kept = dropCoveredCommits([commit(sha7, 'fix: thing 7 (#7)')], out);
-    expect(kept.items).toHaveLength(1);
-    expect(kept.covered).toBe(0);
-  });
-
-  it('does not treat a "#7" in the middle of a subject as the PR number', async () => {
-    const gh = fakeGitHub([[pr(7)]]);
-    const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
-    expect(dropCoveredCommits([commit('f'.repeat(40), 'revert the change from #7 properly')], out).items).toHaveLength(1);
+    expect(dropCoveredCommits([commit(sha7, 'fix: thing 7 (#7)')], out).covered).toBe(0);
   });
 
   it('with no PRs at all the commits come back as the same array', async () => {
     const out = await fetchFirstRunPrs(null);
     const commits = [commit('a'.repeat(40), 'x (#1)')];
     expect(dropCoveredCommits(commits, out)).toEqual({ items: commits, covered: 0 });
+  });
+});
+
+describe('a later `align connect git` does not bring the squash commit back', () => {
+  const c = (subject: string) => ({ subject });
+  const urls = ['https://github.com/acme/widgets/pull/7', 'https://github.com/acme/widgets/pull/9', 'https://github.com/acme/gadgets/pull/12'];
+  it('drops commits whose (#N) is a stored PR of this repo, and only those', () => {
+    const out = dropCommitsOfStoredPrs([c('fix a (#7)'), c('fix b (#9)'), c('fix c (#8)'), c('fix d (#12)'), c('no number')], urls, 'Acme/Widgets');
+    expect(out.items.map((x) => x.subject)).toEqual(['fix c (#8)', 'fix d (#12)', 'no number']);
+    expect(out.covered).toBe(2);
+  });
+  it('with no stored PRs of this repo, returns the same array', () => {
+    const commits = [c('fix a (#7)')];
+    expect(dropCommitsOfStoredPrs(commits, ['https://github.com/other/repo/pull/7'], 'acme/widgets')).toEqual({ items: commits, covered: 0 });
   });
 });

@@ -644,7 +644,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
           funnel: { env: localEnv, source: 'git' },
         });
       } else {
-        gitSpinner.stop('No decisions found in git history');
+        gitSpinner.stop(prs.items.length > 0 ? `Found ${prs.items.length} PR descriptions worth importing` : 'No decisions found in git history');
       }
       let prStored = 0;
       if (prs.items.length) {

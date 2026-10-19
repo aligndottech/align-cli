@@ -270,16 +270,19 @@ A commit rarely says why. In squash-merge repos the reason is in the pull reques
 the first run of `align --local` also reads the merged PR descriptions of a GitHub origin, with no
 prompt and no account:
 
-- It reads the newest 300 closed PRs (3 pages) from the public GitHub API, unauthenticated, while
+- It reads the newest 300 closed PRs by last update (3 pages; unmerged ones count against the 300) from the public GitHub API, unauthenticated, while
   git is being scanned. It never waits on GitHub for more than about 10 seconds.
 - A PR becomes a decision only if its description states a reason (the same test the git import
   applies to commits), so template checklists and bot PRs are skipped. The decision's source is the
   PR url and its date is the merge date.
-- A squash commit whose PR was imported is not imported again: the change appears once, as the PR.
-- If GitHub's rate limit stops the read, first run says "GitHub rate limit reached, imported commits
+- The squash commit of an imported PR (the PR's merge commit) is not imported again: the change appears
+  once, as the PR. `align connect git` afterwards skips those commits too. A PR merged by rebase leaves
+  its other commits as commits.
+- If GitHub's rate limit stops the read (HTTP 429, or 403 with no quota left), first run says "GitHub rate limit reached, imported commits
   only; run `align connect github` for PR descriptions" and carries on with commits.
 - A `gh` token is used only when it is proven read-only (it can read, never write), and then the
-  read covers up to 1,000 PRs and private repos you can see. A token that can write is never sent.
+  read covers up to 1,000 PRs with a higher rate limit. A token that can write is never used for the PR
+  requests. (Proving it means one call to `api.github.com/user` with that token.)
 - A repo whose origin is not on github.com (GitLab, another host, no remote) is not read this way.
 
 `align connect github` writes the same row for the same PR, so running it afterwards adds

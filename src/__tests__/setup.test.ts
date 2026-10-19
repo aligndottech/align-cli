@@ -1304,15 +1304,15 @@ describe('align setup', () => {
         raw_text: `fix: thing ${n} (#${n})\n\nThe router rebuilt its table because the cache key ignored the prefix.\n\nStatus: merged\nRepo: o/r`,
         created_at: '2026-03-08T10:00:00.000Z',
       });
-      const outcome = (over: Record<string, unknown> = {}) => ({ items: [prItem(7)], scanned: 40, imported: 1, numbers: new Set([7]), shas: new Set<string>(), ...over });
+      const outcome = (over: Record<string, unknown> = {}) => ({ items: [prItem(7)], scanned: 40, imported: 1, numbers: new Set([7]), shas: new Set(['a'.repeat(40)]), ...over });
       const ingested = () => mockIngestBatch.mock.calls.flatMap((c) => c[0] as Array<{ title: string; source_url: string; platform: string }>);
 
       it('imports the PR row and not the squash commit that carries the same change', async () => {
         const { getCommitHistoryDetailed } = await import('../lib/git.js');
         (getCommitHistoryDetailed as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
           commits: [
-            { sha: 'aaa1111', subject: 'fix: thing 7 (#7)', body: '', author: 'a', date: '2026-03-08' },
-            { sha: 'bbb2222', subject: 'feat: unrelated change (#99)', body: 'because reasons stated here', author: 'a', date: '2026-03-09' },
+            { sha: 'a'.repeat(40), subject: 'fix: thing 7 (#7)', body: '', author: 'a', date: '2026-03-08' },
+            { sha: 'b'.repeat(40), subject: 'feat: unrelated change (#99)', body: 'because reasons stated here', author: 'a', date: '2026-03-09' },
           ],
           scanned: 2, rejectedByRationale: 0,
         });

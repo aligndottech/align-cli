@@ -37,7 +37,7 @@ const BODY_CAP = 8_000;
 
 const API = 'https://api.github.com';
 const GITHUB_PREFIX = 'github.com/';
-const OWNER_REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const OWNER_REPO = /^(?!\.{1,2}\/)(?!.*\/\.{1,2}$)[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 interface ApiPr {
   number?: number; title?: string; body?: string | null; html_url?: string; merged_at?: string | null;
@@ -102,7 +102,9 @@ async function read(repo: string, token: string | undefined, fetchFn: typeof fet
     } catch {
       break; // network, timeout or abort: keep what was read
     }
-    if (res.status === 403 || res.status === 429) { limited = true; break; }
+    // 429 is a limit. A 403 is one only when GitHub says no quota is left (or tells us when to retry); any other
+    // 403 (a blocked repo, an SSO wall) is not a rate limit and gets no rate-limit line.
+    if (res.status === 429 || (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')))) { limited = true; break; }
     if (!res.ok) break; // 404 (private repo, no token), 5xx: say nothing
     let rows: ApiPr[];
     try {
@@ -158,23 +160,43 @@ export async function fetchFirstRunPrs(repoIdentity: string | null | undefined, 
 }
 
 const SQUASH_PR_NUMBER = /\(#(\d+)\)\s*$/;
-const COMMIT_SHA = /\/commit\/([0-9a-f]{7,40})(?:[/?#]|$)/;
+const COMMIT_SHA = /\/commit\/([0-9a-f]{40})(?:[/?#]|$)/;
 
 /**
- * The commits that are NOT the squash of an imported PR. A commit is covered when its subject ends
- * in `(#N)` for an imported PR N (how GitHub titles a squash), or its sha is that PR's merge commit.
+ * The commits that are NOT the squash of an imported PR. A commit is covered when its sha IS that PR's
+ * merge commit (GitHub's own statement of which commit the PR became). A `(#N)` in a subject is not
+ * enough on its own here: a fork's history carries upstream commits titled with upstream's PR numbers.
  * A PR that was not imported covers nothing: its commit is then the only row for the change.
  */
 export function dropCoveredCommits<T extends { title?: string; source_url?: string }>(
   commits: T[],
-  outcome: Pick<FirstRunPrOutcome, 'numbers' | 'shas'>,
+  outcome: Pick<FirstRunPrOutcome, 'shas'>,
 ): { items: T[]; covered: number } {
-  if (outcome.numbers.size === 0 && outcome.shas.size === 0) return { items: commits, covered: 0 };
+  if (outcome.shas.size === 0) return { items: commits, covered: 0 };
   const items = commits.filter((c) => {
-    const n = SQUASH_PR_NUMBER.exec(c.title ?? '')?.[1];
-    if (n !== undefined && outcome.numbers.has(Number(n))) return false;
     const sha = COMMIT_SHA.exec(c.source_url ?? '')?.[1];
     return !(sha !== undefined && outcome.shas.has(sha.toLowerCase()));
+  });
+  return { items, covered: commits.length - items.length };
+}
+
+/**
+ * Later, `align connect git` re-reads commits with no PR read of its own. The PR rows first run stored are in
+ * the graph, so a commit whose subject ends in `(#N)` for a stored PR url of the SAME repo is the one the PR
+ * replaced, and is not written again.
+ */
+export function dropCommitsOfStoredPrs<T extends { subject: string }>(
+  commits: T[],
+  storedPrUrls: Iterable<string>,
+  repo: string,
+): { items: T[]; covered: number } {
+  const prefix = `https://github.com/${repo.toLowerCase()}/pull/`;
+  const numbers = new Set<string>();
+  for (const u of storedPrUrls) if (u.toLowerCase().startsWith(prefix)) numbers.add(u.slice(prefix.length).replace(/[/?#].*$/, ''));
+  if (numbers.size === 0) return { items: commits, covered: 0 };
+  const items = commits.filter((c) => {
+    const n = SQUASH_PR_NUMBER.exec(c.subject)?.[1];
+    return !(n !== undefined && numbers.has(n));
   });
   return { items, covered: commits.length - items.length };
 }
