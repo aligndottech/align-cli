@@ -23,6 +23,7 @@ import { runShareStatusTool, SHARE_STATUS_TOOL_SCHEMA } from '../lib/mcp/share-s
 import { MARK_TOOL, MARK_TOOL_SCHEMA, type MarkToolContext, runMarkTool } from '../lib/mcp/mark-tool.js';
 import { agentIdFrom } from '../lib/mcp/tool-rules.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
+import { withReasons } from '../lib/reason-extract.js';
 import {
   createAsOfGuard,
   filterAlignmentAsOf,
@@ -265,11 +266,11 @@ export async function dispatchTool(
     // See lib/decision-relations.ts for the whole reasoning and what it deliberately leaves alone.
     case 'align_search':
     case 'align_ask':
-      return withDecisionRelationContract(await client.searchDecisions(
+      return withReasons(withDecisionRelationContract(await client.searchDecisions(
         (args?.['question'] ?? args?.['query']) as string,
         (args?.['limit'] as number | undefined) ?? 8,
         createdBefore,
-      ));
+      )), { sha: true });
     case 'align_capture': {
       const input = args?.['input'] as string;
       let platform = 'cli';
@@ -492,7 +493,7 @@ export const TOOL_SCHEMAS = [
   {
     name: 'align_ask',
     annotations: READS,
-    description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "how", "what was decided about", or any question about past decisions.',
+    description: 'Ask a natural language question and get answers from the decision graph. Use this when the user asks "how", "what was decided about", or any question about past decisions. Each result carries `reason`: the stated reason extracted from the commit message, up to two sentences quoted as written. It may be null when the commit states no reason, and a null is not a claim that no reason exists. `sha` is the commit, when the result is one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -505,7 +506,7 @@ export const TOOL_SCHEMAS = [
   {
     name: 'align_search',
     annotations: READS,
-    description: 'Alias of align_ask: the same search of the decision graph, taking the text as `query`. Kept for callers that already use this name; prefer align_ask.',
+    description: 'Alias of align_ask: the same search of the decision graph, taking the text as `query`. Kept for callers that already use this name; prefer align_ask. Results carry the same `reason` (the stated reason extracted from the commit message, may be null) and `sha`.',
     inputSchema: {
       type: 'object',
       properties: {

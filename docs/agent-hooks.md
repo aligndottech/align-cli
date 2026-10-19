@@ -89,6 +89,8 @@ One more difference worth knowing on **Copilot CLI**: a non-timeout, non-zero ex
 `preToolUse` hook **denies** the tool call there. `align check --advisory` exits 0 on every
 path for that reason, and the shim's `timeoutSec` is 10.
 
+If you set up before 0.58.0, rerun `align mcp --setup`: the older hook file can deny edits when `align` is missing.
+
 ### A user-level hook does not run in the project
 
 Cursor documents that user-level hook scripts run from `~/.cursor/`. The post-edit check
