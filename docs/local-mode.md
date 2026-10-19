@@ -21,7 +21,7 @@ start local and move to cloud later.
 
 Worth knowing before you point it at work content.
 
-- The embedding model downloads once from huggingface.co (~23MB), on the first import.
+- The embedding model downloads once from huggingface.co (~23MB), and the native runtime for your OS (npm install only, 10-18MB) once from a GitHub release, on the first import. Both are checked against SHA-256 values built into the CLI before they are kept, and cached under `$XDG_CACHE_HOME/align-cli` (`~/.cache/align-cli`, or `%LOCALAPPDATA%\align-cli` on Windows), never inside the install.
 - `align connect <tool>` calls that tool's API, read-only, with the token you pasted. That's what
   an import is. The data goes from your tool to your machine. None of it goes to Align.
 - **Only when an AI provider is available** (an API key in your environment, or a running
@@ -228,7 +228,7 @@ Two ways to install, and local-only mode works fully in both.
 | Cloud mode | yes | yes |
 | Local graph, capture, `local status`, `context sync` | yes | yes |
 | On-device embeddings, so `ask`/`search`/`check` in local mode | yes | yes |
-| Embedding backend | WASM, bundled in | native (`onnxruntime-node`) |
+| Embedding backend | WASM, bundled in | native ONNX Runtime, downloaded on first use |
 
 The two backends run the same quantized model and produce the same vectors: measured cosine
 agreement 1.000000000, worst per-dimension difference 2.98e-08, and the pairwise similarity
@@ -238,14 +238,16 @@ one local graph, and you can move between them.
 The binary carries its embedding runtime inside itself, so the only thing local mode downloads
 is the model below. Cloud mode downloads nothing and needs no native build.
 
-Local-only mode uses an on-device embedding model (`@huggingface/transformers`, an optional
-dependency) that ships native binaries for macOS, glibc Linux and Windows (x64/arm64). On those
-platforms `npm i -g` just works.
+Local-only mode uses an on-device embedding model. The npm package is small (about 45MB installed): the
+native ONNX Runtime for your platform (macOS arm64, glibc Linux x64/arm64, Windows x64/arm64) is
+downloaded the first time local mode needs it, not installed by npm. Cloud mode never needs it.
 
-On Alpine/musl, uncommon architectures, or behind a strict proxy, the optional model may not
-install. The global install still succeeds and cloud mode works, and local-only mode will tell
-you the model is unavailable rather than failing silently.
+On Alpine/musl, Intel Macs or other architectures there is no runtime to download. The install still
+succeeds, cloud mode works, and local-only mode tells you so rather than failing silently.
+`align doctor` reports whether the runtime and model are present and fetches them if not.
 
-The first import downloads the model from huggingface.co (~23MB) once, and nothing local can be
-embedded or searched until that succeeds. On a restricted network, check that host is reachable
-before you begin.
+The first import downloads the model from huggingface.co (~23MB) and the runtime from github.com once,
+and nothing local can be embedded or searched until both succeed. On a restricted network, check those
+hosts are reachable before you begin, or point `HF_ENDPOINT` and `ALIGN_ORT_RUNTIME_URL` at a mirror
+(the SHA-256 check still applies). An agent hook never downloads: it reports "could not check" until
+the first import has run.

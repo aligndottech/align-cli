@@ -106,15 +106,18 @@ describe('what the process loads at startup (from index.ts)', () => {
     expect(rel).toContain('lib/launch/launch.ts');
     expect(external.has('commander')).toBe(true);
   });
-  it('the embedding model and its WASM backend are never statically reachable', () => {
+  it('the embedding model, its tokenizer and its WASM backend are never statically reachable', () => {
     expect(external.has('@huggingface/transformers')).toBe(false);
+    expect(external.has('@huggingface/tokenizers')).toBe(false);
     expect(rel).not.toContain('lib/local-embeddings-wasm.ts');
+    expect(rel).not.toContain('lib/local-embeddings-native.ts');
+    expect(rel).not.toContain('lib/embedding-runtime.ts');
   });
   it('control for the line above: the same walk DOES find the embedding module that loads the model lazily', () => {
-    // local-embeddings.ts is reachable (registry -> setup -> ...), but names the package only
-    // inside a dynamic import, which is why the assertion above holds.
+    // local-embeddings.ts is reachable (registry -> setup -> ...), but names the native backend
+    // only inside a dynamic import, which is why the assertion above holds.
     expect(rel).toContain('lib/local-embeddings.ts');
-    expect(readFileSync(path.join(SRC, 'lib/local-embeddings.ts'), 'utf8')).toMatch(/await import\(HF_TRANSFORMERS\)/);
+    expect(readFileSync(path.join(SRC, 'lib/local-embeddings.ts'), 'utf8')).toMatch(/await import\('\.\/local-embeddings-native\.js'\)/);
   });
   it('KNOWN GAP, pinned so it cannot change silently: node:sqlite is loaded eagerly via the registry', () => {
     expect(external.has('node:sqlite')).toBe(true);

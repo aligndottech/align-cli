@@ -1,16 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@huggingface/transformers', () => {
-  const mockPipeline = vi.fn().mockResolvedValue(
-    vi.fn().mockResolvedValue([{ data: new Float32Array(384).fill(0.1) }])
-  );
-  return { pipeline: mockPipeline };
-});
-
-import { cosineSimilarity, getEmbedding } from '../lib/local-embeddings.js';
+import { cosineSimilarity, getEmbedding, resetEmbeddingBackend, setEmbeddingBackend } from '../lib/local-embeddings.js';
 
 describe('getEmbedding', () => {
+  afterEach(() => resetEmbeddingBackend());
+
   it('returns a 384-dim Float32Array', async () => {
+    setEmbeddingBackend(async () => vi.fn().mockResolvedValue([{ data: new Float32Array(384).fill(0.1) }]) as never);
     const result = await getEmbedding('Use Postgres for production');
     expect(result).toBeInstanceOf(Float32Array);
     expect(result.length).toBe(384);

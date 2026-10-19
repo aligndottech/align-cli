@@ -1,58 +1,60 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// @huggingface/transformers is an optionalDependency (its native deps - sharp,
-// onnxruntime - can fail to install on Alpine/ARM/behind a proxy). getEmbedding
-// must therefore surface a clear, actionable error when the model package is
-// missing or the model can't be downloaded - never a raw module/network error.
-describe('getEmbedding error surfacing (launch packaging)', () => {
+// The on-device runtime and model are downloaded on first use (ALI-1781). getEmbedding must
+// surface a clear, actionable error when the platform has no runtime or the download fails -
+// never a raw fetch or dlopen error.
+const native = vi.hoisted(() => ({ create: vi.fn() }));
+vi.mock('../lib/local-embeddings-native.js', () => ({ createNativeEmbeddingPipeline: native.create }));
+
+describe('getEmbedding error surfacing (npm distribution)', () => {
   afterEach(() => {
     vi.resetModules();
-    vi.doUnmock('@huggingface/transformers');
+    vi.doUnmock('../lib/distribution.js');
+    native.create.mockReset();
   });
 
-  it('throws a clear, actionable error when the ML model package is not installed', async () => {
-    vi.doMock('@huggingface/transformers', () => {
-      throw new Error("Cannot find module '@huggingface/transformers'");
-    });
+  it('says a platform without a runtime bundle is a platform limit, and points at cloud mode', async () => {
+    const { EmbeddingAssetsMissing } = await import('../lib/embedding-runtime.js');
+    native.create.mockRejectedValue(new EmbeddingAssetsMissing('No runtime for sunos-x64', 'unsupported-platform'));
     const { getEmbedding } = await import('../lib/local-embeddings.js');
-    await expect(getEmbedding('hello')).rejects.toThrow(/not installed on this platform|cloud mode/i);
+    await expect(getEmbedding('hello')).rejects.toThrow(/not available on this platform[\s\S]*align login[\s\S]*reinstall on a supported platform/i);
   });
 
-  it('surfaces a clear error when the model fails to load or download', async () => {
-    vi.doMock('@huggingface/transformers', () => ({
-      pipeline: vi.fn().mockRejectedValue(new Error('getaddrinfo ENOTFOUND huggingface.co')),
-    }));
+  it('passes the hook-safe "not downloaded yet" message through unchanged', async () => {
+    const { EmbeddingAssetsMissing } = await import('../lib/embedding-runtime.js');
+    native.create.mockRejectedValue(new EmbeddingAssetsMissing('The on-device embedding runtime is not downloaded yet. Run `align doctor`', 'not-downloaded'));
     const { getEmbedding } = await import('../lib/local-embeddings.js');
-    await expect(getEmbedding('hello')).rejects.toThrow(/embedding model|download|connection|proxy/i);
+    await expect(getEmbedding('hello')).rejects.toThrow('The on-device embedding runtime is not downloaded yet. Run `align doctor`');
+  });
+
+  it('surfaces a clear error when the download fails, naming the cause and the cloud fallback', async () => {
+    native.create.mockRejectedValue(new Error('could not reach github.com: getaddrinfo ENOTFOUND'));
+    const { getEmbedding } = await import('../lib/local-embeddings.js');
+    await expect(getEmbedding('hello')).rejects.toThrow(/embedding model[\s\S]*connection or proxy[\s\S]*align login[\s\S]*ENOTFOUND/i);
+  });
+
+  it('does not cache a failed setup: the next call tries again', async () => {
+    native.create.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(async () => [{ data: new Float32Array(384) }]);
+    const { getEmbedding } = await import('../lib/local-embeddings.js');
+    await expect(getEmbedding('a')).rejects.toThrow(/offline/);
+    await expect(getEmbedding('a')).resolves.toBeInstanceOf(Float32Array);
   });
 });
 
 // ALI-740/744: the binary bundles a WASM backend and registers it at startup, so it should
-// never reach the native loader below. If it does, its own build is broken - and the
-// npm-shaped advice ("reinstall on a supported platform") is unfollowable for someone who
-// downloaded a binary. The message has to name the situation it is actually in.
+// never reach the native loader. If it does, its own build is broken - and the npm-shaped advice
+// ("reinstall on a supported platform") is unfollowable for someone who downloaded a binary.
 describe('getEmbedding error surfacing (binary distribution)', () => {
   afterEach(() => {
     vi.resetModules();
-    vi.doUnmock('@huggingface/transformers');
     vi.doUnmock('../lib/distribution.js');
+    native.create.mockReset();
   });
 
-  it('names a missing WASM backend as a build defect, not a platform limit', async () => {
+  it('names a missing WASM backend as a build defect, not a platform limit, and never tries the native path', async () => {
     vi.doMock('../lib/distribution.js', () => ({ alignDistribution: () => 'binary' }));
-    vi.doMock('@huggingface/transformers', () => {
-      throw new Error("Cannot find module '@huggingface/transformers'");
-    });
     const { getEmbedding } = await import('../lib/local-embeddings.js');
     await expect(getEmbedding('hello')).rejects.toThrow(/standalone binary did not register/i);
-  });
-
-  it('still gives the npm advice when this is the npm distribution', async () => {
-    vi.doMock('../lib/distribution.js', () => ({ alignDistribution: () => 'npm' }));
-    vi.doMock('@huggingface/transformers', () => {
-      throw new Error("Cannot find module '@huggingface/transformers'");
-    });
-    const { getEmbedding } = await import('../lib/local-embeddings.js');
-    await expect(getEmbedding('hello')).rejects.toThrow(/reinstall on a supported platform/i);
+    expect(native.create).not.toHaveBeenCalled();
   });
 });

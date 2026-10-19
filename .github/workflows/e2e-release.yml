@@ -26,6 +26,10 @@ permissions:
 
 jobs:
   binary-e2e:
+    # Only the cli-v* releases release-please cuts. ort-runtime.yml publishes the embedding runtime
+    # bundles as a release of their own (ort-runtime-v<ORT>), and that `published` event must not
+    # start an E2E run of a binary that tag does not contain (ALI-1781).
+    if: startsWith(github.event.release.tag_name || inputs.tag, 'cli-v')
     strategy:
       fail-fast: false
       matrix:

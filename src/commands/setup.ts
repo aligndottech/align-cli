@@ -607,7 +607,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   }
   if (inGitRepo && !repoKnown) {
     console.log('');
-    p.log.info(chalk.dim('First import downloads a local embedding model (~23MB, from huggingface.co), one time.'));
+    p.log.info(chalk.dim('First import downloads a local embedding model (~23MB, huggingface.co) and, on npm installs, its runtime (~20MB, github.com), one time.'));
     const gitSpinner = p.spinner();
     gitSpinner.start('Scanning git history...');
     try {

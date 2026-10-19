@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Guards for scripts/smoke-model.sh, which decides two things the install smoke cannot
-# decide safely inline: where the on-device embedding model caches, and whether a failed
-# step is OUR defect or huggingface.co rate-limiting a shared runner IP.
+# decide safely inline: whether a failed step is OUR defect or huggingface.co / github.com
+# rate-limiting a shared runner IP while we fetch the embedding runtime or model.
 #
 # The second one is a fail-open surface, which is why it is a tested function rather than a
 # grep in the smoke script. ALI-348 is the shape it must not become: a check that reports
 # "fine" because it could not tell. So the predicate is deliberately narrow - the exact
-# transformers.js wording, the exact status, and the huggingface host, all on ONE line - and
+# wording our downloader emits, the exact status, and the host, all on ONE line - and
 # most of the cases below are negative controls proving it refuses everything else.
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,55 +24,76 @@ command -v node >/dev/null || { echo "FATAL: node not on PATH"; exit 1; }
 ok()  { echo "PASS: $1"; }
 bad() { echo "FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 
-# The line as huggingface.co actually produced it, copied from the ALI-713 job log
-# (run 33101077210 attempt 1, install-smoke windows-2022/22). A hand-written approximation
-# would let the predicate drift away from the only string it exists to recognise.
-RATE_LIMIT_LINE='align: ✖ Could not load the local embedding model (~23MB, Xenova/all-MiniLM-L6-v2, from huggingface.co). Check your internet connection or proxy and try again. (Error (429) occurred while trying to load file: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx".)'
+# The line as OUR downloader produces it, taken from the real implementation against a server
+# answering the given status - never pasted, so the predicate and the wording cannot drift apart.
+# The host in the message is the one fetched, so a 127.0.0.1 server is rewritten to the upstream
+# host the production URLs carry; everything else is the real sentence.
+download_error_line() { # <status> <upstream-url>
+  (cd "$REPO_ROOT" && STATUS="$1" UPSTREAM="$2" npx tsx -e '
+    (async () => {
+      const { createServer } = await import("node:http");
+      const { fetchVerified } = await import("./src/lib/verified-download.ts");
+      const s = createServer((_q, r) => { r.statusCode = Number(process.env.STATUS); r.end(); });
+      await new Promise((res) => s.listen(0, "127.0.0.1", res));
+      const url = `http://127.0.0.1:${s.address().port}/x`;
+      const err = await fetchVerified(url, { sha256: "0".repeat(64), maxBytes: 10 }).catch((e) => e);
+      s.close();
+      const u = new URL(process.env.UPSTREAM);
+      process.stdout.write(String(err.message).replace(url, process.env.UPSTREAM).replace(/^[^ ]+ answered/, u.host + " answered"));
+    })();
+  ' 2>/dev/null)
+}
+
+RATE_LIMIT_LINE="align: ✖ Could not set up the on-device embedding model. $(download_error_line 429 https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff3/onnx/model_quantized.onnx)"
+# Positive control for the helper: a helper that printed nothing would make every assertion below
+# compare against an empty string.
+case "$RATE_LIMIT_LINE" in
+  *"answered HTTP 429 for https://huggingface.co/"*) ok "the real downloader emits the 429 sentence the predicate keys on" ;;
+  *) bad "download_error_line did not produce the expected sentence: $RATE_LIMIT_LINE" ;;
+esac
 
 # --- is_upstream_model_rate_limit ------------------------------------------------------
 
 if is_upstream_model_rate_limit "$RATE_LIMIT_LINE"; then
-  ok "recognises the verbatim 429 from the incident log"
+  ok "recognises the 429 our downloader emits for the model"
 else
-  bad "did not recognise the verbatim 429 from the incident log"
+  bad "did not recognise the 429 our downloader emits for the model"
 fi
 
-# Second example, so what is pinned is the RULE and not that one literal: the same wording
-# for a different file under the same host (tdd.md, two examples per rule).
-if is_upstream_model_rate_limit 'Error (429) occurred while trying to load file: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer.json".'; then
-  ok "recognises the same 429 wording for another file on the same host"
+# Second example, so what is pinned is the RULE and not one literal: the runtime asset on github.com.
+if is_upstream_model_rate_limit "$(download_error_line 429 https://github.com/aligndottech/align-cli/releases/download/ort-runtime-v1.30.0/align-ort-1.30.0-linux-x64.tgz)"; then
+  ok "recognises the same 429 for the runtime asset on github.com"
 else
-  bad "matched only the incident's exact URL, so it pins a literal rather than the rule"
+  bad "matched only the model URL, so it pins a literal rather than the rule"
 fi
 
-# 404 is the case this must never swallow: it is what a genuinely wrong model id or a
-# removed file produces, and skipping it would let a broken model path pass silently.
-# transformers.js maps 404 to different wording entirely (hub/constants.js), which is why
-# the predicate keys on the whole phrase and not on the status number.
-if is_upstream_model_rate_limit 'Could not locate file: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx".'; then
+# 404 is the case this must never swallow: it is what a wrong model revision, a removed file or
+# a release asset nobody published produces, and skipping it would let a broken download path
+# pass silently.
+if is_upstream_model_rate_limit "$(download_error_line 404 https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff3/onnx/model_quantized.onnx)"; then
   bad "treated a 404 (broken model path) as an upstream rate limit"
 else
-  ok "refuses a 404 - a broken model path stays our defect"
+  ok "refuses a 404 - a broken download path stays our defect"
 fi
 
-if is_upstream_model_rate_limit 'Service unavailable error occurred while trying to load file: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx".'; then
+if is_upstream_model_rate_limit "$(download_error_line 503 https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff3/tokenizer.json)"; then
   bad "treated a 503 as an upstream rate limit"
 else
   ok "refuses a 503"
 fi
 
-if is_upstream_model_rate_limit 'Error (429) occurred while trying to load file: "https://internal-mirror.example.invalid/models/model_quantized.onnx".'; then
-  bad "treated a 429 from a non-huggingface host as the upstream model rate limit"
+if is_upstream_model_rate_limit "$(download_error_line 429 https://internal-mirror.example.invalid/models/model_quantized.onnx)"; then
+  bad "treated a 429 from a non-upstream host as the upstream rate limit"
 else
   ok "refuses a 429 from a different host"
 fi
 
-# Our own wrapper text (local-embeddings.ts) with no upstream cause in it. This is what a
+# Our own wrapper text (local-embeddings.ts) with no upstream status in it. This is what a
 # proxy failure, an offline runner or a corrupt cache produces, and all three are ours.
-if is_upstream_model_rate_limit 'Could not load the local embedding model (~23MB, Xenova/all-MiniLM-L6-v2, from huggingface.co). Check your internet connection or proxy and try again. (fetch failed)'; then
+if is_upstream_model_rate_limit 'Could not set up the on-device embedding model (~23MB model, ~20MB runtime). Check your internet connection or proxy and try again. (could not reach huggingface.co: fetch failed)'; then
   bad "matched our own wrapper message with no upstream status in it"
 else
-  ok "refuses a model-load failure that carries no upstream 429"
+  ok "refuses a setup failure that carries no upstream 429"
 fi
 
 if is_upstream_model_rate_limit 'imported 429 decisions from huggingface.co in 12s'; then
@@ -83,7 +104,7 @@ fi
 
 # The single-line requirement, stated as a test: an unrelated 429 elsewhere in a long log
 # plus an unrelated huggingface URL elsewhere must not combine into a match.
-if is_upstream_model_rate_limit 'Error (429) occurred while trying to load file: "https://someother.invalid/x".
+if is_upstream_model_rate_limit 'someother.invalid answered HTTP 429 for https://someother.invalid/x
 downloading https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/config.json'; then
   bad "combined a 429 on one line with a huggingface URL on another"
 else
@@ -114,73 +135,9 @@ expect_class skip-upstream "rc=1 with the upstream 429"                1   "$RAT
 # nothing, because it reports a failed batch as a warning. The 429 has to be read before the
 # exit code or the smoke certifies an empty graph as a pass.
 expect_class skip-upstream "rc=0 but the output carries the 429"       0   "$RATE_LIMIT_LINE"
-expect_class fail          "rc=1 with a 404"                           1   'Could not locate file: "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx".'
+expect_class fail          "rc=1 with a 404"                           1   "$(download_error_line 404 https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff3/onnx/model_quantized.onnx)"
 expect_class fail          "rc=124 (hung) with no output"              124 ''
-expect_class fail          "rc=1 with a model-load failure and no 429" 1   'Could not load the local embedding model (~23MB, Xenova/all-MiniLM-L6-v2, from huggingface.co). (fetch failed)'
-
-# --- hf_model_pkg_dir / hf_model_cache_dir ---------------------------------------------
-
-# Resolved from THIS repo, which has the optional dep installed - so an empty answer here is
-# a broken helper, never a legitimate "not installed".
-PKG_DIR="$(hf_model_pkg_dir "$REPO_ROOT")"; rc=$?
-if [ $rc -eq 0 ] && [ -n "$PKG_DIR" ] && [ -f "$PKG_DIR/package.json" ] &&
-   grep -q '"@huggingface/transformers"' "$PKG_DIR/package.json"; then
-  ok "hf_model_pkg_dir finds the installed package root"
-else
-  bad "hf_model_pkg_dir returned '$PKG_DIR' (rc=$rc), which is not the package root"
-fi
-
-# The cache directory is READ FROM THE LIBRARY (env.cacheDir), not assembled from a
-# remembered convention - it is the library's own answer, so it cannot drift from it
-# (code-style.md, "a type and a database constraint are two writers of one fact").
-CACHE_DIR="$(hf_model_cache_dir "$REPO_ROOT")"; rc=$?
-if [ $rc -eq 0 ] && [ -n "$CACHE_DIR" ] && case "$CACHE_DIR" in "$PKG_DIR"*) true;; *) false;; esac; then
-  ok "hf_model_cache_dir returns a path inside the package root"
-else
-  bad "hf_model_cache_dir returned '$CACHE_DIR' (rc=$rc), not a path under '$PKG_DIR'"
-fi
-
-# The negative direction: a directory with no such dependency must fail loudly and print
-# nothing, or the smoke would copy the model cache into an empty string.
-NODEP="$(mktemp -d)"
-printf '{"name":"nodep","version":"0.0.0"}' > "$NODEP/package.json"
-OUT="$(hf_model_cache_dir "$NODEP" 2>/dev/null)"; rc=$?
-if [ $rc -ne 0 ] && [ -z "$OUT" ]; then
-  ok "hf_model_cache_dir fails loudly, printing nothing, where the dep is absent"
-else
-  bad "hf_model_cache_dir returned '$OUT' (rc=$rc) for a package with no transformers dep"
-fi
-rm -rf "$NODEP"
-
-# --- the assumption the predicate rests on ---------------------------------------------
-
-# transformers.js maps known statuses to specific wording and falls through to
-# `Error (<status>) occurred while trying to load file` for the rest. 429 is in the
-# fall-through set, which is the ONLY reason the predicate above matches anything. If a
-# dependency bump gives 429 its own phrase, this test says so - rather than the smoke
-# quietly going back to failing red on every rate limit with nobody knowing why.
-MAPPING_FILES=$(ls "$PKG_DIR"/dist/transformers.node.* 2>/dev/null | grep -vE '\.map$' || true)
-if [ -z "$MAPPING_FILES" ]; then
-  bad "found no built transformers entry under $PKG_DIR/dist to check the status mapping"
-else
-  mapping_ok=1
-  for f in $MAPPING_FILES; do
-    # Positive control first: if 404's phrase is absent, this parse found the wrong thing and
-    # the 429 assertion below would pass vacuously. Whitespace-tolerant because two of the four
-    # built entries are minified - an anchored pattern found nothing in those and said so, which
-    # is the control doing its job.
-    if ! grep -qE '404:[[:space:]]*"Could not locate file"' "$f"; then
-      bad "status mapping not found in $(basename "$f") - the 429 check below would be vacuous"
-      mapping_ok=0
-      continue
-    fi
-    if grep -qE '429:[[:space:]]*"' "$f"; then
-      bad "$(basename "$f") now maps 429 to its own phrase - the smoke's 429 predicate no longer matches"
-      mapping_ok=0
-    fi
-  done
-  [ "$mapping_ok" -eq 1 ] && ok "429 is still in the generic fall-through the predicate matches"
-fi
+expect_class fail          "rc=1 with a setup failure and no 429"      1   'Could not set up the on-device embedding model. (fetch failed)'
 
 echo ""
 if [ "$FAILURES" -ne 0 ]; then

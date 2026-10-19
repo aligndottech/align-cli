@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MODEL_FILES, MODEL_REPO } from '../lib/embedding-assets.js';
+import { EMBEDDING_DTYPE, EMBEDDING_MODEL_ID } from '../lib/local-embeddings.js';
 
 /**
  * The embedding weights are a compatibility contract, not a tuning knob.
@@ -11,45 +13,47 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * 0.45 / 0.65 gates.
  *
  * That matters because vectors are persisted in the user's local graph: a
- * default-dtype upgrade would silently leave old and new vectors in one index.
- * Nothing else in the suite would catch the pin being dropped, so it is pinned
- * here.
+ * different weights file would silently leave old and new vectors in one index.
+ * Since ALI-1781 the pin is the FILE we download and load (there is no transformers.js
+ * `dtype` option any more), so it is pinned here at both ends.
  */
-
-const pipelineMock = vi.fn().mockResolvedValue(
-  vi.fn().mockResolvedValue([{ data: new Float32Array(384).fill(0.1) }]),
-);
-vi.mock('@huggingface/transformers', () => ({ pipeline: pipelineMock }));
-
 describe('local embedding weights', () => {
-  // getEmbedding memoises the pipeline in a module-level singleton, so without a
-  // module reset the second test would observe zero pipeline calls and assert
-  // against nothing.
-  afterEach(() => {
-    vi.resetModules();
-    pipelineMock.mockClear();
-  });
-
-  it('loads the quantized (q8) weights, matching the vectors already stored on disk', async () => {
-    const { getEmbedding } = await import('../lib/local-embeddings.js');
-    await getEmbedding('Use Postgres for production');
-
-    expect(pipelineMock).toHaveBeenCalledWith(
-      'feature-extraction',
-      'Xenova/all-MiniLM-L6-v2',
-      expect.objectContaining({ dtype: 'q8' }),
-    );
+  it('downloads the quantized (q8) weights and not an fp32 or fp16 file', () => {
+    const onnx = MODEL_FILES.filter((f) => f.path.endsWith('.onnx')).map((f) => f.path);
+    expect(EMBEDDING_DTYPE).toBe('q8');
+    expect(onnx).toEqual(['onnx/model_quantized.onnx']);
   });
 
   // Second example for the same rule: the model identity is half the contract.
   // A different checkpoint would invalidate stored vectors just as surely as a
   // different dtype.
-  it('loads the same model checkpoint the stored vectors came from', async () => {
-    const { getEmbedding } = await import('../lib/local-embeddings.js');
-    await getEmbedding('anything');
+  it('fetches the same model checkpoint the stored vectors came from', () => {
+    expect(EMBEDDING_MODEL_ID).toBe('Xenova/all-MiniLM-L6-v2');
+    expect(MODEL_REPO).toBe(EMBEDDING_MODEL_ID);
+  });
 
-    const [task, model] = pipelineMock.mock.calls[0]!;
-    expect(task).toBe('feature-extraction');
-    expect(model).toBe('Xenova/all-MiniLM-L6-v2');
+  describe('the loader opens exactly that file', () => {
+    const create = vi.hoisted(() => vi.fn());
+    afterEach(() => { vi.resetModules(); vi.doUnmock('../lib/embedding-runtime.js'); create.mockReset(); });
+
+    it('creates the ONNX session from model_quantized.onnx, with the CPU provider', async () => {
+      const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const model = mkdtempSync(join(tmpdir(), 'dtype-'));
+      mkdirSync(join(model, 'onnx'));
+      writeFileSync(join(model, 'tokenizer_config.json'), '{}');
+      writeFileSync(join(model, 'tokenizer.json'), JSON.stringify({ version: '1.0', model: { type: 'WordPiece', vocab: { '[UNK]': 0 }, unk_token: '[UNK]' } }));
+      create.mockResolvedValue({ inputNames: [], outputNames: [], run: vi.fn() });
+      vi.doMock('../lib/embedding-runtime.js', () => ({
+        ensureRuntime: async () => '/rt',
+        ensureModel: async () => model,
+        loadOrt: () => ({ InferenceSession: { create }, Tensor: class {} }),
+      }));
+      vi.doMock('@huggingface/tokenizers', () => ({ Tokenizer: class { encode() { return { ids: [], attention_mask: [] }; } } }));
+      const { createNativeEmbeddingPipeline } = await import('../lib/local-embeddings-native.js');
+      await createNativeEmbeddingPipeline({ allowDownload: true });
+      expect(create).toHaveBeenCalledWith(join(model, 'onnx', 'model_quantized.onnx'), { executionProviders: ['cpu'] });
+    });
   });
 });

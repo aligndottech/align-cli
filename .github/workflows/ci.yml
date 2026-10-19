@@ -90,6 +90,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      # ALI-1781. The CLI trusts a SHA-256 per platform for the native embedding runtime it
+      # downloads (src/lib/embedding-assets.ts). This rebuilds every bundle from the pinned
+      # upstream npm tarballs and fails unless each digest matches, so the table cannot drift
+      # from the build, and what the release workflow uploads is what the CLI will accept.
+      - name: Runtime bundle digests reproduce
+        run: npx tsx scripts/build-ort-runtime.ts --out "$RUNNER_TEMP/ort-runtime" --check
+
   # Cross-platform: prove a fresh install, tests (exercise the local DB), build, and
   # the CLI binary all run on Windows + macOS. Kept separate so the required "test"
   # context stays ubuntu-only.
@@ -333,12 +340,12 @@ jobs:
   # into a clean prefix, and runs the cold no-account first-run sequence
   # (setup --local, import git, search, mcp --setup, a real MCP stdio handshake),
   # asserting exit codes. This crosses the four layers the unit suite never sees:
-  # the tsc output in dist/, the package.json "files" list, the optional install
-  # (@huggingface/transformers, still native), and Commander's argv parsing -
-  # ALI-422 lived in that last one with every test green.
+  # the tsc output in dist/, the package.json "files" list, the install weight (ALI-1781
+  # asserts the tarball no longer drags in the 780MB ML runtime), and Commander's argv
+  # parsing - ALI-422 lived in that last one with every test green.
   #
-  # The OS x Node matrix is the whole point: the optional native install is the only
-  # part of the CLI whose answer differs by platform, and it is exactly the part
+  # The OS x Node matrix is the whole point: the downloaded native embedding runtime is the
+  # only part of the CLI whose answer differs by platform, and it is exactly the part
   # no laptop can test for anyone else's machine. (The local DB no longer differs -
   # ALI-740 moved it to node:sqlite - which is why windows is unpinned above.)
   #
@@ -398,15 +405,18 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: 'npm'
 
-      # ALI-713: the ~23MB embedding model is fetched from huggingface.co on first use, and
-      # huggingface rate-limits shared runner IPs. One 429 failed four steps of a PR that
+      # ALI-713: the ~23MB embedding model is fetched from huggingface.co on first use (and, since
+      # ALI-1781, the ~20MB native runtime from a GitHub release), and huggingface rate-limits
+      # shared runner IPs. One 429 failed four steps of a PR that
       # touched nothing near the model path, and a re-run passed with no code change - an
       # unattributable red whose only remedy is to notice it is not yours, which is the same
       # reading that excuses a real failure. Caching removes the network from eight legs.
       #
-      # Keyed on the model and the dtype pin, because those decide which files are fetched
-      # (q8 -> model_quantized.onnx; see local-embeddings.ts, where the pin is load-bearing
-      # for vector compatibility). Bump -v1 to discard a bad cache.
+      # Keyed on the model, the dtype pin and the runtime version, because those decide which
+      # files are fetched (q8 -> model_quantized.onnx; see local-embeddings.ts, where the pin is
+      # load-bearing for vector compatibility). The CLI writes this directory in place
+      # (ALIGN_MODEL_CACHE) and only ever renames digest-verified files into it, so a failed run
+      # cannot poison it. Bump -v2 to discard a bad cache.
       #
       # The path is a bare relative name on purpose: the smoke script resolves it against the
       # repo root, so no Windows `D:\a\...` path has to survive Git Bash.
@@ -416,7 +426,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .hf-model-cache
-          key: align-hf-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2-q8-v1
+          key: align-embed-${{ runner.os }}-ort1.30.0-Xenova-all-MiniLM-L6-v2-q8-v2
 
       - run: npm ci
 
@@ -445,8 +455,8 @@ jobs:
       # and writes the cache, and there is nothing in the log to say the gate lost its only
       # real download. It moved 20 -> 24 with the matrix (ALI-740).
       #
-      # The directory can legitimately be absent: smoke-install.sh refuses to write it after
-      # a 429, after any failure, or with no weights on disk, and that run must stay green.
+      # The directory can legitimately be empty or absent (a 429 before anything was fetched),
+      # and that run must stay green.
       - name: Was a model cache produced?
         id: model-cache-state
         if: matrix.cold_model != 'true' && matrix.node == '24'
@@ -466,7 +476,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .hf-model-cache
-          key: align-hf-model-${{ runner.os }}-Xenova-all-MiniLM-L6-v2-q8-v1
+          key: align-embed-${{ runner.os }}-ort1.30.0-Xenova-all-MiniLM-L6-v2-q8-v2
 
   # ALI-1185. Advisory BY CONSTRUCTION rather than by continue-on-error: main's branch
   # protection requires only the "test" context, as the comment on that job records, so every

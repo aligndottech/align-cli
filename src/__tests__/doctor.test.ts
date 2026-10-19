@@ -13,7 +13,7 @@
  *  local:    a local-embedded graph skips gateway and whoami, and still runs the ask
  *  verdict:  one fail anywhere fails the run; skips alone do not
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type DoctorDeps, doctorPassed, MIN_NODE, nodeMeetsFloor, renderDoctor, runDoctor } from '../lib/doctor.js';
 
 class Boom extends Error {
@@ -214,5 +214,33 @@ describe('verdict and rendering', () => {
   it('rendering says which way the whole run went', async () => {
     expect(renderDoctor(await runDoctor(deps()))).toMatch(/All checks passed/);
     expect(renderDoctor(await runDoctor(deps({ nodeVersion: '18.0.0' })))).toMatch(/1 check failed/);
+  });
+});
+
+// ALI-1781: the on-device runtime and model are downloaded on first local use, so doctor is where
+// a person finds out it could not be.
+describe('on-device embeddings (local graph only)', () => {
+  const local = { mode: 'local-embedded' as const };
+
+  it('passes and says what is installed when the runtime and model are present', async () => {
+    const c = byId(await runDoctor(deps({ ...local, ensureEmbeddings: async () => ({ detail: 'ONNX Runtime 1.30.0 at /c/ort; model verified at /c/hf' }) })), 'embeddings');
+    expect(c.status).toBe('pass');
+    expect(c.detail).toContain('ONNX Runtime 1.30.0');
+  });
+
+  it('fails with the cause, and names the hosts and the mirror variables, when the download failed', async () => {
+    const checks = await runDoctor(deps({ ...local, ensureEmbeddings: async () => { throw new Error('could not reach github.com: getaddrinfo ENOTFOUND'); } }));
+    const c = byId(checks, 'embeddings');
+    expect(c.status).toBe('fail');
+    expect(c.detail).toMatch(/ENOTFOUND/);
+    expect(c.next).toMatch(/github\.com[\s\S]*huggingface\.co[\s\S]*ALIGN_ORT_RUNTIME_URL/);
+    expect(doctorPassed(checks)).toBe(false);
+  });
+
+  it('is not run at all on a cloud install, where nothing embeds on this machine', async () => {
+    const ensure = vi.fn();
+    const checks = await runDoctor(deps({ mode: 'auth', ensureEmbeddings: ensure }));
+    expect(checks.some((c) => c.id === 'embeddings')).toBe(false);
+    expect(ensure).not.toHaveBeenCalled();
   });
 });
