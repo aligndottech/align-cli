@@ -104,7 +104,7 @@ describe('MCP align_ask later_on_topic (ALI-1412)', () => {
   it('leaves a row the gateway sent no later_on_topic for untouched', async () => {
     const plain = { id: 'd-9', title: 't', summary: 's', status: 'active' };
     const { rows } = await callAsk(clientReturning([plain]));
-    expect(rows[0]).toEqual(plain);
+    expect(rows[0]).toEqual({ ...plain, reason: null });
   });
 });
 

@@ -193,12 +193,69 @@ describe('synthesis path unchanged', () => {
   });
 });
 
-describe('--json is untouched', () => {
-  it('is byte-identical to the pre-change output for the same input', async () => {
+describe('--json keeps every existing field (reason is additive)', () => {
+  it('matches the pre-change golden on all existing fields; each result gains reason only', async () => {
     respond([hit(1, 0.42, longBody), hit(2, 0.9, 'b')]);
     const out = await ask('--json');
     // Golden captured from origin/main (28c97cd) before the renderer change.
-    expect(out).toBe(readFileSync(new URL('./fixtures/ask-json-golden-main.json', import.meta.url), 'utf8'));
+    const golden = JSON.parse(readFileSync(new URL('./fixtures/ask-json-golden-main.json', import.meta.url), 'utf8'));
+    const now = JSON.parse(out);
+    expect(now.results.map((r: Record<string, unknown>) => Object.keys(r).filter((k) => k !== 'reason'))).toEqual(
+      golden.results.map((r: Record<string, unknown>) => Object.keys(r)));
+    expect({ ...now, results: now.results.map(({ reason: _r, ...rest }: Record<string, unknown>) => rest) }).toEqual(golden);
+    expect(now.results.map((r: Record<string, unknown>) => r['reason'])).toEqual([null, null]);
+  });
+  it('carries the extracted reason in --json', async () => {
+    respond([hit(1, 0.6, 'We dropped it because it was slow on big bodies.')]);
+    expect(JSON.parse(await ask('--json')).results[0].reason).toBe('We dropped it because it was slow on big bodies.');
   });
 });
 
+describe('stated reason in the no-answer list', () => {
+  const BODY = 'Decision 1\n\nWe dropped it because it buffered whole bodies.\n\nSigned-off-by: A <a@b.c>';
+  it('shows Why: <reason> under the title instead of the excerpt', async () => {
+    respond([hit(1, 0.6, BODY)]);
+    const out = await ask();
+    expect(out).toContain('Why: We dropped it because it buffered whole bodies.');
+    expect(out).not.toContain('Signed-off-by');
+  });
+  it('the fallback excerpt never shows the importer Author/Date/Files/URL block', async () => {
+    respond([hit(1, 0.6, 'Decision 1\n\n* Updated find-my-way\n* Updated test\n\nAuthor: Tomas\n\nDate: 2019-02-17T19:44:49+01:00\n\nFiles changed:\ndocs/Server.md\n\nURL: https://github.com/o/r/commit/abc1234')]);
+    const out = await ask();
+    expect(out).toContain('"* Updated find-my-way * Updated test"');
+    expect(out).not.toMatch(/Author:|Date:|Files changed/);
+  });
+  it('falls back to the excerpt when no reason is stated', async () => {
+    respond([hit(1, 0.6, 'kept whole, two words more')]);
+    const out = await ask();
+    expect(out).toContain('"kept whole, two words more"');
+    expect(out).not.toContain('Why:');
+  });
+  it('puts the top strong match in a Best match line in the header block', async () => {
+    respond([hit(1, 0.6, BODY), hit(2, 0.7, 'x')]);
+    const out = await ask();
+    expect(out).toContain('Best match: Decision 1 (60%)');
+    expect(out.indexOf('Best match:')).toBeLessThan(out.indexOf('Decision 2'));
+    expect(out.indexOf('Best match:')).toBeLessThan(out.indexOf('Any one of these works'));
+  });
+  it('never puts a weak top match in Best match, though its Why: row still shows', async () => {
+    respond([hit(1, 0.3, BODY)]);
+    const out = await ask();
+    expect(out).not.toContain('Best match');
+    expect(out).toContain('Why: We dropped it');
+  });
+  it('no Best match line when the top match has no reason, or outside local mode', async () => {
+    respond([hit(1, 0.6, 'plain words only here')]);
+    expect(await ask()).not.toContain('Best match');
+    envMode.mode = 'auth';
+    respond([hit(1, 0.6, BODY)]);
+    expect(await ask()).not.toContain('Best match');
+  });
+  it('the synthesis path is untouched: no Best match, no Why:', async () => {
+    respond([hit(1, 0.6, BODY)]);
+    synthesiseDetailed.mockResolvedValue({ ok: true, text: 'We chose Postgres.' });
+    const out = await ask();
+    expect(out).not.toContain('Best match');
+    expect(out).not.toContain('Why:');
+  });
+});

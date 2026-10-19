@@ -119,8 +119,10 @@ describe('MCP search relation fields (successor / conflicts_with)', () => {
   it('a gateway response that omits the fields produces output with the keys ABSENT, not null', async () => {
     const c = clientReturning([{ id: 'd1', title: 'Use Postgres', summary: 's', status: 'conflicted' }]);
     const { text, rows } = await callSearch(c);
-    expect(Object.keys(rows[0]!)).toEqual(['id', 'title', 'summary', 'status']);
-    expect(text).not.toContain('null');
+    expect(Object.keys(rows[0]!)).toEqual(['id', 'title', 'summary', 'status', 'reason']);
+    // `reason: null` (ALI-1749) is the one explicit null an agent sees: "no stated reason", and its
+    // tool description says so. A null RELATION would still read as "no conflict exists", so none may appear.
+    expect(text.replace('"reason":null', '')).not.toContain('null');
   });
 
   it('a NULL relation from the gateway is dropped - "no conflict exists" is a different claim from "not provided"', async () => {

@@ -16,6 +16,7 @@ import { resolveScopeOpts } from '../lib/repo-identity.js';
 import { askTrailingLine } from '../lib/connect-prompt.js';
 import { getGitIdentities, hasOtherCommitters } from '../lib/git.js';
 import { answeredBySomeoneElse, inviteNudgeLine } from '../lib/invite-prompt.js';
+import { extractReason, stripImporterMetadata, withReasons } from '../lib/reason-extract.js';
 import { allWeak, excerptOf, isWeak, LIST_DISPLAY_CAP, matchNoun, withoutTitle } from '../lib/ask-listing.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
@@ -170,7 +171,7 @@ export function registerAskCommand(program: Command): void {
         if (opts.json) {
           spinner.stop();
           for (const note of results.notes ?? []) process.stderr.write(`${note}\n`);
-          process.stdout.write(`${JSON.stringify({ query, scope: results.scope ?? null, widened_from: widenedFrom, results: results.results, ...(results.notes ? { notes: results.notes } : {}) })}\n`);
+          process.stdout.write(`${JSON.stringify({ query, scope: results.scope ?? null, widened_from: widenedFrom, results: withReasons(results).results, ...(results.notes ? { notes: results.notes } : {}) })}\n`);
           return;
         }
 
@@ -450,6 +451,7 @@ export function registerAskCommand(program: Command): void {
         const explicitLimit = cmd.getOptionValueSource('limit') === 'cli';
         const listed = explicitLimit ? results.results : results.results.slice(0, LIST_DISPLAY_CAP);
         // Weak is judged over what is SHOWN, so the summary never contradicts the rows under it.
+        const reasonOf = (d: { title: string; summary?: string }) => extractReason(d.title, d.summary);
         const weakSet = localScores && allWeak(listed.map((d) => d.similarity));
 
         if (filePath) {
@@ -464,6 +466,16 @@ export function registerAskCommand(program: Command): void {
             ? `all weak matches (best ${(best * 100).toFixed(0)}%)`
             : 'none judged relevant yet';
           console.log(chalk.bold(`\n  ${matchNoun(results.count)}, ${lead}: ${reason}\n`));
+          // ALI-1749: the answer-shaped thing first. Only for a top match that clears the weak
+          // floor (local scores are the calibrated ones) and only when it STATES a reason.
+          const top = listed[0];
+          const topReason = top && localScores && !isWeak(top.similarity) ? reasonOf(top) : null;
+          if (top && topReason) {
+            const pct = top.similarity !== undefined ? ` (${(top.similarity * 100).toFixed(0)}%)` : '';
+            console.log(chalk.bold(`  Best match: ${top.title}${pct}`));
+            for (const line of wrapText(`Why: ${topReason}`, '  ', wrapWidth)) console.log(line);
+            console.log('');
+          }
           if (guidanceFirst) {
             for (const line of guidance) console.log(line);
             console.log('');
@@ -477,8 +489,11 @@ export function registerAskCommand(program: Command): void {
             : '';
           console.log(chalk.bold(`  ${d.title}`) + score);
 
-          if (d.summary) {
-            const summaryLines = wrapText(`"${excerptOf(withoutTitle(d.summary, d.title))}"`, '  ', wrapWidth);
+          const why = reasonOf(d);
+          if (why) {
+            for (const line of wrapText(`Why: ${why}`, '  ', wrapWidth)) console.log(line);
+          } else if (d.summary) {
+            const summaryLines = wrapText(`"${excerptOf(withoutTitle(stripImporterMetadata(d.summary), d.title))}"`, '  ', wrapWidth);
             for (const line of summaryLines) {
               console.log(chalk.dim(line));
             }
