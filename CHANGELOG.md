@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.0](https://github.com/aligndottech/align-cli/compare/cli-v0.58.0...cli-v0.59.0) (2026-10-19)
+
+
+### Features
+
+* **ask:** show the stated reason from the commit message ([#448](https://github.com/aligndottech/align-cli/issues/448)) ([0ec9551](https://github.com/aligndottech/align-cli/commit/0ec955128e2922b3e399a64b145d40be65f31a5d))
+
 ## [0.58.0](https://github.com/aligndottech/align-cli/compare/cli-v0.57.1...cli-v0.58.0) (2026-10-19)
 
 
