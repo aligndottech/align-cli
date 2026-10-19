@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { deleteDecisionWithDependents, migrate, SCHEMA, SLACK_TOMBSTONE_TITLE } from './local-db-migrate.js';
 import type { DeciderKind } from './decider-kind.js';
 import { bumpRowSetEpoch, rowSetEpoch } from './local-db-epoch.js';
+import { createLexicalStore, type LexicalStore } from './lexical-store.js';
 import { foldKeylessTwin } from './local-db-v7.js';
 import { discussionStart } from './github-text.js';
 import { connectorItemKey, KEYED_PLATFORMS } from './source-key.js';
@@ -194,6 +195,7 @@ export function createLocalDb(dbPath: string) {
   }
 
   let dataVersionStmt: ReturnType<typeof db.prepare> | undefined;
+  let lexical: LexicalStore | undefined;
   const api = {
     /**
      * Insert, or refresh the decision that already carries this `source_url`, returning the id
@@ -866,6 +868,11 @@ export function createLocalDb(dbPath: string) {
      *  before building one so a huge graph is never loaded just to be refused. */
     countEmbeddings(): number {
       return (db.prepare('SELECT COUNT(*) AS n FROM decision_embeddings').get() as { n: number }).n;
+    },
+
+    /** ALI-1749: the persisted lexical index of this graph's git decisions (lexical-store.ts), built on first use. */
+    lexicalStore(): LexicalStore {
+      return (lexical ??= createLexicalStore(db));
     },
 
     close(): void {

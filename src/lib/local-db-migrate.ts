@@ -167,6 +167,12 @@ export function deleteDecisionWithDependents(db: DatabaseSync, id: string): void
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(id);
   db.prepare('DELETE FROM decision_audit WHERE decision_id = ?').run(id);
   db.prepare('DELETE FROM decisions WHERE id = ?').run(id);
+  // The lexical index (lexical-store.ts) holds terms derived from this decision's text. Its tables exist
+  // only after a first search, so their absence is normal.
+  try {
+    db.prepare('DELETE FROM lex_term WHERE num IN (SELECT num FROM lex_doc WHERE decision_id = ?)').run(id);
+    db.prepare('DELETE FROM lex_doc WHERE decision_id = ?').run(id);
+  } catch { /* no lexical tables yet */ }
 }
 
 /** The one downgrade guard: migrate() and every other writer of this file (the sync state, purge) call it. */
