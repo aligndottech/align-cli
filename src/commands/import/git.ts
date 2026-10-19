@@ -10,6 +10,9 @@ import { runPersonalImport } from '../../lib/personal-import.js';
 import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.js';
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { gitCaptureReport } from '../../lib/fetchers/git.js';
+import { dropCommitsOfStoredPrs } from '../../lib/first-run-pr-import.js';
+import { createLocalDb } from '../../lib/local-db.js';
+import { repoFromRemoteUrl } from '../../lib/repo-identity.js';
 import { commandIntro } from '../../lib/brand.js';
 import { GIT_DEFAULT_LIMIT, GIT_KEEP_CAP, SYNC_CEILINGS } from '../../lib/import-defaults.js';
 import { windowLabel } from '../../lib/since.js';
@@ -86,7 +89,19 @@ export function registerImportGitCommand(importCmd: Command): void {
         p.log.info(`Detected ${remote} remote - commits will have clickable links`);
       }
 
-      const items = commits.map(c => {
+      // ALI-1782: first run stored a PR instead of its squash commit; a refresh must not bring the commit back.
+      let commitsToImport = commits;
+      let coveredByPr = 0;
+      if (env.mode === 'local-embedded' && env.localDbPath && (remoteUrl ?? '').includes('github.com')) {
+        const repo = repoFromRemoteUrl(remoteUrl)?.replace(/^github\.com\//, '');
+        if (repo) {
+          const db = createLocalDb(env.localDbPath);
+          try {
+            ({ items: commitsToImport, covered: coveredByPr } = dropCommitsOfStoredPrs(commits, db.listDecisions().filter((d) => d.platform === 'github').map((d) => d.sourceUrl ?? ''), repo));
+          } finally { db.close(); }
+        }
+      }
+      const items = commitsToImport.map(c => {
         const url = buildCommitUrl(remoteUrl, c.sha);
         return {
           source_url: url,
@@ -112,6 +127,7 @@ export function registerImportGitCommand(importCmd: Command): void {
       // import ends with. Derived by gitCaptureReport so this command and `align setup`
       // cannot disagree on what "mechanical" means or when the cap is worth naming.
       const report = gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: requested, droppedByCap });
+      if (coveredByPr > 0) report.skips.push({ count: coveredByPr, detail: 'commits that are the squash of a PR already in your graph, not imported again' });
       console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.git, { items, report }, window !== undefined && opts.from === undefined ? windowLabel(window.days) : undefined, importResult)])}\n`);
     });
 }

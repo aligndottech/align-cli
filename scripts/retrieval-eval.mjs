@@ -9,7 +9,12 @@
  *           (records the sha of a repo that has none yet)
  *   pairs   derive question -> expected-commit pairs from `git log` (deterministic, see below)
  *   build   import each pinned repo with the REAL `align connect git --approve` of <cli> into an
- *           isolated HOME, one graph per (label, repo). Skipped when that graph already exists
+ *           isolated HOME, one graph per (label, repo). Skipped when that graph already exists.
+ *           --prs: import the way FIRST RUN does instead (ALI-1782), in process through <cli>'s own
+ *           modules: the commits, then the merged PR descriptions of the repo's GitHub origin
+ *           (fetchFirstRunPrs, unauthenticated, responses cached under <work>/prcache so a second
+ *           build or label costs no API quota), with the squash commits of imported PRs dropped.
+ *           Build a no-PR graph the same in-process way with --no-prs to compare like with like.
  *   run     ask every question of the local graph through <cli>'s createLocalGatewayClient and
  *           print recall@3, recall@8, MRR per repo and in aggregate, plus the rank table
  *   all     clone, pairs, build, run
@@ -60,6 +65,8 @@ const CLI = path.resolve(opt('cli', ROOT));
 const LABEL = opt('label', 'default');
 const WORK = path.resolve(opt('work', '/tmp/quality1749'));
 const ONLY = opt('repo', null);
+const BUILD_IN_PROCESS = args.includes('--prs') || args.includes('--no-prs');
+const WITH_PRS = args.includes('--prs');
 
 const repos = JSON.parse(fs.readFileSync(REPOS_FILE, 'utf8')).filter(r => !ONLY || r.name === ONLY);
 const cloneDir = r => path.join(WORK, 'repos', r.name);
@@ -189,16 +196,56 @@ function pairsAll() {
 // ---------- build ----------
 const env = home => ({
   HOME: home, XDG_CONFIG_HOME: `${home}/.config`, XDG_DATA_HOME: `${home}/.local/share`, XDG_STATE_HOME: `${home}/.local/state`,
-  XDG_CACHE_HOME: `${home}/.cache`, ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('EVAL_'))), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, CI: 'true', NO_COLOR: '1',
+  XDG_CACHE_HOME: `${home}/.cache`, ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('EVAL_') || k === 'ALIGN_MODEL_CACHE')), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, CI: 'true', NO_COLOR: '1',
 });
 const alignCli = (home, cwd, ...a) => spawnSync(process.execPath, [path.join(CLI, 'dist/bin.js'), ...a], { cwd, env: env(home), encoding: 'utf8', maxBuffer: 1 << 28 });
 
-function buildAll() {
+/** An unauthenticated GitHub read, cached by url so the 60-requests-an-hour quota is spent once per page ever. */
+function cachingFetch() {
+  const dir = path.join(WORK, 'prcache');
+  fs.mkdirSync(dir, { recursive: true });
+  return async (url, init) => {
+    const file = path.join(dir, `${createHash('sha256').update(String(url)).digest('hex').slice(0, 24)}.json`);
+    if (fs.existsSync(file)) {
+      const c = JSON.parse(fs.readFileSync(file, 'utf8'));
+      return new Response(c.body, { status: c.status, headers: c.headers });
+    }
+    const res = await fetch(url, init);
+    const body = await res.text();
+    if (res.status === 200) fs.writeFileSync(file, JSON.stringify({ status: 200, body, headers: { 'x-ratelimit-remaining': res.headers.get('x-ratelimit-remaining') ?? '50' } }));
+    return new Response(body, { status: res.status, headers: res.headers });
+  };
+}
+
+async function buildInProcess(r, home) {
+  const lib = f => import(pathToFileURL(path.join(CLI, 'dist/lib', f)).href);
+  const { fetchGitItems } = await lib('fetchers/git.js');
+  const { GIT_DEFAULT_LIMIT, GIT_KEEP_CAP } = await lib('import-defaults.js');
+  const { createLocalGatewayClient } = await lib('local-gateway-client.js');
+  const prs = WITH_PRS ? await lib('first-run-pr-import.js') : null;
+  const prRead = prs ? prs.fetchFirstRunPrs(`github.com/${r.repo.toLowerCase()}`, { fetchFn: cachingFetch(), detectToken: async () => null, deadlineMs: 120_000 }) : null;
+  const t0 = Date.now();
+  const prev = process.cwd();
+  process.chdir(cloneDir(r));
+  let git;
+  try { git = await fetchGitItems({ limit: GIT_DEFAULT_LIMIT, keep: GIT_KEEP_CAP }); } finally { process.chdir(prev); }
+  const outcome = prRead ? await prRead : null;
+  const kept = outcome ? prs.dropCoveredCommits(git.items, outcome) : { items: git.items, covered: 0 };
+  const client = createLocalGatewayClient(path.join(home, '.align/local.db'), { cwd: cloneDir(r) });
+  await client.ingestBatch(kept.items, { classify: false, keyed: true });
+  if (outcome?.items.length) await client.ingestBatch(outcome.items, { classify: false, keyed: true });
+  client.close?.();
+  const secs = ((Date.now() - t0) / 1000).toFixed(1);
+  console.log(`${r.name}\timport=${secs}s\tcommits=${kept.items.length}\tpr_rows=${outcome?.items.length ?? 0}\tcovered_commits=${kept.covered}\tprs_scanned=${outcome?.scanned ?? 0}${outcome?.note ? `\tnote=${outcome.note}` : ''}`);
+}
+
+async function buildAll() {
   for (const r of repos) {
     const home = homeDir(r);
     if (fs.existsSync(path.join(home, '.align/local.db'))) { console.log(`${r.name}\tgraph exists, skipped`); continue; }
     fs.mkdirSync(home, { recursive: true });
     alignCli(home, cloneDir(r), 'local', 'start');
+    if (BUILD_IN_PROCESS) { await buildInProcess(r, home); continue; }
     const t0 = Date.now();
     const res = alignCli(home, cloneDir(r), 'connect', 'git', '--approve');
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -223,17 +270,26 @@ async function runStyle(mod, style) {
     const { pairs } = JSON.parse(fs.readFileSync(pairsFile(r), 'utf8'));
     const client = mod.createLocalGatewayClient(dbPath, { cwd: cloneDir(r) });
     const ro = new DatabaseSync(dbPath, { readOnly: true });
-    const inGraph = sha => ro.prepare('SELECT 1 FROM decisions WHERE source_url LIKE ?').get(`%/commit/${sha}`) !== undefined;
+    // ALI-1782: a squash commit and its PR are one change. When first run imported the PR instead of the commit, the PR
+    // row is the right answer, so a result at /pull/N counts for the commit whose subject ends in (#N).
+    const prNumber = subject => /\(#(\d+)\)\s*$/.exec(subject ?? '')?.[1];
+    const isAnswer = (url, p) => {
+      if (url.includes(`/commit/${p.sha}`)) return true;
+      const n = prNumber(p.subject);
+      return n !== undefined && new RegExp(`/pull/${n}$`).test(url);
+    };
+    const inGraph = p => ro.prepare('SELECT 1 FROM decisions WHERE source_url LIKE ?').get(`%/commit/${p.sha}`) !== undefined
+      || (prNumber(p.subject) !== undefined && ro.prepare('SELECT 1 FROM decisions WHERE source_url LIKE ?').get(`%/pull/${prNumber(p.subject)}`) !== undefined);
     const stats = { repo: r.name, n: 0, in_graph: 0, r3: 0, r8: 0, rr: 0 };
     const t0 = Date.now();
     for (const p of pairs) {
       const asked = style === 'loose' ? p.loose : p.question;
       if (!asked) continue;
       const res = await client.searchDecisions(asked, RESULT_LIMIT, undefined, { all: true });
-      const idx = res.results.findIndex(x => (x.source_url ?? '').includes(`/commit/${p.sha}`));
+      const idx = res.results.findIndex(x => isAnswer(x.source_url ?? '', p));
       const rank = idx === -1 ? null : idx + 1;
       stats.n++;
-      const imported = inGraph(p.sha);
+      const imported = inGraph(p);
       if (imported) stats.in_graph++;
       if (rank !== null && rank <= 3) stats.r3++;
       if (rank !== null && rank <= 8) stats.r8++;
@@ -264,8 +320,8 @@ async function runStyle(mod, style) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (step === 'clone') cloneAll();
   else if (step === 'pairs') pairsAll();
-  else if (step === 'build') buildAll();
+  else if (step === 'build') await buildAll();
   else if (step === 'run') await runAll();
-  else if (step === 'all') { cloneAll(); pairsAll(); buildAll(); await runAll(); }
-  else { console.error('usage: retrieval-eval.mjs clone|pairs|build|run|all [--cli root] [--label l] [--work dir] [--repo name] [--table] [--out file]'); process.exit(2); }
+  else if (step === 'all') { cloneAll(); pairsAll(); await buildAll(); await runAll(); }
+  else { console.error('usage: retrieval-eval.mjs clone|pairs|build|run|all [--cli root] [--label l] [--work dir] [--repo name] [--prs|--no-prs] [--table] [--out file]'); process.exit(2); }
 }

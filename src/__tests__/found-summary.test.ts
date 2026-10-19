@@ -212,3 +212,15 @@ describe('clearScreenForPicker (ALI-794 component 5)', () => {
     expect(writes).toEqual([]);
   });
 });
+
+describe('renderFoundSummary: PR descriptions (ALI-1782)', () => {
+  const s = { total: 12, linked: 0, recent: [{ title: 'Use Map' }] };
+  it('says how many came from PR descriptions, and with a different count says that one', () => {
+    expect(renderFoundSummary(s, { prDescriptions: 3 })).toContain('including 3 from PR descriptions');
+    expect(renderFoundSummary(s, { prDescriptions: 41 })).toContain('including 41 from PR descriptions');
+  });
+  it('says nothing when there were none, or the caller does not say', () => {
+    expect(renderFoundSummary(s, { prDescriptions: 0 })).not.toContain('PR descriptions');
+    expect(renderFoundSummary(s)).not.toContain('PR descriptions');
+  });
+});
