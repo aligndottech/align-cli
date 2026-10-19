@@ -11,7 +11,7 @@ import { renderCaptureReport, toCaptureSource } from '../../lib/capture-report.j
 import { CAPTURE_SOURCES } from '../../lib/capture-sources.js';
 import { gitCaptureReport } from '../../lib/fetchers/git.js';
 import { commandIntro } from '../../lib/brand.js';
-import { GIT_DEFAULT_LIMIT, SYNC_CEILINGS } from '../../lib/import-defaults.js';
+import { GIT_DEFAULT_LIMIT, GIT_KEEP_CAP, SYNC_CEILINGS } from '../../lib/import-defaults.js';
 import { windowLabel } from '../../lib/since.js';
 import { sinceFromFlag } from '../../lib/since-flag.js';
 
@@ -29,7 +29,7 @@ export function registerImportGitCommand(importCmd: Command): void {
   importCmd
     .command('git')
     .description('Import local git commit history (no auth required)')
-    .option('--limit <n>', 'Max commits to import', String(GIT_DEFAULT_LIMIT))
+    .option('--limit <n>', 'Max commits to scan (a default run keeps the newest 2,000 that state a reason)', String(GIT_DEFAULT_LIMIT))
     .option('--since <when>', 'Read only this far back (30d, 2w, 6m, 1y or all). Without it git reads the newest commits however old. --from wins')
     .option('--from <date>', 'Start date (ISO e.g. 2025-01-01)')
     .option('--to <date>', 'End date (ISO)')
@@ -57,8 +57,12 @@ export function registerImportGitCommand(importCmd: Command): void {
       // An untouched --limit (by option SOURCE, so an explicit `--limit 500` is not mistaken for it)
       // becomes the ceiling once a window bounds the read.
       const requested = window !== undefined && cmd.getOptionValueSource('limit') === 'default' ? SYNC_CEILINGS.git : parseInt(opts.limit, 10);
-      const { commits, scanned, rejectedByRationale } = await getCommitHistoryDetailed({
+      // An explicit --limit is the user's own bound on what they asked for; only the untouched
+      // default is capped to what a first run can embed in time (GIT_KEEP_CAP).
+      const explicitLimit = cmd.getOptionValueSource('limit') !== 'default';
+      const { commits, scanned, rejectedByRationale, droppedByCap } = await getCommitHistoryDetailed({
         limit: requested,
+        ...(explicitLimit ? {} : { keep: GIT_KEEP_CAP }),
         // An explicit --from is a date the user picked; the shared window only fills the gap.
         from: opts.from ?? window?.since,
         to: opts.to,
@@ -107,7 +111,7 @@ export function registerImportGitCommand(importCmd: Command): void {
       // ALI-827: the same counts the spinner line above reports, as the report block every
       // import ends with. Derived by gitCaptureReport so this command and `align setup`
       // cannot disagree on what "mechanical" means or when the cap is worth naming.
-      const report = gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: requested });
+      const report = gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: requested, droppedByCap });
       console.log(`${renderCaptureReport([toCaptureSource(CAPTURE_SOURCES.git, { items, report }, window !== undefined && opts.from === undefined ? windowLabel(window.days) : undefined, importResult)])}\n`);
     });
 }
