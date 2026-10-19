@@ -158,6 +158,9 @@ export function synthesisSentenceBudget(decisionCount: number): string {
   return 'at most 5 sentences';
 }
 
+/** Worst case of a row's reason field: two sentences of up to 180 characters, quoted. */
+const REASON_RESERVE_TOKENS = 100;
+
 /**
  * ALI-845 defect 3: no cap of any kind existed - up to 8 raw summaries (mean 4,798 chars, max
  * 21,865 per the upstream research doc) were joined into one prompt regardless of window.
@@ -196,7 +199,7 @@ export function buildUserPrompt(
     `Question: ${question}\n\nAnswer in ${synthesisSentenceBudget(decisions.length)}.\n\nDecision evidence:\n`;
   if (!decisions.length) return header;
 
-  const labelTokens = decisions.reduce((sum, d) => sum + estimateTokens(renderEvidence({ ...d, summary: '' })), 0);
+  const labelTokens = decisions.reduce((sum, d) => sum + estimateTokens(renderEvidence({ ...d, summary: '' })) + REASON_RESERVE_TOKENS, 0);
   const joinTokens = estimateTokens('\n\n') * (decisions.length - 1);
   const reserveTokens =
     estimateTokens(SYNTHESIS_SYSTEM_PROMPT) + estimateTokens(header) + outputTokens + labelTokens + joinTokens;
@@ -205,8 +208,9 @@ export function buildUserPrompt(
 
   const ctx = decisions
     .map((d) => {
-      const summary = d.summary.length > perDecisionChars ? d.summary.slice(0, perDecisionChars) : d.summary;
-      return renderEvidence({ ...d, summary });
+      // The reason is read from the whole body (bounded by extractReason itself), so a tight window
+      // can never cut it away and make a stated reason read "none stated". Only the excerpt shrinks.
+      return renderEvidence(d, perDecisionChars);
     })
     .join('\n\n');
   return `${header}${ctx}`;

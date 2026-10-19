@@ -27,37 +27,47 @@ export interface EvidenceDecision {
   similarity?: number;
 }
 
+const VERSIONED = String.raw`(?:from\s+\S+\s+to\s+\S+|to\s+v?\d+(?:\.\d+)*\b|\bv?\d+\.\d+)`;
 const HOUSEKEEPING_TITLE = [
-  /^(?:chore|build|ci|fix|deps?)(?:\([^)]*\))?!?:\s*(?:bump|update|upgrade|release|pin|lock|renovate|dependabot)\b/i,
+  new RegExp(String.raw`^(?:chore|build|ci|fix|deps?)(?:\([^)]*\))?!?:\s*(?:bump|update|upgrade|pin)\b[^\n]*${VERSIONED}`, 'i'),
   /^(?:chore|build)\(deps(?:-dev)?\)/i,
-  /^(?:chore\(main\):\s*)?release\b/i,
-  /^bump\b/i,
+  /^chore\(main\):\s*release\b/i,
+  /^release\s+v?\d+\.\d+/i,
+  new RegExp(String.raw`^bump\b[^\n]*(?:${VERSIONED}|$)`, 'i'),
   /^(?:update|upgrade) (?:dependency|dependencies|lockfile|deps)\b/i,
   /^update lockfile\b/i,
   /^merge (?:pull request|branch|remote-tracking)\b/i,
   /^v?\d+\.\d+\.\d+(?:[-.\w]*)?$/,
 ];
-const HOUSEKEEPING_BODY = /^\s*(?:bumps?|updates?|upgrades?)\s+(?:\[?`?[\w@/.-]+`?\]?(?:\([^)]*\))?\s+)?(?:from|to)\b|this pr contains the following updates|^\s*dependabot will resolve/im;
+// Only the first line of the body: "Update X to Y" further down is ordinary prose, not a bump.
+const HOUSEKEEPING_BODY = new RegExp(String.raw`^\s*(?:bumps?|updates?|upgrades?)\s+(?:\[?\x60?[\w@/.-]+\x60?\]?(?:\([^)]*\))?\s+)?${VERSIONED}|this pr contains the following updates|^\s*dependabot will resolve`, 'i');
 
 /** A dependency bump, release or merge row: it records that something changed, never why. */
 export function isHousekeeping(title: string, body: string): boolean {
   const t = (title ?? '').trim();
-  return HOUSEKEEPING_TITLE.some((re) => re.test(t)) || HOUSEKEEPING_BODY.test(stripImporterMetadata(body ?? ''));
+  const flat = stripImporterMetadata(body ?? '').trimStart();
+  const nl = flat.indexOf('\n');
+  const firstLine = nl < 0 ? flat : flat.slice(0, nl);
+  return HOUSEKEEPING_TITLE.some((re) => re.test(t)) || HOUSEKEEPING_BODY.test(firstLine) || /this pr contains the following updates|^\s*dependabot will resolve/im.test(flat);
 }
 
+/** A header field is a single token: anything outside this set (a newline, a pipe, a quote) is dropped, so it cannot forge a row. */
+const field = (s: string): string => s.replace(/[^\w@#./:+-]/g, '');
 const quote = (s: string): string => JSON.stringify(s.replace(/\s+/g, ' ').trim());
 
 /** The text a row's own title line echoes is dropped from its excerpt, as the ranked list does. */
-function excerptFor(d: EvidenceDecision): string {
+function excerptFor(d: EvidenceDecision, max: number): string {
   const body = withoutTitle(stripImporterMetadata(d.summary ?? ''), d.title);
-  return excerptOf(body, EVIDENCE_EXCERPT_MAX_CHARS);
+  // excerptOf keeps one over-long token whole (a URL, a hash); here that token is a wall, so cut it.
+  const cut = excerptOf(body, max);
+  return cut.length > max + 3 ? `${cut.slice(0, max)}...` : cut;
 }
 
 /** One row. It opens with its id, the handle the answer cites, and carries no row number the model could cite instead. */
-export function renderEvidence(d: EvidenceDecision): string {
-  const head = [`id: ${d.ref ?? d.id}`];
-  if (d.date) head.push(`date: ${d.date}`);
-  if (d.platform) head.push(`source: ${d.platform}`);
+export function renderEvidence(d: EvidenceDecision, excerptMax: number = EVIDENCE_EXCERPT_MAX_CHARS): string {
+  const head = [`id: ${field(d.ref ?? d.id)}`];
+  if (d.date) head.push(`date: ${field(d.date)}`);
+  if (d.platform) head.push(`source: ${field(d.platform)}`);
   if (d.similarity !== undefined) head.push(`match: ${d.similarity.toFixed(2)}`);
   const lines = [head.join(' | '), `title: ${quote(d.title)}`];
   const reason = extractReason(d.title, d.summary);
@@ -68,7 +78,7 @@ export function renderEvidence(d: EvidenceDecision): string {
     if (isHousekeeping(d.title, d.summary)) {
       lines.push('[housekeeping: states no reason]');
     } else {
-      const excerpt = excerptFor(d);
+      const excerpt = excerptMax > 0 ? excerptFor(d, Math.min(excerptMax, EVIDENCE_EXCERPT_MAX_CHARS)) : '';
       if (excerpt) lines.push(`excerpt: ${quote(excerpt)}`);
     }
   }
