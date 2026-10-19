@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.58.0](https://github.com/aligndottech/align-cli/compare/cli-v0.57.1...cli-v0.58.0) (2026-10-19)
+
+
+### Features
+
+* **search:** reach the whole git history on first import, and import faster ([#447](https://github.com/aligndottech/align-cli/issues/447)) ([5170eb9](https://github.com/aligndottech/align-cli/commit/5170eb9bb68182eb5b15a5f967f7e925e1308ef8))
+
+
+### Bug Fixes
+
+* **ask:** scannable, honest list when no answer is written ([#442](https://github.com/aligndottech/align-cli/issues/442)) ([bcf891d](https://github.com/aligndottech/align-cli/commit/bcf891de0232b1e45cc65611e1e4ac704d44356a))
+* **hooks:** Copilot hook exits 0 when align is not on PATH ([#439](https://github.com/aligndottech/align-cli/issues/439)) ([2bd1722](https://github.com/aligndottech/align-cli/commit/2bd17222a744c746ee452b8754e550749f7a712c))
+* **setup:** first-run output stops saying untrue or broken things ([#443](https://github.com/aligndottech/align-cli/issues/443)) ([37198f5](https://github.com/aligndottech/align-cli/commit/37198f515446504092ca9f114c58e5addd28bd6b))
+* **undo:** keep first-run backups of project files outside the repo ([#444](https://github.com/aligndottech/align-cli/issues/444)) ([0d72d61](https://github.com/aligndottech/align-cli/commit/0d72d61198d52629cf3f2fa7caf91bf93cf63a0b))
+* **undo:** record first-run project writes so align use --undo removes them ([#441](https://github.com/aligndottech/align-cli/issues/441)) ([0bacb7c](https://github.com/aligndottech/align-cli/commit/0bacb7ccebdb723c2eba9643d0f0a58dfeb4e69c))
+* **windows:** platform-correct claude-presence, undo-first-run and backup tests ([#445](https://github.com/aligndottech/align-cli/issues/445)) ([30e6f83](https://github.com/aligndottech/align-cli/commit/30e6f83ce8bb0eecea086dccddd8e4d8b3a0cd59))
+
+
+### Performance Improvements
+
+* **install:** download the on-device runtime on first use, 779 MB to 45 MB ([#446](https://github.com/aligndottech/align-cli/issues/446)) ([68ef9b3](https://github.com/aligndottech/align-cli/commit/68ef9b35fe0d5bae63e01800179da5519d5f7037))
+
 ## [0.57.1](https://github.com/aligndottech/align-cli/compare/cli-v0.57.0...cli-v0.57.1) (2026-10-18)
 
 
