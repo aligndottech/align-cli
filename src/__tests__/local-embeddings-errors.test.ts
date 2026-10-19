@@ -33,6 +33,16 @@ describe('getEmbedding error surfacing (npm distribution)', () => {
     await expect(getEmbedding('hello')).rejects.toThrow(/embedding model[\s\S]*connection or proxy[\s\S]*align login[\s\S]*ENOTFOUND/i);
   });
 
+  it('shares one setup between concurrent first calls instead of downloading once per caller', async () => {
+    let release!: () => void;
+    native.create.mockReturnValue(new Promise((r) => { release = () => r(async () => [{ data: new Float32Array(384) }]); }));
+    const { getEmbedding } = await import('../lib/local-embeddings.js');
+    const calls = [getEmbedding('a'), getEmbedding('b'), getEmbedding('c')];
+    release();
+    await Promise.all(calls);
+    expect(native.create).toHaveBeenCalledTimes(1);
+  });
+
   it('does not cache a failed setup: the next call tries again', async () => {
     native.create.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(async () => [{ data: new Float32Array(384) }]);
     const { getEmbedding } = await import('../lib/local-embeddings.js');

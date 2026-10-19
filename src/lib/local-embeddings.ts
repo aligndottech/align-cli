@@ -37,19 +37,38 @@ let _backend: EmbeddingBackend | null = null;
 
 export function setEmbeddingBackend(backend: EmbeddingBackend): void {
   _backend = backend;
-  _pipe = null; // a backend swapped after first use must not keep serving the old pipeline
+  _pipe = null;
+  _loading = null; // a backend swapped after first use must not keep serving the old pipeline
 }
 
 /** Test seam. Not for production paths - the binary registers exactly once, at startup. */
 export function resetEmbeddingBackend(): void {
   _backend = null;
   _pipe = null;
+  _loading = null;
+}
+
+let _loading: Promise<EmbeddingPipeline> | null = null;
+
+/** One setup in flight at a time: concurrent first calls (ingest runs several) must share one
+ *  download and one ORT session, not each start their own. A failure is not remembered. */
+async function pipeline(): Promise<EmbeddingPipeline> {
+  if (_pipe) return _pipe;
+  _loading ??= setupPipeline().then((p) => { _pipe = p; return p; }).finally(() => { _loading = null; });
+  return _loading;
 }
 
 export async function getEmbedding(text: string): Promise<Float32Array> {
-  if (!_pipe && _backend) {
+  const pipe = await pipeline();
+  const output = await pipe(text, { pooling: 'mean', normalize: true });
+  return output[0]!.data;
+}
+
+async function setupPipeline(): Promise<EmbeddingPipeline> {
+  let built: EmbeddingPipeline | null = null;
+  if (!built && _backend) {
     try {
-      _pipe = await _backend();
+      built = await _backend();
     } catch (err) {
       // Wrapped, because an unwrapped failure here reaches the user as a raw ORT or fetch
       // error. The overwhelmingly likely cause is the one-time model download, so say that.
@@ -60,7 +79,7 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
       );
     }
   }
-  if (!_pipe) {
+  if (!built) {
     if (alignDistribution() === 'binary') {
       // The binary registers its bundled WASM backend at startup (index.bun.ts). Reaching this
       // line means that registration did not happen: a build defect, and the npm advice
@@ -78,7 +97,7 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
       // ALI-1781: the npm package no longer depends on @huggingface/transformers. The native
       // runtime for this os/arch and the model files are fetched once, digest-checked, into the
       // user cache dir (embedding-runtime.ts), then everything runs offline.
-      _pipe = await createNativeEmbeddingPipeline();
+      built = await createNativeEmbeddingPipeline();
     } catch (err) {
       if (err instanceof EmbeddingAssetsMissing) {
         throw new Error(
@@ -96,8 +115,7 @@ export async function getEmbedding(text: string): Promise<Float32Array> {
       );
     }
   }
-  const output = await _pipe(text, { pooling: 'mean', normalize: true });
-  return output[0]!.data;
+  return built!;
 }
 
 export function cosineSimilarity(a: Float32Array, b: Float32Array): number {

@@ -14,7 +14,7 @@
  *    which the advisory hook already reports as "could not check" and exits 0.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import {
@@ -54,12 +54,72 @@ function marker(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
+interface Listed { rel: string; size: number }
+
+/** Every entry under `dir` except the marker, as [relative path, size]. Throws on anything that is
+ *  not a plain file or directory (a symlink, a device), and on loose ownership or modes. */
+function listTree(dir: string, rel = ''): Listed[] {
+  const out: Listed[] = [];
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  for (const name of readdirSync(join(dir, rel))) {
+    if (rel === '' && name === MARKER) continue;
+    const r = rel ? `${rel}/${name}` : name;
+    const st = lstatSync(join(dir, r));
+    if (st.isSymbolicLink()) throw new Error(`symlink in cache: ${r}`);
+    // POSIX only: a cache entry another user owns, or anyone but the owner may write, is not ours.
+    if (uid !== null && (st.uid !== uid || (st.mode & 0o022) !== 0)) throw new Error(`cache entry not exclusively ours: ${r}`);
+    if (st.isDirectory()) out.push(...listTree(dir, r));
+    else if (st.isFile()) out.push({ rel: r, size: st.size });
+    else throw new Error(`unexpected file type in cache: ${r}`);
+  }
+  return out;
+}
+
+/** The marker is not just a flag: it records the digest it was written for AND the exact file list
+ *  with sizes, so a directory that merely contains a copied `.verified` (a repo's, a shared /tmp's)
+ *  is not trusted, and neither is one with a file added, swapped for a symlink or resized. It does
+ *  not re-hash the 46MB (the load runs on every edit hook), so a same-user attacker who preserves
+ *  sizes is out of scope: that user can edit the CLI itself. `align doctor` re-hashes the model. */
+function writeMarker(dir: string, digest: string): void {
+  const files = listTree(dir).map((f) => [f.rel, f.size]).sort();
+  writeFileSync(join(dir, MARKER), `${JSON.stringify({ marker: digest, files })}\n`, { mode: 0o644 });
+}
+
 function isComplete(dir: string, expected: string): boolean {
   try {
-    return readFileSync(join(dir, MARKER), 'utf8').trim() === expected;
+    const m = JSON.parse(readFileSync(join(dir, MARKER), 'utf8')) as { marker?: string; files?: Array<[string, number]> };
+    if (m.marker !== expected || !Array.isArray(m.files)) return false;
+    const have = listTree(dir).map((f) => [f.rel, f.size]).sort();
+    return JSON.stringify(have) === JSON.stringify([...m.files].sort());
   } catch {
     return false;
   }
+}
+
+/** Windows antivirus and indexers hold freshly written files; a rename then fails with a transient
+ *  EPERM/EBUSY/EACCES that goes away within moments. */
+function renameWithRetry(from: string, to: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (attempt >= 8 || !(code === 'EPERM' || code === 'EBUSY' || code === 'EACCES')) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (attempt + 1));
+    }
+  }
+}
+
+/** Interrupted extractions leave `.tmp-*` siblings (up to ~46MB each). Remove old ones. */
+function sweepStaleTemps(parent: string): void {
+  try {
+    for (const name of readdirSync(parent)) {
+      if (!name.startsWith('.tmp-')) continue;
+      const st = statSync(join(parent, name));
+      if (Date.now() - st.mtimeMs > 3_600_000) rmSync(join(parent, name), { recursive: true, force: true });
+    }
+  } catch { /* nothing to sweep, or a race with another process: both fine */ }
 }
 
 function tempSibling(target: string): string {
@@ -71,7 +131,7 @@ function tempSibling(target: string): string {
  *  so a bad cache heals on the next run instead of failing every run after it. */
 function publish(tmp: string, target: string, expectedMarker: string): void {
   try {
-    renameSync(tmp, target);
+    renameWithRetry(tmp, target);
     return;
   } catch (err) {
     if (isComplete(target, expectedMarker)) { rmSync(tmp, { recursive: true, force: true }); return; }
@@ -79,7 +139,7 @@ function publish(tmp: string, target: string, expectedMarker: string): void {
   }
   try {
     rmSync(target, { recursive: true, force: true });
-    renameSync(tmp, target);
+    renameWithRetry(tmp, target);
   } catch (err) {
     rmSync(tmp, { recursive: true, force: true });
     if (!isComplete(target, expectedMarker)) throw err;
@@ -112,10 +172,11 @@ export async function ensureRuntime(opts: EnsureOptions): Promise<string> {
     sha256: digest, maxBytes: RUNTIME_LIMITS.maxTotalBytes, gunzip: true, fetchImpl: opts.fetchImpl,
   });
   ensurePrivateDir(dirname(target));
+  sweepStaleTemps(dirname(target));
   const tmp = tempSibling(target);
   try {
     extractTar(tar, tmp, RUNTIME_LIMITS);
-    writeFileSync(join(tmp, MARKER), `${want}\n`);
+    writeMarker(tmp, want);
   } catch (err) {
     rmSync(tmp, { recursive: true, force: true });
     throw err;
@@ -147,14 +208,16 @@ export async function ensureModel(opts: EnsureOptions): Promise<string> {
     fetched.push([f, await fetchVerified(modelFileUrl(f, env), { sha256: f.sha256, maxBytes: f.maxBytes, fetchImpl: opts.fetchImpl })]);
   }
   ensurePrivateDir(dirname(target));
+  sweepStaleTemps(dirname(target));
   const tmp = tempSibling(target);
   try {
     for (const [f, data] of fetched) {
       const dest = join(tmp, f.path);
       mkdirSync(dirname(dest), { recursive: true, mode: 0o700 });
-      writeFileSync(dest, data);
+      // Explicit mode: the default is 0666 minus umask, which is group-writable under umask 002 (Ubuntu's default).
+      writeFileSync(dest, data, { mode: 0o644 });
     }
-    writeFileSync(join(tmp, MARKER), `${want}\n`);
+    writeMarker(tmp, want);
   } catch (err) {
     rmSync(tmp, { recursive: true, force: true });
     throw err;

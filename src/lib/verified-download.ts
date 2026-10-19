@@ -12,7 +12,7 @@
  * only ever happens after this returned.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
@@ -46,16 +46,33 @@ function sha256Hex(data: Uint8Array): string {
 async function readBody(url: string, maxBytes: number, timeoutMs: number, fetchImpl: typeof fetch): Promise<Buffer> {
   if (url.startsWith('file:')) {
     // Used by CI and mirrors that pre-stage the files. Same digest check applies afterwards.
-    const buf = readFileSync(fileURLToPath(url));
-    if (buf.length > maxBytes) throw new DownloadError('size', `${url} is ${buf.length} bytes, over the ${maxBytes} byte limit`);
-    return buf;
+    const path = fileURLToPath(url);
+    // Regular file, size checked BEFORE reading: file:///dev/zero or a multi-GB file must not be slurped.
+    const st = statSync(path);
+    if (!st.isFile()) throw new DownloadError('network', `${url} is not a regular file`);
+    if (st.size > maxBytes) throw new DownloadError('size', `${url} is ${st.size} bytes, over the ${maxBytes} byte limit`);
+    return readFileSync(path);
   }
+  // An IDLE timeout, re-armed on every chunk: a slow link may take as long as it needs as long as
+  // bytes keep arriving, while a stalled or silent server is cut after `timeoutMs`.
+  const ctl = new AbortController();
+  let timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const rearm = (): void => { clearTimeout(timer); timer = setTimeout(() => ctl.abort(), timeoutMs); };
+  try {
+    return await readHttp(url, maxBytes, fetchImpl, ctl.signal, rearm);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readHttp(url: string, maxBytes: number, fetchImpl: typeof fetch, signal: AbortSignal, rearm: () => void): Promise<Buffer> {
   let res: Response;
   try {
-    res = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
+    res = await fetchImpl(url, { signal, redirect: 'follow' });
   } catch (err) {
     throw new DownloadError('network', `could not reach ${new URL(url).host}: ${(err as Error).message}`);
   }
+  rearm();
   if (!res.ok) throw new DownloadError('http', `${new URL(url).host} answered HTTP ${res.status} for ${url}`);
   const declared = Number(res.headers.get('content-length') ?? '0');
   if (declared > maxBytes) throw new DownloadError('size', `${url} declares ${declared} bytes, over the ${maxBytes} byte limit`);
@@ -64,6 +81,7 @@ async function readBody(url: string, maxBytes: number, timeoutMs: number, fetchI
   try {
     if (!res.body) throw new Error('empty response body');
     for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+      rearm();
       total += chunk.length;
       if (total > maxBytes) throw new DownloadError('size', `${url} sent more than the ${maxBytes} byte limit`);
       chunks.push(Buffer.from(chunk));

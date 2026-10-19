@@ -15,6 +15,21 @@ import { CHILD_ENV_KEYS, CHILD_ENV_NOT_PINNED, CHILD_ENV_SECRETS, classifyChildE
  */
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+describe('mcpChildEnv: embedding download settings (ALI-1781)', () => {
+  it('the model cache is kept only as an absolute path: a relative one would make the repo the cache', () => {
+    expect(mcpChildEnv({ ALIGN_MODEL_CACHE: path.resolve('/abs/cache') })['ALIGN_MODEL_CACHE']).toBe(path.resolve('/abs/cache'));
+    expect(mcpChildEnv({ ALIGN_MODEL_CACHE: '.cache' })['ALIGN_MODEL_CACHE']).toBe('');
+  });
+  it('a mirror is kept, but never with credentials in its URL (HF_ENDPOINT and ALIGN_ORT_RUNTIME_URL)', () => {
+    const ok = mcpChildEnv({ HF_ENDPOINT: 'https://mirror.example/hf', ALIGN_ORT_RUNTIME_URL: 'https://mirror.example/ort' });
+    expect(ok['HF_ENDPOINT']).toBe('https://mirror.example/hf');
+    expect(ok['ALIGN_ORT_RUNTIME_URL']).toBe('https://mirror.example/ort');
+    const bad = mcpChildEnv({ HF_ENDPOINT: 'https://user:tok@mirror.example/hf', ALIGN_ORT_RUNTIME_URL: 'https://user:tok@mirror.example/ort' });
+    expect(bad['HF_ENDPOINT']).toBe('');
+    expect(bad['ALIGN_ORT_RUNTIME_URL']).toBe('');
+  });
+});
+
 describe('mcpChildEnv: the block', () => {
   it('covers XDG_*, NODE_OPTIONS, NODE_PATH, every ALIGN_* align reads, and every provider key', () => {
     for (const k of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME', 'NODE_OPTIONS', 'NODE_PATH', 'ALIGN_LLM_BASE_URL', 'ALIGN_LLM_PROVIDER', 'ALIGN_ENV', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'ALIGN_TOKEN']) {

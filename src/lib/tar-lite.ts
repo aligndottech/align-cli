@@ -84,6 +84,10 @@ export function parseTar(buf: Buffer, limits: ExtractLimits): TarEntry[] {
   while (off + BLOCK <= buf.length) {
     const header = buf.subarray(off, off + BLOCK);
     if (header.every((b) => b === 0)) return out;
+    const stored = parseInt(cString(buf, off + 148, 8).trim() || '-1', 8);
+    let sum = 0;
+    for (let i = 0; i < BLOCK; i++) sum += i >= 148 && i < 156 ? 32 : header[i]!;
+    if (stored !== sum) throw new Error('corrupt tar header (checksum mismatch)');
     const type = String.fromCharCode(header[156] ?? 0);
     if (type !== '0' && type !== '\0') throw new Error(`unsupported tar entry type ${JSON.stringify(type)}; only regular files are allowed`);
     const name = cString(buf, off, 100);
@@ -93,7 +97,7 @@ export function parseTar(buf: Buffer, limits: ExtractLimits): TarEntry[] {
     const mode = parseInt(cString(buf, off + 100, 8).trim() || '0', 8);
     if (!Number.isFinite(size) || size < 0) throw new Error(`bad size for ${path}`);
     const norm = normalize(path);
-    if (!path || isAbsolute(path) || path.includes('\\') || path.includes('\0') || norm.split(sep).includes('..') || norm !== path) {
+    if (!path || isAbsolute(path) || path.includes('\\') || path.includes('\0') || path.includes(':') || norm.split(sep).includes('..') || norm !== path) {
       throw new Error(`unsafe path in archive: ${JSON.stringify(path)}`);
     }
     total += size;

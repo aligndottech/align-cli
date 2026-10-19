@@ -108,3 +108,33 @@ describe('fetchVerified', () => {
     expect((err as DownloadError).kind).toBe('checksum');
   });
 });
+
+describe('fetchVerified timeouts and file: guards', () => {
+  it('does not cut off a slow transfer that keeps sending bytes (idle timeout, not a total one)', async () => {
+    const body = Buffer.from('slow but steady body');
+    const s = createServer((_q, res) => {
+      res.write(body.subarray(0, 5));
+      let i = 5;
+      const t = setInterval(() => { res.write(body.subarray(i, i + 5)); i += 5; if (i >= body.length) { clearInterval(t); res.end(); } }, 120);
+    }).listen(0, '127.0.0.1');
+    await new Promise((r) => s.once('listening', r));
+    try {
+      const got = await fetchVerified(`http://127.0.0.1:${(s.address() as { port: number }).port}/a`, { sha256: sha(body), maxBytes: 100, timeoutMs: 300 });
+      expect(got.equals(body)).toBe(true); // total time ~480ms > the 300ms idle limit
+    } finally { s.closeAllConnections(); s.close(); }
+  });
+
+  it('cuts off a server that stalls mid-body', async () => {
+    const s = createServer((_q, res) => { res.write('start'); }).listen(0, '127.0.0.1');
+    await new Promise((r) => s.once('listening', r));
+    try {
+      const err = await fetchVerified(`http://127.0.0.1:${(s.address() as { port: number }).port}/a`, { sha256: '0'.repeat(64), maxBytes: 100, timeoutMs: 300 }).catch((e) => e);
+      expect((err as DownloadError).kind).toBe('network');
+    } finally { s.closeAllConnections(); s.close(); }
+  });
+
+  it.skipIf(process.platform === 'win32')('refuses a non-regular file: URL without reading it', async () => {
+    const err = await fetchVerified('file:///dev/zero', { sha256: '0'.repeat(64), maxBytes: 100 }).catch((e) => e);
+    expect(err).toBeInstanceOf(DownloadError);
+  });
+});

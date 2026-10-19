@@ -48,8 +48,10 @@ export function modelFileCache(dir: string) {
  * %LOCALAPPDATA% on Windows.
  */
 export function modelCacheDir(env: Record<string, string | undefined> = process.env, platform: string = process.platform, home: string = homedir()): string {
+  // Absolute only. The cache holds code the CLI loads (the native runtime), so a relative value,
+  // which a repo's .env can supply, would make the current repo's files the thing that gets loaded.
   const override = env['ALIGN_MODEL_CACHE'];
-  if (override) return override;
+  if (override && /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(override)) return override;
   if (platform === 'win32') {
     const base = env['LOCALAPPDATA'] || join(home, 'AppData', 'Local');
     return join(base, 'align-cli', 'models');

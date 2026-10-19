@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -11,6 +11,7 @@ import { modelCacheDir } from '../lib/model-cache.js';
 import { writeTar } from '../lib/tar-lite.js';
 import { DownloadError } from '../lib/verified-download.js';
 
+import { rmSync as rmSyncSafe } from 'node:fs';
 const sha = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex');
 
 const FAKE_TAR = writeTar([
@@ -135,6 +136,69 @@ describe('ensureRuntime', () => {
     expect(readFileSync(join(dir, '.verified'), 'utf8')).not.toBe('stale\n');
     expect(loadOrt(dir)).toMatchObject({ marker: 'fake-ort' });
     expect(hits.length).toBe(2); // re-fetched, not trusted
+  });
+});
+
+// The cache holds CODE the CLI loads. A directory that merely carries a copied `.verified`
+// (a hostile repo's, a shared /tmp's) must never be trusted, whatever env points at it.
+describe('the cache is only trusted if it is exactly what was verified', () => {
+  const heal = async (mutate: (dir: string) => void) => {
+    const xdg = tmpRoot();
+    const dir = await ensureRuntime(opts(xdg));
+    mutate(dir);
+    const before = hits.length;
+    expect(await ensureRuntime(opts(xdg))).toBe(dir);
+    expect(hits.length).toBe(before + 1); // not trusted: fetched again
+    expect(loadOrt(dir)).toMatchObject({ marker: 'fake-ort' });
+    return dir;
+  };
+
+  it('a file swapped for different bytes of another size is not trusted', async () => {
+    await heal((d) => writeFileSync(join(d, 'dist', 'index.js'), 'require("child_process").exec("evil")'));
+  });
+  it('an extra planted file is not trusted', async () => {
+    await heal((d) => writeFileSync(join(d, 'dist', 'extra.js'), 'x'));
+  });
+  it.skipIf(process.platform === 'win32')('a symlink in place of a file is not trusted', async () => {
+    await heal((d) => { writeFileSync(join(d, 'real.js'), 'x'); cpSync(join(d, 'dist', 'index.js'), join(d, 'orig.js')); rmSyncSafe(join(d, 'dist', 'index.js')); symlinkSync(join(d, 'orig.js'), join(d, 'dist', 'index.js')); });
+  });
+  it.skipIf(process.platform === 'win32')('an entry anyone but the owner can write is not trusted', async () => {
+    await heal((d) => chmodSync(join(d, 'dist', 'index.js'), 0o666));
+  });
+
+  it('a `.verified` copied from another cache into a hostile directory is not trusted', async () => {
+    const xdg = tmpRoot();
+    const good = await ensureRuntime(opts(xdg));
+    const evil = tmpRoot();
+    const target = runtimeDir(join(evil, 'align-cli', 'models'), 'linux-x64');
+    mkdirSync(join(target, 'dist'), { recursive: true });
+    writeFileSync(join(target, 'dist', 'index.js'), 'module.exports = { marker: "evil" };');
+    writeFileSync(join(target, 'package.json'), '{}');
+    cpSync(join(good, '.verified'), join(target, '.verified'));
+    await ensureRuntime(opts(evil));
+    expect(loadOrt(target)).toMatchObject({ marker: 'fake-ort' }); // replaced by the verified download
+  });
+
+  it('removes stale temp dirs from interrupted runs, and leaves fresh ones (a run in progress)', async () => {
+    const xdg = tmpRoot();
+    const ort = join(xdg, 'align-cli', 'models', 'ort');
+    mkdirSync(join(ort, '.tmp-old'), { recursive: true });
+    mkdirSync(join(ort, '.tmp-fresh'), { recursive: true });
+    const old = new Date(Date.now() - 2 * 3_600_000);
+    utimesSync(join(ort, '.tmp-old'), old, old);
+    await ensureRuntime(opts(xdg));
+    expect(readdirSync(ort).sort()).toEqual(['.tmp-fresh', '1.30.0-linux-x64']);
+  });
+});
+
+describe('ALIGN_MODEL_CACHE must be absolute', () => {
+  it('ignores a relative override, which a repo .env could point at the repo itself', () => {
+    expect(modelCacheDir({ ALIGN_MODEL_CACHE: '.cache', XDG_CACHE_HOME: '/x' }, 'linux', '/h')).toBe(join('/x', 'align-cli', 'models'));
+    expect(modelCacheDir({ ALIGN_MODEL_CACHE: '../up' }, 'linux', '/h')).toBe(join('/h', '.cache', 'align-cli', 'models'));
+  });
+  it('accepts POSIX and Windows absolute forms', () => {
+    expect(modelCacheDir({ ALIGN_MODEL_CACHE: '/abs/c' })).toBe('/abs/c');
+    expect(modelCacheDir({ ALIGN_MODEL_CACHE: 'D:\\cache' })).toBe('D:\\cache');
   });
 });
 

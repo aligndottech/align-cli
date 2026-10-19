@@ -5,6 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { extractTar, parseTar, writeTar } from '../lib/tar-lite.js';
 
 const limits = { maxEntries: 100, maxTotalBytes: 10_000_000 };
+function refreshChecksum(tar: Buffer): void {
+  let sum = 0;
+  for (let i = 0; i < 512; i++) sum += i >= 148 && i < 156 ? 32 : tar[i]!;
+  tar.write(`${sum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
+}
 const LONG = `node_modules/onnxruntime-common/dist/cjs/${'sub/'.repeat(10)}index-with-a-rather-long-name.js`;
 
 describe('tar-lite', () => {
@@ -35,7 +40,7 @@ describe('tar-lite', () => {
     }
   });
 
-  it.each(['../evil.txt', '/abs/evil.txt', 'a/../../evil.txt', 'a\\b.txt'])('rejects the unsafe path %s and writes nothing', (p) => {
+  it.each(['../evil.txt', '/abs/evil.txt', 'a/../../evil.txt', 'a\\b.txt', 'C:evil.txt', 'a.txt:stream'])('rejects the unsafe path %s and writes nothing', (p) => {
     const dir = mkdtempSync(join(tmpdir(), 'tar-'));
     const tar = writeTar([{ path: 'ok.txt', data: Buffer.from('ok') }, { path: p, data: Buffer.from('x') }]);
     expect(() => extractTar(tar, dir, limits)).toThrow(/unsafe path/);
@@ -45,6 +50,7 @@ describe('tar-lite', () => {
   it('rejects links and other non-regular entries', () => {
     const tar = writeTar([{ path: 'l', data: Buffer.from('') }]);
     tar[156] = '2'.charCodeAt(0); // symlink
+    refreshChecksum(tar);
     expect(() => parseTar(tar, limits)).toThrow(/unsupported tar entry type/);
   });
 
@@ -52,6 +58,12 @@ describe('tar-lite', () => {
     const tar = writeTar([{ path: 'a', data: Buffer.alloc(600) }, { path: 'b', data: Buffer.alloc(600) }]);
     expect(() => parseTar(tar, { maxEntries: 1, maxTotalBytes: 10_000 })).toThrow(/exceeds/);
     expect(() => parseTar(tar, { maxEntries: 5, maxTotalBytes: 1000 })).toThrow(/exceeds/);
+  });
+
+  it('rejects a header whose checksum does not match (a corrupted or hand-edited archive)', () => {
+    const tar = writeTar([{ path: 'a', data: Buffer.from('x') }]);
+    tar[0] = 'b'.charCodeAt(0); // rename the entry without fixing the checksum
+    expect(() => parseTar(tar, limits)).toThrow(/checksum/);
   });
 
   it('rejects a truncated archive', () => {
