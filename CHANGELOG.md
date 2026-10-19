@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.60.0](https://github.com/aligndottech/align-cli/compare/cli-v0.59.0...cli-v0.60.0) (2026-10-19)
+
+
+### Features
+
+* **import:** first run reads merged PR descriptions of a GitHub origin ([#454](https://github.com/aligndottech/align-cli/issues/454)) ([de299bc](https://github.com/aligndottech/align-cli/commit/de299bcd760edb7beaec7db47827ee537e1e9e96))
+
+
+### Bug Fixes
+
+* **ask:** ground model-written answers in stated reasons and abstain when none is stated ([#453](https://github.com/aligndottech/align-cli/issues/453)) ([96a310c](https://github.com/aligndottech/align-cli/commit/96a310c152e4ff9988c17b9cbc4339fe5a45bb3d))
+
 ## [0.59.0](https://github.com/aligndottech/align-cli/compare/cli-v0.58.0...cli-v0.59.0) (2026-10-19)
 
 
