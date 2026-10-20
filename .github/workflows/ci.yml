@@ -84,6 +84,9 @@ jobs:
       - name: Shell-suite runner guards
         run: bash scripts/__tests__/test-check-test-runners.sh
 
+      - name: MCP registry publish guards
+        run: bash scripts/__tests__/test-mcp-registry-publish.sh
+
       - name: Every shell suite has a runner a pull request reaches
         run: bash scripts/check-test-runners.sh
 
