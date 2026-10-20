@@ -31,7 +31,23 @@ export interface ChatTraceRow {
   durationMs: number;
 }
 
-export function appendChatTrace(row: ChatTraceRow, env: Record<string, string | undefined> = process.env): void {
+/** ALI-1494: one MCP tool call `align mcp` handled. Arguments and the result can hold the text
+ * of decisions, so the same owner-only file rules apply. */
+export interface McpCallTraceRow {
+  kind: 'mcp_call';
+  tool: string;
+  args: unknown;
+  client: { name?: unknown; version?: unknown } | null;
+  ok: boolean;
+  result?: string;
+  error?: string;
+  durationMs: number;
+}
+
+export function appendChatTrace(
+  row: ChatTraceRow | McpCallTraceRow,
+  env: Record<string, string | undefined> = process.env,
+): void {
   const path = traceFilePath(env);
   if (path === null) return;
   try {
