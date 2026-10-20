@@ -29,7 +29,7 @@ const ref = process.env['ALIGN_TELEMETRY_PARITY_REF'] ?? 'origin/main';
 // Pinned from THERE at the merge of align-stack #3101 (adds `join`).
 const SERVER_COMMANDS = [
   // 'config' is pinned here after align-stack #3141 added it to the gateway list (the gateway lands first).
-  'adjudicate', 'align', 'ask', 'capture', 'check', 'config', 'connect', 'context', 'decisions', 'drift',
+  'adjudicate', 'agents', 'ai', 'align', 'ask', 'capture', 'check', 'config', 'connect', 'context', 'decisions', 'drift',
   'env', 'export', 'import', 'invite', 'join', 'links', 'login', 'logout', 'mark', 'mcp', 'push',
   'ratify', 'search', 'setup', 'share', 'spaces', 'status', 'sync', 'telemetry', 'use', 'whoami',
 ];
@@ -43,7 +43,7 @@ const SERVER_STAGES = [
 const SERVER_SOURCES = ['git', 'docs', 'github', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'gitlab', 'linear', 'notion'];
 const SERVER_OUTCOMES = ['ok', 'partial', 'needs_reauth', 'error'];
 const SERVER_SCOPES = ['yours', 'team'];
-const SERVER_TRIGGERS = ['connect', 'background', 'manual'];
+const SERVER_TRIGGERS = ['connect', 'background', 'manual', 'mcp'];
 
 /** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, and `doctor` sends no telemetry of any kind (ALI-1740). */
 const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
@@ -54,9 +54,10 @@ const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
  * fix is a gateway change, outside this slice). Listed exactly, so the day the gateway adds them
  * this test fails until they are removed from here: it can only shrink.
  *
- * `join` was on this list until align-stack #3101 added it to the gateway's command enum.
+ * `join` was on this list until align-stack #3101 added it to the gateway's command enum, and
+ * `ai` and `agents` until align-stack #3582 (ALI-1533) did. Empty now.
  */
-const KNOWN_DRIFT = ['agents', 'ai'];
+const KNOWN_DRIFT: string[] = [];
 
 const cliCommands = (): string[] => buildProgram({ internal: false }).commands.map((c) => c.name());
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();
