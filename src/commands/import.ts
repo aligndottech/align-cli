@@ -2,6 +2,7 @@ import { resolveEnv } from '../lib/resolve-env.js';
 import type { Command } from 'commander';
 import { subcommandOpts } from '../lib/command-opts.js';
 import * as p from '@clack/prompts';
+import { approveAllSuggestions } from '../lib/approve-suggestions.js';
 import chalk from 'chalk';
 import { EventSource } from 'eventsource';
 import { createConfigStore, type EnvName } from '../lib/config.js';
@@ -393,17 +394,29 @@ export function registerImportCommand(program: Command): void {
       if (opts.approve) {
         const s = p.spinner();
         s.start('Fetching suggestion IDs...');
-        const allSuggestions = await Promise.all(jobStates.map(j => client.listSuggestions(j.jobId)));
-        const ids = allSuggestions.flat().map(s => s.id);
-        s.stop(`Approving ${ids.length} suggestion(s)...`);
+        let outcome;
+        try {
+          outcome = await approveAllSuggestions(client, jobStates.map(j => j.jobId));
+        } catch (err) {
+          s.stop('Approval failed');
+          throw err;
+        }
+        s.stop(`Approving ${outcome.listed} suggestion(s)...`);
 
-        const result = await client.bulkApproveSuggestions(ids);
-        if (result.async) {
-          console.log(chalk.green(`Approval queued as background job: ${result.job_id}`));
-          if (result.stream_url) console.log(chalk.dim(`Stream: ${result.stream_url}`));
+        if (outcome.kind === 'none') {
+          console.log(chalk.dim('Nothing pending to approve.\n'));
+        } else if (outcome.kind === 'async') {
+          console.log(chalk.green(`Approval queued as background job${outcome.jobIds.length > 1 ? 's' : ''}: ${outcome.jobIds.join(', ')} (${outcome.listed} suggestion(s))`));
+          if (outcome.streamUrl) console.log(chalk.dim(`Stream: ${outcome.streamUrl}`));
           console.log(chalk.dim('Run `align connect list` to check progress.\n'));
+        } else if (outcome.approved < outcome.listed) {
+          // A sync approve legitimately skips rows another approver already settled or this
+          // user does not own, so this is a warning, not a failure.
+          console.log(chalk.yellow(`${outcome.approved} of ${outcome.listed} suggestion(s) approved. The gateway skipped ${outcome.listed - outcome.approved}:`));
+          for (const e of outcome.errors.slice(0, 5)) console.log(chalk.dim(`  ${e}`));
+          console.log(chalk.dim(`Review the rest at ${resolveAppUrl(env)}/discover\n`));
         } else {
-          console.log(chalk.green(`Done. ${result.created_decisions} decision(s) added to the graph.\n`));
+          console.log(chalk.green(`Done. ${outcome.approved} suggestion(s) approved.\n`));
         }
       } else {
         console.log(chalk.dim(`Review at: ${resolveAppUrl(env)}/discover`));

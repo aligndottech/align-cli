@@ -6,6 +6,9 @@ import type { DecisionRelation } from './decision-relations.js';
 import type { StarterRuleOffer } from './inline-rules.js';
 import pkg from '../../package.json' with { type: 'json' };
 
+/** Page size for GET /import/suggestions: the gateway's cap (it returns 50 when none is sent). */
+const SUGGESTION_PAGE_SIZE = 100;
+
 /**
  * ALI-403: identify the CLI to the gateway on every call.
  *
@@ -920,12 +923,18 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return data.scan_runs;
     },
 
-    // GET /import/suggestions returns { suggestions, counts } — uses job_id not import_job_id
+    // GET /import/suggestions returns { suggestions, counts } - uses job_id not import_job_id.
+    // ALI-1585: with no limit the gateway returns 50 rows (cap 100), so a single call silently
+    // dropped the rest of a big scan. Page with limit=100&offset=N until a short page.
     async listSuggestions(jobId?: string, status = 'pending'): Promise<Suggestion[]> {
-      const params = new URLSearchParams({ status });
-      if (jobId) params.set('job_id', jobId);
-      const data = await request<{ suggestions: Suggestion[] }>(`/import/suggestions?${params}`);
-      return data.suggestions;
+      const all: Suggestion[] = [];
+      for (let offset = 0; ; offset += SUGGESTION_PAGE_SIZE) {
+        const params = new URLSearchParams({ status, limit: String(SUGGESTION_PAGE_SIZE), offset: String(offset) });
+        if (jobId) params.set('job_id', jobId);
+        const data = await request<{ suggestions: Suggestion[] }>(`/import/suggestions?${params}`);
+        all.push(...data.suggestions);
+        if (data.suggestions.length < SUGGESTION_PAGE_SIZE) return all;
+      }
     },
 
     async bulkApproveSuggestions(
