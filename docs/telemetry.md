@@ -42,6 +42,17 @@ The short version, for local-only mode:
 Nothing about your repo, your decisions, your files or you is ever sent.
 `align telemetry status` prints the effective state and why.
 
+## An optional local trace file (never sent)
+
+If you set `ALIGN_LLM_TRACE_FILE=/path/to/file.jsonl`, align appends one line to that file for
+each chat call it makes to a model (the prompts, the answer or the failure kind, and how long it
+took). It is off unless you set the variable, it is written only to the file you name, and it is
+never sent anywhere: it adds no network call and no telemetry event. The file is made readable by
+you alone, and that mode is set again on every write, even if the file already existed. It exists
+so you can read what your own model was asked. Rows do not say which model answered. A call that
+throws instead of returning a result writes no row. The prompts can contain the text of your
+decisions, so keep the file private and delete it when you are done.
+
 ## Turning it off
 
 | Switch | What it stops | Where |

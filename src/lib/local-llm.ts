@@ -1,3 +1,4 @@
+import { appendChatTrace, traceFilePath } from './llm-trace.js';
 import { charsForTokens, estimateTokens } from './token-estimate.js';
 import { type EvidenceDecision, renderEvidence } from './ask-evidence.js';
 import {
@@ -1146,7 +1147,7 @@ export function hasConfiguredProvider(excluding: readonly LlmProviderId[] = []):
  * limit, a 5xx - stops it, so the caller can name the model that failed instead of a
  * weaker one answering in its place.
  */
-export async function callChatDetailed(
+async function runChat(
   system: string,
   user: string | ((windowTokens: number) => string),
   opts?: CallChatOptions,
@@ -1245,6 +1246,40 @@ export async function callChatDetailed(
     return { ok: false, failure: { kind: 'providers_unavailable', tried } };
   }
   return { ok: false, failure: { kind: 'no_provider' } };
+}
+
+/**
+ * `runChat` plus the opt-in local trace (ALIGN_LLM_TRACE_FILE, src/lib/llm-trace.ts). Every
+ * caller - ask synthesis, the relationship classifier, free-text session confirm - goes through
+ * here, so one wrapper covers them all. A callback-form `user` is wrapped so the trace records
+ * the prompt that was actually built (the last one, when the builder runs per model).
+ */
+export async function callChatDetailed(
+  system: string,
+  user: string | ((windowTokens: number) => string),
+  opts?: CallChatOptions,
+): Promise<ChatResult> {
+  if (traceFilePath() === null) return runChat(system, user, opts);
+
+  let built: string | null = typeof user === 'string' ? user : null;
+  const tracedUser =
+    typeof user === 'string'
+      ? user
+      : (windowTokens: number) => {
+          built = user(windowTokens);
+          return built;
+        };
+  const startedAt = Date.now();
+  const result = await runChat(system, tracedUser, opts);
+  appendChatTrace({
+    kind: 'chat',
+    system,
+    user: built,
+    ok: result.ok,
+    ...(result.ok ? { text: result.text } : { failure: { kind: result.failure.kind } }),
+    durationMs: Date.now() - startedAt,
+  });
+  return result;
 }
 
 /** Text-only convenience wrapper. Use callChatDetailed when you need to say WHY. */
