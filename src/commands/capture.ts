@@ -60,6 +60,14 @@ export function registerCaptureCommand(program: Command): void {
         console.log('');
       } catch (err) {
         const msg = (err as Error).message;
+        // ALI-1696: the gateway answers 422 unsupported_source for a link it cannot read (no
+        // connector for it, or no way to fetch it). Say so plainly and exit non-zero; nothing
+        // was saved, so there is no decision to show.
+        if ((err as { statusCode?: number }).statusCode === 422 && /unsupported_source/.test(msg)) {
+          spinner.fail(chalk.red(`Align cannot read ${input} (${platform} links are not supported for capture).`));
+          console.log(chalk.dim('Nothing was saved. Supported: Slack, Jira, Confluence, GitHub, Teams, Zoom. Capture other text with the MCP capture tool.'));
+          process.exit(1);
+        }
         spinner.fail(chalk.red(msg));
         if (msg.includes('503') || msg.includes('connector') || msg.includes('token')) {
           console.log(
