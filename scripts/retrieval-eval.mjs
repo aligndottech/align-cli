@@ -23,7 +23,8 @@
  * NOTE what this eval can and cannot show: questions are templated from the commit SUBJECT, which is
  * also the indexed title, so once a commit is in the graph a title-matching ranker finds it
  * (recall@8 of imported is the column to read for that). It measures import COVERAGE well and
- * ranking changes poorly; a ranking lever needs questions that do not reuse the subject.
+ * ranking changes poorly; a ranking lever needs questions that do not reuse the subject, which is
+ * what retrieval-eval-v2.mjs is for. Keep this one as the regression column.
  * Pass the same <label> to reuse a graph, a new label to re-import (needed when the import or
  * the embedded text changed). `run` can be repeated on a graph to measure noise.
  *
@@ -47,6 +48,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -63,7 +65,7 @@ const step = args[0];
 const opt = (name, dflt) => { const i = args.indexOf(`--${name}`); return i === -1 ? dflt : args[i + 1]; };
 const CLI = path.resolve(opt('cli', ROOT));
 const LABEL = opt('label', 'default');
-const WORK = path.resolve(opt('work', '/tmp/quality1749'));
+const WORK = path.resolve(opt('work', path.join(os.tmpdir(), 'retrieval-eval')));
 const ONLY = opt('repo', null);
 const BUILD_IN_PROCESS = args.includes('--prs') || args.includes('--no-prs');
 const WITH_PRS = args.includes('--prs');
