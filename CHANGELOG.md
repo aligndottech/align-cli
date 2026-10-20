@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.61.0](https://github.com/aligndottech/align-cli/compare/cli-v0.60.0...cli-v0.61.0) (2026-10-20)
+
+
+### Features
+
+* **search:** fuse a lexical ranking of git commits with the dense one ([#451](https://github.com/aligndottech/align-cli/issues/451)) ([a61a5a3](https://github.com/aligndottech/align-cli/commit/a61a5a312f169804b9ae288c73f54cb041769518))
+* **trace:** local LLM trace file, never sent, part of ALI-1494 ([#461](https://github.com/aligndottech/align-cli/issues/461)) ([5868134](https://github.com/aligndottech/align-cli/commit/5868134620432a31369f7352c602198e10440106))
+
+
+### Bug Fixes
+
+* **capture:** say plainly and exit 1 when the gateway cannot read the link (ALI-1696) ([#460](https://github.com/aligndottech/align-cli/issues/460)) ([9e535c3](https://github.com/aligndottech/align-cli/commit/9e535c3e2094b4ec5e2b7dee1f2695b5bfd918dd))
+* page through all suggestions when approving a scan (ALI-1585) ([#457](https://github.com/aligndottech/align-cli/issues/457)) ([05ff65e](https://github.com/aligndottech/align-cli/commit/05ff65edb5f829337be6785e3e9ace7a6dc4a76d))
+* **release:** the MCP registry publish passes when the registry already holds this exact version (ALI-1670) ([#459](https://github.com/aligndottech/align-cli/issues/459)) ([3144dcc](https://github.com/aligndottech/align-cli/commit/3144dccdbe9d559e965047f3ff2aa2f00c2eee78))
+* **test:** close read-only sqlite handles in lexical-store tests so Windows can delete the temp db (ALI-1784) ([#458](https://github.com/aligndottech/align-cli/issues/458)) ([bc627a2](https://github.com/aligndottech/align-cli/commit/bc627a28715ff36f1d974b3c8283cabd63955c53))
+
 ## [0.60.0](https://github.com/aligndottech/align-cli/compare/cli-v0.59.0...cli-v0.60.0) (2026-10-19)
 
 
