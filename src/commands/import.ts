@@ -403,13 +403,18 @@ export function registerImportCommand(program: Command): void {
         }
         s.stop(`Approving ${outcome.listed} suggestion(s)...`);
 
-        if (outcome.kind === 'async') {
-          console.log(chalk.green(`Approval queued as background job: ${outcome.jobId} (${outcome.listed} suggestion(s))`));
+        if (outcome.kind === 'none') {
+          console.log(chalk.dim('Nothing pending to approve.\n'));
+        } else if (outcome.kind === 'async') {
+          console.log(chalk.green(`Approval queued as background job${outcome.jobIds.length > 1 ? 's' : ''}: ${outcome.jobIds.join(', ')} (${outcome.listed} suggestion(s))`));
           if (outcome.streamUrl) console.log(chalk.dim(`Stream: ${outcome.streamUrl}`));
           console.log(chalk.dim('Run `align connect list` to check progress.\n'));
         } else if (outcome.approved < outcome.listed) {
-          console.log(chalk.yellow(`Only ${outcome.approved} of ${outcome.listed} suggestion(s) were approved. The rest are still pending: review at ${resolveAppUrl(env)}/discover\n`));
-          process.exitCode = 1;
+          // A sync approve legitimately skips rows another approver already settled or this
+          // user does not own, so this is a warning, not a failure.
+          console.log(chalk.yellow(`${outcome.approved} of ${outcome.listed} suggestion(s) approved. The gateway skipped ${outcome.listed - outcome.approved}:`));
+          for (const e of outcome.errors.slice(0, 5)) console.log(chalk.dim(`  ${e}`));
+          console.log(chalk.dim(`Review the rest at ${resolveAppUrl(env)}/discover\n`));
         } else {
           console.log(chalk.green(`Done. ${outcome.approved} suggestion(s) approved.\n`));
         }
