@@ -3,7 +3,7 @@
 // ALIGN_LLM_TRACE_FILE names a file, written only to that file, and never sent anywhere: the
 // docs/telemetry.md promise (no queries or content leave the machine) stays true.
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -136,6 +136,19 @@ describe('ALIGN_LLM_TRACE_FILE', () => {
     vi.stubEnv('OPENAI_API_KEY', 'sk-test');
     vi.stubEnv('ALIGN_LLM_TRACE_FILE', traceFile);
     mockFetch.mockResolvedValue(openAiResponse('ok'));
+
+    await callChatDetailed('sys', 'usr');
+
+    expect(statSync(traceFile).mode & 0o777).toBe(0o600);
+  });
+
+  it.skipIf(process.platform === 'win32')('tightens an existing file with a looser mode to owner only', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'sk-test');
+    vi.stubEnv('ALIGN_LLM_TRACE_FILE', traceFile);
+    mockFetch.mockResolvedValue(openAiResponse('ok'));
+    writeFileSync(traceFile, '');
+    chmodSync(traceFile, 0o644);
+    expect(statSync(traceFile).mode & 0o777).toBe(0o644); // the precondition, stated
 
     await callChatDetailed('sys', 'usr');
 

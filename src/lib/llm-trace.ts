@@ -7,13 +7,12 @@
 // machine) is unchanged. API keys are never part of a row: a row is built from fixed fields,
 // not from the request.
 //
-// The file holds prompts, which can hold the text of the user's decisions, so it is created
-// readable by its owner only (0600). That mode applies when the file is created; an existing
-// file keeps whatever mode it already has.
+// The file holds prompts, which can hold the text of the user's decisions, so it is readable by
+// its owner only (0600): set when the file is created and enforced again on every write.
 //
 // A failed write never breaks the call it describes: it prints one line to stderr and moves on.
 
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, chmodSync } from 'node:fs';
 
 export const TRACE_FILE_ENV = 'ALIGN_LLM_TRACE_FILE';
 
@@ -40,6 +39,9 @@ export function appendChatTrace(row: ChatTraceRow, env: Record<string, string | 
       encoding: 'utf8',
       mode: 0o600,
     });
+    // `mode` only applies when the file is created, so an existing file (made earlier, or by
+    // hand with a looser mode) is tightened on every write. A failure here is caught below.
+    chmodSync(path, 0o600);
   } catch (err) {
     console.error(`align: could not write ${TRACE_FILE_ENV} (${path}): ${(err as Error).message}`);
   }
