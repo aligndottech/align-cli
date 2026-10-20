@@ -19,7 +19,12 @@ function add(title: string, body: string, platform = 'git', n = ++counter): stri
   return db.insertDecision({ title, summary: `${title}\n\n${body}${meta}`, sourceUrl: `https://github.com/o/r/commit/${String(n).replace(/\D/g, '').padEnd(40, '0').slice(0, 40)}`, platform, keyed: true });
 }
 const ids = (q: string, limit = 10) => db.lexicalStore().search(queryTerms(q), limit).map(r => db.getDecisionById(r.id)!.title);
-const rawCount = (sql: string) => Object.values(new DatabaseSync(dbPath, { readOnly: true }).prepare(sql).get() as Record<string, number>)[0]!;
+// Every read-only handle is closed before returning: Windows refuses to delete g.db while one is open (ALI-1784).
+function readRaw<T>(fn: (raw: DatabaseSync) => T): T {
+  const raw = new DatabaseSync(dbPath, { readOnly: true });
+  try { return fn(raw); } finally { raw.close(); }
+}
+const rawCount = (sql: string) => readRaw(raw => Object.values(raw.prepare(sql).get() as Record<string, number>)[0]!);
 
 beforeEach(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'align-lex-'));
@@ -136,9 +141,9 @@ describe('lexical store: persisted, lazily, per row', () => {
     const second = createLocalDb(dbPath);
     try {
       expect(second.lexicalStore().search(queryTerms('zorblax'), 5)).toHaveLength(1);
-      const sig = new DatabaseSync(dbPath, { readOnly: true }).prepare(`SELECT sig FROM lex_doc WHERE decision_id = (SELECT id FROM decisions WHERE title LIKE '%zorblax%')`).get() as { sig: string };
+      const sig = readRaw(raw => raw.prepare(`SELECT sig FROM lex_doc WHERE decision_id = (SELECT id FROM decisions WHERE title LIKE '%zorblax%')`).get() as { sig: string });
       expect(sig.sig.startsWith(`${LEXICAL_RECIPE}:`)).toBe(true);
-      const after = new DatabaseSync(dbPath, { readOnly: true }).prepare(`SELECT term, tf FROM lex_term WHERE num = ${numOf('quuxmatic')} ORDER BY term`).all();
+      const after = readRaw(raw => raw.prepare(`SELECT term, tf FROM lex_term WHERE num = ${numOf('quuxmatic')} ORDER BY term`).all());
       expect(after).toEqual(quuxRows);
     } finally { second.close(); }
   });
