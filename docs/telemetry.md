@@ -49,7 +49,10 @@ each chat call it makes to a model (the prompts, the answer or the failure kind,
 took). It is off unless you set the variable, it is written only to the file you name, and it is
 never sent anywhere: it adds no network call and no telemetry event. The file is made readable by
 you alone, and that mode is set again on every write, even if the file already existed. It exists
-so you can read what your own model was asked. Rows do not say which model answered. A call that
+so you can read what your own model was asked. The same file also gets one line per tool call that
+`align mcp` handles for a coding agent (the tool name, its arguments, the result or the error, the
+agent's name and version when it gave them, and the duration), including calls that fail. Rows do
+not say which model answered. A call that
 throws instead of returning a result writes no row. The prompts can contain the text of your
 decisions, so keep the file private and delete it when you are done.
 

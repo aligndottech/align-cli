@@ -22,6 +22,7 @@ import { runShareTool, SHARE_STATUS_TOOL, SHARE_TOOL, SHARE_TOOL_SCHEMA, type Sh
 import { runShareStatusTool, SHARE_STATUS_TOOL_SCHEMA } from '../lib/mcp/share-status-tool.js';
 import { MARK_TOOL, MARK_TOOL_SCHEMA, type MarkToolContext, runMarkTool } from '../lib/mcp/mark-tool.js';
 import { agentIdFrom } from '../lib/mcp/tool-rules.js';
+import { appendChatTrace } from '../lib/llm-trace.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
 import { withReasons } from '../lib/reason-extract.js';
 import {
@@ -433,11 +434,28 @@ export function createCallToolHandler(
   return async (request) => {
     const { name, arguments: args } = request.params;
     // Read per call: clientInfo only exists once the client has initialized.
-    const result = await dispatchTool(name, args, client, env, createdBefore, { clientInfo: ctx.clientInfo?.(), judge: ctx.judge });
+    const clientInfo = ctx.clientInfo?.();
+    const startedAt = Date.now();
+    let result: unknown;
+    try {
+      result = await dispatchTool(name, args, client, env, createdBefore, { clientInfo, judge: ctx.judge });
+    } catch (err) {
+      // ALI-1494: the opt-in local call log (ALIGN_LLM_TRACE_FILE). A no-op when unset.
+      appendChatTrace({
+        kind: 'mcp_call', tool: name, args, client: clientInfo ?? null, ok: false,
+        error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
     if (isFirstUsefulToolResult(name, result)) {
       void recordFunnelStage(env, 'first_useful_decision', 'mcp');
     }
-    return { content: [{ type: 'text', text: serializeMcpResult(result) }] };
+    const text = serializeMcpResult(result);
+    appendChatTrace({
+      kind: 'mcp_call', tool: name, args, client: clientInfo ?? null, ok: true, result: text,
+      durationMs: Date.now() - startedAt,
+    });
+    return { content: [{ type: 'text', text }] };
   };
 }
 
