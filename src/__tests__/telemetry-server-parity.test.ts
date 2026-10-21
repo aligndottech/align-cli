@@ -55,9 +55,13 @@ const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
  * this test fails until they are removed from here: it can only shrink.
  *
  * `join` was on this list until align-stack #3101 added it to the gateway's command enum, and
- * `ai` and `agents` until align-stack #3582 (ALI-1533) did. Empty now.
+ * `ai` and `agents` until align-stack #3582 (ALI-1533) did. Empty until ALI-1578.
+ *
+ * `glossary` (ALI-1578, `align glossary review`) is on it because the gateway's KNOWN_COMMANDS
+ * has no `glossary` yet, so that command's `cli.command` ping 400s silently until a gateway PR
+ * adds it. When that lands, pin it in SERVER_COMMANDS above and empty this list.
  */
-const KNOWN_DRIFT: string[] = [];
+const KNOWN_DRIFT: string[] = ['glossary'];
 
 const cliCommands = (): string[] => buildProgram({ internal: false }).commands.map((c) => c.name());
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();

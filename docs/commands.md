@@ -205,6 +205,12 @@ align adjudicate <event-id>   Answer an alignment check that reached the judge a
 align ratify <id>             Stand behind an agent-made decision as a human: mark it as governing, not just said
                               flags: --env
 
+# Review your org alias glossary (cloud)
+
+align glossary                Your org alias glossary: product names, service names and codenames, confirmed by a person (cloud)
+align glossary review         Walk the proposed aliases and confirm or reject each one. Nothing is confirmed without your answer (cloud)
+                              flags: --env --bootstrap --list
+
 # The local graph: start, status, reset, forget
 
 align local                   Manage your local decision graph (no account needed)
