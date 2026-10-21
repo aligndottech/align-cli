@@ -404,6 +404,31 @@ async function readJsonCapped(res: Response, max: number): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+export type GlossaryStatus = 'proposed' | 'confirmed' | 'rejected';
+
+/** One row of the gateway's alias glossary (glossaryAlias.ts GlossaryAlias, camelCase on the wire). */
+export interface GlossaryAlias {
+  id: string;
+  alias: string;
+  canonical: string;
+  status: GlossaryStatus;
+  source: 'human' | 'agent' | 'bootstrap' | null;
+  createdAt: string;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  rejectedBy: string | null;
+  rejectedAt: string | null;
+}
+
+/** POST /glossary/bootstrap (bootstrapGlossary.ts BootstrapReport). */
+export interface GlossaryBootstrapReport {
+  candidates: number;
+  proposed: number;
+  alreadyKnown: number;
+  overProposalCap: number;
+  signalRowsOmitted: { scopes: number; teams: number; repoMappings: number };
+}
+
 export class GatewayError extends Error {
   constructor(message: string, public readonly statusCode: number) {
     super(message);
@@ -677,6 +702,23 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
         { method: 'POST' },
       );
       return { alreadyRatified: res.already_ratified, ratifiedBy: res.ratified_by, ratifiedAt: res.ratified_at };
+    },
+
+    /**
+     * ALI-1578: the org alias glossary (gateway routes/glossary/glossaryRoutes.ts). Cloud only;
+     * the local client has none, so the local-mode proxy answers these with its cloud-only error.
+     * Read and propose only: confirm and reject are a person's act in the web app (/settings/glossary),
+     * so this client has no call for them.
+     * `omitted` is how many rows the gateway's list cap left out.
+     */
+    async listGlossaryAliases(status?: GlossaryStatus): Promise<{ aliases: GlossaryAlias[]; omitted: number }> {
+      const query = new URLSearchParams(status ? { status } : {}).toString();
+      return request(['/glossary/aliases', query].filter(Boolean).join('?'));
+    },
+
+    /** Propose aliases from signals the gateway already holds. Writes `proposed` rows only. */
+    async bootstrapGlossary(): Promise<GlossaryBootstrapReport> {
+      return request('/glossary/bootstrap', { method: 'POST', body: '{}' });
     },
 
     async adjudicateCheck(
