@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.62.1](https://github.com/aligndottech/align-cli/compare/cli-v0.62.0...cli-v0.62.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **cli:** an expired login says so and tells the user to run align login (ALI-1836) ([#468](https://github.com/aligndottech/align-cli/issues/468)) ([23462a6](https://github.com/aligndottech/align-cli/commit/23462a633ba0d0e0ac99213a76c30dd08b19f68f))
+
 ## [0.62.0](https://github.com/aligndottech/align-cli/compare/cli-v0.61.0...cli-v0.62.0) (2026-10-21)
 
 
