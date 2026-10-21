@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.0](https://github.com/aligndottech/align-cli/compare/cli-v0.62.1...cli-v0.63.0) (2026-10-21)
+
+
+### Features
+
+* **whoami:** show when the login token expires (ALI-1836) ([#470](https://github.com/aligndottech/align-cli/issues/470)) ([0b22f5f](https://github.com/aligndottech/align-cli/commit/0b22f5f51787df0b3bd33ae6b900853e96104b51))
+
 ## [0.62.1](https://github.com/aligndottech/align-cli/compare/cli-v0.62.0...cli-v0.62.1) (2026-10-21)
 
 
