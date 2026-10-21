@@ -551,7 +551,16 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       });
       if (!res.ok) {
         let detail = '';
-        try { const body = await res.json() as any; detail = visibleText(String(body?.detail || body?.error || '')); } catch (_) { /* non-JSON error body */ }
+        let expired = false;
+        try {
+          const body = await res.json() as any;
+          detail = visibleText(String(body?.detail || body?.error || ''));
+          // ALI-1836: the gateway's 401 text for a dead token is "Invalid or expired ... token". It
+          // gives the same text for an unknown token, so say "no longer valid" too. Revoked,
+          // deactivated and missing-credential 401s carry other text and keep the generic message.
+          expired = res.status === 401 && /\bexpired\b/i.test(String(body?.message ?? ''));
+        } catch (_) { /* non-JSON error body */ }
+        if (expired) throw new GatewayError('Your login has expired or is no longer valid. Run: align login', 401);
         throw new GatewayError(
           detail ? `Gateway returned ${res.status} for ${path}: ${detail}` : `Gateway returned ${res.status} for ${path}`,
           res.status,
