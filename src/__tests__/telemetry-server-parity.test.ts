@@ -26,11 +26,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const sibling = process.env['ALIGN_STACK_DIR'] ?? resolve(root, '..', 'align-stack');
 const ref = process.env['ALIGN_TELEMETRY_PARITY_REF'] ?? 'origin/main';
 
-// Pinned from THERE at the merge of align-stack #3101 (adds `join`).
+// Pinned from THERE at the merge of align-stack #3762 (adds `glossary`).
 const SERVER_COMMANDS = [
   // 'config' is pinned here after align-stack #3141 added it to the gateway list (the gateway lands first).
   'adjudicate', 'agents', 'ai', 'align', 'ask', 'capture', 'check', 'config', 'connect', 'context', 'decisions', 'drift',
-  'env', 'export', 'import', 'invite', 'join', 'links', 'login', 'logout', 'mark', 'mcp', 'push',
+  'env', 'export', 'glossary', 'import', 'invite', 'join', 'links', 'login', 'logout', 'mark', 'mcp', 'push',
   'ratify', 'search', 'setup', 'share', 'spaces', 'status', 'sync', 'telemetry', 'use', 'whoami',
 ];
 const SERVER_SUBCOMMAND_PARENTS = ['connect', 'context', 'decisions', 'env', 'import', 'links', 'spaces', 'telemetry'];
@@ -55,13 +55,11 @@ const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
  * this test fails until they are removed from here: it can only shrink.
  *
  * `join` was on this list until align-stack #3101 added it to the gateway's command enum, and
- * `ai` and `agents` until align-stack #3582 (ALI-1533) did. Empty until ALI-1578.
+ * `ai` and `agents` until align-stack #3582 (ALI-1533) did. Empty again now.
  *
- * `glossary` (ALI-1578, read-only `align glossary review`; gateway side is ALI-1578 telemetry PR) is on it because the gateway's KNOWN_COMMANDS
- * has no `glossary` yet, so that command's `cli.command` ping 400s silently until a gateway PR
- * adds it. When that lands, pin it in SERVER_COMMANDS above and empty this list.
+ * `glossary` (the read-only `align glossary review`) was on it until align-stack #3762 added it to the gateway's command enum.
  */
-const KNOWN_DRIFT: string[] = ['glossary'];
+const KNOWN_DRIFT: string[] = [];
 
 const cliCommands = (): string[] => buildProgram({ internal: false }).commands.map((c) => c.name());
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();
