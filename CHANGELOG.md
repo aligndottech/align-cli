@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.62.0](https://github.com/aligndottech/align-cli/compare/cli-v0.61.0...cli-v0.62.0) (2026-10-21)
+
+
+### Features
+
+* **glossary:** align glossary review lists proposed aliases, read-only (Part of ALI-1578) ([#466](https://github.com/aligndottech/align-cli/issues/466)) ([e61bb51](https://github.com/aligndottech/align-cli/commit/e61bb511aa0c870e37bc06de4b39d467183a4a8c))
+* **mcp:** MCP call log in the opt-in local trace file (Part of ALI-1494) ([#463](https://github.com/aligndottech/align-cli/issues/463)) ([399e313](https://github.com/aligndottech/align-cli/commit/399e31379e9fc8b9f3950da3ee6c78feebeca38b))
+
 ## [0.61.0](https://github.com/aligndottech/align-cli/compare/cli-v0.60.0...cli-v0.61.0) (2026-10-20)
 
 
