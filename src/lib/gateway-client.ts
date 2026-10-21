@@ -311,6 +311,8 @@ export interface AlignmentResult {
 export interface WhoAmI {
   user: { id: string; email: string; role: string };
   tenant: { id: string; name: string };
+  /** ISO timestamp, or null for a token with no expiry or a cookie session. Absent on a gateway older than ALI-1836. */
+  expires_at?: string | null;
 }
 
 export interface ImportJob {

@@ -7,6 +7,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { loginInteractive, saveTeamToken } from '../lib/login-flow.js';
 import { visible } from '../lib/share/visible.js';
 import { commandIntro } from '../lib/brand.js';
+import { formatLoginExpiry } from '../lib/login-expiry.js';
 
 export function registerLoginCommands(program: Command): void {
   program
@@ -75,6 +76,8 @@ export function registerLoginCommands(program: Command): void {
         console.log(`  Role:   ${me.user.role}`);
         console.log(`  Tenant: ${me.tenant.name} (${me.tenant.id})`);
         console.log(`  Env:    ${envName}`);
+        const expiry = formatLoginExpiry(me.expires_at, new Date());
+        if (expiry) console.log(`  ${expiry}`);
         console.log('');
       } catch (err) {
         console.log(chalk.red((err as Error).message));
