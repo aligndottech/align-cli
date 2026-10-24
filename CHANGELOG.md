@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.64.1](https://github.com/aligndottech/align-cli/compare/cli-v0.64.0...cli-v0.64.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **ci:** stop the npm E2E leg racing its own publish ([#481](https://github.com/aligndottech/align-cli/issues/481)) ([1898fb3](https://github.com/aligndottech/align-cli/commit/1898fb368c7821c2e3f93ec738b3841737a4980e))
+* **deps:** bump stale security overrides to patched versions ([#480](https://github.com/aligndottech/align-cli/issues/480)) ([9fec1fb](https://github.com/aligndottech/align-cli/commit/9fec1fba1e322dfeb36981ee1e235965bdc354c4))
+
 ## [0.64.0](https://github.com/aligndottech/align-cli/compare/cli-v0.63.0...cli-v0.64.0) (2026-10-24)
 
 
