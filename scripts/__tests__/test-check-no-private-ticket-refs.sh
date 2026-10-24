@@ -107,6 +107,13 @@ check "an empty repo fails rather than passing vacuously" "$r" 1 "examined nothi
 nogit="$(mktemp -d "$TMP/nogit.XXXXXX")"
 check "a directory that is not a git checkout fails" "$nogit" 1 "not a git checkout"
 
+# A git grep that ERRORS (exit >1) must fail, not read as "no match".
+fakebin="$(mktemp -d "$TMP/fakegit.XXXXXX")"; realgit="$(command -v git)"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = grep ] && exit 128; done\nexec "%s" "$@"\n' "$realgit" > "$fakebin/git"; chmod +x "$fakebin/git"
+r=$(new_repo)
+out=$(PATH="$fakebin:$PATH" TICKET_REF_ALLOWLIST="" "$GUARD" "$r" 2>&1); rc=$?
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF "git grep failed"; then ok "a git grep error fails instead of reading as clean"; else bad "git grep error: exit $rc. Output: $out"; fi
+
 # The real tree, with the real allowlist.
 ALLOW_REAL=$("$GUARD" 2>&1); rc=$?
 if [ "$rc" -eq 0 ]; then ok "this repository is clean under its real allowlist"; else bad "this repository: $ALLOW_REAL"; fi

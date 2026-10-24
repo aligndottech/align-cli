@@ -100,7 +100,7 @@ describe('extractRefs', () => {
   });
 
   it('dedupes repeated refs', () => {
-    const refs = extractRefs('again APP-123 and #45 then #45');
+    const refs = extractRefs('APP-123 again APP-123 and #45 then #45');
     expect(refs).toHaveLength(2);
   });
 
