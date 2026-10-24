@@ -1132,7 +1132,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   const totalDb = createLocalDb(dbPath);
   let totalDecisions: number;
   try { totalDecisions = totalDb.getStats().decisions; } finally { totalDb.close(); }
-  const sparseHint = sparseGraphHint(totalDecisions);
+  const sparseHint = sparseGraphHint(totalDecisions, { bareReadsLocal: bareEnv === 'local' });
 
   // ALI-950: the last line is the next step, and it happens in the agent - named, with a
   // question about a decision the wizard just found, and no CLI verb. This used to end on
