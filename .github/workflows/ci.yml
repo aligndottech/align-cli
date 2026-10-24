@@ -87,6 +87,9 @@ jobs:
       - name: MCP registry publish guards
         run: bash scripts/__tests__/test-mcp-registry-publish.sh
 
+      - name: Vitest RPC flake detector guards
+        run: bash scripts/__tests__/test-vitest-rpc-flake.sh
+
       - name: Every shell suite has a runner a pull request reaches
         run: bash scripts/check-test-runners.sh
 
@@ -151,8 +154,21 @@ jobs:
 
       - run: npm ci
 
+      # Windows only: one rerun when every test passed and the run failed solely on vitest's worker
+      # timing out on "onTaskUpdate" (scripts/vitest-rpc-flake.sh says why). Any other failure exits as is.
       - name: Test
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee "$RUNNER_TEMP/vitest.log"
+          rc=${PIPESTATUS[0]}
+          [ "$rc" -eq 0 ] && exit 0
+          if [ "$RUNNER_OS" = Windows ] && bash scripts/vitest-rpc-flake.sh "$RUNNER_TEMP/vitest.log"; then
+            echo "::warning::vitest's worker timed out on onTaskUpdate with every test passing; running the suite once more"
+            npm test
+            exit $?
+          fi
+          exit "$rc"
 
       - name: Build
         run: npm run build
