@@ -69,7 +69,7 @@ describe.skipIf(!canPty)('setup confirms the files it will write', () => {
     const r = rig();
     try {
       const { out } = await pty(r, ['--local'], [PICK, ['Continue?', 'n'], SKIP_CONNECTORS]);
-      expect(out).toContain('Align will create or change these files:');
+      expect(out).toContain('Align may create or change these files:');
       expect(out).toContain('create  CLAUDE.md');
       expect(out).toContain('align use --undo');
       expect(out).toContain('Left your agent config alone');
@@ -91,7 +91,7 @@ describe.skipIf(!canPty)('setup confirms the files it will write', () => {
     const r = rig();
     try {
       const { out } = await pty(r, ['--local', '--approve'], [SKIP_CONNECTORS]);
-      expect(out).toContain('Align will create or change these files:');
+      expect(out).toContain('Align may create or change these files:');
       expect(out).not.toContain('Continue?');
       expect(r.entries()).toEqual([...AGENT_FILES].sort());
     } finally { r.close(); }
@@ -104,7 +104,7 @@ describe('with no terminal', () => {
     try {
       const { code, out } = await plain(r, ['--local']);
       expect(code).toBe(0);
-      expect(out).toContain('Align will create or change these files:');
+      expect(out).toContain('Align may create or change these files:');
       expect(out).toContain('create  .mcp.json');
       expect(out).not.toContain('Continue?');
       expect(r.entries()).toEqual([...AGENT_FILES].sort());

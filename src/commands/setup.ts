@@ -38,7 +38,7 @@ import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
 import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
-import { agentAskLine, agentConnectedLine, firstQuestion, orderAgents, pickAskableTitle, projectAgentsFromWritten } from '../lib/next-step.js';
+import { agentAskLine, agentConnectedLine, agentNotConnectedLine, firstQuestion, orderAgents, pickAskableTitle, projectAgentsFromWritten } from '../lib/next-step.js';
 import { claudeCodeExists } from '../lib/claude-presence.js';
 import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
@@ -535,6 +535,8 @@ interface LocalValuePhaseResult {
   firstFoundTitle: string | undefined;
   /** C5: the coding agent `align` opens next, or null when none is installed or chosen. */
   agent: LaunchAgentId | null;
+  /** The person said no at "Continue?": nothing was written, so no agent is connected and none is launched. */
+  writesDeclined: boolean;
 }
 
 /**
@@ -793,7 +795,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // one-time notice in cli.ts's preAction is the disclosure local sends wait on.)
   void opts.funnel.started(localEnv);
 
-  return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel, agents, firstFoundTitle, agent };
+  return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel, agents, firstFoundTitle, agent, writesDeclined: !writesConfirmed };
 }
 
 /**
@@ -1130,7 +1132,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   const totalDb = createLocalDb(dbPath);
   let totalDecisions: number;
   try { totalDecisions = totalDb.getStats().decisions; } finally { totalDb.close(); }
-  const sparseHint = sparseGraphHint(totalDecisions);
+  const sparseHint = sparseGraphHint(totalDecisions, { bareReadsLocal: bareEnv === 'local' });
 
   // ALI-950: the last line is the next step, and it happens in the agent - named, with a
   // question about a decision the wizard just found, and no CLI verb. This used to end on
@@ -1140,10 +1142,13 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // Claude Code itself. When it is about to, the last line says so instead.
   // Said before the outro, once, only when true: with no model the checks the graph exists for cannot run.
   await runModelStep({ interactive });
-  const launching = willLaunchAgent(agent, Boolean(opts.launchNext));
+  // Declined writes: the agent has no align MCP or hook, so opening it "with your graph" would be false.
+  const launching = !ctx.writesDeclined && willLaunchAgent(agent, Boolean(opts.launchNext));
   const launchLabel = launching && agent ? agentByName(agent)?.label : undefined;
-  const nextStep = nextStepLine(agent, launching, agents);
-  const askLine = launchLabel
+  const nextStep = ctx.writesDeclined ? null : nextStepLine(agent, launching, agents);
+  const askLine = ctx.writesDeclined
+    ? agentNotConnectedLine('local')
+    : launchLabel
     ? `Opening ${launchLabel}. Ask it: ${firstQuestion(firstFoundTitle)}`
     : agents.length === 0 && agent === null
       ? `Once one is installed, open it in this repo and ask: ${firstQuestion(firstFoundTitle)}`
@@ -1165,9 +1170,15 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
 // Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
 // the two phases above unchanged - this is exactly what ran before the ALI-794 split, just
 // as two calls instead of one function body.
-async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; funnel: SetupFunnel }): Promise<void> {
+async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; funnel: SetupFunnel }): Promise<SetupResult> {
   const ctx = await runLocalValuePhase(opts);
   await runLocalConnectorPhase(ctx);
+  return { writesDeclined: ctx.writesDeclined };
+}
+
+/** What bare `align` needs from a finished wizard: after a declined write there is no connected agent to open. */
+export interface SetupResult {
+  writesDeclined: boolean;
 }
 
 /**
@@ -1194,7 +1205,7 @@ export function addSetupOptions(cmd: Command): Command {
  */
 export async function runSetup(
   opts: { env?: string; approve?: boolean; local?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean } = {},
-): Promise<void> {
+): Promise<SetupResult | undefined> {
     const config = createConfigStore();
 
     // C5: solo is local only, and a team LOGIN means TEAM. Which one this run is comes from
@@ -1227,7 +1238,7 @@ export async function runSetup(
       printBanner({ version });
       p.intro(commandIntro('align'));
       await runCloudSetup({ opts, config, env, client: createGatewayClient(env), envName: route.env, funnel: createSetupFunnel() });
-      return;
+      return undefined; // the cloud path never launches an agent
     }
 
     // The one place a full brand moment belongs: first run, before any questions.
@@ -1241,7 +1252,7 @@ export async function runSetup(
     // here, where the mode is still unknown: each branch offers its own env at its top -
     // runLocalValuePhase and runCloudSetup - and again once consent / login makes a send
     // possible.
-    await runLocalSetup({ approve: opts.approve, reset: opts.reset, launchNext: opts.launchNext, verbose: opts.verbose, funnel: createSetupFunnel() });
+    return await runLocalSetup({ approve: opts.approve, reset: opts.reset, launchNext: opts.launchNext, verbose: opts.verbose, funnel: createSetupFunnel() });
 }
 
 // Cloud (team) onboarding: verify login, wire MCP, seed from git, then offer
@@ -1408,6 +1419,7 @@ async function runCloudSetup(ctx: {
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     approve: opts.approve,
   });
+  const writesDeclined = !writesConfirmed;
   if (!writesConfirmed) p.log.info('Left your agent config alone. Run align again when you want it connected.');
   const globalAgents = writesConfirmed
     ? await connectDetectedAgents(envName, { verbose: ctx.opts.verbose, editors })
@@ -1641,7 +1653,7 @@ async function runCloudSetup(ctx: {
     chalk.dim('\n  Upgrade by accepting a team invite - your decisions come with you'),
     chalk.dim('\n  (you reconnect your connectors once in the team workspace).'),
     chalk.dim('\n  https://app.align.tech/pricing'),
-    `\n\n  ${chalk.bold(agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName }))}`,
+    `\n\n  ${chalk.bold(writesDeclined ? agentNotConnectedLine(envName) : agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName }))}`,
   ].join('');
   p.outro(outroText);
   // ALI-949: after the outro, and against the env as it is NOW (the inline login above may

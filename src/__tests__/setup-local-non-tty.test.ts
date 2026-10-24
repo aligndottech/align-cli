@@ -85,4 +85,39 @@ describe('align --local without a TTY', () => {
     expect(out).toContain('align connect github');
     expect(out).toContain('align connect docs');
   }, 150_000);
+
+  // The hint prints commands the user will copy. With a cloud graph as the bare default
+  // (ALIGN_ENV exported or logged in) a bare `align connect github` fills THAT graph, not the one
+  // this run just built, so every printed command has to say --env local.
+  const emptyRun = async (alignEnv: string | undefined): Promise<string> => {
+    const cwd = mkdtempSync(join(tmpdir(), 'align-empty-env-'));
+    const home = mkdtempSync(join(tmpdir(), 'align-empty-env-home-'));
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      XDG_CONFIG_HOME: join(home, '.config'),
+      APPDATA: join(home, 'AppData', 'Roaming'),
+      LOCALAPPDATA: join(home, 'AppData', 'Local'),
+    };
+    delete env['ALIGN_ENV'];
+    if (alignEnv) env['ALIGN_ENV'] = alignEnv;
+    const { stdout, stderr } = await exec(process.execPath, [TSX, ENTRY, '--local'], { cwd, env, timeout: 120_000 });
+    return stdout + stderr;
+  };
+
+  it('with a cloud graph as the bare default, the hint commands say --env local', async () => {
+    const out = await emptyRun('preview');
+    expect(out).toContain('Bare commands (align ask, align connect ...) use the preview cloud graph'); // precondition reached
+    expect(out).toContain('align connect github --env local');
+    expect(out).toContain('align connect docs --env local');
+    expect(out).toMatch(/align connect --env local\s+pick another source/);
+  }, 150_000);
+
+  it('with the local graph as the bare default, the hint commands carry no --env', async () => {
+    const out = await emptyRun(undefined);
+    expect(out).toContain('align connect github');
+    expect(out).not.toContain('Bare commands (align ask');
+    expect(out).not.toContain('align connect github --env');
+  }, 150_000);
 });

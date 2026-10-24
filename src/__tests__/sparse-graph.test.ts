@@ -32,4 +32,23 @@ describe('sparseGraphHint', () => {
     for (const c of commands) expect(['align connect', 'align connect github', 'align connect docs']).toContain(c);
     expect(text).not.toContain('—');
   });
+
+  it('bare commands read the local graph: the commands carry no --env', () => {
+    const text = (sparseGraphHint(0, { bareReadsLocal: true }) ?? []).join('\n');
+    expect(text).toContain('align connect github ');
+    expect(text).not.toContain('--env');
+  });
+
+  it('bare commands read a cloud graph: every command carries --env local, so nothing lands in the cloud graph', () => {
+    const lines = sparseGraphHint(0, { bareReadsLocal: false }) ?? [];
+    const commands = lines.filter((l) => l.trimStart().startsWith('align connect'));
+    expect(commands).toHaveLength(3); // positive control: the three command lines were found
+    for (const l of commands) expect(l, l).toContain('--env local');
+    expect(lines.join('\n')).toContain('align connect github --env local');
+    expect(lines.join('\n')).toContain('align connect docs --env local');
+  });
+
+  it('defaults to the local wording when the caller says nothing', () => {
+    expect(sparseGraphHint(0)).toEqual(sparseGraphHint(0, { bareReadsLocal: true }));
+  });
 });

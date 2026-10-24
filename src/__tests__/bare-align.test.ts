@@ -345,6 +345,23 @@ describe('bare `align`', () => {
       expect(launchIfChosen).not.toHaveBeenCalled();
     });
 
+    it('does not launch the agent when the person declined the config writes (it has no align MCP or hook)', async () => {
+      wizardBuildsLocal();
+      runSetup.mockReset();
+      let localReady = false;
+      getEnvironment.mockImplementation((n: string) =>
+        n === 'local' ? (localReady ? { mode: 'local-embedded' } : { mode: 'demo' }) : { mode: 'auth' });
+      runSetup.mockImplementationOnce(async () => { localReady = true; return { writesDeclined: true }; });
+      launchIfChosen.mockClear();
+      const exit = exitSpy();
+      try {
+        await withTty(async () => { await bare(); });
+        expect(runSetup).toHaveBeenCalledTimes(1); // positive control: the wizard ran, so skipping the launch was a decision
+        expect(launchIfChosen).not.toHaveBeenCalled();
+        expect(exit).not.toHaveBeenCalled();
+      } finally { exit.mockRestore(); runSetup.mockReset().mockResolvedValue(undefined); }
+    });
+
     it('tells the wizard the agent opens next, so its outro drops the "run align" line', async () => {
       wizardBuildsLocal();
       launchIfChosen.mockClear().mockResolvedValueOnce({ handled: false });

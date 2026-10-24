@@ -20,8 +20,11 @@ export function isSparseGraph(total: number): boolean {
  * and `align connect` for the picker (Notion, Linear, Jira and the rest). There is no
  * sample-decision or starter-rules command in this CLI, so none is offered.
  */
-export function sparseGraphHint(total: number): string[] | undefined {
+export function sparseGraphHint(total: number, opts: { bareReadsLocal?: boolean } = {}): string[] | undefined {
   if (!isSparseGraph(total)) return undefined;
+  // A bare `align connect` targets whichever graph bare commands read. When that is a cloud graph
+  // (logged in, or ALIGN_ENV exported) the printed commands would fill the wrong one, so name the local one.
+  const env = opts.bareReadsLocal === false ? ' --env local' : '';
   const lead =
     total === 0
       ? 'Your graph is empty. Nothing in the history or docs here stated a reason.'
@@ -29,8 +32,10 @@ export function sparseGraphHint(total: number): string[] | undefined {
   return [
     lead,
     'The reason for a change usually lives somewhere else. Add it:',
-    '  align connect github   PR descriptions',
-    '  align connect docs     ADRs, CLAUDE.md, AGENTS.md',
-    '  align connect          pick another source (Notion, Linear, Jira ...)',
+    ...[
+      ['align connect github', 'PR descriptions'],
+      ['align connect docs', 'ADRs, CLAUDE.md, AGENTS.md'],
+      ['align connect', 'pick another source (Notion, Linear, Jira ...)'],
+    ].map(([cmd, what]) => `  ${`${cmd}${env}`.padEnd(`align connect github${env}`.length + 3)}${what}`),
   ];
 }
