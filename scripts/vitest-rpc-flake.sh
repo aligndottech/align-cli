@@ -26,6 +26,6 @@ errors="$(line 'Errors')"
 [ -n "$files" ] && [ -n "$tests" ] || { echo "vitest-rpc-flake: no summary in the log, so the run did not finish"; exit 1; }
 printf '%s\n' "$files$tests" | grep -q 'failed' && { echo "vitest-rpc-flake: tests or test files failed"; exit 1; }
 printf '%s\n' "$errors" | grep -qE '^ *Errors +1 error$' || { echo "vitest-rpc-flake: not exactly one unhandled error ('${errors:-none}')"; exit 1; }
-printf '%s\n' "$plain" | grep -qF 'Timeout calling "onTaskUpdate"' || { echo "vitest-rpc-flake: the one error is not the onTaskUpdate timeout"; exit 1; }
+printf '%s\n' "$plain" | sed -n '/Unhandled Error/,$p' | grep -qF 'Timeout calling "onTaskUpdate"' || { echo "vitest-rpc-flake: the one error is not the onTaskUpdate timeout"; exit 1; }
 
 echo "vitest-rpc-flake: every test passed and the only error is the onTaskUpdate timeout"

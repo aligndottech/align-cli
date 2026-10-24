@@ -58,6 +58,10 @@ check 1 "a second unhandled error is a real failure" \
 check 1 "one unhandled error that is NOT the onTaskUpdate timeout is a real failure" \
   "$(summary "$FILES_OK" "$TESTS_OK" "$ERRS_ONE" | sed 's/Timeout calling "onTaskUpdate"/Cannot read properties of undefined/')"
 
+# The timeout text must come from the error block, not from a test that happened to print it.
+check 1 "a different single error, with the timeout text only in a test's own output above, is a real failure" \
+  "$(printf '%s\n' "stdout | some.test.ts > prints it" "$RPC"; summary "$FILES_OK" "$TESTS_OK" "$ERRS_ONE" | sed 's/Timeout calling "onTaskUpdate"/Cannot read properties of undefined/')"
+
 check 1 "the timeout text with no summary (the run died before reporting) is a real failure" \
   "$(printf '%s\n' "$RPC")"
 
