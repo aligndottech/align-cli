@@ -8,7 +8,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { canPty, childEnv, ROOT } from './helpers/share-harness.js';
@@ -26,6 +26,19 @@ function rig() {
   const env = childEnv(path.join(dir, 'home'));
   mkdirSync(path.join(dir, 'home'), { recursive: true });
   env['TERM'] = 'xterm';
+  // The agent picker lists installed agents first, so Enter picks a different row on a laptop that has
+  // Claude Code than on a CI runner with none (there the first row is an uninstalled agent, Enter
+  // re-opens the picker forever, and the list was never reached). Pin the PATH: one fake `claude`, plus
+  // only what node and the pty helper need. Set NO_FAKE_AGENT=1 to drop the fake and see the CI failure.
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  if (!process.env['NO_FAKE_AGENT']) {
+    writeFileSync(path.join(bin, 'claude'), '#!/bin/sh\nexit 0\n');
+    chmodSync(path.join(bin, 'claude'), 0o755);
+  }
+  // node itself is linked in rather than its directory put on PATH: an npm-global agent can sit beside it.
+  symlinkSync(process.execPath, path.join(bin, 'node'));
+  env['PATH'] = [bin, '/usr/bin', '/bin'].join(path.delimiter);
   for (const k of Object.keys(env)) if (/^(CI|GITHUB_.*|ALIGN_TOKEN|ALIGN_ENV|ALIGN_WRAPPED|ALIGN_NO_LAUNCH)$/.test(k)) delete env[k];
   const entries = () => readdirSync(work).sort();
   return { dir, work, env, entries, close: () => rmSync(dir, { recursive: true, force: true }) };
