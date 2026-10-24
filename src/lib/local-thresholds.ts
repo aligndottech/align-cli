@@ -7,7 +7,7 @@
 /**
  * Cosine floor for linking two decisions as related on ingest.
  *
- * Named CONFLICT_THRESHOLD until ALI-503, which was the same category error as the code
+ * Named CONFLICT_THRESHOLD until it was renamed, which was the same category error as the code
  * it governed: the value decides similarity, and similarity is not opposition. The
  * classifier prompt in local-relationship-classifier.ts says so directly - "high textual
  * similarity alone is NOT a conflict" - and the link written here is `relates` because an
@@ -35,12 +35,12 @@ export const SEARCH_THRESHOLD = 0.25;
 /**
  * How many dense candidates `searchDecisions` retrieves before the title rerank cuts to the
  * caller's limit: max(limit * RERANK_POOL_FACTOR, RERANK_POOL_MIN). The motivating miss
- * (ALI-1775) sat at dense rank 12 of 20, so a pool of the bare limit (8) could never have
+ * sat at dense rank 12 of 20, so a pool of the bare limit (8) could never have
  * promoted it; 30 clears that with room, and the scan reads every stored vector either way.
  */
 export const RERANK_POOL_FACTOR = 4;
 /**
- * ALI-1749: the dense floor for a row only the LEXICAL ranking found. A rare identifier is worth
+ * The dense floor for a row only the LEXICAL ranking found. A rare identifier is worth
  * a row below SEARCH_THRESHOLD (a commit that names "find-my-way" can embed at 0.2 beside a
  * question about routing), but a row with no semantic resemblance at all that merely shares a
  * common word ("support") is noise. 0.15 sits under the 0.25 search floor. Measured on eval v2:
@@ -82,7 +82,7 @@ export const RELATES_THRESHOLD = 0.45;
  * `align search`, which has run at 0.25 all along - as has MCP `align_get_related_decisions`.
  */
 export const RETRIEVAL_RELATES_THRESHOLD = 0.3;
-// ALI-785: the ABSOLUTE floor above is unreachable for cross-register pairs on
+// The ABSOLUTE floor above is unreachable for cross-register pairs on
 // MiniLM-L6 - measured on a 403-decision six-source corpus, near-duplicates score
 // ~0.95, genuine cross-tool paraphrases 0.45-0.62, background noise 0.28-0.40, and
 // 0 of 1,729 links crossed a platform. So linking also takes each item's top few

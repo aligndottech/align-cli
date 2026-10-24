@@ -3,7 +3,7 @@ import type { EnvironmentConfig } from '../lib/config.js';
 import { dispatchTool, TOOL_SCHEMAS, toolSchemasFor } from '../commands/mcp.js';
 
 /**
- * ALI-952 / ALI-139: the pre-flight check LEADS the MCP surface. ALI-139 (2026-06-03) decided
+ * The pre-flight check LEADS the MCP surface. The decision (2026-06-03) was
  * "prescription over retrieval" and the hosted server registers check_alignment first; the
  * local server listed align_search, align_ask, align_capture and then the check fourth. An
  * agent picking from the tool list alone reads that order as a ranking.
@@ -16,7 +16,7 @@ import { dispatchTool, TOOL_SCHEMAS, toolSchemasFor } from '../commands/mcp.js';
 const localEnv = { mode: 'local-embedded', gatewayUrl: '' } as unknown as EnvironmentConfig;
 const cloudEnv = { mode: 'auth', gatewayUrl: 'https://api.align.tech', authToken: 't' } as unknown as EnvironmentConfig;
 
-describe('the local MCP tool list leads with the check (ALI-139)', () => {
+describe('the local MCP tool list leads with the check', () => {
   it('lists align_check_alignment first in TOOL_SCHEMAS', () => {
     expect(TOOL_SCHEMAS[0]?.name).toBe('align_check_alignment');
   });
@@ -35,7 +35,7 @@ describe('the local MCP tool list leads with the check (ALI-139)', () => {
     expect(names).toEqual(expect.arrayContaining([
       'align_check_alignment', 'align_ask', 'align_search', 'align_capture', 'align_check_drift',
       'align_get_impact', 'align_get_conflicts', 'align_get_related_decisions',
-      // ALI-1070: the timeline trio, appended so the eight above keep the ranking ALI-139
+      // The timeline trio, appended so the eight above keep the ranking
       // decided. All READS, so mcp-tool-annotations.test.ts's write set is unchanged.
       'align_get_topic_timeline', 'align_get_decision_rationale', 'align_get_decision_timeline',
     ]));
@@ -49,7 +49,7 @@ describe('the local MCP tool list leads with the check (ALI-139)', () => {
     expect(names).toContain('align_mark');
     // L9 appended align_share (it only previews and issues a code, so it is not a write).
     expect(names).toContain('align_share');
-    // ALI-1540 appended align_share_status (once the user approves in a browser, it completes the share, so it is a write).
+    // align_share_status was appended (once the user approves in a browser, it completes the share, so it is a write).
     expect(names).toContain('align_share_status');
     expect(names).toHaveLength(17);
   });

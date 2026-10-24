@@ -152,7 +152,7 @@ describe('imported means STORED (review 4)', () => {
 });
 
 describe('a source with no window keeps the old line', () => {
-  it('prints exactly what ALI-827 printed', () => {
+  it('prints exactly what it printed before', () => {
     expect(lines([{ label: 'Git', unit: 'commits', fetched: 8, skips: [] }])).toEqual(['  Capture report', '    Git: 8 commits']);
   });
 });

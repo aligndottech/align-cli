@@ -1,5 +1,5 @@
 /**
- * `align connect sessions` (ALI-808/809) - reads local coding-agent session transcripts
+ * `align connect sessions` - reads local coding-agent session transcripts
  * (Claude Code, pi, Codex CLI, opencode; gemini-cli and cursor detect files but cannot yet
  * parse them - see fixtures/sessions/README.md), finds decision-shaped moments in them, and
  * reviews each one with a human before it enters the graph. The passes, by name rather than
@@ -8,17 +8,17 @@
  *   Pass A (extract-structured.ts): an answered Claude Code AskUserQuestion. Structured, so
  *   every field (question, options, chosen label) is exact - fires only for Claude Code.
  *
- *   Pass B (extract-freetext.ts + confirm-freetext.ts, ALI-809): a human turn that redirects
+ *   Pass B (extract-freetext.ts + confirm-freetext.ts): a human turn that redirects
  *   or settles on an approach in prose ("let's use X instead"), heuristically found and then
  *   confirmed by an LLM before it may reach this list - "heuristic proposes, LLM adjudicates,
- *   only adjudicated results assert" (align decision ALI-409, applied to candidates instead of
+ *   only adjudicated results assert" (an Align decision, applied to candidates instead of
  *   graph edges). This is what makes the command produce anything for the five agents with no
- *   structured signal (ALI-808's own survey found none). Rendered with a visibly lower-weight
+ *   structured signal (the own survey found none). Rendered with a visibly lower-weight
  *   tag (agent, "free-text", confidence %) than a Pass A record, per the ticket's own
  *   requirement - a low-confidence prose guess must never look as authoritative as a rejected-
  *   alternatives-and-rationale structured one.
  *
- *   Pass C (memory-files.ts, ALI-810): a Claude Code auto-memory file
+ *   Pass C (memory-files.ts): a Claude Code auto-memory file
  *   (`~/.claude/projects/<project>/memory/*.md`), typed `project` or `feedback` in its own
  *   frontmatter. Already curated by the harness - one fact per file - so it needs no
  *   heuristic and no LLM stage, only the same confirm-each review. Read independently of
@@ -26,7 +26,7 @@
  *   retention sweep and so outlive the sessions that produced them.
  *
  * Local-only by construction: `decider_kind`/`confirmed_by`/`confirmed_at` are local-graph
- * columns (ALI-831), so this refuses any environment that is not the local embedded graph
+ * columns, so this refuses any environment that is not the local embedded graph
  * rather than silently doing nothing useful. Per Tom's ruling (2026-09-03): local by
  * default, per-item push after ratify (`align push`, once `align ratify` stands behind
  * one), never bulk - this command writes claims, not decisions.
@@ -66,7 +66,7 @@ const FREE_TEXT_CONFIRM_CONCURRENCY = 3;
 
 /** Mirrors ratify.ts's resolveRatifier exactly (git identity, then the OS user) but is not
  *  imported from there - see the PR description for why this one small duplication was
- *  chosen over reaching into a command file ALI-808 does not own. */
+ *  chosen over reaching into a command file session import does not own. */
 async function resolveConfirmer(): Promise<string> {
   return (await getGitIdentity()) ?? os.userInfo().username;
 }
@@ -101,7 +101,7 @@ class SessionCandidateItem implements SessionReviewItem {
   }
 }
 
-/** Pass B (ALI-809): a heuristic-proposed, LLM-confirmed free-text redirect. Rendered with a
+/** Pass B: a heuristic-proposed, LLM-confirmed free-text redirect. Rendered with a
  *  visibly different tag and its confidence score so a low-confidence prose guess never carries
  *  the same visual weight as a rejected-alternatives-and-rationale structured record (the
  *  ticket's own requirement - see extract-freetext.ts and confirm-freetext.ts for the two
@@ -126,7 +126,7 @@ class FreeTextCandidateItem implements SessionReviewItem {
 }
 
 /**
- * Pass C (ALI-810): a Claude Code auto-memory file. No LLM stage, unlike Pass B - these are
+ * Pass C: a Claude Code auto-memory file. No LLM stage, unlike Pass B - these are
  * already curated by the harness itself (one fact per file, typed in frontmatter), so there
  * is no heuristic to adjudicate. It still goes through the same confirm-each review, because
  * a memory file is a personal note, not something to bulk-import.
@@ -160,7 +160,7 @@ type PendingCandidate =
   | { kind: 'memory'; timestamp: string | null; item: MemoryDecisionCandidate };
 
 /**
- * ALI-835: the agent a run's ping is attributed to - the one that contributed the most parsed
+ * The agent a run's ping is attributed to - the one that contributed the most parsed
  * session files. Several agents can be detected on one machine, the ping carries one name, and
  * an invented "mixed" would be a value the gateway's closed AGENT_VALUES enum does not have.
  * Ties resolve to the first inserted, which is registry order, so the same machine reports the
@@ -210,7 +210,7 @@ export function registerImportSessionsCommand(importCmd: Command): void {
 
       const structured: SessionDecisionCandidate[] = [];
       const freeText: RawFreeTextCandidate[] = [];
-      // ALI-835: files actually parsed, not files located - an adapter with no verified fixture
+      // Files actually parsed, not files located - an adapter with no verified fixture
       // is skipped below, and counting its files would report work that never happened.
       let sessionsScanned = 0;
       // The agent whose data this run is about. Several can be detected; the ping carries one
@@ -240,7 +240,7 @@ export function registerImportSessionsCommand(importCmd: Command): void {
         }
       }
 
-      // Pass C (ALI-810): the harness's own auto-memory, which is a separate source from any
+      // Pass C: the harness's own auto-memory, which is a separate source from any
       // session transcript - it is read whether or not an adapter found session files, because
       // memory survives the transcript retention sweep that deletes them.
       const memory = extractMemoryDecisions(locateMemoryFiles(cwd));
@@ -248,7 +248,7 @@ export function registerImportSessionsCommand(importCmd: Command): void {
       const agent = dominantAgent(filesByAgent);
       const candidatesFound = structured.length + freeText.length + memory.length;
 
-      // ALI-835: the two scan-time stages. Emitted before the review loop, so a user who
+      // The two scan-time stages. Emitted before the review loop, so a user who
       // abandons the review still reports what was scanned and found - which is the drop-off
       // the funnel exists to show. Fire-and-forget: telemetry never delays or fails a command.
       if (agent) {
@@ -281,8 +281,8 @@ export function registerImportSessionsCommand(importCmd: Command): void {
       console.log(chalk.bold(`\nFound ${totalFound} decision-shaped moment${totalFound === 1 ? '' : 's'} to review${truncatedNote}.\n`));
       console.log(chalk.dim('Each one enters the graph as an agent claim (unratified) - review it, `align ratify` later stands behind it as a human.\n'));
 
-      // Pass B: only an LLM-adjudicated result may reach the review list (align decision
-      // ALI-409's "heuristic proposes, LLM adjudicates, only adjudicated results assert").
+      // Pass B: only an LLM-adjudicated result may reach the review list (an Align decision:
+      // "heuristic proposes, LLM adjudicates, only adjudicated results assert").
       // Bounded concurrency, not one-at-a-time: each call is a full LLM round-trip, and
       // FREE_TEXT_CONFIRM_CONCURRENCY matches the ingest batch concurrency in
       // personal-import.ts (3) rather than a larger number, since a local Ollama model is a
@@ -355,7 +355,7 @@ export function registerImportSessionsCommand(importCmd: Command): void {
         if (result.skipped > 0) console.log(chalk.dim(`Skipped ${result.skipped}.`));
         if (result.remaining > 0) console.log(chalk.dim(`${result.remaining} not reviewed.`));
 
-        // ALI-835: the line the demo reads aloud, and the stage that measures it - built from
+        // The line the demo reads aloud, and the stage that measures it - built from
         // one counts object so the printed number and the reported number cannot disagree.
         // `ratified` is 0 by construction here: this command writes claims, and ratifying is a
         // separate human act. That zero is the point of the sentence.

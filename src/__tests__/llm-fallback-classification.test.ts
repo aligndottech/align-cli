@@ -1,4 +1,4 @@
-// ALI-692: the provider fallback chain used to advance on ANY null, so a malformed 200
+// The provider fallback chain used to advance on ANY null, so a malformed 200
 // from a correctly-authenticated model read the same as a missing key - and both
 // silently demoted the call to a weaker model whose answer the caller then trusted as
 // if the chosen model wrote it. Now only an availability-class failure (bad key,
@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callChatDetailed, type ChatResult, isAvailabilityFailure } from '../lib/local-llm.js';
 
-// ALI-692 follow-up: the diagnosis is RETURNED, so every assertion below reads the
+// The diagnosis is RETURNED, so every assertion below reads the
 // result it was handed. These two projections are pure and take that result as an
 // argument - deliberately not a getter, because a getter is what was removed.
 const textOf = (r: ChatResult) => (r.ok ? r.text : null);
@@ -37,7 +37,7 @@ function httpError(status: number, body = '') {
 
 const urls = () => mockFetch.mock.calls.map(c => String(c[0]));
 
-describe('callChat advances only on availability-class failures (ALI-692)', () => {
+describe('callChat advances only on availability-class failures', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();
@@ -208,7 +208,7 @@ describe('callChat advances only on availability-class failures (ALI-692)', () =
   });
 });
 
-describe('a reasoning model\'s monologue is not part of the answer (ALI-692)', () => {
+describe('a reasoning model\'s monologue is not part of the answer', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();

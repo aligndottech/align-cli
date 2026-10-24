@@ -6,8 +6,8 @@
  * docker, a piped terminal) does ALL the setup work - local graph, agent
  * alignment files, git import - and then crashes with
  * `uv_tty_init returned EINVAL`, exit 1. The user's last impression is a crash
- * reporting failure for work that succeeded. Same defect family as ALI-422/
- * ALI-160 (ERR_TTY_INIT_FAILED on non-TTY imports), one prompt further down.
+ * reporting failure for work that succeeded. Same defect family as an earlier
+ * bug (ERR_TTY_INIT_FAILED on non-TTY imports), one prompt further down.
  *
  * The fixture is a NON-git directory on purpose: isGitRepo() false skips the
  * embedded-model import, so the test reaches the prompt in seconds and needs

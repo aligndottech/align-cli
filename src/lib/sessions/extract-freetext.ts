@@ -1,10 +1,10 @@
 import type { AgentName, CanonicalSession } from './types.js';
 
 /**
- * ALI-809 Pass B, heuristic half: a HUMAN turn whose own words redirect or settle on an
+ * Pass B, heuristic half: a HUMAN turn whose own words redirect or settle on an
  * approach mid-session. Everything downstream (confirm-freetext.ts) treats this as a proposal
  * only - "heuristic proposes, LLM adjudicates, only adjudicated results assert" is the same
- * shape as decision_links' writer split (align decision ALI-409), applied here to candidates
+ * shape as decision_links' writer split (an Align decision), applied here to candidates
  * instead of edges.
  */
 export interface RawFreeTextCandidate {
@@ -19,7 +19,7 @@ export interface RawFreeTextCandidate {
   /** The assistant turn immediately after, when there is one - CONTEXT for the LLM confirmation
    *  pass to read, never itself scanned for the trigger phrase and never the source of the
    *  claim (the same "don't let bot content pass as the human's own statement" principle as
-   *  align decision ALI-538, applied to a different pipeline). */
+   *  an Align decision, applied to a different pipeline). */
   contextText: string | null;
   timestamp: string | null;
 }

@@ -1,5 +1,5 @@
 /**
- * ALI-831: the local client carries decider provenance in every decision payload, so an
+ * The local client carries decider provenance in every decision payload, so an
  * agent reading the local MCP server (and `align context sync`, which reads listDecisions)
  * can tell a claim from a rule. Fields in wire spelling: `decider_kind`, `ratified`
  * (boolean), `ratified_at`, `ratified_by`.
@@ -25,7 +25,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   // Above every retrieval floor, so search and check both surface every row.
   cosineSimilarity: vi.fn().mockReturnValue(0.9),
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
@@ -153,7 +153,7 @@ describe('the other payloads carry the same fields', () => {
 });
 
 describe('ratifyDecision', () => {
-  // ALI-831 review (Copilot #253): the pre-write `before` read this used to fall back on
+  // The pre-write `before` read this used to fall back on
   // was a stale-read hazard under real concurrency (two `align ratify` processes racing the
   // same on-disk file) - it could report alreadyRatified: true with null ratifiedBy/At.
   // The fix removed the pre-read; the already-ratified branch now reads AFTER its own

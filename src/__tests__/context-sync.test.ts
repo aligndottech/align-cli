@@ -1,5 +1,5 @@
 /**
- * ALI-602: `align context sync` - the command that wires the ALI-196 renderer.
+ * `align context sync` - the command that wires the renderer.
  *
  * The renderer/writer (decisions-context.ts) is already pinned by its own two
  * suites. These tests pin the COMMAND: what it fetches, where it writes, what
@@ -142,7 +142,7 @@ describe('align context sync', () => {
     await expect(run()).rejects.toThrow();
     expect(exitSpy).toHaveBeenCalledWith(1);
     // A failed fetch must not leave a plausible-looking empty file behind:
-    // "no decisions" and "could not fetch" are different claims (ALI-414).
+    // "no decisions" and "could not fetch" are different claims.
     expect(exists('.align/decisions.md')).toBe(false);
   });
 
@@ -167,7 +167,7 @@ describe('align context sync', () => {
   });
 });
 
-describe('align context sync drops a synthetic hosted source (ALI-923)', () => {
+describe('align context sync drops a synthetic hosted source', () => {
   it('does not print an align://claimed/... identity as a link', async () => {
     mockListDecisions.mockResolvedValue([
       { id: '4', title: 'Scan could not verify where this was decided', summary: '', platform: 'github', status: 'active', source_url: 'align://claimed/9f2c' },
@@ -187,7 +187,7 @@ describe('align context sync drops a synthetic hosted source (ALI-923)', () => {
   });
 });
 
-describe('align context sync carries decider provenance through (ALI-831)', () => {
+describe('align context sync carries decider provenance through', () => {
   it('an unratified agent-decided row lands in the claims section, with the label', async () => {
     mockListDecisions.mockResolvedValue([
       ...DECISIONS,

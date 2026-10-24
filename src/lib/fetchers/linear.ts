@@ -2,7 +2,7 @@ import { LinearFetcher } from '@aligndottech/connector-core';
 import { type CaptureFetchResult, type WindowedOpts, withCaptureReport } from './capture.js';
 
 /**
- * ALI-786: Linear's scoped personal-API-key dialog
+ * Linear's scoped personal-API-key dialog
  * (linear.app/settings/account/security/api-keys/new) lets a key be created without Read
  * access. This fetcher's query is read-only, so a key like that gets refused with a plain
  * 400 - `connector-core`'s providerError already surfaces Linear's own words for a 400 (see

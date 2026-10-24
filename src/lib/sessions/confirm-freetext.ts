@@ -12,7 +12,7 @@ import type { AgentName } from './types.js';
 import type { RawFreeTextCandidate } from './extract-freetext.js';
 
 /** A raw heuristic hit the model reviewed and stood behind - the only shape that may reach
- *  the confirm-each UX (align decision ALI-409: "only adjudicated results assert"). */
+ *  the confirm-each UX (an Align decision: "only adjudicated results assert"). */
 export interface ConfirmedFreeTextDecision {
   agent: AgentName;
   sessionId: string;
@@ -73,9 +73,9 @@ function parseConfirmation(text: string): ParsedConfirmation | null {
 
 /**
  * A per-reason hint, not one collapsed "no LLM configured" line - align-stack's own
- * local-gateway-client.ts already documents why collapsing this union is wrong (ALI-420: "an
+ * local-gateway-client.ts already documents why collapsing this union is wrong ("an
  * unvetted local model gets its own remedy... nonsense to someone already running one") and
- * ALI-692 for provider_stopped naming the model that actually failed. Only `no_llm_key` means
+ * why provider_stopped names the model that actually failed. Only `no_llm_key` means
  * nothing is configured; the other three all require a provider that DID answer or a model
  * that IS installed, so telling that caller to "set a key or run Ollama" is actively wrong.
  */

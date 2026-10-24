@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { shapeDecisionRationale } from '../lib/mcp-timeline-tools.js';
 
 /**
- * ALI-1085, the align-cli half. The hosted connector carried the identical defect and was
+ * The align-cli half. The hosted connector carried the identical defect and was
  * fixed in align-stack#2454; this is the SAME projection written a second time in a second
  * repo, and it is the one the CLI, every `align mcp --setup` customer, and AlignBench's align
  * arm actually reach.

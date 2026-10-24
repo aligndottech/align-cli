@@ -55,7 +55,7 @@ describe('resolveEnv preferLocalEmbedded (BUG-2: a --local user running bare `al
     expect(resolveEnv()).toBe('prod');
   });
 });
-describe('resolveImportEnv (ALI-675: imports are local-servable, so they get the same redirect)', () => {
+describe('resolveImportEnv (imports are local-servable, so they get the same redirect)', () => {
   const orig = process.env['ALIGN_ENV'];
   afterEach(() => {
     vi.clearAllMocks();

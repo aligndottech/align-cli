@@ -42,7 +42,7 @@ const authEnv = {
   mode: 'auth' as const,
 };
 
-describe('ALI-462 a tenant with no token must not be sent to a cloud gateway', () => {
+describe('a tenant with no token must not be sent to a cloud gateway', () => {
   beforeEach(() => mockFetch.mockReset());
 
   it('refuses, naming the missing token and the fix', async () => {
@@ -79,7 +79,7 @@ describe('ALI-462 a tenant with no token must not be sent to a cloud gateway', (
 
   it('leaves an anonymous cloud request alone when no tenant is configured either', async () => {
     // Both absent is not what THIS guard is about. On the built-in prod URL it is the "not set up"
-    // refusal instead (ALI-1777, gateway-client-not-set-up.test.ts), so this uses a self-hosted URL.
+    // refusal instead (gateway-client-not-set-up.test.ts), so this uses a self-hosted URL.
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ all: [], enabled: [] }) });
 
     await createGatewayClient({ ...authEnv, gatewayUrl: 'https://align.corp.example', tenantId: null }).listConnectors();
@@ -100,7 +100,7 @@ describe('ALI-462 a tenant with no token must not be sent to a cloud gateway', (
   });
 });
 
-describe('ingestBatch sends the source date under the name the gateway reads (ALI-829)', () => {
+describe('ingestBatch sends the source date under the name the gateway reads', () => {
   beforeEach(() => mockFetch.mockReset());
 
   it('renames created_at to decided_at on the wire, and sends neither when there is no date', async () => {
@@ -222,7 +222,7 @@ describe('gateway client', () => {
     expect(body).not.toHaveProperty('title');
   });
 
-  // ALI-708: `exhaustive` asks the gateway to adjudicate whatever it retrieved instead of
+  // `exhaustive` asks the gateway to adjudicate whatever it retrieved instead of
   // skipping below its similarity cost gate - the member a strict CI gate sends.
   it('checkAlignment sends the depth when one is supplied', async () => {
     mockFetch.mockResolvedValueOnce({
@@ -269,7 +269,7 @@ describe('gateway client', () => {
     );
   });
 
-  // ALI-1082: created_before is the align arm's time-box, threaded from mcp.ts's
+  // created_before is the align arm's time-box, threaded from mcp.ts's
   // --created-before flag through dispatchTool into this third parameter.
   it('searchDecisions with a cutoff carries created_before in the POST body', async () => {
     mockFetch.mockResolvedValueOnce({
@@ -291,7 +291,7 @@ describe('gateway client', () => {
     expect(body).not.toHaveProperty('created_before');
   });
 
-  // ALI-1420: the three reads the gateway now bounds server-side carry the cutoff; with none,
+  // The three reads the gateway now bounds server-side carry the cutoff; with none,
   // the request is byte-for-byte what it was (no key, no query string).
   it('checkAlignment with a cutoff carries created_before in the POST body; without one, no key', async () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ status: 'no-context', relevant_decisions: [] }) });
@@ -302,7 +302,7 @@ describe('gateway client', () => {
     expect(bodyOf(1)).not.toHaveProperty('created_before');
   });
 
-  // ALI-1438: drift-check stores a decision_drift_checks row unless the request carries the
+  // Drift-check stores a decision_drift_checks row unless the request carries the
   // cutoff, so a frozen run sends it; with none, the body is what it was (no key).
   it('checkDrift with a cutoff carries created_before in the POST body; without one, no key', async () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ result: {}, check: null }) });
@@ -405,7 +405,7 @@ describe('gateway client', () => {
     expect(result.snapshots[0].analysis?.relatedDecisions[0].confidence).toBe(0.8);
   });
 
-  // ALI-403: without these the CLI is anonymous to the gateway - a CLI request is
+  // Without these the CLI is anonymous to the gateway - a CLI request is
   // byte-identical in its identifying headers to one from the web app, so cloud-mode CLI
   // usage cannot be counted server-side at all.
   describe('client identity', () => {
@@ -447,11 +447,11 @@ describe('gateway client', () => {
     expect('createInvite' in createGatewayClient(localEnv)).toBe(false);
   });
 
-  // ALI-761 phase 2: the check carries who ran it (platform) and what it checked
+  // The check carries who ran it (platform) and what it checked
   // (subject_key, head_sha), so the gateway's conflict events stop landing unattributable
   // and unjoinable. Everything here is CHECK-SCOPED on purpose: a client-wide platform
   // claim would also relabel `align adjudicate`, which the gateway refuses from agents.
-  describe('checkAlignment CI identity (ALI-761)', () => {
+  describe('checkAlignment CI identity', () => {
     const SHA = 'a'.repeat(40);
 
     it('sends subject_key and head_sha in the body and the platform as a header', async () => {
@@ -495,7 +495,7 @@ describe('gateway client', () => {
     });
   });
 
-  describe('getConflicts honest totals (ALI-587)', () => {
+  describe('getConflicts honest totals', () => {
     // Until this change the client fetched one 50-row page and its consumer (the MCP tool)
     // served it to agents as the complete conflict set. The gateway's total_count is
     // computed over the WHOLE matching set on every paginated call (its count query
@@ -528,7 +528,7 @@ describe('gateway client', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const url = String(mockFetch.mock.calls[0]?.[0]);
       expect(url).toContain('limit=50');
-      // ALI-587 cross-client decision (applied to mcp-align in the same sitting): the tool
+      // Cross-client decision (applied to mcp-align in the same sitting): the tool
       // reports ACTIVE conflicts, so resolved links are excluded and total_count counts the
       // unresolved set - the count and the links describe the same population.
       expect(url).toContain('unresolved_only=true');
@@ -541,7 +541,7 @@ describe('gateway client', () => {
       expect(result.pagination?.['has_more']).toBe(true);
     });
 
-    // ALI-1411: the as-of cutoff rides the endpoint's timestamp cursor, which bounds the
+    // The as-of cutoff rides the endpoint's timestamp cursor, which bounds the
     // DATA query to `dl.created_at < cutoff` server-side (a cursor makes the gateway skip its
     // count query, which is why the MCP layer never reports a gateway count under a cutoff).
     it('sends the as-of cutoff as the cursor, encoded', async () => {
@@ -592,7 +592,7 @@ describe('gateway client', () => {
     });
   });
 
-  describe('listDecisionLinks honest listing (ALI-587)', () => {
+  describe('listDecisionLinks honest listing', () => {
     // The legacy non-paginated /decision-links branch hard-caps at 100 rows server-side
     // and returns a bare array - no envelope, so `align links list` could not even say
     // "showing first 100". The paginated branch carries total_count over the whole
@@ -657,7 +657,7 @@ describe('gateway client', () => {
   });
 });
 
-describe('ALI-786 an unconfigured local env fails fast with a setup hint, not a dead-port dial', () => {
+describe('an unconfigured local env fails fast with a setup hint, not a dead-port dial', () => {
   beforeEach(() => mockFetch.mockReset());
 
   // The exact shape `config.getEnvironment('local')` returns before `align setup --local`

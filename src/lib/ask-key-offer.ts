@@ -2,7 +2,7 @@
  * The AI-provider key, asked for where it is used: `align ask` on a terminal, the first time
  * it has nothing to write prose with.
  *
- * It used to be the last step of the first-run wizard (ALI-1284's guided Groq + Gemini
+ * It used to be the last step of the first-run wizard (the guided Groq + Gemini
  * offer), immediately before align opened the coding agent. Read in that position, a Groq key
  * looks like something Claude Code needs - it is not. Inside a wrapped agent the agent writes
  * the prose from the MCP results; the key only serves align's own terminal `align ask`. So the

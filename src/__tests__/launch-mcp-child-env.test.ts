@@ -15,7 +15,7 @@ import { CHILD_ENV_KEYS, CHILD_ENV_NOT_PINNED, CHILD_ENV_SECRETS, classifyChildE
  */
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-describe('mcpChildEnv: embedding download settings (ALI-1781)', () => {
+describe('mcpChildEnv: embedding download settings', () => {
   it('the model cache is kept only as an absolute path: a relative one would make the repo the cache', () => {
     expect(mcpChildEnv({ ALIGN_MODEL_CACHE: path.resolve('/abs/cache') })['ALIGN_MODEL_CACHE']).toBe(path.resolve('/abs/cache'));
     expect(mcpChildEnv({ ALIGN_MODEL_CACHE: '.cache' })['ALIGN_MODEL_CACHE']).toBe('');

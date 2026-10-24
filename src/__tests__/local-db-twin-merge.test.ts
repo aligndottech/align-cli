@@ -83,12 +83,12 @@ describe('twin merge', () => {
     v6.insertDecision({ id: 'old', title: 'T1', summary: '1', sourceUrl: PR, platform: 'github' });
     v6.insertDecision({ id: 'new', title: 'T2', summary: '2', sourceUrl: PR, platform: 'github' });
     v6.setEmbedding('old', 0.3);
-    v6.insertRef('old', 'ALI-9', 'jira');
+    v6.insertRef('old', 'APP-9', 'jira');
     v6.close();
     createLocalDb(dbPath).close();
     expect(rows(`SELECT decision_id FROM decision_embeddings_merged_backup`)).toEqual([{ decision_id: 'old' }]);
-    expect(rows(`SELECT decision_id, ref FROM decision_refs_merged_backup`)).toEqual([{ decision_id: 'old', ref: 'ALI-9' }]);
-    expect(rows(`SELECT ref FROM decision_refs WHERE decision_id = 'new'`)).toEqual([{ ref: 'ALI-9' }]); // re-pointed
+    expect(rows(`SELECT decision_id, ref FROM decision_refs_merged_backup`)).toEqual([{ decision_id: 'old', ref: 'APP-9' }]);
+    expect(rows(`SELECT ref FROM decision_refs WHERE decision_id = 'new'`)).toEqual([{ ref: 'APP-9' }]); // re-pointed
   });
 
   it('a confirmed (not ratified) older twin also keeps its text', () => {
@@ -141,9 +141,9 @@ describe('twin merge', () => {
     v6.insertLink('l-out', 'old', 'x', 'contradicts', 0.6);
     v6.insertLink('l-dup', 'new', 'x', 'contradicts', 0.8); // same triple once re-pointed: the higher confidence stays
     v6.insertLink('l-in', 'x', 'old', 'relates', 0.7);
-    v6.insertRef('old', 'ALI-1', 'linear');
-    v6.insertRef('new', 'ALI-1', 'linear'); // same ref on both: one survives
-    v6.insertRef('old', 'ALI-2', 'linear');
+    v6.insertRef('old', 'APP-1', 'linear');
+    v6.insertRef('new', 'APP-1', 'linear'); // same ref on both: one survives
+    v6.insertRef('old', 'APP-2', 'linear');
     v6.setEmbedding('old', 0.1);
     v6.setEmbedding('new', 0.2);
     // Tables a later bump creates (C7's promotions) or that a re-run finds populated: the merge
@@ -165,7 +165,7 @@ describe('twin merge', () => {
       { s: 'x', t: 'new', relation: 'relates', confidence: 0.7 },
     ]);
     expect(rows(`SELECT decision_id AS d, ref FROM decision_refs ORDER BY ref`)).toEqual([
-      { d: 'new', ref: 'ALI-1' }, { d: 'new', ref: 'ALI-2' },
+      { d: 'new', ref: 'APP-1' }, { d: 'new', ref: 'APP-2' },
     ]);
     expect(rows(`SELECT local_id AS id FROM promotions`)).toEqual([{ id: 'new' }]);
     // The survivor keeps the embedding of its own (newest) text.

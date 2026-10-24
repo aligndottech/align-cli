@@ -6,7 +6,7 @@
  * release-asset builder (scripts/build-ort-runtime.ts) and `align doctor` all read this file, so
  * the digest the CLI trusts and the digest the workflow publishes cannot drift apart.
  *
- * WHY A DOWNLOAD AT ALL (ALI-1781). `@huggingface/transformers` depends on `onnxruntime-node`,
+ * WHY A DOWNLOAD AT ALL. `@huggingface/transformers` depends on `onnxruntime-node`,
  * whose npm tarball carries the runtime for EVERY OS and the CUDA/TensorRT providers (548MB
  * installed), plus `onnxruntime-web` (141MB, browser) and `sharp` - 779MB for a CLI whose
  * embeddings need ~46MB of one platform's CPU library. npm has no way to install one platform's

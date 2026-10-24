@@ -1,5 +1,5 @@
 /**
- * ALI-1740: `align doctor` end to end. Real processes, no mocks: the real command, the real
+ * `align doctor` end to end. Real processes, no mocks: the real command, the real
  * `align mcp` it starts (through an `align` shim on PATH, the way an agent finds it), and a
  * loopback gateway standing in for the cloud. A second, fake `align` that speaks just enough MCP
  * covers the cases the real server cannot produce on demand (an empty answer, a server that

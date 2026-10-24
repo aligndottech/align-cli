@@ -54,7 +54,7 @@ async function addGit(title: string, body: string, n: number) {
   await client.ingestBatch([{ raw_text: `${title}\n\n${body}\n\nAuthor: A <a@b.c>\nDate: 2025-01-01`, platform: 'git', title, source_url: commit(n) }], { classify: false });
 }
 
-describe('local search on git commits: dense and lexical rankings fused (ALI-1749)', () => {
+describe('local search on git commits: dense and lexical rankings fused', () => {
   const TITLES = [
     'docs: explain how routing works in the guide (a)',
     'docs: more routing notes and routing examples (b)',

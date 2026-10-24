@@ -76,7 +76,7 @@ describe('adjudication override', () => {
 
   // An OUTAGE is not adjudicable. Accepting an adjudication against reason_class=unavailable
   // would let one stale human answer excuse every future timeout on that content, which is
-  // exactly the fail-open ALI-348 exists to prevent.
+  // exactly the fail-open this guard exists to prevent.
   it('refuses an accepted verdict when the class is unavailable', async () => {
     const res = await adjudicated(
       JSON.stringify({

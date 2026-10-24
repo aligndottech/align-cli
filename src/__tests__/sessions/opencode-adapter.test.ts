@@ -1,5 +1,5 @@
 /**
- * ALI-808 opencode adapter, backed by a real `opencode run` session fixture (see
+ * opencode adapter, backed by a real `opencode run` session fixture (see
  * fixtures/sessions/README.md). opencode's real storage is SQLite (since v1.2.0), not a
  * text format - so unlike the other three adapters, one database file holds many sessions.
  * locateSessionFiles therefore returns composite identifiers (`<dbPath>#<sessionId>`), and

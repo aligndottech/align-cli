@@ -1,5 +1,5 @@
 /**
- * ALI-951: `--json` on the everyday commands (`check`, `ask`; `connect` is covered in
+ * `--json` on the everyday commands (`check`, `ask`; `connect` is covered in
  * connect-command.test.ts) and on the hidden list commands an agent or a script is likely
  * to drive (`decisions list`, `links list`, `export`). One shape per command, one JSON
  * document on stdout, nothing else a parser has to skip.
@@ -88,7 +88,7 @@ function firstJsonLine(): unknown {
   return JSON.parse(first);
 }
 
-describe('--json (ALI-951)', () => {
+describe('--json', () => {
   beforeEach(() => {
     out.length = 0;
     exitCode = undefined;

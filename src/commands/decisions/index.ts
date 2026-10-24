@@ -33,7 +33,7 @@ export function registerDecisionsCommand(program: Command): void {
       const config = createConfigStore();
       // Held, not re-derived: the header below printed `opts.env`, which is the FLAG. With no
       // flag that rendered "Decisions (undefined)" - hidden until now only because a bare call
-      // 401'd before it got this far (ALI-772).
+      // 401'd before it got this far.
       const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const client = createGatewayClient(config.getEnvironment(envName));
       const scope = resolveScopeOpts({ repo: opts.repo, all: opts.all }, envName, (m) => console.log(chalk.yellow(m)));
@@ -44,7 +44,7 @@ export function registerDecisionsCommand(program: Command): void {
         if (opts.platform) params['platform'] = opts.platform;
         if (opts.status) params['status'] = opts.status;
         if (opts.space) params['space'] = opts.space;
-        // ALI-798: only local mode has a repo dimension - resolveScopeOpts already dropped
+        // Only local mode has a repo dimension - resolveScopeOpts already dropped
         // (and warned about) repo/all in any other mode, so `scope` is undefined there.
         if (scope?.repo !== undefined) params['repo'] = scope.repo;
         if (scope?.all) params['all'] = scope.all;
@@ -63,7 +63,7 @@ export function registerDecisionsCommand(program: Command): void {
           return;
         }
 
-        // ALI-831: names the queue so the header does not read like the normal listing.
+        // Names the queue so the header does not read like the normal listing.
         console.log(chalk.bold(`\n${opts.unratified ? 'Unratified agent decisions' : 'Decisions'} (${envName})\n`));
         renderTable(
           [
@@ -73,7 +73,7 @@ export function registerDecisionsCommand(program: Command): void {
             { header: 'TITLE', width: 40 },
             { header: 'PLATFORM', width: 14 },
             { header: 'STATUS', width: 12 },
-            // ALI-829: when it was DECIDED, from the source. Empty when the source did not
+            // When it was DECIDED, from the source. Empty when the source did not
             // say - formatWhen returns '' for a missing or unparseable value, so a row with
             // no date never reads "Invalid Date" and never borrows the ingest minute.
             { header: 'DECIDED', width: 14 },

@@ -7,7 +7,7 @@ import { createLocalDb } from '../lib/local-db.js';
 
 const row = (title: string) => ({ title, summary: title, sourceUrl: `https://x.test/${title}`, platform: 'git', repo: null, decidedAt: null, deciderKind: 'human' as const });
 
-describe('LocalDb.withRelaxedSync (ALI-1749)', () => {
+describe('LocalDb.withRelaxedSync', () => {
   it('returns what the callback returns and leaves each write committed on its own', async () => {
     const file = path.join(os.tmpdir(), `align-sync-${Date.now()}-${Math.random()}.db`);
     const db = createLocalDb(file);

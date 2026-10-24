@@ -1,5 +1,5 @@
 /**
- * ALI-794: the "here's what I found" summary - the first thing a fresh user sees,
+ * The "here's what I found" summary - the first thing a fresh user sees,
  * before any credential is asked for.
  *
  * It replaces the bare `Imported N decisions from Git` spinner line, which reports
@@ -38,7 +38,7 @@ export interface FoundSummaryDb {
 }
 
 /**
- * ALI-1772: subjects that read as housekeeping, not as a choice. The importer keeps them (a
+ * Subjects that read as housekeeping, not as a choice. The importer keeps them (a
  * docs commit can state a reason), so this only decides what the first-run box SHOWS first.
  * Conventional `type:` / `type(scope):` shapes only, so prose like "document the retry
  * policy" is not demoted; plus git's own Merge subjects (not prose like "Merge the two workers") and a `[DRAFT` / `[WIP` marker.
@@ -80,7 +80,7 @@ export function buildFoundSummary(db: FoundSummaryDb): FoundSummary {
 
 export function renderFoundSummary(s: FoundSummary, opts: { prDescriptions?: number } = {}): string {
   if (s.total === 0) {
-    // A row of zeros reads as a broken tool, which is the ALI-503 lesson applied to
+    // A row of zeros reads as a broken tool, which is the lesson applied to
     // the first run. Say what is true and let the caller suggest a next source.
     return '  No decisions found in this history yet.';
   }
@@ -96,7 +96,7 @@ export function renderFoundSummary(s: FoundSummary, opts: { prDescriptions?: num
   // "candidate": the importer keeps commits whose message states a reason. That is a text
   // heuristic, so the box does not claim to know which of them were real decisions.
   const lines = [counts];
-  // What kind of source the count came from, said only when there is one to say (ALI-1782).
+  // What kind of source the count came from, said only when there is one to say.
   if (opts.prDescriptions !== undefined && opts.prDescriptions > 0) lines.push(`  including ${opts.prDescriptions} from PR descriptions`);
   if (s.recent.length > 0) {
     lines.push('');

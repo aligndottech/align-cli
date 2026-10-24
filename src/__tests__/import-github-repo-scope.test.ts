@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * ALI-917: `align import github`'s --repo/--all wiring. resolveGitHubRepoScope's own
+ * `align import github`'s --repo/--all wiring. resolveGitHubRepoScope's own
  * decision logic (auto-detect, --repo, --all) is unit-tested in
  * fetchers/github-repo-scope.test.ts; this only checks the command threads its result
  * (or omits `repo` entirely, for connector-core's unscoped default) into fetchGitHubItems,

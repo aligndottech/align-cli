@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SYNC_CEILINGS } from '../lib/import-defaults.js';
 
 /**
- * ALI-388: `align import <src> --personal` - connect via the Align Personal OAuth apps
+ * `align import <src> --personal` - connect via the Align Personal OAuth apps
  * (browser flow, cached token reuse) instead of pasting a PAT. Plus the regression the
  * wiring exposed: jira/confluence read cached tokens under 'jira'/'confluence' while
  * `align setup` persists them under the source's oauthKey ('jira-personal'/
@@ -24,7 +24,7 @@ vi.mock('@clack/prompts', () => ({
 vi.mock('open', () => ({ default: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../lib/fetchers/github.js', () => ({
   fetchGitHubItems: vi.fn().mockResolvedValue({ items: [{ source_url: 'u', platform: 'github', raw_text: 't' }], report: { scanned: 1, skips: [] } }),
-  // ALI-917: repo scope is not what this suite is about.
+  // Repo scope is not what this suite is about.
   resolveGitHubRepoScope: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../lib/fetchers/jira.js', () => ({
@@ -143,7 +143,7 @@ describe('jira/confluence cached-token key matches what align setup persists (th
   });
 });
 
-describe('align import <src> --personal (ALI-388)', () => {
+describe('align import <src> --personal', () => {
   it('uses a cached personal token without opening a browser', async () => {
     configState.tokens['prod:github-personal'] = 'cached-gh-tok';
 
@@ -249,7 +249,7 @@ describe('every OAuth-capable subcommand resolves --personal (the wiring, not ju
   });
 });
 
-describe('align import <x> fetches as much as align setup does (ALI-829, R29)', () => {
+describe('align import <x> fetches as much as align setup does (R29)', () => {
   // Measured 2026-09-02: `align import slack` fetched 50 where setup had fetched 250, so
   // re-importing to get more got less. One constant, two readers.
   it('slack: no --limit means setup\'s ceiling over setup\'s six-month window (L3)', async () => {

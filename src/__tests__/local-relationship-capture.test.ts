@@ -1,6 +1,6 @@
-// ALI-1065: local-embedded typed a relationship only at check-time (checkAlignment),
+// Local-embedded typed a relationship only at check-time (checkAlignment),
 // and even there the typed verdict was never persisted - decision_links only ever held
-// an untyped `relates` cosine edge (see local-similarity-not-conflict.test.ts, ALI-503),
+// an untyped `relates` cosine edge (see local-similarity-not-conflict.test.ts),
 // so align_ask/align_search could return a decision that had actually been superseded
 // with no way to know.
 //
@@ -60,7 +60,7 @@ function cleanup(dbPath: string) {
 beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
 afterEach(() => { vi.unstubAllEnvs(); });
 
-describe("ALI-1065 capture-time classification: budget and gating", () => {
+describe("capture-time classification: budget and gating", () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
 
@@ -112,7 +112,7 @@ describe("ALI-1065 capture-time classification: budget and gating", () => {
   });
 });
 
-describe("ALI-1065 capture-time classification: writes a typed edge, correct direction", () => {
+describe("capture-time classification: writes a typed edge, correct direction", () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
 
@@ -196,7 +196,7 @@ describe("ALI-1065 capture-time classification: writes a typed edge, correct dir
   });
 });
 
-describe("ALI-1065 capture-time classification: failure fallback never blocks capture", () => {
+describe("capture-time classification: failure fallback never blocks capture", () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
 
@@ -271,7 +271,7 @@ describe("ALI-1065 capture-time classification: failure fallback never blocks ca
   });
 });
 
-describe("ALI-1065 read path: searchDecisions/listDecisions report real status", () => {
+describe("read path: searchDecisions/listDecisions report real status", () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
 
@@ -324,7 +324,7 @@ describe("ALI-1065 read path: searchDecisions/listDecisions report real status",
     expect(oldResult).toMatchObject({ status: "superseded" });
   });
 
-  it("a decision with no supersedes/contradicts edge reports no status field at all (ALI-1063 contract)", async () => {
+  it("a decision with no supersedes/contradicts edge reports no status field at all", async () => {
     const only = await client.captureDecision("Adopt gRPC", "cli");
 
     const list = await client.listDecisions({ all: true });
@@ -405,7 +405,7 @@ describe("ALI-1065 read path: searchDecisions/listDecisions report real status",
   });
 });
 
-describe("ALI-1065 local status rollup counts partially_supersedes alongside supersedes", () => {
+describe("local status rollup counts partially_supersedes alongside supersedes", () => {
   it("supersessions sums both relation types", () => {
     const db = createLocalDb(":memory:");
     const a = db.insertDecision({

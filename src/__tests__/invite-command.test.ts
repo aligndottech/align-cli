@@ -13,7 +13,7 @@
  * 5. at an interactive terminal it opens the URL with the allowlisted opener
  * 6. under ALIGN_WRAPPED, or with no TTY, it only prints
  * 7. when the opener fails it says so and still exits 0
- * 8. teammate_requested still fires for a cloud env (the ALI-938 demand signal)
+ * 8. teammate_requested still fires for a cloud env (the demand signal)
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
@@ -156,7 +156,7 @@ describe('align invite - points at Settings > Team invites', () => {
   });
 });
 
-describe('align invite - the teammate_requested funnel signal (ALI-938)', () => {
+describe('align invite - the teammate_requested funnel signal', () => {
   it('fires for a cloud env', async () => {
     await run(['dan@acme.example']);
     expect(recordFunnelStage).toHaveBeenCalledWith(expect.objectContaining({ authToken: 'tok' }), 'teammate_requested', 'invite');

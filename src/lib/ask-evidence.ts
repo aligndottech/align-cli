@@ -1,5 +1,5 @@
 /**
- * ALI-1749 / ALI-1782: the evidence block the model writes an `align ask` answer from.
+ * The evidence block the model writes an `align ask` answer from.
  *
  * Raw commit bodies invite a confident-sounding invented rationale (a version bump read as "chosen
  * for its robustness"). So each retrieved decision is rendered as structured fields: id, date,

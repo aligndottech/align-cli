@@ -1,5 +1,5 @@
 /**
- * ALI-798: the actual retrieval rule on top of the storage-layer primitives tested in
+ * The actual retrieval rule on top of the storage-layer primitives tested in
  * local-db-repo-scope.test.ts - ingestOne stamping a repo at import time, and
  * searchDecisions/listDecisions defaulting to "current repo, or all outside a git repo".
  *
@@ -31,7 +31,7 @@ vi.mock('../lib/similarity/embedding-matrix.js', async () =>
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0)),
   cosineSimilarity: vi.fn((_q: Float32Array, stored: Float32Array) => stored[0]),
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
@@ -208,7 +208,7 @@ describe('retrieval scoping', () => {
     expect(scoped.results.map((r) => r.title)).toContain('Use Postgres');
     expect(scoped.results.map((r) => r.title)).not.toContain('Use SvelteKit');
 
-    // ALI-1082 (Copilot #302): search.ts/why.ts send the CLOUD client's four-argument
+    // Copilot #302: search.ts/why.ts send the CLOUD client's four-argument
     // shape (q, limit, createdBefore, scope) regardless of which client resolveEnv hands
     // back. If the local client still only declares three parameters, `scope` lands in
     // the position JS silently drops, and --all/--repo stop doing anything in local mode.

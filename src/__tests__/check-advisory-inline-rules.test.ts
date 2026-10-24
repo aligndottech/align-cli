@@ -1,5 +1,5 @@
 /**
- * ALI-1648: the advisory hook denies a FIRST attempt when a RATIFIED deterministic rule is
+ * The advisory hook denies a FIRST attempt when a RATIFIED deterministic rule is
  * broken, with no model call and no retry needed.
  *
  * Pairs: ratified -> deny citing the rule / not ratified -> context only. Fetching the rules

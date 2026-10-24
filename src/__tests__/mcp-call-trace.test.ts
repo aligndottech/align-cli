@@ -1,4 +1,4 @@
-// ALI-1494: the MCP call log. With ALIGN_LLM_TRACE_FILE set, every tool call `align mcp` handles
+// The MCP call log. With ALIGN_LLM_TRACE_FILE set, every tool call `align mcp` handles
 // appends one row to the same local file the chat trace uses: the tool name, its arguments, the
 // result (or the error), the calling client when it said who it is, and the duration. Local only,
 // never sent, off by default, owner-only. Nothing here adds a network call or a telemetry event.

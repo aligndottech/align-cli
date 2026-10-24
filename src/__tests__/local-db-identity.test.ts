@@ -47,7 +47,7 @@ describe('identifyingSourceUrl', () => {
     ['https://github.com/aligndottech/align-cli/pull/143'],
     ['https://teams.microsoft.com/l/message/19:abc/1699'],
     ['https://example.atlassian.net/wiki/spaces/ENG/pages/42/Decision'],
-    ['https://linear.app/align/issue/ALI-1'],
+    ['https://linear.app/align/issue/APP-1'],
   ])('treats %j as identifying', (url) => {
     expect(identifyingSourceUrl(url)).toBe(url);
   });

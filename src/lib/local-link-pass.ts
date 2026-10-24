@@ -62,7 +62,7 @@ export async function linkPass(
     }
     // Falls through to the untyped write on any classifier failure - a candidate still worth
     // surfacing as related even when nothing could type it.
-    // ALI-503: `relates`, not `conflicts_with`. This is a cosine score with no judgement
+    // `relates`, not `conflicts_with`. This is a cosine score with no judgement
     // behind it, and labelling it a conflict made `align local status` and the
     // align_get_conflicts MCP tool report manufactured findings as detections.
     db.insertLink({ sourceId: id, targetId: c.decisionId, relation: 'relates', confidence: c.score, detectorVersion: 'v0' });

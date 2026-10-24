@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { chooseAccessPath } from "../lib/access-capability.js";
 
-// ALI-1003: choose API, CLI JSON or MCP by runtime capability. Pure decision table -
+// Choose API, CLI JSON or MCP by runtime capability. Pure decision table -
 // the whole input space is 3 booleans (8 rows), so this enumerates it exhaustively
 // rather than picking two examples per rule, which is the more robust form of the
 // same discipline for a space this small (tdd.md).

@@ -3,7 +3,7 @@
 #
 # The action is authored here, next to decide.sh's truth table and the shell-syntax gate,
 # but it is CONSUMED from a repo root: GitHub Marketplace requires action.yml at the root
-# of a repository, so an action living in .github/actions/ can never be listed (ALI-686).
+# of a repository, so an action living in .github/actions/ can never be listed.
 # The published repo is therefore a mirror of this directory.
 #
 # This is a script rather than inline workflow steps so the transformation is testable.
@@ -24,8 +24,8 @@ mkdir -p "$DEST"
 #
 # This used to be a hardcoded `FILES=(action.yml decide.sh annotate.mjs README.md)`, and the
 # test asserted the same hardcoded list back - two writers of one fact, with action.yml, the
-# file that actually decides what runs, being neither of them. When ALI-710 added
-# adjudicated.sh to action.yml, both copies stayed put, so the mirror would have published an
+# file that actually decides what runs, being neither of them. When adjudicated.sh
+# was added to action.yml, both copies stayed put, so the mirror would have published an
 # action.yml invoking a script absent from the repo. Nothing could see it: the YAML is valid,
 # the shell is valid, and the failure only appears when a stranger runs the published action.
 #
@@ -86,7 +86,7 @@ fi
 echo "mirror.sh: rewrote $BEFORE reference(s) to aligndottech/decision-check@$REF"
 
 # MIT, and shipped rather than assumed. The published repo carried NO licence at all until
-# ALI-686, which under default copyright makes a Marketplace action legally unusable by any
+# a later fix, which under default copyright makes a Marketplace action legally unusable by any
 # organisation with a licence policy - the opposite of a distribution channel.
 cat > "$DEST/LICENSE" <<'EOF'
 MIT License

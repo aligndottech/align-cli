@@ -7,7 +7,7 @@ import { getCommitHistoryDetailed } from '../lib/git.js';
 import { gitCaptureReport, gitCaptureSkips } from '../lib/fetchers/git.js';
 import { GIT_DEFAULT_LIMIT, GIT_KEEP_CAP } from '../lib/import-defaults.js';
 
-/** ALI-1749: `limit` bounds what git SCANS, `keep` bounds what is returned. Real git, synthetic history. */
+/** `limit` bounds what git SCANS, `keep` bounds what is returned. Real git, synthetic history. */
 describe('getCommitHistoryDetailed: scan bound and keep cap', () => {
   let repo: string;
   const git = (args: string[]) =>

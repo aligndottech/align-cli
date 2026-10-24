@@ -1,5 +1,5 @@
 /**
- * ALI-1696 (CLI half): `align capture <url>` must exit non-zero and say nothing was saved when the
+ * CLI half: `align capture <url>` must exit non-zero and say nothing was saved when the
  * gateway cannot read the link, and must never print "Decision captured" for a failure.
  *
  * Test List:
@@ -48,10 +48,10 @@ beforeEach(() => {
   spinner.fail.mockClear();
 });
 
-describe('align capture on a link the gateway cannot read (ALI-1696)', () => {
+describe('align capture on a link the gateway cannot read', () => {
   it('C1: 422 unsupported_source exits 1 with a plain message and no success line', async () => {
     captureDecision.mockRejectedValue(gatewayError('Gateway returned 422 for /ingest: unsupported_source', 422));
-    await run('https://linear.app/acme/issue/ALI-1');
+    await run('https://linear.app/acme/issue/APP-1');
     expect(exitCode).toBe(1);
     expect(spinner.succeed).not.toHaveBeenCalled();
     expect(spinner.fail.mock.calls[0][0]).toMatch(/cannot read https:\/\/linear\.app/);
@@ -60,7 +60,7 @@ describe('align capture on a link the gateway cannot read (ALI-1696)', () => {
 
   it('C2: a 401 exits 1 and prints no success line', async () => {
     captureDecision.mockRejectedValue(gatewayError('Gateway returned 401 for /ingest: unauthorized', 401));
-    await run('https://linear.app/acme/issue/ALI-1');
+    await run('https://linear.app/acme/issue/APP-1');
     expect(exitCode).toBe(1);
     expect(spinner.succeed).not.toHaveBeenCalled();
   });

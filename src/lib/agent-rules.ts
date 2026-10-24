@@ -4,17 +4,17 @@ import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 import { alignServerEntry } from './mcp-setup.js';
 import { safeWriteJson, type SafeWriteOptions, safeWriteText } from './safe-config-write.js';
 
-// ALI-121: the deterministic auto-alignment layer. ALI-120 gave the MCP server
+// The deterministic auto-alignment layer. The MCP server already had
 // instructions (model discretion); these project-local, committed files make the
 // alignment context fire regardless of which agent/model the user runs:
 //  - .claude/settings.json  Pre/PostToolUse hook -> `align check --advisory` (Claude Code)
-//  - .claude/settings.json  SessionStart hook -> `align context inject` (Claude Code, ALI-933)
+//  - .claude/settings.json  SessionStart hook -> `align context inject` (Claude Code)
 //  - CLAUDE.md               managed nudge block (Claude Code)
 //  - AGENTS.md               managed nudge block (the cross-agent standard read by
 //                            Cursor, Windsurf, Codex, Gemini, Zed, and others)
 //  - .cursor/rules/align.md  project rule (Cursor ignores Claude Code hooks)
 //
-// ALI-933: the write-path hooks above only ever reach the model if the AGENT edits a
+// The write-path hooks above only ever reach the model if the AGENT edits a
 // file. Nothing delivered the graph's content unprompted - a claim like "the agent
 // already has the answer" was only true of the ask-based MCP path, never of a fresh
 // session. writeClaudeCodeSessionHook is the read-path counterpart: it fires at
@@ -26,7 +26,7 @@ import { safeWriteJson, type SafeWriteOptions, safeWriteText } from './safe-conf
 // check also self-bounds (see ADVISORY_TIMEOUT_MS in check.ts); this is the backstop.
 const HOOK_TIMEOUT_SECONDS = 10;
 
-// The command a SessionStart hook shells out to (ALI-933). No --env flag: unlike the
+// The command a SessionStart hook shells out to. No --env flag: unlike the
 // advisory check, this reads a local file (.align/decisions.md) and never touches the
 // gateway, so there is no environment to encode.
 const SESSION_INJECT_COMMAND = 'align context inject';
@@ -43,7 +43,7 @@ const SESSION_START_MATCHER = 'startup|resume|clear|compact|fork';
 export const ALIGN_NUDGE_START = '<!-- align:start (managed by `align setup` - do not edit) -->';
 export const ALIGN_NUDGE_END = '<!-- align:end -->';
 
-// ALI-1778: every project file goes through the safe writer (safe-config-write.ts), the same one
+// Every project file goes through the safe writer (safe-config-write.ts), the same one
 // the user-level configs use. That is what records each write in the ledger `align use --undo`
 // reads, keeps the first copy of a file that already existed, and refuses to write through a
 // symlink. `root: cwd` limits the link check to inside the repo.
@@ -92,8 +92,8 @@ export function writeClaudeCodeHook(cwd: string, env?: string, onForeign?: OnFor
       return undefined;
     }
     // The same advisory command goes in both events; it self-detects Pre vs Post from the
-    // hook payload on stdin. PreToolUse catches a conflict before the edit is written
-    // (ALI-122); PostToolUse is the backstop on the landed change (ALI-121). Strip any
+    // hook payload on stdin. PreToolUse catches a conflict before the edit is written;
+    // PostToolUse is the backstop on the landed change. Strip any
     // prior align-managed group from each so re-runs stay idempotent and pick up env changes.
     const alignGroups = alignClaudeHooks(env);
     for (const event of ['PreToolUse', 'PostToolUse'] as const) {
@@ -109,7 +109,7 @@ export function writeClaudeCodeHook(cwd: string, env?: string, onForeign?: OnFor
   return status === 'written' || status === 'unchanged';
 }
 
-// Merge a SessionStart hook into the project .claude/settings.json (ALI-933) - the
+// Merge a SessionStart hook into the project .claude/settings.json - the
 // read-path counterpart to writeClaudeCodeHook above. Separate function, separate merge:
 // it touches a different top-level hook key (SessionStart, not Pre/PostToolUse) for a
 // different purpose (inject the graph unprompted, not check a proposed edit), and
@@ -235,7 +235,7 @@ export function writeProjectMcpConfig(cwd: string, env?: string, onForeign?: OnF
     if (onForeign && env === 'local' && servers['align'] !== undefined && !carriesLocalEnv(JSON.stringify(servers['align']))) {
       return undefined;
     }
-    // `committed: true` keeps the Windows `cmd /c` wrapper OUT of this file (ALI-1135). It is
+    // `committed: true` keeps the Windows `cmd /c` wrapper OUT of this file. It is
     // the one MCP config that travels: a wrapper written here by a Windows machine would be
     // committed and then fail to spawn for every teammate on macOS or Linux. Windows readers
     // get the wrapper from their own user-level entry instead.
@@ -261,7 +261,7 @@ export function writeProjectMcpConfig(cwd: string, env?: string, onForeign?: OnF
 // Two events, because pi splits the two halves of what Claude Code does in one:
 //   tool_call   fires BEFORE the edit, but its only return channel is {block, reason}
 //   tool_result fires after, and CAN patch the content the model reads
-// So the check runs pre-edit (the point of ALI-122) and its finding is replayed into
+// So the check runs pre-edit (the whole point) and its finding is replayed into
 // that same call's result - non-blocking by default, exactly like the Claude hook.
 //
 // The extension deliberately declares its own structural types instead of importing
@@ -270,10 +270,10 @@ export function writeProjectMcpConfig(cwd: string, env?: string, onForeign?: OnF
 /**
  * The spawn preamble both generated plugins embed.
  *
- * ALI-1184. An npm global install on Windows exposes `align.cmd`, and a process spawn
+ * An npm global install on Windows exposes `align.cmd`, and a process spawn
  * resolves a `.cmd` only through a shell - Node's child_process refuses one outright. `cmd`
  * is a real executable, so `cmd /c align` launches and cmd resolves `align` -> `align.cmd`
- * through PATH + PATHEXT. Same form ALI-1135 settled on for the MCP configs.
+ * through PATH + PATHEXT. Same form the MCP configs settled on.
  *
  * IT BRANCHES AT RUNTIME, NOT HERE. A generated plugin is a file that can be committed,
  * shared, or synced to a machine with a different OS than the one that generated it. Baking

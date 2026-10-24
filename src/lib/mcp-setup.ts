@@ -22,7 +22,7 @@ export interface EditorTarget {
   configPath: string;
   format: McpFormat;
   /**
-   * The host's USER-level hook file, for the hosts that have one (ALI-952: Codex, Cursor,
+   * The host's USER-level hook file, for the hosts that have one (Codex, Cursor,
    * Copilot CLI). writeMcpConfig writes the advisory pre-edit hook there next to the MCP
    * entry, and removeMcpConfig takes it out again. Absent on hosts with no hook API.
    */
@@ -34,7 +34,7 @@ function alignArgs(env?: string): string[] {
 }
 
 /**
- * How a client should SPAWN the align MCP server, per platform (ALI-1135).
+ * How a client should SPAWN the align MCP server, per platform.
  *
  * An npm global install on Windows exposes `align.cmd`, a batch shim, and a Windows process
  * spawn resolves a `.cmd` only through a shell - Node's own child_process refuses one outright
@@ -53,7 +53,7 @@ function alignArgs(env?: string): string[] {
  */
 function alignSpawn(env?: string, trustedBin?: string | null): { command: string; args: string[] } {
   const args = alignArgs(env);
-  // ALI-1515: a per-session entry names align by the absolute path the launcher resolved, so the agent
+  // A per-session entry names align by the absolute path the launcher resolved, so the agent
   // does not resolve a bare `align` through its own PATH, where a repo-local copy could shadow it.
   const bin = trustedBin ?? 'align';
   return process.platform === 'win32' ? { command: 'cmd', args: ['/c', bin, ...args] } : { command: bin, args };
@@ -73,7 +73,7 @@ export function alignServerEntry(
   // spawns on both platforms, so the Windows wrapper below is correct for the machine that ran
   // the command and wrong for everyone else's checkout. A per-machine config takes the
   // wrapper; a committed one stays portable and its Windows readers use their user-level
-  // entry, which `align mcp --setup` writes with the wrapper (ALI-1135).
+  // entry, which `align mcp --setup` writes with the wrapper.
   const { command, args } = opts.committed ? { command: 'align', args: alignArgs(env) } : alignSpawn(env, opts.trustedBin);
   switch (format) {
     case 'vscode':
@@ -143,7 +143,7 @@ export function detectEditors(): EditorTarget[] {
     found.push({ name: 'Claude Code', configPath: path.join(home, '.claude.json'), format: 'mcpServers' });
   }
 
-  // Cursor (~/.cursor/mcp.json). Hooks: ~/.cursor/hooks.json, Cursor 1.7+ (ALI-952).
+  // Cursor (~/.cursor/mcp.json). Hooks: ~/.cursor/hooks.json, Cursor 1.7+.
   if (existsSync(path.join(home, '.cursor'))) {
     found.push({
       name: 'Cursor',
@@ -173,7 +173,7 @@ export function detectEditors(): EditorTarget[] {
     found.push({ name: 'Zed', configPath: path.join(home, '.config', 'zed', 'settings.json'), format: 'zed' });
   }
 
-  // OpenAI Codex CLI (~/.codex/config.toml). Hooks: ~/.codex/hooks.json (ALI-952).
+  // OpenAI Codex CLI (~/.codex/config.toml). Hooks: ~/.codex/hooks.json.
   if (existsSync(path.join(home, '.codex'))) {
     found.push({
       name: 'Codex',
@@ -184,7 +184,7 @@ export function detectEditors(): EditorTarget[] {
   }
 
   // GitHub Copilot CLI (~/.copilot/mcp-config.json). Hooks: one file of ours under
-  // ~/.copilot/hooks/, which Copilot loads alongside any others there (ALI-952).
+  // ~/.copilot/hooks/, which Copilot loads alongside any others there.
   if (existsSync(path.join(home, '.copilot'))) {
     found.push({
       name: 'Copilot CLI',
@@ -369,7 +369,7 @@ function writeJsonConfig(target: EditorTarget, env?: string, onForeign?: OnForei
 }
 
 /**
- * Take Align back out of an agent's MCP config (ALI-776).
+ * Take Align back out of an agent's MCP config.
  *
  * Setup wires detected agents automatically rather than asking, which is only defensible
  * because the write is additive AND reversible. This is the reversible half - without it,
@@ -385,7 +385,7 @@ function writeJsonConfig(target: EditorTarget, env?: string, onForeign?: OnForei
  */
 export function removeMcpConfig(target: EditorTarget): boolean {
   // The hook file first, and unconditionally: it is a separate file, so an MCP config that
-  // was already hand-cleaned must not leave the hook behind (ALI-952).
+  // was already hand-cleaned must not leave the hook behind.
   const hookRemoved = target.hooks ? removeUserHooks(target.hooks) : false;
   return removeMcpEntry(target) || hookRemoved;
 }
@@ -423,7 +423,7 @@ function removeMcpEntry(target: EditorTarget): boolean {
 
 /**
  * Wire one agent: its MCP entry, plus the user-level advisory hook on the hosts that have
- * one (ALI-952). Returns every file it wrote, in order, for the caller to disclose - the
+ * one. Returns every file it wrote, in order, for the caller to disclose - the
  * hook file is the one a user would not expect to have been touched.
  */
 export function writeMcpConfig(
@@ -453,7 +453,7 @@ export function mcpConfigFiles(target: EditorTarget): string[] {
 }
 
 /**
- * ALI-950: is Align already in this agent's config? The second-run card names the agents
+ * Is Align already in this agent's config? The second-run card names the agents
  * wired NOW, which is a different question from detectEditors' "installed": an agent whose
  * write failed, or that `align mcp --remove` ran on, is installed and not connected, and
  * telling someone to open it hands them an agent that cannot answer.

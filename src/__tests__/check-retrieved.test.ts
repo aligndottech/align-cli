@@ -1,9 +1,9 @@
 /**
- * `retrieved` is the third member of the family check.ts's ALI-414 comments are about:
+ * `retrieved` is the third member of the family check.ts's fail-closed comments are about:
  * decisions came back, nothing adjudicated them. It is not a conflict and it is emphatically
  * not "nothing found", because relevant_decisions is populated - and with it missing from the
  * status branches it fell into the no-context `else` and printed "No related decisions found"
- * while exiting 0. That is the same defect ALI-348 fixed for `unknown`, on the value the
+ * while exiting 0. That is the same defect that was fixed for `unknown`, on the value the
  * cloud client already declares and the local client now returns for `depth:'related'`.
  *
  * Harness copied from check-unknown.test.ts on purpose: same subject, same seams.

@@ -1,5 +1,5 @@
 /**
- * ALI-808 Claude Code adapter, backed by a real trimmed session fixture (see
+ * Claude Code adapter, backed by a real trimmed session fixture (see
  * fixtures/sessions/README.md).
  *
  * Test List:
@@ -32,7 +32,7 @@ describe('claudeCodeAdapter.parseSession', () => {
 
   it("a plain user turn's text is its own words, not a tool result", () => {
     const session = claudeCodeAdapter.parseSession(FIXTURE)!;
-    expect(session.turns[0].text).toMatch(/main is broken by ALI-734/);
+    expect(session.turns[0].text).toMatch(/main is broken by APP-734/);
     expect(session.turns[0].toolCalls).toEqual([]);
   });
 
@@ -42,7 +42,7 @@ describe('claudeCodeAdapter.parseSession', () => {
     expect(turn.toolCalls).toHaveLength(1);
     expect(turn.toolCalls[0].name).toBe('AskUserQuestion');
     const input = turn.toolCalls[0].arguments as { questions: Array<{ question: string }> };
-    expect(input.questions[0].question).toMatch(/main is broken by ALI-734/);
+    expect(input.questions[0].question).toMatch(/main is broken by APP-734/);
   });
 
   it('captures the matching tool_result text, keyed by the tool call id', () => {

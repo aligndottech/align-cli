@@ -2,7 +2,7 @@ import type { Command, Option } from 'commander';
 import { COMMAND_REGISTRY, type CommandEntry, ROOT_SUMMARY } from '../commands/registry.js';
 
 /**
- * docs/commands.md's generated region (ALI-951). `npm run docs:commands` writes it from the
+ * docs/commands.md's generated region. `npm run docs:commands` writes it from the
  * registry and the Commander tree; commands-doc.test.ts fails when the committed region and
  * this renderer disagree. Prose outside the markers is hand-written and left alone.
  */

@@ -14,7 +14,7 @@ vi.mock('../lib/similarity/embedding-matrix.js', async () =>
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: mockGetEmbedding,
   cosineSimilarity: mockCosine,
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
@@ -22,9 +22,9 @@ vi.mock('../lib/local-embeddings.js', () => ({
 
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
-// ALI-503: this file used to assert that a cosine match writes `conflicts_with`, i.e. it
+// This file used to assert that a cosine match writes `conflicts_with`, i.e. it
 // pinned the defect as the specification. Same thresholds, same branches, correct label.
-describe('similarity linking threshold (ALI-503)', () => {
+describe('similarity linking threshold', () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
 

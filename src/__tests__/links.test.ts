@@ -79,7 +79,7 @@ describe('align links list', () => {
     expect(rows[0][3]).toBe('0.0');
   });
 
-  it('says how many links exist beyond the page instead of truncating silently (ALI-587)', async () => {
+  it('says how many links exist beyond the page instead of truncating silently', async () => {
     mockListDecisionLinks.mockResolvedValue({
       links: [{
         id: 'link-4',

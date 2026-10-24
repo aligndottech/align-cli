@@ -5,8 +5,8 @@
 # and types `align`. Four layers sit between those two and none of them is
 # covered by any test: the tsc output in dist/, the package.json "files" list
 # (a file missing from it is missing from npm, invisible in a checkout), the
-# install weight (the tarball must not drag a 780MB ML runtime back in, ALI-1781), and
-# Commander's argv parsing (ALI-422 lived exactly
+# install weight (the tarball must not drag a 780MB ML runtime back in), and
+# Commander's argv parsing (a past bug lived exactly
 # there - green tests, broken CLI). This script packs the real tarball, installs it
 # globally into a clean prefix, and runs the cold no-account first-run sequence,
 # asserting exit codes.
@@ -17,7 +17,7 @@
 # It proves nothing about whether the output is USEFUL - that is what human
 # testers are for. It proves the sequence a cold user types does not crash.
 #
-# WHICH FAILURES ARE OURS (ALI-713)
+# WHICH FAILURES ARE OURS
 # ---------------------------------
 # Every FAIL below is ours and blocks. Exactly one thing is not: huggingface.co (or github.com)
 # returning HTTP 429 for the ~23MB embedding model or the ~20MB runtime download, which it does
@@ -122,7 +122,7 @@ echo "installed: $ALIGN_BIN"
 CLI_PKG="$PREFIX/lib/node_modules/@aligndottech/cli"
 [ -d "$CLI_PKG" ] || CLI_PKG="$PREFIX/node_modules/@aligndottech/cli"   # Windows npm layout
 
-# INSTALL WEIGHT (ALI-1781). A plain `npm install` of this package was 779MB because
+# INSTALL WEIGHT. A plain `npm install` of this package was 779MB because
 # @huggingface/transformers pulled onnxruntime-node (every OS plus CUDA), onnxruntime-web and
 # sharp. The on-device runtime is downloaded on first local use instead, so the install itself
 # must stay small and must not contain any of them. Two assertions, because they fail differently:
@@ -140,12 +140,12 @@ if [ -n "$(printf '%s' "$HEAVY" | tr -d '[:space:]')" ]; then
   exit 1
 fi
 if [ "$((INSTALL_KB / 1024))" -gt "${ALIGN_SMOKE_INSTALL_BUDGET_MB:-100}" ]; then
-  echo "FAIL: install is $((INSTALL_KB / 1024)) MB, over the ${ALIGN_SMOKE_INSTALL_BUDGET_MB:-100} MB budget (was 779 MB before ALI-1781)"
+  echo "FAIL: install is $((INSTALL_KB / 1024)) MB, over the ${ALIGN_SMOKE_INSTALL_BUDGET_MB:-100} MB budget (was 779 MB before the ML runtime was split out)"
   exit 1
 fi
 
 # ---------------------------------------------------------------------------
-# Where the on-device runtime and model cache for this run (ALI-713, ALI-1781).
+# Where the on-device runtime and model cache for this run.
 #
 # The CLI keeps both in the user cache dir, never in the install tree, and ALIGN_MODEL_CACHE
 # points that at a directory the smoke controls. In CI it is the actions/cache path, used IN
@@ -193,7 +193,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # Fixture repo: a cold user's project. Three commits, two with a real BODY
-# stating the reason - ALI-804's hasStatedRationale() requires a non-empty
+# stating the reason - hasStatedRationale() requires a non-empty
 # body (git.ts), so a rationale folded into the subject line alone (the
 # original shape here) is filtered out same as a chore commit. Two -m flags
 # give each commit a subject and a separate body paragraph.
@@ -252,7 +252,7 @@ skip_upstream() { # <name>
 #
 # Output is captured rather than streamed because the exit code alone cannot classify these:
 # `align --local` and `align connect git` both report a failed batch as a WARNING and
-# exit 0, which is how the ALI-713 run reported PASS for both while importing nothing.
+# exit 0, which is how the run reported PASS for both while importing nothing.
 # classify_step_result therefore reads the 429 before the exit code (see smoke-model.sh).
 STEP_OUT=""
 STEP_RESULT=""
@@ -273,7 +273,7 @@ step_model() { # <name> <timeout-s> <cmd...>
 }
 
 # An import step that exits 0 having imported nothing is an assertion that cannot fail, and
-# it is what let the 429 through twice on the ALI-713 run. Both importing steps report
+# it is what let the 429 through twice on the run. Both importing steps report
 # "Imported 0 decisions (1 batch failed)" and exit 0; a healthy run says "Imported 2
 # decisions" with no batch line at all (checked against a passing job, not assumed).
 assert_import_complete() { # <name> <output>
@@ -301,7 +301,7 @@ step "align local status"       60  align local status
 step_model "align search (local)" 120 align search "postgres" --env local --limit 5
 step "align context sync"       60  align context sync --env local
 # The sync's whole contract is the written artifact, not its exit code: the
-# owned file must exist, and re-running must not change a byte (ALI-602 DoD).
+# owned file must exist, and re-running must not change a byte.
 if [ -f .align/decisions.md ]; then
   echo "PASS: context file written"
 else
@@ -364,7 +364,7 @@ echo "$ADVISORY_OUT"
 #
 # Asserted on EVERY platform. A previous version of this block excused Windows, citing two
 # defects that do not exist: it claimed `import git` duplicated only there and that Windows
-# (`import git` was the spelling at the time; retired in 0.40.0, ALI-951 - this line records
+# (`import git` was the spelling at the time; retired in 0.40.0 - this line records
 # what the review said, so it keeps the old name deliberately)
 # embeddings scored below threshold. Both were wrong. All nine legs reported the same 4-decision
 # graph, and Windows `search "postgres"` scored 0.51 against ubuntu's 0.51 - the divergence was
@@ -391,7 +391,7 @@ step "align mcp --setup"        60  align mcp --setup --env local
 # Windows, and cmd resolves `align` -> align.cmd via PATH + PATHEXT, while the
 # full POSIX-style path to the sh shim is unrunnable there.
 step "MCP handshake"            60  node "$SCRIPT_DIR/smoke-mcp-handshake.mjs" align
-# ALI-1135. The two steps above cannot see a config that names an unspawnable command.
+# The two steps above cannot see a config that names an unspawnable command.
 # `align mcp --setup` writes NOTHING here - the synthetic HOME above means detectEditors()
 # finds no editor, so only its exit code is exercised - and the handshake spawns through a
 # shell on Windows, which is exactly what a client like VS Code does not do. This drives the
@@ -403,7 +403,7 @@ rm -f "$TARBALL"
 echo "embedding cache after run: $(find "$EMBED_CACHE" -type f 2>/dev/null | wc -l | tr -d ' ') file(s), $(du -sk "$EMBED_CACHE" | cut -f1) KB at $EMBED_CACHE"
 
 # The vector contract, on the CLI's real loader: cosine >= 0.9999 against the reference vectors
-# from the stack npm installs shipped before ALI-1781. Skipped when the cache is empty (a 429
+# from the stack npm installs shipped before the runtime was split out. Skipped when the cache is empty (a 429
 # upstream), because a parity run must not become a second download that fails for the same reason.
 if model_weights_present "$EMBED_CACHE" && runtime_present "$EMBED_CACHE"; then
   step "embedding parity vs transformers.js on this machine" 300 node "$SCRIPT_DIR/verify-embedding-parity.mjs" "$CLI_PKG" --live

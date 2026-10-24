@@ -1,7 +1,7 @@
 /**
  * `align invite [email]` points an org admin at Settings > Team invites in the web app.
  *
- * It used to POST /admin/invites with the CLI's api_token (ALI-938). The gateway now refuses that
+ * It used to POST /admin/invites with the CLI's api_token. The gateway now refuses that
  * on purpose (requireAdminSurface): an agent's token must not add team members, so invites are
  * created in the browser by a signed-in admin. This command creates nothing and calls no invite
  * route. It prints the page and, for a person at a terminal, opens it with the allowlisted opener
@@ -43,7 +43,7 @@ export function registerInviteCommand(program: Command): void {
         return;
       }
 
-      // ALI-938: the demand signal survives the move to the browser. Fired without await:
+      // The demand signal survives the move to the browser. Fired without await:
       // telemetry must never delay or fail the command it rides on.
       void recordFunnelStage(env, 'teammate_requested', 'invite');
 

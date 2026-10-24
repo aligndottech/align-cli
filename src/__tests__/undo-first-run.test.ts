@@ -8,7 +8,7 @@ import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { mergeWrittenConfig, setWriteRecorder, type WrittenConfig } from '../lib/safe-config-write.js';
 
 /*
- * ALI-1778 / ALI-1749. What first run writes into a repo, `align use --undo` takes back out.
+ * What first run writes into a repo, `align use --undo` takes back out.
  * The real writer (setupAgentAlignment) runs in a temp repo with the real recorder shape; the
  * real undo (runUse --undo) reads the ledger it filled.
  *

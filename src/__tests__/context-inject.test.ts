@@ -1,5 +1,5 @@
 /**
- * ALI-933: `align context inject` - the read-path counterpart to `align check --advisory`.
+ * `align context inject` - the read-path counterpart to `align check --advisory`.
  *
  * The write path (agent-rules.ts's Pre/PostToolUse hooks) reaches the model on every edit.
  * Nothing reached the model on SESSION START before this - the graph's content only landed

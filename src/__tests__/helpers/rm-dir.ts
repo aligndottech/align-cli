@@ -6,7 +6,7 @@ import fs from 'node:fs';
  * (wait grows by retryDelay on each try), so the total wait is retryDelay * N * (N+1) / 2, not
  * retryDelay * N - the previous (10, 100) was already ~5.5s, not the ~1s it reads as. Still not
  * enough under heavy contention while a spawned child (plus whatever process tree an ESM loader
- * adds) is mid-shutdown: a manual Windows CI run hit EBUSY here (ALI-1669) even with that
+ * adds) is mid-shutdown: a manual Windows CI run hit EBUSY here even with that
  * budget. (20, 150) is ~31.5s - a real e2e test's cleanup is exactly where reliability matters
  * more than shaving seconds, and these options are inert on POSIX (the error codes they retry
  * on are a Windows-only failure mode, so this costs nothing there).

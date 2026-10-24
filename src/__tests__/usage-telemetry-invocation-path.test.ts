@@ -1,7 +1,7 @@
 /**
- * ALI-949: bare `align` recorded nothing. The postAction hook in src/index.ts built the
+ * Bare `align` recorded nothing. The postAction hook in src/index.ts built the
  * command path by walking `actionCommand.parent`, and the ROOT command (`program.action(
- * runDefaultAction)`, ALI-773) has no parent - so the path was '' and the funnel's
+ * runDefaultAction)`) has no parent - so the path was '' and the funnel's
  * "activated" stage could not see the primary first-run path at all.
  *
  * invocationCommandPath is the extracted walk, exercised through real Commander objects so

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
 
 /**
- * ALI-827: the label/unit table is keyed by connector id, and every `align import <id>`
+ * The label/unit table is keyed by connector id, and every `align import <id>`
  * command is a file of that name. Hold the two sets equal, so a connector added without
  * a noun (or a noun for a connector that does not exist) fails here rather than printing
  * "12 undefined" at the end of someone's import.

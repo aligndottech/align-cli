@@ -85,7 +85,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   }
 
   /**
-   * ALI-798's actual scoping rule, in one place so every retrieval caller (CLI command,
+   * The actual scoping rule, in one place so every retrieval caller (CLI command,
    * MCP tool) gets it uniformly rather than re-implementing it: `all` drops the filter
    * entirely; an explicit `repo` scopes to it (resolved against what is actually in the
    * graph); naming neither defaults to the CURRENT repo when one exists, and to unscoped
@@ -120,7 +120,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // matches fall outside the scope.
     scopeFilter?: { repo?: string; includeUnattributed?: boolean; createdBefore?: string },
   ): Promise<Array<{ decisionId: string; score: number }>> {
-    // ALI-787: unconditional, not opt-in. `embedding` is always current-model (getEmbedding's
+    // Unconditional, not opt-in. `embedding` is always current-model (getEmbedding's
     // one production path), so a stored vector tagged with a DIFFERENT model would produce a
     // plausible, meaningless cosine score rather than an error - excluded here rather than
     // trusted, the same "degrade honestly" rule checkDrift below applies to a single decision.
@@ -129,7 +129,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       .filter(e => e.decisionId !== excludeId)
       .map(e => ({ decisionId: e.decisionId, score: cosineSimilarity(embedding, e.embedding) }))
       .filter(e => e.score >= threshold)
-      // ALI-218: id tiebreaker so equal-similarity candidates slice deterministically.
+      // Id tiebreaker so equal-similarity candidates slice deterministically.
       // Code-unit tiebreak, not localeCompare: collation varies by machine locale,
       // and which equal-scored candidate makes the slice must not.
       .sort((a, b) => b.score - a.score || (a.decisionId < b.decisionId ? -1 : a.decisionId > b.decisionId ? 1 : 0))
@@ -139,15 +139,15 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   // Shared ingest path: insert, embed (title + summary), link similar decisions.
   // Used by both captureDecision (single, may parse a URL) and ingestBatch.
   // Says "similar", not "conflicts": an embedding cannot tell agreement from opposition,
-  // and calling this conflict detection is what ALI-503 was (see SIMILARITY_THRESHOLD).
+  // and calling this conflict detection is the mistake this threshold exists to avoid (see SIMILARITY_THRESHOLD).
   /**
-   * ALI-1065: the capture-time typed edges, shaped for the wire the SAME way the cloud
-   * gateway spells them (align-stack ALI-1066/ALI-1092: `successor`/`conflicts_with`, as
+   * The capture-time typed edges, shaped for the wire the SAME way the cloud
+   * gateway spells them (align-stack: `successor`/`conflicts_with`, as
    * `{ id, title, source_url, relation }`) - so `withDecisionRelationContract` in
    * decision-relations.ts needs no local-specific branch to carry them to an agent.
    */
   /**
-   * ALI-1087 (Copilot #320): `DecisionRow.createdAt` is written only by SQLite's own
+   * Copilot #320: `DecisionRow.createdAt` is written only by SQLite's own
    * `datetime('now')` default - 'YYYY-MM-DD HH:MM:SS', a space, no offset - while
    * `createdBefore` is validated as an ISO-8601 instant with a 'T' and an offset/Z. On any
    * date the two share, ' ' (0x20) sorts before 'T' (0x54) regardless of the actual clock
@@ -163,7 +163,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
   }
 
   /**
-   * ALI-1087: `createdBefore`, when given, bounds an as-of query - mirroring the cloud's
+   * `createdBefore`, when given, bounds an as-of query - mirroring the cloud's
    * `attachSupersessionSuccessors`/`attachConflictCounterparts` (align-stack#2447). BOTH
    * halves of an edge are bounded separately, because they can differ: the edge itself may
    * have been recorded after the cutoff even though both decisions it joins predate it (a
@@ -280,7 +280,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     const heldRow = capturedAsUrl ? db.noteCaptureOfHeldItem(sourceUrl!) : null;
     if (heldRow) return { id: heldRow.id, title: heldRow.title, summary: heldRow.summary, sourceUrl: heldRow.sourceUrl, platform: heldRow.platform, related: [], created: false, changed: false, redacted };
 
-    // ALI-792: what the text points at, stored beside the decision. When the whole
+    // What the text points at, stored beside the decision. When the whole
     // input IS the URL being captured, there is nothing to point at - and comparing
     // the extracted ref against the WHATWG-normalized href leaks on every
     // normalization delta (default-port stripping, scheme case), so the URL-capture
@@ -289,7 +289,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // raw_text that quotes its own address is not a self-reference.
     const refs = capturedAsUrl ? [] : extractRefs(input).filter(r => r.ref !== sourceUrl);
 
-    // ALI-798: which repo this decision belongs to. A hosted code URL (any platform, not
+    // Which repo this decision belongs to. A hosted code URL (any platform, not
     // just 'git' - a GitHub PR captured by hand is still code) names its own repo directly.
     // Only a git-sourced item with NO hosted remote (a self-hosted GHES, a repo never
     // pushed) falls back to the CURRENT repo - that fallback is deliberately narrow: a
@@ -300,9 +300,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // BEFORE the upsert: insertDecision returns the surviving id whether it inserted or
     // refreshed, so this is the only moment the difference is visible. Without it a
     // re-import reports every decision as imported while the graph does not move, which
-    // reads as having imported twice (ALI-770).
+    // reads as having imported twice.
     //
-    // ALI-829: a Slack thread arriving under a real title replaces the tombstone-titled row
+    // A Slack thread arriving under a real title replaces the tombstone-titled row
     // an older fetcher may have written for the same source_url (see local-db.ts). Removed
     // BEFORE the lookup: L2 finds a Slack thread by its source_key, which the tombstone shares.
     //
@@ -320,7 +320,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       if (kept.keptDiscussion) pending = false;
     }
     const created = existingId === null;
-    // ALI-829: the source's own date, normalised once. An unparseable date drops the FIELD,
+    // The source's own date, normalised once. An unparseable date drops the FIELD,
     // never the item: the summary is the thing the user came for.
     const decidedAt = normaliseDecidedAt(opts.createdAt);
 
@@ -346,11 +346,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     // rather than new text beside the old text's vector.
     const embedText = title === summary ? summary : `${title}. ${summary}`;
     const embedding = await getEmbedding(embedText);
-    // ALI-831: origin, from the platform - the same rule the cloud applies on insert.
+    // Origin, from the platform - the same rule the cloud applies on insert.
     const deciderKind = deriveDeciderKind(platform);
     const id = db.insertDecision({ title, summary, sourceUrl, platform, repo, decidedAt, deciderKind, keyed: opts.keyed, detailPending: pending });
     db.replaceRefs(id, refs);
-    // ALI-796's payoff: if some earlier decision already cited THIS one (a git commit
+    // The payoff: if some earlier decision already cited THIS one (a git commit
     // citing a Jira key before Jira was ever connected), resolve that gap into a real
     // link now that the cited item has arrived. Harmless no-op for platforms with no
     // citable identity (refIdentityFor returns [] for a plain git/slack/cli capture).
@@ -383,7 +383,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
 
     async captureDecision(input: string, platform = 'cli') {
       const r = await ingestOne(input, platform);
-      // ALI-831: provenanceOf needs the stored row, not ingestOne's return shape (which has
+      // provenanceOf needs the stored row, not ingestOne's return shape (which has
       // no ratifiedAt/ratifiedBy) - a fresh capture is always unratified, but reading it back
       // rather than asserting it keeps this one writer honest if that ever stops being true.
       const row = db.getDecisionById(r.id);
@@ -422,7 +422,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
                 id: c.decisionId,
                 title: db.getDecisionById(c.decisionId)?.title ?? '',
                 // Must match the relation actually written above, or this is a second writer
-                // of the same fact that can drift from it (ALI-503).
+                // of the same fact that can drift from it.
                 relationship: 'relates',
                 confidence: c.score,
               })),
@@ -466,10 +466,10 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     },
 
     /**
-     * ALI-808: the confirm-each session importer's one write path. Ingests exactly like
+     * The confirm-each session importer's one write path. Ingests exactly like
      * ingestBatch does above (same ingestOne, so platform 'agent-session' derives
      * decider_kind 'agent' for free via deriveDeciderKind - see decider-kind.ts) then stamps
-     * confirmed_by/confirmed_at via local-db.ts's markConfirmed, the column ALI-831 reserved
+     * confirmed_by/confirmed_at via local-db.ts's markConfirmed, the column the provenance work reserved
      * for this. Not exposed through ingestBatch/captureDecision: those exist for every other
      * platform and stay untouched; this is a new, narrow path with its own name so a caller
      * cannot reach it by accident with the wrong platform string.
@@ -492,7 +492,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     },
 
     /**
-     * One decision by id, for `align decisions show` (ALI-772).
+     * One decision by id, for `align decisions show`.
      *
      * `decisions` was left off the preferLocalEmbedded redirect that ask, search and import
      * have, so the obvious command for "show me my graph" resolved to an unauthenticated
@@ -526,23 +526,23 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       };
     },
 
-    // ALI-602: `align context sync --env local` lists the graph without a query.
+    // `align context sync --env local` lists the graph without a query.
     // The db reads newest-first; the renderer re-sorts deterministically, so the
     // order here only decides WHICH rows survive the limit (newest do).
     //
-    // ALI-798: `repo`/`all` mirror searchDecisions' scope resolution - naming neither
+    // `repo`/`all` mirror searchDecisions' scope resolution - naming neither
     // defaults to the current repo (+ unattributed rows) when one exists.
     async listDecisions(
       params: { limit?: number; repo?: string; all?: boolean; unratified?: boolean; status?: string } = {},
     ) {
       const limit = params.limit ?? 200;
       const { dbFilter } = await resolveScope({ repo: params.repo, all: params.all });
-      // ALI-831: the human queue - agent-decided rows no human has ratified.
+      // The human queue - agent-decided rows no human has ratified.
       const filter = params.unratified ? { ...dbFilter, unratified: true } : dbFilter;
       // Filter AFTER shaping (relationFieldsFor needs the row's own id) and slice LAST, so
       // `status: 'active'` excludes superseded rows rather than truncating before they are
       // even checked - `align context sync` relies on this to stop leaking superseded
-      // decisions into .align/decisions.md (ALI-1065).
+      // decisions into .align/decisions.md.
       return db
         .listDecisions(filter)
         .map((row) => {
@@ -553,7 +553,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             summary: row.summary,
             platform: row.platform,
             created_at: row.createdAt,
-            // ALI-829: absent when the source did not say, so a consumer sees the shape it
+            // Absent when the source did not say, so a consumer sees the shape it
             // saw before (the field's meaning is on the type in gateway-client.ts).
             ...(row.decidedAt ? { decided_at: row.decidedAt } : {}),
             ...(row.sourceUrl ? { source_url: row.sourceUrl } : {}),
@@ -567,7 +567,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     },
 
     /**
-     * ALI-831: the human act, local half. The TTY guard that makes it a HUMAN act lives in
+     * The human act, local half. The TTY guard that makes it a HUMAN act lives in
      * the command (`align ratify`), the way the cloud's 403 lives in its use case: this
      * method trusts its caller's `ratifiedBy` and enforces nothing about who is calling.
      * `commands/ratify.ts` is the only caller allowed to reach this - any future caller
@@ -599,7 +599,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     },
 
     /**
-     * ALI-1087: `createdBefore`, when given, bounds this query to what the local graph knew
+     * `createdBefore`, when given, bounds this query to what the local graph knew
      * as of that instant - the same guarantee `validateCreatedBeforeFlag` now offers instead
      * of refusing local-embedded mode outright. `resolveScope`'s `dbFilter` handles repo
      * scoping; `createdBefore` rides alongside it into `findSimilar` (which excludes any
@@ -620,11 +620,11 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const judge = await activeJudge();
       const hidden = judge ? notADecisionMarks(dbPath, judge) : new Map();
       const dropNotes: string[] = [];
-      // ALI-1775: the dense order alone buried the commit that answers "why was X removed"
+      // The dense order alone buried the commit that answers "why was X removed"
       // under commits that merely repeat X, so retrieve a wider pool and let titles reorder it
       // BEFORE the cut. The score each row reports stays its dense similarity.
       const poolSize = Math.max(limit * RERANK_POOL_FACTOR, RERANK_POOL_MIN) + hidden.size;
-      // ALI-1749: the dense ranking and a lexical (BM25) ranking of git commits, fused by rank. The dense
+      // The dense ranking and a lexical (BM25) ranking of git commits, fused by rank. The dense
       // order alone lost a commit that names a rare identifier ("find-my-way") or states its reason in
       // words the title lacks to commits that merely sound like the question. A graph with no git rows,
       // or a query with no lexical hit, fuses an empty list, which leaves the dense-plus-title order as it was.
@@ -652,7 +652,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // A natural-language question embeds less densely than its subject does, so on a
       // small graph it can miss a decision that its own content words hit. Retry once,
       // only on an empty result, mirroring the gateway's own keyword-to-semantic
-      // fallback (align-stack#1706). The raw query still goes first, so ALI-105 holds
+      // fallback (align-stack#1706). The raw query still goes first, so that guarantee holds
       // and a query that already matched costs exactly one embedding.
       if (!similar.length) {
         const reduced = contentWordQuery(query);
@@ -684,7 +684,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             // No decision_url: a local-embedded decision lives only in this machine's
             // SQLite file, so any Align URL built for it would 404 wherever it pointed.
             // Absent beats fabricated - a wrong link looks clickable.
-            // ALI-796: what this decision cites, so `align ask` can name a gap.
+            // What this decision cites, so `align ask` can name a gap.
             external_references: db.getRefs(row.id),
             ...provenanceOf(row),
           };
@@ -699,7 +699,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // 'exhaustive' deliberately collapses into 'full' here: local mode has no gateway
       // similarity cost gate to skip adjudication - so there is nothing extra to pay for.
       // The member is accepted so one CheckDepth union serves both
-      // clients (ALI-708 review: the previous two-member spelling drifted behind the
+      // clients (review: the previous two-member spelling drifted behind the
       // createGatewayClient cast, invisible to tsc).
       opts: CheckOpts = {},
     ): Promise<AlignmentResult> {
@@ -763,7 +763,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       // on a bare diff means judging a file header and a few `+` lines. Accepting the option in
       // the signature and then classifying against a placeholder is the dropped-`depth` defect
       // one field over.
-      // ALI-845: the classifier's own buildUserPrompt is now budget-derived (local-relationship-
+      // The classifier's own buildUserPrompt is now budget-derived (local-relationship-
       // classifier.ts), so capping the subject at a literal here would be a second writer of the
       // same fact, at a number unrelated to any window. Send the diff uncut.
       const subject = { title: opts.title ?? 'Proposed change', summary: diff, decidedAt: null, platform: 'cli' };
@@ -782,7 +782,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           summary: c.summary,
           url: c.sourceUrl ?? undefined,
           provenance: provenanceOf(c),
-          relationship: rel?.type ?? 'relates', // ALI-219: canonical (was 'relates_to')
+          relationship: rel?.type ?? 'relates', // canonical (was 'relates_to')
           confidence: rel?.confidence ?? c.score,
           typed: rel !== null,
           failureReason: outcome.ok ? undefined : outcome.reason,
@@ -820,7 +820,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const allNotes = checkNotes(dbPath, judge, retrieved, relevant_decisions, reviewed, files);
       const notes = allNotes.length ? { notes: allNotes } : {};
 
-      // ALI-414: a candidate we retrieved but could not classify is exactly the case
+      // A candidate we retrieved but could not classify is exactly the case
       // where we do not know - it could be the conflict. Reporting `aligned` there is
       // a fail-open, and an agent reads `aligned` as permission to proceed. A conflict
       // we DID find still wins: it is strictly more actionable than "unknown".
@@ -840,9 +840,9 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       }
 
       if (unclassified) {
-        // ALI-420: an unvetted local model gets its own remedy. The no_llm_key hint below
+        // An unvetted local model gets its own remedy. The no_llm_key hint below
         // says "or run a local Ollama", which is nonsense to someone already running one.
-        // ALI-692: the third rung. A recorded chain stop names the model that failed,
+        // The third rung. A recorded chain stop names the model that failed,
         // and this is the surface agents gate on - it used to fall through to an empty
         // hint, discarding the diagnosis one frame above where it was recorded.
         const failure = unclassified.failure;
@@ -877,16 +877,16 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
     },
 
     // `_createdBefore` matches the cloud signature. A local drift check is a pure read and stores
-    // no row, so the cutoff has nothing to suppress here (ALI-1438).
+    // no row, so the cutoff has nothing to suppress here.
     async checkDrift(decisionId: string, content: string, _sourceType?: string, _createdBefore?: string) {
       const decisionEmbedding = db.getEmbedding(decisionId);
       if (!decisionEmbedding) return { decisionId, score: null, drifted: null, note: 'Decision not found or not yet embedded.' };
-      // ALI-787: a stored vector tagged with a DIFFERENT model is not comparable to a
+      // A stored vector tagged with a DIFFERENT model is not comparable to a
       // freshly-embedded one - same length, incompatible space, and cosineSimilarity's
       // length check cannot see that. A null/untagged model (a row from before tagging
       // existed, that the migration somehow missed) is not treated as a mismatch: it is
       // the same "unknown, so compare anyway" default the rest of this file uses for
-      // absent provenance, and it is what the pre-ALI-787 tests for this path assume.
+      // absent provenance, and it is what the older tests for this path assume.
       const storedModel = db.getEmbeddingModel(decisionId);
       if (storedModel !== null && storedModel !== EMBEDDING_MODEL_ID) {
         return {

@@ -11,7 +11,7 @@ import { trackChildFromEnv } from '../lib/backfill-state.js';
 import { checkScopeFlags, type ScopeFlags } from '../lib/scope-connect.js';
 
 /**
- * ALI-951: `align import <source>` was renamed `align connect <source>` in 0.38.0 and kept as
+ * `align import <source>` was renamed `align connect <source>` in 0.38.0 and kept as
  * an alias, printing one stderr line per invocation. The alias was RETIRED in 0.40.0, which is
  * the removal version its own `IMPORT_ALIAS_SUNSET` named and the release that
  * import-alias.test.ts failed the build on - the sunset was enforced rather than remembered.

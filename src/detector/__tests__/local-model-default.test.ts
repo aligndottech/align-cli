@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultDetectorForLocalModel } from '../local-model-default.js';
 
-// ALI-1564: v1 is the default detector, but on a LOCAL model only the ones that passed the preregistered
+// v1 is the default detector, but on a LOCAL model only the ones that passed the preregistered
 // rule (qwen2.5 at its default size, or 7B and above) run it. Anything else defaults to v0.
 describe('the default detector for a local Ollama model', () => {
   it.each(['qwen2.5:7b', 'qwen2.5:14b', 'qwen2.5:latest', 'qwen2.5'])('%s passed the rule, so v1', (model) => {

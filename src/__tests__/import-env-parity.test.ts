@@ -1,10 +1,10 @@
 /**
- * ALI-675: every import entry point resolves its env through resolveImportEnv,
+ * Every import entry point resolves its env through resolveImportEnv,
  * the chokepoint that redirects a no-account user to the local graph.
  *
  * Why a parity gate over source rather than 14 behavioural tests: the defect
  * was never the resolver - it was 14 call sites each free to call the bare
- * form, which is the ALI-422 collision surface again (13 sites, one missing
+ * form, which is the collision surface again (13 sites, one missing
  * flag each). One chokepoint plus a gate that every site uses it is the
  * code-style.md "fix the shared choke point" rule, made enforceable. The
  * resolver's own behaviour is pinned in resolve-env.test.ts.
@@ -36,7 +36,7 @@ function fetcherSources(): Array<{ name: string; text: string }> {
     .map((f) => ({ name: `import/${f}`, text: fs.readFileSync(path.join(IMPORT_DIR, f), 'utf8') }));
 }
 
-describe('import env-resolution parity (ALI-675)', () => {
+describe('import env-resolution parity', () => {
   it('examines the real command set, not an empty directory', () => {
     // Positive control: a moved directory must fail loudly, not pass on [].
     expect(fetcherSources().length).toBeGreaterThanOrEqual(10);
@@ -49,7 +49,7 @@ describe('import env-resolution parity (ALI-675)', () => {
     expect(
       offenders,
       `these files call bare resolveEnv(...), which 401s a no-account local user; ` +
-        `use resolveImportEnv (ALI-675): ${offenders.join(', ')}`,
+        `use resolveImportEnv: ${offenders.join(', ')}`,
     ).toEqual([]);
   });
 

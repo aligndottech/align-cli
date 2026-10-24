@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Does a named human's answer already cover this exact result? (ALI-710)
+# Does a named human's answer already cover this exact result?
 #
 # decide.sh owns the policy and is deliberately untouched by this: under
 # fail-on: conflict-or-unknown it fails every incomplete result, which is correct and is what

@@ -7,7 +7,7 @@ vi.mock('../lib/local-gateway-client.js', () => ({
 import { createGatewayClient } from '../lib/gateway-client.js';
 
 /**
- * ALI-1070 follow-up: FETCH-LEVEL coverage for the timeline trio's client methods, and the
+ * FETCH-LEVEL coverage for the timeline trio's client methods, and the
  * path-traversal fix on the method the trio newly exposed.
  *
  * Copilot on #296 (inline at gateway-client.ts:612/616, and twice more in the suppressed
@@ -55,7 +55,7 @@ function ok(payload: unknown) {
 
 beforeEach(() => mockFetch.mockReset());
 
-describe('ALI-1070 follow-up: getDecision must not let an id escape its path segment', () => {
+describe('follow-up: getDecision must not let an id escape its path segment', () => {
   /**
    * The rationale tool routes an AGENT-CONTROLLED `decision_id` into getDecision, and this
    * method interpolated it raw while its three neighbours in the same file (ratify at :507,
@@ -88,7 +88,7 @@ describe('ALI-1070 follow-up: getDecision must not let an id escape its path seg
   });
 });
 
-describe('ALI-1070 follow-up: the trio methods build the requests they claim to', () => {
+describe('follow-up: the trio methods build the requests they claim to', () => {
   it('getTopicTimeline POSTs the topic to /decisions/topic-timeline', async () => {
     ok({ topic: 't', count: 0, decisions: [] });
     await createGatewayClient(cloudEnv).getTopicTimeline('connection pooling');
@@ -125,7 +125,7 @@ describe('ALI-1070 follow-up: the trio methods build the requests they claim to'
  * Round 3, found by my own sweep rather than by either review: I had enumerated the id-in-path
  * sites that ALREADY encoded and fixed those, which is the wrong search space. Sweeping for
  * sites that INTERPOLATE found two more, and both are agent-controlled through MCP tools that
- * predate ALI-1070:
+ * predate the timeline tools:
  *
  *   getImpact   -> `/decisions/${decisionId}/impact`       <- align_get_impact
  *   checkDrift  -> `/decisions/${decisionId}/drift-check`  <- align_check_drift

@@ -15,7 +15,7 @@ const base: ValueRollup = {
 // strip ANSI so assertions aren't colour-dependent
 const plain = (s: string) => s.replace(/\[[0-9;]*m/g, '');
 
-describe('renderValueReadout (ALI-215)', () => {
+describe('renderValueReadout', () => {
   it('names value units, not "connections"', () => {
     const out = plain(renderValueReadout(base, { mode: 'cloud' }));
     expect(out).toMatch(/conflicts caught/i);
@@ -59,12 +59,12 @@ describe('renderValueReadout (ALI-215)', () => {
   });
 });
 
-describe('renderValueReadout offline zero counters (ALI-794 component 4)', () => {
+describe('renderValueReadout offline zero counters', () => {
   // Nothing offline writes a duplicate, supersession or similarity link on a first
   // run, so all three are structurally zero. Printed as "0 duplicates found" beside a
   // real decision count they read as a broken dashboard to someone who has been using
   // the tool for ninety seconds. They are HIDDEN AT ZERO, not deleted: the counters
-  // still run (localValueRollup keeps counting the real relations, ALI-503's positive
+  // still run (localValueRollup keeps counting the real relations, the positive
   // control), so the moment one is genuinely non-zero it appears.
   const offlineEmpty: ValueRollup = {
     decisions: 47, conflictsCaught: 0, similarDecisions: 0, duplicates: 0,

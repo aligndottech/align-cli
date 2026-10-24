@@ -36,7 +36,7 @@ export function registerCaptureCommand(program: Command): void {
       const config = createConfigStore();
       // preferLocalEmbedded: the local client serves capture, so a no-account
       // user's `align capture` must land in their local graph, not 401 against
-      // the unauthenticated cloud default (ALI-675 family).
+      // the unauthenticated cloud default.
       const env = config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true }));
       const client = createGatewayClient(env);
       const platform = labelFromUrl(input);
@@ -60,7 +60,7 @@ export function registerCaptureCommand(program: Command): void {
         console.log('');
       } catch (err) {
         const msg = (err as Error).message;
-        // ALI-1696: the gateway answers 422 unsupported_source for a link it cannot read (no
+        // The gateway answers 422 unsupported_source for a link it cannot read (no
         // connector for it, or no way to fetch it). Say so plainly and exit non-zero; nothing
         // was saved, so there is no decision to show.
         if ((err as { statusCode?: number }).statusCode === 422 && /unsupported_source/.test(msg)) {

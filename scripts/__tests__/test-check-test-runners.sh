@@ -7,7 +7,7 @@
 # output, and neither does a guard that cannot see any files - which is why the first test
 # below runs against the REAL repo and asserts a non-zero file count.
 #
-# The second half of the file covers PR-reachability (ALI-727). A `run:` line that exists but
+# The second half of the file covers PR-reachability. A `run:` line that exists but
 # cannot execute on a pull request gates nothing, and it is indistinguishable from a working
 # one by eye: the difference lives in the workflow's `on:` block, or in a job-level `if:`
 # fifty lines above the step.
@@ -164,7 +164,7 @@ if [ "$rc" -ne 0 ]; then ok "no workflows at all means every suite is unrun"; el
 rm -rf "$D"
 
 # ============================================================================================
-# PR-reachability (ALI-727). A runner that exists is not yet a runner that gates a merge.
+# PR-reachability. A runner that exists is not yet a runner that gates a merge.
 # ============================================================================================
 
 # --- a workflow that never triggers on a pull request is not a gate ------------------------

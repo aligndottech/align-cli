@@ -1,5 +1,5 @@
 /**
- * ALI-827: one place that turns a fetcher's read into a capture report, so a
+ * One place that turns a fetcher's read into a capture report, so a
  * connector-core that cannot report (0.5.0) and one that can (0.6.0, `fetchWithReport`)
  * differ in exactly one branch rather than in nine wrappers.
  *

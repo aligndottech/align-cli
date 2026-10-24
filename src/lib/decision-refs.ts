@@ -1,6 +1,6 @@
 /**
  * What a decision's text points AT: ticket keys, PR/issue numbers, and links into the
- * tools where the rest of the story lives (ALI-792).
+ * tools where the rest of the story lives.
  *
  * These refs are the foundation of the gap-driven connect prompt ("12 decisions cite
  * Jira keys I can't read - `align connect jira`"): a ref whose platform has no
@@ -14,14 +14,14 @@
  *
  * `refIdentityFor` at the bottom of this file is the inverse: given a decision's OWN
  * (platform, sourceUrl), what shape would ANOTHER decision's text have cited it as.
- * That is the ALI-796 payoff - resolving a pre-existing gap into a real link once the
+ * That is the payoff - resolving a pre-existing gap into a real link once the
  * missing source is imported.
  */
 
 // localCitationFor, not the shared citationFor: it also parses GitLab MR/issue
 // URLs (commit-cite.ts), which citationFor's CODE_REF cannot see at all - without
 // it, refIdentityFor('gitlab', ...) could never produce a 'code' candidate for a
-// real GitLab source (ALI-796 review finding).
+// real GitLab source.
 import { localCitationFor } from './commit-cite.js';
 
 export interface DecisionRef {
@@ -115,7 +115,7 @@ export function extractRefs(text: string): DecisionRef[] {
 /**
  * The inverse of extractRefs: what THIS decision's own identity would be recorded as,
  * if some other decision's text cited it. Used at ingest to resolve a pre-existing gap
- * into a real link the moment the missing source is imported (ALI-796) - "Jira key ->
+ * into a real link the moment the missing source is imported - "Jira key ->
  * imported Jira decision".
  *
  * Deliberately narrow, matching extractRefs' own restraint: only jira/linear/github/

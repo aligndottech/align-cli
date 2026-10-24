@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { buildFixtures, serializeFixtures } from './helpers/share-plaintext-fixtures.js';
 
 /**
- * ALI-1540 cross-repo contract: the sealed plaintext this CLI produces, committed as a fixture the gateway and the approve
+ * The sealed plaintext this CLI produces, committed as a fixture the gateway and the approve
  * page vendor and test against. This test regenerates it from the real code and compares byte for byte, so the plaintext shape
  * cannot change without the fixture (and so the other two repos' pinned copies) being updated on purpose.
  * Update: UPDATE_SHARE_FIXTURES=1 npx vitest run src/__tests__/share-plaintext-fixtures.test.ts

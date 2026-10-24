@@ -1,5 +1,5 @@
 /**
- * ALI-1668: a LOCAL graph's decisions file must never be representable in the git working
+ * A LOCAL graph's decisions file must never be representable in the git working
  * tree at all - not even gitignored, which is a convention anyone can bypass (edit the line,
  * `git add -f`, a merge that drops it). `writeDecisionsContext(repo, decisions, { external: true })`
  * writes the real content to `~/.align/contexts/<hash>/decisions.md` (same home-directory

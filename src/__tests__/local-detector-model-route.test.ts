@@ -1,4 +1,4 @@
-// ALI-1564: on a local route (no hosted key) the DEFAULT detector follows the local model; an explicit choice wins.
+// On a local route (no hosted key) the DEFAULT detector follows the local model; an explicit choice wins.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as LocalLlm from '../lib/local-llm.js';
 

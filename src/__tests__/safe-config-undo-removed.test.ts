@@ -326,7 +326,7 @@ describe('property: nothing that was there before is ever lost', () => {
 
   /**
    * The user's touch: sometimes an unrelated key, sometimes an edit INSIDE an entry align wrote or
-   * replaced. (An edit inside align's own HOOK element is kept by writeUserHooks since ALI-1476 and
+   * replaced. (An edit inside align's own HOOK element is kept by writeUserHooks and
    * pinned in user-hooks.test.ts, so it is not generated here.) Returns what was edited.
    */
   const userTouch = (r: () => number, seed: number): 'unrelated' | 'align-local' | 'align' => {

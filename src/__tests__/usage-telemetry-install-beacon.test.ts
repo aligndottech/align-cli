@@ -1,5 +1,5 @@
 /**
- * ALI-954: the install beacon. Opt-in telemetry had no denominator - a stranger who installs,
+ * The install beacon. Opt-in telemetry had no denominator - a stranger who installs,
  * runs `align`, and answers No to the consent prompt was invisible, so a 10% consent rate was
  * indistinguishable from 90%. `cli.funnel.install` is sent ON BY DEFAULT, once per install id,
  * on the very first run, before any prompt: the CLI version, the OS, and the install id.

@@ -3,7 +3,7 @@ import { createConfigStore } from './config.js';
  * Type a set of candidate edges with whichever local detector ALIGN_DETECTOR selects.
  *
  * v0 (ALIGN_DETECTOR=v0): the pairwise classifier, one call per candidate, stopping after a
- * provider stop (ALI-692) - moved here verbatim from `checkAlignment` and `linkPass` so both
+ * provider stop - moved here verbatim from `checkAlignment` and `linkPass` so both
  * callers share it.
  * v1 (the default): one call over the whole set (local-set-classifier.ts). A candidate v1 judged as having no
  * relationship comes back typed `relates` at its similarity, exactly what a judged, unrelated
@@ -25,7 +25,7 @@ let localModelProbe: Promise<string | null> | undefined;
 /**
  * The detector for this call. An explicit choice (ALIGN_DETECTOR or `align config detector`) always wins. With
  * none, v1 is the default, except on a LOCAL route (no hosted key) where only a model that passed the
- * preregistered rule runs it and anything else runs v0 (ALI-1564, detector/local-model-default.ts).
+ * preregistered rule runs it and anything else runs v0 (detector/local-model-default.ts).
  */
 async function chooseDetectorVersion(): Promise<DetectorVersion> {
   const store = createConfigStore();
@@ -67,7 +67,7 @@ export async function classifyCandidates(
   const outcomes: ClassificationOutcome[] = [];
   let chainStopped = false;
   for (const c of candidates) {
-    // ALI-692: a recorded chain stop is a property of the PROVIDER, not of this candidate, so
+    // A recorded chain stop is a property of the PROVIDER, not of this candidate, so
     // asking again per candidate repeats one doomed call N times.
     const lite = { title: c.title, summary: c.summary };
     const outcome: ClassificationOutcome = chainStopped

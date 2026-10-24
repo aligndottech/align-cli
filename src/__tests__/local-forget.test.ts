@@ -26,7 +26,7 @@ import { registerLocalCommand } from '../commands/local.js';
 
 /**
  * `align local forget` exists because setup's own copy promises it. Shipping the sentence
- * without the command would be the same defect this change set out to fix (ALI-802): the
+ * without the command would be the same defect this change set out to fix: the
  * interface claiming something the code does not do.
  */
 describe('align local forget', () => {

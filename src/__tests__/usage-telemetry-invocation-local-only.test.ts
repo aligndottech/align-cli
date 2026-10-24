@@ -1,7 +1,7 @@
 /**
- * ALI-618: the audience this ticket exists to count is a user who has NEVER logged in to
+ * The audience this ticket exists to count is a user who has NEVER logged in to
  * cloud and never types `--env local` - exactly `resolveEnv`'s own `preferLocalEmbedded`
- * redirect case (used by `resolveImportEnv`, ALI-675), and exactly what
+ * redirect case (used by `resolveImportEnv`), and exactly what
  * `recordInvocationUsage`'s own docstring predicted: "if that token check is ever relaxed to
  * count tokenless users, pass the preference here as well." Without it, every bare command
  * from this audience resolves to the tokenless cloud default and recordCommandUsage's
@@ -121,7 +121,7 @@ describe('recordInvocationUsage - genuinely local-only user, bare command', () =
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  // ALI-949: bare `align` is the primary first-run path since ALI-773, and the hook handed
+  // Bare `align` is the primary first-run path, and the hook handed
   // it over as '' - so a set-up local user typing the tool's name was never counted.
   it('bare `align` on a set-up local install sends one anonymous ping naming the command', async () => {
     await recordInvocationUsage(undefined, 'align');

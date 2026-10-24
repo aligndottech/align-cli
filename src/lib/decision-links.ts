@@ -14,18 +14,17 @@
  * fifteen lines of regex across two repos is the smaller cost today than blocking on a
  * three-repo publish chain, but it is a duplicate and it should not stay one.
  *
- * ALI-923: `isSyntheticSource`/`navigableSourceUrl` below are the one part of the copy
+ * `isSyntheticSource`/`navigableSourceUrl` below are the one part of the copy
  * that this file used to omit entirely. Every local CLI row has `sourceUrl: null` today,
  * so the gap was harmless - but `align context sync` and `align why` both read decisions
  * from the HOSTED gateway (createGatewayClient, not the local db), and a hosted decision
- * can carry a synthetic `align://claimed/...` / `align://unsourced/...` identity (ALI-538:
- * minted by `claimedIdentityFor` in align-stack's
+ * can carry a synthetic `align://claimed/...` / `align://unsourced/...` identity (minted by `claimedIdentityFor` in align-stack's
  * services/gateway/src/discover/suggestionHelpers.ts, for a scan that could not verify
  * where a decision was made). Without this guard, that identity was printed straight into
  * `.align/decisions.md` and `align why`'s output as if it were a clickable link - it is a
  * syntactically valid URI, so nothing throws, it just points nowhere. Ported from
- * align-stack's per-connector `syntheticSource.ts` (mcp-jira/mcp-github/mcp-teams,
- * ALI-567); wired into the CLI's own render sites in `commands/context.ts` and
+ * align-stack's per-connector `syntheticSource.ts` (mcp-jira/mcp-github/mcp-teams); wired into the CLI's own
+ * render sites in `commands/context.ts` and
  * `commands/why.ts`, which call `navigableSourceUrl` before printing a source as a link.
  *
  * NOT yet wired into `commands/mcp.ts`'s tool-call dispatch: that path forwards the
@@ -61,7 +60,7 @@ export function repositoryOf(sourceUrl: string | null | undefined): string | und
 
 /**
  * Tracker tickets have their own native cite - the key humans already say out
- * loud ("ALI-346", "PROJ-123") - so those URLs cite by key rather than getting
+ * loud ("APP-346", "PROJ-123") - so those URLs cite by key rather than getting
  * a repo#number invented for them. Deliberately NOT folded into CODE_REF:
  * repositoryOf must keep returning undefined for these, because a Linear
  * workspace is not an owner and a ticket key is not a repository (that refusal
@@ -73,7 +72,7 @@ const JIRA_ISSUE = /^https?:\/\/[^/\s]+\/browse\/([A-Z][A-Z0-9]*-\d+)(?:[/?#]|$)
 
 /**
  * A decision rendered the way a human cites one: "align-cli#76" for code,
- * the ticket key ("ALI-346") for tracker decisions.
+ * the ticket key ("APP-346") for tracker decisions.
  *
  * `repository` already carries the same fact, and the agent still wrote prose naming titles
  * and dates but not repositories - so which repo a decision came from was only discoverable
@@ -92,8 +91,8 @@ export function citationFor(sourceUrl: string | null | undefined): string | unde
 }
 
 /**
- * Identities Align mints when a scan could not verify where a decision was made
- * (ALI-538): `align://claimed/<hash>` when the model claimed a source,
+ * Identities Align mints when a scan could not verify where a decision was made:
+ * `align://claimed/<hash>` when the model claimed a source,
  * `align://unsourced/<hash>` when it claimed nothing. Minted in align-stack's
  * services/gateway/src/discover/suggestionHelpers.ts - this is a second writer of that
  * list, same position as align-stack's own per-connector copies (mcp-align, mcp-teams,

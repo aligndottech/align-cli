@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * ALI-786: Linear's newer scoped personal-API-key dialog
+ * Linear's newer scoped personal-API-key dialog
  * (linear.app/settings/account/security/api-keys/new) lets a user create a key restricted
  * to Write/Create-only permissions. This fetcher's query is read-only (viewer's assigned +
  * created issues), so a key with no Read scope gets refused by Linear with a plain 400 -

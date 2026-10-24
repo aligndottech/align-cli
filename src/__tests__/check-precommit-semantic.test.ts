@@ -1,5 +1,5 @@
 /**
- * ALI-1648: semantic conflicts are stopped at the git pre-commit door (`check --hook`), which
+ * Semantic conflicts are stopped at the git pre-commit door (`check --hook`), which
  * can wait for the full check. Pair: critical refuses the commit citing the decision, a
  * warning lets it through. The check-could-not-run case is pinned in check-unknown.test.ts
  * (allowed, and never silent): a hook that refuses whenever a provider is down gets removed.

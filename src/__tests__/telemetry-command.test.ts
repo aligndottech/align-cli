@@ -1,5 +1,5 @@
 /**
- * ALI-954: `align telemetry off` stops ALL of it - the default-on beacons included - which is
+ * `align telemetry off` stops ALL of it - the default-on beacons included - which is
  * a stronger decision than declining the consent prompt (that only declines usage). So the
  * command stores 'off', not 'declined', and `on` clears it back to 'granted'.
  */

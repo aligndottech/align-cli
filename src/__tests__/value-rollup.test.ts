@@ -17,19 +17,19 @@ function stubClient(over: Partial<Record<string, any>> = {}) {
   } as any;
 }
 
-describe('fetchValueRollup (ALI-215)', () => {
+describe('fetchValueRollup', () => {
   it('aggregates the gateway value endpoints into a normalized rollup', async () => {
     const out = await fetchValueRollup(stubClient());
     expect(out).toEqual({
       decisions: 142,
       conflictsCaught: 6,
-      // ALI-503: cloud mode does not surface a similarity count; the gateway adjudicates.
+      // Cloud mode does not surface a similarity count; the gateway adjudicates.
       similarDecisions: 0,
       duplicates: 9,
       supersessions: 4,
       reuseRate: 92 / 127,
       healthGrade: 'B',
-      // ALI-796: cloud has no decision_refs table yet, so no gaps to report.
+      // Cloud has no decision_refs table yet, so no gaps to report.
       gaps: [],
     });
   });

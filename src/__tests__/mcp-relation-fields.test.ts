@@ -1,5 +1,5 @@
 /**
- * ALI-1066 / ALI-1092, CLI half: what REPLACED a decision (`successor`) and what CONTESTS it
+ * CLI half: what REPLACED a decision (`successor`) and what CONTESTS it
  * (`conflicts_with`) have to reach the agent through THIS server's tool output, in a shape an
  * agent can act on.
  *
@@ -120,7 +120,7 @@ describe('MCP search relation fields (successor / conflicts_with)', () => {
     const c = clientReturning([{ id: 'd1', title: 'Use Postgres', summary: 's', status: 'conflicted' }]);
     const { text, rows } = await callSearch(c);
     expect(Object.keys(rows[0]!)).toEqual(['id', 'title', 'summary', 'status', 'reason']);
-    // `reason: null` (ALI-1749) is the one explicit null an agent sees: "no stated reason", and its
+    // `reason: null` is the one explicit null an agent sees: "no stated reason", and its
     // tool description says so. A null RELATION would still read as "no conflict exists", so none may appear.
     expect(text.replace('"reason":null', '')).not.toContain('null');
   });

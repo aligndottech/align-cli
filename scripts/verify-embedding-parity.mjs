@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Vector parity gate (ALI-1781): embed a fixed corpus with the CLI's real loader and require
+ * Vector parity gate: embed a fixed corpus with the CLI's real loader and require
  * cosine >= 0.9999 against reference vectors from the stack npm installs shipped before
  * (transformers.js 4.3.1 + onnxruntime-node 1.30.0, native, q8).
  *

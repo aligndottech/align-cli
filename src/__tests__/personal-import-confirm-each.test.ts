@@ -1,5 +1,5 @@
 /**
- * ALI-808: `runConfirmEachImport`, added beside (not instead of) `runPersonalImport` - a
+ * `runConfirmEachImport`, added beside (not instead of) `runPersonalImport` - a
  * per-item review loop rather than "preview N, confirm once, batch". An agent must not be
  * able to accept its own claims unattended, so this refuses a non-TTY caller exactly the
  * way `align ratify` does (ratify.ts) - a hook, a pipe, or an agent shell all arrive with

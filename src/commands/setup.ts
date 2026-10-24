@@ -88,7 +88,7 @@ export interface SetupSource {
   tokenShortLived?: true;
   tokenUrl?: string | ((tokens: Record<string, string>) => string);  // If set, auto-opens this URL in the browser before prompting for the token
   extraFields?: Array<{ key: string; label: string; hint?: string; secret?: boolean }>;
-  /** What one fetched item IS, for the capture report (ALI-827) - from CAPTURE_SOURCES. */
+  /** What one fetched item IS, for the capture report - from CAPTURE_SOURCES. */
   unit: string;
   /** L3: `window` defaults to the plan's six months; `align connect --since` passes its own. */
   fetch: (tokens: Record<string, string>, window?: SyncWindow, opts?: FetchExtras) => Promise<CaptureFetchResult>;
@@ -133,7 +133,7 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       fetch: async (t, w = parseSince(undefined), o = {}) => {
         const { fetchGitHubItems, resolveGitHubRepoScope } = await import('../lib/fetchers/github.js');
         // L4: when the caller has resolved the scope (`resolved`), its `repo` is the whole answer and the folder is not consulted.
-        // Without it (cloud setup) this is ALI-917's auto-detect: the repo narrows the search, and team scope only when asked.
+        // Without it (cloud setup) this is the auto-detect: the repo narrows the search, and team scope only when asked.
         const repo = o.resolved ? o.repo : await resolveGitHubRepoScope({});
         return fetchGitHubItems({ token: t['token']!, ...fetchWindow('github', w), ...(repo ? { repo, ...(o.team || o.resolved ? { scope: 'team' as const } : {}) } : {}) });
       },
@@ -144,7 +144,7 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Your issues',
       tier: 'site',
       // Personal/CLI tier is read-only (no write:jira-work). The team/org
-      // comment bot keeps write via the `jira` key. See ALI-94.
+      // comment bot keeps write via the `jira` key.
       oauthKey: 'jira-personal',
       // Local-mode token paste (read-only Atlassian API token + email + site).
       tokenLabel: 'API token',
@@ -164,7 +164,7 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       ...CAPTURE_SOURCES.confluence,
       description: 'Your pages and documentation',
       tier: 'site',
-      // Read-only personal/CLI tier. See ALI-94.
+      // Read-only personal/CLI tier.
       oauthKey: 'confluence-personal',
       // Local-mode token paste (read-only Atlassian API token + email + site).
       tokenLabel: 'API token',
@@ -185,7 +185,7 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Decision threads from your channels - may need workspace admin [experimental]',
       tier: 'workspace',
       // Read-only personal/CLI tier (no chat:write). The team/org bot keeps
-      // chat:write via the `slack` key. See ALI-94.
+      // chat:write via the `slack` key.
       oauthKey: 'slack-personal',
       // Local-mode token paste: a Slack user token (xoxp-) with read scopes only.
       tokenLabel: 'User token (xoxp-...)',
@@ -234,14 +234,14 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       ...CAPTURE_SOURCES.gitlab,
       description: 'Your merge requests',
       tier: 'personal',
-      // gitlab.com → read-only browser OAuth (scope read_api, ALI-102). A
+      // gitlab.com → read-only browser OAuth (scope read_api). A
       // self-managed host (custom domain) can't use the fixed gitlab.com OAuth
       // app, so it falls back to the read-only PAT path below.
       oauthKey: 'gitlab-personal',
       hostGatedOAuth: { field: 'domain' },
       tokenLabel: 'Personal access token',
       // Read-only tier: steer users to the read-only scope. `api` would grant
-      // write; `read_api` is read-only and all Align's import needs. See ALI-98.
+      // write; `read_api` is read-only and all Align's import needs.
       // read_api arrives pre-selected via GitLab's documented ?name=&scopes= pre-fill,
       // which works on self-managed hosts too - the docs example is gitlab.example.com.
       tokenHint: 'read_api is pre-selected (read-only). Click Create, then copy the token here',
@@ -263,7 +263,7 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       description: 'Your issues and project discussions',
       tier: 'personal',
       // Read-only personal/CLI tier via browser OAuth (scope `read`), replacing the
-      // full-access API-key paste. Requires the Linear OAuth app + sealed creds. See ALI-101.
+      // full-access API-key paste. Requires the Linear OAuth app + sealed creds.
       oauthKey: 'linear-personal',
       // Local-mode token paste: a Linear personal API key (read-only graph).
       tokenLabel: 'Personal API key (lin_api_...)',
@@ -286,12 +286,12 @@ export function buildSources(gitAvailable: boolean): SetupSource[] {
       // Read-only personal/CLI tier via browser OAuth (public integration),
       // replacing the internal-integration-secret paste in cloud. Read-only is
       // governed by the integration's capabilities (Read content), not scopes.
-      // Requires the Notion OAuth app + sealed creds. See ALI-104.
+      // Requires the Notion OAuth app + sealed creds.
       oauthKey: 'notion-personal',
       // Local-mode token paste: a read-only internal integration secret.
       tokenLabel: 'Integration secret (ntn_...)',
       // Read-only tier: Align only reads. Notion integration capabilities are set
-      // at creation - keep it to "Read content" (no insert/update). See ALI-98.
+      // at creation - keep it to "Read content" (no insert/update).
       tokenHint: 'Create an integration with ONLY "Read content" capability (no insert/update), then copy its Internal Integration Secret',
       // The developer console's tokens page directly, not the legacy my-integrations
       // landing (both resolve; this one is where the secret actually lives - Tom,
@@ -336,7 +336,7 @@ async function collectTokens(
 
   // Main token. A seeded token skips the whole block - no browser open, no paste.
   if (source.tokenLabel && tokens['token'] === undefined) {
-    // No OAuth here, by design (Tom, 2026-08-31, superseding ALI-778's local
+    // No OAuth here, by design (Tom, 2026-08-31, superseding the local
     // direction): local mode is the user's personal graph, so the credential is one
     // they mint, scope and revoke themselves. The device-flow/PKCE machinery this
     // block used to try first is deleted - recover it from the history of PR #196 if
@@ -350,7 +350,7 @@ async function collectTokens(
     let refusal: { cliLabel: string; refused: string } | undefined;
     if (cliSource) {
       // Detection verifies read-only-ness BEFORE the decision layer, so --approve can
-      // never auto-accept a token that was not positively confirmed (ALI-98). A
+      // never auto-accept a token that was not positively confirmed. A
       // refusal is said out loud: a silent skip here reads as "gh not installed" when
       // the truth is "gh is installed and its token can write".
       const detected = await detectVerifiedCliToken(cliSource);
@@ -403,7 +403,7 @@ async function collectTokens(
 }
 
 // ---------------------------------------------------------------------------
-// Deterministic auto-alignment (ALI-121)
+// Deterministic auto-alignment
 // ---------------------------------------------------------------------------
 
 // Write the project-local, committed agent-rules files (Claude Code PostToolUse hook +
@@ -411,7 +411,7 @@ async function collectTokens(
 // discretion. Best-effort: a write failure (read-only dir, weird CWD) must never abort
 // onboarding, so we warn and continue.
 /**
- * The retry command printed when a connector import fails mid-setup (ALI-675).
+ * The retry command printed when a connector import fails mid-setup.
  *
  * It must be runnable AS PRINTED by the user this session belongs to. The bare
  * form resolved to the cloud default, so a --local user pasting our own hint
@@ -448,8 +448,8 @@ async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }
 
 /**
  * Returns the repo-relative files written (empty when the write failed), so the outro can
- * tell whether the project .mcp.json - the one that wires Claude Code - actually landed
- * (ALI-950). Naming an agent as connected off a write that threw would be false.
+ * tell whether the project .mcp.json - the one that wires Claude Code - actually landed.
+ * Naming an agent as connected off a write that threw would be false.
  */
 function writeAgentAlignment(envName: EnvName): string[] {
   try {
@@ -476,7 +476,7 @@ function writeAgentAlignment(envName: EnvName): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * The wizard asks for no AI-provider key. It used to end on ALI-1284's guided Groq + Gemini
+ * The wizard asks for no AI-provider key. It used to end on the guided Groq + Gemini
  * offer, immediately before bare `align` opened the coding agent - and read in that position
  * the keys looked like something the agent needed (a founder's own 0.48.0 run). They only
  * serve align's own terminal `align ask` prose; inside a wrapped agent the agent writes the
@@ -524,14 +524,14 @@ interface LocalValuePhaseResult {
   // reset travels through the same opts bag the rest of the local phase already threads,
   // rather than becoming a second parameter every caller has to remember to also pass.
   opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean };
-  /** ALI-827: every source the value phase fetched, for the one report the connector
+  /** Every source the value phase fetched, for the one report the connector
    *  phase prints at the end. */
   capture: ReturnType<typeof createCaptureCollector>;
-  /** ALI-949: the wizard's setup_started / setup_completed emitter, one per run. */
+  /** The wizard's setup_started / setup_completed emitter, one per run. */
   funnel: SetupFunnel;
-  /** ALI-950: the agents wired this run, project config first, for the outro to name. */
+  /** The agents wired this run, project config first, for the outro to name. */
   agents: string[];
-  /** ALI-950: the first decision the wizard found (git, else docs), for the outro's question. */
+  /** The first decision the wizard found (git, else docs), for the outro's question. */
   firstFoundTitle: string | undefined;
   /** C5: the coding agent `align` opens next, or null when none is installed or chosen. */
   agent: LaunchAgentId | null;
@@ -559,13 +559,13 @@ function willLaunchAgent(agent: LaunchAgentId | null, launchNext: boolean): bool
 function nextStepLine(agent: LaunchAgentId | null, launching: boolean, agents: string[]): string | null {
   const label = agent ? agentByName(agent)?.label : undefined;
   if (label) return launching ? null : `Run ${chalk.bold('align')} to open ${label} with your graph.`;
-  // ALI-1779: said once, and only when it is true. With a configured agent the ask line below names it.
+  // Said once, and only when it is true. With a configured agent the ask line below names it.
   if (agents.length > 0) return null;
   return `No coding agent was found, so none is connected. Install one from the list above, then run ${chalk.bold('align')}.`;
 }
 
 /**
- * ALI-1779: the project `.mcp.json` is written whether or not anyone can read it, so it only
+ * The project `.mcp.json` is written whether or not anyone can read it, so it only
  * counts as a connected agent when Claude Code (the agent that reads it) exists on this machine.
  */
 function connectedProjectAgents(written: string[]): string[] {
@@ -597,12 +597,12 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   const localClient = createGatewayClient(localEnv);
   const capture = createCaptureCollector();
 
-  // ALI-949: local setup has begun. Sends now on a re-run (consent already on disk); on a
+  // Local setup has begun. Sends now on a re-run (consent already on disk); on a
   // first run it cannot, and the post-consent offer below is the one that lands. Fire-and-
   // forget: a slow gateway never delays the value moment.
   void opts.funnel.started(localEnv);
 
-  // ALI-794: value before questions. Git needs no credential and no consent, so it runs
+  // Value before questions. Git needs no credential and no consent, so it runs
   // before anything is asked - the found-decisions summary below is what "here is what I
   // found" means, and it has to exist before the agent-wiring/consent/connector steps that
   // used to come first for no reason other than that is the order they were written in.
@@ -641,7 +641,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   if (inGitRepo && !repoKnown) {
     console.log('');
     p.log.info(chalk.dim('First import downloads a local embedding model (~23MB, huggingface.co) and, on npm installs, its runtime (~20MB, github.com), one time.'));
-    // ALI-1749/ALI-1782: the reason behind a change usually lives in its PR, so a GitHub origin's merged PR
+    // The reason behind a change usually lives in its PR, so a GitHub origin's merged PR
     // descriptions are read WHILE git is scanned. Public, bounded, never a prompt, never fails first run.
     const prRead = fetchFirstRunPrs(repo);
     const gitSpinner = p.spinner();
@@ -689,7 +689,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
       }
       if (prs.note) p.log.info(chalk.dim(prs.note));
       if (items.length || prs.items.length) {
-        // The payoff (ALI-215/ALI-794): name real decisions instead of a bare count, so a
+        // The payoff: name real decisions instead of a bare count, so a
         // first-run user can check the summary against their own repo. Read straight back
         // from the db rather than trusting the import's own tally - see buildFoundSummary's
         // comment on why total/linked come from a COUNT, not from `items.length`.
@@ -717,14 +717,14 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   }
 
   // Deterministic auto-alignment files target the local graph (advisory check runs --env local).
-  // Deferred until AFTER the value moment above (ALI-794 component 3): writing project files
+  // Deferred until AFTER the value moment above: writing project files
   // and asking about telemetry before the user has seen anything real is the footprint-before-
   // value ordering this ticket exists to invert.
-  // ALI-793: ADRs + the user's own CLAUDE.md/AGENTS.md content, same zero-auth tier as
+  // ADRs + the user's own CLAUDE.md/AGENTS.md content, same zero-auth tier as
   // git above and independent of it - a repo can carry decision-shaped docs with no git
   // history worth mining, or vice versa. fetchDocsItems degrades gracefully with no git
   // remote (falls back to a stable git:// identifier), so this runs unconditionally, and
-  // it belongs in the value phase for the same reason git does (ALI-794): it is
+  // it belongs in the value phase for the same reason git does: it is
   // zero-credential value, so it has to show before the connector/consent questions,
   // not after them.
   console.log('');
@@ -748,7 +748,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         local: true,
         funnel: { env: localEnv, source: 'docs' },
       });
-      // ALI-950: a repo can carry decision-shaped docs and no git history worth mining, and
+      // A repo can carry decision-shaped docs and no git history worth mining, and
       // the outro's question must name a decision the wizard FOUND, whichever source found
       // it. Read back the same way the git summary does, only when git left nothing to name.
       if (!firstFoundTitle) {
@@ -779,7 +779,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     ? await connectDetectedAgents('local', { verbose: opts.verbose, editors })
     : { detected: 0, connected: 0, wired: [] as string[] };
 
-  // ALI-950: whenever ANY agent was wired - the project .mcp.json counts. This used to print
+  // Whenever ANY agent was wired - the project .mcp.json counts. This used to print
   // only when a GLOBAL config was written, so a Claude-Code-only user, wired through the
   // project file a few lines up, never saw it. The question itself moves to the outro's
   // last line, where it is the one thing left to do.
@@ -790,7 +790,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     p.log.info(chalk.dim(connectedLine));
   }
 
-  // ALI-949: the first checkpoint at which the local env is initialised, so a local-mode
+  // The first checkpoint at which the local env is initialised, so a local-mode
   // setup_started is offered against it here. (C6: there is no consent question any more - the
   // one-time notice in cli.ts's preAction is the disclosure local sends wait on.)
   void opts.funnel.started(localEnv);
@@ -800,13 +800,13 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
 
 /**
  * The connector-picker tail, shared by every path that reaches local mode: `--local`
- * directly, the login-declined fallback in runCloudSetup, and (ALI-794) the fresh-install
+ * directly, the login-declined fallback in runCloudSetup, and the fresh-install
  * flow after the upgrade question comes back "stay local". Split out of runLocalSetup as a
  * pure extraction - this body is byte-identical to what it replaced, just parameterised on
  * the value phase's result instead of closing over local variables (refactoring.md: a pure
  * move changes only how code is reached, never what it does).
  */
-/** What connectLocalSources did for one source (ALI-951): `align connect --json` prints these. */
+/** What connectLocalSources did for one source: `align connect --json` prints these. */
 export interface ConnectedSourceResult {
   id: string;
   label: string;
@@ -826,11 +826,11 @@ export interface ConnectLocalSourcesOptions {
   localClient: ReturnType<typeof createGatewayClient>;
   capture: ReturnType<typeof createCaptureCollector>;
   approve: boolean;
-  /** ALI-951 (`align connect --source`): skip the picker and connect exactly these ids. */
+  /** `align connect --source`: skip the picker and connect exactly these ids. */
   preselected?: string[];
-  /** ALI-951 (`align connect --token`): fields that skip the paste for every preselected source. */
+  /** `align connect --token`: fields that skip the paste for every preselected source. */
   seedTokens?: Record<string, string>;
-  /** ALI-951 (`align connect --json`): print nothing per source; the caller prints one summary. */
+  /** `align connect --json`: print nothing per source; the caller prints one summary. */
   json?: boolean;
   /** L3 (`align connect --since`): how far back to read. Absent means the plan's six months. */
   window?: SyncWindow;
@@ -849,7 +849,7 @@ export function localConnectorIds(): string[] {
 /**
  * The picker-and-import tail of local setup: ask which read-only-token sources to connect,
  * collect every credential up front, then fetch and import each one. Extracted from
- * runLocalConnectorPhase for `align connect` (ALI-951), which is this same flow without the
+ * runLocalConnectorPhase for `align connect`, which is this same flow without the
  * wizard around it - one picker, one paste path, one save rule, in one place. The body is
  * the wizard's; `preselected`, `seedTokens` and `json` are the only additions, and each is
  * inert when absent.
@@ -867,7 +867,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   // paragraph has now said three different things; the design statement printed to
   // the user below is the durable version.) Only sources with a tokenLabel are
   // pasteable: Teams pastes a Graph access token, Zoom has no personal token and is
-  // excluded. See ALI-103.
+  // excluded.
   //
   // Asked BEFORE the git scan so every question lands on a clean screen and the rest of
   // setup then runs without stopping. The picker used to sit under a screenful of import
@@ -887,9 +887,9 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   // the user was sent to a provider page to mint a token with no explanation, which reads
   // as the tool being clumsy rather than as the privacy trade they chose. The constraint
   // is the provider's, not ours - OAuth needs a client secret, and a secret inside a
-  // distributed binary is not a secret. See ALI-778.
+  // distributed binary is not a secret.
   if (interactive && localConnectors.length > 0 && !quiet) {
-    // ONE story, stated as the design it is (Tom, 2026-08-31, superseding ALI-778's
+    // ONE story, stated as the design it is (Tom, 2026-08-31, superseding the earlier
     // local-OAuth direction): this is the user's PERSONAL graph, so the credential is
     // one they mint, scope and can revoke themselves. Earlier versions blamed the
     // provider ("their sign-in requires a secret"), then blamed us ("the Align app is
@@ -904,7 +904,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
     );
   }
 
-  // ALI-802: what a previous run already collected. Until this existed, setup asked for every
+  // What a previous run already collected. Until this existed, setup asked for every
   // token on every run - it gathered credentials, spent them on one fetch and never called the
   // store that was sitting there. Read before the picker so the picker can say what is saved.
   const savedTokens = new Map<string, Record<string, string>>();
@@ -935,7 +935,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
     isCancel: (v) => p.isCancel(v),
   });
   // `interactive` computed once, by the caller - see runLocalValuePhase.
-  // ALI-794: the found-summary above sits between this picker and the last clean screen,
+  // The found-summary above sits between this picker and the last clean screen,
   // which is the exact condition that used to corrupt clack's in-place redraw for an
   // outside tester (2026-08-30). Clear first so the picker gets its own canvas.
   const askPicker = interactive && !o.preselected;
@@ -982,7 +982,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       if (isAtlassian && seed['token'] !== undefined && !quiet) {
         p.log.info(chalk.dim('  Using your Atlassian email, domain and API token from the previous connector.'));
       }
-      // ALI-951: `--token` (and any other field a flag supplied) seeds every preselected
+      // `--token` (and any other field a flag supplied) seeds every preselected
       // source the way the Atlassian reuse above does - a seeded field is never asked for.
       if (o.seedTokens) seed = { ...seed, ...o.seedTokens };
       // A connected connector that was selected: re-import with the saved token unless the
@@ -1000,7 +1000,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
         seed = { ...seed, ...saved };
         reused = true;
       }
-      // ALI-951: with no terminal there is nothing to paste into. Name the flag rather than
+      // With no terminal there is nothing to paste into. Name the flag rather than
       // letting clack crash on a closed stdin, which reads as the tool breaking (align-cli#118).
       if (!interactive) {
         const missing = (source.extraFields ?? []).map((f) => f.key).filter((k) => seed[k] === undefined);
@@ -1025,7 +1025,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
   }
 
   // Git and repo docs already ran above, in runLocalValuePhase, before the mode/connector
-  // questions (ALI-794) - both are zero-credential value and belong in the "here is what I
+  // questions - both are zero-credential value and belong in the "here is what I
   // found" moment, not stranded behind the questions this phase exists to ask. This phase
   // is only the automatic import for the paste-token connectors just collected.
   for (const { source, tokens, reused } of localReady) {
@@ -1081,7 +1081,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
 
   await connectLocalSources({ interactive, config, localEnv, localClient, capture, approve: opts.approve ?? false });
 
-  // ALI-827: what each source fetched and what it could not reach - once, after every
+  // What each source fetched and what it could not reach - once, after every
   // import has printed its own line, so the numbers sit together. A source whose fetch
   // THREW is not in it: its spinner line above already named the error, and a row of
   // zeros beside it would read as "fetched nothing" rather than "could not fetch". Empty
@@ -1096,8 +1096,8 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // most local-favouring read preference is the truth: a no-account user is
   // redirected to local and there is nothing to say; a cloud token (or an
   // exported ALIGN_ENV) keeps bare commands on the cloud graph the user did
-  // NOT just build. The default deliberately does not move - ALI-87 keeps
-  // personal cloud the default and `align env set` its only writer; this
+  // NOT just build. The default deliberately does not move - personal cloud stays
+  // the default and `align env set` its only writer; this
   // warning exists because Session A (2026-08-25) showed the silence reads
   // as the product ignoring an explicit choice.
   const bareEnv = resolveEnv(undefined, { preferLocalEmbedded: true });
@@ -1119,7 +1119,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     );
   }
 
-  // ALI-796: the graph names its own gaps - a ref whose platform has no connected
+  // The graph names its own gaps - a ref whose platform has no connected
   // source. Read directly off decision_refs (the same query status.ts/local.ts use),
   // never gate-y: at most one line, and only when there is a real gap to name.
   const refsDb = createLocalDb(dbPath);
@@ -1134,7 +1134,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   try { totalDecisions = totalDb.getStats().decisions; } finally { totalDb.close(); }
   const sparseHint = sparseGraphHint(totalDecisions, { bareReadsLocal: bareEnv === 'local' });
 
-  // ALI-950: the last line is the next step, and it happens in the agent - named, with a
+  // The last line is the next step, and it happens in the agent - named, with a
   // question about a decision the wizard just found, and no CLI verb. This used to end on
   // `align ask "why <a thing you decided>"`, a prompt verb on the one screen whose job is to
   // send the user into their agent. The gap line, when there is one, sits above it.
@@ -1161,14 +1161,14 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     `${sparseHint ? `\n${sparseHint.map((l) => `  ${l}`).join('\n')}\n` : ''}\n` +
     `  ${chalk.bold(askLine)}`,
   );
-  // ALI-949: after the outro, never before it - telemetry must not delay what the user is
+  // After the outro, never before it - telemetry must not delay what the user is
   // waiting for. Awaited (unlike the other emitters) because this is the wizard's last act
   // and the one row the funnel was blind to; there is nothing left for a 2s worst case to hold up.
   await funnel.completed(localEnv);
 }
 
 // Local-embedded onboarding (opt-in via --local): no account, no cloud, no OAuth. Composes
-// the two phases above unchanged - this is exactly what ran before the ALI-794 split, just
+// the two phases above unchanged - this is exactly what ran before the split, just
 // as two calls instead of one function body.
 async function runLocalSetup(opts: { approve?: boolean; reset?: boolean; launchNext?: boolean; verbose?: boolean; funnel: SetupFunnel }): Promise<SetupResult> {
   const ctx = await runLocalValuePhase(opts);
@@ -1196,7 +1196,7 @@ export function addSetupOptions(cmd: Command): Command {
 
 /**
  * The onboarding flow, extracted from the `setup` action so `align` with no arguments can run
- * exactly the same thing (ALI-773). A new user's first instinct is to type the tool's name,
+ * exactly the same thing. A new user's first instinct is to type the tool's name,
  * and that printed a twenty-command help wall.
  *
  * A pure move: the body below is the action's, unchanged apart from indentation. Both callers
@@ -1248,7 +1248,7 @@ export async function runSetup(
       p.log.info(`Your ${route.teamLoginUntouched} team login is untouched. This sets up the local graph only.`);
     }
 
-    // ALI-949: the wizard's setup_started / setup_completed emitter. NOT offered an env
+    // The wizard's setup_started / setup_completed emitter. NOT offered an env
     // here, where the mode is still unknown: each branch offers its own env at its top -
     // runLocalValuePhase and runCloudSetup - and again once consent / login makes a send
     // possible.
@@ -1277,7 +1277,7 @@ async function runCloudSetup(ctx: {
   try {
     const me = await client.whoami();
     authSpinner.stop(`Logged in as ${me.user.email} (${me.tenant?.name ?? envName})`);
-    // ALI-949: cloud setup has begun, and the token is proven good. Offered only AFTER
+    // Cloud setup has begun, and the token is proven good. Offered only AFTER
     // whoami (Copilot on #279): a stale stored token passes the emitter's token check, so an
     // earlier offer would send a request the gateway rejects, count as sent, and suppress the
     // post-login offer below that would have landed. Reached from every route into cloud
@@ -1301,7 +1301,7 @@ async function runCloudSetup(ctx: {
       }
       // Re-create the client so it carries the freshly stored token.
       client = createGatewayClient(config.getEnvironment(envName));
-      // ALI-949: the first checkpoint at which a fresh cloud install's setup_started CAN
+      // The first checkpoint at which a fresh cloud install's setup_started CAN
       // send - the token exists now. `env` above is the pre-login snapshot, so re-read.
       void funnel.started(config.getEnvironment(envName));
     } else {
@@ -1405,7 +1405,7 @@ async function runCloudSetup(ctx: {
 
   // ---- Step 5: MCP editor config (before import - this is the payoff) ----
   console.log('');
-  // Shared with the local path (ALI-776), which used to skip this entirely - so a local-only
+  // Shared with the local path, which used to skip this entirely - so a local-only
   // user got LESS agent wiring than a cloud one, on the mode where an agent running on your
   // own machine is the whole point.
   //
@@ -1427,7 +1427,7 @@ async function runCloudSetup(ctx: {
 
   // ---- Step 5b: Deterministic auto-alignment files (hook + nudges) ----
   const projectAgents = writesConfirmed ? connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment(envName))) : [];
-  // ALI-950: project config first - it is the one the user is most likely sitting in.
+  // Project config first - it is the one the user is most likely sitting in.
   const agents = orderAgents({ project: projectAgents, global: globalAgents.wired });
 
   // ---- Step 6: Git auto-import (zero-auth baseline graph seed) ----
@@ -1587,7 +1587,7 @@ async function runCloudSetup(ctx: {
           appUrl: resolveAppUrl(env),
           quiet: true,
           funnel: { env, source: source.id },
-          // Async ingest (ALI-114): return at DB-write speed; titles + links
+          // Async ingest: return at DB-write speed; titles + links
           // enrich in the background. Connection counts show as 0 here and fill in later.
           deferEnrichment: true,
         });
@@ -1613,7 +1613,7 @@ async function runCloudSetup(ctx: {
     console.log('');
   }
 
-  // ALI-827: the capture report, once, after every source has imported.
+  // The capture report, once, after every source has imported.
   const captureText = capture.render();
   if (captureText) {
     console.log(captureText);
@@ -1628,7 +1628,7 @@ async function runCloudSetup(ctx: {
     ? `\n  Sources: ${sourcesImported.join(', ')}`
     : '';
 
-  // ---- Step 8: the agent is connected, and the next step is in it (ALI-950) ----
+  // ---- Step 8: the agent is connected, and the next step is in it ----
   // Only when something was actually WIRED, not merely detected - and the project .mcp.json
   // counts, which it did not before: this printed only for a global config, so a
   // Claude-Code-only user never saw it.
@@ -1656,7 +1656,7 @@ async function runCloudSetup(ctx: {
     `\n\n  ${chalk.bold(writesDeclined ? agentNotConnectedLine(envName) : agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName }))}`,
   ].join('');
   p.outro(outroText);
-  // ALI-949: after the outro, and against the env as it is NOW (the inline login above may
+  // After the outro, and against the env as it is NOW (the inline login above may
   // have stored the token after `env` was read). See runLocalConnectorPhase for why awaited.
   await funnel.completed(config.getEnvironment(envName));
 }

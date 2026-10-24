@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { askTrailingLine, setupSummaryLine, statusGapLine, unresolvedGaps } from '../lib/connect-prompt.js';
 
-// ALI-796: the graph names its own gaps - a ref whose platform has no connected
+// The graph names its own gaps - a ref whose platform has no connected
 // source. `unresolvedGaps` is the pure resolver: refs x connected-sources -> counts.
 describe('unresolvedGaps', () => {
   it('counts DISTINCT DECISIONS with an unresolved ref, not total refs', () => {

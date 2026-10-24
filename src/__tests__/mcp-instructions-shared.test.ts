@@ -7,7 +7,7 @@ import {
 } from '../lib/mcp-instructions.shared.js';
 
 /**
- * ALI-952: the local server's instructions and the hosted server's (align-stack
+ * The local server's instructions and the hosted server's (align-stack
  * connectors/mcp-align/src/mcpServer.ts) were two texts for one contract, and they had
  * drifted - the local one never told an agent to search the graph BEFORE reading the code,
  * and never said a matched decision whose own status is conflicted is a stop. One shared
@@ -57,7 +57,7 @@ describe('ALIGN_MCP_INSTRUCTIONS is the shared text rendered for the local serve
   });
 
   /**
-   * ALI-1070 made this a WHOLE-WORD check, and that is the correction rather than a
+   * This is a WHOLE-WORD check, and that is the correction rather than a
    * loosening.
    *
    * This server now exposes the topic timeline as `align_get_topic_timeline`, and a
@@ -81,7 +81,7 @@ describe('ALIGN_MCP_INSTRUCTIONS is the shared text rendered for the local serve
   });
 
   /**
-   * The other direction, and the one a hand-kept denylist cannot give you (ALI-1070).
+   * The other direction, and the one a hand-kept denylist cannot give you.
    *
    * The list above is five names somebody thought of; this derives the invariant from what
    * the server actually registers, so a per-server line naming a MISSPELLED or a future

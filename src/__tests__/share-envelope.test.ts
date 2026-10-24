@@ -5,7 +5,7 @@ import type { SharePayload } from '../lib/share/payload.js';
 import { openInBrowserWay } from './helpers/share-requests-fake.js';
 
 /**
- * ALI-1540 Test List, the sealed envelope:
+ * Test List, the sealed envelope:
  * - A browser's WebCrypto (not our own code) opens what seal made, byte for byte, and the hash is over those bytes.
  * - The AAD binds request id AND tenant: either one wrong, a flipped byte, or a wrong key fails to open.
  * - The cap is 262,116 plaintext bytes: that size seals (envelope exactly 262,144), one more byte is refused before anything is staged.

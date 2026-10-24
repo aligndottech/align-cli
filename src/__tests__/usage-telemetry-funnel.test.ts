@@ -1,5 +1,5 @@
 /**
- * ALI-795: funnel stages as first-class events. recordFunnelStage is the single emitter -
+ * Funnel stages as first-class events. recordFunnelStage is the single emitter -
  * cloud sends eventName cli.funnel.<stage> through the authed /telemetry/ingest, local
  * sends the anonymous payload with a `stage` field. Same consent model as
  * recordCommandUsage, no new consent surface: cloud is opt-out behind a token, local is
@@ -97,11 +97,11 @@ describe('recordFunnelStage', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  // ALI-954: the beacon tier. setup_completed is one of the two counts sent by default in
+  // The beacon tier. setup_completed is one of the two counts sent by default in
   // local mode (with `cli.funnel.install`), so the funnel has a denominator: a user who
   // declines usage telemetry still counts as having finished the wizard. Nothing else moves
   // to this tier - setup_started stays behind consent, the second example pins that.
-  describe('beacon tier (ALI-954): setup_completed sends in local mode without consent', () => {
+  describe('beacon tier: setup_completed sends in local mode without consent', () => {
     it('C6: no decision and no notice yet: setup_completed does not send', async () => {
       getTelemetryConsent.mockReturnValue(undefined);
       await expect(recordFunnelStage(localEnv, 'setup_completed', 'setup')).resolves.toBe(false);
@@ -188,7 +188,7 @@ describe('recordFunnelStage', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  // ALI-949: the setup wizard offers setup_started at several checkpoints (consent is asked
+  // The setup wizard offers setup_started at several checkpoints (consent is asked
   // mid-wizard in local mode) and needs to know which offer actually SENT, so it can stop.
   // The emitter is the only thing that knows sendability, so it reports it.
   describe('reports whether it sent', () => {
@@ -297,7 +297,7 @@ describe('recordFunnelStage', () => {
       throw new Error('store corrupted');
     });
 
-    // ALI-949: resolves to "did not send" rather than undefined - a store that threw is a
+    // Resolves to "did not send" rather than undefined - a store that threw is a
     // call that could not send, and the setup funnel keys on exactly that answer.
     await expect(
       recordFunnelStage(localEnv, 'first_useful_decision', 'ask'),
@@ -305,7 +305,7 @@ describe('recordFunnelStage', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  // ALI-938: the bottom-up-thesis signal. Same emitter, same consent model as every other
+  // The bottom-up-thesis signal. Same emitter, same consent model as every other
   // stage - no new mechanism to test, just that the stage name rides through both paths.
   it('cloud: sends cli.funnel.teammate_requested for the invite command', async () => {
     await recordFunnelStage(cloudEnv, 'teammate_requested', 'invite');

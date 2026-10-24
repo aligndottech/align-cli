@@ -14,7 +14,7 @@ const withScopes = (scopes: string | null) =>
  * minted for something else, so it is only taken on positive confirmation that it
  * cannot write. `gh auth login` issues classic tokens carrying `repo`, which is read
  * AND write - the reuse path shipped in #183 was silently holding write capability in
- * the free tier, against ALI-98.
+ * the free tier, against the read-only-token rule.
  */
 describe('verifyReadOnlyGithubToken', () => {
   it('accepts a token whose every scope is read-only', async () => {

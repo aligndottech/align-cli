@@ -7,7 +7,7 @@ import { migrateConfigDirectory } from '../lib/config.js';
 /**
  * This bug did not start tonight: `conf`'s own `projectSuffix: 'nodejs'` default has
  * been silently in effect since the CLI's first `align login`, so EVERY real user's
- * cloud auth token, tenant id and (as of ALI-802) saved connector tokens live at the
+ * cloud auth token, tenant id and saved connector tokens live at the
  * old suffixed path. Fixing where config.ts reads/writes without migrating that file
  * would log every existing user out on their next run - a real regression, not a
  * cosmetic one. This is the one-time, idempotent copy that prevents it.

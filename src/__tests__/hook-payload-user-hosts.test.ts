@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { normalizeHookPayload } from '../lib/hook-payload.js';
 
 /**
- * ALI-952: the three user-level hook hosts. Every payload below is the DOCUMENTED shape
+ * The three user-level hook hosts. Every payload below is the DOCUMENTED shape
  * from the host's hook reference (cited in docs/agent-hooks.md), not a capture - no session
  * of these agents was available on the machine this was written on (`which codex
  * cursor-agent copilot` all empty; Codex installed via npx ran apply_patch but never fired

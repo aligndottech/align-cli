@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { alignServerEntry } from '../mcp-setup.js';
 
-// ALI-1515: an entry handed to an agent per session names align by its trusted absolute path, not a bare `align` the
+// An entry handed to an agent per session names align by its trusted absolute path, not a bare `align` the
 // agent would resolve through its own PATH. A file that TRAVELS (committed) stays portable, and with no trusted path
 // found the entry falls back to the bare name rather than failing.
 const BIN = '/usr/local/bin/align';
 
-// ALI-1135: on win32, alignSpawn (mcp-setup.ts) always wraps the command through `cmd /c`, since
+// On win32, alignSpawn (mcp-setup.ts) always wraps the command through `cmd /c`, since
 // Node refuses to spawn a `.cmd` shim directly (CVE-2024-27980) and an npm global install only
 // exposes align.cmd there. That wrapping is unconditional for every format except `committed`,
 // which stays bare on every platform (a committed file travels, and there is no string that

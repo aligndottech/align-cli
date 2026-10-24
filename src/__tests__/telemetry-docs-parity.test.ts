@@ -1,5 +1,5 @@
 /**
- * ALI-954: docs match behaviour, by construction. `docs/telemetry.md` is the public page that
+ * Docs match behaviour, by construction. `docs/telemetry.md` is the public page that
  * lists every event and every field for both tiers (the default-on beacons, and usage with
  * consent). This test sends each event through the real emitters with fetch mocked, then
  * reads the page and compares field sets by EQUALITY in both directions - so a field added

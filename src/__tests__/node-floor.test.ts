@@ -1,4 +1,4 @@
-// ALI-1774: on Node 20, `align --version` died with a raw ERR_UNKNOWN_BUILTIN_MODULE for
+// On Node 20, `align --version` died with a raw ERR_UNKNOWN_BUILTIN_MODULE for
 // node:sqlite, so the user never learned the cause was the Node version. ESM links every static
 // import before running any code, so the check has to live in an entry file that statically
 // imports nothing which reaches node:sqlite, and loads the real CLI with a dynamic import.

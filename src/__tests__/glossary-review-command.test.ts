@@ -1,5 +1,5 @@
 /**
- * ALI-1578 / ALI-1883: `align glossary review` is READ-ONLY.
+ * `align glossary review` is READ-ONLY.
  *
  * The gateway confirms or rejects an alias only for an interactive web login, and the web app has
  * the screen for it (/settings/glossary). So the CLI lists the proposed aliases, can ask the

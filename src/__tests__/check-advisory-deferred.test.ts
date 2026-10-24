@@ -1,5 +1,5 @@
 /**
- * ALI-570: deferred adjudication for the advisory hook - buildAdvisoryOutput's runtime caller.
+ * Deferred adjudication for the advisory hook - buildAdvisoryOutput's runtime caller.
  *
  * The hook stays retrieval-only inside its window. Under `--block-on-critical` it ALSO
  * spawns a detached adjudicator for the proposed change and exits; the adjudicator runs the

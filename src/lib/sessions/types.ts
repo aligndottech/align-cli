@@ -1,11 +1,11 @@
 /**
- * ALI-808: the canonical shape every per-agent adapter parses into, so extraction (Pass A,
- * and eventually ALI-809's Pass B) never learns which agent it is reading - the same
- * `normalizeHookPayload` pattern used for the destructive-command guard (ALI-357/#1953) and
- * the pre-edit conflict check (align-cli#86), both cited in the ALI-608 addendum.
+ * The canonical shape every per-agent adapter parses into, so extraction (Pass A,
+ * and eventually the Pass B) never learns which agent it is reading - the same
+ * `normalizeHookPayload` pattern used for the destructive-command guard (align-stack#1953) and
+ * the pre-edit conflict check (align-cli#86), both cited in the addendum.
  */
 
-/** The six agents named in the ALI-808 shared contract. Not every adapter parses content yet
+/** The six agents named in the shared contract. Not every adapter parses content yet
  *  (see `fixtureVerified` on SessionAdapter) - the name is reserved even where the reader
  *  is not, because it is also the scheme host in a session's source_url. */
 export type AgentName = 'claude-code' | 'codex' | 'cursor' | 'gemini-cli' | 'opencode' | 'pi';
@@ -41,7 +41,7 @@ export interface CanonicalSession {
 
 export interface SessionAdapter {
   agent: AgentName;
-  /** True only when a real captured session backs this adapter's fixture (the ALI-808
+  /** True only when a real captured session backs this adapter's fixture (the
    *  shared-contract gate: "the gate is the fixture, not the agent name"). False means
    *  `parseSession` is intentionally unimplemented - see fixtures/sessions/README.md for
    *  which agents and why. */

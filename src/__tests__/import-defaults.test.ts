@@ -12,7 +12,7 @@ import {
 import { CAPTURE_SOURCES } from '../lib/capture-sources.js';
 
 /**
- * ALI-829 R30: the per-connector fetch cap has ONE writer, read by `align setup` and by
+ * The per-connector fetch cap has ONE writer, read by `align setup` and by
  * every `align import <x>` default. Pinned as a parity gate over the source, the same way
  * import-env-parity.test.ts pins the env resolver: the defect was never one number, it was
  * eleven call sites each free to carry their own.
@@ -51,7 +51,7 @@ describe('SYNC_CEILINGS (was IMPORT_LIMITS; L3 made it the one table)', () => {
     expect(buildSources.length).toBeGreaterThan(1000);           // the slice found the function
     expect(buildSources.match(/limit: \d+/g) ?? []).toEqual([]);   // no literal
     // Every source id that setup fetches for reads its own entry. docs is fetched outside
-    // buildSources (the value phase), so it is pinned separately below. sessions (ALI-808)
+    // buildSources (the value phase), so it is pinned separately below. sessions
     // is neither: it reads local agent-session transcripts, has no OAuth/token and no
     // per-tenant fetch, and refuses any environment but the local graph outright - there is
     // nothing for `align setup`'s cloud/local onboarding to wire up, so it is exempt from

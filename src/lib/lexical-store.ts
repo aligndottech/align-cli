@@ -4,7 +4,7 @@ import { indexBodyFor } from './lexical-text.js';
 import { termCounts } from './lexical-terms.js';
 
 /**
- * The persisted lexical index of a local graph (ALI-1749).
+ * The persisted lexical index of a local graph.
  *
  * Why persisted: building an in-memory index per process cost +53 ms on a 1,415-row graph and +298 ms on a
  * 2,000-row one, on every `align ask` and every advisory hook. Here each git decision's term counts live in

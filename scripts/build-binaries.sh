@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile the CLI to standalone binaries, one per supported platform (ALI-740).
+# Compile the CLI to standalone binaries, one per supported platform.
 #
 # WHY THIS EXISTS
 # ---------------
@@ -18,8 +18,8 @@
 #
 # Importing the `.node` statically DOES embed it, and then fails on ABI
 # (NODE_MODULE_VERSION 137 vs Bun's 147), which would pin our releases to Bun's
-# internal Node version and force a per-platform build matrix. ALI-740 moved the
-# local graph to `node:sqlite` instead, which is built into both Node and Bun. So
+# internal Node version and force a per-platform build matrix. The local graph moved
+# to `node:sqlite` instead, which is built into both Node and Bun. So
 # cross-compilation works, and this script is the whole build.
 #
 # Usage:
@@ -38,7 +38,7 @@ command -v bun >/dev/null || {
 }
 # src/index.bun.ts, not src/index.ts: the binary registers a WASM embedding backend before
 # the CLI starts, and that module statically imports the two ORT assets so --compile embeds
-# them (ALI-744). Building src/index.ts would produce a binary with no local embeddings.
+# them. Building src/index.ts would produce a binary with no local embeddings.
 [ -f "$REPO_ROOT/src/index.bun.ts" ] || { echo "FATAL: src/index.bun.ts missing"; exit 1; }
 # The ORT assets are resolved out of node_modules at BUILD time and embedded, so check for the
 # exact FILES rather than the package: npm hoisting can move onnxruntime-web out of the nested
@@ -49,7 +49,7 @@ ORT_DIST="$REPO_ROOT/node_modules/@huggingface/transformers/node_modules/onnxrun
 for asset in ort-wasm-simd-threaded.asyncify.wasm ort-wasm-simd-threaded.asyncify.mjs; do
   [ -f "$ORT_DIST/$asset" ] || {
     echo "FATAL: $ORT_DIST/$asset is missing."
-    echo "       The binary embeds the ORT wasm runtime from there (ALI-744). Run 'npm ci'."
+    echo "       The binary embeds the ORT wasm runtime from there. Run 'npm ci'."
     echo "       If npm hoisted onnxruntime-web to the top level, the import path in"
     echo "       src/lib/local-embeddings-wasm.ts needs updating to match."
     exit 1
@@ -89,7 +89,7 @@ for row in $TARGETS; do
   # NO --bytecode, deliberately. It moves parse cost to build time, and it emits
   # CommonJS - so `import.meta` becomes a syntax error at runtime and every command dies
   # with "import.meta is only valid inside modules". The transformers WEB build bundled in
-  # for on-device embeddings (ALI-744) uses import.meta to locate its wasm, so the whole
+  # for on-device embeddings uses import.meta to locate its wasm, so the whole
   # binary is unusable with it. The build still SUCCEEDS, which is why this is a comment
   # and a smoke test rather than a thing anyone would notice.
   extra=""

@@ -1,4 +1,4 @@
-# Publish the native ONNX Runtime bundles the CLI downloads on first local use (ALI-1781).
+# Publish the native ONNX Runtime bundles the CLI downloads on first local use.
 #
 # WHY THIS EXISTS. `npm install @aligndottech/cli` was 779MB because the embedding library pulled
 # onnxruntime-node (every OS, CUDA included), onnxruntime-web and sharp. The CLI now installs at

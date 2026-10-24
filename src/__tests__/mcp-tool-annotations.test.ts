@@ -4,7 +4,7 @@ import { TOOL_SCHEMAS, toolSchemasFor } from '../commands/mcp.js';
 import type { EnvironmentConfig } from '../lib/config';
 
 /**
- * ALI-1063: every MCP tool this server publishes must say whether it is read-only, so a
+ * Every MCP tool this server publishes must say whether it is read-only, so a
  * client can tell `align_ask` from `align_capture` without a hand-maintained list.
  *
  * Why it matters concretely: AlignBench's align arm runs this server under the Claude Agent
@@ -23,7 +23,7 @@ import type { EnvironmentConfig } from '../lib/config';
  * - the write tools are annotated as writes: align_capture, and align_check_drift
  * - the read tools are annotated as reads: align_ask, and align_search
  * - the write set is exactly those two, so a new tool cannot be added unclassified
- * - ALI-1070 added three tools (the timeline trio). All are READS, so WRITE_TOOLS below is
+ * - The timeline trio added three tools. All are READS, so WRITE_TOOLS below is
  *   deliberately UNCHANGED - this suite going green on an unedited write set is the proof
  *   that the new tools were classified, not that the assertion was loosened to fit them.
  * - toolSchemasFor's description rewriting preserves annotations in both modes
@@ -31,7 +31,7 @@ import type { EnvironmentConfig } from '../lib/config';
 
 // L3 added align_backfill: it records a window and starts an import, so it is a write.
 // L5 added align_sync: its "run" action starts a background refresh, so it is a write too.
-// L4 added align_scope: its "set" action changes what the next sync reads. LM added align_mark: it records a judgement in the local graph. L9 added align_share: it writes and replaces a pending-share file (it never sends). ALI-1540 added align_share_status: once the user has approved in a browser it completes the share, which writes to the team graph (additively, so not destructive).
+// L4 added align_scope: its "set" action changes what the next sync reads. LM added align_mark: it records a judgement in the local graph. L9 added align_share: it writes and replaces a pending-share file (it never sends). align_share_status was added: once the user has approved in a browser it completes the share, which writes to the team graph (additively, so not destructive).
 const WRITE_TOOLS = ['align_backfill', 'align_capture', 'align_check_drift', 'align_mark', 'align_scope', 'align_share', 'align_share_status', 'align_sync'] as const;
 
 const localEnv = { mode: 'local-embedded', gatewayUrl: '', localDbPath: '/tmp/x.db' } as unknown as EnvironmentConfig;

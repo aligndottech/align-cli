@@ -7,10 +7,10 @@ import type { DecisionRow } from './local-db.js';
 import type { EmbeddingMatrix } from './similarity/embedding-matrix.js';
 
 /**
- * ALI-1065: the capture-time classification budget. Only the high-confidence tier
+ * The capture-time classification budget. Only the high-confidence tier
  * (score >= SIMILARITY_THRESHOLD) is ever classified - the lower related-only tier stays
  * a plain cosine `relates` edge, because typing a merely-related pair is exactly the
- * manufactured-detection failure ALI-503 removed from the conflict counters.
+ * manufactured-detection failure that was removed from the conflict counters.
  *
  * Capped at 3 regardless of how many candidates clear the high-confidence bar, and skipped
  * entirely (0 calls) with no provider configured - see ingestOne. Worst case: 3 classifier
@@ -132,7 +132,7 @@ export function ingestStep(
 }
 
 /**
- * ALI-1065: classify only the high-confidence tier, capped, and only with a provider
+ * Classify only the high-confidence tier, capped, and only with a provider
  * configured - hasConfiguredProvider is an env-only check, so this costs nothing when
  * no key exists (the common case for a fresh clone). L1: `classify: false` returns none
  * before the provider is even consulted.

@@ -48,7 +48,7 @@ case "${1:-}" in
     red  "conflicting result with two critical conflicts, so I need your call first."
     pause 1.0
     echo "  - Connectors with no secret configured now return 401 and reject delivery"
-    echo "    (ALI-182), decided 2026-09-25. Your plan brings back exactly that accept path."
+    echo ", decided 2026-09-25. Your plan brings back exactly that accept path."
     pause 0.8
     echo "  1. Scaffold it fail-closed (my recommendation)."
     ;;

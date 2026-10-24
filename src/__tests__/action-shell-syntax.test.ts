@@ -99,7 +99,7 @@ describe('composite action shell blocks', () => {
     expect(withTitle[0]?.run).toContain('--title');
   });
 
-  it('supplies the PR identity through env, so the exports have data to send (ALI-761)', () => {
+  it('supplies the PR identity through env, so the exports have data to send', () => {
     const check = action.runs.steps.find(s => s.env?.HEAD_SHA);
 
     expect(check).toBeDefined();

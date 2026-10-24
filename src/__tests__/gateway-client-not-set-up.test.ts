@@ -21,7 +21,7 @@ beforeEach(() => {
   localSearch.mockClear();
 });
 
-describe('ALI-1777: a built-in cloud env with no credential says align is not set up', () => {
+describe('a built-in cloud env with no credential says align is not set up', () => {
   it.each([
     ['prod', PROD, 'align'],
     ['preview', PREVIEW, 'align login --env preview'],

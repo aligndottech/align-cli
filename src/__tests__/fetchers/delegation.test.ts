@@ -105,8 +105,8 @@ describe('CLI fetcher wrappers delegate to connector-core', () => {
     expect(results.map((r) => r.items[0].platform)).toEqual([
       'github', 'gitlab', 'jira', 'confluence', 'slack', 'teams', 'zoom', 'linear', 'notion',
     ]);
-    // ALI-827: a core fetcher that cannot report (every 0.5.0 one) gets the fallback - one
-    // item came back, nothing was asked for by number, nothing to explain. ALI-829: one that
+    // A core fetcher that cannot report (every 0.5.0 one) gets the fallback - one
+    // item came back, nothing was asked for by number, nothing to explain. One that
     // can (Slack, mocked 0.6.0-shaped above) has its own report carried through, kind kept (L3).
     results.forEach((r, i) => {
       if (r.items[0].platform === 'slack') {

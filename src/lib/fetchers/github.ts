@@ -6,7 +6,7 @@ import { currentRepoIdentity } from '../repo-identity.js';
 
 /**
  * Read-only personal GitHub import (canonical fetcher in connector-core). `repo` (`owner/repo`)
- * narrows the search to one repo - connector-core >= 0.7.0 (ALI-917); omitted, every repo the
+ * narrows the search to one repo - connector-core >= 0.7.0; omitted, every repo the
  * token can see, unchanged from before that version.
  *
  * L3: the list is read ITEMS FIRST (`discussion: 'none'`, about 4 search calls per 300 items),
@@ -122,7 +122,7 @@ export async function drainDiscussion(
 const GITHUB_HOST_PREFIX = 'github.com/';
 
 /**
- * ALI-917: which repo to scope GitHub's search to, if any, given CLI overrides that may
+ * Which repo to scope GitHub's search to, if any, given CLI overrides that may
  * not exist at every call site - `align setup`'s interactive GitHub source has neither
  * flag, so it calls this with `{}` and gets the same auto-detect `import github` does.
  *

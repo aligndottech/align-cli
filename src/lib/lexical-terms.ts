@@ -1,7 +1,7 @@
 import { SCAFFOLDING } from './search-query.js';
 
 /**
- * Terms for the lexical half of local search (ALI-1749). Pure, no I/O.
+ * Terms for the lexical half of local search. Pure, no I/O.
  *
  * Why a lexical ranking exists: a dense embedding of a whole commit message blurs a rare identifier
  * ("find-my-way", "pino", "node18") into the surrounding prose, so the one commit that names it can sit

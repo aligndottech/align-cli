@@ -1,5 +1,5 @@
 /**
- * The cross-repo contract fixtures for the sealed share plaintext (ALI-1540). Built from the REAL code
+ * The cross-repo contract fixtures for the sealed share plaintext. Built from the REAL code
  * (buildSharePayload for the items, buildPlaintext for the bytes), never hand-written JSON, so the gateway and the
  * approve page can test against exactly what this CLI would seal. Deterministic: fixed salt, ids and dates.
  */

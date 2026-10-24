@@ -9,7 +9,7 @@ vi.mock('../lib/similarity/embedding-matrix.js', async () =>
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.0),
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
@@ -17,9 +17,9 @@ vi.mock('../lib/local-embeddings.js', () => ({
 
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
-// ALI-792: refs extracted at ingest are stored beside the decision and surfaced as
+// Refs extracted at ingest are stored beside the decision and surfaced as
 // external_references - previously hard-coded [] - so `align decisions show` and the
-// gap-driven connect prompt (ALI-796) can read what the decision points at.
+// gap-driven connect prompt can read what the decision points at.
 describe('refs at ingest', () => {
   let dir: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
@@ -36,7 +36,7 @@ describe('refs at ingest', () => {
 
   const RAW = [
     'feat(auth): switch to JWT for stateless sessions',
-    'We decided against server-side sessions. Refs ALI-123 and closes #45.',
+    'We decided against server-side sessions. Refs APP-123 and closes #45.',
     'See https://align.slack.com/archives/C123/p456 for the thread.',
   ].join('\n\n');
 
@@ -48,7 +48,7 @@ describe('refs at ingest', () => {
       platform: 'git',
     }]);
     const d = await client.getDecision(snapshots[0].id);
-    expect(d.external_references).toContainEqual({ ref: 'ALI-123', platform: 'tracker' });
+    expect(d.external_references).toContainEqual({ ref: 'APP-123', platform: 'tracker' });
     expect(d.external_references).toContainEqual({ ref: '#45', platform: 'code' });
     expect(d.external_references).toContainEqual({
       ref: 'https://align.slack.com/archives/C123/p456',

@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { buildAdvisoryOutput, buildRelatedOutput, buildUnknownOutput, registerCheckCommand } from '../commands/check.js';
 
 /**
- * ALI-952: `align check --advisory --format codex|cursor|copilot`. One engine, three more
+ * `align check --advisory --format codex|cursor|copilot`. One engine, three more
  * output shapes, every field name from the host's hook reference (docs/agent-hooks.md):
  *
  *   codex    Claude Code's shape verbatim: hookSpecificOutput.additionalContext, or

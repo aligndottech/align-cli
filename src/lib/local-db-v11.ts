@@ -1,5 +1,5 @@
 /**
- * Schema v11 (ALI-1527): re-key zoom rows after connector-core 0.10.1 changed the zoom source key.
+ * Schema v11: re-key zoom rows after connector-core 0.10.1 changed the zoom source key.
  *
  * Until 0.10.1 the key dropped the whole query for zoom, so the gateway's Discover recording URL
  * `https://zoom.us/recording/detail?meeting_id=<uuid>` keyed every meeting to

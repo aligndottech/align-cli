@@ -1,5 +1,5 @@
 /**
- * ALI-938: inviteNudgeLine and answeredBySomeoneElse - the pure logic behind the invite
+ * inviteNudgeLine and answeredBySomeoneElse - the pure logic behind the invite
  * nudge that replaces the three "Share this graph: <pricing URL>" lines.
  *
  * Test List:

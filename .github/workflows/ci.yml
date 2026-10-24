@@ -16,7 +16,7 @@ on:
 jobs:
   # Job name MUST stay "test" - main's branch protection requires the "test" context, and it is
   # the ONLY required one, so every other job here is advisory. Checking that claim has two
-  # traps, both of which produced the opposite answer first (ALI-727): it is CLASSIC branch
+  # traps, both of which produced the opposite answer first: it is CLASSIC branch
   # protection, not a ruleset, so `gh api .../rules/branches/main` cannot see it and reports no
   # status checks at all; and the endpoint below 404s for any token that does not collaborate
   # on the repo, which reads exactly like "no protection configured".
@@ -33,7 +33,7 @@ jobs:
         with:
           # The floor from package.json engines, not the newest runtime: this is the
           # version a user on the oldest supported Node actually gets. 22.16 is where
-          # node:sqlite is unflagged AND DatabaseSync.isTransaction exists (ALI-740).
+          # node:sqlite is unflagged AND DatabaseSync.isTransaction exists.
           node-version: '22.16'
           cache: 'npm'
 
@@ -67,16 +67,16 @@ jobs:
       # names. A rename on either side 404s every install line in the README at once, with
       # nothing red until a stranger runs it. This derives both sets and compares them, and
       # exercises install.sh end to end against a local file:// release including a
-      # deliberately corrupted download (ALI-740).
+      # deliberately corrupted download.
       - name: Install-asset parity + installer behaviour
         run: bash scripts/__tests__/test-install-assets.sh
 
       # And the guard that keeps the two steps above honest: each shell suite is wired to CI
       # by hand, on its own run: line, so forgetting one is a single missing line that nothing
-      # reports. An unrun test passes locally and gates nothing - the failure mode is silence
-      # (ALI-714). Its own tests run first, because a broken guard reports a clean tree.
+      # reports. An unrun test passes locally and gates nothing - the failure mode is silence.
+      # Its own tests run first, because a broken guard reports a clean tree.
       #
-      # ALI-727 added the second half: a `run:` line that a pull request never reaches is not a
+      # The second half: a `run:` line that a pull request never reaches is not a
       # gate either, and it looks identical at the step. Both ways to have one are live here -
       # three of this repo's four workflows have no pull_request trigger, and cross-platform
       # below carries `if: github.event_name != 'pull_request'`. A suite wired into either runs,
@@ -90,10 +90,20 @@ jobs:
       - name: Every shell suite has a runner a pull request reaches
         run: bash scripts/check-test-runners.sh
 
+      # This repo is public and the tickets are not, so a ticket key in a comment, test name
+      # or doc is a dead reference to anyone outside the team. The guard's own tests run
+      # first (a clean tree, an injected ref going red, a stale allowlist entry), because a
+      # broken guard reports a clean tree.
+      - name: Private ticket reference guards
+        run: bash scripts/__tests__/test-check-no-private-ticket-refs.sh
+
+      - name: No private ticket references in tracked files
+        run: bash scripts/check-no-private-ticket-refs.sh
+
       - name: Build
         run: npm run build
 
-      # ALI-1781. The CLI trusts a SHA-256 per platform for the native embedding runtime it
+      # The CLI trusts a SHA-256 per platform for the native embedding runtime it
       # downloads (src/lib/embedding-assets.ts). This rebuilds every bundle from the pinned
       # upstream npm tarballs and fails unless each digest matches, so the table cannot drift
       # from the build, and what the release workflow uploads is what the CLI will accept.
@@ -106,7 +116,7 @@ jobs:
   #
   # This matrix used to pin windows-2022 because `better-sqlite3` shipped no win32
   # prebuild for the Node ABI in use, so `npm ci` compiled it through node-gyp, and
-  # node-gyp could not detect the Visual Studio on `windows-latest`. ALI-740 moved the
+  # node-gyp could not detect the Visual Studio on `windows-latest`. The CLI then moved the
   # local DB to `node:sqlite`, so there is no native build on any platform any more and
   # the pin has no subject. Unpinned deliberately rather than left with a comment that
   # no longer describes anything.
@@ -116,7 +126,7 @@ jobs:
     # the 50,000-minute monthly allowance, so align-cli's 641 real macOS minutes over
     # 2026-09-01..05 consumed 6,410 - 43% of the entire organisation's usage, more than
     # align-stack spends in a month. What has actually broken on these platforms is the
-    # INSTALL path (ALI-713's huggingface rate limit, ALI-740's binary targets), and
+    # INSTALL path (the huggingface rate limit, the binary targets), and
     # install-smoke still covers that on every PR on every OS. Runs on push-to-main, and
     # releases are covered by e2e-release.yml, so a break is caught before it can ship.
     #
@@ -276,7 +286,7 @@ jobs:
       - name: Build
         run: npm run build
 
-  # Binary build + smoke (ALI-740). Every target is cross-compiled from ONE runner,
+  # Binary build + smoke. Every target is cross-compiled from ONE runner,
   # which is only possible because the local graph has no native addon any more - see
   # scripts/build-binaries.sh for the two ways this failed before `node:sqlite`.
   #
@@ -343,14 +353,14 @@ jobs:
   # into a clean prefix, and runs the cold no-account first-run sequence
   # (setup --local, import git, search, mcp --setup, a real MCP stdio handshake),
   # asserting exit codes. This crosses the four layers the unit suite never sees:
-  # the tsc output in dist/, the package.json "files" list, the install weight (ALI-1781
+  # the tsc output in dist/, the package.json "files" list, the install weight (it
   # asserts the tarball no longer drags in the 780MB ML runtime), and Commander's argv
-  # parsing - ALI-422 lived in that last one with every test green.
+  # parsing - a past bug lived in that last one with every test green.
   #
   # The OS x Node matrix is the whole point: the downloaded native embedding runtime is the
   # only part of the CLI whose answer differs by platform, and it is exactly the part
   # no laptop can test for anyone else's machine. (The local DB no longer differs -
-  # ALI-740 moved it to node:sqlite - which is why windows is unpinned above.)
+  # it moved to node:sqlite - which is why windows is unpinned above.)
   #
   # NOT a required context yet - prove it stable first, then add it to branch
   # protection (a gate is only real once something requires it, but a flaky
@@ -384,7 +394,7 @@ jobs:
         # where the money is. Node 24 is the one kept, and that is forced rather than
         # preferred: the cache save step below is gated on `matrix.node == '24'`, so
         # keeping 22 instead would leave macOS and Windows with no cache writer and send
-        # every run back to huggingface.co - the rate limit ALI-713 added the cache to
+        # every run back to huggingface.co - the rate limit the cache was added to
         # avoid. Excluding rather than rewriting `node` keeps ubuntu/22 in the base matrix,
         # which is what lets the `include` below add a key to it instead of creating a
         # tenth job.
@@ -408,8 +418,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: 'npm'
 
-      # ALI-713: the ~23MB embedding model is fetched from huggingface.co on first use (and, since
-      # ALI-1781, the ~20MB native runtime from a GitHub release), and huggingface rate-limits
+      # The ~23MB embedding model is fetched from huggingface.co on first use (and, now,
+      # the ~20MB native runtime from a GitHub release), and huggingface rate-limits
       # shared runner IPs. One 429 failed four steps of a PR that
       # touched nothing near the model path, and a re-run passed with no code change - an
       # unattributable red whose only remedy is to notice it is not yours, which is the same
@@ -456,7 +466,7 @@ jobs:
       #
       # The saver MUST NOT be the cold leg's version, or the cold leg both skips the restore
       # and writes the cache, and there is nothing in the log to say the gate lost its only
-      # real download. It moved 20 -> 24 with the matrix (ALI-740).
+      # real download. It moved 20 -> 24 with the matrix.
       #
       # The directory can legitimately be empty or absent (a 429 before anything was fetched),
       # and that run must stay green.
@@ -481,7 +491,7 @@ jobs:
           path: .hf-model-cache
           key: align-embed-${{ runner.os }}-ort1.30.0-Xenova-all-MiniLM-L6-v2-q8-v2
 
-  # ALI-1185. Advisory BY CONSTRUCTION rather than by continue-on-error: main's branch
+  # Advisory BY CONSTRUCTION rather than by continue-on-error: main's branch
   # protection requires only the "test" context, as the comment on that job records, so every
   # other job here already reports without blocking.
   #

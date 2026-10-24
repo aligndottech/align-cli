@@ -15,7 +15,7 @@ pnpm-lock.yaml
 # test coverage
 coverage/
 
-# The install smoke's embedding-model cache (ALI-713). Written by scripts/smoke-install.sh
+# The install smoke's embedding-model cache. Written by scripts/smoke-install.sh
 # when ALIGN_SMOKE_MODEL_CACHE is set, and restored by actions/cache in CI. ~23MB of model
 # weights - a build input, never a source file.
 .hf-model-cache/

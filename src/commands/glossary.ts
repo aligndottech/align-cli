@@ -1,5 +1,5 @@
 /**
- * `align glossary review` - read the PROPOSED aliases in your org glossary (ALI-1578, ALI-1883).
+ * `align glossary review` - read the PROPOSED aliases in your org glossary.
  *
  * The gateway keeps a per-org alias glossary ("payments-svc" means "payments"). Anything may
  * PROPOSE an entry (a person, an agent, the bootstrap from repos and teams), and every proposal

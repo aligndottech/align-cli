@@ -1,5 +1,5 @@
 /**
- * `align adjudicate <event-id>` - answer a check that ran and declined to rule (ALI-710).
+ * `align adjudicate <event-id>` - answer a check that ran and declined to rule.
  *
  * The other half of a strict CI gate. `fail-on: conflict-or-unknown` fails an incomplete
  * result, which is right, but a NON-VERDICT never becomes complete on its own: the judge
@@ -11,12 +11,12 @@
  * check on the same change finds it, and answering something you were never shown is not
  * available.
  *
- * ALI-1448: the gateway records this answer as a PERSON's, and it clears a CI gate, so the
+ * The gateway records this answer as a PERSON's, and it clears a CI gate, so the
  * command refuses a caller that is not at a terminal, as `align ratify` does: a hook, a pipe
  * and an agent's shell tool all arrive with a stdin that is not a TTY. There is deliberately no
  * `--yes` bypass, because a bypass flag is exactly what an agent would pass. The TTY check is a
  * strong signal, not proof: a caller that allocates a pty to fake one is not stopped by it.
- * ALI-1449 replaces it with a browser step-up the gateway can verify.
+ * A browser step-up the gateway can verify is planned to replace it.
  */
 import type { Command } from 'commander';
 import chalk from 'chalk';

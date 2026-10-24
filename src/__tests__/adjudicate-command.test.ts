@@ -1,5 +1,5 @@
 /**
- * ALI-1448: `align adjudicate` clears a CI gate as a human, so the gateway records its answer
+ * `align adjudicate` clears a CI gate as a human, so the gateway records its answer
  * as a person's. That is only honest if a person ran it, so the command refuses anything that
  * is not a terminal, the same way `align ratify` does: a hook, a pipe and an agent's shell all
  * arrive with a stdin that is not a TTY.

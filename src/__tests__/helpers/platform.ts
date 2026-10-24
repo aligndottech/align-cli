@@ -1,7 +1,7 @@
 /**
  * Pin `process.platform` for a suite, and put it back afterwards.
  *
- * ALI-1135 made what `align mcp --setup` writes depend on the platform: on Windows an npm
+ * What `align mcp --setup` writes depends on the platform: on Windows an npm
  * global install exposes `align.cmd`, which a client cannot spawn without a shell, so the
  * entry goes through `cmd /c`. Every assertion on that entry is therefore conditional
  * behaviour, and a test that inherits the runner's platform is only testing one side of it -
@@ -40,7 +40,7 @@ export function pinPlatform(value: Platform): void {
 
 /**
  * The `{command, args}` an `align mcp` server entry holds on the platform the test really runs
- * on: bare `align` on POSIX, `cmd /c align ...` on Windows (ALI-1135). For tests that are about
+ * on: bare `align` on POSIX, `cmd /c align ...` on Windows. For tests that are about
  * something else (the launch pipeline, overwrite policy) and only need the entry's shape to
  * match what production wrote, so they stay correct on both legs without pinning a platform.
  */

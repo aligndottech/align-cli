@@ -78,13 +78,13 @@ export const SCHEMA_VERSION = 11;
  *  row is a duplicate-to-be under the (source_url, title) key, or noise. */
 export const SLACK_TOMBSTONE_TITLE = 'This message was deleted.';
 
-/** The five ALI-831 columns, named exactly as the shared contract spells them. One list,
+/** The five provenance columns, named exactly as the shared contract spells them. One list,
  *  read by the migration; SCHEMA above spells them a second time because a fresh CREATE
  *  TABLE cannot read a constant, and the provenance test pins both against each other. */
 const PROVENANCE_COLUMNS = ['decider_kind', 'confirmed_by', 'confirmed_at', 'ratified_by', 'ratified_at'] as const;
 
 /**
- * ALI-787: the only embedding model this graph has ever written before the `model` column
+ * The only embedding model this graph has ever written before the `model` column
  * existed. Verified, not assumed - `git log --all -p` on local-embeddings.ts and
  * local-embeddings-wasm.ts shows exactly one HF model id was ever hardcoded there, across
  * every commit. So backfilling every pre-column row with this is a true historical fact,
@@ -99,7 +99,7 @@ const LEGACY_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
 /**
  * One-time data migrations, tracked in SQLite's built-in `user_version`.
  *
- * 1. ALI-503: relabel the cosine-similarity links that were written as `conflicts_with`.
+ * 1. Relabel the cosine-similarity links that were written as `conflicts_with`.
  *    Every such row at version 0 is provably an artefact, because `insertLink` had exactly
  *    one caller and it hardcoded that relation for any pair over 0.65 cosine. No classifier
  *    verdict was ever persisted, so there is no earned row to damage.
@@ -110,14 +110,14 @@ const LEGACY_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
  *    to run `align connect git` - so a graph goes from 2 decisions to 4 by following the tips.
  *    Collapse the existing duplicates, then make them unrepresentable with a unique index.
  *
- * 3. ALI-798: add the `repo` column (missing on any graph that predates it) and backfill it
+ * 3. Add the `repo` column (missing on any graph that predates it) and backfill it
  *    for every existing row from `source_url`, via the same `repoFromSourceUrl` the importer
  *    now stamps new rows with - one reader of the URL shape, used for both. A row whose
  *    source is not code (Jira, Slack, a bare capture) stays NULL, which is "unattributed",
  *    not "wrong": `--repo` scoping always includes unattributed rows alongside the named
  *    repo (see local-gateway-client.ts), so nothing existing becomes invisible.
  *
- * 4. ALI-829: add `decided_at` - when the decision was MADE, from the source's own
+ * 4. Add `decided_at` - when the decision was MADE, from the source's own
  *    timestamp, as distinct from `created_at`, the minute this CLI imported it. Every one
  *    of the 684 rows in the 2026-09-02 measurement carried the ingest minute and nothing
  *    else, so "what changed since March" was unanswerable offline. No backfill, unlike
@@ -137,7 +137,7 @@ const LEGACY_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
  *    afresh. Scoped to platform = 'slack': a git commit or a captured note that happens to
  *    carry the same words is not a tombstone and is left alone.
  *
- * 5. ALI-831: add the decider/ratified columns (`decider_kind`, `confirmed_by`,
+ * 5. Add the decider/ratified columns (`decider_kind`, `confirmed_by`,
  *    `confirmed_at`, `ratified_by`, `ratified_at`) so an agent-made decision can enter as a
  *    CLAIM a human later stands behind, and the `decision_audit` table the human act is
  *    recorded in. No backfill, on purpose: a row captured before the column reads as
@@ -145,7 +145,7 @@ const LEGACY_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
  *    guess align-stack's migration 113 refuses. The columns are added here rather than only
  *    in SCHEMA because CREATE TABLE IF NOT EXISTS never alters an existing table.
  *
- * 6. ALI-787: tag each embedding with the model that produced it (see LEGACY_EMBEDDING_MODEL).
+ * 6. Tag each embedding with the model that produced it (see LEGACY_EMBEDDING_MODEL).
  *
  * 7. L2: per-source sync state, `source_key` identity with a backed-up twin merge,
  *    `detail_pending`, `enriched_at` (NULL on every existing row) and `local_judgements`.
@@ -158,7 +158,7 @@ const LEGACY_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
 /**
  * Remove a decision and everything hanging off it. Foreign keys are off in this database
  * (see migrate, step 2), so the dependents are named explicitly rather than cascaded. One
- * writer for the v4 tombstone sweep and the ingest-time twin removal (ALI-829).
+ * writer for the v4 tombstone sweep and the ingest-time twin removal.
  */
 export function deleteDecisionWithDependents(db: DatabaseSync, id: string): void {
   bumpRowSetEpoch(db);
@@ -481,7 +481,7 @@ export function migrate(db: DatabaseSync): void {
     }
   }
   if (version < 11) {
-    // ALI-1527: re-key zoom rows after connector-core changed the zoom source key. See local-db-v11.ts.
+    // Re-key zoom rows after connector-core changed the zoom source key. See local-db-v11.ts.
     db.exec('BEGIN IMMEDIATE');
     try {
       const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;

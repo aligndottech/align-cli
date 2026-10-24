@@ -1,5 +1,5 @@
 /**
- * ALI-950: the question the outro and the second-run card hand the agent names a REAL
+ * The question the outro and the second-run card hand the agent names a REAL
  * decision from the graph, so "why did we X" is checkable against the repo the user is
  * sitting in. Read straight back from the graph rather than trusting an import's tally
  * (the same rule as the local found-summary), and one read answers both "is there

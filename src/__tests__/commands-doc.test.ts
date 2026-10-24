@@ -1,5 +1,5 @@
 /**
- * ALI-951: docs/commands.md is generated from the command registry (`npm run docs:commands`),
+ * docs/commands.md is generated from the command registry (`npm run docs:commands`),
  * with the hidden commands in their own section, and this test fails when the doc and the
  * registry disagree - so a command cannot be added, renamed or re-tiered without the page
  * following. The generated region sits between two markers; prose outside them is hand-written.
@@ -86,7 +86,7 @@ describe('docs/commands.md is generated from the registry', () => {
     expect(text).toMatch(/^align connect jira\b/m);
     expect(text).toMatch(/^align decisions list\b/m);
     expect(text).toContain('--json');
-    // `align import` was the alias, retired in 0.40.0 (ALI-951). It is still DOCUMENTED,
+    // `align import` was the alias, retired in 0.40.0. It is still DOCUMENTED,
     // because it is still registered as a stub that fails naming the replacement - someone who
     // finds the old spelling in a script should be able to look it up and learn what replaced
     // it. So the reference must carry it AND say it is gone.

@@ -1,5 +1,5 @@
 /**
- * ALI-1782: a PR row first run writes and the row `align connect github` writes for the same PR are
+ * A PR row first run writes and the row `align connect github` writes for the same PR are
  * ONE decision, so running the connector afterwards (or first run twice) never duplicates it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

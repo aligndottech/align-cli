@@ -21,7 +21,7 @@ const VENDOR_HOSTS: Record<string, string[]> = { github: ['api.github.com'] };
 
 /** Throws, naming the first host that is not a vendor host of a connected source. */
 // The user's OWN Ollama on loopback: the classifier looks up which local model is installed to pick the
-// default detector (ALI-1564). It is this machine, not a vendor, and it is the only non-vendor host allowed.
+// default detector. It is this machine, not a vendor, and it is the only non-vendor host allowed.
 const LOOPBACK_OLLAMA = ['localhost:11434', '127.0.0.1:11434'];
 
 export function assertOnlyVendorHosts(requested: readonly string[], connected: readonly string[]): void {

@@ -30,7 +30,7 @@ async function bound(port: number): Promise<{ stop: () => void }> {
   return { stop: () => undefined };
 }
 
-describe('the login loopback binds 127.0.0.1 only (ALI-1504, join plan S10)', () => {
+describe('the login loopback binds 127.0.0.1 only (join plan S10)', () => {
   it('accepts a connection on 127.0.0.1', async () => {
     await bound(19911);
     expect(await connects('127.0.0.1', 19911)).toBe(true);

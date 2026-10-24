@@ -21,7 +21,7 @@ export interface CallChatOptions {
   /**
    * Sampling temperature. Omit for the provider default; pass 0 for deterministic
    * output (relationship classification, where the same pair must type the same
-   * way every run). See ALI-218.
+   * way every run).
    */
   temperature?: number;
 }
@@ -33,7 +33,7 @@ export interface CallChatOptions {
  * - The abstention sentence is the load-bearing one. Measured 2026-08-25
  *   (ollama-vet eval): without it, llama3.2, deepseek-r1 and WhiteRabbitNeo
  *   ALL invented a database-sharding decision on 6/6 runs when the context
- *   held no answer - ALI-414's fail-open shape on the synthesis surface.
+ *   held no answer - the fail-open shape on the synthesis surface.
  * - "authoritative" is gone on purpose: it was the licence the models were
  *   obeying when they confabulated. Direct != authoritative-about-nothing.
  * - The relationship and conflict sentences target the other two measured
@@ -44,7 +44,7 @@ export interface CallChatOptions {
  *   implicitly got "The context does not answer this... only that <the
  *   answer>" - a denial and the answer in one breath. The abstention stays
  *   binary for the truly-empty case; these two make the model pick a side.
- * - The composition pair (ALI-894, found live 2026-09-05) covers a different middle
+ * - The composition pair (found live 2026-09-05) covers a different middle
  *   case: retrieval can return several decisions that together answer the question
  *   while none of them answers it alone. Without a composition instruction, "no single
  *   decision says this" reads to the model as "the context does not answer it" and it
@@ -54,8 +54,7 @@ export interface CallChatOptions {
  *   guess - tied to the SAME sentence that requires attributing each part to the
  *   decision it came from, so composition cannot be read as license to invent a claim
  *   none of the retrieved decisions actually makes.
- * - The abstention is a mandated VERBATIM TOKEN, not a sentence to reword: ALI-895
- *   found a fixed English sentinel gets paraphrased mid-sentence by some local
+ * - The abstention is a mandated VERBATIM TOKEN, not a sentence to reword: a fixed English sentinel got paraphrased mid-sentence by some local
  *   models (observed live 2026-09-05 - the model kept "The context does not
  *   answer" and substituted the actual subject in for "this question", which
  *   defeated the old startsWith(full sentence) check). A token has nothing for
@@ -75,7 +74,7 @@ const ABSTENTION_PROSE = 'The context does not answer this question.';
 
 /**
  * A model that ignores the token instruction and denies in English anyway still
- * opens with this fixed clause (the pre-ALI-895 sentinel's opening words) even when
+ * opens with this fixed clause (the old English sentinel's opening words) even when
  * it goes on to paraphrase the rest, per the observed live case above. Deliberately
  * shorter than ABSTENTION_PROSE: matching only the clause a paraphrase keeps, not
  * the "this question." it replaces.
@@ -91,7 +90,7 @@ const LEGACY_ABSTENTION_PREFIX = 'The context does not answer';
  * Two independent openers, each checked as a PREFIX only (never mid-string, or a real
  * answer merely mentioning "does not answer" later on would be caught too):
  * ABSTENTION_SENTINEL is what the model is instructed to emit, LEGACY_ABSTENTION_PREFIX
- * is what a model that ignores that instruction denies with instead (ALI-895).
+ * is what a model that ignores that instruction denies with instead.
  */
 export function isAbstention(text: string): boolean {
   const trimmed = text.trimStart();
@@ -142,8 +141,8 @@ export const SYNTHESIS_SYSTEM_PROMPT =
   'Write plain prose with no markdown: no asterisks or underscores for emphasis, no headings, no bullet points; the answer is printed in a terminal.';
 
 /**
- * How many sentences the model should aim for, sized to how many decisions were retrieved
- * (ALI-894). A flat cap fits a single-decision answer; forcing a composed answer over several
+ * How many sentences the model should aim for, sized to how many decisions were retrieved.
+ * A flat cap fits a single-decision answer; forcing a composed answer over several
  * decisions into the same cap made abstaining the cheapest compliant output - measured live
  * 2026-09-05 (align-stack): five genuinely relevant decisions retrieved, synthesis abstained
  * anyway because assembling them didn't fit a 2-4 sentence answer.
@@ -163,7 +162,7 @@ export function synthesisSentenceBudget(decisionCount: number): string {
 const REASON_RESERVE_TOKENS = 100;
 
 /**
- * ALI-845 defect 3: no cap of any kind existed - up to 8 raw summaries (mean 4,798 chars, max
+ * Before this existed, no cap of any kind applied - up to 8 raw summaries (mean 4,798 chars, max
  * 21,865 per the upstream research doc) were joined into one prompt regardless of window.
  *
  * Reserves the system prompt and the output budget out of the window FIRST, then splits what
@@ -173,8 +172,8 @@ const REASON_RESERVE_TOKENS = 100;
  *
  * `outputTokens` is the CALLER'S ACTUAL resolved budget (post ALIGN_SYNTHESIS_MAX_TOKENS), not
  * the SYNTHESIS_MAX_TOKENS default - reserving the default while the real request sends a
- * larger override defeats the whole point of this function (found in fresh-context review,
- * ALI-845): a 4,096-token window with ALIGN_SYNTHESIS_MAX_TOKENS=3000 would under-reserve by
+ * larger override defeats the whole point of this function (found in fresh-context review): a 4,096-token window with
+ * ALIGN_SYNTHESIS_MAX_TOKENS=3000 would under-reserve by
  * ~2,000 tokens and the resulting request would exceed the window it was built against.
  *
  * The reserve also covers the "- " + title + ": " label wrapped around every summary, plus the
@@ -182,7 +181,7 @@ const REASON_RESERVE_TOKENS = 100;
  * Titles are never cut, so with enough decisions or long enough titles that overhead alone can
  * exceed what dividing the raw window by decisions.length would leave for summaries.
  *
- * The header carries the sentence budget (ALI-894), scaled by decisions.length via
+ * The header carries the sentence budget, scaled by decisions.length via
  * synthesisSentenceBudget. That keeps the reserve calculation below self-consistent for free:
  * whatever the header actually says is what estimateTokens(header) actually measures, since
  * both read the same string.
@@ -218,7 +217,7 @@ export function buildUserPrompt(
 }
 
 // --- Provider adapters: each takes a generic (system, user) chat and returns a
-// classified outcome (ALI-692). The three kinds carry the whole fallback policy:
+// classified outcome. The three kinds carry the whole fallback policy:
 //   answer      - usable text from the model that was asked
 //   unavailable - nothing answered, or an availability-class rejection; the chain
 //                 may advance, because this provider can never answer here
@@ -231,7 +230,7 @@ type AdapterOutcome =
   | { kind: 'failed'; model: string; detail: string };
 
 /**
- * How long to wait for a model, and why it is not one number (ALI-775).
+ * How long to wait for a model, and why it is not one number.
  *
  * 15s is right for a hosted API: api.anthropic.com taking longer than that means something is
  * wrong, and waiting will not fix it. It is nonsense for a model running on the user's own
@@ -246,8 +245,8 @@ const HOSTED_TIMEOUT_MS = 15_000;
 const LOCAL_TIMEOUT_MS = 300_000;
 
 /**
- * A hosted provider's real window is not resolved until ALI-852 (the Models API lookup and
- * the provider table). Until then, `callChatDetailed` builds the prompt against this
+ * A hosted provider's real window is not resolved yet (the Models API lookup and
+ * the provider table are still to come). Until then, `callChatDetailed` builds the prompt against this
  * deliberately generous default rather than a real one, so Phase 0's capping cannot regress
  * an `align ask` that works today on a large-window hosted model (Claude, GPT-4o, Gemini all
  * exceed it) - the "generous hosted default" from the plan's assumption 4. It is not a claim
@@ -313,7 +312,7 @@ export function resolveLlmTimeoutMs(endpoint: string): number {
 }
 
 /**
- * Two callers, two output budgets (ALI-845 defect 2): the classifier's whole output is a
+ * Two callers, two output budgets: the classifier's whole output is a
  * ~60-char JSON object, while `align ask` synthesis is 2-4 prose sentences per
  * SYNTHESIS_SYSTEM_PROMPT - sharing one 256-token ceiling visibly truncates the second.
  */
@@ -366,8 +365,7 @@ function classifyThrownFetch(err: unknown, model: string, timeoutMs?: number): A
   const name = (err as { name?: string } | undefined)?.name;
   if (name === 'TimeoutError' || name === 'AbortError') {
     // Naming the limit and the override, because "timed out" reads as "your model is
-    // broken" when it means "we stopped waiting" - and on a local model that is a setting
-    // (ALI-775).
+    // broken" when it means "we stopped waiting" - and on a local model that is a setting.
     const detail = timeoutMs
       ? `timed out after ${Math.round(timeoutMs / 1000)}s (raise ALIGN_LLM_TIMEOUT_MS)`
       : 'timed out';
@@ -416,7 +414,7 @@ async function tryOpenAiCompatible(
   temperature?: number,
 ): Promise<AdapterOutcome> {
   // Decided by WHERE the endpoint is. 15s is right for a hosted API and hopeless for a model
-  // on the user's own CPU - see resolveLlmTimeoutMs (ALI-775).
+  // on the user's own CPU - see resolveLlmTimeoutMs.
   const limitMs = timeoutMs ?? resolveLlmTimeoutMs(endpoint);
   let res: Response;
   try {
@@ -473,7 +471,7 @@ async function tryAnthropic(
       }),
       // Always hosted, so this resolves to the short limit - but it goes through the same
       // helper so ALIGN_LLM_TIMEOUT_MS means "the LLM timeout" rather than "the timeout for
-      // one of the four providers" (ALI-775).
+      // one of the four providers".
       signal: AbortSignal.timeout(anthropicTimeoutMs),
     });
   } catch (err) {
@@ -525,13 +523,13 @@ async function tryGemini(
 
 /**
  * Ollama model families recognised for decision synthesis, in OUR preference order
- * (never /api/tags order - ALI-420). Family-level and version-free on purpose: the
+ * (never /api/tags order). Family-level and version-free on purpose: the
  * old exact-version list (llama3.2, llama3.1, llama3, mistral, gemma2, phi3) went
  * stale the moment a new version shipped, and the 2026-08-25 vetting eval showed the
  * quality lever is SYNTHESIS_SYSTEM_PROMPT, not which mainstream family answers. The
  * list's remaining job is "is something recognisable installed" - matched against the
  * LIVE /api/tags registry, and the newest installed version wins within a family.
- * (ALI-692)
+ *
  */
 export const OLLAMA_MODEL_FAMILIES: readonly RegExp[] = [
   // qwen first: qwen2.5:7b is the local model that passes the shared v1 detector (addendum 7).
@@ -544,7 +542,7 @@ export const OLLAMA_MODEL_FAMILIES: readonly RegExp[] = [
 ];
 
 /**
- * A family match says who trained it, never what it was trained FOR, and the ALI-420
+ * A family match says who trained it, never what it was trained FOR, and the
  * floor is about the second: llama2-uncensored is in the llama family and is the same
  * category as the pentest model from that ticket, while a coder or embedding model is
  * not a synthesis model at all. So a tuning marker disqualifies a tag even when its
@@ -639,16 +637,16 @@ export function resolveOllamaModel(installed: string[], override?: string): Olla
  *
  *  - `no_provider` - nothing was configured and nothing local answered.
  *  - `unrecognised_local_models` - Ollama is running and no installed model is
- *    recognised for synthesis (ALI-420). Carries the models, so a caller can name them.
+ *    recognised for synthesis. Carries the models, so a caller can name them.
  *  - `provider_stopped` - a provider WAS reached and its response was unusable, so the
- *    chain stopped rather than demoting to a weaker model (ALI-692).
+ *    chain stopped rather than demoting to a weaker model.
  */
 export type LlmFailure =
   | { kind: 'no_provider' }
   | { kind: 'unrecognised_local_models'; models: string[] }
   | { kind: 'provider_stopped'; provider: string; model: string; detail: string }
   /**
-   * Every provider the user CONFIGURED was unavailable, so the chain ran out (ALI-766).
+   * Every provider the user CONFIGURED was unavailable, so the chain ran out.
    *
    * Distinct from `no_provider`, which now means only "nothing was configured". They need
    * opposite remedies - "set a key" against "your endpoint is unreachable or your key is
@@ -718,7 +716,7 @@ function providerErrorText(body: string): string {
  * trying the next provider loses nothing. Anything else - a malformed body, an empty
  * answer, a real rate limit, a 5xx - came from the provider the user chose, and
  * silently demoting to a weaker model would launder that failure into an answer the
- * caller trusts as if the chosen model wrote it. Deliberately conservative (ALI-692).
+ * caller trusts as if the chosen model wrote it. Deliberately conservative.
  */
 export function isAvailabilityFailure(status: number, body: string): boolean {
   if (status === 401 || status === 403 || status === 404) return true;
@@ -883,7 +881,7 @@ async function tryOllama(
       }),
       // Ollama is local by definition, so it uses the same limit as any other local endpoint
       // rather than the 30s guess it carried - which was already an acknowledgement that
-      // local is slower, just not by enough (ALI-775).
+      // local is slower, just not by enough.
       signal: AbortSignal.timeout(resolveLlmTimeoutMs(host)),
     });
   } catch (err) {
@@ -1114,7 +1112,7 @@ export function preferredProvider(saved: SavedLlmConfig = savedConfig()): LlmPro
 }
 
 /**
- * Is any LLM provider configured - exported or saved? (ALI-414)
+ * Is any LLM provider configured - exported or saved?
  *
  * `callChat` returns null for a missing key and for a provider that answered unusably
  * alike, so a caller that needs to tell "never configured" from "configured but
@@ -1142,7 +1140,7 @@ export function hasConfiguredProvider(excluding: readonly LlmProviderId[] = []):
  * is RETURNED rather than recorded in module state, so concurrent calls cannot read
  * each other's diagnosis.
  *
- * ALI-692: only an availability-class failure advances that chain (see
+ * Only an availability-class failure advances that chain (see
  * isAvailabilityFailure). Anything else - the chosen model answering unusably, a rate
  * limit, a 5xx - stops it, so the caller can name the model that failed instead of a
  * weaker one answering in its place.
@@ -1209,7 +1207,7 @@ async function runChat(
   // needs explicit provider injection, add it WITH its caller.
 
   // The default order (see credentials()), then local Ollama. A preferred provider moves to
-  // the front and is otherwise walked exactly like every other slot - same settle, same ALI-692
+  // the front and is otherwise walked exactly like every other slot - same settle, same
   // advance rules - so a preference changes only WHICH provider is asked first, never what a
   // failure means.
   const r = resolution();
@@ -1236,12 +1234,12 @@ async function runChat(
   }
 
   // Nothing answered. An unrecognised local model is the more specific diagnosis and
-  // its remedy is the opposite of "configure a provider", so it wins (ALI-420).
+  // its remedy is the opposite of "configure a provider", so it wins.
   if (unrecognised) {
     return { ok: false, failure: { kind: 'unrecognised_local_models', models: unrecognised } };
   }
   // Something WAS configured and none of it answered. Saying "set a key" here is the wrong
-  // signpost, and it lands on the one user who took the trouble to configure us (ALI-766).
+  // signpost, and it lands on the one user who took the trouble to configure us.
   if (tried.length > 0) {
     return { ok: false, failure: { kind: 'providers_unavailable', tried } };
   }

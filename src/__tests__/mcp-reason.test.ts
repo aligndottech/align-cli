@@ -1,5 +1,5 @@
 /**
- * ALI-1749: an agent reading align_ask / align_search gets an additive `reason` (the stated
+ * An agent reading align_ask / align_search gets an additive `reason` (the stated
  * reason extracted from the commit message, or null) and a `sha` for commit-backed rows.
  * Every existing field must pass through untouched. Asserted through the real handler and the
  * SERIALIZED text, because only that can tell a null from an absent key.

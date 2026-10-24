@@ -2,7 +2,7 @@
  * L9: `align share` as a function of injected dependencies, returning an exit code. The commander
  * wrapper (commands/share.ts) wires the real config, gateway client and prompts; tests wire fakes.
  *
- * Who may complete a share depends on what the gateway says (GET /share-requests/config, ALI-1540):
+ * Who may complete a share depends on what the gateway says (GET /share-requests/config):
  *
  * - `required`, or `available` without `--typed`: the person approves in a BROWSER session. This process stages
  *   an encrypted request, prints a link and a code, waits, and sends only what the gateway says was approved.

@@ -1,5 +1,5 @@
 /**
- * Entry point for the compiled binary only (ALI-744). `scripts/build-binaries.sh` builds THIS,
+ * Entry point for the compiled binary only. `scripts/build-binaries.sh` builds THIS,
  * not src/index.ts; npm still ships src/index.ts via tsc.
  *
  * It exists so the WASM embedding backend is registered before any command runs, and - more

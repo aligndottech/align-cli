@@ -1,5 +1,5 @@
 /**
- * ALI-1648: deterministic starter rules, evaluated INSIDE the pre-edit hook window.
+ * Deterministic starter rules, evaluated INSIDE the pre-edit hook window.
  *
  * A ratified rule whose matcher has one right answer (a validated email address, a card
  * number that passes Luhn, a known credential format) needs no model call, so it can stop an

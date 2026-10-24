@@ -1,5 +1,5 @@
 /**
- * ALI-938: the invite nudge - what replaces the three "Share this graph with your team:
+ * The invite nudge - what replaces the three "Share this graph with your team:
  * https://align.tech/pricing" lines in mcp.ts, why.ts and value-rollup.ts. Invites are
  * created in the web app by an org admin (the gateway refuses the CLI token), so the hint
  * says who does it and that `align invite` opens the page.

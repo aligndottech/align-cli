@@ -1,5 +1,5 @@
 /**
- * ALI-1780: the no-answer list of `align ask` is scannable, deterministic and honest.
+ * The no-answer list of `align ask` is scannable, deterministic and honest.
  * Display only: --json and the synthesis path must not move.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

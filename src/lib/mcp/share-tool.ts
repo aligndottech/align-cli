@@ -2,7 +2,7 @@
  * The MCP tool `align_share` - an agent can ASK for a share and can never complete one.
  *
  * What it does: builds the exact preview of what would leave this machine, runs the secret scan, and then, by
- * what the gateway says (ALI-1540):
+ * what the gateway says:
  *
  * - browser approval (`available` or `required`): seals the exact payload, stages it as a share request, stores the
  *   request 0600 on this machine, and returns the approve link (key in its `#k=` fragment) and a short code for the

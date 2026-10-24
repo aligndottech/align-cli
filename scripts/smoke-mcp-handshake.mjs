@@ -7,12 +7,12 @@
  * tools/list), asserts the tool list names `align_search`, then makes one real
  * tools/call of `align_ask` that must come back with non-empty text.
  *
- * The tools/call step is the point (ALI-1740). tools/list is answered locally by
+ * The tools/call step is the point. tools/list is answered locally by
  * the server and never reaches the graph or the gateway, so it passes with a
  * wrong-type credential or a broken backend. A smoke that stops there goes green
  * on an install that cannot answer a single question.
  *
- * This is the "verify MCP handshake" launch-gate condition from ALI-214, made
+ * This is the "verify MCP handshake" launch-gate condition, made
  * repeatable. It crosses the layer unit tests cannot: the installed binary,
  * its shebang, Commander's argv parsing, and the stdio framing - not the
  * dispatch functions the existing mcp-*.test.ts suites already pin.

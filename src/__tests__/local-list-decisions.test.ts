@@ -1,5 +1,5 @@
 /**
- * ALI-602: the local-embedded client needs listDecisions, or `align context
+ * The local-embedded client needs listDecisions, or `align context
  * sync --env local` - the no-account cold path, the launch story - dies with
  * "listDecisions is not a function" while the graph sits on disk.
  *

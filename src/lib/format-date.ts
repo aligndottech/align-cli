@@ -1,5 +1,5 @@
 /**
- * Human-friendly timestamps for CLI output (ALI-118): relative for recent
+ * Human-friendly timestamps for CLI output: relative for recent
  * decisions ("today", "3 days ago") so recency is obvious at a glance, absolute
  * ("30 May 2026") once it's older. `now` is injectable for deterministic tests.
  */

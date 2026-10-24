@@ -1,4 +1,4 @@
-# Embedding model evaluation: bge-small-en-v1.5 vs MiniLM-L6-v2 (ALI-787)
+# Embedding model evaluation: bge-small-en-v1.5 vs MiniLM-L6-v2
 
 ## Decision: do not swap
 
@@ -41,10 +41,10 @@ more decision-title-shaped pairs constructed for this evaluation (a commit-messa
 matching the designed pair's shape).
 
 The prior scratchpad harness (embed-lab/rank-lab/rule-sim/e2e-785, and the 403-decision
-corpus ALI-785 measured against) lived under `/tmp/` in an earlier session and did not
-survive to this one - confirmed gone (`ls` on the path in ALI-787's brief returned "No such
-file or directory"). Everything below is a fresh, smaller harness built for this ticket, not
-a rerun of ALI-785's.
+corpus an earlier evaluation measured against) lived under `/tmp/` in an earlier session and did not
+survive to this one - confirmed gone (`ls` on the path in the brief returned "No such
+file or directory"). Everything below is a fresh, smaller harness built for this evaluation, not
+a rerun of the earlier one.
 
 ## Reproduction: the corpus's recorded MiniLM scores are real
 
@@ -55,11 +55,11 @@ matched to within 0.0024, consistent with float rounding rather than a methodolo
 this is the positive control that the eval script's model loading, pooling, and cosine
 computation genuinely reproduce what produced the fixture, not just a plausible-looking number.
 
-## The designed pair (ALI-785's ceiling case)
+## The designed pair (the ceiling case)
 
-Exact strings from the ticket:
+Exact strings from the original evaluation:
 - change: `fix(db): switch the connection pool to 12 after the timeout incident`
-- decision: `[ALI-179] Data Pipeline Connection Pool Sizing`
+- decision: `[DEC-179] Data Pipeline Connection Pool Sizing`
 
 | Model | Pooling | Cosine |
 |---|---|---|
@@ -71,9 +71,9 @@ bge-small resolves this pair decisively - both pooling modes place it well clear
 noise band (the ticket cites 0.40-0.45 as the top of that band).
 
 **One discrepancy worth stating plainly: this run measured 0.3791 for MiniLM on these exact
-two strings, not the 0.286 the ticket quotes.** The ticket's number is real (ALI-785 measured
+two strings, not the 0.286 the original evaluation quotes.** That number is real (it was measured
 it against a 403-decision corpus with a working harness), but I could not reproduce it with
-the harness available to me, and I could not recover ALI-785's original harness to find out
+the harness available to me, and I could not recover the original harness to find out
 why - it may have embedded fuller decision text (a summary, not just a bare ticket title) or a
 title+summary concatenation the way `local-gateway-client.ts`'s `ingestOne` actually builds
 embed text (`title === summary ? summary : ${title}. ${summary}`), rather than the bare
@@ -86,8 +86,8 @@ confirmation of "0.286".
 
 | Change (commit-message-like) | Decision (ticket-title-like) | MiniLM | bge-small (mean) |
 |---|---|---|---|
-| bump session cookie maxAge to 30 days per the retention decision | [ALI-212] Extend session cookie lifetime to 30 days | 0.7277 | 0.7937 |
-| revert the queue visibility timeout back to 5 minutes, it was too aggressive | [ALI-88] SQS visibility timeout must exceed the brain analyze timeout | 0.3413 | 0.6145 |
+| bump session cookie maxAge to 30 days per the retention decision | [DEC-212] Extend session cookie lifetime to 30 days | 0.7277 | 0.7937 |
+| revert the queue visibility timeout back to 5 minutes, it was too aggressive | [DEC-88] SQS visibility timeout must exceed the brain analyze timeout | 0.3413 | 0.6145 |
 
 Both models correctly rank these as related-shaped pairs; bge-small scores both higher, in
 line with its better published benchmark numbers (below). This is the pattern that would look
@@ -185,6 +185,6 @@ migration; the "don't silently compare incompatible vectors" guarantee already e
 
 If bge-small-en-v1.5 (or another candidate) is revisited: re-derive `RETRIEVAL_RELATES_THRESHOLD`
 and `RELATES_THRESHOLD` from scratch against it - do not reuse MiniLM's thresholds - and do it
-against a corpus closer to ALI-785's original scale (hundreds of pairs across multiple
+against a corpus closer to the original scale (hundreds of pairs across multiple
 sources), since a 14-pair corpus is enough to see a compressed distribution but not enough to
 be confident about exactly where a safe threshold sits.

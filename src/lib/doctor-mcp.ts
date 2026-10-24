@@ -1,5 +1,5 @@
 /**
- * ALI-1740: the one real `tools/call` `align doctor` makes, through the same `align mcp` an agent
+ * The one real `tools/call` `align doctor` makes, through the same `align mcp` an agent
  * would start, spawned the way an agent's config spawns it (alignServerEntry, so on Windows that is
  * `cmd /c align mcp`, the form a client can actually launch).
  *

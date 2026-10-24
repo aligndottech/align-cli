@@ -23,7 +23,7 @@ const { getEnvironmentMock, localDb, createLocalDbMock, getConnectorFieldsMock }
     getEnvironmentMock: vi.fn(),
     localDb,
     createLocalDbMock: vi.fn(() => localDb),
-    // ALI-796: null means "not connected", matching config.getConnectorFields' real
+    // Null means "not connected", matching config.getConnectorFields' real
     // contract - see the align local forget command, which reads it the same way.
     getConnectorFieldsMock: vi.fn(() => null),
   };
@@ -72,7 +72,7 @@ describe('align status (cloud value readout)', () => {
   });
 });
 
-describe('align status (local-embedded mode, ALI-505)', () => {
+describe('align status (local-embedded mode)', () => {
   beforeEach(() => {
     vi.mocked(resolveEnv).mockReturnValue('local' as never);
     getEnvironmentMock.mockReturnValue({ mode: 'local-embedded', localDbPath: '/tmp/graph.db' });
@@ -102,14 +102,14 @@ describe('align status (local-embedded mode, ALI-505)', () => {
   });
 });
 
-describe('align status names its own gaps (ALI-796)', () => {
+describe('align status names its own gaps', () => {
   beforeEach(() => {
     vi.mocked(resolveEnv).mockReturnValue('local' as never);
     getEnvironmentMock.mockReturnValue({ mode: 'local-embedded', localDbPath: '/tmp/graph.db' });
   });
 
   it('names an unresolved-ref gap and the command that fills it in', async () => {
-    localDb.getAllRefs = vi.fn(() => [{ decisionId: 'a', ref: 'ALI-1', platform: 'tracker' }]);
+    localDb.getAllRefs = vi.fn(() => [{ decisionId: 'a', ref: 'APP-1', platform: 'tracker' }]);
     const program = new Command();
     registerStatusCommand(program);
     await program.parseAsync(['node', 'align', 'status']);
@@ -120,7 +120,7 @@ describe('align status names its own gaps (ALI-796)', () => {
   });
 
   it('says nothing once the connector is connected', async () => {
-    localDb.getAllRefs = vi.fn(() => [{ decisionId: 'a', ref: 'ALI-1', platform: 'tracker' }]);
+    localDb.getAllRefs = vi.fn(() => [{ decisionId: 'a', ref: 'APP-1', platform: 'tracker' }]);
     getConnectorFieldsMock.mockImplementation((_env: string, id: string) => (id === 'jira' ? { token: 'x' } : null));
     const program = new Command();
     registerStatusCommand(program);

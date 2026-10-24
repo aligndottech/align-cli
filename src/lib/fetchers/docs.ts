@@ -7,7 +7,7 @@ import type { PersonalImportItem } from '../personal-import.js';
 import type { CaptureFetchResult } from './capture.js';
 
 /**
- * ALI-793: read what the repo already wrote down, credential-free. Two sources:
+ * Read what the repo already wrote down, credential-free. Two sources:
  *
  *  - ADR directories, the common naming conventions. ADRs are decision-shaped by
  *    construction (title, status, context, decision) - highest precision, lowest
@@ -16,7 +16,7 @@ import type { CaptureFetchResult } from './capture.js';
  *    import line Align itself put there (align-cli#116: Align owns `.align/`
  *    outright and must never re-ingest its own output - that is a feedback loop).
  *
- * Both are filed under platform: 'docs', a value distinct from 'git'. ALI-804 measured
+ * Both are filed under platform: 'docs', a value distinct from 'git'. a measurement of
  * a git-only import at 1,484 rows of "what changed and almost no why"; an ADR is exactly
  * the "why" a commit subject cannot carry, and collapsing the two under one platform
  * would destroy the only cheap way to select on that distinction later.
@@ -33,7 +33,7 @@ import type { CaptureFetchResult } from './capture.js';
  *  doc/adr and docs/decisions covering different eras of the same project). */
 const ADR_DIR_CANDIDATES = ['docs/adr', 'doc/adr', 'docs/decisions', 'doc/decisions', 'adr'];
 
-/** Root-level only, matching the two write-only surfaces ALI-793 names. Nested
+/** Root-level only, matching the two write-only surfaces it names. Nested
  *  per-package CLAUDE.md/AGENTS.md files are a real convention in this repo's own
  *  monorepo, but scoping to root for the first cut keeps the read side of the two
  *  files the CLI already knows how to write. */
@@ -137,7 +137,7 @@ async function readAgentRulesItems(
   branch: string,
 ): Promise<{ items: PersonalImportItem[]; droppedShort: number }> {
   const items: PersonalImportItem[] = [];
-  // ALI-827: headed sections the length floor dropped, so the capture report can name
+  // Headed sections the length floor dropped, so the capture report can name
   // them. The headingless preamble (an H1 line, an intro sentence) is not counted when it
   // is dropped: nobody wrote it as a section, so nobody will look for it in the graph.
   let droppedShort = 0;
@@ -218,7 +218,7 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
 }
 
 /**
- * ALI-827: the same read, plus its capture report. A local read has no page size to fall
+ * The same read, plus its capture report. A local read has no page size to fall
  * off and no access to lack, so the one thing it drops is a headed section under the
  * length floor, and that is the one skip it reports. `scanned` is every ADR file and
  * headed section seen; the cap is echoed only when it bounded the read - "8 ADRs and

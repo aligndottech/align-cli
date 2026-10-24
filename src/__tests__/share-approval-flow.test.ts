@@ -15,7 +15,7 @@ import type { BatchResponse } from '../lib/share/wire.js';
 import { fakeRequests, type FakeRequests, keyOf, openInBrowserWay, urlIn } from './helpers/share-requests-fake.js';
 
 /**
- * ALI-1540 Test List, `align share` with browser approval (the gateway is a fake; its route shapes are the contract):
+ * Test List, `align share` with browser approval (the gateway is a fake; its route shapes are the contract):
  * - available: stage, print link and code, poll (pending, pending, approved), complete, print results. It never prompts
  *   on the terminal and never calls shareBatch. Two decisions, one request.
  * - the key: opens the envelope in WebCrypto; is never sent in any request; is in the link's FRAGMENT only and printed once.
@@ -355,7 +355,7 @@ describe('groupForApproval', () => {
 });
 
 /**
- * Security review fixes (ALI-1540):
+ * Security review fixes:
  * - a failure in the SECOND (confirm) request is a warning: the first share is still reported and recorded, and nothing says "nothing sent".
  * - an item is sized by the larger of its share and its confirm request.
  * - a hung status read does not outlive Ctrl-C; a far-future expiry cannot keep the poll alive.

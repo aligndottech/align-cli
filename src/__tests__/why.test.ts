@@ -20,7 +20,7 @@ vi.mock('../lib/config.js', () => ({
   createConfigStore: vi.fn(() => ({
     getEnvironment: vi.fn().mockReturnValue({ gatewayUrl: 'http://localhost', authToken: 'tok' }),
     getDefaultEnv: vi.fn().mockReturnValue('prod'),
-    // ALI-796: absent by default (nothing connected) - specific tests override per connector.
+    // Absent by default (nothing connected) - specific tests override per connector.
     getConnectorFields: vi.fn().mockReturnValue(null),
   })),
 }));
@@ -55,7 +55,7 @@ describe('align ask', () => {
     // The gateway's smart-search strategy selector routes natural-language
     // questions to semantic search. Stripping the question word (the old
     // normalisation) turned a question into a long keyword phrase that matched
-    // nothing literally, so ask must pass the query through unchanged. See ALI-105.
+    // nothing literally, so ask must pass the query through unchanged.
     const { createGatewayClient } = await import('../lib/gateway-client.js');
     const program = new Command();
     registerAskCommand(program);
@@ -213,7 +213,7 @@ describe('align ask - file path mode', () => {
     expect(client.searchDecisions).toHaveBeenCalledWith('Makefile', 8, undefined, undefined);
   });
 
-  // ALI-420. These two are a pair: each one's positive assertion is the other's control,
+  // These two are a pair: each one's positive assertion is the other's control,
   // so neither negative can pass because the whole block failed to render.
   it('says why there was no answer when Ollama has only unvetted models', async () => {
     mockSynthesise.mockResolvedValueOnce({ ok: false, failure: { kind: 'unrecognised_local_models', models: ['WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M'] } });
@@ -231,7 +231,7 @@ describe('align ask - file path mode', () => {
     expect(all).not.toContain('Set ANTHROPIC_API_KEY');
   });
 
-  // ALI-692: the chain no longer silently demotes to a weaker model when the chosen
+  // The chain no longer silently demotes to a weaker model when the chosen
   // one answers unusably - so when that happens, say WHICH model failed and how,
   // instead of telling a user with a working key to go configure a key.
   it('names the model when the chain stopped on an unusable answer', async () => {
@@ -249,7 +249,7 @@ describe('align ask - file path mode', () => {
     expect(all).not.toContain('Set ANTHROPIC_API_KEY');
   });
 
-  // ALI-766: a configured provider that never answered is not the same as no provider,
+  // A configured provider that never answered is not the same as no provider,
   // and the two need opposite remedies. Telling someone who pointed us at DeepSeek to set
   // ANTHROPIC_API_KEY reads as "DeepSeek is not supported", which is false.
   it('names the endpoint that was tried when a configured provider was unreachable', async () => {
@@ -377,7 +377,7 @@ describe('align ask - source attribution parity with the MCP surface (cite/platf
     expect(all).not.toContain('c2bf5580-bcd3-4cc3-80fc-46c3f8b224c3');
   });
 
-  // ALI-829 R28a: a local result carries decided_at beside created_at; the source line
+  // A local result carries decided_at beside created_at; the source line
   // shows the decision's own date. Both dates are older than 30 days so formatWhen prints
   // an absolute date and the two are distinguishable (18 Aug vs 19 Aug would both be
   // "N days ago" only while this test is young).
@@ -396,7 +396,7 @@ describe('align ask - source attribution parity with the MCP surface (cite/platf
     expect(all).not.toContain('30 May 2026');
   });
 
-  // ALI-829 R28b: a cloud result has no decided_at, and the line is what it always was.
+  // A cloud result has no decided_at, and the line is what it always was.
   it('synthesis sources fall back to created_at when there is no decided date (cloud mode unchanged)', async () => {
     const { createGatewayClient } = await import('../lib/gateway-client.js');
     (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -532,7 +532,7 @@ describe('align ask - the fallback derives cites too (one contract means one con
   });
 });
 
-describe('align ask names a gap on a decision it returns (ALI-796)', () => {
+describe('align ask names a gap on a decision it returns', () => {
   async function runAskWithResult(externalReferences: Array<{ ref: string; platform: string }>) {
     const { createGatewayClient } = await import('../lib/gateway-client.js');
     (createGatewayClient as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -562,7 +562,7 @@ describe('align ask names a gap on a decision it returns (ALI-796)', () => {
   afterEach(() => vi.clearAllMocks());
 
   it('names the unresolved ref under the decision that carries it', async () => {
-    const all = await runAskWithResult([{ ref: 'ALI-123', platform: 'tracker' }]);
+    const all = await runAskWithResult([{ ref: 'APP-123', platform: 'tracker' }]);
     expect(all).toContain("cites a ticket-tracker ref I can't read - align connect jira or align connect linear");
   });
 
@@ -572,8 +572,8 @@ describe('align ask names a gap on a decision it returns (ALI-796)', () => {
   });
 });
 
-describe('align ask drops a synthetic hosted source (ALI-923)', () => {
-  // A hosted decision can carry align://claimed/... or align://unsourced/... (ALI-538) when
+describe('align ask drops a synthetic hosted source', () => {
+  // A hosted decision can carry align://claimed/... or align://unsourced/... when
   // a scan could not verify where it was decided - not a place anyone can open. The list
   // fallback (no provider configured) is where sourceLink prints the raw source_url as a
   // clickable line, which is exactly the render site the synthetic identity would corrupt.
@@ -624,7 +624,7 @@ describe('align ask drops a synthetic hosted source (ALI-923)', () => {
   });
 });
 
-// ALI-1749 / ALI-1782: the synthesis call is handed structured evidence fields, not just a title
+// The synthesis call is handed structured evidence fields, not just a title
 // and a body, so the model has a stated reason to quote and an id to cite.
 describe('align ask hands the synthesiser structured evidence', () => {
   beforeEach(() => { output.length = 0; });

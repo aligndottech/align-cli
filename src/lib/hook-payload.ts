@@ -16,7 +16,7 @@ export interface HookPayload {
    * The workspace the edit belongs to, when the host says (every host puts it under `cwd`).
    * A USER-level hook does not run in the project - Cursor documents that user-level hook
    * scripts run from ~/.cursor/ - and the post-edit path reads `git diff` in process.cwd(),
-   * so without this the check would look at the wrong directory (ALI-952).
+   * so without this the check would look at the wrong directory.
    */
   cwd?: string;
 }

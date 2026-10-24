@@ -6,7 +6,7 @@
  * taken only on positive confirmation that it cannot write. `gh auth login` issues
  * classic tokens carrying `repo` - read AND write, with no read-only-private
  * equivalent - so the ungated reuse shipped in #183 was quietly holding write
- * capability in the free tier, against ALI-98.
+ * capability in the free tier, against the read-only-token rule.
  *
  * Every refusal falls through to the paste prompt, so the user is never blocked; the
  * gate only decides whether a credential is taken WITHOUT them minting one.

@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * ALI-1135: what `align mcp --setup` writes has to be a command the client can actually
+ * What `align mcp --setup` writes has to be a command the client can actually
  * spawn on the platform it was written for.
  *
  * An npm global install on Windows exposes `align.cmd`, a batch shim, and a Windows process
@@ -58,7 +58,7 @@ function entryOf(format: McpFormat, env?: string): { command: string; args: stri
   return { command: entry.command, args: entry.args };
 }
 
-describe('alignServerEntry on Windows (ALI-1135)', () => {
+describe('alignServerEntry on Windows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setPlatform('win32');
@@ -118,7 +118,7 @@ describe('alignServerEntry on Windows (ALI-1135)', () => {
   });
 });
 
-describe('alignServerEntry off Windows (ALI-1135)', () => {
+describe('alignServerEntry off Windows', () => {
   beforeEach(() => vi.clearAllMocks());
 
   // Both non-Windows platforms, stated rather than inherited: on POSIX `align` is a real

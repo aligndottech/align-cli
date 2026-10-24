@@ -1,5 +1,5 @@
 /**
- * The embedding backend for the standalone binary (ALI-744). BUN-ONLY - see the notes below
+ * The embedding backend for the standalone binary. BUN-ONLY - see the notes below
  * before moving anything in here.
  *
  * WHY THE NPM PATH DOES NOT WORK IN A BINARY

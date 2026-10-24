@@ -4,7 +4,7 @@
 # rate-limiting a shared runner IP while we fetch the embedding runtime or model.
 #
 # The second one is a fail-open surface, which is why it is a tested function rather than a
-# grep in the smoke script. ALI-348 is the shape it must not become: a check that reports
+# grep in the smoke script. The shape it must not become is a check that reports
 # "fine" because it could not tell. So the predicate is deliberately narrow - the exact
 # wording our downloader emits, the exact status, and the host, all on ONE line - and
 # most of the cases below are negative controls proving it refuses everything else.

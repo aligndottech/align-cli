@@ -43,7 +43,7 @@ describe('initLocalMode', () => {
    * initialises a graph - and ~/.claude.json and a Claude Desktop config are user-level files
    * people curate across every project.
    *
-   * That write moved to connectDetectedAgents, which asks first (ALI-776). Pinned here so it
+   * That write moved to connectDetectedAgents, which asks first. Pinned here so it
    * cannot drift back into a function nobody would think to check for it.
    */
   it('does not touch any global editor config', async () => {

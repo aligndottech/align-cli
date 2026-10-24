@@ -87,14 +87,14 @@ describe('the retrieval tools say which graph they search', () => {
     // L9: align_share previews a share from the local graph, so a hosted server does not offer it either.
     expect(toolSchemasFor(localEnv).map(t => t.name)).toContain('align_share');
     expect(toolSchemasFor(cloudEnv).map(t => t.name)).not.toContain('align_share');
-    // ALI-1540: so is the tool that finishes it once the user approves in a browser.
+    // So is the tool that finishes it once the user approves in a browser.
     expect(toolSchemasFor(localEnv).map(t => t.name)).toContain('align_share_status');
     expect(toolSchemasFor(cloudEnv).map(t => t.name)).not.toContain('align_share_status');
   });
 });
 
 describe('the retrieval tools warn when status/currency is not tracked (local mode only)', () => {
-  // ALI-1063 follow-up: local-embedded search used to hardcode `status: 'active'` on every
+  // Local-embedded search used to hardcode `status: 'active'` on every
   // result, so an agent reading a superseded decision was told, in the machine-readable field
   // it trusts most, that the decision was current. The field is gone now (absent beats
   // fabricated); this is the replacement signal - since there is no typed relation data to

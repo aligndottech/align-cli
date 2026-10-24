@@ -23,7 +23,7 @@ describe('getCommitHistory on an empty repo (no commits yet)', () => {
 
   it('still parses commits when git log succeeds', async () => {
     const SEP = '\x1f';
-    // ALI-804: needs a real stated reason in the body, or this (bodyless) commit is now
+    // Needs a real stated reason in the body, or this (bodyless) commit is now
     // excluded and the test would prove nothing about successful parsing.
     const body = 'Chosen for native JSON and vector support over MySQL.';
     mockExeca.mockResolvedValueOnce({

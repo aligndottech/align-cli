@@ -22,7 +22,7 @@ Two kinds of file appear in the second column. A **project** file lives in the r
 `align` in, is committed, and covers the whole team. A **user** file lives under your
 home directory, is written by `align` / `align mcp --setup` next to that host's MCP
 entry, covers every project on this machine, and comes out again with `align mcp --remove`
-(ALI-952). The vendor docs for each host are linked from the row.
+. The vendor docs for each host are linked from the row.
 
 | Host | File `align` writes | Pre-edit check | Non-blocking context to the model | Can block | Payload fixture |
 |---|---|---|---|---|---|
@@ -99,15 +99,15 @@ keyed on it too, so a hook started somewhere else would look at the wrong tree, 
 silence because `~/.cursor` is not a repository. Every host puts the workspace in the
 payload's `cwd`; `align check --advisory` moves there first when it exists.
 
-## The read path: SessionStart injection (ALI-933)
+## The read path: SessionStart injection
 
 Everything above is the write path: a hook fires when the AGENT proposes an edit. Until
-ALI-933 nothing fired on the READ path - the graph's content only reached the model if it
+the read-path hook landed nothing fired on the READ path - the graph's content only reached the model if it
 chose to open `.align/decisions.md` or call an MCP tool. `grep -rn
 "SessionStart\|UserPromptSubmit" src --include="*.ts"` returned nothing outside this file's
-own prose before this ticket. So a claim like "the agent already has the answer" was true
+own prose before that change. So a claim like "the agent already has the answer" was true
 only of the ask-based MCP path, never of a fresh session - MCP tools and resources are both
-pull primitives, and no amount of caching that path (ALI-855) makes it unprompted.
+pull primitives, and no amount of caching that path makes it unprompted.
 
 The mechanism this ticket ships is the read-path counterpart to the table above: a hook that
 fires before the model has done anything, whose return value can inject text into what it
@@ -286,7 +286,7 @@ Default behaviour on every host is: surface the finding, never deny the edit. `-
 is the only path that denies, and only on a `critical` conflict, and never after the edit has
 already landed.
 
-How a deny can happen at all, given the hook is retrieval-only inside its window (ALI-570):
+How a deny can happen at all, given the hook is retrieval-only inside its window:
 with the flag set, a hook whose retrieval found related decisions also spawns a detached
 adjudicator for that exact proposed change. The adjudicator runs the full check after the
 hook window closes and records a verdict, with a 15-minute expiry. A later PreToolUse

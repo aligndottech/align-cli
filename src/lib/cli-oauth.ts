@@ -99,7 +99,7 @@ export function waitForCallback(opts: {
         clearTimeout(timer);
         reject(err);
       });
-      // 127.0.0.1, not every interface: this socket accepts a credential, and on 0.0.0.0 anyone on the LAN can dial it (ALI-1504).
+      // 127.0.0.1, not every interface: this socket accepts a credential, and on 0.0.0.0 anyone on the LAN can dial it.
       s.listen(port, '127.0.0.1', () => {
         // The web page posts to http://localhost, which a browser may resolve to ::1. Answer there too, or the token goes to
         // whatever else holds ::1 on this port. A port whose ::1 side is taken is skipped whole: never half of a pair.

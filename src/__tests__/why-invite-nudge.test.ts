@@ -1,5 +1,5 @@
 /**
- * ALI-938: the invite nudge inside `align ask` - both trigger moments, with git.ts mocked
+ * The invite nudge inside `align ask` - both trigger moments, with git.ts mocked
  * so the result does not depend on whatever identity happens to be configured on the
  * machine running the suite (why.test.ts itself calls the real git.ts and never asserts
  * on this text, which is fine there; asserting on it needs a controlled identity).

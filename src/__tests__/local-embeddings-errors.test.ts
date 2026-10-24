@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// The on-device runtime and model are downloaded on first use (ALI-1781). getEmbedding must
+// The on-device runtime and model are downloaded on first use. getEmbedding must
 // surface a clear, actionable error when the platform has no runtime or the download fails -
 // never a raw fetch or dlopen error.
 const native = vi.hoisted(() => ({ create: vi.fn() }));
@@ -51,7 +51,7 @@ describe('getEmbedding error surfacing (npm distribution)', () => {
   });
 });
 
-// ALI-740/744: the binary bundles a WASM backend and registers it at startup, so it should
+// The binary bundles a WASM backend and registers it at startup, so it should
 // never reach the native loader. If it does, its own build is broken - and the npm-shaped advice
 // ("reinstall on a supported platform") is unfollowable for someone who downloaded a binary.
 describe('getEmbedding error surfacing (binary distribution)', () => {

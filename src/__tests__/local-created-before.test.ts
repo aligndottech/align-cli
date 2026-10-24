@@ -1,5 +1,5 @@
 /**
- * ALI-1087: local-embedded mode used to reject `--created-before` outright ("there is no
+ * Local-embedded mode used to reject `--created-before` outright ("there is no
  * cutoff concept locally"), which described the day's implementation rather than a real
  * limit - the local SQLite graph stores a real `created_at` on every decision and edge.
  * This suite mirrors the cloud test shape (align-stack#2447): seed a decision and a LATER
@@ -74,7 +74,7 @@ function sqliteFormat(iso: string): string {
   return iso.replace('T', ' ').replace(/\.\d{3}Z$/, '');
 }
 
-describe('searchDecisions bounds decisions by their own created_at (ALI-1087)', () => {
+describe('searchDecisions bounds decisions by their own created_at', () => {
   it('excludes a decision created at or after the cutoff', async () => {
     const client = createLocalGatewayClient(dbPath);
     opened.push(client);
@@ -122,7 +122,7 @@ describe('searchDecisions bounds decisions by their own created_at (ALI-1087)', 
   });
 });
 
-describe('searchDecisions bounds relation edges by BOTH the edge and the counterpart decision (ALI-1087)', () => {
+describe('searchDecisions bounds relation edges by BOTH the edge and the counterpart decision', () => {
   /** Seeds two decisions (both dated well before any cutoff used below) linked by a
    *  `conflicts_with` edge dated `edgeCreatedAt`, mirroring align-stack#2447's dual bound:
    *  the decisions and the edge asserting a relation between them can predate a cutoff by
@@ -202,7 +202,7 @@ describe('searchDecisions bounds relation edges by BOTH the edge and the counter
  * their fixtures wrote ISO strings on both sides - this block uses `sqliteFormat` to write
  * what the column really holds.
  */
-describe('the SQLite-format vs ISO-cutoff comparison, same calendar day (ALI-1087, Copilot #320)', () => {
+describe('the SQLite-format vs ISO-cutoff comparison, same calendar day (Copilot #320)', () => {
   it('excludes a decision created LATER the same day as the cutoff', async () => {
     const client = createLocalGatewayClient(dbPath);
     opened.push(client);
@@ -261,7 +261,7 @@ describe('the SQLite-format vs ISO-cutoff comparison, same calendar day (ALI-108
  * it. This seeds two supersession edges targeting one decision, with the invalid one
  * inserted first so a naive first-match lookup hits it before the valid one.
  */
-describe('relationFieldsFor tries every supersession candidate, not just the first found (ALI-1087, Copilot #320)', () => {
+describe('relationFieldsFor tries every supersession candidate, not just the first found (Copilot #320)', () => {
   it('reports an earlier valid successor when the first-found candidate fails the cutoff bound', async () => {
     const client = createLocalGatewayClient(dbPath);
     opened.push(client);

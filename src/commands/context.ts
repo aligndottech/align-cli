@@ -1,15 +1,15 @@
 /**
- * ALI-602: `align context sync` - write the decision graph into the files
+ * `align context sync` - write the decision graph into the files
  * agents actually read.
  *
- * The renderer and writer live in lib/decisions-context.ts (ALI-196 spike,
- * shipped in #116) and are pinned by their own suites: Align owns
+ * The renderer and writer live in lib/decisions-context.ts (shipped in
+ * #116) and are pinned by their own suites: Align owns
  * `.align/decisions.md` outright, the user's CLAUDE.md gains one import line,
  * appended never spliced (align-cli#116 decided the ownership model - a
  * separate owned file makes augment-never-overwrite structural, so no marker
  * parser exists to get wrong).
  *
- * For a LOCAL graph that path is usually a symlink to `~/.align/contexts/...` (ALI-1668),
+ * For a LOCAL graph that path is usually a symlink to `~/.align/contexts/...`,
  * never a real file - see decisions-context.ts's file header for why gitignore alone was not
  * enough. Every reader here (CLAUDE.md's import, `inject` below, the gitignore/tracked-by-git
  * checks) resolves the relative path transparently either way, so nothing in this file needs
@@ -54,14 +54,14 @@ export function registerContextCommand(program: Command): void {
       const config = createConfigStore();
       // preferLocalEmbedded: the launch's flagship command must work for the
       // no-account user it is pitched at - bare resolution sent them to an
-      // unauthenticated cloud 401 (ALI-675, the ALI-160/423 family).
+      // unauthenticated cloud 401 (the family).
       const syncEnv = config.getEnvironment(resolveEnv(opts.env, { preferLocalEmbedded: true }));
       const client = createGatewayClient(syncEnv);
       const spinner = ora('Fetching decisions...').start();
 
       // Fetch BEFORE writing anything: a failed fetch must not leave a
       // plausible-looking "no decisions" file behind. An empty file and an
-      // unreachable graph are different claims (the ALI-414 rule, new surface).
+      // unreachable graph are different claims (the rule, new surface).
       let decisions: ContextDecision[];
       try {
         // A malformed --limit must not become NaN: locally slice(0, NaN) is []
@@ -74,15 +74,15 @@ export function registerContextCommand(program: Command): void {
         const rows = await client.listDecisions({ limit, status: 'active' });
         decisions = rows.map((d) => {
           const cite = localCitationFor(d.source_url);
-          // ALI-923: a hosted decision can carry a synthetic align://claimed/... identity
-          // (ALI-538) - not a place anyone can open. navigableSourceUrl drops it here so
+          // A hosted decision can carry a synthetic align://claimed/... identity
+          // - not a place anyone can open. navigableSourceUrl drops it here so
           // decisions-context.ts's renderer never has to know the difference.
           const sourceUrl = navigableSourceUrl(d.source_url);
           return {
             title: d.title,
             ...(cite ? { cite } : {}),
             ...(sourceUrl ? { sourceUrl } : {}),
-            // ALI-831: the fields renderDecisionsFile needs to route an unratified agent claim
+            // The fields renderDecisionsFile needs to route an unratified agent claim
             // into its own section.
             ...(d.decider_kind ? { deciderKind: d.decider_kind } : {}),
             ...(d.ratified_by ? { ratifiedBy: d.ratified_by } : {}),
@@ -97,7 +97,7 @@ export function registerContextCommand(program: Command): void {
       spinner.stop();
 
       const repoRoot = process.cwd();
-      // external: true moves the LOCAL case's real bytes to ~/.align (ALI-1668) - a symlink is
+      // external: true moves the LOCAL case's real bytes to ~/.align - a symlink is
       // left at ALIGN_CONTEXT_PATH, so every read below (and align context inject) is unchanged.
       const result = await writeDecisionsContext(repoRoot, decisions, { external: syncEnv.mode === 'local-embedded' });
 
@@ -136,7 +136,7 @@ export function registerContextCommand(program: Command): void {
       'Print the decisions file as SessionStart hook output (written by `align`, not meant to be run by hand)',
     )
     .action(() => {
-      // ALI-933: the read-path counterpart to `align check --advisory`. A SessionStart
+      // The read-path counterpart to `align check --advisory`. A SessionStart
       // hook shells out to this on every new/resumed/compacted session; whatever it
       // prints lands in the model's context WITHOUT the model choosing to open a file or
       // call a tool. Deliberately reads the file `align context sync` already wrote

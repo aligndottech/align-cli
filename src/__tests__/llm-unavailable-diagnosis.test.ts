@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callChatDetailed } from '../lib/local-llm.js';
 
 /**
- * ALI-766. `no_provider` conflated two situations that need opposite remedies:
+ * `no_provider` conflated two situations that need opposite remedies:
  *
  *   - nothing is configured           -> "set a key"
  *   - what you configured did not answer -> "your endpoint is unreachable / your key is dead"
@@ -80,7 +80,7 @@ describe('callChatDetailed: telling "nothing configured" from "nothing answered"
     expect(res.failure.kind).toBe('no_provider');
   });
 
-  // ALI-420's diagnosis is more specific and its remedy is the opposite of "your provider is
+  // The diagnosis is more specific and its remedy is the opposite of "your provider is
   // unreachable", so it must keep winning.
   it('lets an unrecognised local model keep precedence', async () => {
     vi.stubEnv('ALIGN_LLM_BASE_URL', 'https://api.deepseek.com');

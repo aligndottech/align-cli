@@ -1,5 +1,5 @@
 /**
- * ALI-1740: `align doctor`, the install preflight. These tests drive the check logic through
+ * `align doctor`, the install preflight. These tests drive the check logic through
  * injected dependencies; doctor-e2e.test.ts drives the real command, the real `align mcp` and a
  * real loopback gateway.
  *
@@ -217,7 +217,7 @@ describe('verdict and rendering', () => {
   });
 });
 
-// ALI-1781: the on-device runtime and model are downloaded on first local use, so doctor is where
+// The on-device runtime and model are downloaded on first local use, so doctor is where
 // a person finds out it could not be.
 describe('on-device embeddings (local graph only)', () => {
   const local = { mode: 'local-embedded' as const };

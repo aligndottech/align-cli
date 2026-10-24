@@ -1,4 +1,4 @@
-# ALI-797: promotion is the ONLY step that makes a release public, and it ships the
+# Promotion is the ONLY step that makes a release public, and it ships the
 # identical bytes the E2E and the human pass tested - one dist-tag move and one
 # prerelease flag flip, no rebuild anywhere. Runbook: docs/RELEASING.md.
 #
@@ -241,7 +241,7 @@ jobs:
             echo "FATAL: GitHub latest release is $gh_latest, expected ${{ needs.resolve.outputs.tag }}"; exit 1; }
           echo "latest = ${{ needs.resolve.outputs.tag }} on npm and GitHub"
 
-  # Moved here from release-please.yml (ALI-797): the MCP registry should describe the
+  # Moved here from release-please.yml: the MCP registry should describe the
   # version a stranger actually gets, which is only true after promotion. Everything
   # below is the previous job verbatim, pinned publisher included.
   mcp-registry:
@@ -287,7 +287,7 @@ jobs:
       - name: Login to the MCP registry (GitHub OIDC)
         run: ./mcp-publisher login github-oidc
 
-      # ALI-1670: this workflow can run twice for one release (a manual dispatch, then the
+      # This workflow can run twice for one release (a manual dispatch, then the
       # workflow_run that fires when e2e goes green). The script asks the registry first and passes
       # when it already holds this exact version, instead of failing the promotion as a duplicate.
       - name: Publish server.json

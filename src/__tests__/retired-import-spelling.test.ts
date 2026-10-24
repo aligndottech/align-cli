@@ -5,7 +5,7 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 /**
- * ALI-951: `align import` exits 2 since 0.40.0, so no LIVE string may still instruct it.
+ * `align import` exits 2 since 0.40.0, so no LIVE string may still instruct it.
  *
  * The retirement shipped the stub and renamed the docs and left sixteen strings the running
  * CLI still printed: every connector's intro banner (`commandIntro('align import git')`), the
@@ -82,7 +82,7 @@ function stringsOf(file: string): string[] {
   return found;
 }
 
-describe('no live string still instructs the retired `align import` (ALI-951)', () => {
+describe('no live string still instructs the retired `align import`', () => {
   const files = tsFilesUnder(SRC);
   const said = files.flatMap((file) =>
     stringsOf(file).map((text) => ({ file: toPosixPath(path.relative(SRC, file)), text })),

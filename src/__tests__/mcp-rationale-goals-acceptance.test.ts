@@ -10,7 +10,7 @@ import {
 } from '../lib/mcp-timeline-tools.js';
 
 /**
- * ALI-1426, the align-cli half. Measured on AlignBench v11 (gh-token item), which runs this
+ * The align-cli half. Measured on AlignBench v11 (gh-token item), which runs this
  * server through `align mcp`: the decision stores its goals, acceptance criteria and actions
  * under `decision_json.ai`. `shapeDecisionRationale` read goals from the top level only, so
  * they came back `[]`, and never returned acceptance criteria or actions at all - so the
@@ -60,7 +60,7 @@ const run = (decisionJson: Record<string, unknown>) =>
     'd-gh',
   );
 
-describe('decision rationale goals (ALI-1426)', () => {
+describe('decision rationale goals', () => {
   it('returns goals stored only under decision_json.ai', () => {
     expect(run({ ai: AI })['goals']).toEqual(['Every documented gh call runs as tom-at-align']);
   });
@@ -82,7 +82,7 @@ describe('decision rationale goals (ALI-1426)', () => {
   });
 });
 
-describe('decision rationale acceptance_criteria (ALI-1426)', () => {
+describe('decision rationale acceptance_criteria', () => {
   it('returns the stored ai.acceptance_criteria verbatim', () => {
     const out = run({ ai: AI });
     expect(out['acceptance_criteria']).toBe(AI.acceptance_criteria);
@@ -131,7 +131,7 @@ describe('decision rationale acceptance_criteria (ALI-1426)', () => {
   });
 });
 
-describe('decision rationale actions (ALI-1426)', () => {
+describe('decision rationale actions', () => {
   it('returns stored ai.actions as text, from both object and string entries', () => {
     const out = run({ ai: AI });
     expect(out['actions']).toEqual([
@@ -197,7 +197,7 @@ describe('decision rationale actions (ALI-1426)', () => {
   });
 });
 
-describe('decision rationale tool description (ALI-1426)', () => {
+describe('decision rationale tool description', () => {
   it('tells the agent the response can carry acceptance criteria and actions', () => {
     const tool = TOOL_SCHEMAS.find((t) => t.name === DECISION_RATIONALE_TOOL);
     expect(tool).toBeDefined();

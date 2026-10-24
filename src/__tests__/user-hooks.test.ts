@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { removeUserHooks, type UserHookTarget, writeUserHooks } from '../lib/user-hooks.js';
 
 /**
- * ALI-952: the deterministic guardrail reached Claude Code, pi, Gemini CLI and OpenCode only.
+ * The deterministic guardrail reached Claude Code, pi, Gemini CLI and OpenCode only.
  * Codex, Cursor and Copilot CLI each document a pre-tool hook that runs from a USER-level
  * file with no trust prompt (~/.codex/hooks.json, ~/.cursor/hooks.json, ~/.copilot/hooks/).
  * These writers put `align check --advisory --format <host>` there, next to the MCP entry
@@ -78,7 +78,7 @@ describe('writeUserHooks - Copilot CLI (~/.copilot/hooks/align.json, preToolUse 
   });
 });
 
-// ALI-1749: Copilot CLI is the one host whose docs say a non-zero preToolUse exit DENIES the
+// Copilot CLI is the one host whose docs say a non-zero preToolUse exit DENIES the
 // tool call, and this hook lives in the USER's home, so it fires in every project. With align
 // uninstalled or off the hook shell's PATH the bare command exits 127, which would block every
 // edit. The command must exit 0 when align is absent, and must not alter what a present align
@@ -221,7 +221,7 @@ describe.each([
   });
 });
 
-// ALI-1476: an element carrying our command is ours to refresh only while it is exactly what
+// An element carrying our command is ours to refresh only while it is exactly what
 // we wrote. A user who added a nested command, or changed the timeout, inside it has edited it.
 describe('writeUserHooks - a user edit inside our own element survives the next write', () => {
   it('Codex: keeps a group the user added a command to, once, and says so', () => {

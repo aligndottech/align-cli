@@ -1,5 +1,5 @@
 /**
- * ALI-1540: `align share` when the person approves in a browser instead of typing y.
+ * `align share` when the person approves in a browser instead of typing y.
  *
  * For each request (at most SHARE_BATCH_ITEMS decisions, and small enough to seal): stage it, print the link and the
  * code, wait, and when the gateway says the person approved, send the approved bytes. The link carries the key in

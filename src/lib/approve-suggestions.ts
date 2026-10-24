@@ -11,7 +11,7 @@ export type ApproveAllResult =
   | { kind: 'async'; listed: number; jobIds: string[]; streamUrl?: string };
 
 /**
- * Approve every pending suggestion of the given jobs (ALI-1585). Lists each job in full
+ * Approve every pending suggestion of the given jobs. Lists each job in full
  * (the client pages), de-duplicates ids, and sends them in bulk. The sync gateway answers
  * `updated` (a count), `created_decisions` (an array, though the client types it as a
  * number) and `errors` (strings for rows it skipped, e.g. already settled or not owned).

@@ -11,7 +11,7 @@ import path from 'node:path';
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.9),
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
@@ -21,7 +21,7 @@ vi.mock('../lib/local-relationship-classifier.js', () => ({
 }));
 // The whole module surface `ask` uses, not just the call this file cares about: a
 // partial fake makes any NEW read from local-llm.js crash here rather than in the suite
-// that owns it (ALI-420 added a second read from this module and hit exactly that).
+// that owns it (a second read added from this module hit exactly that).
 // Spread the real module: a hand-built fake constrains what production code may call,
 // so one new import in why.ts broke this test, which is about local query results.
 vi.mock('../lib/local-llm.js', async (importActual) => ({

@@ -1,5 +1,5 @@
 /**
- * ALI-1540: the gateway's share-request routes, parsed without trusting them.
+ * The gateway's share-request routes, parsed without trusting them.
  *
  * Built from `request` (the gateway client's own fetch wrapper: bearer, identity headers, error text) so there
  * is one HTTP path. Every call refuses a redirect: a 30x to another host would carry the bearer token and the

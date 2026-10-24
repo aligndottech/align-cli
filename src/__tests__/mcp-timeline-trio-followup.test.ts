@@ -17,7 +17,7 @@ const cloudEnvB = {
 beforeEach(() => mockFetchB.mockReset());
 
 /**
- * ALI-1070 follow-up: the eleven Copilot findings on #296 (6 inline + 5 suppressed), plus
+ * The eleven Copilot findings on #296 (6 inline + 5 suppressed), plus
  * three a fresh-context port review found that Copilot did not.
  *
  * #296 merged before any of them were addressed, so this is a follow-up branch off the squash
@@ -272,7 +272,7 @@ describe('F7: the rationale tool returns the rationale it promises', () => {
       positions_considered: ['skip mode is acceptable for OSS'],
     },
     external_references: [
-      { connector: 'jira', external_id: 'ALI-1', external_url: 'https://x/ALI-1', reference_type: 'mentions' },
+      { connector: 'jira', external_id: 'APP-1', external_url: 'https://x/APP-1', reference_type: 'mentions' },
     ],
   };
 
@@ -294,7 +294,7 @@ describe('F7: the rationale tool returns the rationale it promises', () => {
   });
 
   it('never leaks decision_json itself', async () => {
-    // The projection exists so the reasoning survives, NOT so the blob does (ALI-498: one
+    // The projection exists so the reasoning survives, NOT so the blob does (one
     // 12-row prod component carried 43,327 characters of it).
     const out = await served(row);
     expect(out['decision_json']).toBeUndefined();
@@ -310,7 +310,7 @@ describe('F7: the rationale tool returns the rationale it promises', () => {
     expect(out['alternatives_considered']).toEqual(['a']);
   });
 
-  // ALI-1085: was 'falls back to the summary when no rationale was recorded'. The summary is
+  // Was 'falls back to the summary when no rationale was recorded'. The summary is
   // what was decided, not why; returning it as `rationale` made a missing reason
   // indistinguishable from a present one for a reader that is a model.
   it('reports the rationale as unavailable when none was recorded, rather than serving the summary', async () => {
@@ -322,16 +322,16 @@ describe('F7: the rationale tool returns the rationale it promises', () => {
   });
 
   it('carries the mentioned artifacts the gateway already sends', async () => {
-    // ALI-582: the Jira keys and implementing PRs are in this exact response body.
+    // The Jira keys and implementing PRs are in this exact response body.
     const out = await served(row);
-    expect(JSON.stringify(out['mentioned_artifacts'])).toContain('ALI-1');
+    expect(JSON.stringify(out['mentioned_artifacts'])).toContain('APP-1');
   });
 
   it('tolerates a local row with no decision_json at all', async () => {
     // Local mode serves this tool for real, and its rows carry no decision_json. Thinner,
     // not broken - and it must not throw.
     const out = await served({ id: 'd1', title: 'T', summary: 'S', external_references: [] });
-    // ALI-1085: thinner means SAYING the reasoning is absent, not substituting the summary.
+    // Thinner means SAYING the reasoning is absent, not substituting the summary.
     expect(out['rationale']).toBeUndefined();
     expect(out['rationale_unavailable']).toBe(true);
     expect(out['summary']).toBe('S');
@@ -526,7 +526,7 @@ describe('the gaps the #296 suite claimed to cover and did not', () => {
   });
 
   /**
-   * T9: the claim that the trio is appended "so the eight above keep the ranking ALI-139
+   * T9: the claim that the trio is appended "so the eight above keep the ranking
    * decided" was unpinned beyond index 0 - splicing the trio to index 1 passed 172/172.
    */
   it('keeps the original eight in their decided order, with the trio appended', () => {
@@ -593,8 +593,8 @@ describe('#298 round 2', () => {
   /**
    * C2. The precedence is the HOSTED one (top-level `rationale` first), and it stays - a port
    * that silently re-ranks its source stops being verifiable against it. What was wrong was
-   * the COMMENT, which cited ALI-484 close enough to the precedence to read as a claim about
-   * it. ALI-484 is about alternatives_considered / positions_considered, not rationale. This
+   * the COMMENT, which cited an unrelated decision close enough to the precedence to read as a claim about
+   * it. That decision is about alternatives_considered / positions_considered, not rationale. This
    * test makes the choice deliberate rather than incidental.
    */
   it('prefers the top-level rationale over the ai one when BOTH are present', async () => {
@@ -614,7 +614,7 @@ describe('#298 round 2', () => {
     });
     const out = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
     expect(out['rationale']).toBe('the chosen gloss');
-    // And the ALI-484 fields still come from `.ai` when the top level has none, which is what
+    // And the fields still come from `.ai` when the top level has none, which is what
     // that ticket is actually about.
     expect(out['alternatives_considered']).toEqual(['alt']);
   });
@@ -659,9 +659,9 @@ describe('#298 round 2', () => {
    */
   it('cites a Linear ticket by key, which only the shared helper can do', () => {
     const d = (shaped({
-      decisions: [{ ...rows()[0], source_url: 'https://linear.app/align/issue/ALI-346' }],
+      decisions: [{ ...rows()[0], source_url: 'https://linear.app/align/issue/APP-346' }],
     })['decisions'] as Record<string, unknown>[])[0]!;
-    expect(d['cite']).toBe('ALI-346');
+    expect(d['cite']).toBe('APP-346');
     // repositoryOf must still refuse: a Linear workspace is not an owner.
     expect(d['repository']).toBeUndefined();
   });

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guards for scripts/mcp-registry-publish.sh (ALI-1670): the promotion's registry publish must pass
+# Guards for scripts/mcp-registry-publish.sh: the promotion's registry publish must pass
 # when the registry already holds this exact version, and must still fail on a real collision or a
 # genuine publish failure.
 #

@@ -137,7 +137,7 @@ export function sweepPending(now = new Date()): number {
 }
 
 /**
- * ALI-1540: a share staged for BROWSER approval, kept so a later call (the MCP `align_share_status`) can finish it
+ * A share staged for BROWSER approval, kept so a later call (the MCP `align_share_status`) can finish it
  * and so asking again returns the same live link instead of burning one of the gateway's five live requests.
  *
  * It holds what is secret: the key (it makes the link) and the exact plaintext bytes (decision text). So the file is

@@ -1,7 +1,7 @@
 import { citationFor, navigableSourceUrl, repositoryOf } from './decision-links.js';
 
 /**
- * ALI-1070 slice 1: the "timeline trio", ported from the hosted connector so a customer's
+ * The "timeline trio", ported from the hosted connector so a customer's
  * agent can reach it through `align mcp`.
  *
  * `align mcp` is the server `align mcp --setup` wires into every customer's agent. It
@@ -33,7 +33,7 @@ import { citationFor, navigableSourceUrl, repositoryOf } from './decision-links.
  *  2. NO decision_url. That one genuinely needs the hosted connector's FRONTEND_URL. The
  *     contract's link clause is conditional ("with decision_url when present, else
  *     source_url") so it stays TRUE here, and the closing full-timeline rule was corrected in
- *     the ALI-1070 follow-up to stop demanding it unconditionally.
+ *     the follow-up to stop demanding it unconditionally.
  *
  *     `cite` and `repository` ARE emitted. The first port dropped them claiming they needed
  *     FRONTEND_URL too, which was simply false: both derive from `source_url` alone through
@@ -46,7 +46,7 @@ import { citationFor, navigableSourceUrl, repositoryOf } from './decision-links.
  */
 
 /**
- * ALI-1070 follow-up, F7 (Copilot, #296 suppressed at mcp.ts:222): project the reasoning OUT
+ * Project the reasoning OUT
  * of `decision_json` before the serializer strips it.
  *
  * The first port was `return client.getDecision(id)` raw. `serializeMcpResult`'s
@@ -59,20 +59,20 @@ import { citationFor, navigableSourceUrl, repositoryOf } from './decision-links.
  * align_get_decision_rationale for the decisions whose reasoning the answer needs"), so the
  * one escape hatch the story renderer offers returned no reasoning.
  *
- * Projected rather than un-omitted: `decision_json` is unbounded (ALI-498 measured 43,327
+ * Projected rather than un-omitted: `decision_json` is unbounded (measured at 43,327
  * characters of it on one 12-row prod component), so the fix is to lift the named fields out,
  * never to let the blob through.
  *
  * Ported from the hosted connector's decisionRationale.ts, including the `.ai` sub-object.
  *
- * ALI-484 is about `alternatives_considered` and `positions_considered` specifically:
+ * This is about `alternatives_considered` and `positions_considered` specifically:
  * `rationale` is a 1-2 sentence gloss on the option CHOSEN, while the reasoning an agent needs
  * is the option REJECTED and why, which the scan writes into `suggested_decision_json` and the
  * approve path copies verbatim into `decision_json.ai`. Those two fields therefore read the
  * top level and fall back to `.ai`.
  *
  * `rationale` keeps the HOSTED precedence - top level first, then `.ai`. It no longer falls
- * back to the summary (ALI-1085): the summary is what was decided, not why, and returning it
+ * back to the summary: the summary is what was decided, not why, and returning it
  * under the name `rationale` made a missing reason indistinguishable from a present one.
  * Copilot read the paragraph above as a claim that `.ai.rationale` should win (#298 inline at
  * :134); it is not, and the fix is this wording rather than a re-ranking. A port that silently
@@ -85,7 +85,7 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-/** ALI-582: the Jira keys and implementing PRs the gateway already sends in this response. */
+/** The Jira keys and implementing PRs the gateway already sends in this response. */
 const MAX_ARTIFACTS_PER_DECISION = 20;
 
 function mentionedArtifacts(refs: unknown): {
@@ -118,7 +118,7 @@ function mentionedArtifacts(refs: unknown): {
   };
 }
 
-// ALI-1426: wire-level bounds, identical to the hosted connector's (align-stack#3049).
+// Wire-level bounds, identical to the hosted connector's (align-stack#3049).
 export const MAX_ACCEPTANCE_CRITERIA_CHARS = 1200;
 export const MAX_ACTIONS = 10;
 export const MAX_ACTION_CHARS = 300;
@@ -161,7 +161,7 @@ function boundedActions(...candidates: unknown[]): { actions: string[]; truncate
  * Tolerant of a row with no `decision_json` at all, which is the LOCAL case: local mode serves
  * this tool for real (the local client implements getDecision) and its rows carry no such
  * column. Thinner, not broken - such a row reports `rationale_unavailable` rather than being
- * handed the summary under the name `rationale` (ALI-1085). Honest degradation means saying
+ * handed the summary under the name `rationale`. Honest degradation means saying
  * the reasoning is absent, not substituting something else for it.
  */
 export function shapeDecisionRationale(
@@ -173,7 +173,7 @@ export function shapeDecisionRationale(
   const realRationale = [dj['rationale'], aiSub['rationale']].find(
     (v): v is string => typeof v === 'string' && v.trim().length > 0,
   );
-  // ALI-1426: the prescribed fix often lives in acceptance_criteria/actions and nowhere else
+  // The prescribed fix often lives in acceptance_criteria/actions and nowhere else
   // (AlignBench v11 gh-token item). Same semantics as the hosted connector (align-stack#3049).
   const acceptance = boundedText(
     MAX_ACCEPTANCE_CRITERIA_CHARS,
@@ -189,7 +189,7 @@ export function shapeDecisionRationale(
     status: row['status'],
     platform: row['platform'],
     created_at: row['created_at'],
-    // ALI-1085. `summary` used to sit at the end of this chain, so a decision with no
+    // `summary` used to sit at the end of this chain, so a decision with no
     // captured reasoning had its SUMMARY returned under the name `rationale`. Verified
     // through `align mcp --env prod` on 2026-09-20: for align-frontend#213 `rationale ===
     // summary` was true and nothing marked the substitution. An agent asking WHY was handed
@@ -209,8 +209,8 @@ export function shapeDecisionRationale(
             'No reasoning was captured for this decision. The summary above describes WHAT was ' +
             'decided, not why - do not present it as the rationale.',
         }),
-    // ALI-1426: goals are stored under decision_json.ai, so a top-level-only read returned [].
-    // ALI-1465: risks, alternatives and positions share the same helper, so an empty top-level [] no
+    // Goals are stored under decision_json.ai, so a top-level-only read returned [].
+    // Risks, alternatives and positions share the same helper, so an empty top-level [] no
     // longer hides a populated ai list.
     goals: firstNonEmptyArray(dj['goals'], aiSub['goals']),
     risks: firstNonEmptyArray(dj['risks'], aiSub['risks']),
@@ -251,7 +251,7 @@ export const DECISION_TIMELINE_TOOL = 'align_get_decision_timeline';
 export const STORY_GATE = 'asked for the story';
 
 /**
- * 280, matching the hosted connector's `format.ts` (ALI-297/ALI-498). The first port wrote 500
+ * 280, matching the hosted connector's `format.ts`. The first port wrote 500
  * and did not declare it as a difference; on a 50-row timeline that is up to ~11 kB of extra
  * agent context per call, in a module whose stated purpose is bounded output.
  */
@@ -276,7 +276,7 @@ function truncate(text: string, max = MAX_SUMMARY_CHARS): string {
  * the other silently re-exposes a minted identity as a link.
  *
  * Reuse is also a capability gain, not just deduplication: the canonical `citationFor` cites
- * Linear and Jira tickets by their key ("ALI-346", "PROJ-12"), which the deleted local copy
+ * Linear and Jira tickets by their key ("APP-346", "PROJ-12"), which the deleted local copy
  * could not do at all. `navigableSourceUrl` is the shared refusal to hand back an `align://`
  * identity, and `sourceFields` below is the topic-timeline presentation built on it.
  */
@@ -303,12 +303,12 @@ export interface TimelineRow {
   platform?: string;
   status?: string;
   created_at: string;
-  /** ALI-622: the source's decision moment. created_at is Align's import day. */
+  /** The source's decision moment. created_at is Align's import day. */
   decided_at?: string | null;
-  /** ALI-876: when the artifact was raised in its source. */
+  /** When the artifact was raised in its source. */
   source_created_at?: string | null;
   /**
-   * ALI-876: which of the three clocks the gateway resolved for this row. Computed THERE, by
+   * Which of the three clocks the gateway resolved for this row. Computed THERE, by
    * the same resolver that ordered the list, so this client never re-derives it - a second
    * implementation of the precedence could disagree with the ordering it is rendering, which
    * is the failure a label is supposed to prevent.
@@ -337,7 +337,7 @@ export interface TopicTimelineResult {
 /**
  * The projection is an ALLOWLIST, not a delete.
  *
- * ALI-498: one 12-row prod component carried 43,327 characters of `decision_json`. A delete
+ * One 12-row prod component carried 43,327 characters of `decision_json`. A delete
  * list only removes the heavy fields somebody thought of; an allowlist cannot leak a field
  * the gateway adds later. OMIT_RESULT_KEYS in mcp.ts is the belt to this braces.
  */
@@ -392,7 +392,7 @@ interface MessageOpts {
   chainPlatforms: string[];
   chainSupersededCount: number;
   /**
-   * ALI-1010, and deliberately NOT folded into chainSupersededCount. A corrected decision was
+   * Deliberately NOT folded into chainSupersededCount. A corrected decision was
    * never true; a superseded one was true and was overtaken. Counting them together is the
    * manufactured history the corrections clause exists to prevent.
    */
@@ -445,7 +445,7 @@ export function topicTimelineMessage(opts: MessageOpts): string {
       : '';
 
   /**
-   * ALI-1010. The one clause that stops a correction being told as a reversal, and the single
+   * The one clause that stops a correction being told as a reversal, and the single
    * clause most responsible for the `reversed` split this port is measured on.
    *
    * Conditional, like `why` and the Contested slot: on a chain with no corrected decision this
@@ -465,7 +465,7 @@ export function topicTimelineMessage(opts: MessageOpts): string {
       : '';
 
   /**
-   * ALI-590, the other load-bearing addition. Without it an agent reads every row it is
+   * The other load-bearing addition. Without it an agent reads every row it is
    * handed, and on a mature graph most rows are adjacent-but-unrelated - a webhook-security
    * topic pulls legal, DPA and pricing tickets over the 0.25 similarity floor. Naming the
    * count and forbidding the enumeration is what turns 50 rows into a story.
@@ -490,8 +490,7 @@ export function topicTimelineMessage(opts: MessageOpts): string {
     whyState === 'present'
       ? ` \`why\` carries each arguing decision's reason and logged risks - use it directly and do NOT call ${DECISION_RATIONALE_TOOL} for a decision that appears there; call it only for one that does not appear there${
           // With real questions in the payload the risks synthesis is retired for this
-          // response: two stated sources for one section is how the model picks the wrong one
-          // (ALI-627).
+          // response: two stated sources for one section is how the model picks the wrong one.
           stillOpenState === 'present' ? '' : ', and draw the closing open-questions line from its risks'
         }.`
       : whyState === 'empty'
@@ -584,7 +583,7 @@ export function topicTimelineMessage(opts: MessageOpts): string {
     }`;
 
   /**
-   * Two sources, one section, stated conditionally (ALI-627). With `still_open` present the
+   * Two sources, one section, stated conditionally. With `still_open` present the
    * section closes on the decisions' own stated questions; without it, the synthesis from
    * risks remains - a promise scoped to THIS response, like the `why` clause above.
    */
@@ -627,11 +626,11 @@ export function shapeTopicTimeline(
   const semanticRan = result?.retrieval?.semantic !== false;
 
   /**
-   * The chain is what gets narrated; everything else is counted (ALI-590).
+   * The chain is what gets narrated; everything else is counted.
    *
    * `chain_ids` is a NEWER gateway field, and this client and the gateway deploy separately -
    * so an older gateway (or one whose edge lookup degraded) sends no ids and every decision
-   * stays in the chain, which is the pre-ALI-590 behaviour. Falling back to "narrate
+   * stays in the chain, which is the behaviour from before chain ids existed. Falling back to "narrate
    * everything" is the right direction to fail: a shorter answer that silently dropped
    * history is the one nobody could detect.
    */

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { withCaptureReport } from '../../lib/fetchers/capture.js';
 
 /**
- * ALI-827 R31b: a fetcher that reports nothing about itself (every connector-core 0.5.0
+ * A fetcher that reports nothing about itself (every connector-core 0.5.0
  * fetcher, and any third-party one) still yields a report - one that says only what the
  * CALLER can honestly say: how many came back, and how many were asked for. Never a reason.
  */
@@ -29,7 +29,7 @@ describe('withCaptureReport (the fallback when the fetcher cannot report)', () =
 });
 
 /**
- * ALI-829 R31a: connector-core 0.6.0 fetchers report what they could not reach. When the
+ * Connector-core 0.6.0 fetchers report what they could not reach. When the
  * fetcher offers it, its report wins over the fallback - and `fetch` is never called, so
  * one read, not two.
  */

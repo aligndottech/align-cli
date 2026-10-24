@@ -1,4 +1,4 @@
-# ALI-797: the real-user E2E. Runs on every freshly cut (pre)release, on runners that
+# The real-user E2E. Runs on every freshly cut (pre)release, on runners that
 # have never seen this repo's toolchain - the closest CI gets to a stranger's laptop -
 # and drives the ADVERTISED install path end to end: install.sh resolving the release's
 # own binaries, then the zero-credential golden path, asserting CONTENT (the answer, the
@@ -6,7 +6,7 @@
 # align-cli#154 lesson). Green here is what promote-release.yml requires.
 #
 # The golden run this automates was first performed by hand against preview on
-# 2026-09-01 (ALI-795's ticket carries the row-level evidence); this workflow replays it
+# 2026-09-01 (the ticket carries the row-level evidence); this workflow replays it
 # against a local telemetry sink so the assertion reads the exact payloads sent, with no
 # external service in the loop.
 name: E2E Release
@@ -28,7 +28,7 @@ jobs:
   binary-e2e:
     # Only the cli-v* releases release-please cuts. ort-runtime.yml publishes the embedding runtime
     # bundles as a release of their own (ort-runtime-v<ORT>), and that `published` event must not
-    # start an E2E run of a binary that tag does not contain (ALI-1781).
+    # start an E2E run of a binary that tag does not contain.
     if: startsWith(github.event.release.tag_name || inputs.tag, 'cli-v')
     strategy:
       fail-fast: false
@@ -66,7 +66,7 @@ jobs:
           exit 1
 
       # ~23MB embedding model, cached exactly as ci.yml's binary job caches it - the
-      # HF rate-limit lesson (ALI-713). A cold cache still works, just slower.
+      # HF rate-limit lesson. A cold cache still works, just slower.
       - name: Restore the embedding model
         id: model-cache
         uses: actions/cache/restore@v4
@@ -103,7 +103,7 @@ jobs:
 
       # A repo shaped like a real one: decision commits with bodies and refs, a noise
       # commit the filter must drop, and a PR merge whose description carries the
-      # decision - the shapes ALI-792 exists to capture.
+      # decision - the shapes the git import exists to capture.
       - name: Build the fixture repo
         run: |
           set -eu
@@ -114,7 +114,7 @@ jobs:
           git config user.name "E2E"
           echo a > a.txt && git add . && git commit -qm "feat(auth): switch to JWT for stateless sessions
 
-          We decided against server-side sessions. Refs ALI-123 and closes #45.
+          We decided against server-side sessions. Refs APP-123 and closes #45.
           See https://align.slack.com/archives/C123/p456 for the thread."
           echo b > b.txt && git add . && git commit -qm "short subject"
           git checkout -qb feat
@@ -184,10 +184,10 @@ jobs:
               echo "MISSING: $3 (pattern: $2)"; fail=1
             fi
           }
-          # ALI-794's value phase runs git import in quiet mode ("Git: N decisions..."),
+          # The value phase runs git import in quiet mode ("Git: N decisions..."),
           # replacing the old "Imported N decisions from Git" line this used to match.
           #
-          # 2, not 3: ALI-804's hasStatedRationale gate correctly drops the underlying
+          # 2, not 3: the hasStatedRationale gate correctly drops the underlying
           # "feat: add rate limiting..." commit on the merged branch - it has no BODY of
           # its own (single -m, no rationale), only its promoted merge does. The merge
           # commit is exempt from the rationale check (a promoted merge's subject already
@@ -206,7 +206,7 @@ jobs:
           expect "$RUNNER_TEMP/setup.log" "Git: 2 decisions" "the JWT commit plus the promoted merge imported (bare merge-branch commit and noise both correctly dropped)"
           expect "$RUNNER_TEMP/setup.log" "align MCP connected" "agent wiring ran"
           expect "$RUNNER_TEMP/ask.log" "switch to JWT" "ask answered with the decision"
-          expect "$RUNNER_TEMP/ask.log" "ALI-123" "the commit BODY reached the answer (ALI-792)"
+          expect "$RUNNER_TEMP/ask.log" "APP-123" "the commit BODY reached the answer"
           # WIRE format, not the server's derived event name: the client sends
           # stage as a payload field and the gateway constructs cli.funnel.<stage>
           # server-side (telemetryAnonymousRoutes.ts). The first real E2E run
@@ -214,7 +214,7 @@ jobs:
           # assertions read the wrong side of the wire. Escaped quotes because the
           # sink stores each body as a JSON-encoded string inside a JSON line.
           expect "$RUNNER_TEMP/sink.jsonl" '\"stage\":\"import_completed\"' "import_completed stage sent"
-          # Corrects a wrong ALI-951 assumption: this used to expect '"command":"connect"',
+          # Corrects a wrong assumption: this used to expect '"command":"connect"',
           # reasoning that retiring the `align import` alias in 0.40.0 would change this wire
           # value. It never could - the string comes from personal-import.ts's funnel emitter
           # (`recordFunnelStage(env, 'import_completed', \`import \${source}\`)`), which hardcodes

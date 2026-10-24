@@ -1,5 +1,5 @@
 /**
- * Which detector a LOCAL Ollama model runs when the user has not chosen one (ALI-1564).
+ * Which detector a LOCAL Ollama model runs when the user has not chosen one.
  *
  * v1 is the default detector everywhere, but only qwen2.5 at its default size or 7B and above passed the
  * preregistered rule locally (align-stack addendum 7: recall 90.2%, precision 65.7%). llama3.2 (3B) did

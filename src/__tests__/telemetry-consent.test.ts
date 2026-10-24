@@ -1,5 +1,5 @@
 /**
- * C6: maybeShowTelemetryNotice, called directly. It replaced ALI-618's setup-time consent
+ * C6: maybeShowTelemetryNotice, called directly. It replaced the setup-time consent
  * question (maybeRequestTelemetryConsent): local telemetry is opt-out, and this one-time notice
  * is the disclosure. The end-to-end order (notice before the first send) and every context it
  * is skipped in live in telemetry-notice.test.ts; this file pins the function's own contract.

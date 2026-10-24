@@ -1,4 +1,4 @@
-// ALI-845 defect 1: `tryOllama` sent no `num_ctx`, so a chat ran at whatever context the
+// `tryOllama` sent no `num_ctx`, so a chat ran at whatever context the
 // Modelfile happens to default to - invisible either way. `/api/show`'s `model_info` names
 // the real window; OLLAMA_CONTEXT_LENGTH may only shrink it, never raise it above what the
 // model reports (assumption 1 in the plan: a wrong field name here fails quietly, so the
@@ -38,7 +38,7 @@ const chatBody = () => {
   return JSON.parse(call![1].body as string);
 };
 
-describe('resolveOllamaWindow via tryOllama (ALI-845 defect 1)', () => {
+describe('resolveOllamaWindow via tryOllama', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();
@@ -104,7 +104,7 @@ describe('resolveOllamaWindow via tryOllama (ALI-845 defect 1)', () => {
 // (prompt + num_predict) exceed the very window it was built against. This combines a SMALL
 // real Ollama window with a LARGE override, which a hosted-only test cannot do (the hosted
 // default is 100,000 tokens and would mask the bug).
-describe('an output-budget override does not push the request over its own window (ALI-845 follow-up)', () => {
+describe('an output-budget override does not push the request over its own window', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();

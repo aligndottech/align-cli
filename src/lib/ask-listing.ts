@@ -1,5 +1,5 @@
 /**
- * ALI-1780: how `align ask` prints its ranked list when no answer was written (no provider,
+ * How `align ask` prints its ranked list when no answer was written (no provider,
  * or the provider failed). Display only - retrieval and ranking are untouched, and `--json`
  * never reaches this module.
  *

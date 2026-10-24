@@ -1,6 +1,6 @@
 /**
  * The CLI-local citation reader: everything the shared `citationFor` cites, plus
- * commit URLs (ALI-792) and GitLab merge requests/issues (ALI-796).
+ * commit URLs and GitLab merge requests/issues.
  *
  * A wrapper rather than an edit to decision-links.ts, deliberately: that file is
  * byte-identical to mcp-align's copy in align-stack and documents that parity as
@@ -21,7 +21,7 @@ const LOCAL_COMMIT = /^git:\/\/commit\/([0-9a-f]{7,40})(?:[/?#]|$)/;
  * GitLab merge requests and issues route through `/merge_requests/N` and `/issues/N`,
  * with an optional `/-/` marker (required on gitlab.com since ~2019, still optional on
  * older self-managed instances) - a shape the shared CODE_REF cannot see at all, since
- * it only recognises "pull" and "issues" with no separator in between (ALI-796 review
+ * it only recognises "pull" and "issues" with no separator in between (a review
  * finding: refIdentityFor('gitlab', ...) silently returned [] for every real GitLab
  * source, so a pre-existing gap could be marked "connected" and never actually
  * resolved into a link). Subgroup-aware the same way HOSTED_COMMIT is, for the same

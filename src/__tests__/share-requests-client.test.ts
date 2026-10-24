@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createGatewayClient } from '../lib/gateway-client.js';
 
 /**
- * ALI-1540 Test List, the share-request routes as the CLI reads them (the gateway side is built separately,
+ * Test List, the share-request routes as the CLI reads them (the gateway side is built separately,
  * so these are the contract and the CLI must not believe an answer that does not fit it):
  * - config: 404 is an older gateway (null); a mode this CLI does not know is an ERROR, never a default.
  * - stage: the answer must carry OUR id (the envelope is bound to it), a well-formed code and a real expiry.

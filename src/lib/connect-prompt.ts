@@ -1,5 +1,5 @@
 /**
- * Gap-driven pull (ALI-796): once `decision_refs` (ALI-792) knows what a decision's
+ * Gap-driven pull: once `decision_refs` knows what a decision's
  * text points at, the graph can name its own gaps - a ref whose platform has no
  * connected source. Surfaced as pull, never gate: one line, a real number, the exact
  * command that fills it in.

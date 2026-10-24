@@ -21,7 +21,7 @@ function seed(links: Array<{ relation: string }>) {
   return db;
 }
 
-describe('localValueRollup (ALI-215 - honest local subset)', () => {
+describe('localValueRollup (honest local subset)', () => {
   it('counts decisions + conflicts + duplicates + supersessions from decision_links', () => {
     const db = seed([
       { relation: 'conflicts_with' },
@@ -60,11 +60,11 @@ describe('localValueRollup (ALI-215 - honest local subset)', () => {
   });
 });
 
-describe('localValueRollup gaps (ALI-796)', () => {
+describe('localValueRollup gaps', () => {
   it('names an unresolved-ref gap when the connector is not connected', () => {
     const db = createLocalDb(':memory:');
-    const citer = db.insertDecision({ title: 'A', summary: 'Refs ALI-123', sourceUrl: null, platform: 'git' });
-    db.replaceRefs(citer, [{ ref: 'ALI-123', platform: 'tracker' }]);
+    const citer = db.insertDecision({ title: 'A', summary: 'Refs APP-123', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'APP-123', platform: 'tracker' }]);
 
     const out = localValueRollup(db, () => false);
     db.close();
@@ -74,8 +74,8 @@ describe('localValueRollup gaps (ALI-796)', () => {
 
   it('omits a gap once its connector is connected', () => {
     const db = createLocalDb(':memory:');
-    const citer = db.insertDecision({ title: 'A', summary: 'Refs ALI-123', sourceUrl: null, platform: 'git' });
-    db.replaceRefs(citer, [{ ref: 'ALI-123', platform: 'tracker' }]);
+    const citer = db.insertDecision({ title: 'A', summary: 'Refs APP-123', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'APP-123', platform: 'tracker' }]);
 
     const out = localValueRollup(db, (id) => id === 'jira');
     db.close();

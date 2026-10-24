@@ -96,7 +96,7 @@ describe('align check --advisory (PostToolUse hook mode)', () => {
   });
 
   // INVERTED deliberately. This used to assert silence on a gateway error, which is the exact
-  // fail-open ALI-348/ALI-414 closed elsewhere: "could not check" was indistinguishable from
+  // fail-open that was closed elsewhere: "could not check" was indistinguishable from
   // "nothing found". The edit still proceeds (exit 0, never blocking) - it just says so now.
   it('says "could not check" when the gateway errors, rather than failing silently', async () => {
     mockCheckAlignment.mockRejectedValue(new Error('gateway down'));
@@ -269,7 +269,7 @@ describe('align check --advisory (fast tier)', () => {
     expect(exitCode).toBe(0);
     expect(stdout).toContain('Use PostgreSQL, not Mongo');
     // Cosine encodes topic, not opposition - the agreeing pair scored HIGHER than the
-    // contradicting one (ALI-410). Claiming a conflict from retrieval would be worse than
+    // contradicting one. Claiming a conflict from retrieval would be worse than
     // saying nothing.
     expect(stdout.toLowerCase()).not.toContain('conflict');
   });
@@ -281,7 +281,7 @@ describe('align check --advisory (fast tier)', () => {
     expect(stdout).toBe('');
   });
 
-  // ALI-414 / ALI-348: "could not check" must never be indistinguishable from "nothing found".
+  // "could not check" must never be indistinguishable from "nothing found".
   it('says so explicitly when retrieval fails', async () => {
     mockCheckAlignment.mockRejectedValue(new Error('gateway down'));
     const { exitCode, stdout } = await runCheck(['--advisory', '--format', 'text']);
@@ -305,7 +305,7 @@ describe('align check --advisory (fast tier)', () => {
 
 /**
  * The --help text is a customer-facing promise. It said "deny an edit on a CRITICAL
- * conflict" while the flag was inert; then it said "no effect" while ALI-570 was pending;
+ * conflict" while the flag was inert; then it said "no effect" while the fix was pending;
  * now the flag is real and the description must carry BOTH halves of the new contract:
  * what it does (background adjudication, deny a retry) and what it costs (in local mode,
  * adjudication calls your own AI provider - the egress that is off by default since #143).

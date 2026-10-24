@@ -27,11 +27,11 @@ import { registerLocalCommand } from '../commands/local.js';
 const output: string[] = [];
 
 /**
- * `align local status` shares its rollup and readout with `align status` (ALI-505), so
- * this only pins the piece that is new here: the gap-driven pull (ALI-796) - the same
+ * `align local status` shares its rollup and readout with `align status`, so
+ * this only pins the piece that is new here: the gap-driven pull - the same
  * behaviour, wired through the OTHER command that reads the local graph.
  */
-describe('align local status names its own gaps (ALI-796)', () => {
+describe('align local status names its own gaps', () => {
   const run = (args: string[]) => {
     const program = new Command();
     registerLocalCommand(program);
@@ -51,7 +51,7 @@ describe('align local status names its own gaps (ALI-796)', () => {
   const plain = () => output.join('\n').replace(/\[[0-9;]*m/g, '');
 
   it('names an unresolved-ref gap and the command that fills it in', async () => {
-    localDb.getAllRefs.mockReturnValue([{ decisionId: 'a', ref: 'ALI-1', platform: 'jira' }]);
+    localDb.getAllRefs.mockReturnValue([{ decisionId: 'a', ref: 'APP-1', platform: 'jira' }]);
 
     await run(['local', 'status']);
 
@@ -59,7 +59,7 @@ describe('align local status names its own gaps (ALI-796)', () => {
   });
 
   it('says nothing once the connector is connected', async () => {
-    localDb.getAllRefs.mockReturnValue([{ decisionId: 'a', ref: 'ALI-1', platform: 'jira' }]);
+    localDb.getAllRefs.mockReturnValue([{ decisionId: 'a', ref: 'APP-1', platform: 'jira' }]);
     mockGetConnectorFields.mockImplementation((_env: string, id: string) => (id === 'jira' ? { token: 'x' } : null));
 
     await run(['local', 'status']);

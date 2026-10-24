@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// ALI-535: server.json (the MCP registry record) and package.json are two writers
+// server.json (the MCP registry record) and package.json are two writers
 // of one fact - the package identity and version. The registry rejects a publish
 // whose npm package lacks a matching `mcpName`, and a stale server.json version
 // publishes a record pointing at an npm version that is not the release. This

@@ -30,7 +30,7 @@ export function registerLocalCommand(program: Command): void {
       s.stop('Local graph ready');
 
       // initLocalMode used to wire every detected agent's global MCP config from inside
-      // itself, without asking. This is the same wiring, asked for (ALI-776).
+      // itself, without asking. This is the same wiring, asked for.
       const { connectDetectedAgents } = await import('./connect-agents.js');
       await connectDetectedAgents('local');
 
@@ -53,7 +53,7 @@ export function registerLocalCommand(program: Command): void {
         return;
       }
       const db = createLocalDb(env.localDbPath ?? getLocalDbPath());
-      // ALI-796: same check as `align status` and `align local forget` - connected means
+      // Same check as `align status` and `align local forget` - connected means
       // local mode holds a saved token for it.
       const isConnected = (id: string) => config.getConnectorFields('local', id) !== null;
       const rollup = localValueRollup(db, isConnected);
@@ -205,7 +205,7 @@ export function registerLocalCommand(program: Command): void {
       }
       config.clearLocalMode();
       // "Reset config" has to include the saved read-only tokens, or the promise is false in
-      // exactly the way the setup copy used to be (ALI-802).
+      // exactly the way the setup copy used to be.
       config.forgetAllConnectors('local');
       console.log('Local graph wiped and saved tokens removed. Run `align local start` to reinitialize.');
     });

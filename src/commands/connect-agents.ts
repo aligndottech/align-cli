@@ -7,7 +7,7 @@ import { envFlag } from '../lib/destination-name.js';
 import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
 
 /**
- * Connect the agents installed on this machine to Align (ALI-776).
+ * Connect the agents installed on this machine to Align.
  *
  * WHY THIS DOES NOT ASK
  * ---------------------
@@ -48,11 +48,11 @@ export async function connectDetectedAgents(
     // agent detected" implied nothing was wired, which cost a user (David, 2026-08-31) a
     // confused "shouldn't this have worked" while sitting inside a working Claude Code
     // session the whole time.
-    // Rendered from alignServerEntry (ALI-1135), never spelled here: this string is pasted
+    // Rendered from alignServerEntry, never spelled here: this string is pasted
     // BY HAND into a config we were not able to write, so a Windows reader copying a bare
     // `"command": "align"` hits the align.cmd spawn failure with no writer left to fix it.
     const entry = JSON.stringify(alignServerEntry('mcpServers', envArg));
-    // On Windows the project file is NOT sufficient, and saying it is would be ALI-1135's
+    // On Windows the project file is NOT sufficient, and saying it is would be the same
     // defect restated in prose. `.mcp.json` is committed and read by the whole team, so it
     // keeps the portable bare `align` - which is exactly the command a Windows client cannot
     // spawn. So on Windows those two clients need the per-machine entry as well, and this is
@@ -73,14 +73,14 @@ export async function connectDetectedAgents(
   }
 
   const touched: string[] = [];
-  // ALI-950: the outro names the agent to open, so say WHICH were wired, not only how many.
+  // The outro names the agent to open, so say WHICH were wired, not only how many.
   const wired: string[] = [];
   const skipped: string[] = [];
   const keptAgents: string[] = [];
   for (const target of editors) {
     try {
       // The MCP entry, plus the user-level pre-edit hook on the hosts that have one
-      // (ALI-952: Codex, Cursor, Copilot CLI) - the writer reports every file it wrote.
+      // (Codex, Cursor, Copilot CLI) - the writer reports every file it wrote.
       const files = writeMcpConfig(target, envArg, (file) => {
         skipped.push(file);
         if (!keptAgents.includes(target.name)) keptAgents.push(target.name);
@@ -117,7 +117,7 @@ export async function connectDetectedAgents(
     );
   }
 
-  // ALI-795: mcp_wired is a funnel stage, emitted from this single choke point so
+  // mcp_wired is a funnel stage, emitted from this single choke point so
   // setup, `align local start` and `align mcp --setup` all count without three call
   // sites. Consent gating lives inside recordFunnelStage.
   if (touched.length > 0) {

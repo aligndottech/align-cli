@@ -1,5 +1,5 @@
 /**
- * ALI-1003: choose API, CLI JSON or MCP by runtime capability.
+ * Choose API, CLI JSON or MCP by runtime capability.
  *
  * The matrix here is the ticket's own "Outcome" section, not an invented policy:
  *   - a runtime with direct API/SDK credentials configured talks to the API directly

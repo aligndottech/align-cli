@@ -5,13 +5,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * Copilot review (PR #223): `dropped = scanned - commits.length` conflates two different
  * rejection reasons - a commit whose SUBJECT is mechanical (chore/wip/merge/too short,
  * the pre-existing filter) never reaches the rationale gate at all, so folding it into
- * "no rationale in the commit" overstates what ALI-804's new gate actually did. These
+ * "no rationale in the commit" overstates what the new gate actually did. These
  * pin that the spinner message reports only the rationale-gate count, using a shared
  * `stopMock` reference so the message text is inspectable (the inline `@clack/prompts`
  * mock in import-option-collision.test.ts discards a fresh object per call).
  */
 const stopMock = vi.fn();
-// ALI-827: the capture report prints through console.log, after the import.
+// The capture report prints through console.log, after the import.
 const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
@@ -54,7 +54,7 @@ async function run(argv: string[]): Promise<void> {
 
 const commit = { sha: 'a', subject: 'feat: a real decision with a stated reason', body: 'because', author: 'a', date: 'd', filesChanged: [] };
 
-describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)', () => {
+describe('align import git - scanned/kept/dropped reporting', () => {
   beforeEach(() => {
     stopMock.mockClear();
     logSpy.mockClear();
@@ -88,7 +88,6 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     expect(message).toBe('Found 1 commits worth importing');
   });
 
-  // ALI-827 R6a
   it('the capture report names both drop reasons separately, never as one number', async () => {
     vi.mocked(getCommitHistoryDetailed).mockResolvedValue({
       commits: [commit, commit, commit],
@@ -118,7 +117,7 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     expect(printed).toContain('Git: 3 commits kept of 10 scanned (stopped at the limit of 10)');
   });
 
-  // ALI-829: the row's decided_at comes from the commit's own date, so the command has to
+  // The row's decided_at comes from the commit's own date, so the command has to
   // hand it over. `git log --format=%aI` is strict ISO-8601; ingest normalises to Z.
   it('hands each commit date over as created_at, for decided_at', async () => {
     vi.mocked(getCommitHistoryDetailed).mockResolvedValue({
@@ -132,7 +131,6 @@ describe('align import git - scanned/kept/dropped reporting (ALI-804 review fix)
     expect(items[0].created_at).toBe('2026-01-11T08:30:00+01:00');
   });
 
-  // ALI-827 R6b
   it('the capture report carries no skip lines when nothing was dropped', async () => {
     vi.mocked(getCommitHistoryDetailed).mockResolvedValue({
       commits: Array.from({ length: 8 }, () => commit),

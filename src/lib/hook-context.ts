@@ -1,5 +1,5 @@
 /**
- * ALI-835: whether this process is running as an agent's hook.
+ * Whether this process is running as an agent's hook.
  *
  * A funnel stage means "a person got this far". A hook does not: it runs on the agent's clock,
  * many times in a session, with nobody watching. A ping from there measures an editing loop and

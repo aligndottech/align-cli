@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * ALI-917: resolveGitHubRepoScope is the one place that decides which repo (if any) to
+ * resolveGitHubRepoScope is the one place that decides which repo (if any) to
  * scope a GitHub fetch to - shared by `align import github` (which has --repo/--all) and
  * `align setup`'s interactive GitHub source (which has neither, and calls this with {}).
  *

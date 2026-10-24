@@ -1,5 +1,5 @@
 /**
- * ALI-1740: scripts/smoke-mcp-handshake.mjs must make a real tools/call, not stop at tools/list.
+ * scripts/smoke-mcp-handshake.mjs must make a real tools/call, not stop at tools/list.
  *
  * The AlignBench v2 run lost about $163 to a smoke that passed on tools/list with a credential
  * that every real call then failed with 401 (align-stack verification.md, "a positive control on

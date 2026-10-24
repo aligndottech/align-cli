@@ -1,5 +1,5 @@
 /**
- * ALI-1740: the checks behind `align doctor`, the install preflight.
+ * The checks behind `align doctor`, the install preflight.
  *
  * On a remote install the person at the keyboard is the buyer, so every failing check names the
  * one next step for THEM. The last check is the one that matters: a real `tools/call` of
@@ -40,7 +40,7 @@ export interface DoctorDeps {
   /**
    * Local graph only: make sure the on-device embedding runtime and model are present (downloading
    * them if this is the first run) and verified. Throws with the reason on any failure. Absent on
-   * a cloud install, where nothing embeds on this machine (ALI-1781).
+   * a cloud install, where nothing embeds on this machine.
    */
   ensureEmbeddings?(): Promise<{ detail: string }>;
   /** One real `tools/call` of align_ask through `align mcp`. Resolves with the text content; throws on any error. */

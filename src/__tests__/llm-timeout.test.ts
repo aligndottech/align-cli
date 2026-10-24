@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isLocalEndpoint, resolveLlmTimeoutMs } from '../lib/local-llm.js';
 
 /**
- * ALI-775. A tester running llama.cpp in podman on CPU got
+ * A tester running llama.cpp in podman on CPU got
  *
  *   No answer written: Qwen3.8-27B-IQ2_M.gguf (custom) returned an unusable response
  *   (timed out).

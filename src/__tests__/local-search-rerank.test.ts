@@ -28,7 +28,7 @@ const DENSE: Record<number, number> = { 1: 0.666, 2: 0.523 };
 const MENTION_TITLE = 'docs: update README for align why, align setup, and align mcp --setup (mention)';
 const REMOVAL_TITLE = 'feat(setup): offer saved tokens; remove align setup (removal)';
 
-describe('local search: title rerank over the dense candidates (ALI-1775)', () => {
+describe('local search: title rerank over the dense candidates', () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
 
