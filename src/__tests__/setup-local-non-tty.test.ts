@@ -63,4 +63,26 @@ describe('align --local without a TTY', () => {
     expect(out).toContain('You are set up in local mode');
     expect(out).not.toContain('TTY initialization failed');
   }, 150_000);
+
+  it('prints a specific next step when the graph comes out empty', async () => {
+    // A non-git, doc-less directory: nothing to import, so the graph is empty by construction.
+    const cwd = mkdtempSync(join(tmpdir(), 'align-empty-'));
+    const home = mkdtempSync(join(tmpdir(), 'align-empty-home-'));
+    const { stdout, stderr } = await exec(process.execPath, [TSX, ENTRY, '--local'], {
+      cwd,
+      env: {
+        ...process.env,
+        HOME: home,
+        USERPROFILE: home,
+        XDG_CONFIG_HOME: join(home, '.config'),
+        APPDATA: join(home, 'AppData', 'Roaming'),
+        LOCALAPPDATA: join(home, 'AppData', 'Local'),
+      },
+      timeout: 120_000,
+    });
+    const out = stdout + stderr;
+    expect(out).toContain('Your graph is empty');
+    expect(out).toContain('align connect github');
+    expect(out).toContain('align connect docs');
+  }, 150_000);
 });

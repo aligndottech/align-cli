@@ -12,6 +12,7 @@ import { connectDetectedAgents } from './connect-agents.js';
 import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { isGitRepo } from '../lib/git.js';
 import { currentRepoIdentity } from '../lib/repo-identity.js';
+import { sparseGraphHint } from '../lib/sparse-graph.js';
 import { fetchDocsItems } from '../lib/fetchers/docs.js';
 import { createLocalDb } from '../lib/local-db.js';
 import { buildFoundSummary, renderFoundSummary } from '../lib/found-summary.js';
@@ -1094,6 +1095,12 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   const gaps = unresolvedGaps(refsDb.getAllRefs(), isConnected);
   refsDb.close();
   const gapLine = setupSummaryLine(gaps);
+  // An empty or thin graph gets a specific next step instead of silence. Read from the db's
+  // own COUNT, after every import above has run, so it is the graph the user will actually query.
+  const totalDb = createLocalDb(dbPath);
+  let totalDecisions: number;
+  try { totalDecisions = totalDb.getStats().decisions; } finally { totalDb.close(); }
+  const sparseHint = sparseGraphHint(totalDecisions);
 
   // ALI-950: the last line is the next step, and it happens in the agent - named, with a
   // question about a decision the wizard just found, and no CLI verb. This used to end on
@@ -1115,7 +1122,8 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
     `${chalk.green('You are set up in local mode.')}\n` +
     `  Graph: ${chalk.dim(dbPath)}\n` +
     `${nextStep ? `  ${nextStep}\n` : ''}` +
-    `${gapLine ? `\n  ${chalk.dim(gapLine)}\n` : ''}\n` +
+    `${gapLine ? `\n  ${chalk.dim(gapLine)}\n` : ''}` +
+    `${sparseHint ? `\n${sparseHint.map((l) => `  ${l}`).join('\n')}\n` : ''}\n` +
     `  ${chalk.bold(askLine)}`,
   );
   // ALI-949: after the outro, never before it - telemetry must not delay what the user is
