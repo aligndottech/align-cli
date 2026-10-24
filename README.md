@@ -8,7 +8,8 @@
 **Your AI agents know the code. They don't know the company.**
 
 Align collects your team's decisions from commits, tickets, chat and meetings into one graph.
-Your coding agent checks that graph before it edits code.
+Your coding agent can look up the decisions behind the code, and where each one came from,
+before it changes it.
 
 ```bash
 npm install -g @aligndottech/cli
@@ -56,7 +57,7 @@ More in [docs/installation.md](docs/installation.md).
 | | |
 |---|---|
 | **MCP server** | Claude Code, Cursor, Claude Desktop, VS Code, Windsurf, Zed, Codex, Copilot CLI, Gemini CLI, pi, OpenCode |
-| **Edit hooks** | Each edit is checked as it happens. Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
+| **Edit hooks** | Each edit is checked against the graph. Advisory by default. Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
 | **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
 | **Shared `.mcp.json`** | One committed file sets up the whole team |
 
