@@ -72,7 +72,7 @@ export function registerImportGitCommand(importCmd: Command): void {
         branch: opts.branch,
       });
       const remoteUrl = await getRemoteUrl();
-      // ALI-804: report both directions - "N commits worth importing" alone reads as "this
+      // Report both directions - "N commits worth importing" alone reads as "this
       // is everything found", not as a kept fraction, which is the exact perception problem
       // the ticket is about. Only say so when the rationale gate actually dropped something,
       // so a small scan (nothing filtered) still gets the plain, uncluttered message. Uses
@@ -89,7 +89,7 @@ export function registerImportGitCommand(importCmd: Command): void {
         p.log.info(`Detected ${remote} remote - commits will have clickable links`);
       }
 
-      // ALI-1782: first run stored a PR instead of its squash commit; a refresh must not bring the commit back.
+      // First run stored a PR instead of its squash commit; a refresh must not bring the commit back.
       let commitsToImport = commits;
       let coveredByPr = 0;
       if (env.mode === 'local-embedded' && env.localDbPath && (remoteUrl ?? '').includes('github.com')) {
@@ -108,7 +108,7 @@ export function registerImportGitCommand(importCmd: Command): void {
           platform: 'git',
           raw_text: formatCommitAsText(c, url),
           title: c.subject,
-          // ALI-829: the commit's own date (`%aI`, strict ISO-8601) becomes decided_at at
+          // The commit's own date (`%aI`, strict ISO-8601) becomes decided_at at
           // ingest. Absent rather than a fabricated now when git gave none.
           ...(c.date ? { created_at: c.date } : {}),
         };
@@ -123,7 +123,7 @@ export function registerImportGitCommand(importCmd: Command): void {
         funnel: { env, source: 'git' },
       });
 
-      // ALI-827: the same counts the spinner line above reports, as the report block every
+      // The same counts the spinner line above reports, as the report block every
       // import ends with. Derived by gitCaptureReport so this command and `align setup`
       // cannot disagree on what "mechanical" means or when the cap is worth naming.
       const report = gitCaptureReport({ scanned, kept: commits.length, rejectedByRationale, limit: requested, droppedByCap });

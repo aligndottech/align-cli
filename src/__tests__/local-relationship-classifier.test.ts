@@ -26,7 +26,7 @@ describe('classifyRelationship', () => {
     vi.unstubAllGlobals();
   });
 
-  // ALI-414: the three ways classification can fail used to collapse into a single
+  // The three ways classification can fail used to collapse into a single
   // `null`, so the caller could not tell "no key configured" from "the model replied
   // with garbage" - and reported both as `aligned`. Each now reports its own reason.
   it('reports no_llm_key when no cloud key and no local Ollama', async () => {
@@ -37,7 +37,7 @@ describe('classifyRelationship', () => {
     expect(result).toEqual({ ok: false, reason: 'no_llm_key', failure: { kind: 'no_provider' } });
   });
 
-  // ALI-420: an unvetted local model must not assert typed edges. These are written into
+  // An unvetted local model must not assert typed edges. These are written into
   // the local graph and sync to the org graph, so a wrong `conflicts_with` here is a data
   // write, not a rendering the user can judge.
   it('reports unvetted_local_model when Ollama is running with no vetted model', async () => {
@@ -95,7 +95,7 @@ describe('classifyRelationship', () => {
     expect(result).toMatchObject({ failure: { kind: 'provider_stopped' } });
   });
 
-  // ALI-692: an Ollama model that ANSWERED, unusably, used to fall into no_llm_key
+  // An Ollama model that ANSWERED, unusably, used to fall into no_llm_key
   // because hasConfiguredProvider() is env-only and cannot see local Ollama. That hint
   // tells this user to configure a provider - they have one, and it replied.
   it('reports classifier_error, not no_llm_key, when local Ollama answered unusably with no keys set', async () => {
@@ -117,7 +117,7 @@ describe('classifyRelationship', () => {
   });
 
   it('uses the canonical connector-core vocabulary, not an invented local list', () => {
-    // ALI-219: the local classifier previously invented types (implements,
+    // The local classifier previously invented types (implements,
     // depends_on, relates_to) that the graph never accepts. It must now be the
     // canonical DecisionRelationship set - one source of truth with the gateway.
     expect(RELATIONSHIP_TYPES).toEqual(DECISION_RELATIONSHIPS);
@@ -139,7 +139,7 @@ describe('classifyRelationship', () => {
   });
 
   it('classifies at temperature 0 so the same pair types the same way each run', () => {
-    // ALI-218: local relationship typing must be deterministic - offline scans
+    // Local relationship typing must be deterministic - offline scans
     // otherwise produce different conflicts/supersessions each run. The request
     // to the provider must pin temperature 0 (it previously omitted it, defaulting
     // to the provider's ~1.0).
@@ -152,7 +152,7 @@ describe('classifyRelationship', () => {
     });
   });
 
-  // ALI-845 defect 2: the classifier's whole output is a ~60-char JSON object, distinct
+  // The classifier's whole output is a ~60-char JSON object, distinct
   // from synthesis's own >=1,024 budget (local-llm.test.ts). Own describe below because
   // this assertion is satisfiable by the UNCHANGED adapter default (256) too - see the
   // manufactured-RED note there for why that is not evidence on its own.
@@ -167,7 +167,7 @@ describe('classifyRelationship', () => {
   });
 });
 
-// ALI-845 defect 3 (classifier side): buildUserPrompt cut neither side. Both decisions get
+// buildUserPrompt cut neither side. Both decisions get
 // an equal share of the same budget the synthesis prompt uses (local-llm.test.ts).
 describe('buildUserPrompt caps each side to its share of the window', () => {
   it('cuts an oversized Decision B while leaving A present and non-empty', () => {

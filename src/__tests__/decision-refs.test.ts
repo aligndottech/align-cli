@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { extractRefs, refIdentityFor } from '../lib/decision-refs.js';
 
-// ALI-792: the refs a decision's text carries are the foundation of the gap-driven
+// The refs a decision's text carries are the foundation of the gap-driven
 // connect prompt ("12 decisions cite Jira keys I can't read"). Every shape here is one
 // the old import threw away with the commit body.
 describe('extractRefs', () => {
   it('extracts ticket keys from prose', () => {
-    const refs = extractRefs('We decided against sessions. Refs ALI-123 and PROJ-9.');
-    expect(refs).toContainEqual({ ref: 'ALI-123', platform: 'tracker' });
+    const refs = extractRefs('We decided against sessions. Refs APP-123 and PROJ-9.');
+    expect(refs).toContainEqual({ ref: 'APP-123', platform: 'tracker' });
     expect(refs).toContainEqual({ ref: 'PROJ-9', platform: 'tracker' });
   });
 
@@ -30,9 +30,9 @@ describe('extractRefs', () => {
   });
 
   it('extracts linear issue URLs with the linear platform', () => {
-    const refs = extractRefs('see https://linear.app/align/issue/ALI-788/launch');
+    const refs = extractRefs('see https://linear.app/align/issue/APP-788/launch');
     expect(refs).toContainEqual({
-      ref: 'https://linear.app/align/issue/ALI-788/launch',
+      ref: 'https://linear.app/align/issue/APP-788/launch',
       platform: 'linear',
     });
   });
@@ -67,7 +67,7 @@ describe('extractRefs', () => {
   // known SaaS host (unlike GHES, which uses an arbitrary hostname a URL alone cannot
   // distinguish from GitHub), so it is the one host this CAN exclude safely - a
   // mislabeled 'github' ref would tell the gap-driven pull to ask for the wrong
-  // connector (ALI-796). Not extracting it at all is the honest fallback: the file's
+  // connector. Not extracting it at all is the honest fallback: the file's
   // own docstring says "an arbitrary web URL is not a gap", and the bare "#78" shape
   // in the same commit message still resolves via the 'code' bucket regardless.
   it('does NOT classify a gitlab.com issue URL as github', () => {
@@ -100,7 +100,7 @@ describe('extractRefs', () => {
   });
 
   it('dedupes repeated refs', () => {
-    const refs = extractRefs('ALI-123 again ALI-123 and #45 then #45');
+    const refs = extractRefs('again APP-123 and #45 then #45');
     expect(refs).toHaveLength(2);
   });
 
@@ -149,7 +149,7 @@ describe('extractRefs', () => {
   });
 });
 
-// ALI-796: the inverse of extractRefs - what this decision's OWN identity would be
+// The inverse of extractRefs - what this decision's OWN identity would be
 // recorded AS if some other decision cited it. This is the matching side of the
 // gap-driven pull's payoff: "resolve refs into real links where the fetched item
 // matches" needs a way to ask "does this newly-imported decision resolve any
@@ -162,12 +162,12 @@ describe('refIdentityFor', () => {
   });
 
   it('identifies a linear decision by its URL and its bare ticket key', () => {
-    const candidates = refIdentityFor('linear', 'https://linear.app/align/issue/ALI-788/launch');
+    const candidates = refIdentityFor('linear', 'https://linear.app/align/issue/APP-788/launch');
     expect(candidates).toContainEqual({
-      ref: 'https://linear.app/align/issue/ALI-788/launch',
+      ref: 'https://linear.app/align/issue/APP-788/launch',
       platform: 'linear',
     });
-    expect(candidates).toContainEqual({ ref: 'ALI-788', platform: 'tracker' });
+    expect(candidates).toContainEqual({ ref: 'APP-788', platform: 'tracker' });
   });
 
   it('identifies a github decision by its URL and its bare #N', () => {
@@ -189,7 +189,7 @@ describe('refIdentityFor', () => {
     expect(refIdentityFor('git', 'https://github.com/align/cli/commit/abc1234def')).toEqual([]);
   });
 
-  // ALI-796 review finding: the shared citationFor cannot parse a real GitLab MR/issue
+  // The shared citationFor cannot parse a real GitLab MR/issue
   // URL (no "/pull/" or "/issues/" with no separator), so a GitLab-sourced decision could
   // never resolve a pre-existing bare "#N" gap. localCitationFor closes that gap.
   it('identifies a gitlab decision by its URL and its bare #N', () => {

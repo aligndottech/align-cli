@@ -1,5 +1,5 @@
 /**
- * ALI-798: `align decisions list` gets the same `--repo`/`--all` scoping. Unlike
+ * `align decisions list` gets the same `--repo`/`--all` scoping. Unlike
  * `ask`/`search`, this command builds a generic query-params object shared with
  * `--platform`/`--status`/`--space`, so the thing worth pinning is that `repo`/`all`
  * land in that SAME object - and only when resolveScopeOpts actually returned a scope
@@ -51,7 +51,7 @@ describe('align decisions list --repo/--all', () => {
     expect(params).not.toHaveProperty('all');
   });
 
-  it('warns and sends neither key in cloud mode - never a silent no-op (ALI-505)', async () => {
+  it('warns and sends neither key in cloud mode - never a silent no-op', async () => {
     resolveEnv.mockReturnValue('prod');
     const logs: string[] = [];
     (console.log as ReturnType<typeof vi.fn>).mockImplementation((...a: unknown[]) => { logs.push(a.join(' ')); });

@@ -99,9 +99,9 @@ describe('writeClaudeCodeHook', () => {
   });
 });
 
-// ALI-933: the read-path counterpart to writeClaudeCodeHook. That one reaches the model
+// The read-path counterpart to writeClaudeCodeHook. That one reaches the model
 // on a Write/Edit (the write path); this one reaches it at SessionStart, unprompted - the
-// gap named in ALI-933 ("implicit read delivery ... does not exist anywhere yet").
+// gap named in the read-path work ("implicit read delivery ... does not exist anywhere yet").
 describe('writeClaudeCodeSessionHook', () => {
   it('writes a SessionStart hook that runs `align context inject`', () => {
     writeClaudeCodeSessionHook(dir);
@@ -234,7 +234,7 @@ describe('writeCursorRule', () => {
 });
 
 describe('writeProjectMcpConfig', () => {
-  // Both platforms are stated rather than inherited (ALI-1135): what this writer emits is now
+  // Both platforms are stated rather than inherited: what this writer emits is now
   // platform-conditional everywhere EXCEPT here, and a test that took the runner's platform
   // could not tell the exception from the rule.
   afterEach(restorePlatform);
@@ -299,7 +299,7 @@ describe('setupAgentAlignment', () => {
     );
   });
 
-  // ALI-933: the read-path hook rides the same committed file as the write-path one, so
+  // The read-path hook rides the same committed file as the write-path one, so
   // there's no new path to report - but setup must wire both into it.
   it('also wires the SessionStart (read-path) hook into the same .claude/settings.json', () => {
     setupAgentAlignment({ cwd: dir, env: 'prod' });

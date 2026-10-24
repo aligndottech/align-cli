@@ -1,5 +1,5 @@
 /**
- * `align check` CI identity from the environment (ALI-761 phase 2).
+ * `align check` CI identity from the environment.
  *
  * The align-check action exports ALIGN_PLATFORM / ALIGN_SUBJECT_KEY / ALIGN_HEAD_SHA; the
  * check command forwards them to the gateway so its conflict events are attributable and

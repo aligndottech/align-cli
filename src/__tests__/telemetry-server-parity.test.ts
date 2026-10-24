@@ -45,7 +45,7 @@ const SERVER_OUTCOMES = ['ok', 'partial', 'needs_reauth', 'error'];
 const SERVER_SCOPES = ['yours', 'team'];
 const SERVER_TRIGGERS = ['connect', 'background', 'manual', 'mcp'];
 
-/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, and `doctor` sends no telemetry of any kind (ALI-1740). */
+/** The commands the CLI registers that the gateway deliberately leaves out: `dev` and `connector` are internal (ALIGN_INTERNAL=1), `local` never pings, and `doctor` sends no telemetry of any kind. */
 const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
 
 /**
@@ -55,7 +55,7 @@ const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
  * this test fails until they are removed from here: it can only shrink.
  *
  * `join` was on this list until align-stack #3101 added it to the gateway's command enum, and
- * `ai` and `agents` until align-stack #3582 (ALI-1533) did. Empty again now.
+ * `ai` and `agents` until align-stack #3582 did. Empty again now.
  *
  * `glossary` (the read-only `align glossary review`) was on it until align-stack #3762 added it to the gateway's command enum.
  */

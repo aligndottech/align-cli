@@ -42,7 +42,7 @@ function isFilePath(arg: string): boolean {
 type SearchHit = SearchResults['results'][number];
 
 /**
- * ALI-829: the date a source line shows. The decision's own date when the graph has it
+ * The date a source line shows. The decision's own date when the graph has it
  * (local mode, from the source's timestamp), else the minute it was captured - which is
  * what every line showed before, so a cloud result renders byte-for-byte as it did, and
  * a local row that will never get a date (a docs section, an `align capture`) still reads
@@ -62,7 +62,7 @@ function decidedWhen(d: SearchHit): string {
  * when present; a decision with no cite (Slack, a meeting) keeps its id, which
  * `align decisions show <id>` needs. Platform is printed on every line: a
  * GitHub PR agreeing with a Slack thread is the cross-tool claim made visible,
- * and it is invisible if every line looks alike (the ALI-586 lesson).
+ * and it is invisible if every line looks alike (the lesson).
  */
 function sourceLine(d: SearchHit): string {
   // Derive the cite when the wire omits it (the prod REST path predates
@@ -79,7 +79,7 @@ function sourceLine(d: SearchHit): string {
 }
 
 /**
- * ALI-1749: one retrieved decision as the structured evidence the synthesiser quotes from. `ref` is
+ * One retrieved decision as the structured evidence the synthesiser quotes from. `ref` is
  * the SAME handle the source list below the answer prints (the cite, else the id), so a citation
  * in the answer matches a line the reader can see. The date is the day it was DECIDED: created_at
  * is capture time, which would present an import date as a decision date, so it is never used.
@@ -99,14 +99,14 @@ function evidenceOf(d: SearchHit): EvidenceDecision {
 
 /** The indented link under a source line - where it was DECIDED, clickable. */
 function sourceLink(d: SearchHit): string | null {
-  // ALI-923: a cloud result can carry a synthetic align://claimed/... identity (ALI-538)
+  // A cloud result can carry a synthetic align://claimed/... identity
   // rather than a real place - navigableSourceUrl drops it so nothing renders a dead link.
   const url = navigableSourceUrl(d.source_url);
   return url ? chalk.dim(`      ${url}`) : null;
 }
 
 /**
- * The trailing gap line under a source (ALI-796): only when this decision's own refs
+ * The trailing gap line under a source: only when this decision's own refs
  * carry something the graph cannot read yet. Absent for a cloud result, which carries
  * no external_references (the hosted gateway does not store decision_refs yet).
  */
@@ -140,15 +140,15 @@ export function registerAskCommand(program: Command): void {
       const config = createConfigStore();
       const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const client = createGatewayClient(config.getEnvironment(envName));
-      // ALI-798: undefined means "no opinion" - searchDecisions applies its own default
+      // Undefined means "no opinion" - searchDecisions applies its own default
       // (current repo, or everywhere outside one) exactly as if neither flag were typed.
       const scope = resolveScopeOpts({ repo: opts.repo, all: opts.all }, envName, (m) => console.log(chalk.yellow(`  ${m}`)));
-      // ALI-796: same "does local mode hold a saved token" check status.ts and local.ts
+      // Same "does local mode hold a saved token" check status.ts and local.ts
       // use. Only ever consulted when a result carries external_references, which today
       // means local mode - a cloud result has none.
       const isConnected = (id: string) => config.getConnectorFields(envName, id) !== null;
 
-      // ALI-938: local identity for the invite nudge - two cheap `git config` reads,
+      // Local identity for the invite nudge - two cheap `git config` reads,
       // computed once regardless of which nudge path fires below. Outside a git repo (or
       // with no identity configured), both come back null and every comparison below
       // stays conservatively "not someone else" rather than guessing (invite-prompt.ts).
@@ -157,7 +157,7 @@ export function registerAskCommand(program: Command): void {
       // Pass the query through unchanged: the gateway's smart-search strategy
       // selector routes natural-language questions to semantic search. Stripping
       // the question word turned questions into keyword phrases that matched
-      // nothing (ALI-105). File paths were already passed through verbatim.
+      // nothing. File paths were already passed through verbatim.
       const filePath = isFilePath(query);
       const searchQuery = query;
       const spinner = ora('').start();
@@ -167,10 +167,10 @@ export function registerAskCommand(program: Command): void {
         let results = await client.searchDecisions(searchQuery, limit, undefined, scope);
 
         // Auto-widen, stage 1: the scoped search found nothing at all. Found live
-        // 2026-09-02, the same evening ALI-798's scoping shipped: a cross-repo question
+        // 2026-09-02, the same evening the scoping shipped: a cross-repo question
         // asked from the wrong directory had its answer one --all away, and the tool
         // told the user to go and type it. Scoped-first stays (unscoped search blended
-        // repos - the bug ALI-798 fixed); widening on a definite miss is the tool doing
+        // repos - the bug that was fixed); widening on a definite miss is the tool doing
         // what its own hint said, before giving up. Never behind an explicit --repo or
         // --all: those are the user constraining the search on purpose.
         const canWiden = !opts.all && !opts.repo;
@@ -185,7 +185,7 @@ export function registerAskCommand(program: Command): void {
           }
         }
 
-        // ALI-951: the machine shape stops here - retrieval, scope, and whether it widened.
+        // The machine shape stops here - retrieval, scope, and whether it widened.
         // No synthesis: an agent reading JSON has its own model, and a script has no use for
         // prose. Empty is an empty array, never the human "build your graph" hint below.
         if (opts.json) {
@@ -207,7 +207,7 @@ export function registerAskCommand(program: Command): void {
         if (!results.results.length) {
           spinner.stop();
           console.log('');
-          // ALI-938: "a question returns nothing, and the repo has other committers" - the
+          // "a question returns nothing, and the repo has other committers" - the
           // second invite-nudge moment. Never asked for a file-path lookup (that framing is
           // "related decisions", not a question); one extra `git log`, only on the path
           // that was already returning nothing (the same discipline graphHasDecisions
@@ -219,7 +219,7 @@ export function registerAskCommand(program: Command): void {
             console.log(chalk.dim('  Import from more sources to build context:'));
           } else {
             // "Build your graph first" is a claim about the GRAPH, and zero search results
-            // are only evidence about the QUERY. ALI-771: a tester was told to build a graph
+            // are only evidence about the QUERY. A tester was told to build a graph
             // he had just filled, because the question `setup --local`'s outro suggests
             // ("What decisions exist in this codebase?") is ABOUT the graph rather than in
             // it, so it matches nothing semantically and falls under the threshold.
@@ -228,7 +228,7 @@ export function registerAskCommand(program: Command): void {
             // reads as the import never having worked. So ask the graph before saying it is
             // empty. One extra call, only on the path that was already returning nothing.
             //
-            // ALI-798: `{ all: true }` here is NOT the user's scope choice - it is always
+            // `{ all: true }` here is NOT the user's scope choice - it is always
             // unscoped, because the question this check answers is "does the GRAPH have
             // anything in it", not "does this repo". Without it, being inside a repo with
             // zero decisions (while another repo holds hundreds) would answer "no decisions
@@ -245,7 +245,7 @@ export function registerAskCommand(program: Command): void {
             }
 
             if (graphHasDecisions) {
-              // Unqualified since ALI-772: `decisions` now prefers the local graph the same
+              // Unqualified now: `decisions` prefers the local graph the same
               // way ask, search and import do, so the bare command is the right one to print
               // for every user. It carried `--env ${envName}` while that was not true.
               const listCmd = 'align decisions list';
@@ -256,7 +256,7 @@ export function registerAskCommand(program: Command): void {
                 console.log(chalk.dim('  Try different words, or list what is in there:'));
               } else if (results.scope) {
                 // Named because it is the reason nothing matched here, and distinguishes
-                // "not in THIS repo" from "not anywhere" (ALI-771's lesson, extended to scope).
+                // "not in THIS repo" from "not anywhere" (the lesson, extended to scope).
                 // Reachable only under an explicit --repo, which the widen respects.
                 console.log(chalk.dim(`  Nothing matched "${query}" in ${results.scope}.`));
                 console.log(chalk.dim('  Try --all to search your whole graph, or list what is in this repo:'));
@@ -360,7 +360,7 @@ export function registerAskCommand(program: Command): void {
         }
         spinner.stop();
 
-        // ALI-798: named up front so a reader knows what was searched before reading an
+        // Named up front so a reader knows what was searched before reading an
         // answer that might be missing something they know exists in another repo.
         if (widenedFrom) {
           console.log(chalk.dim(`  Nothing in ${widenedFrom} answered - widened to your whole graph`));
@@ -368,7 +368,7 @@ export function registerAskCommand(program: Command): void {
           console.log(chalk.dim(`  Answering from ${results.scope} (--all searches every repo)`));
         }
 
-        // ALI-795: a non-empty answer is the funnel's activation moment - emitted here,
+        // A non-empty answer is the funnel's activation moment - emitted here,
         // before rendering branches (the synthesized-answer path returns early). The
         // once-per-install guard lives inside recordFunnelStage. Fired without await
         // (Copilot on #215): a blackholed gateway would otherwise stall the answer by
@@ -398,7 +398,7 @@ export function registerAskCommand(program: Command): void {
               if (gap) console.log(gap);
             }
             console.log('');
-            // ALI-938: the invite nudge's clearest moment - the graph just answered from a
+            // The invite nudge's clearest moment - the graph just answered from a
             // decision someone else made. Replaces the old "5+ results" heuristic, which
             // fired on graph SIZE and had nothing to do with whether a teammate was
             // actually the one who decided this.
@@ -410,7 +410,7 @@ export function registerAskCommand(program: Command): void {
           }
         }
 
-        // ALI-1780: scores are only comparable to the weak-match floor in local mode, where
+        // Scores are only comparable to the weak-match floor in local mode, where
         // they are dense cosine; a cloud result is on the gateway's own scale.
         const localScores = config.getEnvironment(envName).mode === 'local-embedded';
 
@@ -419,7 +419,7 @@ export function registerAskCommand(program: Command): void {
         const guidance: string[] = [];
         let reason = '';
         if (!filePath) {
-          // ALI-420: a running Ollama with no vetted model used to answer anyway, with
+          // A running Ollama with no vetted model used to answer anyway, with
           // whatever it listed first. It now declines, so name the models it has rather
           // than telling someone who is already running a provider to configure one.
           const unvetted = synthFailure?.kind === 'unrecognised_local_models' ? synthFailure.models : null;
@@ -433,7 +433,7 @@ export function registerAskCommand(program: Command): void {
             guidance.push(chalk.dim(`  Pull one:     ollama pull ${RECOMMENDED_OLLAMA_PULL}`));
             guidance.push(chalk.dim('  Or name one:  ALIGN_OLLAMA_MODEL=<model>'));
           } else if (failure) {
-            // ALI-692: the chain stopped rather than demoting to a weaker model. Name
+            // The chain stopped rather than demoting to a weaker model. Name
             // the model that failed - the key hint would be wrong for a user whose
             // provider is configured and answering.
             reason = 'the AI model returned an unusable response, so no answer was written';
@@ -441,7 +441,7 @@ export function registerAskCommand(program: Command): void {
             guidance.push(chalk.dim(`  unusable response (${failure.detail}). A weaker model was not asked in`));
             guidance.push(chalk.dim('  its place. Retry, or configure a different provider.'));
           } else if (unavailable) {
-            // ALI-766: a provider WAS configured and none of them answered. The key nudge
+            // A provider WAS configured and none of them answered. The key nudge
             // below would be the wrong signpost - it reads as "your provider is not
             // supported" to the one user who took the trouble to configure us.
             // "did not answer", not "unreachable": this path also carries availability-class
@@ -477,16 +477,16 @@ export function registerAskCommand(program: Command): void {
         if (filePath) {
           console.log(chalk.bold(`\n  Decisions related to ${query}\n`));
         } else {
-          // ALI-1780: ONE summary line, first, saying what the list is. "related", not
+          // ONE summary line, first, saying what the list is. "related", not
           // "matching": no model has judged any of them relevant, and the old header read
           // as if they answered. Still the size of the RESULT SET, not of the graph (`align
-          // local status` prints a count of the graph; ALI-771 - two commands, two numbers).
+          // local status` prints a count of the graph - two commands, two numbers).
           const best = Math.max(...listed.map((d) => d.similarity ?? 0));
           const lead = weakSet
             ? `all weak matches (best ${(best * 100).toFixed(0)}%)`
             : 'none judged relevant yet';
           console.log(chalk.bold(`\n  ${matchNoun(results.count)}, ${lead}: ${reason}\n`));
-          // ALI-1749: the answer-shaped thing first. Only for a top match that clears the weak
+          // The answer-shaped thing first. Only for a top match that clears the weak
           // floor (local scores are the calibrated ones) and only when it STATES a reason.
           const top = listed[0];
           const topReason = top && localScores && !isWeak(top.similarity) ? reasonOf(top) : null;
@@ -534,13 +534,13 @@ export function registerAskCommand(program: Command): void {
           const citeLabel = cite ? chalk.dim(` (${cite})`) : '';
           const platformLabel = d.platform ? chalk.magenta(` [${d.platform}]`) : '';
           console.log(chalk.dim(`  id: ${d.id}`) + citeLabel + platformLabel + statusLabel + (when ? chalk.dim(`  ·  ${when}`) : ''));
-          // ALI-923: navigableSourceUrl drops a synthetic align://claimed/... identity
-          // (ALI-538) - it is not a place anyone can open, so nothing should print it as one.
+          // navigableSourceUrl drops a synthetic align://claimed/... identity
+          // - it is not a place anyone can open, so nothing should print it as one.
           const sourceUrl = navigableSourceUrl(d.source_url);
           if (sourceUrl) console.log(chalk.dim(`  ${sourceUrl}`));
           const gap = gapLine(d, isConnected);
           if (gap) console.log(gap);
-          // Who to talk to (ALI-118).
+          // Who to talk to.
           if (d.author?.name) console.log(chalk.cyan(`  talk to: ${d.author.name}`));
           console.log('');
         }
@@ -561,7 +561,7 @@ export function registerAskCommand(program: Command): void {
           console.log(chalk.dim('    align connect linear   # or jira, slack, notion, confluence'));
           console.log('');
         }
-        // ALI-938: the invite nudge, keyed on WHO decided rather than on graph size - the
+        // The invite nudge, keyed on WHO decided rather than on graph size - the
         // old "5+ results" heuristic fired on a count that had nothing to do with whether
         // a teammate was the one who made the call. Same criterion as the
         // synthesized-answer path above, checked here for the list-fallback rendering.

@@ -1,11 +1,11 @@
-// ALI-851: the TypeScript twin of align-stack's test_decision_render.py.
+// The TypeScript twin of align-stack's test_decision_render.py.
 //
 // Test List (Given/When/Then, two examples per rule per align-stack's tdd.md, which this
 // CLI follows for the same reason):
-// - ordinal renders, never a uuid, even when the input carries one (ALI-598)
+// - ordinal renders, never a uuid, even when the input carries one
 // - a missing/invalid ordinal throws loudly rather than defaulting
 // - the status flag is RETIRED for superseded/archived, CONFLICTED for conflicted, absent
-//   for active - and it is FIRST in the bracket (ALI-655)
+//   for active - and it is FIRST in the bracket
 // - the bracket order is exactly status | platform | decided | by | altitude | dimension,
 //   each omitted independently when absent, parsed rather than substring-matched
 // - compact budget returns the index line only; full budget adds statement, rationale, cite
@@ -42,7 +42,7 @@ function minimal(overrides: Partial<RenderableDecision> = {}): RenderableDecisio
   return { ordinal: 1, title: 'Use Postgres for the job queue', ...overrides };
 }
 
-describe('renderDecision - ordinal never a uuid (ALI-598)', () => {
+describe('renderDecision - ordinal never a uuid', () => {
   it('renders the ordinal, not the id', () => {
     const out = renderDecision(minimal({ id: UUID_CANDIDATE }), { budget: 'compact' });
     expect(out.startsWith('1. ')).toBe(true);
@@ -102,7 +102,7 @@ describe('renderDecision - status flag', () => {
     }
   });
 
-  it('is first when platform and altitude are also present (ALI-655)', () => {
+  it('is first when platform and altitude are also present', () => {
     const out = renderDecision(
       minimal({ status: 'superseded', platform: 'jira', architectural_altitude: 'mission-critical' }),
       { budget: 'full' },

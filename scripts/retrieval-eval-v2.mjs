@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Retrieval eval v2 (ALI-1749, ALI-1782): newcomer-worded questions that are NOT derived from the
+ * Retrieval eval v2: newcomer-worded questions that are NOT derived from the
  * commit subject.
  *
  * Why it exists: eval v1 templates its questions from the commit subject, which is also the

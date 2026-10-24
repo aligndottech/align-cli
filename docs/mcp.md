@@ -108,7 +108,7 @@ Reload the VS Code window afterwards, then open Copilot Chat in agent mode and l
 `align` in its tools picker.
 
 **On Windows the entry is wrapped, and `align mcp --setup` writes it that way for you**
-(ALI-1135). An npm global install puts `align.cmd` on your `PATH`, and a Windows process spawn
+. An npm global install puts `align.cmd` on your `PATH`, and a Windows process spawn
 resolves a `.cmd` only through a shell, so `"command": "align"` names something VS Code cannot
 launch and you get `ENOENT` against a file Align wrote. `cmd` is a real executable, so this
 starts whether or not the client uses a shell of its own:

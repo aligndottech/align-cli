@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish server.json to the MCP registry, idempotently (ALI-1670).
+# Publish server.json to the MCP registry, idempotently.
 #
 # promote-release.yml can run twice for one release: once from a manual dispatch and once from the
 # workflow_run that fires when the e2e gate goes green. The second run's publish used to fail with

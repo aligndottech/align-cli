@@ -1,8 +1,8 @@
 /**
- * ALI-618 D3b: one CLI, two consent semantics (cloud opt-out, local opt-in) is a real user-
+ * One CLI, two consent semantics (cloud opt-out, local opt-in) is a real user-
  * facing inconsistency unless `align telemetry status` can say WHICH model applies and why.
  * Four distinct outputs are the whole point - a status that cannot tell them apart is the
- * ALI-306 honesty problem restated.
+ * honesty problem restated.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -91,10 +91,10 @@ describe('getTelemetryStatus', () => {
     expect(getTelemetryStatus(cloudEnv, undefined).enabled).toBe(false);
   });
 
-  // ALI-954: two anonymous counts (install, setup completed) send by default in local mode,
+  // Two anonymous counts (install, setup completed) send by default in local mode,
   // and the status line has to say so wherever usage is off but the beacons are not - a
-  // status reading "off" over a beacon that still sends is the ALI-306 honesty problem again.
-  describe('the beacon tier (ALI-954)', () => {
+  // status reading "off" over a beacon that still sends is the honesty problem again.
+  describe('the beacon tier', () => {
     it('DO_NOT_TRACK=1: off, everything, and names the variable', () => {
       vi.stubEnv('DO_NOT_TRACK', '1');
       expect(getTelemetryStatus(localEnv, 'granted')).toEqual({

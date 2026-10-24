@@ -1,5 +1,5 @@
 /**
- * ALI-798: the repo dimension for the local graph.
+ * The repo dimension for the local graph.
  *
  * Test List:
  * 1. a hosted commit URL -> host/owner/repo
@@ -53,8 +53,8 @@ describe('repoFromSourceUrl', () => {
 
   it.each([
     ['git://commit/abc1234', 'a remoteless git commit'],
-    ['https://aligndottech.atlassian.net/browse/ALI-1', 'a Jira ticket URL'],
-    ['https://linear.app/aligndottech/issue/ALI-1', 'a Linear ticket URL'],
+    ['https://aligndottech.atlassian.net/browse/APP-1', 'a Jira ticket URL'],
+    ['https://linear.app/aligndottech/issue/APP-1', 'a Linear ticket URL'],
     ['https://github.com/aligndottech/pull/1', 'an owner page, no repo segment'],
     [null, 'a null source_url'],
   ])('does not identify a repo for %j (%s)', (url) => {
@@ -126,7 +126,7 @@ describe('resolveScopeOpts', () => {
     expect(warnings).toEqual([]);
   });
 
-  it('warns and drops the flags outside local mode - never a silent no-op (ALI-505)', () => {
+  it('warns and drops the flags outside local mode - never a silent no-op', () => {
     const warnings: string[] = [];
     expect(resolveScopeOpts({ all: true }, 'prod', (m) => warnings.push(m))).toBeUndefined();
     expect(warnings).toHaveLength(1);

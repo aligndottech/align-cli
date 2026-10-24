@@ -86,7 +86,7 @@ describe('activeStoredScope (what the per-source subcommands honour)', () => {
 });
 
 describe('place from a folder', () => {
-  it('GitHub: the folder is read by ALI-917\'s resolveGitHubRepoScope, so there is one reader of it', async () => {
+  it('GitHub: the folder is read by resolveGitHubRepoScope, so there is one reader of it', async () => {
     resolveRepo.mockResolvedValueOnce('o/r');
     expect(await realScopeDeps(undefined).cwdRepo()).toBe('o/r');
     expect(resolveRepo).toHaveBeenLastCalledWith({});

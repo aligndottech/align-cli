@@ -15,7 +15,7 @@ const BATCH_CONCURRENCY = 3;
 // Cap TOTAL concurrent /ingest/batch calls across all imports running in
 // parallel (align setup imports several connectors at once). Without this,
 // IMPORT_CONCURRENCY x BATCH_CONCURRENCY swamps the gateway's DB pool and
-// surfaces as 500 "timeout exceeded when trying to connect" (ALI-110).
+// surfaces as 500 "timeout exceeded when trying to connect".
 const GLOBAL_INGEST_CONCURRENCY = Number(process.env['ALIGN_INGEST_CONCURRENCY']) || 6;
 const INGEST_MAX_ATTEMPTS = 3;
 const INGEST_BACKOFF_MS = 250;
@@ -81,9 +81,9 @@ export async function runPersonalImport(
   client: ReturnType<typeof createGatewayClient>,
   opts: {
     label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean; local?: boolean;
-    /** ALI-951 (`align connect --json`): with quiet, print nothing at all - the caller owns stdout. */
+    /** (`align connect --json`): with quiet, print nothing at all - the caller owns stdout. */
     silent?: boolean;
-    /** ALI-795: when present, emit the import_completed funnel stage after ingest.
+    /** When present, emit the import_completed funnel stage after ingest.
      *  Carries the env because the consent decision needs it; source is the connector
      *  id ('git', 'jira'), which becomes the stage's provenance command. */
     funnel?: { env: EnvironmentConfig; source: string };
@@ -160,7 +160,7 @@ export async function runPersonalImport(
 
   // How many of those rows were NEW. Only the local client reports this; the cloud gateway
   // does not, and `undefined` there must leave the existing message untouched rather than
-  // claiming everything was new (ALI-770).
+  // claiming everything was new.
   let newCount = 0;
   let knownCount = 0;
 
@@ -180,7 +180,7 @@ export async function runPersonalImport(
 
   if (opts.result) { opts.result.stored = total; opts.result.failedBatches = failures.length; }
 
-  // ALI-795: ingest ran (the empty-items case returned above), so the funnel stage
+  // Ingest ran (the empty-items case returned above), so the funnel stage
   // fires whichever rendering branch follows. Consent gating lives in the emitter.
   // No await (Copilot on #215): never-throws, and the completion line must not wait
   // on the telemetry timeout.
@@ -247,7 +247,7 @@ export interface ConfirmEachResult {
 }
 
 /**
- * ALI-808: added BESIDE runPersonalImport, not instead of it - this is the confirm-each
+ * Added BESIDE runPersonalImport, not instead of it - this is the confirm-each
  * shape (review one, decide, review the next) rather than runPersonalImport's preview-N
  * then confirm-once-and-batch shape. First user: the session importer, where "this was
  * said" needs a human looking at each candidate individually, not a table skim.

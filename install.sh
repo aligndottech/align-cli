@@ -1,5 +1,5 @@
 #!/bin/sh
-# Align CLI installer (ALI-740).
+# Align CLI installer.
 #
 #   curl -fsSL https://align.tech/install.sh | sh
 #
@@ -162,6 +162,5 @@ esac
 "$TARGET" --version >/dev/null 2>&1 || die "installed, but '$TARGET --version' did not run. Wrong build for this platform?"
 # `align`, not `align setup --local`. The onboarding flow asks cloud-or-local itself, so the
 # flag was never needed to reach the offline path - and this is the first line a new user
-# reads after installing, so it is the one place a needless flag does the most damage
-# (ALI-773 made bare `align` do the setup).
+# reads after installing, so it is the one place a needless flag does the most damage.
 echo "align install: $("$TARGET" --version) ready. Next: run  align"

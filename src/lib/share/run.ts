@@ -164,7 +164,7 @@ export interface SendHooks {
   /** A matched share whose ratify/supersede wait on the team's text: show it, return whether the person agrees. */
   confirmTeamText?: (info: { localId: string; title: string; team: TeamDecision }) => Promise<boolean>;
   /**
-   * Browser approval (ALI-1540): the batch goes out through the gateway's completion of a request the person
+   * Browser approval: the batch goes out through the gateway's completion of a request the person
    * approved, NOT through shareBatch. Called once per batch with phase 'share' (the caller already holds the
    * answer) and once more with phase 'confirm' for a re-post that waits on the team's text. Null means that
    * step was not approved (declined, expired, cancelled): nothing was posted for it.

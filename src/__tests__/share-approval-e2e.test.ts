@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type Harness, startHarness } from './helpers/share-harness.js';
 
 /**
- * ALI-1540, the real binary against a fake gateway on loopback (the gateway side is a contract, not the real routes):
+ * The real binary against a fake gateway on loopback (the gateway side is a contract, not the real routes):
  * - inside an agent align launched (ALIGN_WRAPPED), `align share` stages, waits, and completes after approval: no typed answer, no
  *   direct post to /ingest/batch, and the key is in no request.
  * - `required` refuses --typed in the real command line, with nothing staged.

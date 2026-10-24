@@ -1,5 +1,5 @@
-// The Align Personal OAuth flow, shared by `align setup` and `align connect <src> --personal`
-// (ALI-388). Lifted verbatim from setup.ts so both entry points use one implementation: the
+// The Align Personal OAuth flow, shared by `align setup` and `align connect <src> --personal`.
+// Lifted verbatim from setup.ts so both entry points use one implementation: the
 // gateway's /oauth/cli-start/:key begins the flow, the browser lands credentials on the
 // localhost listener (cli-oauth.ts), and tokens persist in the local config under the
 // connector's oauth key - the gateway's CLI branch never writes them server-side.
@@ -155,7 +155,7 @@ export function persistConnectorCreds(
 }
 
 // ---------------------------------------------------------------------------
-// `align connect <src> --personal` (ALI-388)
+// `align connect <src> --personal`
 // ---------------------------------------------------------------------------
 
 /**

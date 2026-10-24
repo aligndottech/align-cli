@@ -2,8 +2,8 @@
  * Reduce a natural-language question to its content words, for use as a SECOND
  * retrieval attempt when the raw query matched nothing.
  *
- * Deliberately NOT a replacement for the raw query. ALI-105 removed the old
- * `normaliseWhyQuery()` because normalising BEFORE the cloud gateway defeated its
+ * Deliberately NOT a replacement for the raw query. The old
+ * `normaliseWhyQuery()` was removed because normalising BEFORE the cloud gateway defeated its
  * strategy selector, which routes on the shape of the query. That decision stands:
  * the raw query is still what gets embedded first, in both modes.
  *

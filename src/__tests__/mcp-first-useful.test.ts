@@ -1,5 +1,5 @@
 /**
- * ALI-949: `first_useful_decision` fired from exactly one place - a non-empty `align ask`
+ * `first_useful_decision` fired from exactly one place - a non-empty `align ask`
  * (why.ts). An agent asking the same question through the local MCP server did not count,
  * so when humans stop typing `align ask` (the point of the phases after this one) the
  * activation stage goes dark exactly when it should light up.
@@ -72,7 +72,7 @@ describe('MCP first_useful_decision', () => {
     },
   );
 
-  // A check that could not run is NOT a pass (ALI-414), and it is not a useful decision either.
+  // A check that could not run is NOT a pass, and it is not a useful decision either.
   it.each(['no-context', 'unknown'] as const)('align_check_alignment with status %s records nothing', async (status) => {
     const c = client({ checkAlignment: vi.fn().mockResolvedValue({ status, confidence: 0, relevant_decisions: [], message: '' }) });
     await call(c, 'align_check_alignment', { diff: '+ x' });

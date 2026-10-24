@@ -40,7 +40,7 @@ vi.mock('../lib/config.js', () => ({
     getDefaultEnv: () => 'prod',
     getEnvironment: (name: string) =>
       FIXTURE_ENVS[name as keyof typeof FIXTURE_ENVS] as EnvironmentConfig,
-    // ALI-618: recordCommandUsage's local-embedded branch now reads these too. No consent
+    // recordCommandUsage's local-embedded branch now reads these too. No consent
     // recorded here - these tests are about WHICH env gets addressed, not about the anonymous
     // ping itself (that's usage-telemetry-anonymous.test.ts), so nothing should ever send.
     getTelemetryConsent: () => undefined,
@@ -103,7 +103,7 @@ describe('recordInvocationUsage', () => {
 
   // The boundary: the setup suppression is scoped to `setup`. Other commands still report, or
   // configuring local mode once would silence cloud telemetry for good.
-  // ALI-949: the root action (bare `align`) reports under its own name in cloud mode too.
+  // The root action (bare `align`) reports under its own name in cloud mode too.
   it('reports bare `align` as a cli.command event with command = align', async () => {
     await recordInvocationUsage(undefined, 'align');
 

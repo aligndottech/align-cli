@@ -1,7 +1,7 @@
 import { SCAFFOLDING } from './search-query.js';
 
 /**
- * A deterministic title rerank over dense candidates (ALI-1775, from ALI-1773).
+ * A deterministic title rerank over dense candidates.
  *
  * A dense embedding rewards a commit that repeats a noun: "why was align setup removed"
  * ranked three commits that say "align setup" over and over (0.666, 0.639, 0.597) above the

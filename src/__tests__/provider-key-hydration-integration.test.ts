@@ -1,5 +1,5 @@
 /**
- * ALI-1284 (Copilot review, PR #322): every other test of hydrateProviderKeyEnv calls it
+ * Copilot review, PR #322: every other test of hydrateProviderKeyEnv calls it
  * directly (config.test.ts) or mocks `../lib/config.js` entirely (setup.test.ts) - neither
  * exercises the actual wiring in src/cli.ts's `preAction` hook. A regression that deleted
  * that hook call (or pointed it at the wrong config store) would leave every existing test

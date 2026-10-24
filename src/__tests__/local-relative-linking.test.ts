@@ -1,4 +1,4 @@
-// ALI-785: 0 of 1,729 relates edges crossed a platform boundary on a 403-decision,
+// 0 of 1,729 relates edges crossed a platform boundary on a 403-decision,
 // six-source corpus. Measured cause: an ABSOLUTE cosine floor of 0.65 is unreachable
 // for cross-register pairs on MiniLM-L6 - near-duplicates score ~0.95, genuine
 // cross-tool paraphrases ~0.45-0.62, background noise ~0.28-0.40. The lab that fixed
@@ -20,7 +20,7 @@ vi.mock('../lib/similarity/embedding-matrix.js', async () =>
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.0),
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',

@@ -105,7 +105,7 @@ describe('ingestBatch unchanged-skip', () => {
   it('an unchanged re-ingest still resolves a citation that arrived after the target', async () => {
     vi.mocked(cosineSimilarity).mockReturnValue(0.1); // below every floor: no similarity links
     await client.ingestBatch([A], { classify: false });
-    const citer = { source_url: 'https://x.atlassian.net/browse/ALI-12', platform: 'jira', title: 'ALI-12', raw_text: `Queue work follows ${A.source_url}` };
+    const citer = { source_url: 'https://x.atlassian.net/browse/APP-12', platform: 'jira', title: 'APP-12', raw_text: `Queue work follows ${A.source_url}` };
     await client.ingestBatch([citer], { classify: false });
     expect(linkCount()).toBe(0);
 

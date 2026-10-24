@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getEmbedding, resetEmbeddingBackend, setEmbeddingBackend } from '../lib/local-embeddings.js';
 
-// ALI-744: the standalone binary cannot load @huggingface/transformers' native path, so it
+// The standalone binary cannot load @huggingface/transformers' native path, so it
 // injects a WASM backend at startup. These pin the seam itself; that the WASM backend really
 // produces vectors is proven against a compiled artifact in scripts/smoke-binary.sh, which is
 // the only place the embedded ORT assets exist.

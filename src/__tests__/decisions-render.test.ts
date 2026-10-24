@@ -36,7 +36,7 @@ async function run(args: string[]): Promise<string> {
 }
 
 /**
- * ALI-772. These assert what the command RENDERS. An earlier version of this suite read
+ * These assert what the command RENDERS. An earlier version of this suite read
  * src/commands/decisions/index.ts and matched regexes against it, which is a claim about the
  * shape of the source rather than about behaviour: a reformat breaks it, and a genuine
  * regression that kept the same text would not. A review bot pushed back on that and was
@@ -67,7 +67,6 @@ describe('decisions list rendering', () => {
     expect(await run(['list', '--env', 'prod'])).toContain('Decisions (prod)');
   });
 
-  // ALI-829 R27a
   it('shows a DECIDED column with the source date when the row carries one', async () => {
     listDecisions.mockResolvedValue([
       { id: 'a1', title: 'Chose Postgres', platform: 'git', status: 'active', decided_at: '2026-03-01T09:00:00.000Z' },
@@ -77,7 +76,6 @@ describe('decisions list rendering', () => {
     expect(out).toContain('1 Mar 2026');
   });
 
-  // ALI-829 R27b
   it('leaves the DECIDED cell empty for a row with no source date - never "Invalid Date", never the ingest minute', async () => {
     listDecisions.mockResolvedValue([
       { id: 'a1', title: 'Chose Postgres', platform: 'git', status: 'active', created_at: '2026-05-30T09:00:00.000Z' },
@@ -116,7 +114,7 @@ describe('decisions show rendering', () => {
   });
 });
 
-describe('decisions list --unratified (ALI-831)', () => {
+describe('decisions list --unratified', () => {
   beforeEach(() => {
     resolveEnv.mockReturnValue('local');
     listDecisions.mockReset();
@@ -137,7 +135,7 @@ describe('decisions list --unratified (ALI-831)', () => {
   });
 });
 
-describe('decisions show prints the decider label (ALI-831)', () => {
+describe('decisions show prints the decider label', () => {
   beforeEach(() => {
     getDecision.mockReset();
   });

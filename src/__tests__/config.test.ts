@@ -20,7 +20,7 @@ vi.mock('conf', () => {
 });
 
 describe('config store', () => {
-  // ALI-462: getEnvironment reads ALIGN_TOKEN, ALIGN_TENANT_ID and ALIGN_GATEWAY_URL, so
+  // getEnvironment reads ALIGN_TOKEN, ALIGN_TENANT_ID and ALIGN_GATEWAY_URL, so
   // without this the outcome depends on whoever runs the suite. Not hypothetical: with
   // ALIGN_TOKEN exported, "clears stored token on logout" fails on the leaked value. The
   // environment is an input, so it belongs in the arrange step like any other.
@@ -136,7 +136,7 @@ describe('config store', () => {
     expect(c.getEnvironment('prod').authToken).toBeNull();
   });
 
-  // ALI-462: the state at the heart of the ticket is representable. No CLI flow produces it
+  // The state at the heart of the ticket is representable. No CLI flow produces it
   // (login-flow sets the token first and the tenant only after /me succeeds), so it is
   // reachable ONLY like this. Pinned because the guard downstream is written against it.
   it('ALIGN_TENANT_ID with no ALIGN_TOKEN yields a tenant that nothing authenticates', () => {
@@ -170,12 +170,12 @@ describe('config store', () => {
     expect(c.getConnectorCloudId('preview', 'jira')).toBe('preview-cloud-id');
   });
 
-  // ALI-1284: a free-tier provider key collected during `align setup` has to survive to the
+  // A free-tier provider key collected during `align setup` has to survive to the
   // NEXT invocation of `align ask`, which only reads `process.env` (local-llm.ts stays a pure
   // env-reader on purpose, so it is testable without filesystem I/O). So the key is persisted
   // here, the same way a local connector's read-only token already is, and hydrated back into
   // local-llm at CLI startup - see savedLlmConfig below.
-  describe('provider keys (ALI-1284)', () => {
+  describe('provider keys', () => {
     it('returns null for a provider with no stored key', () => {
       expect(createConfigStore().getProviderKey('groq')).toBeNull();
     });
@@ -211,7 +211,7 @@ describe('config store', () => {
     });
   });
 
-  // ALI-618: install id and telemetry consent are global to the machine, not per-env - a
+  // Install id and telemetry consent are global to the machine, not per-env - a
   // local-only user has no `environments` entry to hang either off (unlike authToken/tenantId).
   describe('anonymous local telemetry state', () => {
     it('generates a v4 UUID install id on first read', () => {

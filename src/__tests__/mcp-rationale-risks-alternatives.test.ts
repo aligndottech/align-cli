@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { shapeDecisionRationale } from '../lib/mcp-timeline-tools.js';
 
 /**
- * ALI-1465. #335 (ALI-1426) made `goals` take the first non-empty list across the top level
+ * #335 made `goals` take the first non-empty list across the top level
  * of decision_json and `ai`. `risks` and `alternatives_considered` still used `??`, so an
  * empty top-level `[]` hid a populated `ai` list. All three now share one helper.
  *
@@ -39,7 +39,7 @@ const AI_ALTS = [
 ];
 const TOP_ALTS = [{ option: 'Circuit breaker only', rejected_because: 'too coarse per call' }];
 
-describe('shapeDecisionRationale risks, alternatives_considered and positions_considered (ALI-1465)', () => {
+describe('shapeDecisionRationale risks, alternatives_considered and positions_considered', () => {
   const cases = [
     { field: 'risks', top: TOP_RISKS, ai: AI_RISKS },
     { field: 'alternatives_considered', top: TOP_ALTS, ai: AI_ALTS },

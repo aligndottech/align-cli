@@ -4,7 +4,7 @@ import path from 'node:path';
 import { alignServerEntry, type McpFormat } from './mcp-setup.js';
 
 /**
- * The absolute path of the `align` executable, resolved by align itself (ALI-1515).
+ * The absolute path of the `align` executable, resolved by align itself.
  *
  * The MCP command handed to an agent used to be a bare `align`, which the AGENT then finds through its own PATH. A
  * PATH can carry relative or empty entries (`.`, `node_modules/.bin`), so a repo could plant an `align` and have the
@@ -44,7 +44,7 @@ export function resolveTrustedAlignBin(
   return null;
 }
 
-/** Entry for the `align` server handed to an agent per session (ALI-1515): absolute trusted path when one resolves, bare `align` otherwise. */
+/** Entry for the `align` server handed to an agent per session: absolute trusted path when one resolves, bare `align` otherwise. */
 export function launchAlignEntry(format: McpFormat): Record<string, unknown> {
   // ALIGN_NO_TRUSTED_BIN=1 keeps the bare name (an escape hatch, and how the suite stays machine-independent).
   const trustedBin = process.env['ALIGN_NO_TRUSTED_BIN'] === '1' ? null : resolveTrustedAlignBin();

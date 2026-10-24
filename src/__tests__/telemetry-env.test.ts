@@ -1,7 +1,7 @@
 /**
- * ALI-954: the two environment variables that turn ALL telemetry off - both tiers, the
+ * The two environment variables that turn ALL telemetry off - both tiers, the
  * default-on beacons included. `ALIGN_TELEMETRY` is ours (set and not recognisably ON means
- * OFF, ALI-618). `DO_NOT_TRACK` is the cross-tool convention (consoledonottrack.com): set to
+ * OFF). `DO_NOT_TRACK` is the cross-tool convention (consoledonottrack.com): set to
  * anything that is not recognisably OFF means "do not track". The two read in opposite
  * directions on purpose - each errs toward sending nothing.
  *
@@ -43,7 +43,7 @@ describe('telemetryDisabledByEnv', () => {
     expect(telemetryDisabledByEnv()).toBe('ALIGN_TELEMETRY');
   });
 
-  // The ALI-618 reading is preserved: any value that is not recognisably ON is OFF.
+  // The reading is preserved: any value that is not recognisably ON is OFF.
   it('ALIGN_TELEMETRY=disabled is OFF (set and not recognisably on)', () => {
     vi.stubEnv('ALIGN_TELEMETRY', 'disabled');
     expect(telemetryDisabledByEnv()).toBe('ALIGN_TELEMETRY');

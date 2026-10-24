@@ -15,7 +15,7 @@
  *    the session's source_url scheme and the resolved identity
  * 5. the identity comes from git config, falling back to the OS user (same rule as ratify)
  *
- * ALI-809 additions (Pass B, free-text):
+ * Additions (Pass B, free-text):
  * 6. a free-text candidate the model confirms is reviewed and written with the human's own
  *    verbatim text as raw_text (never the model's title in its place)
  * 7. a free-text candidate the model rejects (heuristic misfired) is never presented

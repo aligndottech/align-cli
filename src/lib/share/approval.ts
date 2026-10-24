@@ -1,5 +1,5 @@
 /**
- * ALI-1540: the client side of an approval, as functions over an injected client, a clock and a sleep.
+ * The client side of an approval, as functions over an injected client, a clock and a sleep.
  *
  * stage   - make the request id, seal, send the ciphertext, check the answer is about THIS request.
  * poll    - ask the gateway what the person did, backing off, stopping at the expiry, stopping on Ctrl-C.

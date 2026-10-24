@@ -8,9 +8,9 @@ import {
   TOPIC_TIMELINE_TOOL,
 } from '../lib/mcp-timeline-tools.js';
 
-// ALI-1411: before this, only align_ask, align_search and align_get_related_decisions honoured
+// Before this, only align_ask, align_search and align_get_related_decisions honoured
 // the as-of cutoff. Every other read tool answered from the whole graph, so a frozen benchmark
-// run could cite a decision captured after its cutoff (v7 Jira rep 3 cited ALI-391 that way).
+// run could cite a decision captured after its cutoff (v7 Jira rep 3 cited a post-cutoff decision that way).
 //
 // Every tool below gets a PAIR: the cutoff is applied, and with no cutoff the call and the
 // result are exactly what they were. The second half is what keeps this a benchmark fix rather
@@ -49,10 +49,10 @@ describe('align_check_alignment under an as-of cutoff', () => {
     check_event_id: 'evt-1',
     relevant_decisions: [
       { id: 'old', title: 'Old', summary: 's', similarity: 0.8 },
-      { id: 'new', title: 'New ALI-391', summary: 's', similarity: 0.9 },
+      { id: 'new', title: 'New APP-391', summary: 's', similarity: 0.9 },
     ],
-    conflicts: [{ decision_id: 'new', title: 'New ALI-391', reason: 'r', severity: 'warning' }],
-    message: 'Conflicts with New ALI-391',
+    conflicts: [{ decision_id: 'new', title: 'New APP-391', reason: 'r', severity: 'warning' }],
+    message: 'Conflicts with New APP-391',
   });
 
   it('drops a decision created after the cutoff, and a conflict that rested only on it', async () => {
@@ -68,7 +68,7 @@ describe('align_check_alignment under an as-of cutoff', () => {
     expect(out['status']).toBe('retrieved');
     expect('check_event_id' in out).toBe(false);
     // The gateway's message named the post-cutoff decision; it must not reach the agent.
-    expect(JSON.stringify(out)).not.toContain('ALI-391');
+    expect(JSON.stringify(out)).not.toContain('APP-391');
   });
 
   it('keeps a conflict against a decision that predates the cutoff', async () => {
@@ -177,7 +177,7 @@ describe('align_check_drift under an as-of cutoff', () => {
   it('runs the check for a decision that predates the cutoff', async () => {
     const c = fakeClient({ old: BEFORE });
     const out = await dispatchTool('align_check_drift', { decision_id: 'old', content: 'x' }, cast(c), cloud, CUTOFF);
-    // ALI-1438: the cutoff reaches the gateway, which then stores no decision_drift_checks row.
+    // The cutoff reaches the gateway, which then stores no decision_drift_checks row.
     expect(c.checkDrift.mock.calls[0]).toStrictEqual(['old', 'x', undefined, CUTOFF]);
     expect(out).toEqual({ drifted: false, score: 0.9 });
   });
@@ -186,7 +186,7 @@ describe('align_check_drift under an as-of cutoff', () => {
     const c = fakeClient({});
     await dispatchTool('align_check_drift', { decision_id: 'new', content: 'x' }, cast(c), cloud);
     expect(c.getDecision).not.toHaveBeenCalled();
-    // No cutoff keeps the three-argument call, so the request is what it was before ALI-1438.
+    // No cutoff keeps the three-argument call, so the request is what it was before the cutoff existed.
     expect(c.checkDrift.mock.calls[0]).toStrictEqual(['new', 'x', undefined]);
   });
 });
@@ -401,12 +401,12 @@ describe('align_get_topic_timeline under an as-of cutoff', () => {
     activity: [{ month: '2026-09', count: 1 }],
     chain_ids: ['a', 'b', 'c'],
     disagreements: [{ relation: 'supersedes', from: { id: 'c' }, to: { id: 'a' } }],
-    why: [{ id: 'a', rationale: 'ra' }, { id: 'c', rationale: 'rc ALI-391' }],
+    why: [{ id: 'a', rationale: 'ra' }, { id: 'c', rationale: 'rc APP-391' }],
     still_open: [{ id: 'c', questions: ['q'] }],
     decisions: [
       { id: 'a', title: 'A', platform: 'jira', status: 'superseded', created_at: BEFORE },
       { id: 'b', title: 'B', platform: 'jira', status: 'active', created_at: BEFORE },
-      { id: 'c', title: 'C ALI-391', platform: 'slack', status: 'active', created_at: AFTER },
+      { id: 'c', title: 'C APP-391', platform: 'slack', status: 'active', created_at: AFTER },
     ],
   });
 
@@ -427,7 +427,7 @@ describe('align_get_topic_timeline under an as-of cutoff', () => {
     // Month buckets cannot be re-derived honestly from the rows, so they are dropped rather
     // than left counting a decision that is not there.
     expect('activity' in out).toBe(false);
-    expect(JSON.stringify(out)).not.toContain('ALI-391');
+    expect(JSON.stringify(out)).not.toContain('APP-391');
   });
 
   it('filters disagreements even when the gateway sends no chain_ids', async () => {
@@ -450,7 +450,7 @@ describe('align_get_topic_timeline under an as-of cutoff', () => {
 
     // An emptied chain would narrate nothing; with it omitted the shaper narrates every row.
     expect((out['decisions'] as Array<{ id: string }>).map((d) => d.id)).toEqual(['a', 'b']);
-    expect(JSON.stringify(out)).not.toContain('ALI-391');
+    expect(JSON.stringify(out)).not.toContain('APP-391');
   });
 
   it('without a cutoff the shaped output is exactly what it was', async () => {
@@ -523,10 +523,10 @@ describe('align_get_decision_timeline under an as-of cutoff', () => {
   });
 });
 
-// ALI-1420: the gateway now bounds three of these reads itself, so the cutoff is SENT, not only
+// The gateway now bounds three of these reads itself, so the cutoff is SENT, not only
 // applied afterwards. The client-side filters stay as a backstop for a gateway that predates the
 // parameter (it ignores an unknown field), which is the fail-closed direction.
-describe('the cutoff reaches the gateway (ALI-1420)', () => {
+describe('the cutoff reaches the gateway', () => {
   it('align_check_alignment sends createdBefore; without a cutoff the call is exactly as before', async () => {
     const c = fakeClient({});
     c.checkAlignment.mockResolvedValue({ status: 'no-context', relevant_decisions: [] });
@@ -560,9 +560,9 @@ describe('the cutoff reaches the gateway (ALI-1420)', () => {
   });
 });
 
-// ALI-1420: a frozen run must never write decisions into the graph. align_capture is the one
+// A frozen run must never write decisions into the graph. align_capture is the one
 // tool that does, so it is refused under a cutoff.
-describe('align_capture under an as-of cutoff (ALI-1420)', () => {
+describe('align_capture under an as-of cutoff', () => {
   const captureClient = () => ({ ...fakeClient({}), captureDecision: vi.fn().mockResolvedValue({ id: 'x' }) });
 
   it('align_capture is refused and nothing is captured', async () => {

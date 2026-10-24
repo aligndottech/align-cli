@@ -1,5 +1,5 @@
 /**
- * ALI-808: gemini-cli and cursor have no committed fixture (see fixtures/sessions/README.md
+ * Gemini-cli and cursor have no committed fixture (see fixtures/sessions/README.md
  * for exactly why - a missing credential and a denied installer script, not an oversight).
  * Per Tom's own gate ("no adapter ships without one [fixture]"), neither parses content.
  *

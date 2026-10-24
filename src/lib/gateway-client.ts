@@ -10,7 +10,7 @@ import pkg from '../../package.json' with { type: 'json' };
 const SUGGESTION_PAGE_SIZE = 100;
 
 /**
- * ALI-403: identify the CLI to the gateway on every call.
+ * Identify the CLI to the gateway on every call.
  *
  * Without this the CLI is anonymous - a request from `align` carries exactly the same
  * identifying headers as one from the web app, so cloud-mode CLI usage is only visible as
@@ -98,7 +98,7 @@ export const CLIENT_IDENTITY_HEADERS: Readonly<Record<string, string>> = Object.
 });
 
 /**
- * What getConflicts returns (ALI-587). `conflict_count` is the gateway's exact whole-set
+ * What getConflicts returns. `conflict_count` is the gateway's exact whole-set
  * total (`pagination.total_count`, computed without any cursor), so it stays honest however
  * many links the page holds; `showing` and `message` appear only when the rendered list is
  * smaller than that total. Declared here, not re-typed in tests - the MCP tool serialises
@@ -134,19 +134,19 @@ export interface CapturedDecision {
   /**
    * Where it was decided. The /snapshots wire has always carried this
    * (gateway listSnapshots selects it); the type just never declared it,
-   * so nothing downstream could cite a decision (ALI-602 needs to).
+   * so nothing downstream could cite a decision.
    */
   source_url?: string | null;
   /** The minute the row was imported (local) or captured (cloud). */
   created_at?: string;
-  /** ALI-829: when the decision was MADE, from the source's own timestamp. Absent, never
+  /** When the decision was MADE, from the source's own timestamp. Absent, never
    *  null, when the source did not say. The local client returns it whenever the row has
    *  one; the cloud gateway stores it from ingest (this client renames the item's
    *  created_at to decided_at on the wire) and returns it where its routes select it. */
   decided_at?: string;
-  /** ALI-831: who decided, and whether a human has stood behind it. Present on every local
-   *  payload; the cloud returns them where its routes select them (ALI-680's provenance
-   *  view, and `/snapshots` once ALI-832 widens it). 'unknown' is a row captured before
+  /** Who decided, and whether a human has stood behind it. Present on every local
+   *  payload; the cloud returns them where its routes select them (the provenance
+   *  view, and `/snapshots` once it is widened). 'unknown' is a row captured before
    *  decider tracking. Ratification is not restricted to agent-decided rows - `align
    *  ratify` accepts any local id - so `ratified` can be true on a human row too; it is
    *  only *shown* for an agent claim, because deciderLabel returns null unless
@@ -166,46 +166,46 @@ export interface SearchResults {
   results: Array<{
     id: string; title: string; summary: string;
     // Optional: local-embedded has no typed supersession data to back a status claim, so it
-    // omits the field rather than asserting one (ALI-1063 follow-up). The cloud gateway
+    // omits the field rather than asserting one. The cloud gateway
     // still returns a real value here.
     status?: string;
     similarity?: number; author?: DecisionAuthor | null; created_at?: string;
-    // ALI-829: the source's own date, beside created_at and never instead of it - two
+    // The source's own date, beside created_at and never instead of it - two
     // fields, two meanings. Local search always carries it when the row has one; cloud
-    // search has selected it since ALI-622 (align-stack snapshotSearch.ts).
+    // search has selected it (align-stack snapshotSearch.ts).
     decided_at?: string;
     // Attribution an agent needs to CITE a decision rather than just repeat its
     // title: which repository it came from, how a human writes it (align-cli#76),
     // and the URL it was decided at. Optional because a decision from Slack or a
     // meeting has no repository, and omitting beats emitting an empty string.
     platform?: string; source_url?: string; repository?: string; cite?: string;
-    // ALI-831: the same provenance CapturedDecision carries, so an agent citing a search
+    // The same provenance CapturedDecision carries, so an agent citing a search
     // hit can say whether it is a ratified rule or an unratified claim.
     decider_kind?: 'human' | 'agent' | 'unknown'; ratified?: boolean; ratified_at?: string | null; ratified_by?: string | null;
     // Present only in cloud mode, where a hosted UI can actually serve it.
     decision_url?: string;
-    // ALI-796: local-only (decision_refs lives in the local SQLite graph, not the
+    // Local-only (decision_refs lives in the local SQLite graph, not the
     // hosted gateway yet) - what this decision's text points at, so `align ask` can
     // name a gap on the decision it just returned.
     external_references?: Array<{ ref: string; platform: string }>;
     // Relation context the CLOUD gateway attaches to a non-active hit: what REPLACED this
-    // (align-stack ALI-1066) and what CONTESTS it (ALI-1092). Both are absent on an active
+    // (align-stack) and what CONTESTS it. Both are absent on an active
     // decision, and absent in local-embedded mode - not because the local graph cannot HOLD a
-    // typed edge (it can; ALI-503's relabel is a one-time repair, not a rule on insert) but
+    // typed edge (it can; the relabel is a one-time repair, not a rule on insert) but
     // because local search never reads `decision_links` at all. Absent, never null: a null
     // reads as "checked, and there is none", which is a claim nobody made. Declared here
     // so the fields are part of this client's contract rather than surviving on the strength of
     // serializeMcpResult happening to be a denylist. See lib/decision-relations.ts.
     successor?: DecisionRelation;
     conflicts_with?: DecisionRelation;
-    // ALI-1412: up to 3 LATER decisions on this row's topic, cloud only, on any status. An entry
+    // Up to 3 LATER decisions on this row's topic, cloud only, on any status. An entry
     // with no `relation` was never linked - "newer and similar", not "replaced this".
     later_on_topic?: DecisionRelation[];
   }>;
   count: number;
   strategy: 'semantic' | 'keyword';
   /**
-   * ALI-798: which repo local mode scoped this search to, or null if it searched
+   * Which repo local mode scoped this search to, or null if it searched
    * everything (outside a git repo, or `--all`). Absent in cloud mode, which has no
    * repo dimension - a caller distinguishes "unscoped" (null) from "not applicable"
    * (undefined) when deciding whether to print "answering from X".
@@ -216,7 +216,7 @@ export interface SearchResults {
 }
 
 /**
- * Why an alignment check could not reach a verdict (ALI-414 / ALI-348).
+ * Why an alignment check could not reach a verdict.
  *
  * The `brain_*` codes come from the cloud gateway (`/alignment/check`), the rest
  * from the local embedded client. Both are listed because this one type describes
@@ -224,7 +224,7 @@ export interface SearchResults {
  *
  * This spells the local half twice, here and as `ClassifierFailureReason`. That drift
  * cannot ship silently: `local-gateway-client.ts` assigns one to the other, so adding a
- * classifier reason without adding it here fails `tsc`, which is how ALI-420 found it.
+ * classifier reason without adding it here fails `tsc`, which is how it was found.
  */
 export type UnknownReason =
   | 'brain_timeout'
@@ -240,14 +240,14 @@ export interface AlignmentResult {
    * `unknown` means the check did NOT run - it is not a pass. Anything that cannot
    * produce a verdict (no LLM key, a classifier that timed out, unparseable output)
    * lands here rather than in `aligned`, so a consumer that branches on `status`
-   * cannot mistake "could not check" for "checked, no conflict". See ALI-414.
+   * cannot mistake "could not check" for "checked, no conflict".
    */
   // 'retrieved' = related decisions only, NOT adjudicated (gateway #1415, depth:'related').
   status: 'aligned' | 'conflicting' | 'no-context' | 'unknown' | 'retrieved';
   /** Populated only when `status` is `unknown`. */
   reason?: UnknownReason;
   /**
-   * WHICH KIND of unknown, and therefore what remedies it (ALI-710).
+   * WHICH KIND of unknown, and therefore what remedies it.
    *
    * 'unavailable' - the check could not run, and a re-run can heal it.
    * 'non_verdict' - the judge ran and abstained. A re-run returns the same answer forever,
@@ -262,7 +262,7 @@ export interface AlignmentResult {
    * stable non-verdicts, absent on aligned/no-context and on outages, so its absence is
    * what stops a person signing off an outage. `align adjudicate` takes it (the gateway
    * refuses adjudication of anything but a non-verdict); for a conflict it is what
-   * rating and the PR-outcome join key on (ALI-761).
+   * rating and the PR-outcome join key on.
    */
   check_event_id?: string;
   /**
@@ -285,7 +285,7 @@ export interface AlignmentResult {
   confidence: number;
   relevant_decisions: Array<{
     id: string; title: string; summary: string; similarity: number; url?: string;
-    // ALI-831: local mode always; cloud once ALI-832 labels check output.
+    // Local mode always; cloud once it labels check output.
     decider_kind?: 'human' | 'agent' | 'unknown'; ratified?: boolean; ratified_at?: string | null; ratified_by?: string | null;
     /** LM, local only: a decision a person marked as replaced, with the one that replaces it. */
     status?: 'superseded'; successor?: { id: string; title: string; source_url?: string; relation: string };
@@ -311,7 +311,7 @@ export interface AlignmentResult {
 export interface WhoAmI {
   user: { id: string; email: string; role: string };
   tenant: { id: string; name: string };
-  /** ISO timestamp, or null for a token with no expiry or a cookie session. Absent on a gateway older than ALI-1836. */
+  /** ISO timestamp, or null for a token with no expiry or a cookie session. Absent on a gateway that predates the field. */
   expires_at?: string | null;
 }
 
@@ -361,7 +361,7 @@ export interface DriftItem {
   checked_at: string;
 }
 
-// "Who to talk to" author (ALI-118) and the ingest item shape are the single
+// "Who to talk to" author and the ingest item shape are the single
 // source of truth in @aligndottech/connector-core - imported + re-exported here
 // so the rest of the CLI keeps importing them from this module.
 import type { FetcherItem as BatchIngestItem, DecisionAuthor } from '@aligndottech/connector-core';
@@ -463,7 +463,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
   }
 
   /**
-   * ALI-462: refuse a tenant that nothing authenticates, before the request goes out.
+   * Refuse a tenant that nothing authenticates, before the request goes out.
    *
    * `ALIGN_TENANT_ID` and `ALIGN_TOKEN` are read independently (`config.ts`), so a tenant
    * with no token is representable. No CLI flow produces it - `login-flow.ts` sets the token
@@ -473,7 +473,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
    * Against a gated route that config is a bare 401 explaining nothing. Against an ungated
    * one it is worse: the gateway honours `x-tenant-id` when there is no auth context, so it
    * serves a tenant the caller was never authorised for. Twelve such routes are still
-   * ungated (ALI-459, blocked by ALI-458), so this is live rather than theoretical.
+   * ungated, so this is live rather than theoretical.
    *
    * `demo` mode is deliberately exempt. Addressing a local gateway by tenant header with no
    * bearer is precisely what demo mode is for, and an existing test pins it. `local-embedded`
@@ -492,7 +492,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
   }
 
   /**
-   * ALI-786: `demo` mode is `local`'s only non-`auth` default (nothing in this CLI sets it
+   * `demo` mode is `local`'s only non-`auth` default (nothing in this CLI sets it
    * deliberately any more - `local-embedded` is what `align setup --local` configures), so
    * a `local` env still carrying it, with the untouched default URL and no token or tenant
    * ever saved, means local mode was never set up here - not "a gateway that happens to be
@@ -516,7 +516,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
   }
 
   /**
-   * ALI-1777: a built-in cloud env (prod, preview) at its own default URL with no token
+   * A built-in cloud env (prod, preview) at its own default URL with no token
    * means this machine was never set up, which a bare "Gateway returned 401 ... unauthorized"
    * did not say. Thrown before the dial, like the two checks above. A SAVED token the gateway
    * rejects is not this case and still reports the 401. A self-hosted
@@ -557,7 +557,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
         try {
           const body = await res.json() as any;
           detail = visibleText(String(body?.detail || body?.error || ''));
-          // ALI-1836: the gateway's 401 text for a dead token is "Invalid or expired ... token". It
+          // The gateway's 401 text for a dead token is "Invalid or expired ... token". It
           // gives the same text for an unknown token, so say "no longer valid" too. Revoked,
           // deactivated and missing-credential 401s carry other text and keep the generic message.
           expired = res.status === 401 && /\bexpired\b/i.test(String(body?.message ?? ''));
@@ -632,11 +632,11 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     // `scope` is accepted so callers (ask, search) can pass the same four arguments
     // regardless of which client resolveEnv handed back - see the file-top comment on
     // "local mode returns the SAME shapes as the cloud client". The cloud gateway has no
-    // repo dimension (ALI-798 is local-only), so this is silently ignored HERE - the
+    // repo dimension, so this is silently ignored HERE - the
     // command layer is what warns when a user asks for repo scoping in cloud mode,
     // because only it knows whether the user actually typed the flag.
     //
-    // ALI-1082: `createdBefore` is a NEW, explicitly named third parameter, not a reuse of
+    // `createdBefore` is a NEW, explicitly named third parameter, not a reuse of
     // `_scope` (a different concept - repo scoping vs a time bound) shifted to the fourth
     // slot. Every call site passing a positional `scope` argument had to move it from
     // third to fourth (mcp.ts's dispatchTool, why.ts x3, search.ts) - tsc catches a caller
@@ -658,18 +658,18 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return request<CapturedDecision[]>(`/snapshots?${qs}`);
     },
 
-    /** ALI-1648: the tenant's starter rules and which it accepted (GET /starter-rules). Cloud only. */
+    /** The tenant's starter rules and which it accepted (GET /starter-rules). Cloud only. */
     async getStarterRules(): Promise<{ templates: StarterRuleOffer[] }> {
       return request<{ templates: StarterRuleOffer[] }>('/starter-rules');
     },
 
     /**
-     * ALI-1070 follow-up, SECURITY (Copilot, #296 inline at mcp.ts:222).
+     * SECURITY (Copilot review, #296).
      *
      * `encodeURIComponent` on the segment, matching ratifyDecision and adjudicateCheck in this
      * file and the new getDecisionTimeline. It was the one id-in-path method here that
      * interpolated raw, which was survivable while every caller passed an id the USER had
-     * typed - and ALI-1070 routed an AGENT-CONTROLLED `decision_id` into it through the
+     * typed - and the timeline tools routed an AGENT-CONTROLLED `decision_id` into it through the
      * rationale tool. `../auth/me` is not an invalid id, it is a different GET endpoint: URL
      * parsing resolves the dot segments before the request leaves, so the caller's PAT is
      * attached to a request for a route they did not name. Measured: the built URL's pathname
@@ -686,12 +686,12 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     // `depth: 'related'` returns the same embedding retrieval this endpoint already does and
     // skips the ~11s LLM adjudication (gateway #1415). The editor hook uses it because every
     // host budget is <=10s; `align check` and the PR bot keep the default 'full'.
-    // `depth: 'exhaustive'` is the other end (ALI-708): the gateway's similarity cost gate
+    // `depth: 'exhaustive'` is the other end: the gateway's similarity cost gate
     // does not skip adjudication, for callers whose failure policy makes `unknown` fatal.
     // Requires a gateway that knows the member - an older one rejects the VALUE with a 400
     // (unknown keys it strips, unknown enum values it refuses), so ship the gateway first.
     /**
-     * Answer a check that reached the judge and declined to rule (ALI-710).
+     * Answer a check that reached the judge and declined to rule.
      *
      * The gateway refuses a caller it can identify as an agent, so this is a human's act by
      * construction rather than by convention. It also refuses an event that is not a
@@ -699,7 +699,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
      * an outage is not something a person can sign off.
      */
     /**
-     * ALI-831: the human act, cloud half - the ALI-680 route, which refuses a service
+     * The human act, cloud half - the route, which refuses a service
      * account (403) so an agent cannot ratify its own premise. `opts` is accepted for
      * signature parity with the local client and ignored: the cloud attributes the act to
      * the logged-in user, never to a name the caller supplies.
@@ -716,7 +716,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     },
 
     /**
-     * ALI-1578: the org alias glossary (gateway routes/glossary/glossaryRoutes.ts). Cloud only;
+     * The org alias glossary (gateway routes/glossary/glossaryRoutes.ts). Cloud only;
      * the local client has none, so the local-mode proxy answers these with its cloud-only error.
      * Read and propose only: confirm and reject are a person's act in the web app (/settings/glossary),
      * so this client has no call for them.
@@ -754,7 +754,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
         depth?: CheckDepth;
         title?: string;
         /**
-         * ALI-761: who is running the check ('github-actions' from the align-check action)
+         * Who is running the check ('github-actions' from the align-check action)
          * and what it is checking ('github:acme/repo#12', the PR HEAD sha). Sent as a
          * header + two body fields, CHECK-SCOPED on purpose: a client-wide platform claim
          * would also relabel `align adjudicate`, which the gateway refuses from agents.
@@ -764,7 +764,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
         subjectKey?: string;
         headSha?: string;
         /**
-         * ALI-1420: `align mcp --created-before`. The gateway bounds candidate retrieval by it,
+         * `align mcp --created-before`. The gateway bounds candidate retrieval by it,
          * so the judge's verdict is reached over the graph as it stood - a client-side filter
          * afterwards cannot undo a verdict that already saw post-cutoff decisions.
          */
@@ -810,7 +810,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     },
 
     /**
-     * ALI-1438: with `createdBefore` the gateway still returns the verdict but stores no
+     * With `createdBefore` the gateway still returns the verdict but stores no
      * decision_drift_checks row, so a frozen run leaves nothing behind. No cutoff, no key.
      */
     async checkDrift(
@@ -830,7 +830,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     },
 
     /**
-     * ALI-1420: `createdBefore` bounds the traversal itself on the gateway. An edge recorded after
+     * `createdBefore` bounds the traversal itself on the gateway. An edge recorded after
      * the cutoff between two older decisions carries no timestamp in this response, so only the
      * server can leave it out.
      */
@@ -840,7 +840,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     },
 
     /**
-     * ALI-1070: everything the team decided about a TOPIC, in time order, across tools.
+     * Everything the team decided about a TOPIC, in time order, across tools.
      *
      * `authMiddleware` only, so this PAT already reaches it - there is nothing new to
      * configure. The gateway fetches a brain embedding with `.catch(() => null)`, so a dead
@@ -854,27 +854,27 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
      * connector's client defaults the same way).
      */
     async getTopicTimeline(topic: string, limit = 50, createdBefore?: string): Promise<TopicTimelineResult> {
-      // ALI-1420: bounded server-side so the limit is spent on rows that existed at the cutoff.
+      // Bounded server-side so the limit is spent on rows that existed at the cutoff.
       return request<TopicTimelineResult>('/decisions/topic-timeline', {
         method: 'POST',
         body: JSON.stringify({ topic, limit, ...(createdBefore ? { created_before: createdBefore } : {}) }),
       });
     },
 
-    /** ALI-1070: ONE decision's change history - GET /decisions/:id/history, authMiddleware only. */
+    /** ONE decision's change history - GET /decisions/:id/history, authMiddleware only. */
     async getDecisionTimeline(decisionId: string): Promise<unknown> {
       return request(`/decisions/${encodePathSegment(decisionId)}/history`);
     },
 
     /**
-     * ALI-1411: `createdBefore` rides the endpoint's legacy TIMESTAMP cursor, which bounds the
+     * `createdBefore` rides the endpoint's legacy TIMESTAMP cursor, which bounds the
      * data query to `dl.created_at < cursor` server-side - the one as-of bound this route has.
      * Any cursor makes the gateway skip its count query, so every count field comes back null
      * and the total below falls back to the page; the MCP layer (lib/as-of.ts) recounts from
      * the delivered links and never reports a gateway count under a cutoff.
      */
     async getConflicts(opts: { createdBefore?: string } = {}): Promise<ConflictsResult> {
-      // ALI-587. One 50-row fetch was served to agents as the complete conflict set, with
+      // One 50-row fetch was served to agents as the complete conflict set, with
       // nothing marking a tenant past 50 links as partial. The honest total costs nothing
       // extra: the gateway computes pagination.total_count over the WHOLE matching set on
       // every paginated call (its count query deliberately excludes the cursor), so a
@@ -883,7 +883,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       // walked - plus a second round trip on the agent hot path, which is why this is
       // deliberately not a cursor-following port of mcp-align's getAllDecisionLinkPages
       // (that client filters fetched rows locally, so it needs them; this one does not).
-      // unresolved_only (ALI-587, decided once with mcp-align): this tool reports ACTIVE
+      // unresolved_only (decided once with mcp-align): this tool reports ACTIVE
       // conflicts, so resolved links are excluded - and the gateway applies the same
       // predicate to its count query, so total_count and the links describe one population.
       const data = await request<{
@@ -919,7 +919,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       };
     },
 
-    // ALI-215 value-moment signals (all authMiddleware-only, free-CLI reachable).
+    // Value-moment signals (all authMiddleware-only, free-CLI reachable).
     async getStats(): Promise<{ snapshots?: number }> {
       return request('/stats');
     },
@@ -977,7 +977,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     },
 
     // GET /import/suggestions returns { suggestions, counts } - uses job_id not import_job_id.
-    // ALI-1585: with no limit the gateway returns 50 rows (cap 100), so a single call silently
+    // With no limit the gateway returns 50 rows (cap 100), so a single call silently
     // dropped the rest of a big scan. Page with limit=100&offset=N until a short page.
     async listSuggestions(jobId?: string, status = 'pending'): Promise<Suggestion[]> {
       const all: Suggestion[] = [];
@@ -1014,7 +1014,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     async listDecisionLinks(
       filters?: { relation?: string; decision_id?: string },
     ): Promise<{ links: DecisionLink[]; total_count: number }> {
-      // ALI-587: the legacy non-paginated branch hard-caps at 100 rows server-side and
+      // The legacy non-paginated branch hard-caps at 100 rows server-side and
       // returns a bare array - no envelope, so the caller could not even say "showing
       // first 100". The paginated branch keeps the same page size and carries total_count
       // over the whole matching set (computed cursor-free), so the listing can be honest.
@@ -1045,8 +1045,8 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
     /** `classify` is the local client's option (see local-gateway-client.ts ingestOne); the cloud
      *  gateway decides enrichment itself, so it is accepted here and never sent. */
     async ingestBatch(items: BatchIngestItem[], opts?: { deferEnrichment?: boolean; classify?: boolean; keyed?: boolean }): Promise<BatchIngestResult> {
-      // ALI-829: the fetchers carry the source's own date as `created_at`; the gateway's
-      // BatchIngestSchema (align-stack ingestRoutes.ts, ALI-622) takes it as `decided_at`
+      // The fetchers carry the source's own date as `created_at`; the gateway's
+      // BatchIngestSchema (align-stack ingestRoutes.ts) takes it as `decided_at`
       // and strips unknown keys, so sent under the wrong name it silently vanishes. One
       // rename at the wire, and a cloud row gets the same date a local row does.
       // Typed locally: connector-core 0.5.0's FetcherItem has no created_at (0.6.0's does),
@@ -1055,7 +1055,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
         ...rest,
         ...(created_at ? { decided_at: created_at } : {}),
       }));
-      // defer_enrichment (ALI-114): the gateway inserts snapshots with raw titles
+      // defer_enrichment: the gateway inserts snapshots with raw titles
       // and runs synthesis + relationship analysis in the background, returning
       // immediately. Older gateways ignore the unknown field (Zod strips it).
       return request<BatchIngestResult>('/ingest/batch', {
@@ -1075,7 +1075,7 @@ function buildHttpGatewayClient(env: EnvironmentConfig) {
       return request<ShareBatchResponse>('/ingest/batch', { method: 'POST', redirect: 'error', body: JSON.stringify({ decisions: toBatchDecisions(items) }) });
     },
 
-    // ALI-1540: browser approval. The routes and their parsing live in share/requests-client.ts.
+    // Browser approval. The routes and their parsing live in share/requests-client.ts.
     ...shareRequestMethods(request),
 
     /** L9: retract a share (the existing archive route; it is the only undo the server has). */

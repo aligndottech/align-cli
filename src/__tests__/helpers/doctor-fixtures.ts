@@ -1,5 +1,5 @@
 /**
- * Fixtures shared by the `align doctor` end-to-end test and the smoke-script test (ALI-1740).
+ * Fixtures shared by the `align doctor` end-to-end test and the smoke-script test.
  */
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';

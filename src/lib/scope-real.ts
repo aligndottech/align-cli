@@ -55,7 +55,7 @@ export function realScopeDeps(dbPath: string | undefined, o: { config?: ReturnTy
     dbPath,
     now: () => new Date(),
     isTty: () => Boolean(process.stdin.isTTY && process.stdout.isTTY),
-    // ALI-917's own folder detection, so GitHub has one reader of "which repo am I in" (it is imported lazily: a connector-core fetcher).
+    // The own folder detection, so GitHub has one reader of "which repo am I in" (it is imported lazily: a connector-core fetcher).
     cwdRepo: async () => (await import('./fetchers/github.js')).resolveGitHubRepoScope({}),
     cwdGitlabProject: async () => gitlabPlaceOf(await currentRepoIdentity()),
     fetch: (url, init) => fetch(url, init),

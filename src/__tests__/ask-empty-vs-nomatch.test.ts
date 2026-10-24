@@ -32,7 +32,7 @@ async function ask(q = 'What decisions exist in this codebase?') {
 }
 
 /**
- * ALI-771. A tester ran the question `setup --local`'s own outro tells you to ask, against a
+ * A tester ran the question `setup --local`'s own outro tells you to ask, against a
  * graph he had just filled, and was told to go and build his graph.
  *
  * `align ask` printed "No decisions found. Build your graph first" whenever SEARCH returned
@@ -76,7 +76,7 @@ describe('align ask: an empty graph and a query that matched nothing are differe
 
   /**
    * The suggested command has to be runnable AS PRINTED. A bare `align decisions list`
-   * resolves to the cloud default and 401s for a local-only user (ALI-772), so printing it
+   * resolves to the cloud default and 401s for a local-only user, so printing it
    * to the person this message exists for would hand them a second auth error on top of the
    * one this fix is about.
    *
@@ -84,7 +84,7 @@ describe('align ask: an empty graph and a query that matched nothing are differe
    * form satisfies - so it would have passed against exactly the bug. A review bot caught
    * that; the exact string is pinned now, in both directions.
    */
-  // ALI-772 made `decisions` prefer the local graph like ask, search and import, so the bare
+  // `decisions` now prefers the local graph like ask, search and import, so the bare
   // command is now correct for every user. It was qualified while that was not true.
   it('suggests the bare command, with no env flag to decode', async () => {
     for (const env of ['local', 'prod'] as const) {
@@ -108,7 +108,7 @@ describe('align ask: an empty graph and a query that matched nothing are differe
   });
 });
 
-// ALI-795: a non-empty answer IS the funnel's activation moment. Emitted from the
+// A non-empty answer IS the funnel's activation moment. Emitted from the
 // success path only - an empty result is not a useful decision, whatever the reason.
 const recordFunnelStage = vi.hoisted(() => vi.fn());
 vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
@@ -124,21 +124,21 @@ vi.mock('../lib/local-llm.js', () => ({
 }));
 
 /**
- * ALI-798: the local graph now has a repo dimension, and it introduces a SECOND way for
+ * The local graph now has a repo dimension, and it introduces a SECOND way for
  * "an empty graph" and "a query that matched nothing" to be confused - scoped to a repo
  * with nothing in it, while the graph as a whole is full. The `{ all: true }` on the
  * "is the graph empty" check exists specifically so this diagnostic answers "does the
  * GRAPH have anything" rather than "does THIS REPO" - the same defect this ticket exists
  * to fix, reachable through the empty-state message if that check were scoped too.
  */
-describe('align ask: a repo with nothing in it is not an empty graph (ALI-798)', () => {
+describe('align ask: a repo with nothing in it is not an empty graph', () => {
   beforeEach(() => {
     resolveEnv.mockReturnValue('local');
     searchDecisions.mockReset();
     listDecisions.mockReset();
   });
 
-  // Contract updated for auto-widen (same evening as ALI-798, from the other direction):
+  // Contract updated for auto-widen (same evening as the repo scoping, from the other direction):
   // with no explicit --repo/--all, an empty scoped search now re-runs over the whole
   // graph by itself, so by the time this message prints, everything HAS been searched.
   // The old assertion here pinned a "--all" suggestion - which would now promise a
@@ -199,7 +199,7 @@ describe('align ask: a repo with nothing in it is not an empty graph (ALI-798)',
   });
 });
 
-describe('first_useful_decision funnel stage (ALI-795)', () => {
+describe('first_useful_decision funnel stage', () => {
   beforeEach(() => {
     recordFunnelStage.mockReset();
     resolveEnv.mockReturnValue('local');

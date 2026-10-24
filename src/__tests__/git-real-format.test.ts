@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { getCommitHistory } from '../lib/git.js';
 
 /**
- * ALI-792: the parser's contract (field separator, body terminator placement, file-list
+ * The parser's contract (field separator, body terminator placement, file-list
  * position, merge output shape) was measured against real git before it was written.
  * This test IS that measurement, automated - the unit fixtures in git.test.ts mirror
  * what this pins, and if a git version ever renders the format differently, this is
@@ -25,7 +25,7 @@ describe('getCommitHistory against real git output', () => {
     writeFileSync(join(repo, 'a.txt'), 'a');
     await git(['add', '.']);
     await git(['commit', '-qm',
-      'feat(auth): switch to JWT for stateless sessions\n\nWe decided against server-side sessions. Refs ALI-123 and closes #45.\nSee https://align.slack.com/archives/C123/p456 for the thread.']);
+      'feat(auth): switch to JWT for stateless sessions\n\nWe decided against server-side sessions. Refs APP-123 and closes #45.\nSee https://align.slack.com/archives/C123/p456 for the thread.']);
 
     writeFileSync(join(repo, 'b.txt'), 'b');
     await git(['add', '.']);
@@ -52,7 +52,7 @@ describe('getCommitHistory against real git output', () => {
 
     const subjects = commits.map(c => c.subject);
     // "short subject" is excluded by the decision filter (subject shape); the bodyless
-    // "feat: add rate limiting..." is excluded by ALI-804's rationale gate (a real subject
+    // "feat: add rate limiting..." is excluded by the rationale gate (a real subject
     // with nothing behind it is still "what changed", not "why") - only the JWT commit
     // and the promoted merge state an actual reason. Proven here against REAL git output,
     // not a mock, so a parser regression in either gate would show up here too.
@@ -61,7 +61,7 @@ describe('getCommitHistory against real git output', () => {
     expect(subjects).not.toContain('feat: add rate limiting to the public API endpoints');
 
     const jwt = commits.find(c => c.subject.startsWith('feat(auth)'));
-    expect(jwt?.body).toContain('Refs ALI-123 and closes #45.');
+    expect(jwt?.body).toContain('Refs APP-123 and closes #45.');
     expect(jwt?.body).toContain('https://align.slack.com/archives/C123/p456');
     expect(jwt?.filesChanged).toEqual(['a.txt']);
 

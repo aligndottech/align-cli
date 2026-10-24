@@ -2,7 +2,7 @@
  * A machine can have several providers at once (an ANTHROPIC_API_KEY, an OPENAI_API_KEY, a
  * running Ollama, a saved Groq key). The fixed chain picks the first one it finds; this suite
  * pins the stored preference that lets the user choose, and that a preference never changes
- * the chain's ALI-692 advance rules - it only changes which provider is tried FIRST.
+ * the chain's advance rules - it only changes which provider is tried FIRST.
  *
  * Precedence (one place: preferredProvider's docstring in local-llm.ts):
  *   ALIGN_LLM_PROVIDER env  >  config `llm.provider`  >  no preference (the fixed chain)
@@ -78,7 +78,7 @@ describe('a preferred provider is tried first, and the chain is otherwise unchan
     expect(calledUrls().some((u) => u.includes('openai'))).toBe(false);
   });
 
-  it('a preferred provider that STOPS (a 429) still stops the chain - no weaker model answers (ALI-692)', async () => {
+  it('a preferred provider that STOPS (a 429) still stops the chain - no weaker model answers', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'a');
     vi.stubEnv('OPENAI_API_KEY', 'o');
     vi.stubEnv('ALIGN_LLM_PROVIDER', 'openai');

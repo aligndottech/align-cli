@@ -1,5 +1,5 @@
 /**
- * ALI-831: `align ratify <id>` - the human act. An agent must not be able to ratify its own
+ * `align ratify <id>` - the human act. An agent must not be able to ratify its own
  * premise, so the command refuses anything that is not a person at a terminal: a hook and a
  * pipe both arrive with stdin that is not a TTY. This mirrors the cloud route's 403 for a
  * service account, locally, in the same fail direction.

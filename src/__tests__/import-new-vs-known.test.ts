@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createLocalDb } from '../lib/local-db.js';
 
 /**
- * ALI-770. `align setup --local` already imports from git, so running `align import git`
+ * `align setup --local` already imports from git, so running `align import git`
  * afterwards is a natural next move - and it reported "Imported 2 decisions" while the graph
  * stayed at 2. A tester read that as having imported twice, which is exactly what it looks
  * like, and there was no way to tell whether the graph now held 2 or 4.

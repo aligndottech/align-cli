@@ -4,9 +4,9 @@ import { type CaptureFetchResult, type WindowedOpts, withCaptureReport } from '.
 /**
  * Read-only personal Slack import (canonical fetcher in connector-core).
  *
- * ALI-786 finding 1 (a 0.29.1 field report: deletion tombstones - "This message was
+ * A finding (a 0.29.1 field report: deletion tombstones - "This message was
  * deleted." - captured as decisions) is already fixed upstream, not here: SlackFetcher's
- * SYSTEM_SUBTYPES set (connector-core >=0.6.0, ALI-828) excludes a `tombstone` subtype
+ * SYSTEM_SUBTYPES set (connector-core >=0.6.0) excludes a `tombstone` subtype
  * message from ever becoming a thread's title/identity, and this package.json pins
  * ^0.7.0. Do not add a second tombstone filter in this wrapper - connector-core is the
  * one owner of Slack's subtype vocabulary, and a duplicate copy here would drift the

@@ -1,5 +1,5 @@
 /**
- * ALI-831: `getGitIdentity` against a real git repo, since `ratified_by` is what it writes.
+ * `getGitIdentity` against a real git repo, since `ratified_by` is what it writes.
  * Email before name, null when neither is set - the caller then falls back to the OS user.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

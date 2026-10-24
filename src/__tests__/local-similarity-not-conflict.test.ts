@@ -1,4 +1,4 @@
-// ALI-503: local mode linked every pair over 0.65 cosine with the relation hardcoded to
+// Local mode linked every pair over 0.65 cosine with the relation hardcoded to
 // `conflicts_with`, then counted those rows as "conflicts caught" and used the count to
 // trigger the pricing upsell. The CLI's own classifier prompt says, two files away, that
 // "high textual similarity alone is NOT a conflict", and value-rollup.ts's docstring says
@@ -20,7 +20,7 @@ vi.mock('../lib/similarity/embedding-matrix.js', async () =>
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.0),
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
@@ -44,7 +44,7 @@ import { localValueRollup, renderValueReadout, type ValueRollup } from '../lib/v
 beforeEach(() => { vi.stubEnv('ALIGN_DETECTOR', 'v0'); });
 afterEach(() => { vi.unstubAllEnvs(); });
 
-describe('ALI-503 the write: cosine similarity is `relates`, never a conflict', () => {
+describe('the write: cosine similarity is `relates`, never a conflict', () => {
   let dbPath: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
 
@@ -129,7 +129,7 @@ function seed(links: Array<{ relation: string }>) {
   return db;
 }
 
-describe('ALI-503 the counter: similarity and conflicts are different numbers', () => {
+describe('the counter: similarity and conflicts are different numbers', () => {
   it('counts `relates` rows as similar decisions, not as conflicts', () => {
     const db = seed([{ relation: 'relates' }, { relation: 'relates' }]);
     const out = localValueRollup(db);
@@ -159,7 +159,7 @@ const rollup = (over: Partial<ValueRollup> = {}): ValueRollup => ({
   supersessions: 0, reuseRate: null, healthGrade: null, gaps: [], ...over,
 });
 
-describe('ALI-503 the readout', () => {
+describe('the readout', () => {
   it('local mode reports similar decisions and no conflict count', () => {
     const out = renderValueReadout(rollup({ similarDecisions: 34 }), { mode: 'local' });
 
@@ -179,8 +179,8 @@ describe('ALI-503 the readout', () => {
 
 // ------------------------------------------------------------- D. the upsell gate
 
-describe('ALI-503 the upsell must not be bought by similarity', () => {
-  // ALI-938: the upsell text changed from a pricing URL to the invite command, but the
+describe('the upsell must not be bought by similarity', () => {
+  // The upsell text changed from a pricing URL to the invite command, but the
   // GATE this describe block pins (hasValue - never bought by similarity alone) is
   // unchanged. 'Add a teammate' is value-rollup.ts's 'value' reason line.
   const SHARE = 'Add a teammate';
@@ -207,7 +207,7 @@ describe('ALI-503 the upsell must not be bought by similarity', () => {
 
 // ---------------------------------------------------------------- F. the migration
 
-describe('ALI-503 migrating the artefacts already on disk', () => {
+describe('migrating the artefacts already on disk', () => {
   let dbPath: string;
 
   beforeEach(() => {

@@ -1,4 +1,4 @@
-// ALI-414: `align check` must never print a green "Aligned" header for a check that
+// `align check` must never print a green "Aligned" header for a check that
 // did not run. `unknown` is the honest middle - and it has to be visible in the exit
 // code, because an agent (or a CI job) branches on that, not on the prose.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -93,7 +93,7 @@ describe('align check on an "unknown" result', () => {
     expect(out).toMatch(/could not|not a pass/i);
   });
 
-  // The bug this also fixes: a cloud gateway ALREADY returns `unknown` (ALI-348), and
+  // The bug this also fixes: a cloud gateway ALREADY returns `unknown`, and
   // with it missing from the union it fell through to the no-context branch and was
   // reported as "No related decisions found" - a check failure labelled as a clean scan.
   it('does not mislabel a cloud "unknown" as "no related decisions found"', async () => {

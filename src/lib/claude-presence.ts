@@ -4,7 +4,7 @@ import path from 'node:path';
 import { findOnPath } from './launch/detect.js';
 
 /**
- * ALI-1779: whether Claude Code exists on this machine. `align setup` always writes the project
+ * Whether Claude Code exists on this machine. `align setup` always writes the project
  * `.mcp.json`, which Claude Code reads, but a file nobody reads connects nothing: with no agent
  * installed the wizard must not say "Your agent is connected". It exists when its binary is on
  * PATH or its user config is on disk (`~/.claude.json`, `~/.claude/`).

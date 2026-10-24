@@ -1,6 +1,6 @@
 /**
- * ALI-1066/ALI-1092 established the wire contract (`successor`/`conflicts_with`,
- * absent-vs-null) for the CLOUD half. ALI-1065 gives local-embedded a real writer of
+ * The cloud half established the wire contract (`successor`/`conflicts_with`,
+ * absent-vs-null) for the CLOUD half. Local-embedded now has a real writer of
  * `decision_links` typed edges (capture-time classification) and a real reader
  * (`relationFieldsFor` in local-gateway-client.ts), so this file's claim flips: local
  * `align_ask` now DOES surface a real `conflicts_with`/`successor` when a genuine typed
@@ -8,7 +8,7 @@
  * path uses - no new MCP-side code needed to carry the fields once local emits them.
  *
  * This used to assert the opposite (local never reads decision_links at all). That was
- * true before ALI-1065 and is the defect this ticket exists to fix - see the ticket and
+ * true before capture-time classification and is the defect this suite exists to pin - see
  * `local-relationship-capture.test.ts` for the capture-time writer this reader depends
  * on. Kept as an MCP-level test, not just a unit test on searchDecisions, because the
  * thing worth proving is that the field survives `createCallToolHandler`'s real
@@ -76,7 +76,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("local-embedded search reports a real conflicts_with edge (ALI-1065)", () => {
+describe("local-embedded search reports a real conflicts_with edge", () => {
   it("a genuine conflicts_with edge on disk reaches align_ask, on the decision it targets", async () => {
     const client = createLocalGatewayClient(dbPath);
     opened.push(client);

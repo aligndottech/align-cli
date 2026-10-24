@@ -1,9 +1,9 @@
 /**
  * Align brand rendering for the terminal.
  *
- * The mark is a small 'A' glyph (ALI-1649), not the vector Align mark: a deliberate
+ * The mark is a small 'A' glyph, not the vector Align mark: a deliberate
  * brand-direction change, not a correction of the prior chevron art. It went through
- * two mascot attempts first - a robot head (ALI-1642/ALI-1647), then an alien head -
+ * two mascot attempts first - a robot head, then an alien head -
  * both of which Tom read as a skull on sight, in the robot's case through two
  * different eye treatments (background-void eyes, then filled teal eyes: the
  * shape - two separate bilateral marks - was the cue, not the colour). A plain
@@ -55,7 +55,7 @@ export const TAGLINE_ACCENT = "don't know the company.";
 /**
  * The 'A' mark: an apex that widens into a triangle, a full-width teal crossbar, and
  * two legs with an open counter between them - a plain geometric letterform, chosen
- * (ALI-1649) specifically because it has no face and so nothing on it can be misread
+ * specifically because it has no face and so nothing on it can be misread
  * as eyes. Tom: "kinda look like A or rocket" - the crossbar reads as a fuel-line
  * stripe and the legs as fins/landing legs, which is a fair reading and not a
  * contradiction of the brief.

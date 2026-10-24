@@ -5,7 +5,7 @@ import path from 'node:path';
 import { removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js';
 
 /**
- * ALI-776. Setup wires detected agents automatically rather than asking, on the grounds that
+ * Setup wires detected agents automatically rather than asking, on the grounds that
  * the write is additive and an agent reading your graph is the whole product. That trade only
  * holds if there is a real undo - "you can hand-edit the JSON" is not one.
  */

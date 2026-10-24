@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createCaptureCollector, renderCaptureReport, toCaptureSource } from '../lib/capture-report.js';
 
 /**
- * ALI-827: the capture report - what each import fetched, and what it could not reach.
+ * The capture report - what each import fetched, and what it could not reach.
  * Test List R1-R5 from thoughts/shared/plans/2026-09-02-local-capture-depth-slices-1-2.md
  * (align-stack). Two examples per rule so a naive first pass has to generalise.
  */
@@ -90,7 +90,7 @@ describe('renderCaptureReport', () => {
     expect(renderCaptureReport([])).toBe('');
   });
 
-  // ALI-786 R6a: a fetch that succeeded but found nothing must say what it looked at,
+  // A fetch that succeeded but found nothing must say what it looked at,
   // so it reads differently from a fetch that failed outright (which throws before this
   // ever renders - see gateway-client tests).
   // Copilot review, PR #272: the words must carry the measured NUMBER, not just say
@@ -188,11 +188,11 @@ describe('toCaptureSource', () => {
 
 
 /**
- * ALI-1779: "Git: 124 commits of up to 500 requested" printed beside skip lines of 189 and 187
+ * "Git: 124 commits of up to 500 requested" printed beside skip lines of 189 and 187
  * read as counts that exceed their total. 124 + 189 + 187 = 500 scanned, and the report never
  * said so. Every number must now sit next to what it is over.
  */
-describe('git capture report denominators (ALI-1779)', () => {
+describe('git capture report denominators', () => {
   it('says kept-of-scanned, and the skip counts add up to what was scanned', async () => {
     const { gitCaptureReport } = await import('../lib/fetchers/git.js');
     const report = gitCaptureReport({ scanned: 500, kept: 124, rejectedByRationale: 189, limit: 500 });

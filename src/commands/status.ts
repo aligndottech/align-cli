@@ -15,14 +15,14 @@ export function registerStatusCommand(program: Command): void {
     .action(async (opts: { env?: EnvName }) => {
       // preferLocalEmbedded: a no-account local user must read the local graph. Without it
       // their five cloud requests all 401, settle() swallows each one, and status prints an
-      // all-zero readout - a silent wrong answer (ALI-505).
+      // all-zero readout - a silent wrong answer.
       const config = createConfigStore();
       const envName = resolveEnv(opts.env, { preferLocalEmbedded: true });
       const env = config.getEnvironment(envName);
 
       // The local read is a SQLite file and needs no spinner; the cloud read is five requests.
       // Which graph is read, and how, lives in readValueRollup - shared with bare `align`'s
-      // second-run card (ALI-950) so the two never print different numbers for one graph.
+      // second-run card so the two never print different numbers for one graph.
       const spinner = env.mode === 'local-embedded' ? null : ora('Reading your decision graph...').start();
       try {
         const { mode, rollup } = await readValueRollup(config, envName);

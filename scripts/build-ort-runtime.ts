@@ -1,5 +1,5 @@
 /**
- * Build the per-platform ONNX Runtime bundles the CLI downloads on first local use (ALI-1781).
+ * Build the per-platform ONNX Runtime bundles the CLI downloads on first local use.
  *
  *   npx tsx scripts/build-ort-runtime.ts --out <dir> [--check]
  *

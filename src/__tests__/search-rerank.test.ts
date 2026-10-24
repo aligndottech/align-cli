@@ -5,7 +5,7 @@ interface Row { id: string; score: number; title: string }
 const rank = (query: string, rows: Row[]) =>
   rerankByTitle(query, rows, r => r.score, r => r.title).map(r => r.id);
 
-// Shapes taken from the real ALI-1773 miss: two titles that repeat "align setup" outscore
+// Shapes taken from a real miss: two titles that repeat "align setup" outscore
 // the commit that actually removed it, because the dense embedding rewards the repeated noun.
 const MENTION = { id: 'mention', score: 0.666, title: 'docs: update README for align why, align setup, and align mcp --setup' };
 const REMOVAL = { id: 'removal', score: 0.523, title: 'feat(setup): offer saved tokens before the picker; remove align setup (#425)' };

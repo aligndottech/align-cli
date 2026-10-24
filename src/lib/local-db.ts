@@ -18,22 +18,22 @@ export interface DecisionRow {
   sourceUrl: string | null;
   platform: string;
   createdAt: string;
-  /** ALI-829: when the decision was MADE, from the source's own timestamp (ISO-8601 Z), as
+  /** When the decision was MADE, from the source's own timestamp (ISO-8601 Z), as
    *  distinct from `createdAt`, the minute this CLI imported it. Null when the source did not
    *  say - never the ingest minute wearing the wrong name. */
   decidedAt: string | null;
-  /** ALI-798: which repo this decision came from (host/owner/repo, or a repo root
+  /** Which repo this decision came from (host/owner/repo, or a repo root
    *  path for a remoteless git repo) - null for anything that is not code, or code
    *  whose repo could not be identified. */
   repo: string | null;
-  /** ALI-831: which kind of actor decided. Null for a row captured before the column
+  /** Which kind of actor decided. Null for a row captured before the column
    *  existed - read as 'unknown', never backfilled (see migrate, step 5). */
   deciderKind: DeciderKind | null;
-  /** ALI-831: "this was said" - the two flags are separate acts (Tom, 2026-09-03). Confirm
-   *  is written by the session importer (ALI-808); ratify is the human act below. */
+  /** "this was said" - the two flags are separate acts (Tom, 2026-09-03). Confirm
+   *  is written by the session importer; ratify is the human act below. */
   confirmedBy: string | null;
   confirmedAt: string | null;
-  /** ALI-831: "this governs". Set once by `align ratify`; the first ratification stands. */
+  /** "this governs". Set once by `align ratify`; the first ratification stands. */
   ratifiedBy: string | null;
   ratifiedAt: string | null;
 }
@@ -56,7 +56,7 @@ export interface LinkRow {
   targetId: string;
   relation: string;
   confidence: number;
-  /** ALI-1087: when the edge itself was recorded, distinct from either endpoint's own
+  /** When the edge itself was recorded, distinct from either endpoint's own
    *  `createdAt`. An as-of query has to bound both separately - the two decisions can
    *  predate a cutoff while the edge asserting a relation between them was written after
    *  it, and a relation nobody had recorded yet is not one the as-of answer may use. */
@@ -71,7 +71,7 @@ export interface DbStats {
 export { SCHEMA_VERSION } from './local-db-migrate.js';
 
 /**
- * ALI-829: a source timestamp as this database stores it - ISO-8601 Z - or null.
+ * A source timestamp as this database stores it - ISO-8601 Z - or null.
  *
  * Null rather than a fallback: a null date says "unknown", and a plausible wrong date is
  * indistinguishable from a measurement to everything downstream. NaN is checked explicitly
@@ -181,7 +181,7 @@ export function createLocalDb(dbPath: string) {
     throw err;
   }
 
-  // Shared by insertLink and resolveRefs (ALI-796), so there is one writer of the
+  // Shared by insertLink and resolveRefs, so there is one writer of the
   // decision_links insert rather than two copies of the same ON CONFLICT clause.
   // `detectorVersion` (schema v12): which detector wrote the edge. Omitted means 'v0'; only the
   // v1 detector passes 'v1'. A conflict on the triple keeps the stored version: same relation,
@@ -210,7 +210,7 @@ export function createLocalDb(dbPath: string) {
      * a special case here.
      */
     /**
-     * `repo` (ALI-798): the identity of the checkout this decision came from, or null for
+     * `repo`: the identity of the checkout this decision came from, or null for
      * anything that is not code (Jira, Slack, a bare capture). Optional so every existing
      * caller keeps compiling unchanged - omitting it inserts NULL, same as it always did.
      *
@@ -223,11 +223,11 @@ export function createLocalDb(dbPath: string) {
      */
     insertDecision(row: {
       title: string; summary: string; sourceUrl: string | null; platform: string; repo?: string | null;
-      /** ALI-829: already normalised (normaliseDecidedAt) by the caller, or absent. COALESCE on
+      /** Already normalised (normaliseDecidedAt) by the caller, or absent. COALESCE on
        *  the upsert for the same reason `repo` has it: a re-import that resolved no date must
        *  never blank a date the row already carries. */
       decidedAt?: string | null;
-      /** ALI-831: who decided. Set on INSERT and never rewritten by the upsert - origin is
+      /** Who decided. Set on INSERT and never rewritten by the upsert - origin is
        *  immutable, so a human re-capture cannot launder an agent claim into 'human' (the
        *  cloud's snapshots.ts rule). Omitted stores NULL, which reads as 'unknown'. */
       deciderKind?: DeciderKind | null;
@@ -291,7 +291,7 @@ export function createLocalDb(dbPath: string) {
     /**
      * The id this graph already holds for `(source_url, title)`, or null.
      *
-     * Exists so a caller can tell an insert from a refresh (ALI-770): `insertDecision`
+     * Exists so a caller can tell an insert from a refresh: `insertDecision`
      * upserts and returns the surviving id either way, so an import could not say whether
      * it added anything. It reported every re-import as "Imported N decisions" while the
      * graph did not move, which reads as having imported twice.
@@ -400,7 +400,7 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * `filter.repo` scopes to one repo's rows. `includeUnattributed` (ALI-798's own rule:
+     * `filter.repo` scopes to one repo's rows. `includeUnattributed` (the own rule:
      * "repo = ? OR repo IS NULL") also returns rows with no repo at all - a Jira ticket, a
      * Slack thread, anything not code - because a strict `repo = ?` would make 36% of a
      * measured real graph (every non-code decision) invisible from inside any one repo,
@@ -416,7 +416,7 @@ export function createLocalDb(dbPath: string) {
         where.push(filter.includeUnattributed ? `(repo = ? OR repo IS NULL)` : `repo = ?`);
         params.push(filter.repo);
       }
-      // ALI-831: the human queue. Both predicates, because "unratified" alone would list every
+      // The human queue. Both predicates, because "unratified" alone would list every
       // human decision ever captured (nothing ratifies those) and the queue would be useless.
       if (filter.unratified) where.push(`decider_kind = 'agent' AND ratified_at IS NULL`);
       if (where.length) sql += ` WHERE ${where.join(' AND ')}`;
@@ -431,7 +431,7 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * ALI-831: the human act. Writes both columns in one statement guarded by
+     * The human act. Writes both columns in one statement guarded by
      * `ratified_at IS NULL`, so the first ratification stands and a concurrent second caller
      * sees null rather than overwriting it - the same first-wins rule as the cloud's
      * ratifyDecision use case. Null for a missing id too; the caller tells the two apart by
@@ -448,9 +448,9 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * ALI-808: "this was said" - the session importer's act, written once at the moment a
+     * "this was said" - the session importer's act, written once at the moment a
      * human accepts a session-derived candidate into the graph (confirm-each). The columns
-     * were reserved for this by ALI-831 (see DecisionRow's own doc), which landed first;
+     * were reserved for this by the provenance work (see DecisionRow's own doc), which landed first;
      * this is the one write path for them. No first-wins guard: unlike ratify there is no
      * later racing caller to protect against - the importer calls this exactly once, right
      * after the insert it just made. A missing id updates zero rows and returns null, same
@@ -481,7 +481,7 @@ export function createLocalDb(dbPath: string) {
       return row?.e ?? null;
     },
 
-    /** ALI-831: one row per human act on a decision (ratified, pushed), so "who stood behind
+    /** One row per human act on a decision (ratified, pushed), so "who stood behind
      *  this, and when" is answerable after the fact. Append-only by construction. */
     insertAudit(entry: { decisionId: string; action: string; actor: string | null; detail?: string | null }): void {
       db.prepare(
@@ -497,7 +497,7 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * ALI-829: drop the tombstone-titled twin of a Slack thread that is being written under
+     * Drop the tombstone-titled twin of a Slack thread that is being written under
      * a real title. The v4 migration sweeps the tombstones that exist at upgrade time, but a
      * connector-core older than 0.6.0 can still MAKE one afterwards (it titles a thread from
      * its deleted root), and the migration never runs again. So the reconciliation also
@@ -551,7 +551,7 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * ALI-787: `model` tags which HF model produced `embedding`, so a future model swap
+     * `model` tags which HF model produced `embedding`, so a future model swap
      * cannot compare two models' vectors as if they were interchangeable - same-length
      * float arrays from different models pass cosineSimilarity's length check and produce a
      * plausible, meaningless score with nothing to catch it (see local-embeddings.ts,
@@ -580,7 +580,7 @@ export function createLocalDb(dbPath: string) {
       return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
     },
 
-    /** ALI-787: which model tagged this decision's stored embedding, or null when there is
+    /** Which model tagged this decision's stored embedding, or null when there is
      *  no embedding row, or the row predates tagging and was never backfilled (should not
      *  happen post-migration, but reads as "unknown" rather than a false match either way). */
     getEmbeddingModel(decisionId: string): string | null {
@@ -598,20 +598,20 @@ export function createLocalDb(dbPath: string) {
      * ranking - filtering post-rank would silently return fewer than `topK` results whenever
      * some of the best global matches fall outside the scope.
      *
-     * ALI-787: `filter.model`, when given, excludes rows tagged with a DIFFERENT (non-null)
+     * `filter.model`, when given, excludes rows tagged with a DIFFERENT (non-null)
      * model - the "degrade honestly" half of the model tag: a decision embedded by a retired
      * model drops out of ranking rather than being compared to a current-model vector it is
      * not compatible with. A NULL-tagged row (no model recorded at all) is treated as
      * compatible rather than excluded, the same "unknown, not wrong" leniency checkDrift
      * applies to a single decision - the migration backfills every pre-existing row, so NULL
      * should not occur in a real graph, and this is what keeps a hand-built test fixture that
-     * predates ALI-787 (a bare 2-arg setEmbedding) behaving as it always did. Omitted (the
+     * predates embedding-model tagging (a bare 2-arg setEmbedding) behaving as it always did. Omitted (the
      * default) applies no filter at all, which is what most existing callers and tests rely
      * on - only local-gateway-client.ts's findSimilar passes it, with the currently active
      * EMBEDDING_MODEL_ID.
      */
     /**
-     * ALI-1087: `createdBefore` excludes any decision whose OWN `created_at` is at or after
+     * `createdBefore` excludes any decision whose OWN `created_at` is at or after
      * the cutoff, so an as-of query never ranks a candidate that did not exist yet at that
      * moment. Joins `decisions` whenever either it or `repo` is set - both need the same
      * table, and joining twice would be a second writer of the same predicate.
@@ -678,7 +678,7 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * ALI-1065: a pair gets ONE edge, never two. `insertLinkRow`'s unique index is on
+     * A pair gets ONE edge, never two. `insertLinkRow`'s unique index is on
      * (source_id, target_id, relation), so writing `supersedes` for a pair that already
      * carries a `relates` row for the SAME pair does not collide - it appends a second
      * row, and a reader would see both. This deletes any existing edge between the pair
@@ -710,11 +710,11 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * ALI-792: what this decision's text points at (ticket keys, #N, tool URLs).
+     * What this decision's text points at (ticket keys, #N, tool URLs).
      * REPLACE semantics, deliberately: insertDecision refreshes the summary on
      * re-import (a rewritten commit message should be current), so the refs derived
      * from that text must follow it - appending would keep refs the text no longer
-     * carries, and the gap prompt (ALI-796) would name gaps that no longer exist.
+     * carries, and the gap prompt would name gaps that no longer exist.
      */
     replaceRefs(decisionId: string, refs: Array<{ ref: string; platform: string }>): void {
       // One transaction, for the same reason migrate() uses one: the advisory hook
@@ -742,7 +742,7 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * Every ref across every decision, for the gap resolver (ALI-796): it needs to
+     * Every ref across every decision, for the gap resolver: it needs to
      * count DISTINCT decisions per platform graph-wide, which a per-decision
      * `getRefs` cannot do without one round trip per decision.
      */
@@ -753,8 +753,8 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * ALI-796's payoff: a newly-ingested decision may be the exact thing an EARLIER
-     * decision's text already cited (a git commit citing "ALI-123", now that the Jira
+     * The payoff: a newly-ingested decision may be the exact thing an EARLIER
+     * decision's text already cited (a git commit citing "APP-123", now that the Jira
      * issue for it has been imported). `candidates` is that new decision's own
      * identity (decision-refs.ts's `refIdentityFor`) - every shape another decision
      * could have recorded it as. For each one that some existing ref already names,
@@ -768,7 +768,7 @@ export function createLocalDb(dbPath: string) {
      * repo it is later linked from is the case this does not cover.
      *
      * `relation: 'relates'` at confidence 1.0 - not a guess like the cosine-similarity
-     * `relates` edges elsewhere (ALI-503): this one is a deterministic exact-key match,
+     * `relates` edges elsewhere: this one is a deterministic exact-key match,
      * and 1.0 says so. `insertLinkRow`'s unique index on (source, target, relation)
      * makes re-resolving the same pair on a later import a no-op rather than a
      * duplicate edge.
@@ -787,7 +787,7 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * ALI-1087: `createdBefore` bounds the edge itself to what existed as of that instant.
+     * `createdBefore` bounds the edge itself to what existed as of that instant.
      * `julianday(...)`, not a raw string compare - `created_at` is written only by SQLite's
      * `datetime('now')` default, in the same space-separated, offset-less format that makes
      * a plain TEXT comparison against an ISO cutoff wrong on the cutoff's own calendar day
@@ -813,7 +813,7 @@ export function createLocalDb(dbPath: string) {
     getStats(): DbStats {
       const decisions = (db.prepare(`SELECT COUNT(*) as n FROM decisions`).get() as { n: number }).n;
       const embeddings = (db.prepare(`SELECT COUNT(*) as n FROM decision_embeddings`).get() as { n: number }).n;
-      // ALI-503 removed a `conflicts` count here: it had no production reader (only a test)
+      // A `conflicts` count was removed here: it had no production reader (only a test)
       // and after the relabelling it could only ever report 0, which is a decoy.
       return { decisions, embeddings };
     },
@@ -827,7 +827,7 @@ export function createLocalDb(dbPath: string) {
     },
 
     /**
-     * ALI-1749: run `fn` with `synchronous = NORMAL`. In WAL mode the default (FULL) syncs the log on
+     * Run `fn` with `synchronous = NORMAL`. In WAL mode the default (FULL) syncs the log on
      * every commit, and an import commits about six statements per item: a CPU profile of a
      * 1,000-commit git import put 28 of its 39 seconds in those commits, not in the embedding model.
      * NORMAL syncs at checkpoints instead. The file cannot corrupt either way; what NORMAL risks is
@@ -870,7 +870,7 @@ export function createLocalDb(dbPath: string) {
       return (db.prepare('SELECT COUNT(*) AS n FROM decision_embeddings').get() as { n: number }).n;
     },
 
-    /** ALI-1749: the persisted lexical index of this graph's git decisions (lexical-store.ts), built on first use. */
+    /** The persisted lexical index of this graph's git decisions (lexical-store.ts), built on first use. */
     lexicalStore(): LexicalStore {
       return (lexical ??= createLexicalStore(db));
     },

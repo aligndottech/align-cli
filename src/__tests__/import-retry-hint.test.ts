@@ -1,12 +1,12 @@
 /**
- * ALI-675: the retry command printed when a connector import fails mid-setup
+ * The retry command printed when a connector import fails mid-setup
  * must be runnable AS PRINTED by the user this session belongs to. The bare
  * form resolves to the default env, which is wrong for any non-prod session.
  */
 import { describe, expect, it } from 'vitest';
 import { importRetryHint } from '../commands/setup.js';
 
-describe('importRetryHint (ALI-675)', () => {
+describe('importRetryHint', () => {
   it('names the env for a non-prod session, so pasting it targets the session graph', () => {
     expect(importRetryHint('jira', 'local')).toBe('align connect jira --env local');
     expect(importRetryHint('slack', 'preview')).toBe('align connect slack --env preview');

@@ -20,7 +20,7 @@ set -uo pipefail
 # and pipefail promotes that 141 over grep's 0. So the pipeline reads as "no match" on
 # a run where the match is what killed it. scripts/check-test-runners.sh carries the
 # same note and the same fix; this file is the sibling site that kept the defect
-# (ALI-995, code-style.md "fixed one site, left the identical one").
+# (code-style.md "fixed one site, left the identical one").
 #
 # It is worst at the negative control below, which fails OPEN: a genuinely broken
 # comparison returns 141, takes the else branch, and reports PASS.
@@ -86,7 +86,7 @@ EOF
 }
 
 # Captured ONCE. The live `built_assets | grep -qx` this replaces is the exact
-# construct ALI-995 reproduced at exit 141.
+# construct, which was reproduced exiting 141.
 BUILT_ASSETS="$(built_assets)"
 [ -n "$BUILT_ASSETS" ] || { echo "FATAL: built_assets produced nothing"; exit 1; }
 

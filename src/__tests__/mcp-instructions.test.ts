@@ -14,7 +14,7 @@ describe('ALIGN_MCP_INSTRUCTIONS', () => {
     expect(ALIGN_MCP_INSTRUCTIONS.length).toBeLessThan(2048);
   });
 
-  // ALI-414: the agent-facing half of the "needs a human" state. An agent branches on
+  // The agent-facing half of the "needs a human" state. An agent branches on
   // `status`, so it has to be told in words that `unknown` is not a pass - otherwise
   // it reads the absence of a conflict as permission to proceed.
   it('tells the agent that "unknown" means stop and ask the human', () => {
@@ -22,7 +22,7 @@ describe('ALIGN_MCP_INSTRUCTIONS', () => {
     expect(ALIGN_MCP_INSTRUCTIONS.toLowerCase()).toMatch(/not a pass|ask the (human|user)/);
   });
 
-  // ALI-830: align_ask/align_search can return `decision_url` (cloud-only) and `source_url`
+  // align_ask/align_search can return `decision_url` (cloud-only) and `source_url`
   // when available (gateway-client.ts), and the instructions never told the agent to use them - so
   // a decision named in prose (not a dated row from get_topic_timeline, which this server
   // does not have) shipped as bare text. Mirrors align-stack's mcpServer.test.ts equivalent.

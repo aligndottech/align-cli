@@ -1,9 +1,9 @@
 /**
- * ALI-809 Pass B, heuristic half: a HUMAN turn whose own words redirect or settle on an
+ * A HUMAN turn whose own words redirect or settle on an
  * approach mid-session ("let's use X instead", "go with Y", "decided to Z"). Never a tool-call
  * answer (that's Pass A, extract-structured.ts) and never assistant text scanned for the
  * trigger phrase - the assistant turn immediately after is attached as CONTEXT only, per the
- * ALI-538 decider-authored-statements principle (the graph decision, not this ticket, but the
+ * decider-authored-statements principle (an Align graph decision, but the
  * same shape: don't let bot content pass as the thing being reviewed).
  *
  * The phrase list and every "yields no candidate" case below is calibrated against the four

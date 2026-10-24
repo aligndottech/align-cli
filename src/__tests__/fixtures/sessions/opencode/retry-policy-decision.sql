@@ -1,4 +1,4 @@
--- ALI-808 fixture: one real opencode session (opencode-ai 1.18.27), captured 2026-09-03.
+-- Fixture: one real opencode session (opencode-ai 1.18.27), captured 2026-09-03.
 -- Schema trimmed to the tables the reader adapter needs: project, session, message, part.
 -- Content is real (a live `opencode run` against a throwaway repo); only the scratch
 -- directory path was replaced with a placeholder.

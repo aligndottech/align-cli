@@ -1,5 +1,5 @@
 /**
- * ALI-1070: which of the timeline trio local mode can actually serve.
+ * Which of the timeline trio local mode can actually serve.
  *
  * Local mode is selected by a persisted `mode` field, not by a missing token, and the
  * cloud/local split is enforced by a Proxy in gateway-client.ts whose `get` trap throws a
@@ -71,7 +71,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe('ALI-1070 in local mode', () => {
+describe('in local mode', () => {
   it('serves the rationale tool from the local graph, not the cloud-only stub', async () => {
     client = createGatewayClient(localEnv());
     const row = (await dispatchTool(
@@ -83,13 +83,13 @@ describe('ALI-1070 in local mode', () => {
     // The id asserts it answered about the decision asked for, not merely that it returned
     // an object: a stub that returned {} would satisfy a bare "did not throw".
     //
-    // `decision_id`, not `id`: the ALI-1070 follow-up projects the row through
+    // `decision_id`, not `id`: the follow-up projects the row through
     // shapeDecisionRationale, because the serializer strips `decision_json` and every field
     // this tool promises lives inside it. The projection runs on the local path too, which
     // the rationale assertion below is what actually proves.
     expect(row['decision_id']).toBe(decisionId);
     expect(row['title']).toBe('Verify webhook signatures with HMAC');
-    // A local row carries no decision_json, so there is no reasoning to serve. ALI-1085: it
+    // A local row carries no decision_json, so there is no reasoning to serve. It
     // now SAYS so rather than handing back the summary under the name `rationale`.
     //
     // `rationale_unavailable` is deliberately what this asserts, and it keeps the

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveTrustedAlignBin } from '../trusted-align-bin.js';
 
-// ALI-1515: the MCP command handed to an agent was a bare `align`, found through the AGENT's own PATH, which can hold
+// The MCP command handed to an agent was a bare `align`, found through the AGENT's own PATH, which can hold
 // relative or empty entries (`.`, `node_modules/.bin`) so a repo could shadow `align`. The trusted path is resolved by
 // align itself, from absolute PATH entries only, and never from inside the directory align was started in.
 let root: string;

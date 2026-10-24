@@ -7,7 +7,7 @@ import { cardLabel, type CardValue, orderAgents, renderSecondRunCard } from '../
 import { launchesAfterWizard, launchIfChosen } from '../lib/launch/launch.js';
 
 /**
- * What `align` does with no arguments (ALI-773).
+ * What `align` does with no arguments.
  *
  * A new user's first instinct is to type the tool's name. That printed a twenty-command help
  * wall and did nothing, leaving them to pick correctly out of setup, login, local, import,
@@ -19,7 +19,7 @@ import { launchesAfterWizard, launchIfChosen } from '../lib/launch/launch.js';
  *                    There is no cloud question; a solo developer's graph is local. The
  *                    non-TTY branch below suggests `align setup --approve` because a
  *                    scripted run cannot answer the wizard's questions.
- *   - set up      -> the second-run card (ALI-950): which graph is in play, which agents are
+ *   - set up      -> the second-run card: which graph is in play, which agents are
  *                    wired, what the graph did this week, and the one thing to do next -
  *                    which happens in the agent, not here.
  *
@@ -102,7 +102,7 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
   // Which graph a bare command will actually read.
   //
   // Nothing below carries an --env flag, and that is the point: ask, search, import and now
-  // decisions (ALI-772) all resolve to the local graph on their own when that is the only
+  // decisions all resolve to the local graph on their own when that is the only
   // one configured. An earlier draft of this printed `--env local` on every line, which is
   // runnable but teaches a flag nobody needs and makes the tool look harder than it is.
   const envName = hasCloud ? defaultEnv : 'local';
@@ -116,7 +116,7 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
   const { readValueRollup } = await import('../lib/read-value-rollup.js');
   const { hasDecisions, firstTitle } = await firstDecision(createGatewayClient(config.getEnvironment(envName)));
 
-  // ALI-950: the ALI-215 readout `align status` prints, read for a 7-day window so the card
+  // The readout `align status` prints, read for a 7-day window so the card
   // can say "this week" and mean it. Best effort for the same reason as above - a card with
   // no readout line beats no card.
   let value: CardValue | undefined;

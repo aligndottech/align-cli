@@ -1,10 +1,10 @@
 name: Ruleset Drift
 
-# ALI-1185. `copilot_code_review` on this repo's ruleset carries `review_on_push`, and that
+# `copilot_code_review` on this repo's ruleset carries `review_on_push`, and that
 # field decides whether Copilot reviews a PR ONCE when it opens or again on every push. With it
 # off, every commit addressing a review merges unreviewed - because a fix is a push - and the
 # review discipline around it looks like it worked the whole time. align-stack carried the same
-# defect and the same guard (ALI-1170); a ruleset is per-repo, so fixing one said nothing about
+# defect and the same guard; a ruleset is per-repo, so fixing one said nothing about
 # the other.
 #
 # WHY THIS IS A SCHEDULE AND NOT A REQUIRED CHECK, stated rather than glossed, because it is a
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # The default GITHUB_TOKEN reads this endpoint. Measured on align-stack 2026-09-21
-      # (ALI-1170) against a real ruleset: a job with `permissions: contents: read` returned
+      # against a real ruleset: a job with `permissions: contents: read` returned
       # HTTP 200 with the full rule parameters in the body. That repo's own comment had
       # asserted the opposite for months with nothing in its history recording a measured 403 -
       # an assumption written into a comment that became the settled account of itself. So this

@@ -7,7 +7,7 @@ vi.mock('../lib/local-gateway-client.js', () => ({
 import { createGatewayClient, type GatewayError } from '../lib/gateway-client.js';
 
 /**
- * ALI-1836: a login that has expired reached the user as
+ * A login that has expired reached the user as
  * `Gateway returned 401 for /auth/me: unauthorized`, which names nothing they can act on.
  *
  * The gateway's authMiddleware answers `{ error: 'unauthorized', message: <text> }`. The three
@@ -46,7 +46,7 @@ async function whoamiError(status: number, body: unknown): Promise<GatewayError>
   throw new Error('whoami did not throw');
 }
 
-describe('expired login message (ALI-1836)', () => {
+describe('expired login message', () => {
   beforeEach(() => mockFetch.mockReset());
 
   it.each(['Invalid or expired API token', 'Invalid or expired token', 'Invalid or expired access token'])(

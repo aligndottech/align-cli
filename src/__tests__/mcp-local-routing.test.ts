@@ -44,7 +44,7 @@ vi.mock('../lib/config.js', () => ({
   })),
 }));
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({})) }));
-// Spread the real module (ALI-1135): a factory listing only the exports the SUT used on the
+// Spread the real module: a factory listing only the exports the SUT used on the
 // day it was written breaks the moment it imports one more - here alignServerEntry, which
 // renders the hand-over config - with a rejected promise rather than a readable failure.
 vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({

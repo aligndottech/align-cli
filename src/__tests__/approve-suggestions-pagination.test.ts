@@ -8,7 +8,7 @@ import { approveAllSuggestions } from '../lib/approve-suggestions.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 
 /**
- * ALI-1585: `align import ... --approve` listed suggestions once. The gateway returns 50 rows
+ * `align import ... --approve` listed suggestions once. The gateway returns 50 rows
  * when no limit is sent (cap 100), so a big scan approved the first 50 and reported success.
  *
  * Test List:

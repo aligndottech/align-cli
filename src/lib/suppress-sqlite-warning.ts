@@ -1,5 +1,5 @@
 /**
- * ALI-1779: Node 22.16 prints `ExperimentalWarning: SQLite is an experimental feature` on every
+ * Node 22.16 prints `ExperimentalWarning: SQLite is an experimental feature` on every
  * command, because the local graph loads `node:sqlite` (stable-ish from Node 24, still flagged
  * experimental on the 22.x floor). It is stderr noise the user cannot act on. Only that one
  * warning is dropped: any other warning, and any other ExperimentalWarning, is forwarded as is.

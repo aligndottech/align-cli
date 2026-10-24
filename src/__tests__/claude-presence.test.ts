@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { claudeCodeExists } from '../lib/claude-presence.js';
 
-/** ALI-1779: Claude Code "exists" when its binary is on PATH or its user config is on disk. */
+/** Claude Code "exists" when its binary is on PATH or its user config is on disk. */
 describe('claudeCodeExists', () => {
   const home = () => mkdtempSync(path.join(tmpdir(), 'cc-home-'));
   const emptyBin = () => mkdtempSync(path.join(tmpdir(), 'cc-bin-'));

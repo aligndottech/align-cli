@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * ALI-952: the MCP server instructions are ONE text in two repositories - this one
+ * The MCP server instructions are ONE text in two repositories - this one
  * (src/lib/mcp-instructions.shared.ts) and align-stack
  * (connectors/mcp-align/src/mcpInstructions.shared.ts). Two writers of one fact is the
  * defect this file exists to stop (align-stack .claude/rules/code-style.md), and the two

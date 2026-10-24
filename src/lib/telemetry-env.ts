@@ -1,11 +1,11 @@
 /**
- * ALI-954: the two environment variables that turn ALL telemetry off - both tiers, the
+ * The two environment variables that turn ALL telemetry off - both tiers, the
  * default-on beacons included. Its own module so the one-time notice (telemetry-consent.ts)
  * can ask the same question without importing the emitter, which setup.test.ts mocks down to
  * one function.
  *
  * The two read in opposite directions, each erring toward sending nothing:
- * - `ALIGN_TELEMETRY` (ours, ALI-618): set and not recognisably ON means OFF. Enumerating the
+ * - `ALIGN_TELEMETRY` (ours): set and not recognisably ON means OFF. Enumerating the
  *   falsy words instead guesses at what a user will type, and every miss is a live send by
  *   someone who believes they opted out.
  * - `DO_NOT_TRACK` (consoledonottrack.com, the cross-tool convention): set and not
@@ -28,7 +28,7 @@ export function telemetryDisabledByEnv(): TelemetryEnvSwitch | undefined {
 }
 
 /**
- * ALI-1740: set (to '1') in `align doctor` and in the `align mcp` it starts. A marked process sends
+ * Set (to '1') in `align doctor` and in the `align mcp` it starts. A marked process sends
  * nothing, and writes nothing about telemetry to the user's config: no opt-out stored, no notice
  * marked, no install beacon consumed. It is not DO_NOT_TRACK on purpose, because an env opt-out is
  * stored as a permanent opt-out.

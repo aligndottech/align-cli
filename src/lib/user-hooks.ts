@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 import { safeWriteJson } from './safe-config-write.js';
 
-// ALI-952: user-level advisory hooks for the hosts whose hook API lives in a file under the
+// User-level advisory hooks for the hosts whose hook API lives in a file under the
 // user's home rather than in the project. Written by mcp-setup.ts next to the MCP entry for
 // the same host, so every path that wires an agent (setup, `align local start`,
 // `align mcp --setup`) wires the hook too, and `align mcp --remove` takes both out.
@@ -102,13 +102,13 @@ function isOurs(spec: HostSpec, entry: unknown): boolean {
   return spec.commandsOf(entry).some((c) => c.includes(OURS));
 }
 
-// ALI-1476: an element of ours is ours to refresh only while it is exactly what align writes
+// An element of ours is ours to refresh only while it is exactly what align writes
 // for the command it carries. Anything else (a nested command added, a timeout changed) is the
 // user's edit, and replacing it would discard that edit without a word.
 function isPristine(host: HookHost, spec: HostSpec, entry: unknown): boolean {
   const command = spec.commandsOf(entry).find((c) => c.includes(OURS));
   // The command itself must be one align writes: an appended flag or a wrapper is an edit too.
-  // Copilot's command carries the absent-align guard (ALI-1749); the bare form older versions
+  // Copilot's command carries the absent-align guard; the bare form older versions
   // wrote is pristine too, which is what lets a re-run migrate it.
   const bare = host === 'copilot' && command?.startsWith(COPILOT_ABSENT_GUARD) ? command.slice(COPILOT_ABSENT_GUARD.length) : command;
   return command !== undefined && bare !== undefined
@@ -247,7 +247,7 @@ export function removeUserHooks(target: UserHookTarget): boolean {
   return true;
 }
 
-/** The line shown when a user-edited align hook element was kept (ALI-1476). */
+/** The line shown when a user-edited align hook element was kept. */
 export function editedHookNotice(file: string): string {
   return `Kept your edits to the align hook in ${file}, so it still runs its old command and env. To refresh it, delete that hook entry and run align mcp --setup again.`;
 }

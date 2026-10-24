@@ -1,5 +1,5 @@
 /**
- * ALI-810: the auto-memory reader.
+ * The auto-memory reader.
  *
  * Fixtures are written to a real temp directory rather than mocked, so `locateMemoryFiles`
  * exercises the actual filesystem walk and the `MEMORY.md` exclusion, not a stub of them.
@@ -7,7 +7,7 @@
  * Their CONTENT is built from Anthropic's published description of the format
  * (https://code.claude.com/docs/en/memory, read 2026-09-09) and not from a captured file,
  * because this environment has no memory directory to capture from. That is a weaker
- * provenance than ALI-808's session fixtures and is stated here rather than left implied:
+ * provenance than the session fixtures and is stated here rather than left implied:
  * these tests pin that the reader handles the format as DOCUMENTED. If the real format
  * differs, they will keep passing, and the first real memory directory is what would find it.
  * See the module docstring for what the docs do and do not say.

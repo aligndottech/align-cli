@@ -1,5 +1,5 @@
 /**
- * ALI-951: `align connect`. With no source it opens the picker `align setup` already uses
+ * `align connect`. With no source it opens the picker `align setup` already uses
  * (runLocalConnectorPhase's "Connect more sources with a read-only token?"), reused rather
  * than re-implemented. `align connect <source>` is the old `import <source>`. Every prompt
  * has a flag bypass - `--source` for the picker, `--token` for the paste, `--yes` for the
@@ -117,7 +117,7 @@ function setTty(stdin: boolean, out: boolean) {
   Object.defineProperty(process.stdout, 'isTTY', { value: out, configurable: true });
 }
 
-describe('align connect (ALI-951)', () => {
+describe('align connect', () => {
   const inTty = process.stdin.isTTY, outTty = process.stdout.isTTY;
   beforeEach(() => {
     stdout.length = 0;

@@ -1,5 +1,5 @@
 /**
- * ALI-196 spike proof: generate a decisions file WITHOUT ever parsing the user's own.
+ * Spike proof: generate a decisions file WITHOUT ever parsing the user's own.
  *
  * Tom's constraint is augment, never overwrite. The mechanism chosen makes that structural
  * rather than careful: Align owns `.align/decisions.md` outright, so the worst bug it can
@@ -37,7 +37,7 @@ Some hand-tuned guidance nobody else may touch.
 - tabs, not spaces
 `;
 
-describe('ALI-196 the generated file', () => {
+describe('the generated file', () => {
   it('renders each decision with its source, so the file is auditable', () => {
     const out = renderDecisionsFile(DECISIONS);
 
@@ -68,7 +68,7 @@ describe('ALI-196 the generated file', () => {
   });
 
   it('says plainly when the graph returned nothing', () => {
-    // "No decisions yet" and "the fetch failed" must not look alike. ALI-414's lesson on a
+    // "No decisions yet" and "the fetch failed" must not look alike. The lesson on a
     // new surface: an empty managed block reads as "no decisions exist", which is a claim.
     const out = renderDecisionsFile([]);
 
@@ -77,7 +77,7 @@ describe('ALI-196 the generated file', () => {
   });
 });
 
-describe('ALI-196 the one touch to the user file', () => {
+describe('the one touch to the user file', () => {
   it('appends the import line and preserves every hand-written byte', () => {
     const out = appendImportLine(HAND_WRITTEN);
 

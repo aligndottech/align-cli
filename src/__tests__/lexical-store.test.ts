@@ -19,7 +19,7 @@ function add(title: string, body: string, platform = 'git', n = ++counter): stri
   return db.insertDecision({ title, summary: `${title}\n\n${body}${meta}`, sourceUrl: `https://github.com/o/r/commit/${String(n).replace(/\D/g, '').padEnd(40, '0').slice(0, 40)}`, platform, keyed: true });
 }
 const ids = (q: string, limit = 10) => db.lexicalStore().search(queryTerms(q), limit).map(r => db.getDecisionById(r.id)!.title);
-// Every read-only handle is closed before returning: Windows refuses to delete g.db while one is open (ALI-1784).
+// Every read-only handle is closed before returning: Windows refuses to delete g.db while one is open.
 function readRaw<T>(fn: (raw: DatabaseSync) => T): T {
   const raw = new DatabaseSync(dbPath, { readOnly: true });
   try { return fn(raw); } finally { raw.close(); }

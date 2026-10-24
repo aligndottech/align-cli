@@ -20,7 +20,7 @@ const mockIngestBatch = vi.hoisted(() => vi.fn().mockResolvedValue({ snapshots: 
 // real verifier makes a REAL network call to GitHub from inside the suite.
 const mockVerifyReadOnly = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true }));
 const mockListDecisionLinks = vi.hoisted(() => vi.fn().mockResolvedValue([]));
-// ALI-950: the cloud outro reads the first decision back from the graph it just filled, so
+// The cloud outro reads the first decision back from the graph it just filled, so
 // the question it hands the agent is checkable against the repo. Empty by default.
 const mockListDecisions = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockStartCliOAuth = vi.hoisted(() => vi.fn().mockResolvedValue({ authUrl: 'https://github.com/login/oauth/authorize?state=abc' }));
@@ -71,13 +71,13 @@ vi.mock('../lib/gateway-client.js', () => ({
 
 const mockGetConnectorToken = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSetConnectorToken = vi.hoisted(() => vi.fn());
-// ALI-802: saved local credentials. Default to "nothing saved" so every pre-existing test
+// Saved local credentials. Default to "nothing saved" so every pre-existing test
 // keeps its subject - the connect-from-scratch flow - rather than silently taking the new
 // reuse path.
 const mockGetConnectorFields = vi.hoisted(() => vi.fn().mockReturnValue(null));
 const mockSaveConnectorFields = vi.hoisted(() => vi.fn());
 const mockForgetConnector = vi.hoisted(() => vi.fn());
-// ALI-1284: nothing saved by default, so every pre-existing test keeps its subject - the
+// Nothing saved by default, so every pre-existing test keeps its subject - the
 // guided-key offer only fires when hasConfiguredProvider() is also false (gated by real env
 // vars, cleared per-test in the describe block that exercises this).
 const mockGetProviderKey = vi.hoisted(() => vi.fn().mockReturnValue(null));
@@ -108,7 +108,7 @@ const makeDefaultConfig = () => ({
     setConnectorCloudId: vi.fn(),
     getConnectorSiteBase: vi.fn().mockReturnValue(null),
     setConnectorSiteBase: vi.fn(),
-    // ALI-618: runLocalSetup's one-time consent prompt reads/writes these. Unset by default so
+    // runLocalSetup's one-time consent prompt reads/writes these. Unset by default so
     // the prompt fires under the forced-TTY describe block below and resolves via mockConfirm's
     // default (false) - these tests are not about telemetry consent, so nothing here asserts on it.
     getTelemetryConsent: vi.fn().mockReturnValue(undefined),
@@ -155,7 +155,7 @@ vi.mock('../lib/repo-identity.js', async (importOriginal) => ({
   currentRepoIdentity: mockCurrentRepoIdentity,
 }));
 
-// ALI-1782: first run reads a GitHub origin's merged PR descriptions. No test here may reach api.github.com or a
+// First run reads a GitHub origin's merged PR descriptions. No test here may reach api.github.com or a
 // real `gh`, so the read is faked (default: nothing found). Its own behaviour is pinned in first-run-pr-reasons.test.ts.
 const mockFetchFirstRunPrs = vi.hoisted(() => vi.fn());
 vi.mock('../lib/first-run-pr-import.js', async (importOriginal) => ({
@@ -163,12 +163,12 @@ vi.mock('../lib/first-run-pr-import.js', async (importOriginal) => ({
   fetchFirstRunPrs: mockFetchFirstRunPrs,
 }));
 
-// ALI-794: the found-summary reads the local db directly (createLocalDb), separately
+// The found-summary reads the local db directly (createLocalDb), separately
 // from the mocked ingest client above. Mocked here too, or every test that imports git
 // via --local opens a REAL sqlite file at the fixed dbPath the mocks share - across many
 // tests in this file, that is lock contention and stray state on disk, not a unit test.
 //
-// ALI-796: the setup summary's gap-driven pull reads decision_refs directly (the same
+// The setup summary's gap-driven pull reads decision_refs directly (the same
 // way status.ts and local.ts do), not through the mocked cloud-shaped `localClient`
 // above. Default to no refs so every pre-existing local-mode test stays silent on it.
 //
@@ -177,7 +177,7 @@ vi.mock('../lib/first-run-pr-import.js', async (importOriginal) => ({
 const mockLocalDbClose = vi.hoisted(() => vi.fn());
 const mockLocalDb = vi.hoisted(() => ({
   getStats: () => ({ decisions: 0 }),
-  // ALI-950: the found-summary's recent page, which is where the outro's question comes from.
+  // The found-summary's recent page, which is where the outro's question comes from.
   listDecisions: vi.fn(() => [] as Array<{ id: string; title: string; sourceUrl?: string | null }>),
   listLinks: () => [],
   getAllRefs: vi.fn(() => [] as Array<{ decisionId: string; ref: string; platform: string }>),
@@ -199,7 +199,7 @@ vi.mock('../lib/launch/pick-agent.js', async (importOriginal) => ({
   pickAgent: mockPickAgent,
 }));
 
-// ALI-1779: whether Claude Code exists on this machine decides if the project .mcp.json counts as a
+// Whether Claude Code exists on this machine decides if the project .mcp.json counts as a
 // connected agent. Default present, so the pre-existing wizard tests keep their subject.
 const mockClaudePresent = vi.hoisted(() => vi.fn().mockReturnValue(true));
 vi.mock('../lib/claude-presence.js', () => ({ claudeCodeExists: mockClaudePresent }));
@@ -213,14 +213,14 @@ vi.mock('../lib/login-flow.js', () => ({
   loginInteractive: mockLoginInteractive,
 }));
 
-// ALI-949: the funnel emitter, so the wizard's setup_started / setup_completed checkpoints
+// The funnel emitter, so the wizard's setup_started / setup_completed checkpoints
 // are observable. Resolves false by default ("could not send"), which is what a fresh
 // install looks like at wizard start; the tests that need a send flip it. personal-import's
 // import_completed calls land on this spy too - the assertions below filter by stage.
 const mockRecordFunnelStage = vi.hoisted(() => vi.fn().mockResolvedValue(false));
 vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage: mockRecordFunnelStage }));
 
-// Spread the real module (ALI-1135): a factory listing only the exports the SUT used on the
+// Spread the real module: a factory listing only the exports the SUT used on the
 // day it was written breaks the moment it imports one more - here alignServerEntry, which
 // renders the hand-over config - with a rejected promise rather than a readable failure.
 vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
@@ -247,7 +247,7 @@ vi.mock('../lib/fetchers/teams.js', () => ({ fetchTeamsItems: vi.fn().mockResolv
 vi.mock('../lib/fetchers/zoom.js', () => ({ fetchZoomItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
 vi.mock('../lib/fetchers/gitlab.js', () => ({ fetchGitLabItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
 vi.mock('../lib/fetchers/notion.js', () => ({ fetchNotionItems: vi.fn().mockResolvedValue({ items: [], report: { scanned: 0, skips: [] } }) }));
-// ALI-827: the docs wrapper reads the real cwd through lib/git.js, which this suite mocks
+// The docs wrapper reads the real cwd through lib/git.js, which this suite mocks
 // without getCurrentBranch - so unmocked it THROWS and setup reports "Docs import skipped"
 // on every test. Mocked empty, it takes the ordinary zero-items path and its zero line in
 // the capture report becomes something the report tests can pin.
@@ -278,7 +278,7 @@ vi.mock('ora', () => ({
 }));
 
 vi.mock('../lib/fetchers/github.js', async (importOriginal) => ({
-  // resolveGitHubRepoScope stays REAL (ALI-917): it reads currentRepoIdentity, mocked
+  // resolveGitHubRepoScope stays REAL: it reads currentRepoIdentity, mocked
   // above to 'github.com/o/r', so the GitHub source's fetch call is exercised exactly as
   // it runs in `align setup` - only the network-touching fetchGitHubItems is stubbed.
   ...(await importOriginal<typeof FetchersGithub>()),
@@ -485,7 +485,7 @@ describe('align setup', () => {
     expect(spinnerStopOrder).toBeLessThan(firstIngestOrder);
   });
 
-  describe('deterministic auto-alignment (ALI-121)', () => {
+  describe('deterministic auto-alignment', () => {
     it('writes the PostToolUse hook + nudge files in the cloud path', async () => {
       await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
       expect(mockSetupAgentAlignment).toHaveBeenCalledWith(
@@ -555,7 +555,7 @@ describe('align setup', () => {
       delete process.env['ALIGN_ENV'];
     });
 
-    it('--local warns a logged-in user that BARE commands still hit the cloud graph (ALI-87 stands)', async () => {
+    it('--local warns a logged-in user that BARE commands still hit the cloud graph', async () => {
       // resolveEnv is the truth about what a bare command does next: 'prod'
       // regardless of options = the logged-in shape (a token wins everywhere).
       const { resolveEnv } = await import('../lib/resolve-env.js');
@@ -668,7 +668,7 @@ describe('align setup', () => {
     });
 
     it('refuses a write-capable gh token, says why, and falls through to the paste', async () => {
-      // The gate that closes the ALI-98 hole #183 shipped: gh auth login issues
+      // The gate that closes the hole #183 shipped: gh auth login issues
       // repo-scoped (read+write) tokens, and the reuse path took them silently.
       mockVerifyReadOnly.mockResolvedValueOnce({ ok: false, reason: 'token can write (scopes: repo)' });
       mockMultiselect.mockResolvedValue(['github']);
@@ -726,7 +726,7 @@ describe('align setup', () => {
     });
 
     it('--local states the token-paste DESIGN, before asking for anything', async () => {
-      // Tom, 2026-08-31, superseding ALI-778's local direction: local mode is the
+      // Tom, 2026-08-31, superseding the local direction: local mode is the
       // user's personal graph, so the credential is one they mint and control. The
       // message owns that as the design. Two earlier framings are asserted ABSENT
       // because each shipped and then had to be corrected: blaming the provider
@@ -748,7 +748,7 @@ describe('align setup', () => {
       expect(said).toMatch(/Local mode uses read-only tokens/);
     });
 
-    // ALI-802. Reported by an outside tester who was asked to paste the same GitHub PAT on
+    // Reported by an outside tester who was asked to paste the same GitHub PAT on
     // every run: setup collected credentials, used them for one fetch and dropped them. The
     // storage API already existed and setup never called it.
     describe('saved read-only tokens', () => {
@@ -771,7 +771,7 @@ describe('align setup', () => {
         expect(password).not.toHaveBeenCalled();
       });
 
-      // ALI-917: the GitHub source has no --repo/--all of its own, so it must default to
+      // The GitHub source has no --repo/--all of its own, so it must default to
       // the repo `align setup` is running in - the fix for a reporting user's PAT import
       // returning "Found 250 items" spanning several unrelated repos, undifferentiated.
       it('scopes the GitHub fetch to the repo setup is running in', async () => {
@@ -1149,7 +1149,7 @@ describe('align setup', () => {
       expect(said).toMatch(/using your atlassian .* from/i);
     });
 
-    it('--local scans git and shows the found-summary BEFORE asking which sources to connect (ALI-794)', async () => {
+    it('--local scans git and shows the found-summary BEFORE asking which sources to connect', async () => {
       // Inverted deliberately: value before the ask. This is the flow an outside tester
       // was on when the picker corrupted itself under a screenful of git output (2026-08-30)
       // - see the next test for the mitigation that ordering now needs.
@@ -1166,7 +1166,7 @@ describe('align setup', () => {
     });
 
     it('--local clears the screen before the connector picker, now that the summary sits above it', async () => {
-      // The mitigation ALI-794 budgets for the reorder above: p.note() renders through
+      // The mitigation the design budgets for the reorder above: p.note() renders through
       // clack rather than raw stdout, and the picker gets a clean canvas.
       const origIsTTY = process.stdout.isTTY;
       const writes: string[] = [];
@@ -1224,7 +1224,7 @@ describe('align setup', () => {
       expect(mockIngestBatch).toHaveBeenCalled();
     });
 
-    it('--local offers read-only token-paste connectors and imports a selected one into the local graph (ALI-103)', async () => {
+    it('--local offers read-only token-paste connectors and imports a selected one into the local graph', async () => {
       mockMultiselect.mockResolvedValueOnce(['linear']); // local connector step
       const { password } = await import('@clack/prompts');
       const { fetchLinearItems } = await import('../lib/fetchers/linear.js');
@@ -1300,7 +1300,7 @@ describe('align setup', () => {
       expect(mockSaveConnectorFields).toHaveBeenCalledWith('local', 'teams', expect.objectContaining({ token: 'test-token' }));
     });
 
-    // ALI-1782: the reason behind a change usually lives in its PR description, so first run reads them too.
+    // The reason behind a change usually lives in its PR description, so first run reads them too.
     describe('first run reads merged PR descriptions of a GitHub origin', () => {
       const prItem = (n: number) => ({
         source_url: `https://github.com/o/r/pull/${n}`, platform: 'github', title: `fix: thing ${n} (#${n})`,
@@ -1826,7 +1826,7 @@ describe('align setup', () => {
       });
     });
 
-    // The wizard used to end on ALI-1284's guided Groq + Gemini key offer, right before bare
+    // The wizard used to end on the guided Groq + Gemini key offer, right before bare
     // `align` opened Claude Code - read in that position, the keys looked like something
     // Claude needed, so the wizard was changed to ask for none. That also hid the one real need:
     // Align's conflict checks run in Align's own process and need a model of their own, so a fresh
@@ -2005,12 +2005,12 @@ describe('align setup', () => {
   });
 
   /**
-   * ALI-949: setup_started and setup_completed had no emitter, so the PostHog funnel read
+   * setup_started and setup_completed had no emitter, so the PostHog funnel read
    * setup_completed = 0 for a launch week in which two installs finished the wizard. Both
-   * stages are emitted from runSetup's shared body, so bare `align` (ALI-773, which calls
+   * stages are emitted from runSetup's shared body, so bare `align` (which calls
    * runSetup - see bare-align.test.ts) and `align setup` count identically.
    *
-   * In local mode consent is asked MID-wizard (ALI-794: value before questions), so each
+   * In local mode consent is asked MID-wizard (value before questions), so each
    * mode branch OFFERS setup_started at its top and again once a send is possible (after
    * consent, after login); the funnel object sends once per identity, at the first offer
    * the emitter reports as sent (setup-funnel.test.ts pins that rule). These tests pin that
@@ -2023,7 +2023,7 @@ describe('align setup', () => {
    * becomes local-embedded once initLocalMode has run (as the real store does), and the
    * cloud token can be flipped mid-run to prove the post-login offer re-reads the env.
    */
-  describe('funnel stages (ALI-949)', () => {
+  describe('funnel stages', () => {
     const realStdinIsTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     const realStdoutIsTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
     const state = { cloudToken: 'tok' as string | null, localInitialised: false, consent: undefined as 'granted' | 'declined' | undefined };
@@ -2231,9 +2231,9 @@ describe('align setup', () => {
     });
   });
 
-  describe('--local names its own gaps at the end of setup (ALI-796)', () => {
+  describe('--local names its own gaps at the end of setup', () => {
     it('names an unresolved-ref gap and the command that fills it in', async () => {
-      mockLocalDb.getAllRefs.mockReturnValueOnce([{ decisionId: 'a', ref: 'ALI-1', platform: 'jira' }]);
+      mockLocalDb.getAllRefs.mockReturnValueOnce([{ decisionId: 'a', ref: 'APP-1', platform: 'jira' }]);
       await makeProgram().parseAsync(['node', 'align', '--local']);
       const { outro } = await import('@clack/prompts');
       const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
@@ -2249,7 +2249,7 @@ describe('align setup', () => {
     });
 
     it('says nothing once the connector is already connected', async () => {
-      mockLocalDb.getAllRefs.mockReturnValueOnce([{ decisionId: 'a', ref: 'ALI-1', platform: 'jira' }]);
+      mockLocalDb.getAllRefs.mockReturnValueOnce([{ decisionId: 'a', ref: 'APP-1', platform: 'jira' }]);
       mockGetConnectorFields.mockImplementation((_env: string, id: string) => (id === 'jira' ? { token: 'x' } : null));
       await makeProgram().parseAsync(['node', 'align', '--local']);
       const { outro } = await import('@clack/prompts');
@@ -2259,14 +2259,14 @@ describe('align setup', () => {
   });
 
   /**
-   * ALI-950: after the wizard, the next step is in the agent. Every one of Claude Code,
+   * After the wizard, the next step is in the agent. Every one of Claude Code,
    * Codex, Cursor, Gemini CLI and Copilot CLI makes first value a chat turn in the agent,
    * never a setup verb - so the outro's last line names the agent and the question, and
    * names no CLI verb. The "your agent is connected" line used to print only when a GLOBAL
    * config was written, so a Claude-Code-only user wired through the project .mcp.json
    * never saw it.
    */
-  describe('the next step is in the agent (ALI-950)', () => {
+  describe('the next step is in the agent', () => {
     // eslint-disable-next-line no-control-regex
     const ANSI = /\x1b\[[0-9;]*m/g;
     const CURSOR = { name: 'Cursor', configPath: '/h/.cursor/mcp.json', format: 'mcpServers' as const };
@@ -2283,7 +2283,7 @@ describe('align setup', () => {
     }
 
     beforeEach(async () => {
-      // Merge-conflict resolution note (ALI-950 x ALI-952): writeMcpConfig now returns every
+      // Merge-conflict resolution note: writeMcpConfig now returns every
       // file it wrote (the module mock at the top of this file has no default), so the two
       // tests below that route through connectDetectedAgents -> writeMcpConfig need a real
       // array back, or the spread throws, the catch swallows it, and "wired" stays empty -
@@ -2304,10 +2304,10 @@ describe('align setup', () => {
       expect(await infoLines()).toContain('Your agent is connected: Claude Code.');
     });
 
-    // ALI-1779: writing .mcp.json is not connecting an agent. With no coding agent on the machine the
+    // Writing .mcp.json is not connecting an agent. With no coding agent on the machine the
     // wizard used to print a 17-line install list, then "Your agent is connected: Claude Code.", then
     // "Run align once a coding agent is installed." in the same run.
-    describe('no coding agent on this machine (ALI-1779)', () => {
+    describe('no coding agent on this machine', () => {
       async function fullOutro(): Promise<string> {
         const { outro } = await import('@clack/prompts');
         return ((outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string).replace(ANSI, '');
@@ -2553,7 +2553,7 @@ describe('align setup', () => {
 
     it('still reuses the Atlassian sibling under --reset (one consent, no second sign-in)', async () => {
       // --reset must ignore STALE prior-run tokens but NOT force a second
-      // Atlassian sign-in for a sibling connected moments ago this run (ALI-106).
+      // Atlassian sign-in for a sibling connected moments ago this run.
       mockMultiselect.mockResolvedValueOnce(['jira', 'confluence']);
       mockWaitForCallback.mockResolvedValueOnce({
         data: {
@@ -2622,7 +2622,7 @@ describe('align setup', () => {
       }
     });
 
-    it('imports all connected sources via the parallel import path (ALI-108)', async () => {
+    it('imports all connected sources via the parallel import path', async () => {
       mockMultiselect.mockResolvedValueOnce(['github', 'linear']);
       mockWaitForCallback.mockResolvedValue({ data: { connector: 'x', credentials: { access_token: 'tok' } }, port: 7654 });
       // Set fetcher returns explicitly - other tests mutate these module mocks.
@@ -2651,7 +2651,7 @@ describe('align setup', () => {
 
   describe('token-paste connectors auto-open browser', () => {
     it('uses browser OAuth for Linear (read-only), not an API-key paste', async () => {
-      // Linear moved from API-key paste to oauthKey:'linear-personal' (ALI-101): it should
+      // Linear moved from API-key paste to oauthKey:'linear-personal': it should
       // start the CLI OAuth flow, not open the settings/API token page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['linear']);
@@ -2669,7 +2669,7 @@ describe('align setup', () => {
 
     it('uses browser OAuth for Notion (read-only), not an integration-secret paste', async () => {
       // Notion moved from internal-integration-secret paste to
-      // oauthKey:'notion-personal' (ALI-104): cloud setup should start the CLI
+      // oauthKey:'notion-personal': cloud setup should start the CLI
       // OAuth flow, not open the my-integrations page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['notion']);
@@ -2679,7 +2679,7 @@ describe('align setup', () => {
     });
 
     it('uses browser OAuth for gitlab.com (blank domain), not a PAT paste', async () => {
-      // gitlab.com (blank domain) → host-gated OAuth (ALI-102), not the token page.
+      // gitlab.com (blank domain) → host-gated OAuth, not the token page.
       const open = (await import('open')).default;
       mockMultiselect.mockResolvedValueOnce(['gitlab']);
       const { text } = await import('@clack/prompts');
@@ -2717,7 +2717,7 @@ describe('align setup', () => {
     exitSpy.mockRestore();
   });
 
-  // ALI-169: the reconnect recovery must work for EVERY OAuth connector, not just
+  // The reconnect recovery must work for EVERY OAuth connector, not just
   // Atlassian. Only jira/confluence map a 401 to AuthExpiredError; the other
   // connector-core fetchers throw a generic Error carrying the 401 in the message,
   // so before the isAuthExpiry fix they were silently skipped (the live-run bug:
@@ -2887,7 +2887,7 @@ describe('align setup', () => {
         expect.objectContaining({ message: expect.stringContaining('Linear token expired') }),
       );
       expect(vi.mocked(fetchLinearItems)).toHaveBeenCalledTimes(2); // reconnected + reimported
-      // "Reimported" has to mean the retry's items reached ingest. Until ALI-827's review
+      // "Reimported" has to mean the retry's items reached ingest. Until the review
       // this fixture returned a bare array, the retry threw inside its own catch, printed
       // "Still failed", and the two assertions above held anyway - a reconnect path
       // certified by a test that never saw it succeed.
@@ -2899,7 +2899,7 @@ describe('align setup', () => {
     });
   });
 
-  describe('capture report (ALI-827)', () => {
+  describe('capture report', () => {
     const reportsPrinted = () =>
       logSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('Capture report'));
 

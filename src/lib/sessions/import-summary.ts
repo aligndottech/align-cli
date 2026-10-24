@@ -1,5 +1,5 @@
 /**
- * ALI-835: the line a human reads at the end of `align connect sessions`, and the counts the
+ * The line a human reads at the end of `align connect sessions`, and the counts the
  * funnel reports.
  *
  * The line is the product moment; the ping is the measurement. They are built from ONE object

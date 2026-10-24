@@ -1,5 +1,5 @@
 /**
- * ALI-938: getGitIdentities and hasOtherCommitters, against real temp git repos -
+ * getGitIdentities and hasOtherCommitters, against real temp git repos -
  * mirrors git-identity.test.ts's approach (a mocked execa would only prove the mock
  * was wired, not that git's actual `%ae%n%an` output shape is handled).
  *

@@ -32,7 +32,7 @@ import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } f
 // existed for and printed nothing. Retrieval alone measured 0.4-2.4s, which fits.
 const RETRIEVAL_TIMEOUT_MS = 2500;
 
-// Exit codes. `unknown` gets its own code (ALI-414) rather than reusing 1: "we found
+// Exit codes. `unknown` gets its own code rather than reusing 1: "we found
 // a conflict" and "we could not look" call for different responses, and a caller that
 // only tests for non-zero still treats both as a failure.
 const EXIT_CONFLICT = 1;
@@ -43,7 +43,7 @@ function isCheckDepth(v: string): v is CheckDepth {
 }
 
 /**
- * CI identity for the check, env-supplied by the align-check action (ALI-761 phase 2):
+ * CI identity for the check, env-supplied by the align-check action:
  * ALIGN_PLATFORM ('github-actions'), ALIGN_SUBJECT_KEY ('github:acme/repo#12'),
  * ALIGN_HEAD_SHA (the PR HEAD sha - GITHUB_SHA is the merge commit, so the action reads
  * the event payload). Environment rather than argv, deliberately: a new flag against an
@@ -85,7 +85,7 @@ export function registerCheckCommand(program: Command): void {
     .option('--hook', 'Pre-commit mode: silent on no context, only fail on critical conflicts')
     .option('--advisory', 'Agent hook mode: always exit 0, emit related (unadjudicated) decisions in the host agent\'s hook output shape. Detects pre vs post from the hook payload on stdin')
     .option('--format <format>', 'Advisory output shape for the host agent: claude (default), codex, cursor, copilot, gemini, pi, opencode, or text', 'claude')
-    .option('--block-on-critical', 'Advisory hook: adjudicate each proposed change in the background, and deny a RETRY of a change already judged a critical conflict (same tool, file and text - anything else proceeds). Opt-in on purpose - in local mode adjudication calls your own AI provider, once per edit (ALI-570)')
+    .option('--block-on-critical', 'Advisory hook: adjudicate each proposed change in the background, and deny a RETRY of a change already judged a critical conflict (same tool, file and text - anything else proceeds). Opt-in on purpose - in local mode adjudication calls your own AI provider, once per edit')
     .addOption(
       // The deferred adjudicator's entry point. Hidden: it is spawned by the advisory hook
       // with a payload file, never typed by a person.
@@ -95,20 +95,20 @@ export function registerCheckCommand(program: Command): void {
     .option('--json', 'Same output and exit codes as --ci: one JSON document on stdout')
     .option('--title <text>', 'The decision being proposed, in words (e.g. the PR title). Without it the gateway adjudicates on the first 200 characters of the diff, which is a file header and a few + lines')
     .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')
-    .option('--depth <depth>', `How deep an answer to request: ${CHECK_DEPTHS.join(', ')} - related is retrieval only, full (the gateway default) adjudicates behind its similarity cost gate, exhaustive adjudicates whatever was retrieved (for strict CI gates whose fail-on treats unknown as failure, ALI-708). Ignored in --advisory mode, which is retrieval-only by design`)
+    .option('--depth <depth>', `How deep an answer to request: ${CHECK_DEPTHS.join(', ')} - related is retrieval only, full (the gateway default) adjudicates behind its similarity cost gate, exhaustive adjudicates whatever was retrieved (for strict CI gates whose fail-on treats unknown as failure). Ignored in --advisory mode, which is retrieval-only by design`)
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
     .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; adjudicateDeferred?: string; format?: AdvisoryFormat; ci: boolean; json?: boolean; base?: string; title?: string; depth?: string; resolve?: string }) => {
-      // ALI-951: `--json` is the machine contract `--ci` already is - same document, same exit
+      // `--json` is the machine contract `--ci` already is - same document, same exit
       // codes (1 conflict, 2 unknown). One flag in the rest of this function, not two.
       if (opts.json) opts.ci = true;
-      // ALI-835: `--hook` and `--advisory` are the two ways this command runs as an agent hook.
+      // `--hook` and `--advisory` are the two ways this command runs as an agent hook.
       // Marked once, here, before any work: the funnel emitter reads it and refuses to send,
       // because a hook firing on every edit is not a person reaching a milestone. Marked for
       // both flags rather than only --advisory, since --hook is the pre-commit hook path.
       if (opts.hook || opts.advisory) markHookContext();
       // A typo'd depth must not silently become the gateway default: for a strict CI
       // caller that quiet fall-through would reintroduce the exact unadjudicated skip
-      // --depth exhaustive exists to remove (ALI-708). Above the advisory early-return, so
+      // --depth exhaustive exists to remove. Above the advisory early-return, so
       // the typo is loud on EVERY path. Narrowing by predicate rather than a cast, so
       // deleting this guard would take the typed value with it. EXIT_UNKNOWN on both
       // branches: exit 1 is the conflict code, and a usage error reported as "found a
@@ -124,14 +124,14 @@ export function registerCheckCommand(program: Command): void {
       }
       const depth = opts.depth as CheckDepth | undefined;
 
-      // The spawned adjudicator (ALI-570). Dispatched before advisory: it is the child the
+      // The spawned adjudicator. Dispatched before advisory: it is the child the
       // advisory hook launched, doing the slow full check after the hook window closed.
       if (opts.adjudicateDeferred) {
         await runDeferredAdjudication(String(opts.adjudicateDeferred), opts.env);
         return;
       }
 
-      // Advisory mode is the deterministic auto-alignment path (ALI-121/ALI-122):
+      // Advisory mode is the deterministic auto-alignment path:
       // non-blocking, fail-open, machine-readable. It owns the whole flow, never
       // touching the human-facing spinner/console output below.
       if (opts.advisory) {
@@ -156,7 +156,7 @@ export function registerCheckCommand(program: Command): void {
 
       // .alignrc was read here for { defaultEnv } and nothing anywhere wrote or documented it -
       // a third env-selection mechanism next to ALIGN_ENV and `align env set`, applying to this
-      // one command, with an unguarded JSON.parse. Dropped (ALI-505).
+      // one command, with an unguarded JSON.parse. Dropped.
       const envName: EnvName = resolveEnv(opts.env, { preferLocalEmbedded: true });
 
       const config = createConfigStore();
@@ -168,7 +168,7 @@ export function registerCheckCommand(program: Command): void {
         // An unresolvable base (a typo, a shallow clone with no history, a deleted branch)
         // must NOT fall through to the empty-diff path below: "I could not look" and "there
         // was nothing to look at" are the same green from the outside, which is the exact
-        // silent pass this option exists to remove (ALI-414).
+        // silent pass this option exists to remove.
         try {
           diff = await getBaseDiff(opts.base);
         } catch (err) {
@@ -234,7 +234,7 @@ export function registerCheckCommand(program: Command): void {
           process.stdout.write(`${JSON.stringify(result)}\n`);
           if (result.status === 'conflicting') process.exit(EXIT_CONFLICT);
           // CI is where a silent green costs the most: a check that could not run
-          // must not be indistinguishable from a check that found nothing (ALI-414).
+          // must not be indistinguishable from a check that found nothing.
           // `retrieved` joins `unknown` here: decisions came back unadjudicated, so nothing
           // was verified and a 0 would read as a clean check.
           process.exit(
@@ -307,7 +307,7 @@ export function registerCheckCommand(program: Command): void {
           if (opts.hook && !hasCritical) process.exit(0);
           process.exit(EXIT_CONFLICT);
         } else if (result.status === 'unknown') {
-          // ALI-414: the check did not run. Never a green header, and never the
+          // The check did not run. Never a green header, and never the
           // "no related decisions" line - the decisions may well be there, we just
           // could not classify them. Show them so the human can review by hand.
           console.log(chalk.yellow('\n  Could not check this change against your decision graph.\n'));
@@ -328,7 +328,7 @@ export function registerCheckCommand(program: Command): void {
           if (opts.hook) process.exit(0);
           process.exit(EXIT_UNKNOWN);
         } else if (result.status === 'retrieved') {
-          // Retrieval without adjudication, the third member of the family this file's ALI-414
+          // Retrieval without adjudication, the third member of the family this file's fail-closed
           // comments are about: not a pass, and emphatically not "nothing found", because
           // relevant_decisions is populated. Only the advisory hook asks for it today, and it
           // reads relevant_decisions rather than status - so this branch exists so that adding
@@ -359,8 +359,8 @@ export function registerCheckCommand(program: Command): void {
 // edit), and when retrieval finds related decisions print the hook JSON so they land
 // in the agent's context. One entrypoint serves both hook events, detected from the
 // payload Claude Code pipes on stdin:
-//   - PreToolUse  -> check the PROPOSED edit before it is written (ALI-122)
-//   - PostToolUse -> check the landed working-tree diff (ALI-121); also the path for
+//   - PreToolUse  -> check the PROPOSED edit before it is written
+//   - PostToolUse -> check the landed working-tree diff; also the path for
 //     a manual `align check --advisory` run with no piped payload.
 // Anything else (no repo, no diff, gateway down/slow, aligned) stays silent.
 // Fail-open is the whole point - a hook that blocks or errors on every edit gets disabled.
@@ -373,7 +373,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // scripts run from ~/.cursor/), and everything below - the post-edit git diff, the
     // dedup store, the verdict store - keys on process.cwd(). Move to the workspace the
     // host named before touching any of them. Fail-open: a cwd that does not exist is left
-    // alone and the check proceeds wherever it was started (ALI-952).
+    // alone and the check proceeds wherever it was started.
     if (payload?.cwd && existsSync(payload.cwd)) {
       try {
         process.chdir(payload.cwd);
@@ -408,12 +408,12 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       }
     };
 
-    // ALI-1648: a RATIFIED deterministic rule stops the FIRST attempt, inline. The pure
+    // A RATIFIED deterministic rule stops the FIRST attempt, inline. The pure
     // matcher runs first and costs nothing; the tenant's rules are fetched only when it hits,
     // so an ordinary edit pays no request. No ratified rule, an unreadable answer or local
     // mode (no starter rules) all fall through to the normal path: a deny rests on a person
     // having said "enforce this", never on a guess. Pre only - a landed edit cannot be refused.
-    // ALI-1648 break glass: ALIGN_RULES_ACK=1 skips this check for the session. The deny says
+    // Break glass: ALIGN_RULES_ACK=1 skips this check for the session. The deny says
     // "confirm with the user", and nothing else records that confirmation, so without a way
     // out an agent retrying identical text would be refused forever.
     // Deliberately NOT gated on --block-on-critical: that flag opts into blocking on a model's
@@ -448,7 +448,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       }
     }
 
-    // ALI-570: a deferred verdict answers a RETRY before any retrieval runs. CHANGE
+    // A deferred verdict answers a RETRY before any retrieval runs. CHANGE
     // identity, not file identity and not text identity - only a proposal matching what the
     // background adjudicator actually judged is answered here, so an adjusted approach
     // hashes differently and goes through the normal path. Everything below the flag check
@@ -500,7 +500,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     }
 
     if (found === null) {
-      // Never silent on a non-answer (ALI-414 / ALI-348).
+      // Never silent on a non-answer.
       emit(buildUnknownOutput(renderOpts));
       process.exit(0);
     }
@@ -511,7 +511,7 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // Genuinely nothing related: a real answer, so staying quiet is honest here.
     if (!found.length) process.exit(0);
 
-    // ALI-570: retrieval found decisions on this subject, so the proposed content is worth
+    // Retrieval found decisions on this subject, so the proposed content is worth
     // the slow full check - AFTER this hook returns. Spawned detached and unref'd so the
     // hook's exit is never coupled to the adjudicator's lifetime. PRE only: the proposed
     // text is the artefact a retry re-presents byte-for-byte, where the POST diff is already
@@ -561,7 +561,7 @@ interface AdjudicationPayload {
 }
 
 /**
- * Launch the deferred adjudicator (ALI-570). The payload travels by FILE, never argv:
+ * Launch the deferred adjudicator. The payload travels by FILE, never argv:
  * proposed content is arbitrary text of arbitrary size, and an argv would also parade it
  * through `ps`. Fail-open like everything else on the advisory path - a spawn that cannot
  * happen costs a verdict, never an edit.
@@ -604,7 +604,7 @@ function spawnDeferredAdjudication(payload: AdjudicationPayload, envName: EnvNam
  * The adjudicator: the slow full check, run after the hook window has closed. Its whole
  * output is one verdict row; a clean or unknowable result records an EMPTY verdict so the
  * same content is not re-adjudicated inside the TTL. `unknown` maps to empty deliberately -
- * could-not-check must stay fail-open (ALI-414), and a deny may only rest on an adjudicated
+ * could-not-check must stay fail-open, and a deny may only rest on an adjudicated
  * CRITICAL conflict. Always exits 0: nothing downstream reads this process's exit code, and
  * a crash here must never surface as anything at all.
  */
@@ -634,7 +634,7 @@ async function runDeferredAdjudication(payloadFile: string, env: EnvName): Promi
       ),
     ]);
     // `conflicting` is the ONLY status that may yield blockable conflicts. `unknown` records
-    // an unadjudicated row: could-not-check stays fail-open (ALI-414), and unlike a clean
+    // an unadjudicated row: could-not-check stays fail-open, and unlike a clean
     // verdict it must not suppress a retry for the full 15 minutes, or a user with no
     // provider gets a flag that is silently inert.
     const adjudicated = result.status !== 'unknown';
@@ -659,8 +659,8 @@ async function runDeferredAdjudication(payloadFile: string, env: EnvName): Promi
 
 type RelatedDecision = { id: string; title: string; summary?: string };
 
-// Retrieval finds decisions on the same SUBJECT. It does not encode opposition - ALI-410
-// measured the agreeing pair at cosine 0.38 against the contradicting pair at 0.31 - so this
+// Retrieval finds decisions on the same SUBJECT. It does not encode opposition - a measurement
+// put the agreeing pair at cosine 0.38 against the contradicting pair at 0.31 - so this
 // wording must never assert a conflict. Saying "related" is the honest claim and the useful one.
 export function buildRelatedOutput(decisions: RelatedDecision[], opts: AdvisoryRenderOpts): unknown | null {
   const lines = decisions.map((d) => `- ${d.title}`);
@@ -672,7 +672,7 @@ export function buildRelatedOutput(decisions: RelatedDecision[], opts: AdvisoryR
   return renderForHost(summary, opts, false);
 }
 
-// ALI-414 / ALI-348: a check that could not run is not a pass. Silence here would be
+// A check that could not run is not a pass. Silence here would be
 // indistinguishable from "nothing found", which is the exact fail-open both tickets closed.
 export function buildUnknownOutput(opts: AdvisoryRenderOpts): unknown | null {
   const summary = [
@@ -683,7 +683,7 @@ export function buildUnknownOutput(opts: AdvisoryRenderOpts): unknown | null {
 }
 
 /**
- * What a deferred verdict is stored and matched under (ALI-570): the PROPOSED CHANGE, and
+ * What a deferred verdict is stored and matched under: the PROPOSED CHANGE, and
  * deliberately not just its text.
  *
  * `proposedChangeText` is a lossy projection. An Edit's `new_string` and a Write's
@@ -753,7 +753,7 @@ export interface AdvisoryRenderOpts {
   blockOnCritical: boolean;
 }
 
-// Called from runAdvisory's deferred-verdict short-circuit (ALI-570): the hook itself is
+// Called from runAdvisory's deferred-verdict short-circuit: the hook itself is
 // retrieval-only, so the ONLY thing that reaches these blocking branches is a verdict the
 // background adjudicator recorded for this exact change.
 //
@@ -766,7 +766,7 @@ export interface AdvisoryRenderOpts {
 //           hookSpecificOutput block, additionalContext included).
 //   cursor  preToolUse reads {permission, user_message, agent_message} and nothing else,
 //           so a non-blocking pre-check emits NOTHING; postToolUse carries
-//           {additional_context}. The Gemini split (ALI-952).
+//           {additional_context}. The Gemini split.
 //   copilot preToolUse reads {permissionDecision, permissionDecisionReason}; postToolUse
 //           carries {additionalContext}. Same split. A non-zero exit DENIES there, which
 //           is one more reason this command exits 0 without exception.

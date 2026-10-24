@@ -1,5 +1,5 @@
 /**
- * ALI-949: `first_useful_decision` is once per INSTALL, and there are now two paths that can
+ * `first_useful_decision` is once per INSTALL, and there are now two paths that can
  * reach it - a human typing `align ask` and an agent calling `align_ask` over the local MCP
  * server. Both must share the one guard in recordFunnelStage (usage-telemetry.ts), so an
  * install that got its first answer on either path sends exactly one stage event, in

@@ -48,7 +48,7 @@ function seed(): Record<string, string> {
   ids['note'] = db.insertDecision({ title: 'a plain note', summary: 'we use postgres', sourceUrl: null, platform: 'cli' });
   ids['commit'] = db.insertDecision({ title: 'a commit', summary: 's', sourceUrl: 'https://github.com/o/r/commit/abcdef1', platform: 'git', keyed: true });
   db.insertLink({ sourceId: ids['plain1']!, targetId: ids['gh']!, relation: 'relates', confidence: 0.9 });
-  db.replaceRefs(ids['plain1']!, [{ ref: 'ALI-1', platform: 'linear' }]);
+  db.replaceRefs(ids['plain1']!, [{ ref: 'APP-1', platform: 'linear' }]);
   db.markRatified(ids['ratified']!, 'me');
   db.markConfirmed(ids['confirmed']!, 'me');
   db.insertAudit({ decisionId: ids['audited']!, action: 'pushed', actor: 'me' });

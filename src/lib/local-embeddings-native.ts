@@ -1,5 +1,5 @@
 /**
- * The npm distribution's embedding backend (ALI-1781): the same model, the same weights and the
+ * The npm distribution's embedding backend: the same model, the same weights and the
  * same arithmetic transformers.js ran, without transformers.js.
  *
  * transformers.js was only ever glue here - tokenize, run one ONNX graph, mean-pool, normalise -

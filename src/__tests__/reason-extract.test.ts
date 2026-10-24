@@ -1,5 +1,5 @@
 /**
- * ALI-1749: extractReason pulls the STATED reason out of a commit body, deterministically.
+ * extractReason pulls the STATED reason out of a commit body, deterministically.
  * A wrong "reason" is worse than none, so every shape that is not a reason must give null.
  * Fixtures are real commit-body shapes, including what the git importer embeds
  * (formatCommitAsText: Author/Date/Files changed/URL).
@@ -332,7 +332,7 @@ describe('wrong-polarity and look-alike inputs found in review give null', () =>
   });
 });
 
-describe('PR template checklists (ALI-1782)', () => {
+describe('PR template checklists', () => {
   it('never reads a ticked or unticked task-list item as a reason', () => {
     const body = [
       '## Checklist',

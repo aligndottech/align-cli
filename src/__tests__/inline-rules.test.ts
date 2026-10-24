@@ -1,5 +1,5 @@
 /**
- * ALI-1648: ratified deterministic rules stop an agent's FIRST attempt.
+ * Ratified deterministic rules stop an agent's FIRST attempt.
  *
  * The detector is pure and answers one question with one right answer: does this proposed
  * text carry a validated identifier or a known credential format. Whether that is a deny

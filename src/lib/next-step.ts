@@ -2,7 +2,7 @@ import type { EnvName } from './config.js';
 import { envFlag } from './destination-name.js';
 
 /**
- * ALI-950: after the wizard, the next step is in the agent.
+ * After the wizard, the next step is in the agent.
  *
  * Every one of Claude Code, Codex, Cursor, Gemini CLI and Copilot CLI makes first value a
  * chat turn in the agent, never a setup verb. Both outros used to end on `align ask ...`
@@ -55,7 +55,7 @@ export function agentConnectedLine(agents: string[]): string | undefined {
 }
 
 /**
- * ALI-1779: a decision title is only quoted into "why did we X?" when X is a base-form verb
+ * A decision title is only quoted into "why did we X?" when X is a base-form verb
  * phrase, so the result is a sentence. A raw commit subject is not one: "fix: error throwing in
  * reply (#6299)" has a conventional prefix and a PR number, and "Improved links to MADR" is past
  * tense. The prefix and PR number are stripped, and the rest must open with a verb from the list
@@ -95,8 +95,7 @@ export function pickAskableTitle(titles: readonly string[]): string | undefined 
 /**
  * The question to hand the agent. Against a REAL decision the wizard found when there is one,
  * because "why did we X" is checkable against the repo the user is sitting in. The fallback
- * is ABOUT the graph rather than in it, which is a bad thing to type into `align ask` (ALI-771:
- * on-device search matches nothing) and a fine thing to ask an agent, which answers it with a
+ * is ABOUT the graph rather than in it, which is a bad thing to type into `align ask` (on-device search matches nothing) and a fine thing to ask an agent, which answers it with a
  * list tool rather than a similarity search.
  */
 export function firstQuestion(firstTitle: string | undefined): string {
@@ -141,10 +140,10 @@ export function agentAskLine(opts: {
 }
 
 /**
- * The ALI-215 readout's numbers the card shows. `mode` decides the label: cloud reads a
+ * The readout's numbers the card shows. `mode` decides the label: cloud reads a
  * windowed impact and reuse rate off the gateway (the caller says how many days), local has
  * no window at all - its link counts are all-time - and nothing writes a conflict link
- * offline, so a zero there is hidden rather than printed as a broken counter (ALI-503, the
+ * offline, so a zero there is hidden rather than printed as a broken counter (the
  * same rule renderValueReadout applies).
  *
  * The ticket asked for "N conflicts caught, M answers served". The readout has no
@@ -198,7 +197,7 @@ export function renderSecondRunCard(card: SecondRunCard): string {
   if (card.value) lines.push(`  ${valueLine(card.value)}`);
   lines.push('');
   if (!card.hasDecisions) {
-    // ALI-951: the one verb, and it is the picker - git needs no token and is the first row.
+    // The one verb, and it is the picker - git needs no token and is the first row.
     lines.push('  Your graph is empty. Fill it:');
     lines.push('    align connect');
   } else {

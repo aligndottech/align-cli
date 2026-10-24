@@ -14,11 +14,11 @@ export interface GitCommit {
 export interface CommitHistoryResult {
   commits: GitCommit[];
   /** Every commit `git log` returned, before either promotion filter ran - i.e. what
-   *  `commits.length` is a fraction OF. Needed to report "fewer, better rows" honestly
-   *  (ALI-804): `commits.length` alone reads as "this is everything", not as a kept count. */
+   *  `commits.length` is a fraction OF. Needed to report "fewer, better rows" honestly:
+   * `commits.length` alone reads as "this is everything", not as a kept count. */
   scanned: number;
   /** Commits whose subject passed isDecisionCommit's shape check but whose body stated
-   *  no reason (ALI-804's rationale gate) - the "what changed, not why" case. Kept
+   *  no reason (the rationale gate) - the "what changed, not why" case. Kept
    *  separate from `scanned - commits.length`, which also includes the PRE-EXISTING
    *  subject-shape rejections (chore/wip/merge/too-short) - folding those into "no
    *  stated reason" overstates what THIS gate did (Copilot review, PR #223). */
@@ -55,7 +55,7 @@ export async function getCommitHistoryDetailed(opts: {
   // --name-only fetches metadata + file list in one git invocation,
   // replacing the previous O(N) approach of one git show --stat per commit.
   //
-  // ALI-792: %b (the body) is in the format now, and merges are no longer excluded.
+  // %b (the body) is in the format now, and merges are no longer excluded.
   // The body is where the evidence lives - ticket refs, closes #N, thread links, and
   // on squash-merge repos the whole PR description - and it was previously discarded
   // (body was hard-coded ''). Porcelain-created commits end a non-empty %b with a
@@ -107,12 +107,12 @@ export async function getCommitHistoryDetailed(opts: {
     scanned++;
     const shaped = resolveCommitShape(subject, bodyLines.join('\n').trimEnd());
     if (!isDecisionCommit(shaped.subject)) return;
-    // A promoted merge (ALI-792) already cleared an extra bar: its subject came from the
+    // A promoted merge already cleared an extra bar: its subject came from the
     // body's own first line via isDecisionCommit, and its body always retains the original
     // "Merge pull request #N from x/y" line for the PR ref - so it never needs to ALSO
     // clear the rationale bar below. A plain commit gets no such head start: its subject
     // is unvetted prose, so the body has to state why, or it is pure "what changed"
-    // (ALI-804 - the whole complaint this filter exists to answer).
+    // (the whole complaint this filter exists to answer).
     const wasPromotedMerge = shaped.subject !== subject;
     if (!wasPromotedMerge && !hasStatedRationale(shaped.subject, shaped.body)) {
       rejectedByRationale++;
@@ -200,7 +200,7 @@ function resolveCommitShape(subject: string, body: string): { subject: string; b
 }
 
 // Built from the shared list rather than spelled here, so the capture report's
-// "mechanical subject (...)" line and this predicate cannot disagree (ALI-827).
+// "mechanical subject (...)" line and this predicate cannot disagree.
 const MECHANICAL_SUBJECT_RE = mechanicalSubjectRegex(MECHANICAL_SUBJECT_PREFIXES);
 
 export function isDecisionCommit(subject: string): boolean {
@@ -212,7 +212,7 @@ export function isDecisionCommit(subject: string): boolean {
 }
 
 // A line that IS a git trailer (key: value at the start of the line), not merely a
-// sentence that happens to mention one of these words mid-line - "Refs ALI-123 and
+// sentence that happens to mention one of these words mid-line - "Refs APP-123 and
 // closes #45." inside a real paragraph must NOT be stripped, only a line that is
 // nothing but the trailer.
 const TRAILER_LINE_RE = /^(co-authored-by|signed-off-by|reviewed-by|acked-by|helped-by|cc|refs?|closes?|fixes?|resolves?)\s*:\s*\S/i;
@@ -229,11 +229,11 @@ function normalizeForEcho(s: string): string {
 
 /**
  * Does this commit's body actually state a reason, once the noise is stripped? Measured
- * while filtering ALI-804's git-only import: a body-shaped string is not automatically a
+ * while filtering the git-only import: a body-shaped string is not automatically a
  * WHY - a git trailer inflates "has a body" with no rationale in it, and a squash-merge
  * bullet that just repeats the subject ("* fix: same as the subject") reads as prose
  * while adding none. This is the same "prose in body, non-mechanical subject" proxy the
- * ALI-804 measurement itself used to produce its headline numbers, made executable.
+ * original measurement itself used to produce its headline numbers, made executable.
  */
 export function hasStatedRationale(subject: string, body: string): boolean {
   if (!body.trim()) return false;
@@ -257,7 +257,7 @@ export async function getRemoteUrl(opts: { cwd?: string } = {}): Promise<string 
 }
 
 /**
- * ALI-831: who is at this keyboard, for `ratified_by` on the local graph. Email first, then
+ * Who is at this keyboard, for `ratified_by` on the local graph. Email first, then
  * name, because the email is what the cloud's `ratified_by` (a user id resolved from a
  * login) most nearly corresponds to when the row is later pushed. Null when git knows
  * neither; the caller falls back to the OS user rather than writing an empty string, since
@@ -276,7 +276,7 @@ export async function getGitIdentity(opts: { cwd?: string } = {}): Promise<strin
 }
 
 /**
- * ALI-831: who is running this command, for `ratified_by` / `decision_audit.actor`. Git's
+ * Who is running this command, for `ratified_by` / `decision_audit.actor`. Git's
  * identity first, then the OS user - never an empty string, because an unattributed human
  * act is exactly the record these columns exist to prevent. Shared by every command that
  * attributes a human act (`align ratify`, `align push`'s audit row) so "who did this" is
@@ -287,7 +287,7 @@ export async function resolveLocalIdentity(): Promise<string> {
 }
 
 /**
- * ALI-938: both halves of local git identity, kept separate rather than collapsed the
+ * Both halves of local git identity, kept separate rather than collapsed the
  * way `getGitIdentity` collapses to "whichever is set". The invite nudge compares a
  * decision's author against BOTH an email and a display name (a search result may carry
  * either or both), and picking just one up front would throw away whichever field the
@@ -307,7 +307,7 @@ export async function getGitIdentities(opts: { cwd?: string } = {}): Promise<{ e
 }
 
 /**
- * ALI-938: does this repo's recent history carry a commit from someone other than the
+ * Does this repo's recent history carry a commit from someone other than the
  * given identity - the "there's a teammate to invite" signal behind the `align ask`
  * empty-result nudge. Capped at the last 100 commits: this backs a one-line nudge, not
  * an audit, and a bounded `git log` keeps it cheap even on a large repo. Defaults to
@@ -337,7 +337,7 @@ export async function hasOtherCommitters(
 }
 
 /**
- * The absolute repo root, for the ALI-798 fallback identity when a repo has no
+ * The absolute repo root, for the fallback identity when a repo has no
  * remote (or one `repoFromRemoteUrl` does not recognise): a self-hosted GHES, or a
  * repo that has never been pushed. `--show-toplevel` always returns an absolute
  * path, so this can never collide with the `host/owner/repo` identity shape.

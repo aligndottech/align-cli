@@ -1,6 +1,6 @@
 /**
  * L4: what to preselect when a person picks a Jira project or a Linear team: the ticket prefixes their own decisions already
- * cite (`decision_refs`, ALI-792). A suggestion only - the picker shows it, and a non-interactive run uses it as the plan says
+ * cite (`decision_refs`). A suggestion only - the picker shows it, and a non-interactive run uses it as the plan says
  * (Decision 7) - so it is cheap, local and never an error: no graph, no refs table or no refs all give an empty list.
  */
 import fs from 'node:fs';

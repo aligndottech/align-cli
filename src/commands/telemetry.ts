@@ -4,11 +4,11 @@ import { createConfigStore } from '../lib/config.js';
 import { getTelemetryStatus } from '../lib/usage-telemetry.js';
 
 /**
- * ALI-618: `align telemetry on|off|status`. `on`/`off` set the LOCAL decision - the cloud
+ * `align telemetry on|off|status`. `on`/`off` set the LOCAL decision - the cloud
  * opt-out default is controlled by ALIGN_TELEMETRY, not by this command - and `status` says
  * which model applies (see usage-telemetry.ts's getTelemetryStatus).
  *
- * ALI-954: `off` stores 'off', which stops everything - the usage pings, the two anonymous
+ * `off` stores 'off', which stops everything - the usage pings, the two anonymous
  * counts (install, setup completed) and, since the review of C6, cloud-mode events too. A stored
  * No from the pre-C6 consent question ('declined') now stops the local ones the same way.
  */
@@ -42,7 +42,7 @@ export function registerTelemetryCommand(program: Command): void {
       const config = createConfigStore();
       const { resolveEnv } = await import('../lib/resolve-env.js');
       // preferLocalEmbedded: true, or a never-logged-in local-only user (defaultEnv stays
-      // 'prod' by design, ALI-87) sees "cloud mode, opt-out default" here regardless of their
+      // 'prod' by design) sees "cloud mode, opt-out default" here regardless of their
       // actual local consent - the exact honesty gap this command exists to close. A
       // fresh-context review caught this.
       const env = config.getEnvironment(resolveEnv(undefined, { preferLocalEmbedded: true }));

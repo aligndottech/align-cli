@@ -1,10 +1,10 @@
 /**
- * ALI-787: the `decision_embeddings.model` column - which HF model produced this vector.
+ * The `decision_embeddings.model` column - which HF model produced this vector.
  *
  * `decision_embeddings` had no model tag at all before this: every vector was silently
  * assumed to be Xenova/all-MiniLM-L6-v2, the only model this graph has ever embedded with
  * (verified against git history - no other model id was ever hardcoded in
- * local-embeddings.ts/local-embeddings-wasm.ts). ALI-787's evaluation did not adopt a
+ * local-embeddings.ts/local-embeddings-wasm.ts). The evaluation did not adopt a
  * replacement model (see docs/embedding-model-evaluation.md), but a future swap needs this
  * column to avoid comparing two models' vectors as if they were compatible - same-length
  * float arrays from different models pass cosineSimilarity's length check and produce a

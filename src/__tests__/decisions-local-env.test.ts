@@ -6,7 +6,7 @@ import { createLocalDb } from '../lib/local-db.js';
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
 /**
- * ALI-772. `align decisions list` 401'd for a no-account local user: `decisions` was left off
+ * `align decisions list` 401'd for a no-account local user: `decisions` was left off
  * the preferLocalEmbedded redirect that ask, search and import have, so the obvious command
  * for "show me my graph" resolved to an unauthenticated cloud default.
  *

@@ -33,7 +33,7 @@ import { registerSyncCommand } from './sync.js';
 import { registerMarkCommand } from './mark.js';
 
 /**
- * ALI-951: the one list of top-level commands. `align --help` shows the `visible` ones and
+ * The one list of top-level commands. `align --help` shows the `visible` ones and
  * nothing else; every other command still parses and runs, and docs/commands.md (generated
  * from this list by `npm run docs:commands`) is where it is documented. A register function
  * that adds a command this list does not name fails help-tiers.test.ts, so a new command
@@ -41,7 +41,7 @@ import { registerMarkCommand } from './mark.js';
  *
  * Measured before this list existed (origin/main 279672f): 24 visible top-level commands,
  * 29 subcommands, 137 flags, `align --help` 54 lines. Commands kept being added after
- * ALI-773's "20-command wall" complaint (ratify, push, invite), because nothing said which
+ * The "20-command wall" complaint (ratify, push, invite), because nothing said which
  * tier a new one belonged to.
  */
 export interface CommandEntry {
@@ -84,7 +84,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
     summary: 'Connect a source and import its decisions',
     register: registerImportCommand,
   },
-  // ALI-951: retired in 0.40.0 and still registered, so `align import git` in an old script
+  // Retired in 0.40.0 and still registered, so `align import git` in an old script
   // fails loudly naming `align connect` instead of being swallowed by the default free-text
   // action and exiting 0. Not `internal` - that means Align team only, and the people who need
   // this are customers with the old spelling saved.
@@ -118,9 +118,9 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
     register: registerCheckCommand,
   },
   { names: ['adjudicate'], visible: false, summary: 'Answer a check the judge declined to rule on', register: registerAdjudicateCommand },
-  // ALI-831: agent decisions as claims - the human act, and the per-item promotion after it.
+  // Agent decisions as claims - the human act, and the per-item promotion after it.
   { names: ['ratify'], visible: false, summary: 'Stand behind an agent-made decision', register: registerRatifyCommand },
-  // ALI-1578: the human-confirmed alias glossary. Hidden like ratify: an occasional review, not an everyday verb.
+  // The human-confirmed alias glossary. Hidden like ratify: an occasional review, not an everyday verb.
   { names: ['glossary'], visible: false, summary: 'Review your org alias glossary (cloud)', register: registerGlossaryCommand },
   { names: ['share'], visible: true, summary: 'Bring your local decisions to your team graph (alias: push)', register: registerShareCommand },
 

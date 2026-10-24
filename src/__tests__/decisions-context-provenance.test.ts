@@ -1,5 +1,5 @@
 /**
- * ALI-831: `align context sync` is consumed by agents that only read files, so the
+ * `align context sync` is consumed by agents that only read files, so the
  * agent-decided/unratified label has to be IN THE TEXT. Unratified agent claims render in
  * their own section, separated from the decisions the rest of the file states as fact, and
  * carry the same label decisions-context and the local MCP server both print

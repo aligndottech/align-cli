@@ -1,9 +1,9 @@
 /**
- * ALI-808: `confirmSessionDecision` is the confirm-each importer's one write path - ingest
+ * `confirmSessionDecision` is the confirm-each importer's one write path - ingest
  * exactly like `ingestBatch` does (same `ingestOne`, so `platform: 'agent-session'` derives
- * `decider_kind: 'agent'` for free via ALI-831's deriveDeciderKind), then stamp confirmed_by
+ * `decider_kind: 'agent'` for free via the deriveDeciderKind), then stamp confirmed_by
  * / confirmed_at via the new local-db.ts `markConfirmed`. Kept in its own file for the same
- * reason as local-db-confirm.test.ts: this is the one small addition to a file ALI-808 does
+ * reason as local-db-confirm.test.ts: this is the one small addition to a file session import does
  * not otherwise own.
  *
  * Test List:
@@ -23,7 +23,7 @@ vi.mock('../lib/similarity/embedding-matrix.js', async () =>
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.0),
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',

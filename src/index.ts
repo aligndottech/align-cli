@@ -30,7 +30,7 @@ process.on('unhandledRejection', handleFatal);
 // A synchronous write: an asynchronous stderr pipe (macOS) is not flushed once 'exit' runs.
 process.on('exit', () => printRedactionNotice((line) => { try { writeSync(2, `${line}\n`); } catch { /* stderr closed */ } }));
 
-// One-time directory migrations (ALI-819, Copilot review on #231), run exactly once at
+// One-time directory migrations (Copilot review on #231), run exactly once at
 // real process startup - never inside createConfigStore()/getLocalDbPath() themselves,
 // which stay pure so tests that mock `conf` don't also need to mock the filesystem.
 // A migration is a nice-to-have, never a requirement: an unreadable/unwritable
@@ -67,6 +67,6 @@ try {
   handleFatal(e);
 }
 
-// The command tree lives in cli.ts, built from src/commands/registry.ts (ALI-951), so the
+// The command tree lives in cli.ts, built from src/commands/registry.ts, so the
 // help, the doc generator and the tests read the same list this entry point parses.
 buildProgram().parseAsync().catch(handleFatal);

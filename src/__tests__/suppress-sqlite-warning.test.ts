@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { installSqliteWarningFilter } from '../lib/suppress-sqlite-warning.js';
 
 /**
- * ALI-1779: Node 22.16 prints "ExperimentalWarning: SQLite is an experimental feature" on
+ * Node 22.16 prints "ExperimentalWarning: SQLite is an experimental feature" on
  * every command because the local graph uses node:sqlite. Only that one warning is dropped.
  */
 function fakeProcess() {

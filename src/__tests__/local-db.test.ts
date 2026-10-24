@@ -85,7 +85,7 @@ describe('local-db', () => {
   });
 });
 
-// ALI-796: getAllRefs is the graph-wide read the gap resolver needs - one row per
+// getAllRefs is the graph-wide read the gap resolver needs - one row per
 // (decision, ref), across every decision, so unresolvedGaps can count DISTINCT
 // decisions per platform without a per-decision round trip.
 describe('getAllRefs', () => {
@@ -93,12 +93,12 @@ describe('getAllRefs', () => {
     const db = createLocalDb(':memory:');
     const a = db.insertDecision({ title: 'A', summary: '', sourceUrl: null, platform: 'git' });
     const b = db.insertDecision({ title: 'B', summary: '', sourceUrl: null, platform: 'git' });
-    db.replaceRefs(a, [{ ref: 'ALI-123', platform: 'tracker' }]);
+    db.replaceRefs(a, [{ ref: 'APP-123', platform: 'tracker' }]);
     db.replaceRefs(b, [{ ref: '#45', platform: 'code' }]);
     const all = db.getAllRefs();
     db.close();
 
-    expect(all).toContainEqual({ decisionId: a, ref: 'ALI-123', platform: 'tracker' });
+    expect(all).toContainEqual({ decisionId: a, ref: 'APP-123', platform: 'tracker' });
     expect(all).toContainEqual({ decisionId: b, ref: '#45', platform: 'code' });
     expect(all).toHaveLength(2);
   });
@@ -111,20 +111,20 @@ describe('getAllRefs', () => {
   });
 });
 
-// ALI-796: the payoff half of the gap-driven pull - once the missing source is
+// The payoff half of the gap-driven pull - once the missing source is
 // imported, resolve the pre-existing ref into a real graph link.
 describe('resolveRefs', () => {
   it('links a citing decision to the newly-ingested decision it names', () => {
     const db = createLocalDb(':memory:');
-    const citer = db.insertDecision({ title: 'Switch to JWT', summary: 'Refs ALI-123', sourceUrl: null, platform: 'git' });
-    db.replaceRefs(citer, [{ ref: 'ALI-123', platform: 'tracker' }]);
+    const citer = db.insertDecision({ title: 'Switch to JWT', summary: 'Refs APP-123', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'APP-123', platform: 'tracker' }]);
 
     const jiraDecision = db.insertDecision({
-      title: 'ALI-123', summary: '', sourceUrl: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira',
+      title: 'APP-123', summary: '', sourceUrl: 'https://acme.atlassian.net/browse/APP-123', platform: 'jira',
     });
     db.resolveRefs(jiraDecision, [
-      { ref: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira' },
-      { ref: 'ALI-123', platform: 'tracker' },
+      { ref: 'https://acme.atlassian.net/browse/APP-123', platform: 'jira' },
+      { ref: 'APP-123', platform: 'tracker' },
     ]);
 
     const links = db.listLinks({ decisionId: jiraDecision });
@@ -137,15 +137,15 @@ describe('resolveRefs', () => {
 
   it('does nothing when no existing ref names the candidate identity', () => {
     const db = createLocalDb(':memory:');
-    const citer = db.insertDecision({ title: 'Switch to JWT', summary: 'Refs ALI-999', sourceUrl: null, platform: 'git' });
-    db.replaceRefs(citer, [{ ref: 'ALI-999', platform: 'tracker' }]);
+    const citer = db.insertDecision({ title: 'Switch to JWT', summary: 'Refs APP-999', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'APP-999', platform: 'tracker' }]);
 
     const jiraDecision = db.insertDecision({
-      title: 'ALI-123', summary: '', sourceUrl: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira',
+      title: 'APP-123', summary: '', sourceUrl: 'https://acme.atlassian.net/browse/APP-123', platform: 'jira',
     });
     db.resolveRefs(jiraDecision, [
-      { ref: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira' },
-      { ref: 'ALI-123', platform: 'tracker' },
+      { ref: 'https://acme.atlassian.net/browse/APP-123', platform: 'jira' },
+      { ref: 'APP-123', platform: 'tracker' },
     ]);
 
     expect(db.listLinks({ decisionId: jiraDecision })).toEqual([]);
@@ -155,12 +155,12 @@ describe('resolveRefs', () => {
   it('does not link a decision to itself when its own ref shape happens to match', () => {
     const db = createLocalDb(':memory:');
     const jiraDecision = db.insertDecision({
-      title: 'ALI-123', summary: 'Refs ALI-123', sourceUrl: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira',
+      title: 'APP-123', summary: 'Refs APP-123', sourceUrl: 'https://acme.atlassian.net/browse/APP-123', platform: 'jira',
     });
-    db.replaceRefs(jiraDecision, [{ ref: 'ALI-123', platform: 'tracker' }]);
+    db.replaceRefs(jiraDecision, [{ ref: 'APP-123', platform: 'tracker' }]);
     db.resolveRefs(jiraDecision, [
-      { ref: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira' },
-      { ref: 'ALI-123', platform: 'tracker' },
+      { ref: 'https://acme.atlassian.net/browse/APP-123', platform: 'jira' },
+      { ref: 'APP-123', platform: 'tracker' },
     ]);
 
     expect(db.listLinks({ decisionId: jiraDecision })).toEqual([]);
@@ -169,14 +169,14 @@ describe('resolveRefs', () => {
 
   it('is idempotent: resolving twice does not create a duplicate link', () => {
     const db = createLocalDb(':memory:');
-    const citer = db.insertDecision({ title: 'Switch to JWT', summary: 'Refs ALI-123', sourceUrl: null, platform: 'git' });
-    db.replaceRefs(citer, [{ ref: 'ALI-123', platform: 'tracker' }]);
+    const citer = db.insertDecision({ title: 'Switch to JWT', summary: 'Refs APP-123', sourceUrl: null, platform: 'git' });
+    db.replaceRefs(citer, [{ ref: 'APP-123', platform: 'tracker' }]);
     const jiraDecision = db.insertDecision({
-      title: 'ALI-123', summary: '', sourceUrl: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira',
+      title: 'APP-123', summary: '', sourceUrl: 'https://acme.atlassian.net/browse/APP-123', platform: 'jira',
     });
     const candidates = [
-      { ref: 'https://acme.atlassian.net/browse/ALI-123', platform: 'jira' },
-      { ref: 'ALI-123', platform: 'tracker' },
+      { ref: 'https://acme.atlassian.net/browse/APP-123', platform: 'jira' },
+      { ref: 'APP-123', platform: 'tracker' },
     ];
     db.resolveRefs(jiraDecision, candidates);
     db.resolveRefs(jiraDecision, candidates);

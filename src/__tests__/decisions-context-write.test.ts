@@ -1,5 +1,5 @@
 /**
- * ALI-196: the DoD asks for a proof that WRITES, preserving hand-written content.
+ * The DoD asks for a proof that WRITES, preserving hand-written content.
  *
  * `decisions-context.test.ts` pins the pure renderers. This pins the part that touches a real
  * filesystem, because "their bytes survive" is a claim about disk, and a string function
@@ -39,7 +39,7 @@ afterEach(() => {
 
 const read = (rel: string) => fs.readFileSync(path.join(repo, rel), 'utf8');
 
-describe('ALI-196 writing to a real repo', () => {
+describe('writing to a real repo', () => {
   it('creates the owned file, including its directory', async () => {
     // .align/ does not exist yet, which is the normal first run.
     await writeDecisionsContext(repo, DECISIONS);

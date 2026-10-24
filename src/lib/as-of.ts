@@ -1,13 +1,13 @@
 /**
- * ALI-1411: the as-of cutoff (`align mcp --created-before`) applied to every read tool.
+ * The as-of cutoff (`align mcp --created-before`) applied to every read tool.
  *
- * ALI-1082 bounded only the three tools built on `searchDecisions`, because smart-search is the
+ * The cutoff first bounded only the three tools built on `searchDecisions`, because smart-search is the
  * one gateway route that accepts `created_before`. Every other read tool answered from the whole
  * graph, so a frozen AlignBench run could cite a decision captured after its cutoff - v7 Jira
- * rep 3 failed by citing ALI-391 exactly that way.
+ * rep 3 failed by citing a post-cutoff decision exactly that way.
  *
  * Where the backend can bound the query it does (conflicts ride the decision-links timestamp
- * cursor; see ALI-1420 below for three more). Everything else is filtered HERE, by each row's own
+ * cursor; see the cloud note below for three more). Everything else is filtered HERE, by each row's own
  * `created_at`, because the gateway routes behind them take no as-of parameter. Three rules hold throughout:
  *
  * - **Fail closed.** A row with no timestamp, or one that does not parse, is dropped: an unknown
@@ -18,7 +18,7 @@
  *   post-cutoff decision tells the agent it exists.
  * - **No cutoff, no change.** Callers only reach this module when a cutoff is set.
  *
- * ALI-1420 (cloud): `/alignment/check`, `/decisions/topic-timeline` and `/decisions/:id/impact`
+ * Cloud: `/alignment/check`, `/decisions/topic-timeline` and `/decisions/:id/impact`
  * take `created_before` and bound the query server-side (retrieval before the judge, the LIMIT,
  * the traversal's edges), and mcp.ts sends it. The filters below still run as a backstop for a
  * gateway that predates the parameter. Local mode refuses --created-before outright.
@@ -30,7 +30,7 @@
  * survives, since only its citations are filtered.
  *
  * What client-side filtering cannot see on its own, against a gateway that predates
- * `created_before` (an ALI-1420 gateway closes the first three and the limits):
+ * `created_before` (a gateway that takes `created_before` closes the first three and the limits):
  * a row's `status` is its status today (a decision superseded after the cutoff still reads
  * `superseded`); an impact-graph EDGE recorded after the cutoff between two older decisions is
  * invisible in that response; `/alignment/check`'s verdict was reached by a judge that saw

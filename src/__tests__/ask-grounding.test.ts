@@ -10,7 +10,7 @@ import {
 import { isHousekeeping } from '../lib/ask-evidence.js';
 
 /**
- * ALI-1749 / ALI-1782: the model-written `align ask` answer must be grounded. The context is
+ * The model-written `align ask` answer must be grounded. The context is
  * built from structured evidence (id, title, date, source, similarity, the extracted stated
  * reason) instead of raw bodies, so the model has a field to quote and a visible marker for
  * "this row states no reason". Only the provider boundary (fetch) is faked.

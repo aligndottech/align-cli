@@ -10,7 +10,7 @@ interface DecisionRow {
   title: string;
   summary: string;
   platform: string;
-  // Optional: local-embedded search returns no status (ALI-1063 follow-up: absent beats
+  // Optional: local-embedded search returns no status (absent beats
   // fabricated). formatBrief already treated a falsy status as 'unknown' before this type
   // admitted it could be one - that fallback just stopped being decoration.
   status?: string;

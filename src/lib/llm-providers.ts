@@ -38,7 +38,7 @@ export type NamedProviderId =
   | 'huggingface' | 'baseten' | 'xiaomi' | 'qwen' | 'qwen-token-plan' | 'minimax' | 'kimi-coding' | 'vercel-ai-gateway';
 
 /**
- * In the fixed fallback order (ALI-1284: Groq ahead of Gemini, so the free pairing has a real
+ * In the fixed fallback order (Groq ahead of Gemini, so the free pairing has a real
  * primary). A provider is only ever tried when the user has a key for it.
  */
 export const NAMED_PROVIDERS: readonly NamedProvider[] = [
@@ -60,7 +60,7 @@ export const NAMED_PROVIDERS: readonly NamedProvider[] = [
     keyUrl: 'https://console.groq.com/keys',
   },
   {
-    // ALI-1284: a Flash-Lite model, which is what the free pairing is sold as. Override with
+    // A Flash-Lite model, which is what the free pairing is sold as. Override with
     // ALIGN_GEMINI_MODEL if Google retires it.
     autoFromEnv: true,
     id: 'gemini', label: 'Gemini', keyEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], modelEnv: 'ALIGN_GEMINI_MODEL',

@@ -3,8 +3,8 @@
  *
  * A search hit whose status is not `active` is close to useless on its own: it tells an agent
  * the decision is contested or replaced and nothing about by WHAT. The gateway answers both
- * halves - `successor` (what REPLACED this, align-stack ALI-1066/#2443) and `conflicts_with`
- * (what CONTESTS this, ALI-1092/#2461) - as `{ id, title, source_url, relation }`.
+ * halves - `successor` (what REPLACED this, align-stack#2443) and `conflicts_with`
+ * (what CONTESTS this, align-stack#2461) - as `{ id, title, source_url, relation }`.
  *
  * WHAT THIS DOES NOT DO, because it was already true: it does not make those fields reach the
  * agent. `align mcp`'s search arms have always been a pass-through - `serializeMcpResult` is a
@@ -72,7 +72,7 @@ export function normaliseDecisionRelation(raw: unknown): DecisionRelation | unde
 }
 
 /**
- * ALI-1412: the LATER decisions on a row's topic (align-stack db/laterOnTopic.ts) - up to 3,
+ * The LATER decisions on a row's topic (align-stack db/laterOnTopic.ts) - up to 3,
  * linked or merely similar, each `{ id, title, source_url, status?, date, date_basis,
  * relation?, direction?, similarity? }`. Unlike the two fields above it is a LIST and is present
  * regardless of status: the case it exists for is an `active` row a later, unlinked decision
@@ -95,7 +95,7 @@ export function normaliseLaterOnTopic(raw: unknown): DecisionRelation[] | undefi
  * Apply the contract to a search payload, leaving everything else exactly as the gateway sent it.
  *
  * Non-array `results`, a non-object row, or a row with neither field are all pass-throughs.
- * This runs on every search response including local-embedded ones - as of ALI-1065, local
+ * This runs on every search response including local-embedded ones - now, local
  * `searchDecisions`/`listDecisions` DO read `decision_links` (via `relationFieldsFor` in
  * local-gateway-client.ts) and can emit a real `successor`/`conflicts_with`, written at
  * capture time by `classifyRelationship` or left as a plain `relates` cosine edge that emits

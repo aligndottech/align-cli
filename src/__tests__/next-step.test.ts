@@ -10,7 +10,7 @@ import {
 } from '../lib/next-step.js';
 
 /**
- * ALI-950. After the wizard, the next step happens in the agent, not at the prompt. Every
+ * After the wizard, the next step happens in the agent, not at the prompt. Every
  * one of Claude Code, Codex, Cursor, Gemini CLI and Copilot CLI makes first value a chat
  * turn in the agent, never a setup verb - so the outro and the second-run card name the
  * agent and the question, and name no CLI verb.
@@ -83,7 +83,7 @@ describe('firstQuestion', () => {
     expect(firstQuestion(undefined)).toBe('what decisions exist in this codebase?');
   });
 
-  // ALI-934 preview QA (2026-09-11): a real imported title read as a policy statement, not
+  // Preview QA (2026-09-11): a real imported title read as a policy statement, not
   // an action phrase, and got jammed into the template verbatim - "why did we All PRs must
   // pass typecheck, lint, test, and build before pushing?" is not a sentence. A title that
   // already reads as its own rule falls back instead of being forced into the template.
@@ -177,7 +177,7 @@ describe('renderSecondRunCard', () => {
     expect(card).toContain('This week    0 conflicts caught, reuse rate n/a');
   });
 
-  it('local: has no window and no conflict counter offline (ALI-503), so it says what it knows', () => {
+  it('local: has no window and no conflict counter offline, so it says what it knows', () => {
     // Nothing writes a conflict link offline, so a zero there reads as a broken counter and
     // is hidden; a real one appears the moment it exists, same rule as renderValueReadout.
     expect(renderSecondRunCard(full)).toContain('So far       12 decisions in your graph');
@@ -215,12 +215,12 @@ describe('renderSecondRunCard', () => {
 });
 
 /**
- * ALI-1779 (Show HN cold read): the suggested first question was a raw commit subject dropped
+ * Show HN cold read: the suggested first question was a raw commit subject dropped
  * into "why did we ...?", giving "why did we fix: error throwing in reply (#6299)?". A
  * subject is only quoted when it reads as a base-form verb phrase once its conventional prefix
  * and PR number are stripped; anything else falls back to the generic question.
  */
-describe('firstQuestion with real commit subjects (ALI-1779)', () => {
+describe('firstQuestion with real commit subjects', () => {
   const GENERIC = 'what decisions exist in this codebase?';
   const cases: Array<[string, string | undefined, string]> = [
     ['conventional prefix and PR number stripped', 'fix: close fastify instance (#6177)', 'why did we close fastify instance?'],
@@ -251,7 +251,7 @@ describe('firstQuestion with real commit subjects (ALI-1779)', () => {
   });
 });
 
-describe('pickAskableTitle (ALI-1779)', () => {
+describe('pickAskableTitle', () => {
   it('returns the first title that makes a grammatical question, raw', () => {
     expect(pickAskableTitle(['Improved links to MADR', 'fix: close fastify instance (#6177)', 'use postgres']))
       .toBe('fix: close fastify instance (#6177)');

@@ -1,5 +1,5 @@
 /**
- * ALI-1412, CLI half. The cloud gateway (align-stack db/laterOnTopic.ts) attaches
+ * CLI half. The cloud gateway (align-stack db/laterOnTopic.ts) attaches
  * `later_on_topic` to each smart-search row: up to 3 LATER decisions on the same topic, linked
  * or merely similar. AlignBench v7's `reversed` split (57%) is the agent answering from a
  * decision a later, unlinked one reversed; this field is what tells it something newer exists.
@@ -65,7 +65,7 @@ const row = (later_on_topic: unknown) => ({
   id: 'd-1529', title: 'Disable the check in preview', summary: 's', status: 'active', later_on_topic,
 });
 
-describe('MCP align_ask later_on_topic (ALI-1412)', () => {
+describe('MCP align_ask later_on_topic', () => {
   it('delivers a linked later decision to the agent, every field intact', async () => {
     const { rows } = await callAsk(clientReturning([row([LINKED])]));
     expect(rows[0]!['later_on_topic']).toEqual([LINKED]);
@@ -108,7 +108,7 @@ describe('MCP align_ask later_on_topic (ALI-1412)', () => {
   });
 });
 
-describe('server instructions point the agent at later_on_topic (ALI-1412)', () => {
+describe('server instructions point the agent at later_on_topic', () => {
   it('tells the agent to check newer decisions on the topic before answering, naming the field', async () => {
     const { ALIGN_MCP_INSTRUCTIONS } = await import('../commands/mcp.js');
     const line = ALIGN_MCP_INSTRUCTIONS.split('\n').find((l: string) => l.includes('later_on_topic'));

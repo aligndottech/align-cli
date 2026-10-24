@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Retrieval quality eval for the local graph (ALI-1749). No LLM, no provider key, no network
+ * Retrieval quality eval for the local graph. No LLM, no provider key, no network
  * beyond the repo clones and the one-time embedding model.
  *
  *   node scripts/retrieval-eval.mjs <step> [--cli <root>] [--label <name>] [--work <dir>] [--repo <name>]
@@ -10,7 +10,7 @@
  *   pairs   derive question -> expected-commit pairs from `git log` (deterministic, see below)
  *   build   import each pinned repo with the REAL `align connect git --approve` of <cli> into an
  *           isolated HOME, one graph per (label, repo). Skipped when that graph already exists.
- *           --prs: import the way FIRST RUN does instead (ALI-1782), in process through <cli>'s own
+ *           --prs: import the way FIRST RUN does instead, in process through <cli>'s own
  *           modules: the commits, then the merged PR descriptions of the repo's GitHub origin
  *           (fetchFirstRunPrs, unauthenticated, responses cached under <work>/prcache so a second
  *           build or label costs no API quota), with the squash commits of imported PRs dropped.
@@ -272,7 +272,7 @@ async function runStyle(mod, style) {
     const { pairs } = JSON.parse(fs.readFileSync(pairsFile(r), 'utf8'));
     const client = mod.createLocalGatewayClient(dbPath, { cwd: cloneDir(r) });
     const ro = new DatabaseSync(dbPath, { readOnly: true });
-    // ALI-1782: a squash commit and its PR are one change. When first run imported the PR instead of the commit, the PR
+    // A squash commit and its PR are one change. When first run imported the PR instead of the commit, the PR
     // row is the right answer, so a result at /pull/N counts for the commit whose subject ends in (#N).
     const prNumber = subject => /\(#(\d+)\)\s*$/.exec(subject ?? '')?.[1];
     const isAnswer = (url, p) => {

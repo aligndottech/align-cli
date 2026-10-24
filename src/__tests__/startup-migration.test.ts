@@ -1,12 +1,12 @@
 /**
- * The ALI-819 directory migrations run from `src/index.ts` at process startup, not from
+ * The directory migrations run from `src/index.ts` at process startup, not from
  * inside `createConfigStore()` / `getLocalDbPath()` - deliberately, so those stay pure and
  * a test that mocks `conf` does not also have to mock the filesystem.
  *
  * The cost of that design is that no unit test can reach the wiring. Measured on
  * `origin/main` before this file existed: deleting BOTH migration calls from src/index.ts
  * left the suite at 1414 passed, identical to baseline. The entire fix could be removed
- * with CI green (ALI-824).
+ * with CI green.
  *
  * So the wiring gets the same treatment setup-local-non-tty.test.ts already uses for its
  * own un-unit-testable property: spawn the real entry point through tsx with an isolated

@@ -86,12 +86,12 @@ describe('callChat (provider-agnostic resolver)', () => {
     expect(mockFetch.mock.calls[0][0]).toBe('https://api.anthropic.com/v1/messages');
   });
 
-  // ALI-1284: `align setup` now offers Groq as the default free-tier provider, with Gemini
+  // `align setup` now offers Groq as the default free-tier provider, with Gemini
   // as the backup key for when Groq's daily cap is hit. That pairing only means "primary" if
   // Groq is actually tried first when both are configured - the two response shapes differ
   // (OpenAI-compatible choices[] vs Gemini's candidates[]), so this fails loudly rather than
   // just reading the wrong URL if the order ever regresses.
-  it('prefers Groq over Gemini when both keys are present (ALI-1284 default pairing)', async () => {
+  it('prefers Groq over Gemini when both keys are present', async () => {
     vi.stubEnv('GROQ_API_KEY', 'groq-k');
     vi.stubEnv('GEMINI_API_KEY', 'gemini-k');
     mockFetch.mockResolvedValue(openAiResponse('groq answer'));
@@ -102,7 +102,7 @@ describe('callChat (provider-agnostic resolver)', () => {
     expect(mockFetch.mock.calls[0][0]).toBe('https://api.groq.com/openai/v1/chat/completions');
   });
 
-  // ALI-1284 (Copilot review, PR #322): `align setup`'s Gemini backup offer is sold as
+  // Copilot review, PR #322: `align setup`'s Gemini backup offer is sold as
   // "Flash-Lite" by name (docs/configuration.md, the ticket itself) - the model actually
   // called has to match that claim, not a different Gemini tier with different free-tier
   // limits. Pinned so the default can never silently drift back to a plain (non-Lite) model.
@@ -123,7 +123,7 @@ describe('callChat (provider-agnostic resolver)', () => {
   });
 });
 
-// ALI-1284 (Copilot review, PR #322): `align setup --reset` needs to re-offer the guided
+// Copilot review, PR #322: `align setup --reset` needs to re-offer the guided
 // Groq/Gemini pair WITHOUT bypassing the "a real OTHER provider is configured, leave it
 // alone" promise - the whole point of hasConfiguredProvider() in the first place. Before
 // this, --reset skipped the check entirely, so a genuinely unrelated ANTHROPIC_API_KEY plus
@@ -194,11 +194,11 @@ describe('SYNTHESIS_SYSTEM_PROMPT carries the abstention contract (ollama-vet ev
   // WhiteRabbitNeo fabricated a database-sharding decision on 6 of 6 runs when
   // asked about something the context did not contain - and "authoritative"
   // in the prompt is what they were obeying. The instruction is pinned here
-  // the way a render contract is (ALI-586): a prompt edit that drops the
+  // the way a render contract is: a prompt edit that drops the
   // abstention line must go red, because the eval that catches it costs three
   // model runs and this test costs milliseconds.
   it('tells the model to abstain with the EXACT sentinel token, and never to invent', () => {
-    // The abstention is a mandated verbatim token (ALI-895), not a style suggestion: the
+    // The abstention is a mandated verbatim token, not a style suggestion: the
     // ask command detects it (isAbstention) to auto-widen a scoped search to the whole
     // graph, so the instruction, the sentinel constant and the detector must agree.
     // Anchored to the sentinel itself, not the bare words "does not answer" - the
@@ -219,7 +219,7 @@ describe('SYNTHESIS_SYSTEM_PROMPT carries the abstention contract (ollama-vet ev
   // abstention. There is deliberately NO deterministic strip for this (unlike the
   // em-dash): telling a self-contradiction from an honest "partially answers, here is
   // the part that is missing" is semantic, and a wrong trigger rewrites a good answer.
-  // ALI-1749: replaced "a partial or implicit answer is still an answer", which licensed a
+  // Replaced "a partial or implicit answer is still an answer", which licensed a
   // motive inferred from weak evidence. The partial case is now an explicit shape: say no reason
   // is stated, then give what the history shows (see ask-grounding.test.ts).
   it('no longer licenses an implicit answer to a why question', () => {
@@ -227,7 +227,7 @@ describe('SYNTHESIS_SYSTEM_PROMPT carries the abstention contract (ollama-vet ev
     expect(SYNTHESIS_SYSTEM_PROMPT).toContain('No commit or decision here states why.');
   });
 
-  it('names the deny-then-deliver shape as forbidden, by the sentinel itself (ALI-895)', () => {
+  it('names the deny-then-deliver shape as forbidden, by the sentinel itself', () => {
     // Was "never say the context does not answer the question and then answer it
     // anyway" - rewritten to name ABSTENTION_SENTINEL directly once the sentinel
     // stopped being that English sentence, so the forbidding instruction still names
@@ -256,11 +256,11 @@ describe('isAbstention', () => {
     expect(isAbstention(`${ABSTENTION_SENTINEL} While the decision explains...`)).toBe(true);
   });
 
-  // ALI-895: observed live 2026-09-05, asking "when did you stop blocking PRs on the
+  // Observed live 2026-09-05, asking "when did you stop blocking PRs on the
   // Align gate". The old sentinel was the full English sentence "The context does not
   // answer this question.", matched by startsWith - and this paraphrase keeps the
   // opening clause but names the actual question instead of repeating "this question",
-  // so the old exact-suffix match returned false and the ALI-825 auto-widen never
+  // so the old exact-suffix match returned false and the auto-widen never
   // fired. This is the bug fix: isAbstention must catch it too, via
   // LEGACY_ABSTENTION_PREFIX, even though the model no longer sees an English sentinel
   // to paraphrase in the prompt (a model can still ignore that instruction).
@@ -306,7 +306,7 @@ describe('isAbstention', () => {
 });
 
 /**
- * ALI-895: the sentinel became a non-prose token so the model has nothing to
+ * The sentinel became a non-prose token so the model has nothing to
  * paraphrase, which means it must never reach a human's terminal verbatim. This is
  * the translation the one print site (why.ts) applies before rendering.
  */
@@ -388,7 +388,7 @@ describe('synthesiseDetailed strips em-dashes the model used anyway', () => {
   });
 });
 
-// ALI-845 defect 2: the classifier's whole output is a ~60-char JSON object; `align ask`
+// The classifier's whole output is a ~60-char JSON object; `align ask`
 // synthesis is 2-4 prose sentences. Sharing one 256-token ceiling visibly truncates the
 // second, so each caller now has its own budget.
 describe('synthesis has its own output budget, separate from the classifier', () => {
@@ -430,7 +430,7 @@ describe('synthesis has its own output budget, separate from the classifier', ()
     errorSpy.mockRestore();
   });
 
-  // The mirror-image half of defect 2 (ALI-845 defect 1's pairing): every hosted adapter
+  // The mirror-image half of defect 2: every hosted adapter
   // already caps output, and Ollama capped nothing. A hosted-only test cannot pin this -
   // it is the assertion that only an Ollama call can make.
   it('an Ollama synthesis call sends the synthesis budget as num_predict', async () => {
@@ -450,7 +450,7 @@ describe('synthesis has its own output budget, separate from the classifier', ()
   });
 });
 
-// ALI-845 defect 3: `buildUserPrompt` joined raw summaries with no cap of any kind. Every
+// `buildUserPrompt` joined raw summaries with no cap of any kind. Every
 // per-decision slice is now derived from the window budget, never an unconditional slice.
 describe('buildUserPrompt caps each summary to its share of the window', () => {
   const decisionsOf = (count: number, summaryLength: number) =>
@@ -473,7 +473,7 @@ describe('buildUserPrompt caps each summary to its share of the window', () => {
   // Positive control for the rule above: a summary that already fits its share must NOT be
   // cut - an inequality, not an unconditional slice.
   it('leaves every summary untouched when it already fits', () => {
-    // ALI-1749: a row's excerpt is capped at 240 characters, so a summary that fits means one under it.
+    // A row's excerpt is capped at 240 characters, so a summary that fits means one under it.
     const decisions = decisionsOf(8, 100);
     const prompt = buildUserPrompt('why?', decisions, 4096, SYNTHESIS_MAX_TOKENS);
 
@@ -503,7 +503,7 @@ describe('buildUserPrompt caps each summary to its share of the window', () => {
 });
 
 /**
- * ALI-894 test list (written first, driven one behavior at a time):
+ * Test list (written first, driven one behavior at a time):
  *
  * 1. A single retrieved decision keeps the sentence budget at the original tight
  *    range - the regression net. Composition must not make a simple answer verbose.
@@ -528,7 +528,7 @@ describe('buildUserPrompt caps each summary to its share of the window', () => {
  *    The existing isAbstention / abstain-with-the-sentinel tests above are the regression
  *    net for the genuine "does not answer at all" case and stay green unchanged.
  */
-describe('synthesisSentenceBudget scales with the number of retrieved decisions (ALI-894)', () => {
+describe('synthesisSentenceBudget scales with the number of retrieved decisions', () => {
   it('keeps zero or one decision at the original tight budget - regression net', () => {
     expect(synthesisSentenceBudget(0)).toBe('at most 3 sentences');
     expect(synthesisSentenceBudget(1)).toBe('at most 3 sentences');
@@ -538,14 +538,14 @@ describe('synthesisSentenceBudget scales with the number of retrieved decisions 
     expect(synthesisSentenceBudget(2)).toBe('at most 4 sentences');
   });
 
-  it('widens further for three or more decisions - the live ALI-894 repro retrieved five', () => {
-    // ALI-1749: the ceiling is the grounded-answer cap of 5, never more.
+  it('widens further for three or more decisions - the live repro retrieved five', () => {
+    // The ceiling is the grounded-answer cap of 5, never more.
     expect(synthesisSentenceBudget(3)).toBe('at most 5 sentences');
     expect(synthesisSentenceBudget(5)).toBe('at most 5 sentences');
   });
 });
 
-describe('buildUserPrompt carries the sentence budget in its header, sized to decisions.length (ALI-894)', () => {
+describe('buildUserPrompt carries the sentence budget in its header, sized to decisions.length', () => {
   it('embeds the tight single-decision budget for one decision', () => {
     const prompt = buildUserPrompt(
       'why postgres',
@@ -556,7 +556,7 @@ describe('buildUserPrompt carries the sentence budget in its header, sized to de
     expect(prompt).toContain(synthesisSentenceBudget(1));
   });
 
-  it('embeds a wider budget for five decisions - the live ALI-894 repro shape', () => {
+  it('embeds a wider budget for five decisions - the live repro shape', () => {
     const decisions = Array.from({ length: 5 }, (_, i) => ({ id: `d${i}`, title: `Decision ${i}`, summary: 'S' }));
     const prompt = buildUserPrompt(
       'when did we stop blocking PRs on the gate, and why',
@@ -577,7 +577,7 @@ describe('buildUserPrompt carries the sentence budget in its header, sized to de
   });
 });
 
-describe('SYNTHESIS_SYSTEM_PROMPT permits composition across decisions without loosening abstention (ALI-894)', () => {
+describe('SYNTHESIS_SYSTEM_PROMPT permits composition across decisions without loosening abstention', () => {
   // Reproduced live 2026-09-05 against align-stack: retrieval returned five genuinely
   // relevant decisions that together answered the question, and synthesis abstained
   // anyway - "no decision explicitly states... or gives a unified reason" - because the
@@ -588,7 +588,7 @@ describe('SYNTHESIS_SYSTEM_PROMPT permits composition across decisions without l
     expect(SYNTHESIS_SYSTEM_PROMPT).toMatch(/what changed and when/i);
   });
 
-  // The most important invariant here (ALI-894's own test list): composition and
+  // The most important invariant here (the own test list): composition and
   // attribution are tied together in the SAME instruction, so a model cannot read the
   // composition permission without also reading the attribution requirement it comes with.
   it('ties composition to attribution in the same instruction', () => {
@@ -612,7 +612,7 @@ describe('SYNTHESIS_SYSTEM_PROMPT permits composition across decisions without l
 // pure function. `tryAnthropic` sends the user turn as messages[0].content and the
 // static system prompt as the separate `system` field, so the sentence budget is only
 // really wired up if it shows up in the CONTENT sent, scaled to what was retrieved.
-describe('synthesiseDetailed sends a decision-count-scaled sentence budget to the model (ALI-894)', () => {
+describe('synthesiseDetailed sends a decision-count-scaled sentence budget to the model', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();

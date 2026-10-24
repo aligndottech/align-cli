@@ -14,7 +14,7 @@ const { version } = pkg;
 export const COMMANDS_DOC_URL = 'https://github.com/aligndottech/align-cli/blob/main/docs/commands.md';
 
 /**
- * The five-entry root help (ALI-951). Rendered from the registry, never from Commander's
+ * The five-entry root help. Rendered from the registry, never from Commander's
  * command list, so a command is visible only by choosing so in COMMAND_REGISTRY. Subcommand
  * help (`align connect --help`) keeps Commander's default, which lists that command's own
  * subcommands and flags.
@@ -52,7 +52,7 @@ export interface BuildProgramOptions {
 }
 
 /**
- * The whole command tree, built from the registry and nothing else (ALI-951). index.ts
+ * The whole command tree, built from the registry and nothing else. index.ts
  * calls this once and parses; tests and the doc generator call it to read the tree without
  * running anything.
  */
@@ -66,7 +66,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
     .description('Align CLI - capture decisions, check alignment, and manage connectors')
     .version(version);
 
-  // ALI-954: the install beacon - once per install id, on the very first run, BEFORE the
+  // The install beacon - once per install id, on the very first run, BEFORE the
   // command's action and therefore before any prompt it shows. preAction on the root fires for
   // the root's own action (bare `align`) and for every subcommand. Awaited, with an 800ms cap,
   // on the first run only (later runs return after a config read): a fire-and-forget send lost
@@ -110,7 +110,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
     }
   });
 
-  // ALI-403/ALI-618/ALI-954: one usage event per invocation, so CLI activation and weekly
+  // One usage event per invocation, so CLI activation and weekly
   // retention are countable in both cloud mode (opt-out) and local-embedded mode (with the
   // one-time notice shown, or `align telemetry on` - C6). No-op under ALIGN_TELEMETRY=0 /
   // DO_NOT_TRACK=1 and in CI, in either mode. Runs after the command's own work,
@@ -119,7 +119,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
     const { envFlagOf, invocationCommandPath, recordInvocationUsage } = await import('./lib/usage-telemetry.js');
     // Full path ("local ask"), not the leaf name ("ask"), so recordCommandUsage can exclude the
     // offline `local` group - a cloud-logged-in user running it still has a token in hand. The
-    // root action (bare `align`, ALI-773) has no parent and reports as 'align' (ALI-949) - the
+    // root action (bare `align`) has no parent and reports as 'align' - the
     // walk used to yield '' for it, so the primary first-run path was never counted.
     // The command's OWN --env, not the default env: `align setup --local` leaves the default
     // pointing at cloud on purpose, so reading the default reported local sessions as cloud ones.
@@ -148,7 +148,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
     entry.register(program);
   }
 
-  // `align` with no arguments (ALI-773). Without this Commander prints a twenty-command help
+  // `align` with no arguments. Without this Commander prints a twenty-command help
   // wall, which is what a new user's first instinct gets them. Registered AFTER every command
   // so it only fires when none of them matched; `align --help` and `align -V` are handled by
   // Commander before this runs.

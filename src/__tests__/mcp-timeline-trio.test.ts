@@ -4,7 +4,7 @@ import { dispatchTool, instructionsFor, TOOL_SCHEMAS } from '../commands/mcp.js'
 import type { EnvironmentConfig } from '../lib/config.js';
 
 /**
- * ALI-1070 slice 1: the timeline trio reaches a customer's agent.
+ * The timeline trio reaches a customer's agent.
  *
  * `align mcp` is the server `align mcp --setup` wires into every customer's agent, and it
  * registered 8 tools against the hosted endpoint's 24. The three ported here are the
@@ -26,9 +26,9 @@ import type { EnvironmentConfig } from '../lib/config.js';
  *  - surface: 11 tools, exact name set, write set still exactly two
  *  - surface: no tool description or message names a tool this server does not register
  *  - contract: PARTIAL notice, both directions (semantic false / true)
- *  - contract: the ALI-1010 corrected-vs-superseded clause, both directions
+ *  - contract: the corrected-vs-superseded clause, both directions
  *  - contract: a corrected row is excluded from the superseded count
- *  - contract: the ALI-590 background clause, both directions (chain_ids present / absent)
+ *  - contract: the background clause, both directions (chain_ids present / absent)
  *  - contract: background is COUNTED, never enumerated
  *  - contract: the chain-scoped summary count, not the retrieval count
  *  - contract: the `why` clause points at the rationale tool only when `why` is absent
@@ -113,7 +113,7 @@ async function messageOf(result: Record<string, unknown>): Promise<string> {
   return (await shaped(result))['message'] as string;
 }
 
-describe('ALI-1070: the timeline trio is dispatched', () => {
+describe('the timeline trio is dispatched', () => {
   it('align_get_topic_timeline reaches getTopicTimeline with the topic', async () => {
     const { c, cast } = timelineClient(payload());
     await dispatchTool('align_get_topic_timeline', { topic: 'auth' }, cast, cloudEnv);
@@ -126,7 +126,7 @@ describe('ALI-1070: the timeline trio is dispatched', () => {
     expect(c.getTopicTimeline).toHaveBeenCalledWith('auth', 12);
   });
 
-  it('align_get_decision_rationale reaches getDecision - no new client method (ALI-1070)', async () => {
+  it('align_get_decision_rationale reaches getDecision - no new client method', async () => {
     // The hosted connector's getDecisionRationale is GET /snapshots/:id, which this client
     // already has as getDecision. A second method for one endpoint would be two writers of
     // one call, and it would also lose the local implementation this reuse gets for free.
@@ -164,8 +164,8 @@ describe('ALI-1070: the timeline trio is dispatched', () => {
   });
 });
 
-describe('ALI-1070: the published surface', () => {
-  it('registers 17 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4), align_mark (LM), align_share (L9) and align_share_status (ALI-1540)', () => {
+describe('the published surface', () => {
+  it('registers 17 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4), align_mark (LM), align_share (L9) and align_share_status', () => {
     const names = TOOL_SCHEMAS.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
     expect([...names].sort()).toEqual(
@@ -191,7 +191,7 @@ describe('ALI-1070: the published surface', () => {
     );
   });
 
-  it('keeps the write set at the known eight (L3 align_backfill, L5 align_sync, L4 align_scope, LM align_mark, L9 align_share, ALI-1540 align_share_status): all three trio tools are READS', () => {
+  it('keeps the write set at the known eight (L3 align_backfill, L5 align_sync, L4 align_scope, LM align_mark, L9 align_share, align_share_status): all three trio tools are READS', () => {
     const writes = TOOL_SCHEMAS.filter((t) => t.annotations?.readOnlyHint === false)
       .map((t) => t.name)
       .sort();
@@ -228,7 +228,7 @@ describe('ALI-1070: the published surface', () => {
   });
 
   /**
-   * CORRECTED in the ALI-1070 follow-up (Copilot on #296, inline at mcp.ts:52). This used to
+   * CORRECTED in the follow-up (Copilot on #296, inline at mcp.ts:52). This used to
    * assert the guidance line in BOTH modes, which is what shipped a guaranteed-fail
    * instruction to every local user: local mode has no getTopicTimeline and the Proxy throws
    * on every call. Cloud gets the line; local does not; both stay inside the budget. The
@@ -249,7 +249,7 @@ describe('ALI-1070: the published surface', () => {
   });
 });
 
-describe('ALI-1070: the rendering contract travelled, not just the endpoint', () => {
+describe('the rendering contract travelled, not just the endpoint', () => {
   it('flags PARTIAL when semantic retrieval did not run', async () => {
     const message = await messageOf(payload({ retrieval: { lexical: true, semantic: false } }));
     expect(message).toContain('PARTIAL');
@@ -264,7 +264,7 @@ describe('ALI-1070: the rendering contract travelled, not just the endpoint', ()
   });
 
   /**
-   * ALI-1010, and the single clause most responsible for the `reversed` split.
+   * The single clause most responsible for the `reversed` split.
    *
    * A corrected decision was NEVER TRUE; a superseded one was true and was overtaken.
    * Everything else in this message pushes toward the supersession vocabulary - the compact
@@ -320,7 +320,7 @@ describe('ALI-1070: the rendering contract travelled, not just the endpoint', ()
   });
 
   /**
-   * ALI-590. Without this an agent reads every row it is handed, and on a mature graph most
+   * Without this an agent reads every row it is handed, and on a mature graph most
    * rows are adjacent-but-unrelated - a webhook-security topic pulls legal, DPA and pricing
    * tickets over the similarity floor. Naming the count and forbidding the enumeration is
    * what turns 50 rows into a story.
@@ -383,7 +383,7 @@ describe('ALI-1070: the rendering contract travelled, not just the endpoint', ()
   });
 
   it('never lets decision_json reach the agent', async () => {
-    // ALI-498: one 12-row prod component carried 43,327 characters of it. The projection is
+    // One 12-row prod component carried 43,327 characters of it. The projection is
     // an allowlist, not a delete, so a new gateway field cannot leak by being unrecognised.
     const shape = await shaped(
       payload({

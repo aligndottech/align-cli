@@ -1,4 +1,4 @@
-# Releasing (staged, ALI-797)
+# Releasing (staged)
 
 The contract: **never test what you didn't ship, never ship what you didn't test.**
 Every release is born staged, gets tested as the identical artifacts a user would
@@ -41,7 +41,7 @@ receive, and promotion moves those same bytes - one dist-tag, one flag flip, no 
    `.bashrc`/`.zshrc` - overriding `HOME` does nothing: `align` still reads and writes
    the real, already-signed-in config at the real `XDG_CONFIG_HOME` path, and the test
    reports a clean first run that never touched a fresh state. This happened on a real
-   machine (see ALI-797).
+   machine.
 
    For a genuinely fresh test, clear the whole environment rather than layering `HOME=`
    on top of it, so there is no `XDG_*` var left for `env-paths` to prefer over the fake

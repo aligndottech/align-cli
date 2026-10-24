@@ -8,7 +8,7 @@ import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { mergeWrittenConfig, setWriteRecorder, type WrittenConfig } from '../lib/safe-config-write.js';
 
 /*
- * ALI-1778 / ALI-1749. The first copy of a project file align edits (a committed AGENTS.md) is
+ * The first copy of a project file align edits (a committed AGENTS.md) is
  * kept OUTSIDE the repo, so `git status` after first run lists only align's own files and
  * `git add -A` cannot commit a backup. Undo still restores the file byte for byte.
  *

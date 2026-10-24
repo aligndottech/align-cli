@@ -1,5 +1,5 @@
 /**
- * ALI-829: when a decision was MADE, from the source's own timestamp, as distinct from
+ * When a decision was MADE, from the source's own timestamp, as distinct from
  * `created_at`, the minute this CLI imported it. Every one of the 684 rows in the 2026-09-02
  * measurement carried the ingest minute and nothing else, so "what changed since March" was
  * unanswerable offline. Test List R23-R26 from the plan, two examples per rule.
@@ -16,7 +16,7 @@ vi.mock('../lib/similarity/embedding-matrix.js', async () =>
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.0),
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
@@ -97,7 +97,7 @@ describe('normaliseDecidedAt', () => {
 describe('the decided_at column', () => {
   // R26b
   it('is on a fresh database, at schema version 4 or later, with no duplicate-column error', () => {
-    // At least, not exactly: ALI-831 added step 5, and a literal here is the pin the
+    // At least, not exactly: step 5 was added, and a literal here is the pin the
     // SCHEMA_VERSION docstring warns about - it has to be edited by every later migration
     // rather than passing or failing on its own merits.
     expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(4);
@@ -184,8 +184,8 @@ describe('the v3 -> v4 migration', () => {
     const emb = raw.prepare('INSERT INTO decision_embeddings (decision_id, embedding) VALUES (?, ?)');
     for (const id of ['tomb', 'human', 'git1', 'gitdel']) emb.run(id, Buffer.from(new Float32Array(4).fill(0.5).buffer));
     const ref = raw.prepare('INSERT INTO decision_refs (decision_id, ref, platform) VALUES (?, ?, ?)');
-    ref.run('tomb', 'ALI-1', 'jira');
-    ref.run('human', 'ALI-2', 'jira');
+    ref.run('tomb', 'APP-1', 'jira');
+    ref.run('human', 'APP-2', 'jira');
     const link = raw.prepare('INSERT INTO decision_links (id, source_id, target_id, relation, confidence) VALUES (?, ?, ?, ?, ?)');
     link.run('l1', 'tomb', 'git1', 'relates', 0.7);
     link.run('l2', 'human', 'git1', 'relates', 0.8);
@@ -222,7 +222,7 @@ describe('the v3 -> v4 migration', () => {
     expect(db.getEmbedding('human')).not.toBeNull();
     expect(db.getEmbedding('git1')).not.toBeNull();
     expect(db.getEmbedding('gitdel')).not.toBeNull();
-    expect(db.getRefs('human')).toEqual([{ ref: 'ALI-2', platform: 'jira' }]);
+    expect(db.getRefs('human')).toEqual([{ ref: 'APP-2', platform: 'jira' }]);
     expect(db.listLinks({ decisionId: 'git1' }).map((l) => l.id)).toEqual(['l2']);
   });
 

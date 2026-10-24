@@ -1,5 +1,5 @@
 /**
- * ALI-1540: seal what a share would send, so the team server holds only ciphertext until a person approves.
+ * Seal what a share would send, so the team server holds only ciphertext until a person approves.
  *
  * The CLI seals the exact plaintext bytes with AES-256-GCM under a random 32-byte key the server never sees:
  * the key travels only in the approve link's `#k=` fragment, which a browser does not send. The AAD is

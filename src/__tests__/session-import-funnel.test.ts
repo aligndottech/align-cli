@@ -1,5 +1,5 @@
 /**
- * ALI-835: the summary line a human reads, and the hook guard on the funnel emitter.
+ * The summary line a human reads, and the hook guard on the funnel emitter.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearTelemetryEnv } from './helpers/telemetry-env.js';

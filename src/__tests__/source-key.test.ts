@@ -39,7 +39,7 @@ describe('the keys schema v7 stored are still the keys the SDK computes (frozen 
   });
 });
 
-// ALI-1527: connector-core 0.10.1 changed the zoom key (meeting_id kept, the chat URL keyless) and appended
+// Connector-core 0.10.1 changed the zoom key (meeting_id kept, the chat URL keyless) and appended
 // 8 rows to the table. The 121 frozen rows above still hold; this pins the table the CLI now runs, so a
 // bump that moves a key again fails here and has to come with a migration like schema v11, not just a
 // version change. Re-pin only together with that migration.
@@ -100,8 +100,8 @@ describe('connectorItemKey: local policy on top of the shared format', () => {
   it.each([
     ['github', 'https://github.com/o/r/pull/12', 'github|https://github.com/o/r/pull/12'],
     ['github', 'https://github.com/O/R/pull/12#issuecomment-1', 'github|https://github.com/o/r/pull/12'],
-    ['linear', 'https://linear.app/align/issue/ALI-1505/title-slug', 'linear|https://linear.app/align/issue/ALI-1505'],
-    ['jira', 'https://x.atlassian.net/browse/ALI-12', 'jira|https://x.atlassian.net/browse/ALI-12'],
+    ['linear', 'https://linear.app/align/issue/APP-1505/title-slug', 'linear|https://linear.app/align/issue/APP-1505'],
+    ['jira', 'https://x.atlassian.net/browse/APP-12', 'jira|https://x.atlassian.net/browse/APP-12'],
     ['confluence', 'https://x.atlassian.net/wiki/spaces/ENG/pages/123456/Title', 'confluence|https://x.atlassian.net/wiki/pages/123456'],
     ['slack', 'https://acme.slack.com/archives/C9/p1700000000123456', 'slack|https://slack.com/archives/C9/p1700000000123456'],
     ['git', 'git://commit/0123abc', 'git|git://commit/0123abc'],
@@ -118,7 +118,7 @@ describe('connectorItemKey: local policy on top of the shared format', () => {
     ['teams', 'https://teams.microsoft.com/l/channel/19:abc'],
     ['github', 'https://github.com/o/r/pulls'],
     ['slack', 'https://slack.com/archives/C0123'],
-    ['jira', 'https://api.atlassian.com/ex/jira/cloud-id/browse/ALI-1'],
+    ['jira', 'https://api.atlassian.com/ex/jira/cloud-id/browse/APP-1'],
   ])('%s %s is not an item URL: no key', (platform, url) => {
     expect(connectorItemKey(platform, url)).toBeUndefined();
   });

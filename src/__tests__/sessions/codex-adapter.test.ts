@@ -1,5 +1,5 @@
 /**
- * ALI-808 Codex CLI adapter, backed by a real `codex exec` session fixture (see
+ * Codex CLI adapter, backed by a real `codex exec` session fixture (see
  * fixtures/sessions/README.md).
  *
  * Test List:

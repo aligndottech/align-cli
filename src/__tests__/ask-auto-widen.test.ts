@@ -19,7 +19,7 @@ vi.mock('../lib/local-llm.js', async (importOriginal) => {
   // under test IS the agreement between the detector and the sentinel, and mocking
   // any of the three would let them drift while this suite stayed green. explainAbstention
   // also has to be real because why.ts calls it unconditionally at the print site
-  // (ALI-895) - a stubbed-out mock leaves it undefined and every test in this file
+  // - a stubbed-out mock leaves it undefined and every test in this file
   // that reaches a printed answer throws.
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -88,10 +88,10 @@ async function ask(...extra: string[]) {
 }
 
 /**
- * Found live 2026-09-02, the same evening ALI-798's repo scoping shipped: a cross-repo
+ * Found live 2026-09-02, the same evening the repo scoping shipped: a cross-repo
  * question asked from the wrong directory got "The context does not answer this
  * question" plus a hint to re-run with --all - the answer existed, one flag away. The
- * scoping default is right (unscoped search blended repos, the bug ALI-798 fixed) and
+ * scoping default is right (unscoped search blended repos, the bug that was fixed) and
  * making the USER re-run is not: the tool knows the scoped attempt failed, so it widens
  * itself and says so. Both prior incidents stay honoured - scoped first for precision,
  * whole graph before giving up.
@@ -183,7 +183,7 @@ describe('align ask auto-widens when scoped context makes the model abstain', ()
     expect(out).not.toContain(ABSTENTION_SENTINEL);
   });
 
-  // ALI-895: the actual bug, exercised through the real caller rather than only through
+  // The actual bug, exercised through the real caller rather than only through
   // the unit-level isAbstention test. Before the fix the scoped answer below - a real
   // paraphrase observed live 2026-09-05, not the sentinel itself - was NOT recognised as
   // an abstention, so the widen never fired and the search-call count stayed at 1. Assert
@@ -196,13 +196,13 @@ describe('align ask auto-widens when scoped context makes the model abstain', ()
     searchDecisions.mockResolvedValueOnce(scoped([SCOPED_HIT])).mockResolvedValueOnce(global([GLOBAL_HIT]));
     synthesiseDetailed
       .mockResolvedValueOnce({ ok: true, text: paraphrase })
-      .mockResolvedValueOnce({ ok: true, text: 'It stopped once the ALI-825 gate rollout completed.' });
+      .mockResolvedValueOnce({ ok: true, text: 'It stopped once the gate rollout completed.' });
 
     const out = await ask();
 
     expect(searchDecisions).toHaveBeenCalledTimes(2);
     expect(synthesiseDetailed).toHaveBeenCalledTimes(2);
-    expect(out).toContain('It stopped once the ALI-825 gate rollout completed.');
+    expect(out).toContain('It stopped once the gate rollout completed.');
   });
 
   it('prints the abstention once when the whole graph cannot answer either', async () => {
@@ -213,7 +213,7 @@ describe('align ask auto-widens when scoped context makes the model abstain', ()
 
     const out = await ask();
 
-    // ALI-895: ABSTENTION_SENTINEL is a non-prose token now, translated to English
+    // ABSTENTION_SENTINEL is a non-prose token now, translated to English
     // (explainAbstention) before anything reaches the terminal - so the prose it
     // stands for is what appears, once, and the raw token appears nowhere.
     const mentions = out.split('The context does not answer this question.').length - 1;
@@ -224,7 +224,7 @@ describe('align ask auto-widens when scoped context makes the model abstain', ()
     expect(out).toMatch(/whole graph/i);
   });
 
-  // ALI-895: the concrete leak this bug fix has to rule out - a raw non-prose token is
+  // The concrete leak this bug fix has to rule out - a raw non-prose token is
   // meaningless to a person reading a terminal, so it must never be what they see, even
   // on the deny-then-deliver path where the model kept talking past the marker.
   it('never leaks the raw <<NO_ANSWER>> marker to the terminal, even with a tail', async () => {

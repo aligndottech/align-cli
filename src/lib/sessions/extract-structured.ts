@@ -18,7 +18,7 @@ export interface SessionDecisionCandidate {
 
 /** Only Claude Code exposes a structured decision-shaped tool call today. One producer per
  *  agent that has one - designed so a second agent's equivalent slots in without touching
- *  this dispatch or any caller (ALI-608 addendum's explicit design note). */
+ *  this dispatch or any caller. */
 type Producer = (session: CanonicalSession) => SessionDecisionCandidate[];
 const PRODUCERS: Partial<Record<AgentName, Producer>> = {
   'claude-code': extractAskUserQuestion,

@@ -1,7 +1,7 @@
 /**
  * citationFor renders a decision the way a human cites one. For code that is
  * "repo#123" (align-cli#76); for trackers it is the ticket key humans already
- * say out loud - "ALI-346", "PROJ-123". Session A (2026-08-25) showed the gap:
+ * say out loud - "APP-346", "PROJ-123". Session A (2026-08-25) showed the gap:
  * the Linear source in a cross-tool answer was the one line still wearing a
  * raw UUID, with its key sitting visibly in the URL beside it.
  *
@@ -24,12 +24,12 @@ describe('citationFor', () => {
 
   it('cites a Linear issue by its ticket key', () => {
     expect(
-      citationFor('https://linear.app/aligndottech/issue/ALI-346/one-writer-for-prod-image-tags'),
-    ).toBe('ALI-346');
+      citationFor('https://linear.app/aligndottech/issue/APP-346/one-writer-for-prod-image-tags'),
+    ).toBe('APP-346');
   });
 
   it('cites a Linear issue with no title slug', () => {
-    expect(citationFor('https://linear.app/aligndottech/issue/ALI-346')).toBe('ALI-346');
+    expect(citationFor('https://linear.app/aligndottech/issue/APP-346')).toBe('APP-346');
   });
 
   it('cites a Jira issue by its ticket key', () => {
@@ -52,7 +52,7 @@ describe('repositoryOf refuses to invent repositories (the CODE_REF promise)', (
   });
 
   it('a Linear issue does NOT - the workspace is not an owner and the key is not a repo', () => {
-    expect(repositoryOf('https://linear.app/aligndottech/issue/ALI-346/title')).toBeUndefined();
+    expect(repositoryOf('https://linear.app/aligndottech/issue/APP-346/title')).toBeUndefined();
   });
 
   it('a Jira issue does NOT', () => {
@@ -61,14 +61,14 @@ describe('repositoryOf refuses to invent repositories (the CODE_REF promise)', (
 });
 
 /**
- * ALI-923: align-cli reads decisions from the HOSTED gateway too (align context sync,
+ * Align-cli reads decisions from the HOSTED gateway too (align context sync,
  * align why), and a hosted decision can carry a synthetic align://claimed/... or
- * align://unsourced/... identity (ALI-538) instead of a real source - not a place anyone
- * can open. Ported from align-stack's per-connector syntheticSource.ts (ALI-567). Two
+ * align://unsourced/... identity instead of a real source - not a place anyone
+ * can open. Ported from align-stack's per-connector syntheticSource.ts. Two
  * examples per rule (tdd.md): a synthetic case AND a real case for each function, not just
  * the happy path.
  */
-describe('isSyntheticSource (ALI-923)', () => {
+describe('isSyntheticSource', () => {
   it('recognises the claimed namespace', () => {
     expect(isSyntheticSource('align://claimed/9f2c')).toBe(true);
   });
@@ -95,7 +95,7 @@ describe('isSyntheticSource (ALI-923)', () => {
   });
 });
 
-describe('navigableSourceUrl (ALI-923)', () => {
+describe('navigableSourceUrl', () => {
   it('returns undefined for a synthetic claimed url - not a place anyone can open', () => {
     expect(navigableSourceUrl('align://claimed/9f2c')).toBeUndefined();
   });
@@ -123,8 +123,8 @@ describe('navigableSourceUrl (ALI-923)', () => {
   });
 });
 
-describe('SYNTHETIC_SOURCE_PREFIXES (ALI-923)', () => {
-  it('matches the two namespaces align-stack currently mints (ALI-538)', () => {
+describe('SYNTHETIC_SOURCE_PREFIXES', () => {
+  it('matches the two namespaces align-stack currently mints', () => {
     // A zero-match parse or a shrunk list would pass every test above vacuously - pin the
     // exact set rather than only exercising it indirectly.
     expect([...SYNTHETIC_SOURCE_PREFIXES].sort()).toEqual(['align://claimed/', 'align://unsourced/']);

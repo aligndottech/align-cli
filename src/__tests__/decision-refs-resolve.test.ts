@@ -9,7 +9,7 @@ vi.mock('../lib/similarity/embedding-matrix.js', async () =>
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.0),
-  // ALI-787: EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
+  // EMBEDDING_MODEL_ID needed by ingestOne's setEmbedding call; a real
   // value (not a made-up test string) since findSimilar/checkDrift compare it against
   // the real constant too.
   EMBEDDING_MODEL_ID: 'Xenova/all-MiniLM-L6-v2',
@@ -17,11 +17,11 @@ vi.mock('../lib/local-embeddings.js', () => ({
 
 import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 
-// ALI-796: the payoff of the gap-driven pull, wired through the ingest path a real
+// The payoff of the gap-driven pull, wired through the ingest path a real
 // import uses. A decision citing a Jira key that nothing can read yet becomes a real
 // graph link the moment the Jira issue is imported - "resolve refs into real links
 // where the fetched item matches".
-describe('resolving refs at ingest (ALI-796)', () => {
+describe('resolving refs at ingest', () => {
   let dir: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
 
@@ -37,7 +37,7 @@ describe('resolving refs at ingest (ALI-796)', () => {
 
   it('links a pre-existing citing decision once the cited Jira issue is imported', async () => {
     const { snapshots: gitBatch } = await client.ingestBatch([{
-      raw_text: 'feat(auth): switch to JWT\n\nRefs ALI-123.',
+      raw_text: 'feat(auth): switch to JWT\n\nRefs APP-123.',
       title: 'feat(auth): switch to JWT',
       source_url: 'https://github.com/align/cli/commit/abc1234def',
       platform: 'git',
@@ -46,8 +46,8 @@ describe('resolving refs at ingest (ALI-796)', () => {
 
     const { snapshots: jiraBatch } = await client.ingestBatch([{
       raw_text: 'Switch auth to JWT for stateless sessions',
-      title: 'ALI-123: Switch auth to JWT',
-      source_url: 'https://acme.atlassian.net/browse/ALI-123',
+      title: 'Switch auth to JWT',
+      source_url: 'https://acme.atlassian.net/browse/APP-123',
       platform: 'jira',
     }]);
     const jiraId = jiraBatch[0].id;
@@ -63,8 +63,8 @@ describe('resolving refs at ingest (ALI-796)', () => {
   it('does not link when nothing cites the imported key', async () => {
     const { snapshots: jiraBatch } = await client.ingestBatch([{
       raw_text: 'Switch auth to JWT for stateless sessions',
-      title: 'ALI-123: Switch auth to JWT',
-      source_url: 'https://acme.atlassian.net/browse/ALI-123',
+      title: 'Switch auth to JWT',
+      source_url: 'https://acme.atlassian.net/browse/APP-123',
       platform: 'jira',
     }]);
     const { upstream } = await client.getImpact(jiraBatch[0].id);

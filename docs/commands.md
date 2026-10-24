@@ -1,7 +1,7 @@
 # Command reference
 
 `align --help` shows five entries. Everything else is here and hidden from the help on
-purpose (ALI-951): the bare command is the product, the rest are escape hatches. They all
+purpose: the bare command is the product, the rest are escape hatches. They all
 still run, apart from a command whose description says it was removed.
 
 The two blocks below are generated from the command registry by `npm run docs:commands`; a

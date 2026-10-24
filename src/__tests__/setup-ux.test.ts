@@ -40,7 +40,7 @@ describe('pickerMaxItems', () => {
   it('fits seven of eight sources on a 12-row panel now that the screen is cleared first', () => {
     // Measured 2026-09-03: Tom's VS Code panel reported 12 rows and the picker showed 4 of
     // 8 with "...". The reserve was sized for a picker drawn UNDER a screenful of git
-    // output; the screen has been cleared before the picker since ALI-794, so the prompt
+    // output; the screen has been cleared before the picker, so the prompt
     // needs only its own lines: the message, clack's two rules, the key hint, one spare.
     expect(pickerMaxItems(12, 8)).toBe(7);
     expect(pickerMaxItems(13, 8)).toBe(8);

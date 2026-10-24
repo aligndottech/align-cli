@@ -134,7 +134,7 @@ describe('runPersonalImport', () => {
     });
   });
 
-  describe('post-import footer (ALI-115)', () => {
+  describe('post-import footer', () => {
     it('cloud: does not link the web UI; points to the CLI instead', async () => {
       const client = makeClient();
       await runPersonalImport(makeItems(1), client, { label: 'GitHub', approve: true, appUrl: 'https://app.preview.align.tech' });
@@ -154,7 +154,7 @@ describe('runPersonalImport', () => {
     });
   });
 
-  describe('async ingest opt-in (ALI-114)', () => {
+  describe('async ingest opt-in', () => {
     it('passes deferEnrichment through to ingestBatch when requested', async () => {
       const ingestBatch = vi.fn().mockResolvedValue({ snapshots: [] });
       const client = makeClient({ ingestBatch });
@@ -176,7 +176,7 @@ describe('runPersonalImport', () => {
     });
   });
 
-  describe('transient ingest retry (ALI-110)', () => {
+  describe('transient ingest retry', () => {
     it('retries a batch that fails with a transient 5xx, then counts it as imported', async () => {
       const { GatewayError } = await import('../lib/gateway-client.js');
       let calls = 0;
@@ -207,13 +207,13 @@ describe('runPersonalImport', () => {
   });
 });
 
-// ALI-795: import_completed rides runPersonalImport so every import path (the import
+// import_completed rides runPersonalImport so every import path (the import
 // commands, setup's seeding) counts through one point. Only when the caller passes the
 // funnel option - the option carries the env the consent decision needs.
 const recordFunnelStage = vi.hoisted(() => vi.fn());
 vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
 
-describe('import_completed funnel stage (ALI-795)', () => {
+describe('import_completed funnel stage', () => {
   beforeEach(() => {
     recordFunnelStage.mockReset();
   });

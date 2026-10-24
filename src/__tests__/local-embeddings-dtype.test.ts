@@ -14,7 +14,7 @@ import { EMBEDDING_DTYPE, EMBEDDING_MODEL_ID } from '../lib/local-embeddings.js'
  *
  * That matters because vectors are persisted in the user's local graph: a
  * different weights file would silently leave old and new vectors in one index.
- * Since ALI-1781 the pin is the FILE we download and load (there is no transformers.js
+ * Now the pin is the FILE we download and load (there is no transformers.js
  * `dtype` option any more), so it is pinned here at both ends.
  */
 describe('local embedding weights', () => {

@@ -24,7 +24,7 @@ import { runPersonalImport } from '../lib/personal-import.js';
 import type { createGatewayClient } from '../lib/gateway-client.js';
 
 /**
- * ALI-770. `align setup --local` already imports from git, so `align import git` afterwards
+ * `align setup --local` already imports from git, so `align import git` afterwards
  * is a natural next move - and it said "Imported 2 decisions" while the graph stayed at 2.
  * A tester read that as importing twice, which is precisely what it looks like.
  */

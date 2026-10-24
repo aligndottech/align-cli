@@ -1,5 +1,5 @@
 /**
- * ALI-808 pi adapter, backed by a real captured session fixture (see
+ * pi adapter, backed by a real captured session fixture (see
  * fixtures/sessions/README.md) - confirms empirically what the ticket's research already
  * found: pi's real tool vocabulary here is `bash` only, no question/choice tool.
  *

@@ -146,7 +146,7 @@ describe('migrateLocalDb', () => {
  * function body to `return envPaths('align-cli', { suffix: '' }).config` left the suite at
  * 1414 passed, while silently reducing the migration to a no-op - old and new become equal,
  * so the `existsSync(newFile)` guard returns early and every existing user's graph stays
- * orphaned (ALI-824). A control that lives only in a comment is not a control.
+ * orphaned. A control that lives only in a comment is not a control.
  *
  * Each case is gated to the platform whose divergence it describes, so all three run
  * somewhere across the ubuntu/macos/windows CI matrix rather than being skipped everywhere.

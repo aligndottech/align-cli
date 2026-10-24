@@ -47,8 +47,8 @@ export function isCanonicalLocalEntry(entry: unknown, o: CanonicalOptions): bool
     if (!Object.hasOwn(extra, key) || !extra[key]!(entry[key])) return false;
   }
   if (!REQUIRED[o.host].every((k) => Object.hasOwn(entry, k))) return false;
-  // On win32 an npm global install is align.cmd, which only cmd can spawn (mcp-setup.ts, ALI-1135).
-  // ALI-1515: align writes the absolute path it resolved. Accept exactly THAT path and no other absolute one: a project
+  // On win32 an npm global install is align.cmd, which only cmd can spawn (mcp-setup.ts).
+  // Align writes the absolute path it resolved. Accept exactly THAT path and no other absolute one: a project
   // file naming /repo/evil/align must not read as Align's own server.
   const trusted = process.env['ALIGN_NO_TRUSTED_BIN'] === '1' ? null : resolveTrustedAlignBin();
   const accepted = o.localIsDefault ? [['mcp'], ['mcp', '--env', 'local']] : [['mcp', '--env', 'local']];

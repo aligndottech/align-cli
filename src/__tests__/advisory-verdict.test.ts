@@ -1,5 +1,5 @@
 /**
- * ALI-570's verdict store: the channel between the detached adjudicator and the next hook
+ * The verdict store: the channel between the detached adjudicator and the next hook
  * invocation. Three properties carry all the weight, so they get the boundary treatment:
  *
  * - A deny keys on CHANGE identity - the tool, the target file and the text - never on the

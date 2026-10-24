@@ -22,7 +22,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 import { fetchDocsItems } from '../../lib/fetchers/docs.js';
 
 /**
- * ALI-793: read what the repo already wrote down - ADR directories (the common naming
+ * Read what the repo already wrote down - ADR directories (the common naming
  * conventions) and the user's own CLAUDE.md/AGENTS.md content, minus the marker block and
  * import line Align itself wrote there (align-cli#116: Align owns `.align/` outright and
  * must never re-ingest its own output).
@@ -249,7 +249,7 @@ describe('fetchDocsItems - CLAUDE.md / AGENTS.md', () => {
     const { items, report } = await fetchDocsItems({ limit: 100, cwd: repo });
 
     expect(items.map((i) => i.title)).toEqual(['Database']);
-    // ALI-827 (Copilot on #240): the drop is a real, measured skip, so the capture report
+    // Copilot on #240: the drop is a real, measured skip, so the capture report
     // names it. The headingless "# My Project" preamble is dropped too and NOT counted -
     // nobody wrote that as a section. scanned = the two headed sections.
     expect(report).toEqual({
@@ -300,7 +300,7 @@ describe('fetchDocsItems - limit and combination', () => {
   });
 
   it('picks ADRs in a deterministic (sorted) order, independent of readdir order', async () => {
-    // ALI-793 review (Copilot): the combined array was sliced to the limit AFTER building it
+    // The combined array was sliced to the limit AFTER building it
     // from readdir's order, which the filesystem does not guarantee is sorted or stable
     // across platforms - so which ADR "won" when there were more than the limit could vary
     // run to run. A real temp dir cannot pin this (this filesystem already happens to return
@@ -321,7 +321,7 @@ describe('fetchDocsItems - limit and combination', () => {
     expect(items[0].title).toBe('First ADR');
   });
 
-  // ALI-827: the capture report's cap rule. `requested` is echoed only when the limit
+  // The capture report's cap rule. `requested` is echoed only when the limit
   // bound the read; on a repo with three sections and a limit of 500 "of up to 500" would
   // print on every run and mean nothing.
   it('reports the cap when the limit bound the read, counting everything it saw as scanned', async () => {
@@ -386,7 +386,7 @@ describe('fetchDocsItems - limit and combination', () => {
   });
 
   it('skips reading CLAUDE.md/AGENTS.md entirely once the ADRs alone already fill the limit', async () => {
-    // ALI-793 review (Copilot): reading and parsing the agent-rules files is wasted work once
+    // Reading and parsing the agent-rules files is wasted work once
     // there is no room left for their items - assert it on the actual filesystem call, not
     // just on the returned array (which would look identical either way).
     repo = mkdtempSync(join(tmpdir(), 'align-793-'));
@@ -424,7 +424,7 @@ describe('fetchDocsItems - duplicate headings', () => {
   });
 
   it('disambiguates two ## sections sharing the same heading text, so their source_urls do not collide', async () => {
-    // ALI-793 review (Copilot): two sections with the same heading previously got the same
+    // Two sections with the same heading previously got the same
     // `#slug` anchor, so their source_url (the dedup/identity key downstream) collided and
     // one of the two items would be silently lost.
     repo = mkdtempSync(join(tmpdir(), 'align-793-'));

@@ -1,7 +1,7 @@
 /**
- * ALI-831: one writer of "which kind of actor decided", mirroring align-stack's
+ * One writer of "which kind of actor decided", mirroring align-stack's
  * deciderKind.ts (deriveDeciderKind) with the session platform added - the cloud's
- * AGENT_PLATFORMS gains 'agent-session' in ALI-832; until then a pushed session row is
+ * AGENT_PLATFORMS gains 'agent-session' in a later release; until then a pushed session row is
  * classified there by whatever that set holds.
  *
  * Two examples per side, so a hardcoded answer cannot pass.

@@ -1,5 +1,5 @@
 /**
- * Reciprocal rank fusion (ALI-1749). Pure and deterministic.
+ * Reciprocal rank fusion. Pure and deterministic.
  *
  * Two rankers disagree in useful ways: a dense embedding finds a paraphrase, BM25 finds the rare
  * identifier the paraphrase blurred. Their scores are not comparable (a cosine and a BM25 sum),
@@ -10,8 +10,8 @@
  * depends on the machine's locale or on insertion order.
  */
 /** Smaller than the textbook 60: with the 30-row pool used here, 60 flattens the top ranks so a row
- *  both lists put near the top barely separates from one only a list put at rank 20. Measured
- *  (ALI-1749): k=10 beat k=60 on recall@8 and MRR across 9 repos. */
+ *  both lists put near the top barely separates from one only a list put at rank 20. Measured:
+ * k=10 beat k=60 on recall@8 and MRR across 9 repos. */
 export const RRF_K = 10;
 
 export function reciprocalRankFusion(

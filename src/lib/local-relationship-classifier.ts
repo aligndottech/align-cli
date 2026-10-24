@@ -3,7 +3,7 @@
 // two decisions are related; only an LLM reading both can say HOW (the taxonomy).
 // Uses the shared provider-agnostic resolver in local-llm.ts (any provider).
 //
-// ALI-414: when classification cannot happen this reports WHY. It previously
+// When classification cannot happen this reports WHY. It previously
 // returned a bare null for all three causes, and the caller - unable to tell them
 // apart, or apart from "classified, no conflict" - reported `aligned`.
 
@@ -23,7 +23,7 @@ import {
 } from './local-llm.js';
 import { charsForTokens, estimateTokens } from './token-estimate.js';
 
-// ALI-219: the canonical decision-graph vocabulary is the single source of truth
+// The canonical decision-graph vocabulary is the single source of truth
 // (connector-core). The local classifier must only emit types the graph accepts,
 // or a local edge is invalid on personal->org sync. Re-exported for callers/tests.
 export const RELATIONSHIP_TYPES = DECISION_RELATIONSHIPS;
@@ -38,7 +38,7 @@ export interface ClassifiedRelationship {
 
 /**
  * Why a candidate edge could not be typed. This enum stays coarse on purpose: since
- * ALI-692 `callChat` CAN tell a timeout from a 429 from an empty body, but the finer
+ * `callChat` CAN tell a timeout from a 429 from an empty body, but the finer
  * detail travels on the outcome's `failure` (provider, model, detail) rather than by adding
  * a reason per failure mode, so presenters name the model without this union growing
  * a member every time a provider invents a new way to fail.
@@ -51,7 +51,7 @@ export type ClassifierFailureReason =
   /** The model replied, but with no JSON or a type outside the canonical vocabulary. */
   | 'classifier_unparseable'
   /**
-   * Ollama is running, but every installed model is outside the vetted set (ALI-420).
+   * Ollama is running, but every installed model is outside the vetted set.
    * Distinct from `no_llm_key` because the remedy is the opposite: this user already has
    * a local provider, and telling them to run one reads as nonsense.
    */
@@ -82,8 +82,8 @@ const SYSTEM_PROMPT =
 export const V0_SYSTEM_PROMPT = SYSTEM_PROMPT;
 
 /**
- * ALI-845 defect 3 (classifier side): neither side was capped here - the asymmetry the
- * ticket described lived one layer up, at the call site (see local-gateway-client.ts).
+ * Neither side was capped here - the asymmetry
+ * lived one layer up, at the call site (see local-gateway-client.ts).
  * Both decisions get an equal share of the same budget, using the same estimator as
  * local-llm.ts's synthesis prompt. Exported so its cutting behaviour is pinned directly,
  * the same way the synthesis builder is.
@@ -91,7 +91,7 @@ export const V0_SYSTEM_PROMPT = SYSTEM_PROMPT;
  * `outputTokens` is the CALLER'S ACTUAL resolved budget (post ALIGN_CLASSIFIER_MAX_TOKENS),
  * not the CLASSIFIER_MAX_TOKENS default - see buildUserPrompt's twin in local-llm.ts for why
  * reserving the default while the real request sends an override defeats the cap (found in
- * fresh-context review, ALI-845).
+ * fresh-context review).
  *
  * The reserve also covers the "Decision A: <title>. " / "Decision B: <title>. " label wrapped
  * around each side, not just the system prompt and output budget (Copilot review, PR #258).
@@ -108,7 +108,7 @@ export function buildUserPrompt(a: DecisionLite, b: DecisionLite, windowTokens: 
 }
 
 /**
- * Design constraint for any future multi-model adjudication here (ALI-692): if two
+ * Design constraint for any future multi-model adjudication here: if two
  * models ever judge one question (a conflict verdict plus a second opinion, a jury),
  * the pair must span model FAMILIES. A family's leniency is systematic, so same-family
  * agreement is one opinion counted twice, not independent confirmation. Today exactly
@@ -118,7 +118,7 @@ export async function classifyRelationship(
   subject: DecisionLite,
   candidate: DecisionLite,
 ): Promise<ClassificationOutcome> {
-  // ALI-218/219: pin the shared deterministic temperature so the same decision
+  // Pin the shared deterministic temperature so the same decision
   // pair types the same way every run - offline relationship detection must be
   // deterministic, and the value is the one both paths share (connector-core).
   //

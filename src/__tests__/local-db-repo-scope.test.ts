@@ -1,5 +1,5 @@
 /**
- * ALI-798: the repo dimension on the local graph's own storage layer - the column, the
+ * The repo dimension on the local graph's own storage layer - the column, the
  * upsert semantics, the migration backfill, and the scoping primitives `listDecisions`/
  * `getAllEmbeddings` give the layer above (local-gateway-client.ts) to build the actual
  * "current repo, or all" retrieval rule on top of.
@@ -40,7 +40,7 @@ afterEach(() => {
 
 describe('the repo column', () => {
   it('is on a fresh database, and the schema is at least the version that added it (3)', () => {
-    // The repo column arrived at 3. Later steps (decided_at at 4, ALI-829) keep it, so this
+    // The repo column arrived at 3. Later steps (decided_at at 4) keep it, so this
     // pins a floor rather than the current number - the exact literal is one fact with
     // migrate() and is derived, not asserted, in local-db-dedup.test.ts.
     expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(3);
@@ -101,7 +101,7 @@ describe('upsert never erases an attribution, and can add one', () => {
 
 describe('migrating a v2 graph backfills repo from source_url', () => {
   it('attributes hosted rows and leaves a remoteless git commit unattributed', () => {
-    // Simulate a pre-ALI-798 graph: create the v2 shape by hand (no repo column, no
+    // Simulate a graph that predates repo scoping: create the v2 shape by hand (no repo column, no
     // migrate()), the way createLocalDb would have left it before this ticket.
     const raw = new DatabaseSync(dbPath);
     raw.exec(`

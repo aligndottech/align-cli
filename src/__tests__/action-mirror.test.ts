@@ -2,7 +2,7 @@
  * The mirror that publishes this action to aligndottech/decision-check.
  *
  * Marketplace requires action.yml at a repository ROOT, so an action in .github/actions/
- * can never be listed and the published repo has to be a copy (ALI-686). A copy step is
+ * can never be listed and the published repo has to be a copy. A copy step is
  * the classic place for a silent miss: a rewrite that matches nothing exits 0, and the
  * result is a README telling strangers to depend on a path that cannot be listed.
  */
@@ -34,7 +34,7 @@ async function mirror(ref = 'v2'): Promise<string> {
 // make a clock happy.
 describe('mirror.sh', { timeout: 30_000 }, () => {
   // DERIVED from action.yml, never a second hardcoded list. The list used to be spelled here
-  // and again in mirror.sh's FILES array, which is two writers of one fact: when ALI-710 added
+  // and again in mirror.sh's FILES array, which is two writers of one fact: when someone added
   // `adjudicated.sh` to action.yml, neither copy moved, so the test agreed with the script
   // while both drifted from the file that decides what the action actually runs. The mirror
   // would have published an action.yml calling a script that is not in the repo, and no syntax

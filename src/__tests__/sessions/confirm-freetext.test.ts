@@ -1,8 +1,8 @@
 /**
- * ALI-809 Pass B, LLM half: the heuristic (extract-freetext.ts) proposes; only this
+ * The heuristic (extract-freetext.ts) proposes; only this
  * confirmation may assert. Mirrors local-relationship-classifier.ts's shape exactly (a system
  * prompt, callChatDetailed, a JSON-brace parse, a ClassifierFailureReason-shaped outcome) - not
- * a new pattern, the same one applied to a different candidate type (align decision ALI-409:
+ * a new pattern, the same one applied to a different candidate type (an Align decision:
  * "heuristic proposes, LLM adjudicates, only adjudicated results assert").
  *
  * Test List:
@@ -12,11 +12,11 @@
  * 4. the model replies with unparseable text: ok:false, reason 'confirm_unparseable'
  * 5. the raw candidate's own humanText and contextText both reach the prompt sent to the model
  * 6. the confirmed decision's humanText is the candidate's verbatim text, not the model's title
- *    (ALI-538 principle: the model's title is a label for review, never a replacement for the
+ *    (the principle: the model's title is a label for review, never a replacement for the
  *    human's own words)
  *
  * describeConfirmFailure (per-reason messaging, not one collapsed "no LLM configured" line -
- * the same mistake ALI-420 already fixed once for the sibling relationship classifier):
+ * the same mistake already fixed once for the sibling relationship classifier):
  * 7. no_llm_key names setting a cloud key or running Ollama
  * 8. unvetted_local_model names `ollama pull` and ALIGN_OLLAMA_MODEL, never "no LLM configured"
  * 9. confirm_error with a provider_stopped failure names the provider, model and detail

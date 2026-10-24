@@ -88,7 +88,7 @@ export function getLocalDbPath(): string {
 }
 
 /**
- * `quiet` is gone (ALI-776). It gated exactly one thing - writing every detected editor's
+ * `quiet` is gone. It gated exactly one thing - writing every detected editor's
  * global MCP config - and that moved to connectDetectedAgents, which asks first. An option
  * that no longer changes anything reads as a feature and outlives the behaviour it named.
  */
@@ -112,7 +112,7 @@ export async function initLocalMode(opts: { backupDeps?: BackupDeps } = {}) {
   // `quiet` was false - silently, from a function whose name says it initialises a graph.
   // ~/.claude.json and a Claude Desktop config are user-level files people curate across
   // every project, and editing one without a word is the kind of thing someone finds weeks
-  // later and resents (ALI-776).
+  // later and resents.
   //
   // connectDetectedAgents is the single writer now, and it asks. Both callers of this
   // function invoke it immediately afterwards, so nothing lost the wiring - it just gained

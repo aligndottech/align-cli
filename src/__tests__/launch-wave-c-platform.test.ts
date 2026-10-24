@@ -6,7 +6,7 @@ import { buildGooseLaunch } from '../lib/launch/adapters/goose.js';
 import { restorePlatform, setPlatform } from './helpers/platform.js';
 
 /*
- * What the wave C writers emit is platform-conditional (ALI-1135): an npm global install on
+ * What the wave C writers emit is platform-conditional: an npm global install on
  * Windows is `align.cmd`, which a client cannot spawn without a shell, so every entry goes through
  * `cmd /c`. Both sides are pinned here, so neither depends on the runner (tdd.md, "a test must
  * establish its own preconditions"). Windows is simulated: these builders are pure.

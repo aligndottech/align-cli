@@ -1,7 +1,7 @@
 /**
  * `align check --depth <related|full|exhaustive>` - how deep an answer to request.
  *
- * `exhaustive` exists for strict CI gates (ALI-708): a caller running
+ * `exhaustive` exists for strict CI gates: a caller running
  * `fail-on: conflict-or-unknown` has declared that `unknown` fails its build, and the
  * gateway's similarity cost gate answers `unknown/not_adjudicated` - "we chose not to
  * look, to save one LLM call" - for exactly the low-similarity diffs a strict gate most

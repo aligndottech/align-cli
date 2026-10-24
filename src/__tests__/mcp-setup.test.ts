@@ -21,7 +21,7 @@ import path from 'node:path';
 import { type EditorTarget, detectEditors, detectWiredEditors, hasAlignEntry, projectMcpAgents, removeMcpConfig, writeMcpConfig } from '../lib/mcp-setup.js'; // eslint-disable-line sort-imports
 import { pinPlatform } from './helpers/platform.js';
 
-// One platform for the whole file, stated rather than inherited (ALI-1135). Two things here
+// One platform for the whole file, stated rather than inherited. Two things here
 // depend on it: the config PATHS detectEditors builds, and - since Windows needs a `cmd /c`
 // wrapper for the align.cmd shim npm installs - the `command` every writer emits. Pinning
 // POSIX keeps these assertions about what they were written for; the Windows side of both is
@@ -361,13 +361,13 @@ describe('writeMcpConfig - codex (TOML) format', () => {
 // mkdirSync is exercised through the writers; keep a reference so the import is used.
 void mockMkdirSync;
 /**
- * ALI-950: the second-run card names the agents that are wired NOW, which is a different
+ * The second-run card names the agents that are wired NOW, which is a different
  * question from detectEditors' "which agents are installed". An installed agent whose
  * config never got an align entry (setup failed on it, or `align mcp --remove` ran) is
  * not connected, and naming it on the card would tell someone to open an agent that
  * cannot answer.
  */
-describe('detectWiredEditors (ALI-950)', () => {
+describe('detectWiredEditors', () => {
   beforeEach(() => vi.clearAllMocks());
 
   const enoent = (): never => {
@@ -405,7 +405,7 @@ describe('detectWiredEditors (ALI-950)', () => {
   });
 });
 
-describe('projectMcpAgents (ALI-950)', () => {
+describe('projectMcpAgents', () => {
   beforeEach(() => vi.clearAllMocks());
 
   const enoent = (): never => {

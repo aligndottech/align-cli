@@ -19,8 +19,8 @@ vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({ listDecisions })),
 }));
 
-// ALI-950: the card names the agents wired NOW (global configs carrying an align entry, and
-// this repo's .mcp.json), and reuses the ALI-215 readout `align status` prints.
+// The card names the agents wired NOW (global configs carrying an align entry, and
+// this repo's .mcp.json), and reuses the readout `align status` prints.
 const detectWiredEditors = vi.hoisted(() => vi.fn().mockReturnValue([]));
 const projectMcpAgents = vi.hoisted(() => vi.fn().mockReturnValue([]));
 vi.mock('../lib/mcp-setup.js', () => ({ detectWiredEditors, projectMcpAgents }));
@@ -47,7 +47,7 @@ async function bare(): Promise<string> {
 }
 
 /**
- * ALI-773. A new user's first instinct is to type the tool's name, and `align` printed a
+ * A new user's first instinct is to type the tool's name, and `align` printed a
  * twenty-command help wall and did nothing - leaving them to pick correctly out of setup,
  * login, local, import, capture, context and env before anything happened.
  *
@@ -128,11 +128,11 @@ describe('bare `align`', () => {
   });
 
   /**
-   * ALI-950: no CLI verb on the card. It used to suggest `align ask "why postgres"`,
+   * No CLI verb on the card. It used to suggest `align ask "why postgres"`,
    * `align decisions list`, `align import git` and `align --help` - every next step a verb
    * to type, when the product's whole value is a question asked in the agent. The regex is
    * proven against that old text in next-step.test.ts, so a clean pass here is not vacuous.
-   * And still no --env flag anywhere (ALI-772): every path resolves to the local graph on
+   * And still no --env flag anywhere: every path resolves to the local graph on
    * its own, so printing the flag would teach one nobody needs.
    */
   it('names no CLI verb on the card, and no --env flag', async () => {
@@ -151,7 +151,7 @@ describe('bare `align`', () => {
       n === 'local' ? { mode: 'local-embedded', localDbPath: '/tmp/local.db' } : { mode: 'cloud' });
     projectMcpAgents.mockReturnValue(['Claude Code']);
 
-    // The one verb the card may ever name (ALI-951 renames it `align connect`).
+    // The one verb the card may ever name.
     listDecisions.mockResolvedValue([]);
     const empty = await bare();
     expect(empty).toMatch(/align connect/);
@@ -165,10 +165,10 @@ describe('bare `align`', () => {
   });
 
   /**
-   * ALI-950: the card shows the graph, the agents wired by name, the ALI-215 "what your graph
+   * The card shows the graph, the agents wired by name, the "what your graph
    * did for you" readout, and exactly one next action, which happens in the agent.
    */
-  describe('the second-run card (ALI-950)', () => {
+  describe('the second-run card', () => {
     const localEnv = (n: string) =>
       n === 'local' ? { mode: 'local-embedded', localDbPath: '/home/d/.config/align-cli/local.db' } : { mode: 'cloud' };
     const cloudEnv = (n: string) => (n === 'local' ? { mode: 'cloud' } : { mode: 'cloud', authToken: 'tok' });
@@ -191,7 +191,7 @@ describe('bare `align`', () => {
       expect(await bare()).toContain('Open Cursor and ask: why did we switch to postgres?');
     });
 
-    it('cloud: shows this week\'s conflicts and reuse rate from the ALI-215 readout, read for a 7-day window', async () => {
+    it('cloud: shows this week\'s conflicts and reuse rate from the readout, read for a 7-day window', async () => {
       getEnvironment.mockImplementation(cloudEnv);
       listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
       projectMcpAgents.mockReturnValue(['Claude Code']);
@@ -205,7 +205,7 @@ describe('bare `align`', () => {
       expect(readValueRollup).toHaveBeenCalledWith(expect.anything(), 'prod', { days: 7 });
     });
 
-    it('local: says what it knows so far, with no conflict counter at zero (ALI-503)', async () => {
+    it('local: says what it knows so far, with no conflict counter at zero', async () => {
       getEnvironment.mockImplementation(localEnv);
       listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
       projectMcpAgents.mockReturnValue(['Claude Code']);

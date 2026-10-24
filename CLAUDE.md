@@ -11,7 +11,7 @@ For any non-trivial change, follow the same harness as align-stack: understand t
 Every substantial change is tracked in Linear and traceable branch → ticket → PR (trivial typo fixes exempt):
 
 1. **Ticket first** in the **Align** team (project **Align MVP**), label **`align-cli`**.
-2. **Branch off latest `main`**, named **`tnk/ALI-<#>`** (e.g. `tnk/ALI-103`). One branch / one PR per ticket.
+2. **Branch off latest `main`**, named **`tnk/ALI-<#>`**. One branch / one PR per ticket.
 3. Reference the ticket id (**ALI-##**) in the PR title or body.
 4. Linear MCP is configured in align-stack's `.mcp.json`; reconnect if its tools aren't available.
 
@@ -22,7 +22,7 @@ Every substantial change is tracked in Linear and traceable branch → ticket �
   other end). The floor is `node:sqlite`, which `src/lib/local-db.ts` uses for the local
   graph - unflagged from 22.13, and `DatabaseSync.isTransaction` lands in 22.16. There is
   **no native dependency left**, which is what lets one runner cross-compile all 8 binary
-  targets (ALI-740).
+  targets.
 - **Publishing happens when the RELEASE PR merges, not when you push a tag.** There is no
   `publish.yml` (this line used to name one): the `publish` job lives in
   `.github/workflows/release-please.yml`, is gated on
@@ -30,7 +30,7 @@ Every substantial change is tracked in Linear and traceable branch → ticket �
   So the whole release is: land your work on `main`, then merge the `chore(main): release cli
   X.Y.Z` PR that release-please opens.
 - **This package is 0.x, and `bump-minor-pre-major` is set** so a `BREAKING CHANGE:` footer
-  bumps the MINOR (0.22 -> 0.23) instead of proposing 1.0.0. Without it, ALI-740's Node-floor
+  bumps the MINOR (0.22 -> 0.23) instead of proposing 1.0.0. Without it, the Node-floor
   bump silently retitled the open release PR to `release cli 1.0.0` - a promise about API
   stability made by a commit footer, on a package whose own README says "Beta, pre-1.0".
   `bump-patch-for-minor-pre-major` is deliberately NOT set: features should still bump the

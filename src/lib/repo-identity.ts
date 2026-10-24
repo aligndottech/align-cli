@@ -1,5 +1,5 @@
 /**
- * ALI-798: the repo dimension for the local graph. Without this, every checkout's
+ * The repo dimension for the local graph. Without this, every checkout's
  * decisions land in one global SQLite file with nothing recording which repo a row
  * came from - so `align ask` inside align-cli silently answers from align-stack's
  * commits too. This module is the one place identity is computed, so a decision's
@@ -85,9 +85,9 @@ export async function currentRepoIdentity(opts: { cwd?: string } = {}): Promise<
 /**
  * Turns `--repo`/`--all` CLI flags into the `{ repo, all }` scope object
  * searchDecisions/listDecisions take - and, since the repo dimension is local-only
- * (ALI-798 scoped it to the local graph, not the cloud gateway), warns and drops them
+ * (it is scoped to the local graph, not the cloud gateway), warns and drops them
  * when the resolved environment has no repo dimension at all. One place decides this so
- * every command that adds the flags applies the same rule (see ALI-505: a flag that
+ * every command that adds the flags applies the same rule (a flag that
  * silently does nothing is a bug, not a graceful degradation).
  *
  * Returns undefined for "no scope opinion" - a caller passes that straight through to

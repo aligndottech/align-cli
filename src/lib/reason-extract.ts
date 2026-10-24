@@ -1,5 +1,5 @@
 /**
- * ALI-1749: the STATED reason behind a decision, pulled out of its own text with no model.
+ * The STATED reason behind a decision, pulled out of its own text with no model.
  *
  * `align ask` with no AI key lists related commits, and the first lines of a commit body are
  * often not the reason (a dependabot bump opens with release-note boilerplate, a squash merge

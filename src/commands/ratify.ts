@@ -1,5 +1,5 @@
 /**
- * `align ratify <id>` - the human act (ALI-831).
+ * `align ratify <id>` - the human act.
  *
  * An agent-made decision enters the graph as a CLAIM: `decider_kind = 'agent'`, nothing in
  * `ratified_at`. Ratifying is a person saying "this governs". The whole design turns on that
@@ -57,7 +57,7 @@ export function registerRatifyCommand(program: Command): void {
           console.log(chalk.yellow(`\n  Already ratified by ${res.ratifiedBy ?? 'a human'}${when}. The first ratification stands.\n`));
           return;
         }
-        // ALI-835: decisions_ratified is emitted HERE rather than from `align connect sessions`,
+        // decisions_ratified is emitted HERE rather than from `align connect sessions`,
         // because this is where the number moves. At import it could only ever be 0 - the
         // import writes claims and ratifying is a separate human act - and a stage that is
         // always zero measures nothing while looking like a measurement.

@@ -1,12 +1,12 @@
 /**
- * ALI-831: which KIND of actor decided - the local graph's single writer of that
+ * Which KIND of actor decided - the local graph's single writer of that
  * classification, mirroring align-stack's `deciderKind.ts` so a row classifies the same
  * way on this machine as it does once pushed.
  *
  * The one deliberate difference: 'agent-session' is in the set here. It is the platform a
- * session-imported decision carries (ALI-808; the agent name lives in the source URL and
+ * session-imported decision carries (the agent name lives in the source URL and
  * `decision_json.agent`, never in the platform), and the cloud's AGENT_PLATFORMS gains the
- * same value in ALI-832. Until that lands, `align push` of a session row is rejected by the
+ * same value in a later release. Until that lands, `align push` of a session row is rejected by the
  * cloud's platform CHECK rather than misclassified, which is the right failure direction.
  *
  * 'unknown' is never derived: it is what a NULL column reads as, for rows captured before
@@ -34,7 +34,7 @@ export interface DeciderProvenance {
 }
 
 /**
- * The label, verbatim across lanes (ALI-831's shared contract): `agent-decided, unratified`
+ * The label, verbatim across lanes (the shared contract): `agent-decided, unratified`
  * or `agent-decided, ratified by <name> on <YYYY-MM-DD>`. Null for anything a human decided
  * or whose origin is unknown - only a claim carries a label, because the label's job is to
  * stop a reader treating a claim as a rule.

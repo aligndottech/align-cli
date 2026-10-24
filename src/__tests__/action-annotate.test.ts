@@ -161,7 +161,7 @@ describe('annotate.mjs, run the way the action runs it', () => {
     expect(render('"a string"')[0]).toContain('could not be parsed');
   });
 });
-describe('the remedy notice (ALI-728)', () => {
+describe('the remedy notice', () => {
   // Measured 2026-08-28/29: three PRs blocked on this gate in one session, and the ONLY way
   // to find the check_event_id a wrong flag needed to be rated against was to grep it out of
   // raw CI job logs. This is that fixed - the annotation is the one surface guaranteed to be

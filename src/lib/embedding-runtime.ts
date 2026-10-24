@@ -1,6 +1,6 @@
 /**
  * Fetch, verify, cache and load the two things on-device embeddings need that npm no longer
- * ships (ALI-1781): the native ONNX Runtime for THIS os/arch, and the model files.
+ * ships: the native ONNX Runtime for THIS os/arch, and the model files.
  *
  * Contract:
  *  - Every byte is checked against a digest pinned in embedding-assets.ts BEFORE it touches the

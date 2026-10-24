@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ALI-1135: what `align mcp --setup` WRITES must be spawnable by a client that does not use a
+ * What `align mcp --setup` WRITES must be spawnable by a client that does not use a
  * shell. `node smoke-mcp-config-spawn.mjs <installed-cli-package-dir>`.
  *
  * The install smoke already asserts that `align mcp --setup` exits 0, and that a bare `align`

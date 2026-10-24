@@ -1,4 +1,4 @@
-// ALI-1494: an opt-in LOCAL trace of the chat calls align makes (ask synthesis, the relationship
+// An opt-in LOCAL trace of the chat calls align makes (ask synthesis, the relationship
 // classifier, free-text session confirm - all of them go through callChatDetailed). Off unless
 // ALIGN_LLM_TRACE_FILE names a file, written only to that file, and never sent anywhere: the
 // docs/telemetry.md promise (no queries or content leave the machine) stays true.

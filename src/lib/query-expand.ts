@@ -1,7 +1,7 @@
 import { queryTerms, tokenize } from './lexical-terms.js';
 
 /**
- * Query understanding without a model (ALI-1749). Turns a question into weighted lexical terms:
+ * Query understanding without a model. Turns a question into weighted lexical terms:
  * every content word at weight 1 (scaffolding such as "why was" is dropped by `tokenize`), and a
  * quoted phrase or a backticked identifier at double weight, because the user marked it as the
  * thing they mean.

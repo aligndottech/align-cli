@@ -1,7 +1,7 @@
 /**
  * What makes a commit SUBJECT mechanical, in one place. `isDecisionCommit` (git.ts)
  * builds its regex from this, and the capture report (fetchers/git.ts) names the list in
- * the line a user reads - so the two cannot drift, which they had by the time ALI-827's
+ * the line a user reads - so the two cannot drift, which they had by the time a
  * review read them (the report named four prefixes of eight). A leaf module with no
  * imports, so the tests that mock `lib/git.js` still print the real list.
  */

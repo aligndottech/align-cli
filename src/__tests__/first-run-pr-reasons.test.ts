@@ -1,5 +1,5 @@
 /**
- * ALI-1749 / ALI-1782: first run reads merged PR descriptions for a GitHub origin, because the
+ * First run reads merged PR descriptions for a GitHub origin, because the
  * reason behind a change lives in the PR (squash-merge commits carry an empty body: measured null
  * "no stated reason" rate fastify 96.7%, vite 96.7%, pnpm 74.0%). Only the HTTP boundary is faked.
  */

@@ -47,7 +47,7 @@ export function defaultGatewayUrlFor(env: string): string {
 }
 
 /**
- * ALI-618: local-embedded mode never makes an HTTP call for its own operations (it reads a
+ * Local-embedded mode never makes an HTTP call for its own operations (it reads a
  * local embedded DB - see gateway-client.ts's `createLocalGatewayClient` branch), so the
  * `local` env's `gatewayUrl` above (`http://localhost:8080`) is a leftover from the unrelated
  * self-hosted `demo` mode and nothing real listens there. The anonymous usage ping
@@ -58,7 +58,7 @@ export function defaultGatewayUrlFor(env: string): string {
 export const ALIGN_HOSTED_GATEWAY_URL = DEFAULTS.prod.gatewayUrl;
 
 /**
- * ALI-786: the one place the `local` env's default (unconfigured) gateway URL is spelled,
+ * The one place the `local` env's default (unconfigured) gateway URL is spelled,
  * so the "you never ran a local setup" guard in gateway-client.ts compares against the
  * same literal DEFAULTS.local uses rather than a second copy of it (code-style.md, "two
  * writers of one fact").
@@ -66,9 +66,9 @@ export const ALIGN_HOSTED_GATEWAY_URL = DEFAULTS.prod.gatewayUrl;
 export const LOCAL_DEFAULT_GATEWAY_URL = DEFAULTS.local.gatewayUrl;
 
 /**
- * ALI-618: local-only users have no account, so consent is stored on the machine, not the
+ * Local-only users have no account, so consent is stored on the machine, not the
  * server. 'granted' / 'declined' are the prompt's two answers and decide USAGE telemetry;
- * 'off' (ALI-954, written by `align telemetry off`) also stops the two default-on beacons -
+ * 'off' (written by `align telemetry off`) also stops the two default-on beacons -
  * the stored equivalent of `DO_NOT_TRACK=1`. See usage-telemetry.ts's localTierAllows.
  */
 export type TelemetryConsent = 'granted' | 'declined' | 'off';
@@ -100,7 +100,7 @@ export function migrateConfigDirectory(oldDir: string, newDir: string): void {
 }
 
 /**
- * The providers a key can be saved for (ALI-1284 started with Groq and Gemini; the first-ask
+ * The providers a key can be saved for (it started with Groq and Gemini; the first-ask
  * prompt and `align ai` save any of them). The name is kept for the callers that predate the
  * widening.
  */
@@ -292,7 +292,7 @@ export function createConfigStore() {
      * Everything local mode collected for one connector: the token plus whatever extra fields
      * that connector asks for. `null` means nothing is stored, which is what setup uses to tell
      * "never connected" from "connected with a token and no extras" - GitHub is the second case,
-     * and reading it as the first is how it ended up re-asking on every run (ALI-802).
+     * and reading it as the first is how it ended up re-asking on every run.
      */
     getConnectorFields(env: EnvName, connectorKey: string): Record<string, string> | null {
       const tokens = getTokens();
@@ -425,7 +425,7 @@ export function createConfigStore() {
       store.set('environments', rest);
       if (store.get('shareDestination') === env) store.delete('shareDestination');
     },
-    // ALI-618: global to the machine's install, not per-environment - unlike authToken/tenantId,
+    // Global to the machine's install, not per-environment - unlike authToken/tenantId,
     // an anonymous local-mode user has no account for either to belong to. Generated once and
     // persisted, never derived from anything identifying (no hostname, no MAC address).
     getInstallId(): string {
@@ -576,7 +576,7 @@ export function createConfigStore() {
       store.delete('leadPromptVersion');
       store.delete('leadPromptOutcome');
     },
-    // ALI-1284: the key `align setup`'s guided free-tier path collected, persisted the same
+    // The key `align setup`'s guided free-tier path collected, persisted the same
     // way a local connector's read-only token already is (saveConnectorFields above) - one
     // paste, reused on every later invocation. savedLlmConfig hands it to local-llm as data;
     // it is never written into process.env.
@@ -587,7 +587,7 @@ export function createConfigStore() {
       const existing = store.get('providerKeys') ?? {};
       store.set('providerKeys', { ...existing, [provider]: key });
     },
-    // ALI-1284 (Copilot review, PR #322): `align setup --reset` needs a real way to stop a
+    // Copilot review, PR #322: `align setup --reset` needs a real way to stop a
     // previously-stored key from coming back - local-llm reads whatever is stored on every
     // call, so clearing is the only way to stop a saved key being used.
     clearProviderKey(provider: GuidedProviderKey) {
@@ -615,7 +615,7 @@ export function createConfigStore() {
       if (dismissed) store.set('askKeyOfferDismissed', true);
       else store.delete('askKeyOfferDismissed');
     },
-    // ALI-795: which one-shot funnel stages this install has already emitted. Per-install
+    // Which one-shot funnel stages this install has already emitted. Per-install
     // like installId (a funnel counts an install once); the emitter consults it so the
     // guard has exactly one enforcement point rather than one per call site.
     wasFunnelStageRecorded(stage: string): boolean {

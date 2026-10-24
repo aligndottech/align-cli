@@ -1,5 +1,5 @@
 /**
- * ALI-951: `align --help` is five entries in at most 14 lines. Every other command still
+ * `align --help` is five entries in at most 14 lines. Every other command still
  * parses and runs, hidden, and is documented in docs/commands.md, the full reference this
  * suite pins (rather than an `align --help --all`, which does not exist).
  *
@@ -51,7 +51,7 @@ function listedEntries(help: string): string[] {
     .filter((n): n is string => n !== undefined);
 }
 
-describe('`align --help` (ALI-951)', () => {
+describe('`align --help`', () => {
   it('is at most 14 lines', async () => {
     const help = await helpOutput(['--help']);
     const lines = help.replace(/\n+$/, '').split('\n');

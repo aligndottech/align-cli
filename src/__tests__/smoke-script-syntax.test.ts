@@ -23,7 +23,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const SHELL_SCRIPTS = ['scripts/smoke-install.sh'];
 
 /**
- * DERIVED from scripts/, not listed (ALI-1135). The hand-written list had exactly the failure
+ * DERIVED from scripts/, not listed. The hand-written list had exactly the failure
  * mode this suite exists to prevent: smoke-mcp-config-spawn.mjs was added, wired into CI, and
  * silently not parse-checked, because nothing goes red when a list is one entry short. A
  * review bot caught it. Reading the directory makes the next helper covered on arrival.

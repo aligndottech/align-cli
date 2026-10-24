@@ -64,7 +64,7 @@ export function registerImportConfluenceCommand(importCmd: Command): void {
       // Resolve auth: explicit flags first, then --personal (cached-or-browser OAuth), then
       // the cached OAuth token align setup persisted - under the source's oauthKey
       // ('confluence-personal'), which is the key this file wrongly read as 'confluence'
-      // until ALI-388.
+      // until it was fixed.
       const cachedKey = PERSONAL_OAUTH_KEYS['confluence'];
       let token = opts.token;
       let cloudId: string | undefined;

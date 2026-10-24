@@ -2,12 +2,12 @@ import type { EnvironmentConfig } from './config.js';
 import { recordFunnelStage } from './usage-telemetry.js';
 
 /**
- * ALI-949: the setup wizard's two funnel stages, carried through `runSetup` so bare
+ * The setup wizard's two funnel stages, carried through `runSetup` so bare
  * `align` and `align setup` share one emitter (both run runSetup's body).
  *
  * `started` BUFFERS rather than sends. When a mode branch begins nothing may be sendable
  * on a fresh install: cloud has no token until login, and local mode asks for consent
- * mid-wizard (ALI-794 puts the found-decisions moment before any question, and that order
+ * mid-wizard (the found-decisions moment comes before any question, and that order
  * is not negotiable here). So the wizard offers the current env at each checkpoint - the
  * top of the local value phase, after consent, the top of cloud setup, after login - and
  * this object sends at the first offer the emitter reports as sent. Sendability is

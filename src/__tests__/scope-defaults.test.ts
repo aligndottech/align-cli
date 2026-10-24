@@ -10,7 +10,7 @@ vi.setConfig({ testTimeout: process.platform === 'win32' ? 60_000 : 30_000 });
 
 /**
  * L4 Test List (what to preselect in a Jira or Linear picker):
- * - Keys cited by local decisions (`ALI-12`, `OPS-3`) give the project prefixes `ALI` and `OPS`, most-cited first.
+ * - Keys cited by local decisions (`APP-12`, `OPS-3`) give the project prefixes `APP` and `OPS`, most-cited first.
  * - Only tracker-shaped refs count (jira and the ambiguous `tracker` bucket); a Confluence or Slack ref is not a project key.
  * - A graph with no refs, no graph file, or an older file with no refs table gives an empty list, never an error.
  * - A prefix cited once is as good as one cited ten times: it is a suggestion, and the person sees it before it applies.
@@ -36,12 +36,12 @@ describe('citedProjectKeys', () => {
   it('gives the prefixes of cited keys, most-cited first, then by name (two examples)', () => {
     seed([
       { decision: 'a', ref: 'OPS-3', platform: 'tracker' },
-      { decision: 'a', ref: 'ALI-12', platform: 'jira' },
-      { decision: 'b', ref: 'ALI-14', platform: 'tracker' },
-      { decision: 'c', ref: 'ALI-15', platform: 'tracker' },
+      { decision: 'a', ref: 'APP-12', platform: 'jira' },
+      { decision: 'b', ref: 'APP-14', platform: 'tracker' },
+      { decision: 'c', ref: 'APP-15', platform: 'tracker' },
       { decision: 'c', ref: 'BETA-1', platform: 'tracker' },
     ]);
-    expect(citedProjectKeys(dbPath)).toEqual(['ALI', 'BETA', 'OPS']);
+    expect(citedProjectKeys(dbPath)).toEqual(['APP', 'BETA', 'OPS']);
   });
 
   it('counts decisions, not repeats: one decision citing a key five times is one citation', () => {

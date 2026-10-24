@@ -1,5 +1,5 @@
 /**
- * ALI-1740: a doctor run changes nothing about the user's telemetry choice. Sending nothing is
+ * A doctor run changes nothing about the user's telemetry choice. Sending nothing is
  * pinned end to end in doctor-e2e.test.ts; this pins the half that has no network trace: the
  * writes to the user's config. Each test is written to go red when its own line is removed.
  */

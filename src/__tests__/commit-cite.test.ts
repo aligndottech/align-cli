@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { localCitationFor } from '../lib/commit-cite.js';
 
-// ALI-792: git-imported decisions rendered as bare UUIDs because citationFor
+// Git-imported decisions rendered as bare UUIDs because citationFor
 // deliberately refuses commit URLs (decision-links.ts is byte-identical to
 // mcp-align's copy and must stay so). This wrapper adds the commit cite for the
 // CLI's local rendering without forking that file.
@@ -25,7 +25,7 @@ describe('localCitationFor', () => {
     expect(localCitationFor('git://commit/abc1234def5678')).toBe('abc1234');
   });
 
-  // ALI-796 review finding: the shared CODE_REF only matches GitHub's `/pull|issues/N`
+  // The shared CODE_REF only matches GitHub's `/pull|issues/N`
   // path shape. A real GitLab MR/issue URL never matches it, so `citationFor` returns
   // undefined for every GitLab source - which made refIdentityFor('gitlab', ...) always
   // return [], so a decision imported from GitLab could never resolve a pre-existing
@@ -49,7 +49,7 @@ describe('localCitationFor', () => {
 
   it('delegates PR and ticket URLs to the shared citationFor unchanged', () => {
     expect(localCitationFor('https://github.com/align/cli/pull/78')).toBe('cli#78');
-    expect(localCitationFor('https://linear.app/align/issue/ALI-788/launch')).toBe('ALI-788');
+    expect(localCitationFor('https://linear.app/align/issue/APP-788/launch')).toBe('APP-788');
   });
 
   it('returns undefined for null, undefined and unciteable URLs', () => {

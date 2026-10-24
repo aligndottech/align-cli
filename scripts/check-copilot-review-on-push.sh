@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ALI-1170: the `copilot_code_review` rule must have `review_on_push: true`.
+# The `copilot_code_review` rule must have `review_on_push: true`.
 #
 # WHAT WENT WRONG. The branch ruleset carried a `copilot_code_review` rule, which reads as
 # "Copilot must have reviewed this before it merges". It does not mean that. Its parameters
@@ -36,12 +36,12 @@
 # message, so whoever is debugging is not sent after a ruleset that was never wrong. That
 # property is what makes the placement below a real decision rather than a detail.
 #
-# PORTED FROM align-stack (ALI-1170) UNDER ALI-1185, AND IT CURRENTLY FAILS HERE ON PURPOSE.
+# PORTED FROM align-stack, AND IT CURRENTLY FAILS HERE ON PURPOSE.
 #
 # align-stack found that its `copilot_code_review` rule had `review_on_push: false`, so
 # Copilot reviewed a PR once at open and never again, and every commit addressing a review
 # merged unreviewed. That was fixed on align-stack's ruleset. **A ruleset is per-repo**, and
-# nobody checked this one until ALI-1185. Read from the API on 2026-09-21:
+# nobody had checked this one. Read from the API on 2026-09-21:
 #
 #   align-cli ruleset 20917995   copilot_code_review   review_on_push: FALSE
 #
@@ -146,7 +146,7 @@ count=$(printf '%s' "$rules_json" | jq '[.[] | select(.type == "copilot_code_rev
 if [ "$count" -eq 0 ]; then
   die "FAIL: no copilot_code_review rule applies to '$BRANCH' on $REPO.
 The rule was deleted or retargeted. Copilot then reviews nothing, and the only symptom is
-PRs merging without a review having examined them - which is what ALI-1170 was filed for.
+PRs merging without a review having examined them - the failure this guard exists to catch.
 Restore the rule in the branch ruleset with review_on_push enabled."
 fi
 

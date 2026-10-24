@@ -1,4 +1,4 @@
-// ALI-420: `align ask` used whatever model Ollama happened to list first when nothing
+// `align ask` used whatever model Ollama happened to list first when nothing
 // on the preferred list was installed, and a security-tuned model invented a causal link
 // between two unrelated decisions. The judgement is pure - given the installed names and
 // an optional override, which model may answer - so it is tested here with no network.
@@ -21,7 +21,7 @@ const textOf = (r: ChatResult) => (r.ok ? r.text : null);
 const PENTEST = 'WhiteRabbitNeo-V3-7B-GGUF:Q4_K_M';
 const CODER = 'deepseek-coder-v2:16b';
 
-describe('resolveOllamaModel (ALI-420 floor)', () => {
+describe('resolveOllamaModel', () => {
   it('uses a recognised model when one is installed', () => {
     expect(resolveOllamaModel(['llama3.2:latest'])).toEqual({ ok: true, model: 'llama3.2:latest' });
   });
@@ -60,7 +60,7 @@ describe('resolveOllamaModel (ALI-420 floor)', () => {
     expect(resolveOllamaModel(['llama3.2:latest'], CODER)).toEqual({ ok: true, model: CODER });
   });
 
-  // ALI-692: recognition is by FAMILY against the live /api/tags list, not by an
+  // Recognition is by FAMILY against the live /api/tags list, not by an
   // exact-version list. The static list refused llama4 the day it shipped, and the
   // 2026-08-25 vetting eval showed the quality lever was the SYSTEM_PROMPT, not which
   // mainstream family answered - so the list's remaining job is "is something
@@ -115,7 +115,7 @@ describe('resolveOllamaModel (ALI-420 floor)', () => {
     expect(resolveOllamaModel([hf])).toEqual({ ok: true, model: hf });
   });
 
-  // The ALI-420 floor is about what a model was TUNED for, and a family regex alone
+  // The floor is about what a model was TUNED for, and a family regex alone
   // cannot see that: llama2-uncensored is in the llama family and is the same category
   // as the pentest model from the ticket.
   it.each([
@@ -147,7 +147,7 @@ describe('resolveOllamaModel (ALI-420 floor)', () => {
 
   it('breaks a version tie deterministically, never by /api/tags order', () => {
     // llama3.2:1b and llama3.2:3b tie on version, and a stable sort then lets Ollama's
-    // listing order pick the model - the ALI-420 defect one scope down. The same set in
+    // listing order pick the model - the defect one scope down. The same set in
     // either order must give the same answer, and it must be the larger model.
     const forward = resolveOllamaModel(['llama3.2:1b', 'llama3.2:3b']);
     const reverse = resolveOllamaModel(['llama3.2:3b', 'llama3.2:1b']);
@@ -164,7 +164,7 @@ describe('resolveOllamaModel (ALI-420 floor)', () => {
       ok: true,
       model: `${RECOMMENDED_OLLAMA_PULL}:latest`,
     });
-    // Negative control: the ALI-420 floor still exists.
+    // Negative control: the floor still exists.
     expect(OLLAMA_MODEL_FAMILIES.some(rx => rx.test(PENTEST))).toBe(false);
   });
 });
@@ -194,7 +194,7 @@ function ollamaWith(installed: string[]) {
 const generateCalls = () =>
   mockFetch.mock.calls.filter(c => String(c[0]).includes('/api/chat'));
 
-describe('callChat falls back to Ollama only through the floor (ALI-420)', () => {
+describe('callChat falls back to Ollama only through the floor', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetch);
     mockFetch.mockReset();

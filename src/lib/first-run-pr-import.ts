@@ -1,5 +1,5 @@
 /**
- * ALI-1749 / ALI-1782: first run reads the merged PR descriptions of a GitHub origin.
+ * First run reads the merged PR descriptions of a GitHub origin.
  *
  * Why: most commits never state a reason (measured null "no stated reason" rate: fastify 96.7%,
  * vite 96.7%, pnpm 74.0%), because squash-merge repos keep the reason in the PR description, not

@@ -1,5 +1,5 @@
 /**
- * ALI-215: the "what your graph did for you" value rollup. Aggregates the gateway's
+ * The "what your graph did for you" value rollup. Aggregates the gateway's
  * per-tenant value signals into one normalized shape the status readout renders. Each
  * source is fetched independently and a failure nulls only its own field - an old gateway
  * missing /decisions/reuse-rate must not blank the whole readout.
@@ -12,7 +12,7 @@ export interface ValueRollup {
   decisions: number;
   conflictsCaught: number;
   /**
-   * Decisions linked by embedding similarity alone (ALI-503). Deliberately a separate
+   * Decisions linked by embedding similarity alone. Deliberately a separate
    * number from conflictsCaught: an embedding says two decisions are about the same thing,
    * never that they disagree. Populated offline only; the cloud rollup has richer signals.
    */
@@ -22,7 +22,7 @@ export interface ValueRollup {
   reuseRate: number | null;
   healthGrade: string | null;
   /**
-   * ALI-796: unresolved-ref gaps the local graph can name for itself - a decision
+   * Unresolved-ref gaps the local graph can name for itself - a decision
    * cites a Jira key, but nothing has connected Jira yet. Local-only: decision_refs
    * lives in the local SQLite graph (local-db.ts), so the hosted gateway has none to
    * report and fetchValueRollup always sets this to [].
@@ -31,7 +31,7 @@ export interface ValueRollup {
 }
 
 /**
- * Decisions in a local graph before the sharing prompt is earned (ALI-503).
+ * Decisions in a local graph before the sharing prompt is earned.
  *
  * The prompt used to be gated on conflictsCaught, which offline was fabricated from cosine
  * similarity, so a manufactured detection was what asked the user for money. Nothing writes
@@ -60,7 +60,7 @@ async function settle<T>(p: Promise<T>): Promise<T | null> {
 /**
  * `days` is the window the impact and reuse-rate endpoints measure over. Undefined keeps
  * each endpoint's own default (30), which is what `align status` has always read; the
- * second-run card passes 7 so it can honestly say "this week" (ALI-950).
+ * second-run card passes 7 so it can honestly say "this week".
  */
 export async function fetchValueRollup(client: ValueRollupClient, opts: { days?: number } = {}): Promise<ValueRollup> {
   const [stats, impact, links, reuse, health] = await Promise.all([
@@ -94,15 +94,15 @@ export async function fetchValueRollup(client: ValueRollupClient, opts: { days?:
  */
 export function renderValueReadout(r: ValueRollup, opts: { mode: 'cloud' | 'local' }): string {
   const reuse = r.reuseRate === null ? 'n/a' : `${Math.round(r.reuseRate * 100)}%`;
-  // ALI-503: offline, nothing can write a conflict link, so "N conflicts caught" was either
+  // Offline, nothing can write a conflict link, so "N conflicts caught" was either
   // fabricated from cosine similarity or a permanent zero that reads as a broken counter.
   // Report what the local graph genuinely knows instead.
   const lines = [`  ${r.decisions} decisions in your graph`];
   if (opts.mode === 'local') {
-    // ALI-794: offline, nothing writes a similarity, duplicate or supersession link on a
+    // Offline, nothing writes a similarity, duplicate or supersession link on a
     // first run, so all three are structurally zero and a row of them reads as a broken
     // dashboard to someone ninety seconds into the tool. HIDDEN AT ZERO, never deleted -
-    // localValueRollup still counts the real relations (ALI-503's positive control), so a
+    // localValueRollup still counts the real relations (the positive control), so a
     // genuine one appears the moment it exists. Deleting the line would make that
     // impossible and would look identical from here.
     if (r.similarDecisions > 0) lines.push(`  ${r.similarDecisions} similar decisions found`);
@@ -123,19 +123,19 @@ export function renderValueReadout(r: ValueRollup, opts: { mode: 'cloud' | 'loca
     lines.push('');
     lines.push('  Reuse rate and health need the cloud graph - run `align login` to see them.');
   }
-  // ALI-796: name the gaps the graph can see for itself - one line per platform, only
+  // Name the gaps the graph can see for itself - one line per platform, only
   // when there is one to name. Local-only, same as similarDecisions above.
   if (r.gaps.length) {
     lines.push('');
     for (const gap of r.gaps) lines.push(statusGapLine(gap));
   }
   // similarDecisions is deliberately absent: buying the upsell with a cosine artefact is
-  // the defect this ticket exists to remove, not a smaller version of it (ALI-503).
+  // the defect this ticket exists to remove, not a smaller version of it.
   const hasValue = (opts.mode === 'local' && r.decisions >= LOCAL_SHARE_THRESHOLD)
     || r.conflictsCaught > 0 || r.duplicates > 0 || r.supersessions > 0;
   if (hasValue) {
     lines.push('');
-    // ALI-938: a command someone can run right there, not a URL to go figure out later.
+    // A command someone can run right there, not a URL to go figure out later.
     lines.push(`  ${inviteNudgeLine('value')}`);
   }
   return lines.join('\n');
@@ -144,14 +144,14 @@ export function renderValueReadout(r: ValueRollup, opts: { mode: 'cloud' | 'loca
 export interface LocalRollupDb {
   getStats(): { decisions: number };
   listLinks(filter?: { relation?: string }): unknown[];
-  /** ALI-796: every ref across every decision, for the gap resolver. */
+  /** Every ref across every decision, for the gap resolver. */
   getAllRefs(): Array<{ decisionId: string; ref: string; platform: string }>;
 }
 
 /**
  * The offline honest subset: decisions + conflict/duplicate/supersession counts derivable
  * from the local decision_links table. Reuse rate and composite health need the gateway,
- * so they are null here - we do NOT fabricate them offline (ALI-215 decision).
+ * so they are null here - we do NOT fabricate them offline.
  *
  * `isConnected` defaults to "nothing is connected", which only matters when the graph
  * actually carries refs - both real callers (status.ts, local.ts) always pass a real
@@ -166,11 +166,11 @@ export function localValueRollup(
     decisions: db.getStats().decisions,
     // Kept counting the real relations even though nothing offline writes one, so the
     // counter stays provably capable of reporting a conflict. That is what makes a zero
-    // here mean "none found" rather than "the counter is broken" (ALI-503 positive control).
+    // here mean "none found" rather than "the counter is broken".
     conflictsCaught: count('conflicts_with') + count('contradicts'),
     similarDecisions: count('relates'),
     duplicates: count('duplicates'),
-    // ALI-1065: partially_supersedes is a real capture-time typed edge now too - counting
+    // partially_supersedes is a real capture-time typed edge now too - counting
     // only 'supersedes' would undercount the moment a decision partially replaces another.
     supersessions: count('supersedes') + count('partially_supersedes'),
     reuseRate: null,

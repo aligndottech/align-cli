@@ -1,5 +1,5 @@
 /**
- * ALI-808 Pass A: a decision-shaped tool call, matched with its answer. Today only
+ * A decision-shaped tool call, matched with its answer. Today only
  * Claude Code's AskUserQuestion fires - built as a per-agent producer list so a second
  * agent's structured signal slots in without a rewrite (per the ticket's own design note).
  *
@@ -131,6 +131,6 @@ describe('extractStructuredDecisions: end-to-end against the real fixture', () =
     const candidates = extractStructuredDecisions(session);
     expect(candidates).toHaveLength(1);
     expect(candidates[0].chosenLabel).toBe('Fold the one-line fix into my PR');
-    expect(candidates[0].options.map(o => o.label)).toContain('Put it on the ali-734 worktree as its own PR');
+    expect(candidates[0].options.map(o => o.label)).toContain('Put it on the app-734 worktree as its own PR');
   });
 });

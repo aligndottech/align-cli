@@ -2,17 +2,17 @@ import { Command } from 'commander';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * ALI-1782: a refresh after first run must not bring back the squash commit of a PR first run stored.
+ * A refresh after first run must not bring back the squash commit of a PR first run stored.
  * Copilot review (PR #223): `dropped = scanned - commits.length` conflates two different
  * rejection reasons - a commit whose SUBJECT is mechanical (chore/wip/merge/too short,
  * the pre-existing filter) never reaches the rationale gate at all, so folding it into
- * "no rationale in the commit" overstates what ALI-804's new gate actually did. These
+ * "no rationale in the commit" overstates what the new gate actually did. These
  * pin that the spinner message reports only the rationale-gate count, using a shared
  * `stopMock` reference so the message text is inspectable (the inline `@clack/prompts`
  * mock in import-option-collision.test.ts discards a fresh object per call).
  */
 const stopMock = vi.fn();
-// ALI-827: the capture report prints through console.log, after the import.
+// The capture report prints through console.log, after the import.
 const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),

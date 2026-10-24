@@ -26,7 +26,7 @@ import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
  *
  * Raised here rather than in vitest.config.ts so a genuine hang anywhere else still fails fast.
  *
- * NOT MEASURED: whether ALI-740's move from better-sqlite3 to node:sqlite contributed to the
+ * NOT MEASURED: whether the move from better-sqlite3 to node:sqlite contributed to the
  * Windows cost. The comparison is confounded - the same change also moved this matrix from
  * windows-2022 to windows-latest - and the shape here (sixteen open/migrate/close cycles on a
  * temp path) is nothing like real use, which opens the graph once. Worth measuring properly

@@ -1,7 +1,7 @@
 /**
- * ALI-810: Claude Code's own auto-memory as a second, already-curated decision source.
+ * Claude Code's own auto-memory as a second, already-curated decision source.
  *
- * ALI-808 mines raw transcripts. This reads the notes the harness already decided were worth
+ * Session import mines raw transcripts. This reads the notes the harness already decided were worth
  * keeping: `~/.claude/projects/<project>/memory/*.md`, one fact per file, with a `type` in
  * frontmatter. Higher precision per file and far cheaper to parse - no noise filtering, no
  * repeat-loop exclusion, no plan-file resolution.
@@ -10,7 +10,7 @@
  *
  * There is no captured memory-file fixture, because this environment has no memory directory
  * at all (checked: `find ~/.claude -type d -name memory` is empty while `~/.claude/projects`
- * exists). Under ALI-808's own gate - "the gate is the fixture, not the agent name" - that
+ * exists). Under the own gate - "the gate is the fixture, not the agent name" - that
  * would normally mean shipping `locate` and refusing to parse, the way `gemini-cli` and
  * `cursor` do.
  *
@@ -29,7 +29,7 @@
  *     legitimately carry no frontmatter at all;
  *   - `autoMemoryDirectory` in settings.json relocates the directory.
  *
- * **The ALI-810 ticket also names `description` and `originSessionId` frontmatter fields.
+ * **The ticket also names `description` and `originSessionId` frontmatter fields.
  * The documentation describes neither.** They may well exist - the ticket was written from a
  * real machine and this one has no memory directory to check - but nothing here depends on
  * them, because a field this module cannot confirm is a field it must not require. If they
@@ -98,7 +98,7 @@ export interface MemoryDecisionCandidate {
  *    empty list, which is indistinguishable from "no memories yet".
  * 2. Otherwise, the `memory/` sibling of this project's Claude Code session files. The docs
  *    say `<project>` is derived from the git repository, and the exact slug encoding is not
- *    documented - so rather than guess at it, this reuses the cwd matching ALI-808 already
+ *    documented - so rather than guess at it, this reuses the cwd matching session import already
  *    proved (each session file records its own `cwd`) and takes the directory those files
  *    sit in. That is correct for worktrees and subdirectories for free, because they share
  *    one project directory.

@@ -1,10 +1,10 @@
 /**
- * ALI-949: the two setup funnel stages, `setup_started` and `setup_completed`, had no
+ * The two setup funnel stages, `setup_started` and `setup_completed`, had no
  * emitter anywhere in src/ - the PostHog funnel read setup_completed = 0 for launch week
  * while two installs completed the wizard. This is the object `runSetup` carries through
  * the wizard so both entry points (bare `align`, `align setup`) share one implementation.
  *
- * The wrinkle it exists for: in local mode the consent question is asked MID-wizard (ALI-794
+ * The wrinkle it exists for: in local mode the consent question is asked MID-wizard (the
  * puts value before questions), so at the moment the wizard starts nothing can be sent.
  * `started()` therefore BUFFERS - it may be offered the env at every checkpoint (wizard
  * start, after consent, after login) and sends exactly once, at the first checkpoint where

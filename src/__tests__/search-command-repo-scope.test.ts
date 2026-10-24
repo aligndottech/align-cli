@@ -1,5 +1,5 @@
 /**
- * ALI-798: `align search` gets the same `--repo`/`--all` scoping as `ask`.
+ * `align search` gets the same `--repo`/`--all` scoping as `ask`.
  *
  * Test List:
  * 1. --repo passes {repo, all: undefined} to searchDecisions

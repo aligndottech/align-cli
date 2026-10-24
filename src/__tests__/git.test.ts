@@ -112,7 +112,7 @@ describe('buildBlobUrl', () => {
   });
 });
 
-describe('isDecisionCommit rejects every listed mechanical prefix (ALI-827: one writer)', () => {
+describe('isDecisionCommit rejects every listed mechanical prefix (one writer)', () => {
   // A list of N rules is N claims, so it is N tests (tdd.md). The subject is padded past
   // the length floor so only the prefix can be what rejects it.
   it.each([...MECHANICAL_SUBJECT_PREFIXES])('rejects "%s: ..." however long the subject is', (prefix) => {
@@ -155,7 +155,7 @@ describe('isDecisionCommit', () => {
   });
 });
 
-// ALI-804: a subject can pass isDecisionCommit's shape check ("fix:", "feat:", long
+// A subject can pass isDecisionCommit's shape check ("fix:", "feat:", long
 // enough) and still be pure "what changed" if the body states no reason at all - which
 // is exactly David Gray's complaint ("They capture what changed, not why"). This is the
 // second, independent gate: does the BODY actually carry a stated rationale, once git
@@ -265,12 +265,12 @@ describe('formatCommitAsText', () => {
   });
 });
 
-// ALI-792: the old format hard-coded body: '' and passed --no-merges, so every ref a
-// commit body carried (ALI-123, closes #45, slack links, squash-merge PR descriptions)
+// The old format hard-coded body: '' and passed --no-merges, so every ref a
+// commit body carried (closes #45, slack links, squash-merge PR descriptions)
 // died before ingest. These pin the new single-invocation parser. Field separator is
 // \x1f and a non-empty body is terminated by a line reading "\x1fEND" (measured against
 // real git output, 2026-09-01 - an EMPTY body puts END inline on the header line).
-describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
+describe('getCommitHistory (body, merges, refs survive)', () => {
   const SEP = '';
   // Real header shas are always 40 hex chars, and the parser now requires that shape
   // before treating a line as a header - a body line starting COMMIT\x1f cannot forge
@@ -285,7 +285,7 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
   it('populates a multi-line body and still parses the file list after it', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
-      `COMMIT${SEP}a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}We decided against server-side sessions. Refs ALI-123 and closes #45.`,
+      `COMMIT${SEP}a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}We decided against server-side sessions. Refs APP-123 and closes #45.`,
       'See https://align.slack.com/archives/C123/p456 for the thread.',
       `${SEP}END`,
       '',
@@ -294,17 +294,17 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
     ]));
     const commits = await getCommitHistory({});
     expect(commits).toHaveLength(1);
-    expect(commits[0].body).toContain('Refs ALI-123 and closes #45.');
+    expect(commits[0].body).toContain('Refs APP-123 and closes #45.');
     expect(commits[0].body).toContain('slack.com/archives/C123');
     expect(commits[0].filesChanged).toEqual(['src/auth.ts', 'src/middleware.ts']);
   });
 
-  // ALI-804: an empty body is correctly parsed as empty (proven by the assertion below -
+  // An empty body is correctly parsed as empty (proven by the assertion below -
   // if the "inline END" terminator ever leaked into the body text, hasStatedRationale
   // would see non-trailer, non-echo content and this would wrongly come back non-empty),
   // and a subject alone - however decision-shaped - is now excluded for stating no reason.
   // This is the exact "captures what changed, not why" shape the ticket is about.
-  it('excludes a commit with an empty body - a subject alone states no reason (ALI-804)', async () => {
+  it('excludes a commit with an empty body - a subject alone states no reason', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
       `COMMIT${SEP}b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3${SEP}Switch database from Postgres to CockroachDB${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${SEP}END`,
@@ -363,13 +363,13 @@ describe('getCommitHistory (ALI-792: body, merges, refs survive)', () => {
   it('captures a single-line body with no trailing newline (inline on the header line)', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
-      `COMMIT${SEP}${SHA1}${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}Body with no trailing newline, refs ALI-99.${SEP}END`,
+      `COMMIT${SEP}${SHA1}${SEP}feat(auth): switch to JWT for stateless sessions${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}Body with no trailing newline, refs APP-99.${SEP}END`,
       '',
       'src/auth.ts',
     ]));
     const commits = await getCommitHistory({});
     expect(commits).toHaveLength(1);
-    expect(commits[0].body).toBe('Body with no trailing newline, refs ALI-99.');
+    expect(commits[0].body).toBe('Body with no trailing newline, refs APP-99.');
     expect(commits[0].filesChanged).toEqual(['src/auth.ts']);
   });
 

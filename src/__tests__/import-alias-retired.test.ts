@@ -1,5 +1,5 @@
 /**
- * ALI-951, the other end of it: `align import` is GONE, and cannot come back by accident.
+ * The other end of the sunset: `align import` is GONE, and cannot come back by accident.
  *
  * `import-alias.test.ts` enforced the sunset - it failed the build on the release whose version
  * reached `IMPORT_ALIAS_SUNSET.removeIn` (0.40.0), which is exactly what it did on the 0.40.0
@@ -71,7 +71,7 @@ async function run(argv: string[]): Promise<void> {
   await program.parseAsync(argv, { from: 'user' });
 }
 
-describe('`align import` was retired in 0.40.0 (ALI-951)', () => {
+describe('`align import` was retired in 0.40.0', () => {
   beforeEach(() => {
     stderr.length = 0;
     vi.clearAllMocks();

@@ -1,9 +1,9 @@
 /**
- * ALI-808: `markConfirmed` writes the columns local-db.ts's DecisionRow already reserves
- * for the session importer ("Confirm is written by the session importer (ALI-808); ratify
+ * `markConfirmed` writes the columns local-db.ts's DecisionRow already reserves
+ * for the session importer ("Confirm is written by the session importer; ratify
  * is the human act below" - local-db.ts's own DecisionRow doc). Kept in its own file rather
- * than folded into local-db-provenance.test.ts (ALI-831's), since this is the one small,
- * additive exception to ALI-808's "does not touch local-db.ts" boundary - see the PR
+ * than folded into local-db-provenance.test.ts (the provenance suite), since this is the one small,
+ * additive exception to session import's "does not touch local-db.ts" boundary - see the PR
  * description for why: the columns exist and are documented as this ticket's to write, but
  * no insert path threads them yet.
  *

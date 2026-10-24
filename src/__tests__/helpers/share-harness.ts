@@ -13,7 +13,7 @@ export const canPty = process.platform !== 'win32' && spawnSync('python3', ['-c'
 export interface Harness {
   posts: Array<{ url: string; body: string }>;
   /**
-   * The fake gateway's share-request routes (ALI-1540). `mode` null answers the config route 404, like an older gateway.
+   * The fake gateway's share-request routes. `mode` null answers the config route 404, like an older gateway.
    * `states` is the status the next polls return, in order (the last one repeats). Calls to these routes are logged
    * in `requests`, NOT in `posts`, so "zero POSTs" assertions about /ingest/batch keep their meaning.
    */

@@ -43,17 +43,17 @@ import {
   TOPIC_TIMELINE_TOOL,
 } from '../lib/mcp-timeline-tools.js';
 
-// Server-level instructions (ALI-120): surfaced to the agent so it reaches for Align
+// Server-level instructions: surfaced to the agent so it reaches for Align
 // proactively - without the user prompting - the moment this MCP server is connected.
 //
-// ONE text with the hosted server (ALI-952): the shared body lives in
+// ONE text with the hosted server: the shared body lives in
 // mcp-instructions.shared.ts, byte-identical to align-stack's copy and pinned by
 // mcp-instructions-parity.test.ts. This server only supplies its names for the shared
 // tokens, plus the per-server lines for tools whose NAME differs between the two servers.
 // Every tool it exposes is one the hosted server also has; the remaining hosted-only tools
 // (check_proposed_action, rate_conflict, coach) are appended on that side.
 //
-// ALI-1070 added the first per-server line here: this server now exposes the topic timeline,
+// The first per-server line here exists because this server exposes the topic timeline,
 // so it carries the hosted guidance sentence rendered with ITS name for the tool. That line
 // is CLOUD ONLY (see instructionsFor) because local mode has no implementation for it. The
 // graph-identity suffix is also added per environment by instructionsFor, and the whole
@@ -147,7 +147,7 @@ export function instructionsFor(env: EnvironmentConfig): string {
  */
 export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
   const local = env.mode === 'local-embedded';
-  // ALI-1063 follow-up: local-embedded search reports a decision as superseded only when a
+  // Local-embedded search reports a decision as superseded only when a
   // supersedes link exists (one a person recorded with `align mark ... replaces`, or a typed
   // link); most decisions have none. Rather than staying silent about that gap, tell the agent
   // what to do instead: when two results cover the
@@ -160,7 +160,7 @@ export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
       'created_at. That is a heuristic, not a verified status.'
     : ` Searches the hosted Align graph at ${env.gatewayUrl}.`;
   /**
-   * ALI-1070 follow-up: the two tools local mode cannot serve say so.
+   * The two tools local mode cannot serve say so.
    *
    * They stay REGISTERED - deregistering per mode is a larger change and the Proxy stub is
    * honest when reached. What was missing is any way for an agent reading descriptions to know
@@ -225,11 +225,11 @@ export async function dispatchTool(
     );
   }
 
-  // ALI-1420: a frozen run must never write a decision into the graph, or the next frozen run
+  // A frozen run must never write a decision into the graph, or the next frozen run
   // (or the live graph) would see a decision the run invented. align_capture is the one tool
   // that does. Scoped to decisions on purpose: align_check_drift and align_check_alignment stay
   // available, and both send the cutoff so the gateway records no check event or drift row for
-  // them (ALI-1429, ALI-1438).
+  // them.
   if (createdBefore && (name === 'align_capture' || name === BACKFILL_TOOL || name === MARK_TOOL || name === SHARE_TOOL || name === SHARE_STATUS_TOOL || (name === SYNC_TOOL && args?.['action'] === 'run'))) {
     throw new Error(
       name === 'align_capture'
@@ -245,7 +245,7 @@ export async function dispatchTool(
     throw new Error(`${SCOPE_TOOL} changes what the graph imports, and this server is frozen as of ${createdBefore}, so it never changes scope. Restart align mcp without --created-before to use it.`);
   }
 
-  // ALI-1411: every READ tool honours the as-of cutoff, not just the three built on
+  // Every READ tool honours the as-of cutoff, not just the three built on
   // searchDecisions. Only smart-search and the decision-links cursor bound it server-side;
   // the rest are filtered by lib/as-of.ts, which says what that cannot cover. With no cutoff
   // the guard is never built, so every arm below calls and returns exactly what it did before.
@@ -254,12 +254,12 @@ export async function dispatchTool(
     : undefined;
 
   switch (name) {
-    // ONE arm for both names (ALI-952). align_search is the alias of align_ask: they were two
+    // ONE arm for both names. align_search is the alias of align_ask: they were two
     // entries for the same gateway call with two dispatch arms that had already drifted
     // (align_search passed no limit, align_ask defaulted to 8). The question is passed
     // through unchanged so the gateway's smart-search strategy selector can route it to
-    // semantic search (ALI-105); align_search's `query` is the same text under the old name.
-    // ALI-1066/ALI-1092: the relation context the gateway attaches to a non-active hit
+    // semantic search; align_search's `query` is the same text under the old name.
+    // The relation context the gateway attaches to a non-active hit
     // (`successor`, `conflicts_with`) reaches the agent through this arm. It already did -
     // serializeMcpResult is a denylist, so an unrecognised field passes through - and what
     // withDecisionRelationContract adds is that a NULL never does. `"conflicts_with":null`
@@ -307,11 +307,11 @@ export async function dispatchTool(
     // L9: an agent can ASK for a share (a browser approval link, or an older one-time code); it never sends (share-tool.ts).
     case SHARE_TOOL:
       return runShareTool(args, env, toolCtx);
-    // ALI-1540: completes a request the gateway says the PERSON approved, once; otherwise read-only (share-status-tool.ts).
+    // Completes a request the gateway says the PERSON approved, once; otherwise read-only (share-status-tool.ts).
     case SHARE_STATUS_TOOL:
       return runShareStatusTool(args, env, toolCtx);
     case 'align_check_alignment': {
-      // ALI-1420: the gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
+      // The gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
       // gateway that predates the parameter. No cutoff keeps the two-argument call.
       const result = asOf
         ? await client.checkAlignment(args?.['diff'] as string, args?.['context'] as string | undefined, {
@@ -323,7 +323,7 @@ export async function dispatchTool(
     case 'align_check_drift':
       // Drift against a decision that did not exist yet is not an as-of answer.
       if (asOf) await asOf.assertDecision(args?.['decision_id'] as string);
-      // ALI-1438: the cutoff tells the gateway not to store a drift-check row. No cutoff keeps
+      // The cutoff tells the gateway not to store a drift-check row. No cutoff keeps
       // the three-argument call.
       return asOf
         ? client.checkDrift(
@@ -353,7 +353,7 @@ export async function dispatchTool(
         await client.searchDecisions(`${args?.['file_path'] as string} ${args?.['context'] ?? ''}`, 5, createdBefore),
       );
     /**
-     * ALI-1070. The gateway already returns the whole story structure; what this arm adds is
+     * The gateway already returns the whole story structure; what this arm adds is
      * the projection and the RENDERING CONTRACT (mcp-timeline-tools.ts). Rows without the
      * contract give a customer the data and not the ability to tell a supersession from a
      * correction, which is the AlignBench split this port is measured on - so the shaping is
@@ -397,11 +397,11 @@ export async function dispatchTool(
 }
 
 /**
- * ALI-949: did this tool call hand the agent a real answer from the graph? The three tools
+ * Did this tool call hand the agent a real answer from the graph? The three tools
  * an agent reaches for to GET something (ask, search, check) count; a non-empty conflicts
  * list or an impact graph does not - those are follow-ups, not the first useful decision.
  * A check whose status is `no-context` or `unknown` found nothing or could not run
- * (ALI-414: not a pass), so it is not useful either.
+ * (not a pass), so it is not useful either.
  */
 export function isFirstUsefulToolResult(name: string, result: unknown): boolean {
   if (name === 'align_ask' || name === 'align_search') {
@@ -420,8 +420,8 @@ export function isFirstUsefulToolResult(name: string, result: unknown): boolean 
  * testable without standing up a Server (mcp-first-useful.test.ts). dispatchTool stays the
  * pure router; this is the one place a tool call has a side effect beyond its result.
  *
- * first_useful_decision fired only from a non-empty `align ask` before ALI-949, so an agent
- * asking through this server never counted - and the phases after that ticket exist to
+ * first_useful_decision fired only from a non-empty `align ask` at first, so an agent
+ * asking through this server never counted - and the phases after that exist to
  * make the agent the usual asker. The once-per-install guard is recordFunnelStage's, shared
  * with `align ask`; fired without await so the tool response never waits on telemetry.
  */
@@ -440,7 +440,7 @@ export function createCallToolHandler(
     try {
       result = await dispatchTool(name, args, client, env, createdBefore, { clientInfo, judge: ctx.judge });
     } catch (err) {
-      // ALI-1494: the opt-in local call log (ALIGN_LLM_TRACE_FILE). A no-op when unset.
+      // The opt-in local call log (ALIGN_LLM_TRACE_FILE). A no-op when unset.
       appendChatTrace({
         kind: 'mcp_call', tool: name, args, client: clientInfo ?? null, ok: false,
         error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - startedAt,
@@ -477,12 +477,11 @@ export function wireCallTool(
   );
 }
 
-// Order is the ranking an agent reads off tools/list, so the pre-flight check leads (ALI-139,
-// prescription over retrieval; ALI-952 moved it here from fourth). The hosted server
+// Order is the ranking an agent reads off tools/list, so the pre-flight check leads (prescription over retrieval; it moved here from fourth). The hosted server
 // (align-stack mcpServer.ts) registers check_alignment first for the same reason.
 /**
- * Tool annotations, mirroring connectors/mcp-align/src/mcpServer.ts's canonical vocabulary
- * (ALI-326 there, ALI-1063 here). A client cannot tell `align_ask` from `align_capture`
+ * Tool annotations, mirroring connectors/mcp-align/src/mcpServer.ts's canonical vocabulary.
+ * A client cannot tell `align_ask` from `align_capture`
  * without these, and the one consumer that most needs to - AlignBench's align arm, which
  * runs under the Claude Agent SDK with permissions bypassed and no MCP gating on
  * `allowedTools` - would otherwise have to hardcode which tools write. A hardcoded list
@@ -597,10 +596,10 @@ export const TOOL_SCHEMAS = [
   },
 
   /**
-   * ALI-1070: the timeline trio, ported from the hosted server (mcp-align).
+   * The timeline trio, ported from the hosted server (mcp-align).
    *
    * APPENDED rather than ranked high on purpose. Order is the ranking an agent reads off
-   * tools/list, and the existing eight encode ALI-139's "prescription over retrieval"
+   * tools/list, and the existing eight encode the "prescription over retrieval"
    * decision with the pre-flight check leading. Re-ranking that is a separate product call;
    * the lever for routing an agent to the timeline tool is the instructions line above,
    * which names it for exactly the questions it answers.
@@ -661,12 +660,12 @@ export const TOOL_SCHEMAS = [
   MARK_TOOL_SCHEMA,
   // L9: appended after align_mark.
   SHARE_TOOL_SCHEMA,
-  // ALI-1540: appended after align_share.
+  // Appended after align_share.
   SHARE_STATUS_TOOL_SCHEMA,
 ];
 
 /**
- * ALI-1082/ALI-1087: --created-before is a harness/audit-only bound (AlignBench's align arm
+ * --created-before is a harness/audit-only bound (AlignBench's align arm
  * passes it so it cannot see decisions the graph captured after a corpus item's frozen
  * `asOf`), and every deployment mode - cloud, self-host, and true local-embedded - carries
  * the same as-of correctness guarantee. Fail closed at startup rather than silently
@@ -680,7 +679,7 @@ export const TOOL_SCHEMAS = [
  *   comparison against SQLite's `created_at`) resolve a date-only literal against the
  *   session TimeZone.
  *
- * ALI-1087 removed the local-embedded rejection that used to sit here: "there is no cutoff
+ * The local-embedded rejection that used to sit here is gone: "there is no cutoff
  * concept locally" described the implementation of the day, not a reason. The local graph
  * stores every decision and edge with a real `created_at`, so `createLocalGatewayClient`
  * now honours the bound the same way the cloud query does (see its `searchDecisions` and
@@ -735,7 +734,7 @@ export function registerMcpCommand(program: Command): void {
     .option('--install', 'Configure agents - alias for --setup')
     .option('--remove', 'Remove Align from your agents\' MCP config')
     .option('--created-before <iso>', 'Hide decisions captured at or after this ISO-8601 instant (benchmark/audit use)')
-    // Rendered, not spelled (ALI-1135): help text is copied by hand, and on Windows the bare
+    // Rendered, not spelled: help text is copied by hand, and on Windows the bare
     // `align` is the align.cmd shim a client cannot spawn.
     .addHelpText('after', `
 Claude Code config (~/.claude.json or workspace .mcp.json):
@@ -764,7 +763,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
       const env = config.getEnvironment(resolvedEnv);
       const client = createGatewayClient(env);
 
-      // ALI-1082: fail closed BEFORE the server ever connects - a bound that silently does
+      // Fail closed BEFORE the server ever connects - a bound that silently does
       // nothing is worse than no bound.
       if (opts.createdBefore !== undefined) {
         validateCreatedBeforeFlag(opts.createdBefore, env);
@@ -780,7 +779,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
       wireCallTool(server, client, env, opts.createdBefore);
 
       // MCP protocol requires clean stdout; log startup to stderr
-      // ALI-1082: the cutoff is named in the banner whenever one is set, so a benchmark
+      // The cutoff is named in the banner whenever one is set, so a benchmark
       // run's own transcript records that the bound was active - a bound nobody can see in
       // the log is a bound nobody can audit afterwards.
       const createdBeforeSuffix =
@@ -788,7 +787,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
       process.stderr.write(
         `align mcp server started (env: ${resolvedEnv}, gateway: ${env.gatewayUrl}${createdBeforeSuffix})\n`,
       );
-      // ALI-938: a URL asks someone to go figure it out later; the invite command is
+      // A URL asks someone to go figure it out later; the invite command is
       // something they can act on right there. See invite-prompt.ts.
       process.stderr.write(`${inviteNudgeLine('value')}\n`);
 
@@ -798,7 +797,7 @@ Claude Code config (~/.claude.json or workspace .mcp.json):
 }
 
 /**
- * The undo for the automatic wiring setup does (ALI-776).
+ * The undo for the automatic wiring setup does.
  *
  * Setup connects detected agents without asking, which is only defensible because the write
  * is additive and reversible. This is that reversibility, and it needs to be one command -
@@ -845,7 +844,7 @@ async function runMcpSetup(env?: EnvName): Promise<void> {
 
   const editors = detectEditors();
   if (!editors.length) {
-    // Rendered from alignServerEntry rather than hand-built (ALI-1135). This branch used to
+    // Rendered from alignServerEntry rather than hand-built. This branch used to
     // spell `"command": "align"` itself, which is the one thing a Windows client cannot
     // spawn - and this is the branch that hands the config to a HUMAN to paste, so a wrong
     // one here is copied by hand into the file we were not allowed to write.

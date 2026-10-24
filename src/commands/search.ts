@@ -15,7 +15,7 @@ export function registerSearchCommand(program: Command): void {
     .option('--repo <name>', 'Scope to one repo - short name, owner/repo, or full identity (local mode only)')
     .option('--all', 'Search every repo, not just the current one (local mode only)')
     // No --space here: smart-search has no space parameter on the gateway and the local graph
-    // has no space concept, so the flag parsed and silently did nothing (ALI-505). Space
+    // has no space concept, so the flag parsed and silently did nothing. Space
     // filtering lives where it works: `align decisions list --space <slug>`.
     .action(async (query: string, opts: { env: EnvName; limit: string; repo?: string; all?: boolean }) => {
       const config = createConfigStore();
@@ -34,7 +34,7 @@ export function registerSearchCommand(program: Command): void {
         }
 
         console.log(chalk.bold(`\n${results.count} result(s)  [${results.strategy}]\n`));
-        // ALI-798: named for the same reason ask does - a reader should know what was
+        // Named for the same reason ask does - a reader should know what was
         // searched before wondering why a decision they expect is not in the list.
         if (results.scope) {
           console.log(chalk.dim(`Answering from ${results.scope} (--all searches every repo)\n`));

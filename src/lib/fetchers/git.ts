@@ -4,7 +4,7 @@ import { MECHANICAL_SUBJECT_PREFIXES } from '../commit-shape.js';
 import type { CaptureFetchReport, CaptureFetchResult, CaptureSkip } from './capture.js';
 
 /**
- * ALI-827: git's two drop reasons, kept apart. A commit whose SUBJECT is mechanical
+ * Git's two drop reasons, kept apart. A commit whose SUBJECT is mechanical
  * (isDecisionCommit: a prefix from MECHANICAL_SUBJECT_PREFIXES, or too short) never
  * reaches the rationale gate at all, so folding it into "stated no reason" overstates
  * what that gate did (Copilot review, PR #223). `scanned - kept - rejectedByRationale`

@@ -1,5 +1,5 @@
 /**
- * ALI-1540: the MCP tool `align_share_status` - the second half of an approved share.
+ * The MCP tool `align_share_status` - the second half of an approved share.
  *
  * `align_share` stages a request and hands the person a link. This tool reads where that request stands and, ONLY
  * when the gateway says the person approved it, sends the exact bytes that were approved (the completion call).

@@ -103,7 +103,7 @@ function pathInterpolations(): Array<{ line: number; text: string }> {
   return out;
 }
 
-describe('every request path segment is guarded (ALI-1070 rounds 2 and 3)', () => {
+describe('every request path segment is guarded', () => {
   it('sees the guarded call sites - positive control, so a blind sweep cannot report clean', () => {
     // Without this, a pattern that matched nothing would report zero violations and pass
     // forever. The six guarded sites are the thing the sweep must be able to see.

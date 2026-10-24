@@ -1,5 +1,5 @@
 /**
- * ALI-827: what an import fetched, and what it could not reach.
+ * What an import fetched, and what it could not reach.
  *
  * A thin connector looks like a thin tool. `align setup --local` produced 39 Slack
  * decisions on 2026-09-02 and nothing said why; the number this prints is the number the
@@ -25,7 +25,7 @@ export interface CaptureSource {
   fetched: number;
   /** Source objects examined before any filter (CaptureFetchReport.scanned), when the
    *  caller has it. Optional so an older or hand-built CaptureSource still renders
-   *  exactly as before (ALI-786): the clarifier below is additive, never required. */
+   *  exactly as before: the clarifier below is additive, never required. */
   scanned?: number;
   /** What the caller asked for, when it asked for anything. */
   requested?: number;
@@ -97,7 +97,7 @@ export function renderCaptureReport(sources: CaptureSource[]): string {
   for (const s of ordered) {
     // Said only when fewer came back than were asked for: a full result is not a
     // shortfall, and a clause printed every time stops being read.
-    // ALI-1779: a source that scanned more than it kept and explains the difference in skip lines
+    // A source that scanned more than it kept and explains the difference in skip lines
     // names its denominator instead, so "124 kept of 500 scanned" sits beside skips of 189 and 187
     // and the three add up. The ceiling is named only when the scan actually reached it.
     const keptOfScanned = s.window === undefined && s.fetched > 0 && s.skips.length > 0 && s.scanned !== undefined && s.scanned > s.fetched
@@ -108,7 +108,7 @@ export function renderCaptureReport(sources: CaptureSource[]): string {
       : s.requested !== undefined && s.fetched < s.requested
         ? ` of up to ${s.requested} requested`
         : '';
-    // ALI-786: a zero-item source with no skip line is otherwise silent about whether
+    // A zero-item source with no skip line is otherwise silent about whether
     // anything was even looked at - "Found 0 items" reads the same for an empty account
     // as for a token that could not see anything. Say what was measured (never a REASON
     // the fetcher did not measure - code-style.md, "never a second writer of it"): zero

@@ -1,5 +1,5 @@
 /**
- * ALI-794 component 2: the found-decisions summary that replaces the bare
+ * The found-decisions summary that replaces the bare
  * `Imported N` line as the first thing a fresh user sees.
  *
  * Pure string builder + a pure reducer over the local db, so the wow moment is
@@ -90,15 +90,15 @@ describe('buildFoundSummary', () => {
 const titled = (titles: string[]) =>
   titles.map((title, i) => ({ id: `t${i}`, title, sourceUrl: null }));
 
-describe('buildFoundSummary sample ranking (ALI-1772)', () => {
+describe('buildFoundSummary sample ranking', () => {
   // The exact shapes a clean-room run of this repo showed first, newest first, then real changes.
   const SHAPES = [
     'docs: remove specific tool names from README intro',
-    '[DRAFT - hold] feat(setup): Linear via read-only OAuth instead of paste [ALI-101]',
+    '[DRAFT - hold] feat(setup): Linear via read-only OAuth instead of paste [APP-101]',
     'docs(readme): rewrite README intro with product positioning language',
     'chore: bump dependencies for the release train',
     'Merge pull request #25 from tnk/perf-connectors',
-    'perf(setup): fetch connectors concurrently instead of one-by-one [ALI-97] (#25)',
+    'perf(setup): fetch connectors concurrently instead of one-by-one [APP-97] (#25)',
     'fix(import): stop re-embedding commits already in the graph',
     'feat(ask): answer from the local graph when offline',
   ];
@@ -106,11 +106,11 @@ describe('buildFoundSummary sample ranking (ALI-1772)', () => {
   it('shows code-change commits before docs, chore, merge and draft subjects', () => {
     const s = buildFoundSummary(db({ rows: titled(SHAPES) }));
     expect(s.recent.map((d) => d.title)).toEqual([
-      'perf(setup): fetch connectors concurrently instead of one-by-one [ALI-97] (#25)',
+      'perf(setup): fetch connectors concurrently instead of one-by-one [APP-97] (#25)',
       'fix(import): stop re-embedding commits already in the graph',
       'feat(ask): answer from the local graph when offline',
       'docs: remove specific tool names from README intro',
-      '[DRAFT - hold] feat(setup): Linear via read-only OAuth instead of paste [ALI-101]',
+      '[DRAFT - hold] feat(setup): Linear via read-only OAuth instead of paste [APP-101]',
     ]);
   });
 
@@ -170,8 +170,8 @@ describe('renderFoundSummary', () => {
   });
 
   it('says nothing was found rather than printing a zero dashboard', () => {
-    // The empty graph is the one case where counts read as a broken tool. ALI-503's
-    // lesson applied to the first run: report what is true, not a row of zeros.
+    // The empty graph is the one case where counts read as a broken tool. The same
+    // lesson applies to the first run: report what is true, not a row of zeros.
     const out = renderFoundSummary({ total: 0, linked: 0, recent: [] });
     expect(out).not.toMatch(/\b0 decisions\b/);
     expect(out.toLowerCase()).toContain('no decisions');
@@ -186,7 +186,7 @@ describe('renderFoundSummary', () => {
   });
 });
 
-describe('clearScreenForPicker (ALI-794 component 5)', () => {
+describe('clearScreenForPicker', () => {
   it('writes screen-clearing control codes on a real TTY, so the summary above does not sit under the picker', async () => {
     const { clearScreenForPicker } = await import('../lib/setup-ux.js');
     const writes: string[] = [];
@@ -213,7 +213,7 @@ describe('clearScreenForPicker (ALI-794 component 5)', () => {
   });
 });
 
-describe('renderFoundSummary: PR descriptions (ALI-1782)', () => {
+describe('renderFoundSummary: PR descriptions', () => {
   const s = { total: 12, linked: 0, recent: [{ title: 'Use Map' }] };
   it('says how many came from PR descriptions, and with a different count says that one', () => {
     expect(renderFoundSummary(s, { prDescriptions: 3 })).toContain('including 3 from PR descriptions');

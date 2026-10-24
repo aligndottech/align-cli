@@ -1,5 +1,5 @@
 /**
- * What text of a git decision the lexical index reads (ALI-1749).
+ * What text of a git decision the lexical index reads.
  *
  * A git decision's stored summary is `formatCommitAsText`: subject, body, then `Author:`, `Date:`,
  * `Files changed:` and `URL:` blocks. The reason a commit exists lives in the first lines of the body, so
@@ -9,7 +9,7 @@
  * Pure.
  */
 
-/** How much of the cleaned body the index reads. Measured on eval v2 (ALI-1749): 500, 1000 and 2000 chars
+/** How much of the cleaned body the index reads. Measured on eval v2: 500, 1000 and 2000 chars
  *  scored the same (recall@8 95.7%) and none at all scored 79.9%, so the body matters and its length does
  *  not; 500 keeps the persisted index small. */
 export const INDEX_BODY_CHARS = 500;

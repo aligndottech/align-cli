@@ -1,5 +1,5 @@
 /**
- * ALI-808 shared contract: the agent name lives in the source_url scheme
+ * The agent name lives in the source_url scheme
  * (`<agent>-session://<sessionId>/<messageId>`), never in `platform` (always
  * 'agent-session'). Two agents, so a hardcoded scheme cannot pass.
  *

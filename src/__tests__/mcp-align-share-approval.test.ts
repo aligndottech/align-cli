@@ -12,7 +12,7 @@ import { loadRequest } from '../lib/share/pending.js';
 import { fakeRequests, type FakeRequests, keyOf, openInBrowserWay } from './helpers/share-requests-fake.js';
 
 /**
- * ALI-1540 Test List, the MCP tools:
+ * Test List, the MCP tools:
  * - align_share (browser approval): returns the link (key in the fragment), the code and the request id, in words that say the
  *   agent cannot approve; makes NO completion call and never calls shareBatch; the request is kept 0600 on this machine.
  *   Asking again returns the same link and stages nothing; once the gateway no longer has it pending, it stages a fresh one.
@@ -238,7 +238,7 @@ describe('what the tools are, and what an agent can reach', () => {
 });
 
 /**
- * Security review fixes (ALI-1540), the MCP side:
+ * Security review fixes, the MCP side:
  * - a status call rebuilds the bytes: a pending file edited to name another decision's hash and ids is cancelled and sends nothing.
  * - a completed request this machine has no ledger row for says so (a lost completion answer), and a recorded one says it has it.
  * - asking again while the earlier request cannot be checked (a temporary error) keeps its file and stages nothing new.

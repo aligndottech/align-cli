@@ -7,7 +7,7 @@ import { createLocalDb, SCHEMA_VERSION } from '../lib/local-db.js';
 import { connectorItemKey } from '../lib/source-key.js';
 
 /**
- * ALI-1527 Test List, schema v11 (re-key zoom rows after the connector-core meeting_id fix):
+ * Test List, schema v11 (re-key zoom rows after the connector-core meeting_id fix):
  * - connector-core 0.10.1 keys a Discover recording URL by its meeting_id and gives the Zoom chat URL no key.
  * - A v10 graph whose zoom row holds the old collapsed key is re-keyed in place: same id, same judgements,
  *   same promotion, same ratification, nothing duplicated or lost.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Binary smoke: prove the COMPILED artifact opens a real local graph (ALI-740).
+# Binary smoke: prove the COMPILED artifact opens a real local graph.
 #
 # WHY THIS IS A SEPARATE SUITE FROM smoke-install.sh
 # --------------------------------------------------
@@ -214,7 +214,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. ON-DEVICE EMBEDDINGS, in the binary. The reason ALI-744 exists.
+# 5. ON-DEVICE EMBEDDINGS, in the binary. The reason this smoke exists.
 #
 # This is the claim nothing else can make: vitest never sees the `--define` that selects
 # the WASM backend, and never sees the embedded ORT assets, so a compiled artifact is the
@@ -236,7 +236,7 @@ git -C "$FIXTURE" config user.email smoke@example.invalid
 git -C "$FIXTURE" config user.name "Smoke Tester"
 echo "db=postgres" > "$FIXTURE/config.ini"
 git -C "$FIXTURE" add config.ini
-# ALI-804's hasStatedRationale() (git.ts) requires a non-empty BODY - rationale folded
+# hasStatedRationale() (git.ts) requires a non-empty BODY - rationale folded
 # into the subject alone (this fixture's original shape) is filtered same as a chore
 # commit. Two -m flags give each commit a subject and a separate body paragraph.
 git -C "$FIXTURE" commit -qm "feat: use Postgres over SQLite for the main store" \

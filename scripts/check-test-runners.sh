@@ -7,7 +7,7 @@
 # red, because the absence of a runner has no output. The failure mode of an unrun test is
 # silence, which is the whole reason this is a guard and not a convention.
 #
-# ALI-714 established the first half: a runner must EXIST. ALI-727 added the second: it must be
+# The first half: a runner must EXIST. The second: it must be
 # somewhere a pull request gets to. Those are different claims, and this repo has two live ways
 # to satisfy the first while failing the second, neither visible at the step you are reading:
 #
@@ -42,7 +42,7 @@
 # PORTED from align-stack's scripts/check-test-runners.sh, minus its helm-chart half, which
 # this repo has no charts for. That makes two copies of one rule in two repos: if you fix a
 # defect here, check the other one (code-style.md, "fixed one site, left the identical one").
-# They have DIVERGED deliberately since ALI-727 - the PR-reachability half below is here only.
+# They have DIVERGED deliberately - the PR-reachability half below is here only.
 # align-stack's copy carries the same hole and it is worth porting back.
 #
 # Usage: check-test-runners.sh [repo-root]

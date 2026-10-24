@@ -2,7 +2,7 @@ import type { AgentName } from './types.js';
 
 const AGENTS: readonly AgentName[] = ['claude-code', 'codex', 'cursor', 'gemini-cli', 'opencode', 'pi'];
 
-/** ALI-808 shared contract: the agent name lives in the scheme, `platform` stays the single
+/** Shared contract: the agent name lives in the scheme, `platform` stays the single
  *  value `agent-session` everywhere else. */
 export function buildSessionSourceUrl(agent: AgentName, sessionId: string, messageId: string): string {
   return `${agent}-session://${sessionId}/${messageId}`;
@@ -22,7 +22,7 @@ export function parseSessionSourceUrl(url: string): { agent: AgentName; sessionI
 }
 
 /**
- * ALI-810: memory files are not sessions, so they get their own scheme rather than being
+ * Memory files are not sessions, so they get their own scheme rather than being
  * squeezed into `<agent>-session://<sessionId>/<messageId>` with invented ids.
  *
  * Built from the project directory name and the topic file's stem, both of which are stable

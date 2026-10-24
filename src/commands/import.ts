@@ -191,7 +191,7 @@ function scopeFlagsOf(o: ConnectGroupOpts): ScopeFlags {
 }
 
 /**
- * ALI-951: `import` was retired in 0.40.0, and a RETIRED command still has to exist.
+ * `import` was retired in 0.40.0, and a RETIRED command still has to exist.
  *
  * Deleting the alias outright is not the end state, because `align` has a default action for a
  * free-text question (cli.ts's `program.action(runDefaultAction)`). With no `import` command
@@ -224,7 +224,7 @@ export function registerRetiredImportCommand(program: Command): void {
 }
 
 /**
- * The `connect` group (ALI-951). With no source and no `--all` it is the local picker
+ * The `connect` group. With no source and no `--all` it is the local picker
  * (connect.ts); `connect <source>` runs that source's import; `--all` and a cloud env take
  * the cloud scan below. `import` no longer reaches any of it - it is the retirement stub
  * above, which exits 2 - so this group is the only live spelling.

@@ -1,5 +1,5 @@
 /**
- * ALI-618: local-only users have no tenant, so recordCommandUsage's local-embedded branch does
+ * Local-only users have no tenant, so recordCommandUsage's local-embedded branch does
  * not go through /telemetry/ingest - it sends a smaller, anonymous payload to
  * /telemetry/anonymous, gated on a machine-local consent decision (config.ts) rather than a
  * token. usage-telemetry.test.ts covers the cloud path and stays unmodified; this file is the
@@ -107,7 +107,7 @@ describe('recordCommandUsage - local-embedded anonymous ping', () => {
     expect(sentBody()).toMatchObject({ command: 'context' });
   });
 
-  // ALI-795: the gateway accepts a two-word command path now (align-stack#1990), so the
+  // The gateway accepts a two-word command path now (align-stack#1990), so the
   // ping carries "import git" whole - truncating to "import" made activation-by-source
   // unreadable, which was the whole point of the ticket. Anything past two words is
   // still cut: the postAction hook never builds more, so a third word would be a bug's
@@ -150,7 +150,7 @@ describe('recordCommandUsage - local-embedded anonymous ping', () => {
     expect(getTelemetryConsent).not.toHaveBeenCalled();
   });
 
-  // ALI-954: the cross-tool convention (consoledonottrack.com) is honoured on the usage tier
+  // The cross-tool convention (consoledonottrack.com) is honoured on the usage tier
   // too, over a granted consent - same precedence as ALIGN_TELEMETRY=0.
   it('DO_NOT_TRACK=1 beats a granted local consent', async () => {
     vi.stubEnv('DO_NOT_TRACK', '1');
@@ -161,7 +161,7 @@ describe('recordCommandUsage - local-embedded anonymous ping', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  // `align telemetry off` stores 'off' (ALI-954), which the usage tier reads as not granted.
+  // `align telemetry off` stores 'off', which the usage tier reads as not granted.
   it('sends nothing after `align telemetry off`', async () => {
     getTelemetryConsent.mockReturnValue('off');
 

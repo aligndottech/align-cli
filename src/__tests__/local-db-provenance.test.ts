@@ -1,5 +1,5 @@
 /**
- * ALI-831: the decider/ratified columns on the local graph's own storage layer.
+ * The decider/ratified columns on the local graph's own storage layer.
  *
  * An agent-made decision enters the local graph as a CLAIM - `decider_kind = 'agent'`, no
  * `ratified_at` - and a human later stands behind it by ratifying. These pin the schema half:
@@ -10,7 +10,7 @@
  * Test List:
  * 1. a fresh database carries the five columns and the audit table
  * 2. a v4 graph (built by hand, no migrate()) gains the columns on open and stamps version 5 -
- *    deleting the migration step reddens this (the ALI-819/824 lesson: an unpinned migration
+ *    deleting the migration step reddens this (the lesson: an unpinned migration
  *    leaves every test green when deleted)
  * 3. insertDecision stores deciderKind and reads it back; omitted stores NULL
  * 4. a re-import upsert never rewrites decider_kind - origin is immutable (align-stack
@@ -161,7 +161,7 @@ describe('markRatified', () => {
     expect(db.markRatified('nope', 'tom@align.tech')).toBeNull();
   });
 
-  // ALI-831 review (Copilot #253): the type comment on CapturedDecision used to claim
+  // The type comment on CapturedDecision used to claim
   // ratified is always false for a human row. It never was true - markRatified enforces
   // no decider_kind check - and the comment was untestable as written. Pin the real
   // behaviour instead of a claim nothing checked.

@@ -1,4 +1,4 @@
-// ALI-1494: an opt-in LOCAL trace of the chat calls align makes.
+// An opt-in LOCAL trace of the chat calls align makes.
 //
 // Off unless ALIGN_LLM_TRACE_FILE names a file. When on, `callChatDetailed` appends one JSON
 // line per call to that file: the system prompt, the user prompt as built, how long it took and
@@ -31,7 +31,7 @@ export interface ChatTraceRow {
   durationMs: number;
 }
 
-/** ALI-1494: one MCP tool call `align mcp` handled. Arguments and the result can hold the text
+/** One MCP tool call `align mcp` handled. Arguments and the result can hold the text
  * of decisions, so the same owner-only file rules apply. */
 export interface McpCallTraceRow {
   kind: 'mcp_call';

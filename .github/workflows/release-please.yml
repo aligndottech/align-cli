@@ -32,7 +32,7 @@ jobs:
   # When a Release PR is merged, release-please cuts the GitHub release and this
   # job publishes to npm (provenance-signed, public).
   #
-  # ALI-797: every release is BORN STAGED. The GitHub release is created as a
+  # Every release is BORN STAGED. The GitHub release is created as a
   # prerelease (release-please-config.json `prerelease: true`), so
   # `releases/latest/download` - the default install.sh path - keeps serving the
   # previous stable; npm publishes under the `next` dist-tag, so plain
@@ -69,7 +69,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      # ALI-1781: the CLI downloads its native embedding runtime from the ort-runtime-v<ORT> release
+      # The CLI downloads its native embedding runtime from the ort-runtime-v<ORT> release
       # (ort-runtime.yml). Publishing a version that pins a runtime nobody has published would ship a
       # local mode that fails on first use, so stop here instead. Run `gh workflow run ort-runtime.yml`
       # once, then re-run this job.
@@ -82,7 +82,7 @@ jobs:
           gh release view "$tag" >/dev/null 2>&1 || { echo "FATAL: release $tag does not exist. Run: gh workflow run ort-runtime.yml"; exit 1; }
           echo "runtime release $tag present"
 
-      # --tag next: the staging half of ALI-797's contract (see the job comment).
+      # --tag next: the staging half of the contract (see the job comment).
       # Promotion to `latest` is one `npm dist-tag add` in promote-release.yml -
       # the same tarball, no rebuild.
       - name: Publish to the next dist-tag
@@ -90,7 +90,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  # Standalone binaries, attached to the GitHub release (ALI-740).
+  # Standalone binaries, attached to the GitHub release.
   #
   # `npm install -g` needs a Node toolchain on the user's machine; a binary needs
   # nothing. Every target cross-compiles from this one runner because the local graph

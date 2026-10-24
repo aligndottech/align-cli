@@ -1,4 +1,4 @@
-// ALI-851: the one writer for rendering a decision into text a model reads.
+// The one writer for rendering a decision into text a model reads.
 //
 // This is the TypeScript twin of align-stack's `services/brain/app/decision_render.py`.
 // Two separate repos with no shared filesystem, so the two implementations are pinned to
@@ -12,13 +12,13 @@
 // rationale (why the bracket order is what it is, why truncation is estimated rather than
 // counted live, why `dimension` is a caller-formatted string rather than a typed import).
 //
-// INPUT CONTRACT. `d.ordinal` is required (ALI-598: render candidates by ordinal, never a
+// INPUT CONTRACT. `d.ordinal` is required (render candidates by ordinal, never a
 // raw id - an id present on `d` for the caller's own bookkeeping never reaches the output).
 // Everything else is optional. `dimension` is a caller-formatted scope label; this module
 // does not import the gateway's DecisionDimension type, so a caller holding one formats it
 // before calling (keeps this module dependency-free of the gateway's domain types).
 //
-// OUTPUT SHAPE, in this exact order (ALI-655: the status flag is FIRST in the bracket - it
+// OUTPUT SHAPE, in this exact order (the status flag is FIRST in the bracket - it
 // decides which relation types are even worth proposing, so it must not sit behind a long
 // line of context a reader skims past):
 //
@@ -38,7 +38,7 @@ export type RenderBudget = 'compact' | 'full';
 
 export interface RenderableDecision {
   /** Required. A positive integer the CALLER assigns when numbering a candidate list -
-   * never a raw id/uuid (ALI-598). */
+   * never a raw id/uuid. */
   ordinal: number;
   title?: string | null;
   /** One of decision_snapshots.status - 'superseded'/'archived' render RETIRED,
@@ -57,7 +57,7 @@ export interface RenderableDecision {
    * re-derived here. */
   cite?: string | null;
   /** Never read for rendering - present only so a caller's row shape does not need
-   * stripping before calling. See the ALI-598 positive control in decision-render.test.ts. */
+   * stripping before calling. See the positive control in decision-render.test.ts. */
   id?: string;
 }
 
@@ -157,9 +157,9 @@ export function renderDecision(d: RenderableDecision, opts: { budget: RenderBudg
   }
 
   if (d.ordinal === undefined || d.ordinal === null) {
-    // ALI-598: an id must never ride the text - the ordinal is what the caller assigns
+    // An id must never ride the text - the ordinal is what the caller assigns
     // instead. A missing ordinal is a caller bug, not a "render with no number" case.
-    throw new Error("renderDecision: 'ordinal' is required (ALI-598 - never render a raw id)");
+    throw new Error("renderDecision: 'ordinal' is required (never render a raw id)");
   }
   if (!Number.isInteger(d.ordinal) || d.ordinal < 1) {
     throw new Error(`renderDecision: 'ordinal' must be a positive integer, got ${JSON.stringify(d.ordinal)}`);

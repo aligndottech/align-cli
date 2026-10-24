@@ -6,11 +6,11 @@ import { restorePlatform, setPlatform } from './helpers/platform.js';
 import { writeOpenCodePlugin, writePiExtension } from '../lib/agent-rules.js';
 
 /**
- * ALI-1184. The pi extension and the opencode plugin are GENERATED CODE that runs on the
+ * The pi extension and the opencode plugin are GENERATED CODE that runs on the
  * user's machine, and both spawned a bare `align`. On Windows npm installs `align.cmd`, and
  * a process spawn resolves a `.cmd` only through a shell, so the spawn fails.
  *
- * WHY THIS IS WORSE THAN THE CONFIG CASE ALI-1135 FIXED, despite the lower priority: it
+ * WHY THIS IS WORSE THAN THE CONFIG CASE THAT WAS FIXED, despite the lower priority: it
  * FAILS OPEN. The config case was loud - VS Code showed the user `spawn align ENOENT` and
  * nothing worked, so it got reported within a day. These call sites run an ADVISORY check
  * and are fail-open by design, so a failed spawn returns null and the edit proceeds
@@ -18,7 +18,7 @@ import { writeOpenCodePlugin, writePiExtension } from '../lib/agent-rules.js';
  * anything. The loud bug is fixed; the quiet one was still live.
  *
  * THE FIX BRANCHES AT RUNTIME, NOT AT GENERATION TIME, and that is the substance rather than
- * a detail. ALI-1135 chose the spawn form when WRITING a config, because a JSON config cannot
+ * a detail. The config fix chose the spawn form when WRITING a config, because a JSON config cannot
  * branch. This is JavaScript, so it can - and it must, because a generated plugin is a file
  * that can be committed, shared, or synced to a machine with a different OS than the one that
  * generated it. Baking the generating platform into it would work on the author's laptop and

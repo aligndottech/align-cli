@@ -96,7 +96,7 @@ describe('stripJsonComments (Gemini parses its JSON files through strip-json-com
   });
 });
 
-// ALI-1515: the entry align itself writes names the trusted absolute path. That exact path is canonical; any other
+// The entry align itself writes names the trusted absolute path. That exact path is canonical; any other
 // absolute path (a repo file pointing at its own binary) is not.
 describe.skipIf(process.platform === 'win32')('isCanonicalLocalEntry with the trusted absolute path', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trusted-'));

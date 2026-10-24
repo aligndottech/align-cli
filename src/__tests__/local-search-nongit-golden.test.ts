@@ -20,7 +20,7 @@ import { createLocalGatewayClient } from '../lib/local-gateway-client.js';
 import { cosineSimilarity, getEmbedding } from '../lib/local-embeddings.js';
 
 /**
- * Golden for ranking on every platform that is NOT git (ALI-1749). Lexical fusion applies to git commits
+ * Golden for ranking on every platform that is NOT git. Lexical fusion applies to git commits
  * only, so a graph without commits must rank exactly as it did before it existed. The expected orders below
  * were produced by the code on origin/main at 0ec9551 (before the lexical list), and this file is the
  * pin: if it goes red, a non-git ranking moved.
@@ -31,12 +31,12 @@ afterEach(() => { vi.unstubAllEnvs(); });
 const ROWS: Array<{ tag: string; platform: string; title: string; dense: number }> = [
   { tag: 'a', platform: 'slack', title: 'we agreed to drop the legacy auth proxy', dense: 0.71 },
   { tag: 'b', platform: 'slack', title: 'auth proxy latency is fine for now', dense: 0.69 },
-  { tag: 'c', platform: 'jira', title: 'ALI-12 replace zorblax-match with the new router', dense: 0.41 },
-  { tag: 'd', platform: 'jira', title: 'ALI-14 router notes and routing examples', dense: 0.66 },
+  { tag: 'c', platform: 'jira', title: 'replace zorblax-match with the new router', dense: 0.41 },
+  { tag: 'd', platform: 'jira', title: 'router notes and routing examples', dense: 0.66 },
   { tag: 'e', platform: 'cli', title: 'use pino for logging everywhere', dense: 0.52 },
   { tag: 'f', platform: 'cli', title: 'logging format is json lines', dense: 0.5 },
   { tag: 'g', platform: 'slack', title: 'node18 is the floor for the worker', dense: 0.3 },
-  { tag: 'h', platform: 'jira', title: 'ALI-20 processes crash on retry', dense: 0.28 },
+  { tag: 'h', platform: 'jira', title: 'processes crash on retry', dense: 0.28 },
   { tag: 'i', platform: 'cli', title: 'quuxmatic appendix', dense: 0.1 },
   { tag: 'j', platform: 'slack', title: 'unrelated chatter about lunch', dense: 0.26 },
 ];
@@ -50,7 +50,7 @@ const GOLDEN: Record<string, string[]> = {
   'why quuxmatic': ['a', 'b', 'd', 'e', 'f', 'c'],
 };
 
-describe('non-git ranking is unchanged by the lexical list (ALI-1749)', () => {
+describe('non-git ranking is unchanged by the lexical list', () => {
   let dir: string;
   let client: ReturnType<typeof createLocalGatewayClient>;
   beforeEach(async () => {

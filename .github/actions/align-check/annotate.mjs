@@ -47,7 +47,7 @@ const COULD_NOT_RENDER =
   'rendered. The gate result itself is unaffected - see the job summary for the verdict.';
 
 /**
- * ALI-728: the four false-positive causes a human can give `/align feedback no <cause>`.
+ * The four false-positive causes a human can give `/align feedback no <cause>`.
  *
  * Authoritative source is align-stack's FP_CAUSE_VALUES
  * (connectors/mcp-github/src/application/utils/conflictFeedbackCauses.ts) - a Zod enum the
@@ -65,7 +65,7 @@ const FP_CAUSES = ['stale_decision', 'not_actually_conflicting', 'wrong_scope', 
  * check_event_id a wrong conflict needed to be rated against was to grep it out of raw CI job
  * logs, because the required Gate emits annotations only - no comment, no event id, no
  * remedy. The advisory App's Align Report DOES carry this, on the surface that is retiring
- * (ALI-600) and that a Marketplace-only adopter never has at all. The annotation is the one
+ * and that a Marketplace-only adopter never has at all. The annotation is the one
  * surface guaranteed to be in front of whoever was just blocked, with no App required.
  *
  * A worked template, not an adjective telling the model to "explain how to fix it"
@@ -82,7 +82,7 @@ function remedyNotice(checkEventId) {
       `\`/align feedback no <cause>\` if not (${causes}), or \`/align accept supersession\` if ` +
       `this deliberately replaces the decision it names. event: ${checkEventId}. ` +
       `Re-run with \`/align check\` after. Needs the Align GitHub App installed - a ` +
-      `Marketplace-Action-only repo has no listener for these yet (ALI-728).`,
+      `Marketplace-Action-only repo has no listener for these yet.`,
   );
   return `::notice title=${escapeProperty('Align: how to clear this if it is wrong')}::${body}`;
 }
@@ -141,7 +141,7 @@ export function annotationsFor(raw) {
     }
   }
 
-  // ALI-728: ONE remedy line for the whole check, appended after every per-conflict line so
+  // ONE remedy line for the whole check, appended after every per-conflict line so
   // it reads last - a human opens the Files Changed tab for the findings and the job summary
   // for what to do about them, and this is the second half of that sentence. Nothing to
   // reference (no id, no conflicts) is nothing to promise, so it stays silent rather than

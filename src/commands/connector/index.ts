@@ -133,7 +133,7 @@ export function registerConnectorCommands(program: Command): void {
     .command('logs <name>')
     .description('Stream logs for a connector (requires kubectl or docker)')
     // No --env: this command shells out to kubectl/docker and never touches an Align
-    // environment, so the flag parsed and silently did nothing (ALI-505).
+    // environment, so the flag parsed and silently did nothing.
     .option('--namespace <ns>', 'Kubernetes namespace', 'align-local')
     .option('--docker', 'Use docker logs instead of kubectl')
     .action(async (name: string, opts: { namespace: string; docker: boolean }) => {

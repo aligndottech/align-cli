@@ -1,5 +1,5 @@
 /**
- * The one writer of the check-depth vocabulary (ALI-708).
+ * The one writer of the check-depth vocabulary.
  *
  * A leaf module on purpose: the option help, the CLI validation and BOTH gateway-client
  * signatures derive from this, and it lives outside gateway-client.js because tests mock

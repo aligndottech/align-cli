@@ -1,5 +1,5 @@
 /**
- * ALI-196 spike: render the decisions file Align owns, and the one line that imports it.
+ * Render the decisions file Align owns, and the one line that imports it.
  *
  * MECHANISM. Align owns `.align/decisions.md` outright and the user's CLAUDE.md gains a single
  * import line. That satisfies Tom's augment-never-overwrite constraint STRUCTURALLY rather than
@@ -16,7 +16,7 @@
  * unsuperseded is a gateway query; this module formats a list and writes a file, which is
  * plumbing.
  *
- * EXTERNAL STORAGE (ALI-1668). A LOCAL graph's content is personal (built with the user's own
+ * EXTERNAL STORAGE. A LOCAL graph's content is personal (built with the user's own
  * read-only tokens), so it must never be representable in the git working tree at all - not
  * even gitignored, which is a convention a `git add -f`, an edited line, or a merge dropping it
  * can all bypass silently. `{ external: true }` writes the real bytes to
@@ -46,7 +46,7 @@ export interface ContextDecision {
   cite?: string;
   /** Where it was DECIDED. Never interchangeable with a decision_url into the Align app. */
   sourceUrl?: string;
-  /** ALI-831: who decided, and whether a human has stood behind it. The label built from
+  /** Who decided, and whether a human has stood behind it. The label built from
    *  these (deciderLabel) is what routes a row into the claims section below, and what gets
    *  printed on its line - this is the one surface where the label has to be IN THE TEXT,
    *  since the file is consumed by agents that only read files. */
@@ -70,7 +70,7 @@ function ordered(decisions: ContextDecision[]): ContextDecision[] {
   );
 }
 
-/** ALI-831: the whole point of the split. An unratified agent claim must not render beside
+/** The whole point of the split. An unratified agent claim must not render beside
  *  what the rest of the file states as fact - it goes in its own section, so a reader (human
  *  or agent) cannot mistake "said once, by an agent, mid-task" for "decided". */
 function isUnratifiedClaim(d: ContextDecision): boolean {
@@ -105,7 +105,7 @@ export function renderDecisionsFile(decisions: ContextDecision[]): string {
 
   if (decisions.length === 0) {
     // "Nothing found" and "the fetch failed" must not look alike, so say which this is.
-    // An empty section reads as a claim that no decisions exist (ALI-414, new surface).
+    // An empty section reads as a claim that no decisions exist (new surface).
     return `${[...header, 'No decisions have been captured for this repository yet.'].join('\n')}\n`;
   }
 
@@ -198,7 +198,7 @@ function tryWriteExternalAndLink(repoRoot: string, inRepoTarget: string, rendere
  * a file that differs between runs turns every regeneration into a git diff in someone else's
  * repo. The renderer carries no timestamp for exactly this reason.
  *
- * `opts.external`: the local-graph case (ALI-1668, see the file header). Every existing caller
+ * `opts.external`: the local-graph case (see the file header). Every existing caller
  * omits it and gets byte-for-byte the same plain-file behaviour as before this option existed.
  */
 export async function writeDecisionsContext(

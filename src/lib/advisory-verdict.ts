@@ -5,7 +5,7 @@ import { tightenFile } from './private-files.js';
 import { createHash, randomUUID } from 'node:crypto';
 
 /**
- * ALI-570: the store that carries an adjudication verdict from the background adjudicator
+ * The store that carries an adjudication verdict from the background adjudicator
  * back to the NEXT advisory hook invocation.
  *
  * The hook is retrieval-only inside its window - adjudication measured ~11s against a ~10s
@@ -27,7 +27,7 @@ export const VERDICT_TTL_MS = 15 * 60_000;
 /**
  * How long a spawn marker suppresses re-spawning for the same change. Short on purpose:
  * a crashed adjudicator must not wedge the pipeline, only debounce it. An adjudicator that
- * RAN but could not judge (ALI-414 `unknown`) gets this TTL too, not the verdict TTL - see
+ * RAN but could not judge gets this TTL too, not the verdict TTL - see
  * `adjudicated` below.
  */
 export const PENDING_TTL_MS = 2 * 60_000;
@@ -66,7 +66,7 @@ export interface StoredVerdict {
   filePath: string;
   contentHash: string;
   /**
-   * True only when the adjudicator reached a judgement. An ALI-414 `unknown` (no provider
+   * True only when the adjudicator reached a judgement. An `unknown` (no provider
    * key, degraded brain, classifier error) records `false`: it must not masquerade as
    * "adjudicated clean", and it must not suppress a retry for the full verdict TTL, or a
    * user with no provider gets a flag that is silently inert for 15 minutes at a time.
@@ -197,7 +197,7 @@ function toPending(raw: unknown): PendingMark | null {
  * Every row is validated and normalised on the way out. A store is a file in a shared
  * directory, so "it parsed as JSON" says nothing about its shape: one row of the wrong
  * shape used to throw straight through the callers' blanket catch, which silenced the
- * hook ENTIRELY - no deny, no context, not even the ALI-414 could-not-check notice - and
+ * hook ENTIRELY - no deny, no context, not even the could-not-check notice - and
  * did so permanently, because the write path threw on the same row before it could
  * overwrite it. Filtering here is what makes the store self-repairing.
  */

@@ -3,7 +3,7 @@ import type * as McpSetup from '../lib/mcp-setup.js';
 
 const detectEditors = vi.hoisted(() => vi.fn());
 const writeMcpConfig = vi.hoisted(() => vi.fn());
-// alignServerEntry is the REAL one (ALI-1135): the hand-over message below is built from it,
+// alignServerEntry is the REAL one: the hand-over message below is built from it,
 // and a stub would make the platform assertions at the bottom of this file about the stub.
 vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
   ...(await importOriginal<typeof McpSetup>()),
@@ -32,7 +32,7 @@ const CLAUDE = { name: 'Claude Desktop', configPath: '/home/d/.config/Claude/x.j
 const CURSOR = { name: 'Cursor', configPath: '/home/d/.cursor/mcp.json', format: 'mcpServers' };
 
 /**
- * ALI-776. Setup wires the agents installed on this machine.
+ * Setup wires the agents installed on this machine.
  *
  * An earlier version of this asked first, on the grounds that a global editor config is a
  * user-level file. Two facts moved it: the write is ADDITIVE (one `align` key, everything
@@ -47,7 +47,7 @@ describe('connectDetectedAgents', () => {
     logged.length = 0;
     warnings.length = 0;
     detectEditors.mockReset();
-    // ALI-952: the writer reports the files it touched - the MCP config, plus the
+    // The writer reports the files it touched - the MCP config, plus the
     // user-level hook file on the hosts that have one.
     writeMcpConfig.mockReset().mockImplementation((t: { configPath: string }) => [t.configPath]);
     confirm.mockReset();
@@ -179,7 +179,7 @@ describe('connectDetectedAgents', () => {
     expect(out).toMatch(/Nothing else in them was changed/);
   });
 
-  // ALI-952: a host with a user-level hook file gets the advisory hook next to its MCP
+  // A host with a user-level hook file gets the advisory hook next to its MCP
   // entry, and the disclosure has to name that file too - it is the one a user would not
   // expect us to have touched.
   it('names the hook file when the host has one', async () => {
@@ -268,8 +268,8 @@ describe("connectDetectedAgents - the zero-editors message", () => {
     logged.length = 0;
     detectEditors.mockReset();
     writeMcpConfig.mockReset();
-    // Stated, not inherited: the sentence about .mcp.json is platform-conditional since
-    // ALI-1135, and this suite is about the POSIX wording.
+    // Stated, not inherited: the sentence about .mcp.json is platform-conditional, and
+    // this suite is about the POSIX wording.
     setPlatform('linux');
   });
   afterEach(restorePlatform);
@@ -290,7 +290,7 @@ describe("connectDetectedAgents - the zero-editors message", () => {
   });
 });
 
-// ALI-795: mcp_wired is a funnel stage - the emitter fires from inside
+// mcp_wired is a funnel stage - the emitter fires from inside
 // connectDetectedAgents (the single choke point every wiring path goes through)
 // so setup, `align local start` and `align mcp --setup` all count without three
 // separate call sites.
@@ -299,7 +299,7 @@ vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
 const getEnvironment = vi.hoisted(() => vi.fn(() => ({ mode: 'local-embedded' })));
 vi.mock('../lib/config.js', () => ({ createConfigStore: () => ({ getEnvironment }) }));
 
-describe('mcp_wired funnel stage (ALI-795)', () => {
+describe('mcp_wired funnel stage', () => {
   beforeEach(() => {
     recordFunnelStage.mockReset();
     detectEditors.mockReset();
@@ -321,14 +321,14 @@ describe('mcp_wired funnel stage (ALI-795)', () => {
 });
 
 /**
- * ALI-950: the outro names the agent to open, so the wiring step has to say WHICH agents
+ * The outro names the agent to open, so the wiring step has to say WHICH agents
  * it wired, not only how many. A count cannot be turned into "Open Cursor and ask".
  */
-describe('connectDetectedAgents names what it wired (ALI-950)', () => {
+describe('connectDetectedAgents names what it wired', () => {
   beforeEach(() => {
     logged.length = 0;
     detectEditors.mockReset();
-    // Merge-conflict resolution note (ALI-950 x ALI-952): this reset had no default
+    // Merge-conflict resolution note: this reset had no default
     // implementation, so every call fell through to vi.fn()'s undefined return,
     // `touched.push(...undefined)` threw, and the catch swallowed it - both tests below
     // were passing by accident, on the exception path, not the one they name.
@@ -356,7 +356,7 @@ describe('connectDetectedAgents names what it wired (ALI-950)', () => {
 });
 
 /**
- * ALI-1135: this message is a config the user pastes BY HAND, into a file we could not write.
+ * This message is a config the user pastes BY HAND, into a file we could not write.
  * A bare `"command": "align"` is the align.cmd shim on Windows, which no client that spawns
  * without a shell can launch - and here there is no writer left to correct it afterwards.
  *
@@ -389,7 +389,7 @@ describe('connectDetectedAgents - the hand-over config is spawnable on the reade
 });
 
 /**
- * ALI-1135, Copilot #314: the message above told a Windows user that `.mcp.json` covers Claude
+ * Copilot #314: the message above told a Windows user that `.mcp.json` covers Claude
  * Code and pi. It does not. That file is committed, so it keeps the portable bare `align` -
  * the one command a Windows client cannot spawn - and this branch is the only thing a user
  * with no global agent config is ever told.

@@ -9,7 +9,7 @@ vi.mock('../lib/similarity/embedding-matrix.js', async () =>
 vi.mock('../lib/local-embeddings.js', () => ({
   getEmbedding: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
   cosineSimilarity: vi.fn().mockReturnValue(0.0),
-  // ALI-787: real value, not a test-only string - the tests below assert the model tag a
+  // Real value, not a test-only string - the tests below assert the model tag a
   // stale-model row must NOT match, and a made-up constant here would let that assertion
   // pass for a reason unrelated to the code (mock value == mock value) rather than because
   // ingestOne actually threads the real EMBEDDING_MODEL_ID through.
@@ -17,7 +17,7 @@ vi.mock('../lib/local-embeddings.js', () => ({
 }));
 
 vi.mock('../lib/local-relationship-classifier.js', () => ({
-  // Default: no LLM key -> the classifier cannot run and says so (ALI-414)
+  // Default: no LLM key -> the classifier cannot run and says so
   classifyRelationship: vi.fn().mockResolvedValue({ ok: false, reason: 'no_llm_key' }),
   RELATIONSHIP_TYPES: ['supersedes', 'conflicts_with', 'contradicts', 'duplicates', 'refines', 'implements', 'depends_on', 'relates_to'],
 }));
@@ -68,7 +68,7 @@ describe('local-gateway-client', () => {
     const result = await client.captureDecision('We decided to use TypeScript', 'cli');
     expect(result).toHaveProperty('id');
     expect(result).toHaveProperty('title');
-    // ALI-503: was `conflicts`. It holds cosine-similar decision ids and no judgement,
+    // Was `conflicts`. It holds cosine-similar decision ids and no judgement,
     // and align_capture returns this object straight to an agent.
     expect(result).toHaveProperty('related');
     expect(Array.isArray(result.related)).toBe(true);
@@ -89,7 +89,7 @@ describe('local-gateway-client', () => {
     const result = await client.searchDecisions('language choice', 5);
     expect(result.results.length).toBeGreaterThan(0);
     expect(result.count).toBe(result.results.length);
-    // ALI-1063 follow-up: 'active' used to be hardcoded here regardless of the row - a
+    // 'active' used to be hardcoded here regardless of the row - a
     // fabricated claim, not a read, since local-embedded has no supersession/relation
     // table typed edges to back it (decision_links only ever holds 'relates', an untyped
     // cosine score - see local-gateway-client.ts, ingestOne). Absent beats fabricated,
@@ -99,7 +99,7 @@ describe('local-gateway-client', () => {
   });
 
   it('orders equal-similarity results by a stable id tiebreaker (deterministic)', async () => {
-    // ALI-218: when several decisions share an identical similarity score, the
+    // When several decisions share an identical similarity score, the
     // slice of top-K candidates must be stable across runs - otherwise the same
     // offline scan compares a different candidate set each time. Force a tie and
     // assert the results come back sorted by id, not in arbitrary insert order.
@@ -204,7 +204,7 @@ describe('local-gateway-client', () => {
     );
   });
 
-  // ALI-845 defect 3: this file used to cap the subject at diff.slice(0, 2000) - a second
+  // This file used to cap the subject at diff.slice(0, 2000) - a second
   // writer of the same fact once the classifier's own buildUserPrompt is budget-derived
   // (local-relationship-classifier.test.ts's "caps each side" tests prove THAT half). This
   // is the half that makes deleting the slice safe: the gateway client must hand the
@@ -220,7 +220,7 @@ describe('local-gateway-client', () => {
 
     const [subjectArg] = vi.mocked(classifyRelationship).mock.calls[0]!;
     expect(subjectArg.summary).toContain('diff opening line');
-    // Was 2,000 before ALI-845 - proves the slice is gone, not just that SOMETHING changed.
+    // Was 2,000 before the cap - proves the slice is gone, not just that SOMETHING changed.
     expect(subjectArg.summary.length).toBeGreaterThan(2000);
     expect(subjectArg.summary).toBe(bigDiff);
   });
@@ -257,7 +257,7 @@ describe('local-gateway-client', () => {
     expect(classifyRelationship).toHaveBeenCalled();
   });
 
-  // ALI-414: this test previously asserted `aligned` here, pinning the fail-open. A
+  // This test previously asserted `aligned` here, pinning the fail-open. A
   // retrieved decision that was never classified is exactly the state where the CLI
   // does NOT know, and an agent branching on `status` reads `aligned` as permission
   // to proceed past a contradicting decision. Unset key = default state of a fresh
@@ -276,7 +276,7 @@ describe('local-gateway-client', () => {
     expect(result.message).toMatch(/ANTHROPIC_API_KEY|OPENAI_API_KEY/);
   });
 
-  // ALI-420: same "unknown" status, different remedy. The no_llm_key hint above tells the
+  // Same "unknown" status, different remedy. The no_llm_key hint above tells the
   // user to run a local Ollama; this user already is, and the model is what disqualified
   // them. Telling them to do the thing they have done is worse than saying nothing.
   it('checkAlignment names the model remedy when the local model was unvetted', async () => {
@@ -322,7 +322,7 @@ describe('local-gateway-client', () => {
     expect(result.reason).toBe('classifier_error');
   });
 
-  // ALI-692: `align check` is the surface agents gate on, and it was the one that learnt
+  // `align check` is the surface agents gate on, and it was the one that learnt
   // nothing from the new diagnosis - classifier_error fell through the hint ladder to an
   // empty string, so the model that failed was recorded and then discarded one frame up.
   it('checkAlignment names the model that failed when the chain stopped on it', async () => {
@@ -433,11 +433,11 @@ describe('local-gateway-client', () => {
     expect(result).toHaveProperty('score');
   });
 
-  // ALI-787: the model tag. Two examples - one pinning what a normal capture writes, one
+  // The model tag. Two examples - one pinning what a normal capture writes, one
   // pinning what happens when a row was written by a DIFFERENT model - because "tags new
   // rows correctly" and "degrades honestly on an old tag" are two separate behaviours and a
   // single passing case could be satisfied by either alone.
-  describe('ALI-787: decision_embeddings.model', () => {
+  describe('decision_embeddings.model', () => {
     it('captureDecision tags the new embedding with the current model', async () => {
       const captured = await client.captureDecision('Use TypeScript', 'cli');
       // A second, independent handle on the same file - the client exposes no db, and
@@ -483,7 +483,7 @@ describe('local-gateway-client', () => {
     it('checkDrift still compares normally when the stored model is untagged (null)', async () => {
       const captured = await client.captureDecision('Use TypeScript', 'cli');
       const raw = createLocalDb(dbPath);
-      // 2-arg call: no model, same as a pre-ALI-787 row the migration somehow missed.
+      // 2-arg call: no model, same as a row from before embedding-model tagging that the migration somehow missed.
       raw.setEmbedding(captured.id, new Float32Array(384).fill(0.1));
       raw.close();
 
@@ -509,7 +509,7 @@ describe('local-gateway-client', () => {
   });
 
   it('ingestBatch records a `relates` relationship when items are similar', async () => {
-    // ALI-503: this asserted `conflicts_with`. Similar wording is not opposition, and the
+    // This asserted `conflicts_with`. Similar wording is not opposition, and the
     // returned analysis must match the relation actually written to the row.
     vi.mocked(cosineSimilarity).mockReturnValue(0.9); // above SIMILARITY_THRESHOLD
     const result = await client.ingestBatch([

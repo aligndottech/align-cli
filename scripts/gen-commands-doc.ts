@@ -1,5 +1,5 @@
 /**
- * Regenerates the command reference in docs/commands.md from the registry (ALI-951).
+ * Regenerates the command reference in docs/commands.md from the registry.
  * `npm run docs:commands`. commands-doc.test.ts fails when the committed region is stale.
  */
 import { readFileSync, writeFileSync } from 'node:fs';

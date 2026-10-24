@@ -10,7 +10,7 @@ import { embeddingLengthMismatch } from './similarity/embedding-matrix.js';
  * from this constant by the one production caller (local-gateway-client.ts), so a future
  * model change is one line here plus a migration, not a hunt across three files.
  *
- * ALI-787 evaluated bge-small-en-v1.5 as a replacement and did NOT adopt it - see
+ * An evaluation of bge-small-en-v1.5 as a replacement did NOT adopt it - see
  * docs/embedding-model-evaluation.md for the measured numbers and why.
  */
 export const EMBEDDING_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
@@ -24,7 +24,7 @@ let _pipe: EmbeddingPipeline | null = null;
  *
  * The standalone binary cannot use the default loader below: `@huggingface/transformers`
  * resolves `onnxruntime-node`, and a compiled binary does not resolve bare specifiers for
- * files outside itself - measured, and true whatever the on-disk layout (ALI-744). So the
+ * files outside itself - measured, and true whatever the on-disk layout. So the
  * binary registers a WASM backend instead, from `src/index.bun.ts`.
  *
  * Injected rather than branched on `alignDistribution()` here, because the WASM module has
@@ -94,7 +94,7 @@ async function setupPipeline(): Promise<EmbeddingPipeline> {
     const { EmbeddingAssetsMissing } = await import('./embedding-runtime.js');
     try {
       const { createNativeEmbeddingPipeline } = await import('./local-embeddings-native.js');
-      // ALI-1781: the npm package no longer depends on @huggingface/transformers. The native
+      // The npm package no longer depends on @huggingface/transformers. The native
       // runtime for this os/arch and the model files are fetched once, digest-checked, into the
       // user cache dir (embedding-runtime.ts), then everything runs offline.
       built = await createNativeEmbeddingPipeline();

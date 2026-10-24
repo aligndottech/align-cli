@@ -1,5 +1,5 @@
 /**
- * The check step's argument assembly, executed rather than read (ALI-708).
+ * The check step's argument assembly, executed rather than read.
  *
  * `depth` is an EXPLICIT action input, deliberately not inferred from `fail-on`: an
  * auto-append under strict fail-on would have turned every pinned older CLI and every
@@ -78,7 +78,7 @@ async function argv(env: Record<string, string>): Promise<string[]> {
   return stdout.split('\n').filter(Boolean);
 }
 
-// The identity exports (ALI-761) are environment, not argv, so `"$@"` cannot show them.
+// The identity exports are environment, not argv, so `"$@"` cannot show them.
 // Sentinel prefixes keep an empty value visible as a line rather than a vanished one.
 async function identity(env: Record<string, string>): Promise<Record<string, string>> {
   const probe = `printf '%s\\n' "P=\${ALIGN_PLATFORM:-}" "K=\${ALIGN_SUBJECT_KEY:-}" "S=\${ALIGN_HEAD_SHA:-}"`;
@@ -121,7 +121,7 @@ describe('align-check action argument assembly', () => {
   });
 });
 
-describe('align-check action CI identity exports (ALI-761)', () => {
+describe('align-check action CI identity exports', () => {
   const PR_ENV = { REPO: 'aligndottech/align-stack', PR_NUMBER: '1950', HEAD_SHA: 'a'.repeat(40) };
 
   it('always claims the platform - this action IS GitHub Actions', async () => {
