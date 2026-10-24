@@ -51,7 +51,12 @@ function seed(over: { id?: string; ratify?: string | null; summary?: string; tit
   return id;
 }
 const judge = { judgeId: 'inst-1', judgeLabel: ME };
-const note = (id: string, text: string) => upsertJudgement(dbPath, { kind: 'note', decisionId: id, note: text }, judge, { via: 'cli' });
+/**
+ * A fresh millisecond, so a note sorts after the ratify and any note written before it. The share orders judgements by
+ * judged_at and breaks a tie on the random row id, so two writes in one millisecond came out in either order.
+ */
+const nextMs = (): Date => { const t = Date.now(); while (Date.now() === t) { /* spin under 1ms */ } return new Date(); };
+const note = (id: string, text: string) => upsertJudgement(dbPath, { kind: 'note', decisionId: id, note: text }, judge, { via: 'cli' }, nextMs());
 /**
  * A note as a version from before write-time redaction stored it: raw, straight into the table. A note written
  * today has its secrets replaced before the write (judgements-db.ts), so the share-time refusal of a credential in
@@ -61,7 +66,7 @@ const legacyNote = (id: string, text: string): void => {
   const db = new DatabaseSync(dbPath);
   try {
     db.prepare(`INSERT INTO local_judgements (id, decision_id, kind, note, judge_id, judge_label, via, judged_at) VALUES (?, ?, 'note', ?, ?, ?, 'cli', ?)`)
-      .run(randomUUID(), id, text, judge.judgeId, judge.judgeLabel, new Date().toISOString());
+      .run(randomUUID(), id, text, judge.judgeId, judge.judgeLabel, nextMs().toISOString());
   } finally { db.close(); }
 };
 
