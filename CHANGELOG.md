@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.64.0](https://github.com/aligndottech/align-cli/compare/cli-v0.63.0...cli-v0.64.0) (2026-10-24)
+
+
+### Features
+
+* **setup:** list the files setup will write and ask before writing ([#473](https://github.com/aligndottech/align-cli/issues/473)) ([748d96e](https://github.com/aligndottech/align-cli/commit/748d96e0fdc9bf42ecd92c6fde13bc1657bb467a))
+* **setup:** say what to do next when the graph comes out empty or thin ([#472](https://github.com/aligndottech/align-cli/issues/472)) ([21e4ca0](https://github.com/aligndottech/align-cli/commit/21e4ca0c20f6fb58021f1490dc6dbc65320336c8))
+
+
+### Bug Fixes
+
+* **setup:** decline leaves no connected agent; honest undo text; --env local in the empty-graph hint ([#476](https://github.com/aligndottech/align-cli/issues/476)) ([0b588a7](https://github.com/aligndottech/align-cli/commit/0b588a7164a32d1f19fa2094af3a9ee912fd5eff))
+* **setup:** show home paths as ~/... on Windows too ([#478](https://github.com/aligndottech/align-cli/issues/478)) ([a45bc6b](https://github.com/aligndottech/align-cli/commit/a45bc6ba1c0b39e7366f013a76930d24f0245220))
+* three follow-ups from the review of the ticket-ref strip ([#475](https://github.com/aligndottech/align-cli/issues/475)) ([#477](https://github.com/aligndottech/align-cli/issues/477)) ([6c4b08a](https://github.com/aligndottech/align-cli/commit/6c4b08a1cdee6e6353dec95be811400c706661e2))
+
 ## [0.63.0](https://github.com/aligndottech/align-cli/compare/cli-v0.62.1...cli-v0.63.0) (2026-10-21)
 
 
