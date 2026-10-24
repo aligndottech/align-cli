@@ -5,7 +5,7 @@ import path from 'node:path';
 import { planAgentAlignment, setupAgentAlignment } from '../lib/agent-rules.js';
 import { setWriteRecorder, undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
 import { type EditorTarget, mcpConfigFiles, writeMcpConfig } from '../lib/mcp-setup.js';
-import { confirmWrites, planSetupWrites, renderWritePlan, WRITE_CONFIRM_QUESTION, WRITE_PLAN_HEADING, WRITE_UNDO_LINE } from '../lib/write-confirm.js';
+import { confirmWrites, homeDisplay, planSetupWrites, renderWritePlan, WRITE_CONFIRM_QUESTION, WRITE_PLAN_HEADING, WRITE_UNDO_LINE } from '../lib/write-confirm.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), 'align-write-confirm-')); });
@@ -160,5 +160,18 @@ describe('the undo line says what `align use --undo` really undoes', () => {
 
   it('the heading says "may", because a writer can leave a symlink or team entry untouched', () => {
     expect(WRITE_PLAN_HEADING).toBe('Align may create or change these files:');
+  });
+});
+
+describe('homeDisplay: a home path reads ~/... on every OS', () => {
+  it('turns a Windows home path into forward slashes (CI only runs this OS on main)', () => {
+    expect(homeDisplay('C:\\Users\\tom\\.codex\\config.toml', 'C:\\Users\\tom')).toBe('~/.codex/config.toml');
+  });
+  it('leaves a POSIX home path as it is', () => {
+    expect(homeDisplay('/home/tom/.codex/hooks.json', '/home/tom')).toBe('~/.codex/hooks.json');
+  });
+  it('does not shorten a path outside home, or a sibling that only shares the prefix', () => {
+    expect(homeDisplay('/opt/x/config.toml', '/home/tom')).toBe('/opt/x/config.toml');
+    expect(homeDisplay('/home/tomas/.codex/config.toml', '/home/tom')).toBe('/home/tomas/.codex/config.toml');
   });
 });

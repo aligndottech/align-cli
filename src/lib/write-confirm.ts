@@ -13,6 +13,15 @@ export interface PlannedWrite {
 }
 
 /**
+ * A path under home as `~/...` with forward slashes on every OS, so the list reads the same as the
+ * project rows. Windows' native separator made it `~\.codex\config.toml` beside `.claude/settings.json`.
+ */
+export function homeDisplay(file: string, home: string): string {
+  const under = file.startsWith(`${home}/`) || file.startsWith(`${home}\\`);
+  return under ? `~${file.slice(home.length).replace(/\\/g, '/')}` : file;
+}
+
+/**
  * Every file one setup run can create or modify: the project's agent files, then each detected
  * agent's own config. Built from the tables the writers themselves run (planAgentAlignment,
  * mcpConfigFiles), never from a second hand-written list.
@@ -29,8 +38,7 @@ export function planSetupWrites(opts: { cwd: string; editors: EditorTarget[]; ho
   for (const { file, action } of planAgentAlignment(opts.cwd)) add(path.join(opts.cwd, file), file, action);
   for (const editor of opts.editors) {
     for (const file of mcpConfigFiles(editor)) {
-      const display = file.startsWith(home + path.sep) ? `~${file.slice(home.length)}` : file;
-      add(file, display, existsSync(file) ? 'modify' : 'create');
+      add(file, homeDisplay(file, home), existsSync(file) ? 'modify' : 'create');
     }
   }
   return out;
