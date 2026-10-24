@@ -68,7 +68,9 @@ while IFS= read -r p; do
 done <<< "$ALLOWLIST"
 
 # Every tracked ref outside the allowlist.
-hits=$(git -C "$ROOT" grep -I -n -E "$PATTERN" -- . 2>/dev/null || true)
+# git grep exits 1 for "no match" and >1 for a real error; only the first is clean.
+hits=$(git -C "$ROOT" grep -I -n -E "$PATTERN" -- . 2>/dev/null); grep_rc=$?
+if [ "$grep_rc" -gt 1 ]; then echo "FATAL: git grep failed (exit $grep_rc), so the tree was not checked" >&2; exit 2; fi
 bad=""
 while IFS= read -r line; do
   [ -z "$line" ] && continue
