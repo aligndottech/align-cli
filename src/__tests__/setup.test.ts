@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearTelemetryEnv } from './helpers/telemetry-env.js';
 import { vendorFetch } from './helpers/vendor-fetch.js';
 import type * as McpSetup from '../lib/mcp-setup.js';
+import type * as AgentRules from '../lib/agent-rules.js';
 import { Command } from 'commander';
 import { AuthExpiredError } from '../lib/errors.js';
 import type * as RepoIdentity from '../lib/repo-identity.js';
@@ -231,7 +232,9 @@ vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
 const mockSetupAgentAlignment = vi.hoisted(() =>
   vi.fn().mockReturnValue(['.claude/settings.json', 'CLAUDE.md', '.cursor/rules/align.md']),
 );
-vi.mock('../lib/agent-rules.js', () => ({
+// Spread the real module for the same reason: setup also reads planAgentAlignment for the pre-write file list.
+vi.mock('../lib/agent-rules.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof AgentRules>()),
   setupAgentAlignment: mockSetupAgentAlignment,
 }));
 
@@ -1645,9 +1648,41 @@ describe('align setup', () => {
         });
       });
 
+      describe('declining "Continue?" before agent files are written', () => {
+        const decline = () => mockConfirm.mockImplementation(async (o: { message?: string }) => !/^Continue\?/.test(String(o?.message)));
+
+        it('local: writes no project file and wires no agent', async () => {
+          await mockNoLogin();
+          const { detectEditors, writeMcpConfig } = await import('../lib/mcp-setup.js');
+          (detectEditors as ReturnType<typeof vi.fn>).mockReturnValueOnce([{ name: 'Claude Code', configPath: '/tmp/.claude.json', format: 'mcpServers' }]);
+          decline();
+          mockSetupAgentAlignment.mockClear();
+          vi.mocked(writeMcpConfig).mockClear();
+          await makeProgram().parseAsync(['node', 'align']);
+          expect(mockConfirm.mock.calls.some((c) => /^Continue\?/.test(String(c[0]?.message)))).toBe(true);
+          expect(mockSetupAgentAlignment).not.toHaveBeenCalled();
+          expect(writeMcpConfig).not.toHaveBeenCalled();
+        });
+
+        it('team (--env prod): same, nothing written', async () => {
+          const { detectEditors, writeMcpConfig } = await import('../lib/mcp-setup.js');
+          (detectEditors as ReturnType<typeof vi.fn>).mockReturnValueOnce([{ name: 'Claude Code', configPath: '/tmp/.claude.json', format: 'mcpServers' }]);
+          decline();
+          mockSetupAgentAlignment.mockClear();
+          vi.mocked(writeMcpConfig).mockClear();
+          await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
+          // positive control: the run reached the question, so "nothing written" is a decision and not an early exit
+          expect(mockConfirm.mock.calls.some((c) => /^Continue\?/.test(String(c[0]?.message)))).toBe(true);
+          expect(mockSetupAgentAlignment).not.toHaveBeenCalled();
+          expect(writeMcpConfig).not.toHaveBeenCalled();
+        });
+      });
+
       describe('a project file left alone', () => {
         it('is reported as ONE p.log.info line inside the wizard frame, naming every file', async () => {
           await mockNoLogin();
+          // On a terminal setup now asks "Continue?" before it writes; this test is about what happens after yes.
+          mockConfirm.mockImplementation(async (o: { message?: string }) => /^Continue\?/.test(String(o?.message)));
           mockSetupAgentAlignment.mockImplementationOnce((o: { onForeign?: (f: string) => void }) => {
             o.onForeign?.('.mcp.json');
             o.onForeign?.('.claude/settings.json');

@@ -8,6 +8,8 @@ import { clearScreenForPicker, CLI_TOKEN_SOURCES, cliTokenDecision, detectVerifi
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { type PersonalImportItem, runPersonalImport, runWithConcurrency } from '../lib/personal-import.js';
+import { detectEditors, type EditorTarget } from '../lib/mcp-setup.js';
+import { confirmWrites, planSetupWrites } from '../lib/write-confirm.js';
 import { connectDetectedAgents } from './connect-agents.js';
 import { setupAgentAlignment } from '../lib/agent-rules.js';
 import { isGitRepo } from '../lib/git.js';
@@ -421,6 +423,30 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
 }
 
 /**
+ * Before setup writes anything: show the exact files it will create or modify, then ask
+ * (default yes). Covers the project's agent files and each detected agent's own config, the
+ * two writers below. Non-TTY or --approve prints the list and goes ahead. False means the
+ * person declined: the caller writes nothing.
+ */
+async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
+  // Detected once: the same agents are listed here and written by connectDetectedAgents.
+  const editors = detectEditors();
+  const files = planSetupWrites({ cwd: process.cwd(), editors });
+  console.log('');
+  const confirmed = await confirmWrites({
+    files,
+    approve: o.approve,
+    interactive: o.interactive,
+    print: (text) => p.log.info(text),
+    ask: async (message) => {
+      const answer = await p.confirm({ message, initialValue: true });
+      return p.isCancel(answer) ? undefined : answer;
+    },
+  });
+  return { confirmed, editors };
+}
+
+/**
  * Returns the repo-relative files written (empty when the write failed), so the outro can
  * tell whether the project .mcp.json - the one that wires Claude Code - actually landed
  * (ALI-950). Naming an agent as connected off a write that threw would be false.
@@ -739,13 +765,17 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     if (!(e instanceof SkipDocs)) localDocsSpinner.stop(`Docs import skipped - ${(e as Error).message}`);
   }
 
-  const projectAgents = connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment('local')));
+  const { confirmed: writesConfirmed, editors } = await confirmAgentWrites({ interactive: Boolean(interactive), approve: opts.approve });
+  if (!writesConfirmed) p.log.info('Left your agent config alone. Run align again when you want it connected.');
+  const projectAgents = writesConfirmed ? connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment('local'))) : [];
 
   // The agents installed on this machine, not just the ones this project configures. Local
   // setup skipped this and cloud did not, which is backwards: local mode is the one whose
   // entire pitch is an agent on your own machine reading a graph that never leaves it.
   console.log('');
-  const localAgents = await connectDetectedAgents('local', { verbose: opts.verbose });
+  const localAgents = writesConfirmed
+    ? await connectDetectedAgents('local', { verbose: opts.verbose, editors })
+    : { detected: 0, connected: 0, wired: [] as string[] };
 
   // ALI-950: whenever ANY agent was wired - the project .mcp.json counts. This used to print
   // only when a GLOBAL config was written, so a Claude-Code-only user, wired through the
@@ -1368,14 +1398,23 @@ async function runCloudSetup(ctx: {
   // user got LESS agent wiring than a cloud one, on the mode where an agent running on your
   // own machine is the whole point.
   //
-  // It does NOT ask: it wires every detected agent and discloses each file it touched, with
-  // `align mcp --remove` as the undo. This block used to write to a user-level config without
-  // a word when exactly one editor was detected and prompt only at two or more, and that
-  // multiselect was unguarded, so `align setup --approve` with two agents installed hung.
-  const globalAgents = await connectDetectedAgents(envName, { verbose: ctx.opts.verbose });
+  // It wires every detected agent and discloses each file it touched, with `align mcp --remove`
+  // as the undo. Since the confirmation below it asks first, once, for the whole run: the list
+  // of files, then Continue? (default yes). --approve or no terminal prints the list and goes
+  // on. This block used to write without a word when exactly one editor was detected and
+  // prompt only at two or more, and that multiselect was unguarded, so `align setup --approve`
+  // with two agents installed hung.
+  const { confirmed: writesConfirmed, editors } = await confirmAgentWrites({
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    approve: opts.approve,
+  });
+  if (!writesConfirmed) p.log.info('Left your agent config alone. Run align again when you want it connected.');
+  const globalAgents = writesConfirmed
+    ? await connectDetectedAgents(envName, { verbose: ctx.opts.verbose, editors })
+    : { detected: 0, connected: 0, wired: [] as string[] };
 
   // ---- Step 5b: Deterministic auto-alignment files (hook + nudges) ----
-  const projectAgents = connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment(envName)));
+  const projectAgents = writesConfirmed ? connectedProjectAgents(projectAgentsFromWritten(writeAgentAlignment(envName))) : [];
   // ALI-950: project config first - it is the one the user is most likely sitting in.
   const agents = orderAgents({ project: projectAgents, global: globalAgents.wired });
 

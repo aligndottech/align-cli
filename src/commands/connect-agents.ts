@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import * as p from '@clack/prompts';
-import { alignServerEntry, detectEditors, writeMcpConfig } from '../lib/mcp-setup.js';
+import { alignServerEntry, detectEditors, type EditorTarget, writeMcpConfig } from '../lib/mcp-setup.js';
 import { editedHookNotice } from '../lib/user-hooks.js';
 import type { EnvName } from '../lib/config.js';
 import { envFlag } from '../lib/destination-name.js';
@@ -29,9 +29,9 @@ import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
  */
 export async function connectDetectedAgents(
   envName: EnvName,
-  opts: { verbose?: boolean } = {},
+  opts: { verbose?: boolean; /** Already detected by the caller (setup lists their files before writing); one detection, one list. */ editors?: EditorTarget[] } = {},
 ): Promise<{ detected: number; connected: number; wired: string[] }> {
-  const editors = detectEditors();
+  const editors = opts.editors ?? detectEditors();
   // writeMcpConfig takes undefined for prod: the default env needs no --env argument in the
   // spawned server's command line.
   const envArg = envName === 'prod' ? undefined : envName;
