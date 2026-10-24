@@ -241,7 +241,7 @@ jobs:
   # separately (the same reason release-please.yml builds them in separate jobs).
   npm-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
@@ -253,16 +253,19 @@ jobs:
         run: |
           set -eu
           version="${TAG#cli-v}"
-          # Registry propagation lags the publish job by seconds to minutes - retry
-          # rather than fail the gate on lag.
-          for i in $(seq 1 20); do
+          # This job starts when the release is created, but the publish job runs the
+          # full test suite before `npm publish` (~6 min), and npm then took up to ~8 min
+          # to serve the new version. A 10-minute window lost that race on 0.62.1 and
+          # 0.64.0, failing a good release and skipping promotion. 30 minutes of retries.
+          attempts=60
+          for i in $(seq 1 "$attempts"); do
             npm install -g "@aligndottech/cli@next" >/dev/null 2>&1 || true
             reported="$(align --version 2>/dev/null || true)"
             if printf '%s\n' "$reported" | grep -q "$version"; then
               echo "npm-installed CLI reports: $reported"
               break
             fi
-            [ "$i" = 20 ] && { echo "FATAL: @aligndottech/cli@next did not resolve to $version (reported: $reported)"; exit 1; }
+            [ "$i" = "$attempts" ] && { echo "FATAL: @aligndottech/cli@next did not resolve to $version (reported: $reported)"; exit 1; }
             sleep 30
           done
           next="$(npm view @aligndottech/cli dist-tags.next)"
