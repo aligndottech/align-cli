@@ -110,6 +110,16 @@ function mcpSetupCommand(envName: EnvName): string {
 }
 
 /**
+ * The outro's last line when the person declined the config writes: no agent has align's MCP
+ * entry or hook, so it must not say "open X and ask". Names both ways to connect later: a
+ * re-run writes the project files and every detected agent; `align mcp --setup` writes only
+ * the agents' own config.
+ */
+export function agentNotConnectedLine(envName: EnvName): string {
+  return `Your agent is not connected, because you chose not to write its config. Run align again to connect it, or ${mcpSetupCommand(envName)} for the agents on this machine.`;
+}
+
+/**
  * The one next action, and it happens in the agent. `inRepo` is the outro (the wizard just
  * ran here, and the project config only applies here); the card drops it.
  *

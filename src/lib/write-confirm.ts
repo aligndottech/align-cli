@@ -36,7 +36,12 @@ export function planSetupWrites(opts: { cwd: string; editors: EditorTarget[]; ho
   return out;
 }
 
-export const WRITE_PLAN_HEADING = 'Align will create or change these files:';
+/**
+ * "may": the list is every file a writer CAN touch. A writer leaves its file as found when it is a
+ * symlink or the entry in it belongs to a team, and that is decided inside the writer while it runs
+ * (agent-rules.ts, mcp-setup.ts), so it cannot be asked ahead of time without a second copy of the rule.
+ */
+export const WRITE_PLAN_HEADING = 'Align may create or change these files:';
 
 /** The list, one file per line. Plain text so the same lines print on a terminal and in a log. */
 export function renderWritePlan(files: PlannedWrite[]): string {
@@ -44,8 +49,12 @@ export function renderWritePlan(files: PlannedWrite[]): string {
   return [WRITE_PLAN_HEADING, ...files.map((f) => `  ${f.action.padEnd(width)}  ${f.display}`)].join('\n');
 }
 
-/** Shown with the list, before the question. The undo is real: `align use --undo` (commands/use.ts). */
-export const WRITE_UNDO_LINE = 'The first copy of any file that already exists is kept. Undo any time: align use --undo';
+/**
+ * Shown with the list, before the question. `align use --undo` replays the write manifest, which
+ * records the project files AND each agent's own config (write-confirm.test.ts pins both), so one
+ * command covers every file listed. `align mcp --remove` also works, but only for the agent configs.
+ */
+export const WRITE_UNDO_LINE = 'The first copy of any file that already exists is kept. Undo any time: align use --undo (it covers every file listed, project and agent config alike)';
 
 export const WRITE_CONFIRM_QUESTION = 'Continue?';
 

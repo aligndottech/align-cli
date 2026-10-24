@@ -68,7 +68,9 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
     // stacked two full banners on a fresh user's very first command (found live
     // 2026-09-02). The banner belongs to whichever flow owns the screen.
     const { runSetup } = await import('./setup.js');
-    await runSetup({ launchNext: true });
+    const setup = await runSetup({ launchNext: true });
+    // A declined write left no agent with align's config: opening one now would say "with your graph" falsely.
+    if (setup?.writesDeclined) return;
 
     // The wizard's last step is `align` itself: open the agent it just wired. Re-read the
     // config (the wizard wrote it). Launch only when a local graph now exists AND an agent was

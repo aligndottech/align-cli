@@ -1664,6 +1664,51 @@ describe('align setup', () => {
           expect(writeMcpConfig).not.toHaveBeenCalled();
         });
 
+        const declinedOutro = async (): Promise<string> => {
+          const { outro } = await import('@clack/prompts');
+          vi.mocked(outro).mockClear();
+          return '';
+        };
+
+        it('local: the outro says the agent is not connected and names the real commands, never "Opening"', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce('claude-code');
+          decline();
+          await declinedOutro();
+          const { runSetup } = await import('../commands/setup.js');
+          const result = await runSetup({ launchNext: true });
+          const { outro } = await import('@clack/prompts');
+          // eslint-disable-next-line no-control-regex
+          const text = String(vi.mocked(outro).mock.calls[0]?.[0]).replace(/\x1b\[[0-9;]*m/g, '');
+          expect(text).toContain('Your agent is not connected');
+          expect(text).toContain('align mcp --setup --env local');
+          expect(text).not.toContain('Opening');
+          expect(text).not.toContain('Ask it:');
+          expect(text).not.toContain('to open Claude Code');
+          // bare `align` reads this to skip the launch
+          expect(result).toEqual({ writesDeclined: true });
+        });
+
+        it('local: answering yes still reports no decline (the launch is not suppressed)', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce('claude-code');
+          mockConfirm.mockImplementation(async () => true);
+          const { runSetup } = await import('../commands/setup.js');
+          expect(await runSetup({ launchNext: true })).toEqual({ writesDeclined: false });
+        });
+
+        it('team (--env prod): the outro says the agent is not connected and names the real commands', async () => {
+          decline();
+          await declinedOutro();
+          await makeProgram().parseAsync(['node', 'align', '--env', 'prod']);
+          const { outro } = await import('@clack/prompts');
+          // eslint-disable-next-line no-control-regex
+          const text = String(vi.mocked(outro).mock.calls[0]?.[0]).replace(/\x1b\[[0-9;]*m/g, '');
+          expect(text).toContain('Your agent is not connected');
+          expect(text).toContain('align mcp --setup');
+          expect(text).not.toMatch(/Open \S+ in this repo/);
+        });
+
         it('team (--env prod): same, nothing written', async () => {
           const { detectEditors, writeMcpConfig } = await import('../lib/mcp-setup.js');
           (detectEditors as ReturnType<typeof vi.fn>).mockReturnValueOnce([{ name: 'Claude Code', configPath: '/tmp/.claude.json', format: 'mcpServers' }]);
@@ -1703,6 +1748,8 @@ describe('align setup', () => {
       });
 
       describe('the outro', () => {
+        // These are about the outro after a YES; the default confirm mock answers every prompt no, which now declines the writes.
+        beforeEach(() => { mockConfirm.mockImplementation(async (o: { message?: string }) => /^Continue\?/.test(String(o?.message))); });
         const outroText = async (): Promise<string> => {
           const { outro } = await import('@clack/prompts');
           // eslint-disable-next-line no-control-regex
