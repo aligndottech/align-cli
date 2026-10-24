@@ -432,13 +432,24 @@ export function writeMcpConfig(
   onForeign?: OnForeign,
   onEditedHook?: (file: string) => void,
 ): string[] {
+  const files = mcpConfigFiles(target);
   const written: string[] = [];
   const wroteMcp = target.format === 'codex'
     ? writeCodexConfig(target.configPath, env, onForeign)
     : writeJsonConfig(target, env, onForeign);
-  if (wroteMcp) written.push(target.configPath);
-  if (target.hooks && writeUserHooks(target.hooks, env, onForeign, onEditedHook)) written.push(target.hooks.path);
+  if (wroteMcp) written.push(files[0]!);
+  if (target.hooks && writeUserHooks(target.hooks, env, onForeign, onEditedHook)) written.push(files[1]!);
   return written;
+}
+
+/**
+ * The files writeMcpConfig can write for one agent: its MCP config, then its hook file where
+ * the host has one. writeMcpConfig names what it wrote from this list, and the pre-write
+ * disclosure lists this list, so the two cannot drift. An upper bound: a writer that finds an
+ * entry that is not ours leaves its file as found.
+ */
+export function mcpConfigFiles(target: EditorTarget): string[] {
+  return target.hooks ? [target.configPath, target.hooks.path] : [target.configPath];
 }
 
 /**

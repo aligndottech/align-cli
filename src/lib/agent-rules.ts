@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { carriesLocalEnv, type OnForeign } from './foreign-env.js';
 import { alignServerEntry } from './mcp-setup.js';
@@ -490,6 +490,48 @@ export function writeOpenCodePlugin(cwd: string, env?: string, onForeign?: OnFor
   return status === 'written' || status === 'unchanged';
 }
 
+interface AlignmentWriteCtx {
+  cwd: string;
+  /** The env as given. */
+  env?: string;
+  /** The env for committed files: prod is the default, so it is left off to keep them portable. */
+  projectEnv?: string;
+  onForeign?: OnForeign;
+}
+
+/**
+ * THE plan: every project file setup writes, in write order, with the writer that writes it.
+ * setupAgentAlignment runs exactly this table and planAgentAlignment lists exactly this table,
+ * so the list shown before the write cannot drift from what the write touches.
+ * A writer returns false when it left its file as found (a team entry, or a symlink).
+ */
+const ALIGNMENT_WRITES: Array<{ file: string; write: (c: AlignmentWriteCtx) => boolean }> = [
+  {
+    file: '.claude/settings.json',
+    // The session hook lives in the same file, so it is skipped too when the hooks are left as found.
+    write: (c) => writeClaudeCodeHook(c.cwd, c.env, c.onForeign) && writeClaudeCodeSessionHook(c.cwd),
+  },
+  { file: 'CLAUDE.md', write: (c) => writeManagedNudge(c.cwd) },
+  { file: 'AGENTS.md', write: (c) => writeAgentsNudge(c.cwd) },
+  { file: '.cursor/rules/align.md', write: (c) => writeCursorRule(c.cwd) },
+  { file: '.mcp.json', write: (c) => writeProjectMcpConfig(c.cwd, c.projectEnv, c.onForeign) },
+  { file: '.pi/extensions/align.ts', write: (c) => writePiExtension(c.cwd, c.projectEnv, c.onForeign) },
+  { file: '.gemini/settings.json', write: (c) => writeGeminiHooks(c.cwd, c.projectEnv, c.onForeign) },
+  { file: '.opencode/plugins/align.js', write: (c) => writeOpenCodePlugin(c.cwd, c.projectEnv, c.onForeign) },
+];
+
+/**
+ * The project files setupAgentAlignment will create or modify, before it runs anything.
+ * An upper bound: a writer that finds a team-owned entry or a symlink leaves its file as
+ * found, and setupAgentAlignment then leaves it out of what it returns.
+ */
+export function planAgentAlignment(cwd: string): Array<{ file: string; action: 'create' | 'modify' }> {
+  return ALIGNMENT_WRITES.map(({ file }) => ({
+    file,
+    action: existsSync(path.join(cwd, file)) ? 'modify' : 'create',
+  }));
+}
+
 // Write every deterministic-alignment artifact into the project. Returns the
 // repo-relative paths written, for the caller to report.
 export function setupAgentAlignment(opts: { cwd: string; env?: string; onForeign?: OnForeign }): string[] {
@@ -498,33 +540,18 @@ export function setupAgentAlignment(opts: { cwd: string; env?: string; onForeign
   const onForeign: OnForeign | undefined = opts.onForeign
     ? (f) => { skipped.add(f); opts.onForeign!(f); }
     : undefined;
-  // When the project's hooks belong to a team env the whole file is left as found, so the
-  // session hook (which lives in the same file) is not added either.
   // A writer that returns false left its file as found (a team entry, or a symlink): not reported.
   const left = new Set<string>();
-  const track = (file: string, ok: boolean) => { if (!ok) left.add(file); };
-  const hooksOk = writeClaudeCodeHook(opts.cwd, opts.env, onForeign);
-  track('.claude/settings.json', hooksOk && writeClaudeCodeSessionHook(opts.cwd));
-  track('CLAUDE.md', writeManagedNudge(opts.cwd));
-  track('AGENTS.md', writeAgentsNudge(opts.cwd));
-  track('.cursor/rules/align.md', writeCursorRule(opts.cwd));
-  // prod is the default env, so leave it off to keep the committed file portable -
-  // the same rule advisoryCommand() applies to the hook.
-  const env = opts.env === 'prod' ? undefined : opts.env;
-  track('.mcp.json', writeProjectMcpConfig(opts.cwd, env, onForeign));
-  track('.pi/extensions/align.ts', writePiExtension(opts.cwd, env, onForeign));
-  track('.gemini/settings.json', writeGeminiHooks(opts.cwd, env, onForeign));
-  track('.opencode/plugins/align.js', writeOpenCodePlugin(opts.cwd, env, onForeign));
-  return [
-    '.claude/settings.json',
-    'CLAUDE.md',
-    'AGENTS.md',
-    '.cursor/rules/align.md',
-    '.mcp.json',
-    '.pi/extensions/align.ts',
-    '.gemini/settings.json',
-    '.opencode/plugins/align.js',
-  ].filter((f) => !skipped.has(f) && !left.has(f));
+  const ctx: AlignmentWriteCtx = {
+    cwd: opts.cwd,
+    env: opts.env,
+    projectEnv: opts.env === 'prod' ? undefined : opts.env,
+    onForeign,
+  };
+  for (const { file, write } of ALIGNMENT_WRITES) {
+    if (!write(ctx)) left.add(file);
+  }
+  return ALIGNMENT_WRITES.map((w) => w.file).filter((f) => !skipped.has(f) && !left.has(f));
 }
 
 const PROJECT_FILE_TELLS: Array<[string, string[]]> = [
