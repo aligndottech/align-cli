@@ -83,6 +83,8 @@ export async function runPersonalImport(
     label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean; local?: boolean;
     /** (`align connect --json`): with quiet, print nothing at all - the caller owns stdout. */
     silent?: boolean;
+    /** Inside the setup wizard: the outro owns the next step, so the footer's own is left out. */
+    noFooter?: boolean;
     /** When present, emit the import_completed funnel stage after ingest.
      *  Carries the env because the consent decision needs it; source is the connector
      *  id ('git', 'jira'), which becomes the stage's provenance command. */
@@ -217,6 +219,10 @@ export async function runPersonalImport(
 
   if (relatedCount > 0) {
     console.log(chalk.cyan(`${relatedCount} connections found with existing decisions in your graph.`));
+  }
+  if (opts.noFooter) {
+    console.log('');
+    return total;
   }
   if (opts.local) {
     // Local mode: on-device SQLite, no web UI and relationships are computed

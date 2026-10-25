@@ -34,13 +34,15 @@ export function modelStepOptions(exported: Array<{ id: LlmProviderId; envVar: st
     { value: 'key', label: 'Paste an API key I already have', hint: 'Anthropic, OpenAI, Gemini, DeepSeek and more' },
     { value: 'groq', label: 'Get a free Groq key', hint: 'no card needed' },
     { value: 'ollama', label: 'Run a local model with Ollama', hint: 'free, nothing leaves this machine' },
-    { value: 'skip', label: 'Skip for now', hint: 'checks will not run until one is set up' },
+    { value: 'skip', label: 'Skip for now', hint: 'your agent still judges conflicts; align check cannot yet' },
   ];
 }
 
 export function noModelLines(): string[] {
   return [
-    'Conflict checks need an AI model, and none is set up, so they will not run yet (a check says "could not check").',
+    // Scoped to what actually needs it: inside the agent, the agent adjudicates the related decisions itself.
+    'No AI model is set up. Inside your agent that is fine: the agent judges conflicts itself.',
+    '`align check` in the terminal and CI needs one, and says "could not check" until it has one.',
     `Free and local:  ollama pull ${RECOMMENDED_OLLAMA_PULL}`,
     'Or a key:        export ANTHROPIC_API_KEY (or OPENAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY ...), then run: align ai',
   ];

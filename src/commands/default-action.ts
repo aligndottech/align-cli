@@ -5,6 +5,7 @@ import { printBanner } from '../lib/brand.js';
 import { detectWiredEditors, projectMcpAgents } from '../lib/mcp-setup.js';
 import { cardLabel, type CardValue, orderAgents, renderSecondRunCard } from '../lib/next-step.js';
 import { launchesAfterWizard, launchIfChosen } from '../lib/launch/launch.js';
+import { agentByName } from '../lib/launch/agents.js';
 
 /**
  * What `align` does with no arguments.
@@ -139,6 +140,8 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
     : `${chalk.green(cardLabel('Signed in'))}${chalk.dim(defaultEnv)}`;
 
   console.log('');
-  console.log(renderSecondRunCard({ graphLine, agents, hasDecisions, firstTitle, envName, value }));
+  // The agent the user chose names the next step; the first wired one would be a guess.
+  const chosen = agentByName(config.getAgent())?.label;
+  console.log(renderSecondRunCard({ graphLine, agents, chosen, hasDecisions, firstTitle, envName, value }));
   console.log('');
 }

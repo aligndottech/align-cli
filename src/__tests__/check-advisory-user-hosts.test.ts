@@ -151,3 +151,14 @@ describe('runAdvisory moves to the workspace the hook payload names', () => {
     expect(chdir).not.toHaveBeenCalled();
   });
 });
+
+// The hook's text reaches the model only. Asking the agent to name what it checked against
+// is what lets the user see that the hook ran at all.
+describe('buildRelatedOutput asks the agent to tell the user', () => {
+  it('ends with the one-line mention, naming no conflict it has not adjudicated', () => {
+    const out = buildRelatedOutput(related, { pre: true, format: 'codex', blockOnCritical: false }) as { hookSpecificOutput: { additionalContext: string } };
+    const text = out.hookSpecificOutput.additionalContext;
+    expect(text).toMatch(/Tell the user in one line which of these you checked against and whether this change agrees with it\.$/);
+    expect(text).toContain('NOT been adjudicated');
+  });
+});

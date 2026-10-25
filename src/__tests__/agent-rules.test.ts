@@ -341,3 +341,28 @@ describe('setupAgentAlignment - OpenCode', () => {
     expect(written).toContain('.opencode/plugins/align.js');
   });
 });
+
+/**
+ * The hook's finding goes to the model only. Unless the agent says so, a user cannot tell a
+ * check that ran from one that never fired - both look like nothing. Every instruction
+ * surface asks the agent to say, in one line, what Align surfaced.
+ */
+describe('the agent tells the user what Align surfaced', () => {
+  const SAY = /tell the user in one line which decision/;
+
+  it('CLAUDE.md, AGENTS.md and the Cursor rule all ask for the one-line mention', () => {
+    writeManagedNudge(dir);
+    writeAgentsNudge(dir);
+    writeCursorRule(dir);
+    for (const f of ['CLAUDE.md', 'AGENTS.md', join('.cursor', 'rules', 'align.md')]) {
+      expect(readFileSync(join(dir, f), 'utf8')).toMatch(SAY);
+    }
+  });
+
+  it('CLAUDE.md says the hooks surface RELATED decisions, which is what they do (they do not adjudicate)', () => {
+    writeManagedNudge(dir);
+    const text = readFileSync(join(dir, 'CLAUDE.md'), 'utf8');
+    expect(text).toContain('hooks also surface related decisions automatically');
+    expect(text).not.toContain('surface conflicting decisions');
+  });
+});

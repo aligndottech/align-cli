@@ -140,6 +140,14 @@ export function alignNudgeBody(): string {
   return managedNudgeBlock({ claudeHooks: true });
 }
 
+// A hook's finding reaches the model only, so a check that ran and one that never fired look
+// the same to the user. One line from the agent makes the check visible. Shared by every
+// instruction surface so the wording cannot drift.
+const SAY_WHAT_ALIGN_SURFACED = [
+  '- When Align surfaces a decision (a tool result or a hook), tell the user in one line which decision',
+  '  it was and whether your change agrees with it.',
+] as const;
+
 // The nudge body. `claudeHooks` adds the Claude-Code-specific line about the
 // Pre/PostToolUse hook - true for CLAUDE.md, false for the agent-neutral AGENTS.md.
 function managedNudgeBlock(opts: { claudeHooks: boolean }): string {
@@ -156,10 +164,11 @@ function managedNudgeBlock(opts: { claudeHooks: boolean }): string {
     '- When unsure why something is the way it is, ask the graph first (`align_ask`).',
     ...(opts.claudeHooks
       ? [
-          '- Claude Code hooks also surface conflicting decisions automatically: before an edit is',
+          '- Claude Code hooks also surface related decisions automatically: before an edit is',
           '  written, and again after it lands.',
         ]
       : []),
+    ...SAY_WHAT_ALIGN_SURFACED,
     ALIGN_NUDGE_END,
   ].join('\n');
 }
@@ -212,6 +221,7 @@ function cursorRuleBody(): string {
     '  proposed change. A "conflict" means a past decision opposes it - reconcile or confirm',
     '  with the user before proceeding.',
     '- When unsure about a convention or "why" something is the way it is, call `align_ask` first.',
+    ...SAY_WHAT_ALIGN_SURFACED,
     '',
     '(Cursor does not honor Claude Code hooks, so this rule is the Cursor-side nudge.)',
     '',

@@ -668,6 +668,8 @@ export function buildRelatedOutput(decisions: RelatedDecision[], opts: AdvisoryR
     `Align decision graph: ${decisions.length} prior decision${decisions.length > 1 ? 's relate' : ' relates'} to this change:`,
     ...lines,
     'These are related by content search and have NOT been adjudicated. Check whether any of them opposes this change before continuing.',
+    // The model is the only reader of this text; without this line the user cannot tell the hook ran.
+    'Tell the user in one line which of these you checked against and whether this change agrees with it.',
   ].join('\n');
   return renderForHost(summary, opts, false);
 }

@@ -75,6 +75,17 @@ describe('runJoin: only a person at a terminal, never an agent (join review F1)'
     const h = makeHarness({ tty: true, wrapped: false, typed: TYPED });
     expect((await runJoin(h.deps, { link: linkFor() })).ok).toBe(true);
   });
+
+  // Joining saves a login and wires nothing, so the agent cannot read the team graph yet.
+  // The last thing printed is the one command that connects it, runnable as printed.
+  it('ends by naming the command that connects the agent to the joined graph', async () => {
+    installFakeGateway();
+    const h = makeHarness({ tty: true, wrapped: false, typed: TYPED });
+    const r = await runJoin(h.deps, { link: linkFor() });
+    expect(r.ok).toBe(true);
+    const last = h.out[h.out.length - 1]!;
+    expect(last).toMatch(/^ {2}Connect your agent to it: align mcp --setup --env \S+$/);
+  });
 });
 
 describe('runJoin: link and transport (S3)', () => {

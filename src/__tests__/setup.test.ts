@@ -86,6 +86,8 @@ const mockClearProviderKey = vi.hoisted(() => vi.fn());
 const mockSetAskKeyOfferDismissed = vi.hoisted(() => vi.fn());
 const mockGetLlmPreference = vi.hoisted(() => vi.fn().mockReturnValue({}));
 const mockClearLlmPreference = vi.hoisted(() => vi.fn());
+// The coding agent the user chose (config `agent`). None by default.
+const mockGetAgent = vi.hoisted(() => vi.fn().mockReturnValue(undefined));
 
 // The suite's default store: logged in on every env (authToken 'tok'). A function so a
 // test that needs a different machine can swap it and put this one back.
@@ -120,6 +122,7 @@ const makeDefaultConfig = () => ({
     setAskKeyOfferDismissed: mockSetAskKeyOfferDismissed,
     getLlmPreference: mockGetLlmPreference,
     clearLlmPreference: mockClearLlmPreference,
+    getAgent: mockGetAgent,
   });
 
 vi.mock('../lib/config.js', async (importOriginal) => ({
@@ -142,6 +145,8 @@ vi.mock('../lib/git.js', () => ({
   buildCommitUrl: vi.fn().mockReturnValue('git://commit/abc123'),
   formatCommitAsText: vi.fn().mockReturnValue('feat: add thing'),
 }));
+
+vi.mock('../lib/hot-file.js', () => ({ getHotFile: vi.fn().mockResolvedValue('src/db.ts') }));
 
 vi.mock('../lib/local-mode.js', () => ({
   initLocalMode: mockInitLocalMode,
@@ -318,6 +323,9 @@ describe('align setup', () => {
   beforeEach(() => {
     // C6: CI vars, ALIGN_WRAPPED and ALIGN_TOKEN/ALIGN_ENV change what this suite does; clear them.
     clearTelemetryEnv();
+    // Tests that need a non-empty graph set it; an empty one is the default.
+    mockLocalDb.getStats = () => ({ decisions: 0 });
+    mockGetAgent.mockReset().mockReturnValue(undefined);
     vi.stubGlobal('setTimeout', (fn: () => void) => { fn(); return 0; });
     // L4: connecting looks at what the token can see; that never reaches a vendor from a test.
     vi.stubGlobal('fetch', vendorFetch);
@@ -1765,6 +1773,18 @@ describe('align setup', () => {
           expect(text).not.toMatch(/pricing|align\.tech|https?:/i);
         });
 
+        // "Run align to open Claude Code with your graph." followed by "Open Claude Code in this
+        // repo and try:" said the same thing twice. With prompts to hand over, one line does both.
+        it('with prompts to hand over, says once how to open the agent and leads into them', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce('claude-code');
+          mockLocalDb.getStats = () => ({ decisions: 1 });
+          await makeProgram().parseAsync(['node', 'align']);
+          const text = await outroText();
+          expect(text).toMatch(/Run align to open Claude Code with your graph, then try:\n\s+1\. /);
+          expect(text.match(/open Claude Code/gi)).toHaveLength(1);
+        });
+
         it('when the agent opens right after (bare align), the run-align line is dropped', async () => {
           await mockNoLogin();
           mockPickAgent.mockResolvedValueOnce('claude-code');
@@ -1780,9 +1800,10 @@ describe('align setup', () => {
           await mockNoLogin();
           mockPickAgent.mockResolvedValueOnce('claude-code');
           const { runSetup } = await import('../commands/setup.js');
+          mockLocalDb.getStats = () => ({ decisions: 1 });
           await runSetup({ launchNext: true });
           const text = await outroText();
-          expect(text).toMatch(/Opening Claude Code\. Ask it: (what decisions exist in this codebase\?|why did we .+\?)/);
+          expect(text).toMatch(/Opening Claude Code\. Try these in it:\n\s+1\. (what decisions exist in this codebase\?|why did we .+\?)/);
           expect(text).not.toContain('Open Claude Code in this repo');
         });
 
@@ -1790,8 +1811,9 @@ describe('align setup', () => {
           await mockNoLogin();
           mockPickAgent.mockResolvedValueOnce('codex');
           const { runSetup } = await import('../commands/setup.js');
+          mockLocalDb.getStats = () => ({ decisions: 1 });
           await runSetup({ launchNext: true });
-          expect(await outroText()).toMatch(/Opening Codex\. Ask it: /);
+          expect(await outroText()).toMatch(/Opening Codex\. Try these in it:/);
         });
 
         it('ALIGN_NO_LAUNCH means nothing opens, so the outro keeps the run-align instruction', async () => {
@@ -2272,10 +2294,10 @@ describe('align setup', () => {
     const CURSOR = { name: 'Cursor', configPath: '/h/.cursor/mcp.json', format: 'mcpServers' as const };
     const WITH_PROJECT_MCP = ['.claude/settings.json', 'CLAUDE.md', 'AGENTS.md', '.cursor/rules/align.md', '.mcp.json'];
 
-    async function outroLastLine(): Promise<string> {
+    async function outroTail(n: number): Promise<string> {
       const { outro } = await import('@clack/prompts');
       const text = ((outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string).replace(ANSI, '');
-      return text.trim().split('\n').pop()!.trim();
+      return text.trimEnd().split('\n').slice(-n).map((l) => l.replace(/^ {2}/, '')).join('\n');
     }
     async function infoLines(): Promise<string> {
       const { log } = await import('@clack/prompts');
@@ -2319,6 +2341,7 @@ describe('align setup', () => {
         mockPickAgent.mockResolvedValue(null);
         mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
         mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
+        mockLocalDb.getStats = () => ({ decisions: 1 });
         await makeProgram().parseAsync(['node', 'align', '--local']);
         const out = await fullOutro();
         expect(await infoLines()).not.toContain('Your agent is connected');
@@ -2326,7 +2349,7 @@ describe('align setup', () => {
         expect(out).not.toContain('once a coding agent is installed');
         expect(out.match(/No coding agent was found/g)).toHaveLength(1);
         expect(out).toContain('Graph: /tmp/local.db');
-        expect(out).toContain('ask: why did we switch to postgres?');
+        expect(out).toContain('open it in this repo and try:\n    1. why did we switch to postgres?');
       });
 
       it('an agent exists: says connected and names it (the two outputs differ)', async () => {
@@ -2355,13 +2378,30 @@ describe('align setup', () => {
       expect(await infoLines()).not.toContain('Your agent is connected');
     });
 
-    it('--local outro ends on the agent and the first decision git import found, with no CLI verb', async () => {
+    it('--local outro ends on three starter prompts built from the decision git import found, with no CLI verb', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
+      mockLocalDb.getStats = () => ({ decisions: 1 });
       await makeProgram().parseAsync(['node', 'align', '--local']);
-      const last = await outroLastLine();
-      expect(last).toBe('Open Claude Code in this repo and ask: why did we switch to postgres?');
-      expect(last).not.toMatch(/\balign\s+[a-z-]+/);
+      const tail = await outroTail(4);
+      expect(tail).toBe([
+        'Run align to open Claude Code with your graph, then try:',
+        '  1. why did we switch to postgres?',
+        '  2. what was decided about src/db.ts?',
+        '  3. Plan a change that reverses "switch to postgres". Check it with Align before writing anything.',
+      ].join('\n'));
+      // Bare `align` (run it to open the agent) is not a verb; "align to" must not count as one.
+      expect(tail).not.toMatch(/\balign\s+(?!to\b)[a-z-]+/);
+    });
+
+    it('--local outro on an empty graph hands over no prompt about a graph that has nothing in it', async () => {
+      mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+      mockLocalDb.getStats = () => ({ decisions: 0 });
+      await makeProgram().parseAsync(['node', 'align', '--local']);
+      const { outro } = await import('@clack/prompts');
+      const text = ((outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string).replace(ANSI, '');
+      expect(text).toContain('Your graph is empty');
+      expect(text).not.toMatch(/try:|ask:|Ask it:/);
     });
 
     it('--local outro names the first decision the DOCS found when git history held none', async () => {
@@ -2374,17 +2414,21 @@ describe('align setup', () => {
       } as never);
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'adopt trunk-based development' }]);
+      mockLocalDb.getStats = () => ({ decisions: 1 });
       await makeProgram().parseAsync(['node', 'align', '--local']);
-      expect(await outroLastLine()).toBe('Open Claude Code in this repo and ask: why did we adopt trunk-based development?');
+      expect(await outroTail(3)).toContain('  1. why did we adopt trunk-based development?');
     });
 
-    it('--local outro with no agent detected says so and names align mcp once', async () => {
+    // An agent chosen but not wired through the project config still gets the graph: align
+    // injects the MCP entry when it opens the agent (launch adapters), so "run align" is the step.
+    it('--local outro with an agent chosen but not wired: running align opens it with the graph', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(['CLAUDE.md']);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
+      mockLocalDb.getStats = () => ({ decisions: 1 });
       await makeProgram().parseAsync(['node', 'align', '--local']);
-      const last = await outroLastLine();
-      expect(last).toBe('No agent detected. Run align mcp --setup --env local, then ask it: why did we switch to postgres?');
-      expect(last.match(/align mcp/g)).toHaveLength(1);
+      const tail = await outroTail(4);
+      expect(tail.split('\n')[0]).toBe('Run align to open Claude Code with your graph, then try:');
+      expect(tail).not.toMatch(/align mcp/);
     });
 
     it('cloud outro ends on the wired agent and the first decision in the graph, with no CLI verb', async () => {
@@ -2392,20 +2436,37 @@ describe('align setup', () => {
       vi.mocked(detectEditors).mockReturnValue([CURSOR]);
       mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
       await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
-      const last = await outroLastLine();
-      expect(last).toBe('Open Cursor in this repo and ask: why did we switch to postgres?');
-      expect(last).not.toMatch(/\balign\s+[a-z-]+/);
+      const tail = await outroTail(4);
+      expect(tail).toBe([
+        'Open Cursor in this repo and try:',
+        '  1. why did we switch to postgres?',
+        '  2. what was decided about src/db.ts?',
+        '  3. Plan a change that reverses "switch to postgres". Check it with Align before writing anything.',
+      ].join('\n'));
+      expect(tail).not.toMatch(/\balign\s+[a-z-]+/);
       expect(await infoLines()).toContain('Your agent is connected: Cursor.');
     });
 
-    it('cloud, several agents wired: the one detected in this repo\'s project config leads', async () => {
+    // The project .mcp.json reads as "Claude Code" whatever the user runs: with several wired,
+    // the agent the user chose leads, and with no choice the line names none.
+    it('cloud, several agents wired: the agent the user chose leads', async () => {
+      const { detectEditors } = await import('../lib/mcp-setup.js');
+      vi.mocked(detectEditors).mockReturnValue([CURSOR]);
+      mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+      mockGetAgent.mockReturnValue('cursor');
+      mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
+      expect((await outroTail(4)).split('\n')[0]).toBe('Open Cursor in this repo and try:');
+      expect(await infoLines()).toContain('Your agent is connected: Claude Code, Cursor.');
+    });
+
+    it('cloud, several agents wired and none chosen: names no agent rather than guessing', async () => {
       const { detectEditors } = await import('../lib/mcp-setup.js');
       vi.mocked(detectEditors).mockReturnValue([CURSOR]);
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
       await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
-      expect(await outroLastLine()).toBe('Open Claude Code in this repo and ask: why did we switch to postgres?');
-      expect(await infoLines()).toContain('Your agent is connected: Claude Code, Cursor.');
+      expect((await outroTail(4)).split('\n')[0]).toBe('Open your coding agent in this repo and try:');
     });
   });
 
@@ -2417,21 +2478,15 @@ describe('align setup', () => {
     expect(mockStartCliOAuth).not.toHaveBeenCalled();
   });
 
-  it('shows pricing link in outro regardless of import count', async () => {
-    mockMultiselect.mockResolvedValue([]);
-    await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
-    const { outro } = await import('@clack/prompts');
-    expect((outro as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('app.align.tech/pricing');
-  });
-
-  it('cloud outro mentions upgrading to a team and notes connectors re-auth after joining', async () => {
+  // The cloud route is team-only (the gateway no longer creates personal tenants), so a
+  // "want your whole team? accept a team invite" upsell is addressed to someone already on one.
+  it('cloud outro pitches no team upgrade to a user who is already on a team', async () => {
     mockMultiselect.mockResolvedValue([]);
     await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
     const { outro } = await import('@clack/prompts');
     const text = (outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-    // Upgrade path is the web join flow; decisions carry over, connectors do not.
-    expect(text).toMatch(/team/i);
-    expect(text).toMatch(/reconnect|re-?auth|connect.*again/i);
+    expect(text).not.toContain('app.align.tech/pricing');
+    expect(text).not.toMatch(/Upgrade by accepting a team invite/);
   });
 
   describe('PATH check', () => {

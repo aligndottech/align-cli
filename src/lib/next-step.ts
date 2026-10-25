@@ -103,6 +103,54 @@ export function firstQuestion(firstTitle: string | undefined): string {
   return phrase ? `why did we ${phrase}?` : 'what decisions exist in this codebase?';
 }
 
+/**
+ * The conflict demo: the agent plans the opposite of a real decision, checks it, and stops.
+ * It quotes the title rather than conjugating it, so any title short enough to read works -
+ * "All PRs must ..." cannot go into "why did we", but it can be reversed. It asks for a PLAN,
+ * so trying it writes nothing. No AI key is needed: without one the check returns the related
+ * decisions and the agent itself judges the opposition.
+ */
+const MAX_QUOTED_WORDS = 14;
+const CHECK_FIRST = 'Check it with Align before writing anything.';
+
+function quotableTitle(title: string | undefined): string | undefined {
+  if (!title) return undefined;
+  const t = title.replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').replace(/\s+/g, ' ').trim().replace(/\.$/, '');
+  if (t === '' || t.split(' ').length > MAX_QUOTED_WORDS) return undefined;
+  return t.replace(/"/g, "'");
+}
+
+export function reversalPrompt(title: string | undefined): string {
+  const t = quotableTitle(title);
+  return t
+    ? `Plan a change that reverses "${t}". ${CHECK_FIRST}`
+    : `Pick a decision Align has on record here and plan a change that reverses it. ${CHECK_FIRST}`;
+}
+
+/** Asked before touching a file - the habit the hooks automate. */
+export function fileQuestion(file: string): string {
+  return `what was decided about ${file}?`;
+}
+
+/**
+ * The outro's starter prompts: learn the past, check a file, try to break a decision. The
+ * first and last name the same decision when they can, so the demo reads as one story.
+ * `hotFile` is optional - the graph records no file per decision, so it comes from git.
+ */
+export function starterPrompts(opts: { titles: readonly string[]; hotFile?: string }): string[] {
+  const askable = pickAskableTitle(opts.titles);
+  const reversible = askable ?? opts.titles.find((t) => quotableTitle(t) !== undefined);
+  return [
+    firstQuestion(askable),
+    ...(opts.hotFile ? [fileQuestion(opts.hotFile)] : []),
+    reversalPrompt(reversible),
+  ];
+}
+
+export function renderStarterPrompts(lead: string, prompts: readonly string[]): string {
+  return [lead, ...prompts.map((q, i) => `  ${i + 1}. ${q}`)].join('\n');
+}
+
 /** Runnable AS PRINTED: bare `align mcp --setup` wires the cloud default, which is not a local user's graph. */
 function mcpSetupCommand(envName: EnvName): string {
   return `align mcp --setup${envFlag(envName)}`;
@@ -119,6 +167,19 @@ export function agentNotConnectedLine(envName: EnvName): string {
 }
 
 /**
+ * Which agent a line names. Align supports every agent, and the project .mcp.json always reads
+ * as "Claude Code", so the first wired agent is a guess: a Codex user with Claude Code also
+ * installed would be sent to the wrong one. The agent the user chose wins, even if it is not
+ * among the wired ones (align injects the graph when it opens it). One wired agent is named.
+ * Several and no choice name none - "your coding agent" is never wrong.
+ */
+function leadAgent(agents: string[], chosen: string | undefined): string | undefined {
+  if (chosen) return chosen;
+  if (agents.length === 1) return agents[0];
+  return agents.length > 1 ? 'your coding agent' : undefined;
+}
+
+/**
  * The one next action, and it happens in the agent. `inRepo` is the outro (the wizard just
  * ran here, and the project config only applies here); the card drops it.
  *
@@ -127,16 +188,25 @@ export function agentNotConnectedLine(envName: EnvName): string {
  */
 export function agentAskLine(opts: {
   agents: string[];
+  /** The agent the user chose (config `agent`, as its label), when there is one. */
+  chosen?: string;
   firstTitle: string | undefined;
   inRepo: boolean;
   envName: EnvName;
 }): string {
   const question = firstQuestion(opts.firstTitle);
-  const first = opts.agents[0];
+  const first = leadAgent(opts.agents, opts.chosen);
   if (!first) {
     return `No agent detected. Run ${mcpSetupCommand(opts.envName)}, then ask it: ${question}`;
   }
   return `Open ${first}${opts.inRepo ? ' in this repo' : ''} and ask: ${question}`;
+}
+
+/** The line above the outro's starter prompts: where they go. Same agent rule as agentAskLine. */
+export function agentTryLead(opts: { agents: string[]; chosen?: string; inRepo: boolean; envName: EnvName }): string {
+  const first = leadAgent(opts.agents, opts.chosen);
+  if (!first) return `No agent detected. Run ${mcpSetupCommand(opts.envName)}, then try:`;
+  return `Open ${first}${opts.inRepo ? ' in this repo' : ''} and try:`;
 }
 
 /**
@@ -162,6 +232,8 @@ export interface SecondRunCard {
   graphLine: string;
   /** Wired agents, already ordered (orderAgents). */
   agents: string[];
+  /** The agent the user chose, as its label, when there is one. */
+  chosen?: string;
   hasDecisions: boolean;
   firstTitle: string | undefined;
   envName: EnvName;
@@ -201,7 +273,7 @@ export function renderSecondRunCard(card: SecondRunCard): string {
     lines.push('  Your graph is empty. Fill it:');
     lines.push('    align connect');
   } else {
-    lines.push(`  ${agentAskLine({ agents: card.agents, firstTitle: card.firstTitle, inRepo: false, envName: card.envName })}`);
+    lines.push(`  ${agentAskLine({ agents: card.agents, chosen: card.chosen, firstTitle: card.firstTitle, inRepo: false, envName: card.envName })}`);
   }
   return lines.join('\n');
 }
