@@ -1148,14 +1148,20 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   // Declined writes: the agent has no align MCP or hook, so opening it "with your graph" would be false.
   const launching = !ctx.writesDeclined && willLaunchAgent(agent, Boolean(opts.launchNext));
   const launchLabel = launching && agent ? agentByName(agent)?.label : undefined;
-  const nextStep = ctx.writesDeclined ? null : nextStepLine(agent, launching, agents);
   // Three prompts, not one: learn the past, ask before touching a file, and watch the agent
   // stop when a plan reverses a decision. Printed, never sent into the agent. An empty graph
   // gets none - the sparse hint above is the next step, and a prompt about nothing is noise.
   const prompts = totalDecisions > 0 ? starterPrompts({ titles: foundTitles, hotFile: await getHotFile() }) : [];
+  const chosenLabel = agent ? agentByName(agent)?.label : undefined;
+  // With prompts to lead into, the run-align line becomes their lead instead of a second
+  // "open <agent>" line right above "Open <agent> and try:".
+  const leadsIntoPrompts = prompts.length > 0 && !launchLabel && Boolean(chosenLabel);
+  const nextStep = ctx.writesDeclined || leadsIntoPrompts ? null : nextStepLine(agent, launching, agents);
   const tryLead = launchLabel
     ? `Opening ${launchLabel}. Try these in it:`
-    : agents.length === 0 && agent === null
+    : leadsIntoPrompts
+      ? `Run align to open ${chosenLabel} with your graph, then try:`
+      : agents.length === 0 && agent === null
       ? 'Once one is installed, open it in this repo and try:'
       : agentTryLead({ agents, inRepo: true, envName: 'local' });
   const askLine = ctx.writesDeclined

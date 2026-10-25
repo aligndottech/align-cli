@@ -52,7 +52,7 @@ describe('runModelStep', () => {
     const d = base();
     expect(await runModelStep({ interactive: false }, d)).toBe('skipped');
     expect(d.select).not.toHaveBeenCalled();
-    expect(vi.mocked(d.log.warn).mock.calls[0]![0]).toMatch(/conflict checks/i);
+    expect(vi.mocked(d.log.warn).mock.calls[0]![0]).toMatch(/`align check` in the terminal and CI needs one/);
   });
 
   it('choosing a key exported in the shell saves only the CHOICE, so the key stays in the shell', async () => {
@@ -107,5 +107,22 @@ describe('noModelLines', () => {
     expect(text.indexOf('ollama pull qwen2.5:7b')).toBeGreaterThan(-1);
     expect(text.indexOf('ollama pull')).toBeLessThan(text.search(/API_KEY/));
     expect(text).toMatch(/align ai/);
+  });
+});
+
+// The outro right below this warning hands over "plan a change that reverses X", which works
+// with no model: inside the agent, the agent judges the related decisions itself. A warning that
+// says flatly "conflict checks will not run" reads as "that prompt will not work".
+describe('no model: says what still works', () => {
+  it('the warning says the agent still judges conflicts, and scopes the gap to align check', () => {
+    const text = noModelLines().join('\n');
+    expect(text).toMatch(/Inside your agent that is fine: the agent judges conflicts itself\./);
+    expect(text).toMatch(/align check.*terminal and CI/);
+    expect(text).not.toMatch(/Conflict checks need an AI model, and none is set up, so they will not run yet/);
+  });
+
+  it('the skip option says the same, not that checks will not run', () => {
+    const skip = modelStepOptions([]).find((o) => o.value === 'skip')!;
+    expect(skip.hint).toBe('your agent still judges conflicts; align check cannot yet');
   });
 });

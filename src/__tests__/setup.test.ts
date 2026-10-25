@@ -1769,6 +1769,18 @@ describe('align setup', () => {
           expect(text).not.toMatch(/pricing|align\.tech|https?:/i);
         });
 
+        // "Run align to open Claude Code with your graph." followed by "Open Claude Code in this
+        // repo and try:" said the same thing twice. With prompts to hand over, one line does both.
+        it('with prompts to hand over, says once how to open the agent and leads into them', async () => {
+          await mockNoLogin();
+          mockPickAgent.mockResolvedValueOnce('claude-code');
+          mockLocalDb.getStats = () => ({ decisions: 1 });
+          await makeProgram().parseAsync(['node', 'align']);
+          const text = await outroText();
+          expect(text).toMatch(/Run align to open Claude Code with your graph, then try:\n\s+1\. /);
+          expect(text.match(/open Claude Code/gi)).toHaveLength(1);
+        });
+
         it('when the agent opens right after (bare align), the run-align line is dropped', async () => {
           await mockNoLogin();
           mockPickAgent.mockResolvedValueOnce('claude-code');
@@ -2369,12 +2381,13 @@ describe('align setup', () => {
       await makeProgram().parseAsync(['node', 'align', '--local']);
       const tail = await outroTail(4);
       expect(tail).toBe([
-        'Open Claude Code in this repo and try:',
+        'Run align to open Claude Code with your graph, then try:',
         '  1. why did we switch to postgres?',
         '  2. what was decided about src/db.ts?',
         '  3. Plan a change that reverses "switch to postgres". Check it with Align before writing anything.',
       ].join('\n'));
-      expect(tail).not.toMatch(/\balign\s+[a-z-]+/);
+      // Bare `align` (run it to open the agent) is not a verb; "align to" must not count as one.
+      expect(tail).not.toMatch(/\balign\s+(?!to\b)[a-z-]+/);
     });
 
     it('--local outro on an empty graph hands over no prompt about a graph that has nothing in it', async () => {
@@ -2402,14 +2415,16 @@ describe('align setup', () => {
       expect(await outroTail(3)).toContain('  1. why did we adopt trunk-based development?');
     });
 
-    it('--local outro with no agent detected says so and names align mcp once', async () => {
+    // An agent chosen but not wired through the project config still gets the graph: align
+    // injects the MCP entry when it opens the agent (launch adapters), so "run align" is the step.
+    it('--local outro with an agent chosen but not wired: running align opens it with the graph', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(['CLAUDE.md']);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
       mockLocalDb.getStats = () => ({ decisions: 1 });
       await makeProgram().parseAsync(['node', 'align', '--local']);
       const tail = await outroTail(4);
-      expect(tail.split('\n')[0]).toBe('No agent detected. Run align mcp --setup --env local, then try:');
-      expect(tail.match(/align mcp/g)).toHaveLength(1);
+      expect(tail.split('\n')[0]).toBe('Run align to open Claude Code with your graph, then try:');
+      expect(tail).not.toMatch(/align mcp/);
     });
 
     it('cloud outro ends on the wired agent and the first decision in the graph, with no CLI verb', async () => {
