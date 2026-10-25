@@ -1163,7 +1163,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
       ? `Run align to open ${chosenLabel} with your graph, then try:`
       : agents.length === 0 && agent === null
       ? 'Once one is installed, open it in this repo and try:'
-      : agentTryLead({ agents, inRepo: true, envName: 'local' });
+      : agentTryLead({ agents, chosen: chosenLabel, inRepo: true, envName: 'local' });
   const askLine = ctx.writesDeclined
     ? agentNotConnectedLine('local')
     : prompts.length > 0
@@ -1666,7 +1666,7 @@ async function runCloudSetup(ctx: {
   const nextStep = writesDeclined
     ? agentNotConnectedLine(envName)
     : titles.length > 0
-      ? renderStarterPrompts(agentTryLead({ agents, inRepo: true, envName }), starterPrompts({ titles, hotFile: await getHotFile() })).replace(/\n/g, '\n  ')
+      ? renderStarterPrompts(agentTryLead({ agents, chosen: agentByName(config.getAgent())?.label, inRepo: true, envName }), starterPrompts({ titles, hotFile: await getHotFile() })).replace(/\n/g, '\n  ')
       : null;
   const outroText = [
     chalk.bold('Setup complete.\n'),

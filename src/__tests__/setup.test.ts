@@ -86,6 +86,8 @@ const mockClearProviderKey = vi.hoisted(() => vi.fn());
 const mockSetAskKeyOfferDismissed = vi.hoisted(() => vi.fn());
 const mockGetLlmPreference = vi.hoisted(() => vi.fn().mockReturnValue({}));
 const mockClearLlmPreference = vi.hoisted(() => vi.fn());
+// The coding agent the user chose (config `agent`). None by default.
+const mockGetAgent = vi.hoisted(() => vi.fn().mockReturnValue(undefined));
 
 // The suite's default store: logged in on every env (authToken 'tok'). A function so a
 // test that needs a different machine can swap it and put this one back.
@@ -120,6 +122,7 @@ const makeDefaultConfig = () => ({
     setAskKeyOfferDismissed: mockSetAskKeyOfferDismissed,
     getLlmPreference: mockGetLlmPreference,
     clearLlmPreference: mockClearLlmPreference,
+    getAgent: mockGetAgent,
   });
 
 vi.mock('../lib/config.js', async (importOriginal) => ({
@@ -322,6 +325,7 @@ describe('align setup', () => {
     clearTelemetryEnv();
     // Tests that need a non-empty graph set it; an empty one is the default.
     mockLocalDb.getStats = () => ({ decisions: 0 });
+    mockGetAgent.mockReset().mockReturnValue(undefined);
     vi.stubGlobal('setTimeout', (fn: () => void) => { fn(); return 0; });
     // L4: connecting looks at what the token can see; that never reaches a vendor from a test.
     vi.stubGlobal('fetch', vendorFetch);
@@ -2443,14 +2447,26 @@ describe('align setup', () => {
       expect(await infoLines()).toContain('Your agent is connected: Cursor.');
     });
 
-    it('cloud, several agents wired: the one detected in this repo\'s project config leads', async () => {
+    // The project .mcp.json reads as "Claude Code" whatever the user runs: with several wired,
+    // the agent the user chose leads, and with no choice the line names none.
+    it('cloud, several agents wired: the agent the user chose leads', async () => {
+      const { detectEditors } = await import('../lib/mcp-setup.js');
+      vi.mocked(detectEditors).mockReturnValue([CURSOR]);
+      mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
+      mockGetAgent.mockReturnValue('cursor');
+      mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
+      await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
+      expect((await outroTail(4)).split('\n')[0]).toBe('Open Cursor in this repo and try:');
+      expect(await infoLines()).toContain('Your agent is connected: Claude Code, Cursor.');
+    });
+
+    it('cloud, several agents wired and none chosen: names no agent rather than guessing', async () => {
       const { detectEditors } = await import('../lib/mcp-setup.js');
       vi.mocked(detectEditors).mockReturnValue([CURSOR]);
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockListDecisions.mockResolvedValue([{ id: 'd1', title: 'switch to postgres', summary: '', platform: 'git' }]);
       await makeProgram().parseAsync(['node', 'align', '--env', 'prod', '--approve']);
-      expect((await outroTail(4)).split('\n')[0]).toBe('Open Claude Code in this repo and try:');
-      expect(await infoLines()).toContain('Your agent is connected: Claude Code, Cursor.');
+      expect((await outroTail(4)).split('\n')[0]).toBe('Open your coding agent in this repo and try:');
     });
   });
 

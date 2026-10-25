@@ -124,10 +124,23 @@ describe('agentAskLine', () => {
     expect(line).not.toMatch(CLI_VERB);
   });
 
-  it('names the FIRST agent when several are wired, and drops "in this repo" on the card', () => {
+  // Align supports every agent, and the project .mcp.json always reads as "Claude Code", so the
+  // first wired agent is a guess. The agent the user chose wins; with no choice and several
+  // wired, the line names none rather than the wrong one.
+  it('several agents wired and none chosen: names no agent rather than guessing, and drops "in this repo" on the card', () => {
     const line = agentAskLine({ agents: ['Cursor', 'Zed'], firstTitle: 'use trunk-based development', inRepo: false, envName: 'prod' });
-    expect(line).toBe('Open Cursor and ask: why did we use trunk-based development?');
+    expect(line).toBe('Open your coding agent and ask: why did we use trunk-based development?');
     expect(line).not.toMatch(CLI_VERB);
+  });
+
+  it('names the agent the user chose, even when another is wired first', () => {
+    const line = agentAskLine({ agents: ['Claude Code', 'Codex'], chosen: 'Codex', firstTitle: undefined, inRepo: true, envName: 'local' });
+    expect(line).toBe('Open Codex in this repo and ask: what decisions exist in this codebase?');
+  });
+
+  it('names a chosen agent that is not among the wired ones (align injects the graph when it opens it)', () => {
+    const line = agentAskLine({ agents: ['Claude Code'], chosen: 'Grok Build', firstTitle: undefined, inRepo: false, envName: 'local' });
+    expect(line).toBe('Open Grok Build and ask: what decisions exist in this codebase?');
   });
 
   it('says no agent was detected and names `align mcp` exactly once, qualified with the env', () => {
@@ -147,6 +160,7 @@ describe('renderSecondRunCard', () => {
   const full = {
     graphLine: 'Local graph  /home/d/.config/align-cli/local.db',
     agents: ['Claude Code', 'Cursor'],
+    chosen: 'Claude Code',
     hasDecisions: true,
     firstTitle: 'switch to postgres',
     envName: 'local' as const,
@@ -201,15 +215,20 @@ describe('renderSecondRunCard', () => {
   });
 
   it('no agent detected: says so and names `align mcp` once, and still hands over the question', () => {
-    const card = renderSecondRunCard({ ...full, agents: [] });
+    const card = renderSecondRunCard({ ...full, chosen: undefined, agents: [] });
     expect(card).toContain('Agents       none detected');
     expect(card).toContain('No agent detected. Run align mcp --setup --env local, then ask it: why did we switch to postgres?');
     expect(card.match(/align mcp/g)).toHaveLength(1);
   });
 
-  it('several agents: the one detected in this repo leads', () => {
-    const card = renderSecondRunCard({ ...full, agents: orderAgents({ project: ['Claude Code'], global: ['Cursor', 'Claude Code'] }) });
-    expect(card).toContain('Open Claude Code and ask:');
+  it('several agents: the one the user chose leads, not the one the project config names', () => {
+    const card = renderSecondRunCard({ ...full, chosen: 'Cursor', agents: orderAgents({ project: ['Claude Code'], global: ['Cursor', 'Claude Code'] }) });
+    expect(card).toContain('Open Cursor and ask:');
+  });
+
+  it('several agents, none chosen: names no agent', () => {
+    const card = renderSecondRunCard({ ...full, chosen: undefined, agents: ['Claude Code', 'Cursor'] });
+    expect(card).toContain('Open your coding agent and ask:');
   });
 
   it('a readout that could not be read leaves the line out rather than printing zeros', () => {
@@ -341,8 +360,14 @@ describe('renderStarterPrompts', () => {
 });
 
 describe('agentTryLead', () => {
-  it('names the agent the prompts go to', () => {
-    expect(agentTryLead({ agents: ['Claude Code', 'Cursor'], inRepo: true, envName: 'local' })).toBe('Open Claude Code in this repo and try:');
+  it('names the one wired agent the prompts go to', () => {
+    expect(agentTryLead({ agents: ['Codex'], inRepo: true, envName: 'local' })).toBe('Open Codex in this repo and try:');
+  });
+  it('names the chosen agent over the first wired one', () => {
+    expect(agentTryLead({ agents: ['Claude Code', 'Qwen Code'], chosen: 'Qwen Code', inRepo: true, envName: 'local' })).toBe('Open Qwen Code in this repo and try:');
+  });
+  it('several wired, none chosen: names no agent rather than guessing', () => {
+    expect(agentTryLead({ agents: ['Claude Code', 'Cursor'], inRepo: true, envName: 'local' })).toBe('Open your coding agent in this repo and try:');
   });
   it('with no agent, names align mcp once, qualified with the env', () => {
     expect(agentTryLead({ agents: [], inRepo: true, envName: 'local' })).toBe('No agent detected. Run align mcp --setup --env local, then try:');

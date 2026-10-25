@@ -173,22 +173,25 @@ describe('bare `align`', () => {
       n === 'local' ? { mode: 'local-embedded', localDbPath: '/home/d/.config/align-cli/local.db' } : { mode: 'cloud' };
     const cloudEnv = (n: string) => (n === 'local' ? { mode: 'cloud' } : { mode: 'cloud', authToken: 'tok' });
 
-    it('names the agents wired by name, the one in this repo\'s project config first', async () => {
+    it('names the agents wired by name, and sends the user to the agent they chose', async () => {
       getEnvironment.mockImplementation(localEnv);
       listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
       projectMcpAgents.mockReturnValue(['Claude Code']);
       detectWiredEditors.mockReturnValue([{ name: 'Cursor' }, { name: 'Claude Code' }]);
+      getAgent.mockReturnValue('cursor');
       const out = await bare();
       expect(out).toContain('Agents       Claude Code, Cursor');
-      expect(out).toContain('Open Claude Code and ask: why did we switch to postgres?');
+      expect(out).toContain('Open Cursor and ask: why did we switch to postgres?');
       expect(projectMcpAgents).toHaveBeenCalledWith(process.cwd());
     });
 
-    it('with no project config, the first globally wired agent leads', async () => {
+    // The project .mcp.json reads as "Claude Code" whatever the user runs, so with several
+    // wired and no choice, the first one is a guess. Name none.
+    it('several wired and none chosen: names no agent rather than guessing', async () => {
       getEnvironment.mockImplementation(localEnv);
       listDecisions.mockResolvedValue([{ id: 'a', title: 'switch to postgres' }]);
       detectWiredEditors.mockReturnValue([{ name: 'Cursor' }, { name: 'Zed' }]);
-      expect(await bare()).toContain('Open Cursor and ask: why did we switch to postgres?');
+      expect(await bare()).toContain('Open your coding agent and ask: why did we switch to postgres?');
     });
 
     it('cloud: shows this week\'s conflicts and reuse rate from the readout, read for a 7-day window', async () => {
