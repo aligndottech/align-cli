@@ -52,8 +52,19 @@ check 1 "a failed test alongside the timeout is a real failure" \
 check 1 "a test file that failed to load is a real failure, even with every collected test passing" \
   "$(summary "${E}[2m Test Files ${E}[22m ${E}[1m${E}[31m1 failed${E}[39m${E}[22m${E}[2m | ${E}[22m${E}[1m${E}[32m499 passed${E}[39m (508)" "$TESTS_OK" "$ERRS_ONE")"
 
-check 1 "a second unhandled error is a real failure" \
-  "$(summary "$FILES_OK" "$TESTS_OK" "${E}[2m     Errors ${E}[22m ${E}[1m${E}[31m2 errors${E}[39m${E}[22m")"
+ERRS_TWO="${E}[2m     Errors ${E}[22m ${E}[1m${E}[31m2 errors${E}[39m${E}[22m"
+
+# Two workers can each time out (release 0.65.0 on main: 7715 passed, "2 errors", both onTaskUpdate).
+check 0 "two unhandled errors that are BOTH the onTaskUpdate timeout is the flake" \
+  "$(summary "$FILES_OK" "$TESTS_OK" "$ERRS_TWO" | sed "1a\\
+${E}[31m${E}[1mError${E}[22m: [vitest-worker]: Timeout calling \"onTaskUpdate\"${E}[39m")"
+
+check 1 "two unhandled errors with only one of them the timeout is a real failure" \
+  "$(summary "$FILES_OK" "$TESTS_OK" "$ERRS_TWO" | sed "1a\\
+${E}[31m${E}[1mTypeError${E}[22m: Cannot read properties of undefined${E}[39m")"
+
+check 1 "a summary counting two errors with only one timeout printed is a real failure" \
+  "$(summary "$FILES_OK" "$TESTS_OK" "$ERRS_TWO")"
 
 check 1 "one unhandled error that is NOT the onTaskUpdate timeout is a real failure" \
   "$(summary "$FILES_OK" "$TESTS_OK" "$ERRS_ONE" | sed 's/Timeout calling "onTaskUpdate"/Cannot read properties of undefined/')"

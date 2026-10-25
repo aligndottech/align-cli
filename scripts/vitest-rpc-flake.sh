@@ -7,8 +7,9 @@
 # it. The Windows runner stalls past it now and then with every test passing (7674 passed, exit 1).
 #
 # "Only" is checked from the summary vitest prints, never from the error text alone: a run that
-# died before its summary, a failed test, a file that failed to load, or any second error is a
-# real failure and must stay one.
+# died before its summary, a failed test, a file that failed to load, or any error that is not the
+# timeout is a real failure and must stay one. Each worker can time out, so the summary may count
+# several errors; every one of them must be the timeout.
 #
 # Usage: scripts/vitest-rpc-flake.sh <vitest-output-log>
 set -u
@@ -25,7 +26,9 @@ errors="$(line 'Errors')"
 
 [ -n "$files" ] && [ -n "$tests" ] || { echo "vitest-rpc-flake: no summary in the log, so the run did not finish"; exit 1; }
 printf '%s\n' "$files$tests" | grep -q 'failed' && { echo "vitest-rpc-flake: tests or test files failed"; exit 1; }
-printf '%s\n' "$errors" | grep -qE '^ *Errors +1 error$' || { echo "vitest-rpc-flake: not exactly one unhandled error ('${errors:-none}')"; exit 1; }
-printf '%s\n' "$plain" | sed -n '/Unhandled Error/,$p' | grep -qF 'Timeout calling "onTaskUpdate"' || { echo "vitest-rpc-flake: the one error is not the onTaskUpdate timeout"; exit 1; }
+n="$(printf '%s\n' "$errors" | sed -nE 's/^ *Errors +([1-9][0-9]*) errors?$/\1/p')"
+[ -n "$n" ] || { echo "vitest-rpc-flake: no unhandled error count ('${errors:-none}')"; exit 1; }
+timeouts="$(printf '%s\n' "$plain" | sed -n '/Unhandled Error/,$p' | grep -oF 'Timeout calling "onTaskUpdate"' | wc -l | tr -d ' ')"
+[ "$timeouts" -eq "$n" ] || { echo "vitest-rpc-flake: $n unhandled errors but $timeouts are the onTaskUpdate timeout"; exit 1; }
 
-echo "vitest-rpc-flake: every test passed and the only error is the onTaskUpdate timeout"
+echo "vitest-rpc-flake: every test passed and all $n unhandled errors are the onTaskUpdate timeout"
