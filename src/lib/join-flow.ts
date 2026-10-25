@@ -162,6 +162,8 @@ export async function runJoin(deps: JoinDeps, input: JoinInput): Promise<JoinRes
   deps.out(`\nJoined as "${name}" (${visible(me.email)}, ${tenantName}).`);
   if (received.expiresAt) deps.out(`  This access expires on ${received.expiresAt.slice(0, 10)}. Renew it with: align login --env ${name}`);
   deps.out(`  Use it with: align <command> --env ${name}`);
+  // Joining saves a login and wires nothing: without this the agent still reads whatever it read before.
+  deps.out(`  Connect your agent to it: align mcp --setup --env ${name}`);
   return received.expiresAt ? { ok: true, name, expiresAt: received.expiresAt } : { ok: true, name };
 }
 

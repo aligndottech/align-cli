@@ -42,7 +42,7 @@ export function registerLoginCommands(program: Command): void {
       p.intro(commandIntro('align login'));
       const ok = await loginInteractive(env, envName, config);
       if (!ok) process.exit(1);
-      p.outro(chalk.green('Ready. Run: align'));
+      p.outro(chalk.green('Ready. Run align to connect your tools and your agent.'));
     });
 
   program

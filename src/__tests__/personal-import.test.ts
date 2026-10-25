@@ -152,6 +152,17 @@ describe('runPersonalImport', () => {
       expect(output).not.toMatch(/background/);
       expect(output).toMatch(/align local status/);
     });
+
+    // Inside the setup wizard the outro owns the next step (it is in the agent, not a CLI
+    // verb). A footer naming `align local status` and "import more tools" mid-wizard is a
+    // second, contradicting next step on the same screen.
+    it('noFooter: keeps the table and the result line, drops the next-step lines', async () => {
+      const client = makeClient();
+      await runPersonalImport(makeItems(1), client, { label: 'repo docs', approve: true, appUrl: 'http://x', local: true, noFooter: true });
+      const output = consoleLog.mock.calls.map(c => String(c[0])).join('\n');
+      expect(output).toMatch(/Found 1 items from repo docs/);
+      expect(output).not.toMatch(/align local status|align ask|Tip:/);
+    });
   });
 
   describe('async ingest opt-in', () => {

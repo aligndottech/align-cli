@@ -81,6 +81,21 @@ Hook limits worth knowing:
 
 [Per-host details](docs/agent-hooks.md).
 
+## Your first five minutes
+
+Setup ends with three prompts to type into your agent, built from your own repo:
+
+```text
+1. why did we switch to postgres?                     learn why the code is the way it is
+2. what was decided about src/db/pool.ts?             before you touch a file
+3. Plan a change that reverses "switch to postgres".  watch the agent stop and cite the decision
+   Check it with Align before writing anything.
+```
+
+After that the check runs on its own on every edit, and the agent tells you in one line when it
+found a related decision. [Your first session](docs/first-session.md) has more, including how to
+tell whether the hooks are running.
+
 ## Everyday commands
 
 ```bash
@@ -139,6 +154,7 @@ graph without touching your login. [Joining your team](docs/join-your-team.md).
 | | |
 |---|---|
 | [Installing](docs/installation.md) | npm, the binary, Windows |
+| [Your first session](docs/first-session.md) | Three prompts, and how to tell the check is running |
 | [Join your team's graph](docs/join-your-team.md) | `align join`, hosted and self-hosted |
 | [Importing](docs/importing.md) | Every source, tokens, flags |
 | [Alignment check](docs/check.md) | Modes, exit codes, CI, the GitHub Action |

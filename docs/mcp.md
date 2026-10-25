@@ -31,6 +31,13 @@ and there is a section for them below.
 | `align_get_related_decisions` | Decisions related to a file or module |
 | `align_get_conflicts` | Active conflicts in the graph |
 | `align_get_impact` | Upstream and downstream impact of a decision |
+| `align_get_decision_rationale` | Why one decision was made, from its own record |
+| `align_get_topic_timeline` | Team graph only. How the decisions on one topic changed over time |
+| `align_get_decision_timeline` | Team graph only. One decision's history: what it replaced and what replaced it |
+| `align_share` | Local only. Asks to share one ratified decision with your team. It returns an approval link for you to open; the agent cannot approve it |
+| `align_share_status` | Local only. Finishes a share once you have approved it |
+
+New to Align? [Your first session](first-session.md) has three prompts that show what these tools do.
 
 ## Manual configuration
 

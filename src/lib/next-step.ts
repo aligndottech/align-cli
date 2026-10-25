@@ -103,6 +103,54 @@ export function firstQuestion(firstTitle: string | undefined): string {
   return phrase ? `why did we ${phrase}?` : 'what decisions exist in this codebase?';
 }
 
+/**
+ * The conflict demo: the agent plans the opposite of a real decision, checks it, and stops.
+ * It quotes the title rather than conjugating it, so any title short enough to read works -
+ * "All PRs must ..." cannot go into "why did we", but it can be reversed. It asks for a PLAN,
+ * so trying it writes nothing. No AI key is needed: without one the check returns the related
+ * decisions and the agent itself judges the opposition.
+ */
+const MAX_QUOTED_WORDS = 14;
+const CHECK_FIRST = 'Check it with Align before writing anything.';
+
+function quotableTitle(title: string | undefined): string | undefined {
+  if (!title) return undefined;
+  const t = title.replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').replace(/\s+/g, ' ').trim().replace(/\.$/, '');
+  if (t === '' || t.split(' ').length > MAX_QUOTED_WORDS) return undefined;
+  return t.replace(/"/g, "'");
+}
+
+export function reversalPrompt(title: string | undefined): string {
+  const t = quotableTitle(title);
+  return t
+    ? `Plan a change that reverses "${t}". ${CHECK_FIRST}`
+    : `Pick a decision Align has on record here and plan a change that reverses it. ${CHECK_FIRST}`;
+}
+
+/** Asked before touching a file - the habit the hooks automate. */
+export function fileQuestion(file: string): string {
+  return `what was decided about ${file}?`;
+}
+
+/**
+ * The outro's starter prompts: learn the past, check a file, try to break a decision. The
+ * first and last name the same decision when they can, so the demo reads as one story.
+ * `hotFile` is optional - the graph records no file per decision, so it comes from git.
+ */
+export function starterPrompts(opts: { titles: readonly string[]; hotFile?: string }): string[] {
+  const askable = pickAskableTitle(opts.titles);
+  const reversible = askable ?? opts.titles.find((t) => quotableTitle(t) !== undefined);
+  return [
+    firstQuestion(askable),
+    ...(opts.hotFile ? [fileQuestion(opts.hotFile)] : []),
+    reversalPrompt(reversible),
+  ];
+}
+
+export function renderStarterPrompts(lead: string, prompts: readonly string[]): string {
+  return [lead, ...prompts.map((q, i) => `  ${i + 1}. ${q}`)].join('\n');
+}
+
 /** Runnable AS PRINTED: bare `align mcp --setup` wires the cloud default, which is not a local user's graph. */
 function mcpSetupCommand(envName: EnvName): string {
   return `align mcp --setup${envFlag(envName)}`;
@@ -137,6 +185,13 @@ export function agentAskLine(opts: {
     return `No agent detected. Run ${mcpSetupCommand(opts.envName)}, then ask it: ${question}`;
   }
   return `Open ${first}${opts.inRepo ? ' in this repo' : ''} and ask: ${question}`;
+}
+
+/** The line above the outro's starter prompts: where they go. Same agent rule as agentAskLine. */
+export function agentTryLead(opts: { agents: string[]; inRepo: boolean; envName: EnvName }): string {
+  const first = opts.agents[0];
+  if (!first) return `No agent detected. Run ${mcpSetupCommand(opts.envName)}, then try:`;
+  return `Open ${first}${opts.inRepo ? ' in this repo' : ''} and try:`;
 }
 
 /**

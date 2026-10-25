@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   agentAskLine,
   agentConnectedLine,
+  agentTryLead,
+  fileQuestion,
   firstQuestion,
   orderAgents,
   pickAskableTitle,
   projectAgentsFromWritten,
   renderSecondRunCard,
+  renderStarterPrompts,
+  reversalPrompt,
+  starterPrompts,
 } from '../lib/next-step.js';
 
 /**
@@ -259,5 +264,87 @@ describe('pickAskableTitle', () => {
   it('returns undefined when none does, or the list is empty', () => {
     expect(pickAskableTitle(['Improved links', 'Fluent-Schema docs'])).toBeUndefined();
     expect(pickAskableTitle([])).toBeUndefined();
+  });
+});
+
+/**
+ * The outro used to hand over one question, about the past. A new user also needs to see
+ * the two things Align is for: asking before touching a file, and the agent stopping when a
+ * plan goes against a decision on record. Three prompts, built from the user's own graph and
+ * repo, and printed (never sent into the agent).
+ */
+describe('reversalPrompt', () => {
+  it('names a real decision and asks for the check before anything is written', () => {
+    expect(reversalPrompt('feat(db): switch to postgres (#12)'))
+      .toBe('Plan a change that reverses "switch to postgres". Check it with Align before writing anything.');
+  });
+
+  it('works for titles the "why did we" template cannot take, since it quotes rather than conjugates', () => {
+    expect(reversalPrompt('All PRs must pass typecheck before pushing'))
+      .toBe('Plan a change that reverses "All PRs must pass typecheck before pushing". Check it with Align before writing anything.');
+  });
+
+  it('swaps double quotes so the quoted title still reads as one quote', () => {
+    expect(reversalPrompt('Use "strict" mode everywhere')).toContain('"Use \'strict\' mode everywhere"');
+  });
+
+  it.each([
+    ['no title', undefined],
+    ['empty', ''],
+    ['only a prefix', 'fix:'],
+    ['too long to quote', `keep ${'very '.repeat(20)}long`],
+  ])('falls back to a prompt about the graph when there is %s', (_name, title) => {
+    expect(reversalPrompt(title))
+      .toBe('Pick a decision Align has on record here and plan a change that reverses it. Check it with Align before writing anything.');
+  });
+});
+
+describe('fileQuestion', () => {
+  it('asks what was decided about the file, before it is touched', () => {
+    expect(fileQuestion('src/lib/config.ts')).toBe('what was decided about src/lib/config.ts?');
+  });
+});
+
+describe('starterPrompts', () => {
+  it('learn the past, check a file, then watch the agent push back - on the same decision', () => {
+    expect(starterPrompts({ titles: ['Improved docs', 'feat: switch to postgres (#3)'], hotFile: 'src/db.ts' })).toEqual([
+      'why did we switch to postgres?',
+      'what was decided about src/db.ts?',
+      'Plan a change that reverses "switch to postgres". Check it with Align before writing anything.',
+    ]);
+  });
+
+  it('leaves the file prompt out when there is no file to name', () => {
+    const prompts = starterPrompts({ titles: ['use postgres'] });
+    expect(prompts).toHaveLength(2);
+    expect(prompts.join('\n')).not.toMatch(/what was decided about/);
+  });
+
+  it('reverses a quotable title even when none is askable', () => {
+    expect(starterPrompts({ titles: ['All PRs must pass CI'] })).toEqual([
+      'what decisions exist in this codebase?',
+      'Plan a change that reverses "All PRs must pass CI". Check it with Align before writing anything.',
+    ]);
+  });
+
+  it('names no CLI verb - the prompts are typed into the agent', () => {
+    expect(starterPrompts({ titles: ['use postgres'], hotFile: 'a.ts' }).join('\n')).not.toMatch(CLI_VERB);
+  });
+});
+
+describe('renderStarterPrompts', () => {
+  it('numbers the prompts under the lead line', () => {
+    expect(renderStarterPrompts('Opening Claude Code. Try these:', ['one?', 'two?'])).toBe(
+      'Opening Claude Code. Try these:\n  1. one?\n  2. two?',
+    );
+  });
+});
+
+describe('agentTryLead', () => {
+  it('names the agent the prompts go to', () => {
+    expect(agentTryLead({ agents: ['Claude Code', 'Cursor'], inRepo: true, envName: 'local' })).toBe('Open Claude Code in this repo and try:');
+  });
+  it('with no agent, names align mcp once, qualified with the env', () => {
+    expect(agentTryLead({ agents: [], inRepo: true, envName: 'local' })).toBe('No agent detected. Run align mcp --setup --env local, then try:');
   });
 });

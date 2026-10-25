@@ -38,7 +38,8 @@ import { printBanner } from '../lib/brand.js';
 import { guardedPrompt } from '../lib/prompt-guard.js';
 import { setupSummaryLine, unresolvedGaps } from '../lib/connect-prompt.js';
 import { createSetupFunnel, type SetupFunnel } from '../lib/setup-funnel.js';
-import { agentAskLine, agentConnectedLine, agentNotConnectedLine, firstQuestion, orderAgents, pickAskableTitle, projectAgentsFromWritten } from '../lib/next-step.js';
+import { agentConnectedLine, agentNotConnectedLine, agentTryLead, orderAgents, projectAgentsFromWritten, renderStarterPrompts, starterPrompts } from '../lib/next-step.js';
+import { getHotFile } from '../lib/hot-file.js';
 import { claudeCodeExists } from '../lib/claude-presence.js';
 import { projectForeignNotice } from '../lib/foreign-env.js';
 import { PICK_CANCELLED, pickAgent } from '../lib/launch/pick-agent.js';
@@ -460,8 +461,8 @@ function writeAgentAlignment(envName: EnvName): string[] {
     p.log.success(`Auto-alignment configured: ${written.join(', ')}`);
     p.log.info(
       chalk.dim(
-        '  A PostToolUse hook will check edits against your decision graph. Claude Code asks ' +
-        'once to approve project hooks - accept it to enable automatic alignment.',
+        '  Hooks check each edit against your decision graph, before it is written and after it lands. ' +
+        'Claude Code asks once to approve project hooks - accept, or they will not run.',
       ),
     );
     return written;
@@ -531,8 +532,8 @@ interface LocalValuePhaseResult {
   funnel: SetupFunnel;
   /** The agents wired this run, project config first, for the outro to name. */
   agents: string[];
-  /** The first decision the wizard found (git, else docs), for the outro's question. */
-  firstFoundTitle: string | undefined;
+  /** Every title the found box showed (git, else docs), for the outro's starter prompts. */
+  foundTitles: string[];
   /** C5: the coding agent `align` opens next, or null when none is installed or chosen. */
   agent: LaunchAgentId | null;
   /** The person said no at "Continue?": nothing was written, so no agent is connected and none is launched. */
@@ -606,7 +607,8 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // before anything is asked - the found-decisions summary below is what "here is what I
   // found" means, and it has to exist before the agent-wiring/consent/connector steps that
   // used to come first for no reason other than that is the order they were written in.
-  let firstFoundTitle: string | undefined;
+  // Every title the found box showed, newest first: the outro's starter prompts are built from them.
+  let foundTitles: string[] = [];
   // Additive re-run (Tom, 2026-09-03): a second `align setup --local` must not walk the
   // whole first-run flow again. The graph decides, not a memory of the last run: if this
   // repo already has GIT decisions stamped with its identity, the git scan is skipped and
@@ -696,7 +698,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         const summaryDb = createLocalDb(dbPath);
         try {
           const summary = buildFoundSummary(summaryDb);
-          firstFoundTitle = pickAskableTitle(summary.recent.map((d) => d.title)) ?? summary.recent[0]?.title;
+          foundTitles = summary.recent.map((d) => d.title);
           p.note(renderFoundSummary(summary, { prDescriptions: prStored }), 'Found in your history');
         } finally {
           summaryDb.close();
@@ -746,16 +748,16 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         approve: true,
         appUrl: resolveAppUrl(localEnv),
         local: true,
+        noFooter: true,
         funnel: { env: localEnv, source: 'docs' },
       });
       // A repo can carry decision-shaped docs and no git history worth mining, and
       // the outro's question must name a decision the wizard FOUND, whichever source found
       // it. Read back the same way the git summary does, only when git left nothing to name.
-      if (!firstFoundTitle) {
+      if (foundTitles.length === 0) {
         const docsDb = createLocalDb(dbPath);
         try {
-          const titles = buildFoundSummary(docsDb).recent.map((d) => d.title);
-          firstFoundTitle = pickAskableTitle(titles) ?? titles[0];
+          foundTitles = buildFoundSummary(docsDb).recent.map((d) => d.title);
         } finally {
           docsDb.close();
         }
@@ -795,7 +797,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // one-time notice in cli.ts's preAction is the disclosure local sends wait on.)
   void opts.funnel.started(localEnv);
 
-  return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel, agents, firstFoundTitle, agent, writesDeclined: !writesConfirmed };
+  return { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel: opts.funnel, agents, foundTitles, agent, writesDeclined: !writesConfirmed };
 }
 
 /**
@@ -1052,6 +1054,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
           local: true,
           quiet: quiet || undefined,
           silent: quiet || undefined,
+          noFooter: true,
           funnel: { env: localEnv, source: source.id },
         });
       }
@@ -1077,7 +1080,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
 }
 
 async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void> {
-  const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel, agents, firstFoundTitle, agent } = ctx;
+  const { interactive, config, localEnv, localClient, dbPath, opts, capture, funnel, agents, foundTitles, agent } = ctx;
 
   await connectLocalSources({ interactive, config, localEnv, localClient, capture, approve: opts.approve ?? false });
 
@@ -1146,20 +1149,27 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   const launching = !ctx.writesDeclined && willLaunchAgent(agent, Boolean(opts.launchNext));
   const launchLabel = launching && agent ? agentByName(agent)?.label : undefined;
   const nextStep = ctx.writesDeclined ? null : nextStepLine(agent, launching, agents);
+  // Three prompts, not one: learn the past, ask before touching a file, and watch the agent
+  // stop when a plan reverses a decision. Printed, never sent into the agent. An empty graph
+  // gets none - the sparse hint above is the next step, and a prompt about nothing is noise.
+  const prompts = totalDecisions > 0 ? starterPrompts({ titles: foundTitles, hotFile: await getHotFile() }) : [];
+  const tryLead = launchLabel
+    ? `Opening ${launchLabel}. Try these in it:`
+    : agents.length === 0 && agent === null
+      ? 'Once one is installed, open it in this repo and try:'
+      : agentTryLead({ agents, inRepo: true, envName: 'local' });
   const askLine = ctx.writesDeclined
     ? agentNotConnectedLine('local')
-    : launchLabel
-    ? `Opening ${launchLabel}. Ask it: ${firstQuestion(firstFoundTitle)}`
-    : agents.length === 0 && agent === null
-      ? `Once one is installed, open it in this repo and ask: ${firstQuestion(firstFoundTitle)}`
-      : agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName: 'local' });
+    : prompts.length > 0
+      ? renderStarterPrompts(tryLead, prompts).replace(/\n/g, '\n  ')
+      : launchLabel ? `Opening ${launchLabel}.` : null;
   p.outro(
     `${chalk.green('You are set up in local mode.')}\n` +
     `  Graph: ${chalk.dim(dbPath)}\n` +
     `${nextStep ? `  ${nextStep}\n` : ''}` +
     `${gapLine ? `\n  ${chalk.dim(gapLine)}\n` : ''}` +
     `${sparseHint ? `\n${sparseHint.map((l) => `  ${l}`).join('\n')}\n` : ''}\n` +
-    `  ${chalk.bold(askLine)}`,
+    `${askLine ? `  ${chalk.bold(askLine)}` : ''}`,
   );
   // After the outro, never before it - telemetry must not delay what the user is
   // waiting for. Awaited (unlike the other emitters) because this is the wizard's last act
@@ -1454,6 +1464,7 @@ async function runCloudSetup(ctx: {
           label: 'Git',
           approve: true,
           appUrl: resolveAppUrl(env),
+          noFooter: true,
           funnel: { env, source: 'git' },
         });
         totalDecisions += ingested;
@@ -1482,6 +1493,7 @@ async function runCloudSetup(ctx: {
         label: 'repo docs',
         approve: true,
         appUrl: resolveAppUrl(env),
+        noFooter: true,
         funnel: { env, source: 'docs' },
       });
       totalDecisions += ingested;
@@ -1609,7 +1621,6 @@ async function runCloudSetup(ctx: {
     }
     console.log('');
     console.log(chalk.dim('Relationships across all your imported tools are detected automatically in the background.'));
-    console.log(chalk.dim('Query your graph: align ask "..."  or  align decisions list'));
     console.log('');
   }
 
@@ -1641,19 +1652,21 @@ async function runCloudSetup(ctx: {
   // The question names a decision the wizard just put in the graph, read straight back
   // rather than trusting the import's tally (same rule as the local found-summary). Only
   // worth a request when something was imported.
-  const firstFoundTitle = totalDecisions > 0 ? (await firstDecision(client)).firstTitle : undefined;
+  const titles = totalDecisions > 0 ? (await firstDecision(client)).titles : [];
 
-  // The last line is the next step, in the agent, with no CLI verb. It used to be
-  // `Run: align ask "any question about your codebase"`.
+  // The last lines are the next step, in the agent, with no CLI verb: the same three starter
+  // prompts as the local outro. It used to be `Run: align ask "any question about your codebase"`.
+  // No team upsell: this route is team-only, so the reader is already on one.
+  const nextStep = writesDeclined
+    ? agentNotConnectedLine(envName)
+    : titles.length > 0
+      ? renderStarterPrompts(agentTryLead({ agents, inRepo: true, envName }), starterPrompts({ titles, hotFile: await getHotFile() })).replace(/\n/g, '\n  ')
+      : null;
   const outroText = [
     chalk.bold('Setup complete.\n'),
     decisionsLine,
     sourceLine,
-    chalk.dim('\n\n  Want your whole team on a shared decision graph?'),
-    chalk.dim('\n  Upgrade by accepting a team invite - your decisions come with you'),
-    chalk.dim('\n  (you reconnect your connectors once in the team workspace).'),
-    chalk.dim('\n  https://app.align.tech/pricing'),
-    `\n\n  ${chalk.bold(writesDeclined ? agentNotConnectedLine(envName) : agentAskLine({ agents, firstTitle: firstFoundTitle, inRepo: true, envName }))}`,
+    nextStep ? `\n\n  ${chalk.bold(nextStep)}` : '',
   ].join('');
   p.outro(outroText);
   // After the outro, and against the env as it is NOW (the inline login above may
