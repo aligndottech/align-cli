@@ -8,6 +8,13 @@ permissions:
   contents: write
   pull-requests: write
 
+# onnxruntime-node (a dev dependency, via @huggingface/transformers) downloads its CUDA binaries
+# from a Microsoft host during `npm ci`, on Linux x64 only. Nothing here uses CUDA - the CPU
+# runtime ships in the package, and the CLI's own runtime bundles strip CUDA - and a timeout on
+# that host failed install-smoke (ubuntu, 22) on main with no code change. Skip the download.
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
