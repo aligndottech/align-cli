@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.0](https://github.com/aligndottech/align-cli/compare/cli-v0.64.1...cli-v0.65.0) (2026-10-25)
+
+
+### Features
+
+* **setup:** the first session teaches itself - three starter prompts, a visible guardrail, truthful copy ([#485](https://github.com/aligndottech/align-cli/issues/485)) ([e0a7f4a](https://github.com/aligndottech/align-cli/commit/e0a7f4ad8ee85e255f2e35a80e18da342bf93116))
+
 ## [0.64.1](https://github.com/aligndottech/align-cli/compare/cli-v0.64.0...cli-v0.64.1) (2026-10-24)
 
 
