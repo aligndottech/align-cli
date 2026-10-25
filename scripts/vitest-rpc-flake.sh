@@ -28,7 +28,10 @@ errors="$(line 'Errors')"
 printf '%s\n' "$files$tests" | grep -q 'failed' && { echo "vitest-rpc-flake: tests or test files failed"; exit 1; }
 n="$(printf '%s\n' "$errors" | sed -nE 's/^ *Errors +([1-9][0-9]*) errors?$/\1/p')"
 [ -n "$n" ] || { echo "vitest-rpc-flake: no unhandled error count ('${errors:-none}')"; exit 1; }
-timeouts="$(printf '%s\n' "$plain" | sed -n '/Unhandled Error/,$p' | grep -oF 'Timeout calling "onTaskUpdate"' | wc -l | tr -d ' ')"
-[ "$timeouts" -eq "$n" ] || { echo "vitest-rpc-flake: $n unhandled errors but $timeouts are the onTaskUpdate timeout"; exit 1; }
+# Count each error's headline line, never the timeout text anywhere: another error can quote it.
+block="$(printf '%s\n' "$plain" | sed -n '/Unhandled Error/,$p')"
+headlines="$(printf '%s\n' "$block" | grep -E '^ *[A-Za-z]*Error: ' | wc -l | tr -d ' ')"
+timeouts="$(printf '%s\n' "$block" | grep -E '^ *Error: \[vitest-worker\]: Timeout calling "onTaskUpdate" *$' | wc -l | tr -d ' ')"
+[ "$headlines" -eq "$n" ] && [ "$timeouts" -eq "$n" ] || { echo "vitest-rpc-flake: $n unhandled errors, $headlines error lines, $timeouts of them the onTaskUpdate timeout"; exit 1; }
 
 echo "vitest-rpc-flake: every test passed and all $n unhandled errors are the onTaskUpdate timeout"

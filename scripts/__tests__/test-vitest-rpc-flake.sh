@@ -63,6 +63,10 @@ check 1 "two unhandled errors with only one of them the timeout is a real failur
   "$(summary "$FILES_OK" "$TESTS_OK" "$ERRS_TWO" | sed "1a\\
 ${E}[31m${E}[1mTypeError${E}[22m: Cannot read properties of undefined${E}[39m")"
 
+check 1 "a non-timeout error whose message QUOTES the timeout text is a real failure, not a second timeout" \
+  "$(summary "$FILES_OK" "$TESTS_OK" "$ERRS_TWO" | sed "1a\\
+${E}[31m${E}[1mTypeError${E}[22m: Cannot read properties of undefined (caused by: Timeout calling \"onTaskUpdate\")${E}[39m")"
+
 check 1 "a summary counting two errors with only one timeout printed is a real failure" \
   "$(summary "$FILES_OK" "$TESTS_OK" "$ERRS_TWO")"
 
