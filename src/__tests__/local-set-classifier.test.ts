@@ -54,6 +54,33 @@ describe('classifyCandidateSet: one call', () => {
   });
 });
 
+describe('classifyCandidateSet: an over-long evidence quote', () => {
+  it('the fastify verdict (16-word new quote, 0.95) still comes back conflicts_with', async () => {
+    const r = await classifyCandidateSet(subject, cands(1), fake({ relationships: { similar: [
+      { decision_ref: 1, type: 'incompatible', confidence: 0.95, evidence: {
+        new_quote: 'errors with statusCode in 1xx-3xx range keep that status code instead of falling back to 500',
+        existing_quote: 'clamp error statusCode between 400 and 599 with 500 fallback',
+      }, replaced: 'new', reasons: ['x'] },
+    ] } }));
+    expect(r).toMatchObject({ ok: true, verdicts: [{ relation: 'conflicts_with', confidence: 0.95 }] });
+  });
+
+  it('a 40-word quote on the existing side also survives', async () => {
+    const long = Array.from({ length: 40 }, (_, i) => `w${i}`).join(' ');
+    const r = await classifyCandidateSet(subject, cands(1), fake({ relationships: { similar: [
+      { decision_ref: 1, type: 'incompatible', confidence: 0.9, evidence: { new_quote: 'cap the pool at 12', existing_quote: long }, replaced: 'new', reasons: ['x'] },
+    ] } }));
+    expect(r).toMatchObject({ ok: true, verdicts: [{ relation: 'conflicts_with' }] });
+  });
+
+  it('a blank quote still discards the verdict', async () => {
+    const r = await classifyCandidateSet(subject, cands(1), fake({ relationships: { similar: [
+      { decision_ref: 1, type: 'incompatible', confidence: 0.9, evidence: { new_quote: ' ', existing_quote: 'pool max is 40' }, replaced: 'new', reasons: ['x'] },
+    ] } }));
+    expect(r).toMatchObject({ ok: true, verdicts: [{ relation: null }] });
+  });
+});
+
 describe('classifyCandidateSet: verdicts', () => {
   it('incompatible becomes conflicts_with through the resolver (proposed change has no date)', async () => {
     const r = await classifyCandidateSet(subject, cands(2), fake({ relationships: { similar: [

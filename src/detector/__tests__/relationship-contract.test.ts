@@ -46,8 +46,9 @@ describe('golden parse vectors', () => {
     };
     expect(asciiWords(quotes('evidence at exactly the word cap is accepted')[0])).toBe(max);
     expect(asciiWords(quotes('evidence at exactly the word cap is accepted')[1])).toBe(max);
-    expect(asciiWords(quotes('evidence over the word cap on the new side is dropped')[0])).toBe(max + 1);
-    expect(asciiWords(quotes('evidence over the word cap on the existing side is dropped')[1])).toBe(max + 1);
+    expect(asciiWords(quotes('evidence-16-words-clipped')[0])).toBe(max + 1);
+    expect(asciiWords(quotes('evidence-40-words-clipped')[0])).toBe(40);
+    expect(asciiWords(quotes('evidence over the word cap on the existing side is clipped')[1])).toBe(max + 1);
     expect(asciiWords(quotes('a non-breaking space does not split a word')[0])).toBe(max);
     expect(asciiWords(quotes('tabs and newlines separate words')[0])).toBe(max);
   });
@@ -61,16 +62,28 @@ describe('the parser reads its rules from the contract', () => {
   const incompatible = (n: number) =>
     JSON.stringify({ type: 'incompatible', confidence: 0.8, reason: 'x', evidence: evidence(n), replaced: 'new' });
 
-  it('the word cap moves with parse.evidenceMaxWords (3 words in, 4 words out)', () => {
+  it('the clip length moves with parse.evidenceMaxWords (3 words kept as is, 4 clipped to 3)', () => {
     const c = fixture((x) => { x.parse.evidenceMaxWords = 3; });
-    expect(parseRelationshipItem(incompatible(3), 'v1Candidate', c)).not.toBeNull();
-    expect(parseRelationshipItem(incompatible(4), 'v1Candidate', c)).toBeNull();
+    expect(parseRelationshipItem(incompatible(3), 'v1Candidate', c)?.evidence?.new_quote).toBe('n0 n1 n2');
+    expect(parseRelationshipItem(incompatible(4), 'v1Candidate', c)?.evidence?.new_quote).toBe('n0 n1 n2');
   });
 
-  it('the word cap moves with parse.evidenceMaxWords (20 words in, 21 out)', () => {
+  it('the clip length moves with parse.evidenceMaxWords (20 kept as is, 21 clipped to 20)', () => {
     const c = fixture((x) => { x.parse.evidenceMaxWords = 20; });
-    expect(parseRelationshipItem(incompatible(20), 'v1Candidate', c)).not.toBeNull();
-    expect(parseRelationshipItem(incompatible(21), 'v1Candidate', c)).toBeNull();
+    const words = (n: number) => Array.from({ length: n }, (_, i) => `n${i}`);
+    expect(parseRelationshipItem(incompatible(20), 'v1Candidate', c)?.evidence?.new_quote).toBe(words(20).join(' '));
+    expect(parseRelationshipItem(incompatible(21), 'v1Candidate', c)?.evidence?.new_quote).toBe(words(20).join(' '));
+  });
+
+  it('a quote within the limit is returned exactly as written, spacing included', () => {
+    const raw = JSON.stringify({ type: 'incompatible', confidence: 0.8, reason: 'x', evidence: { new_quote: ' a\tb  c ', existing_quote: 'it\nstays' } });
+    expect(parseRelationshipItem(raw, 'v1Candidate')?.evidence).toEqual({ new_quote: ' a\tb  c ', existing_quote: 'it\nstays' });
+  });
+
+  it('a clipped quote is the first words joined by single spaces', () => {
+    const c = fixture((x) => { x.parse.evidenceMaxWords = 3; });
+    const raw = JSON.stringify({ type: 'incompatible', confidence: 0.8, reason: 'x', evidence: { new_quote: 'a\tb\n\nc   d e', existing_quote: 'p q r s' } });
+    expect(parseRelationshipItem(raw, 'v1Candidate', c)?.evidence).toEqual({ new_quote: 'a b c', existing_quote: 'p q r' });
   });
 
   it('the default confidence moves with parse.confidenceDefault', () => {
@@ -96,6 +109,24 @@ describe('the parser reads its rules from the contract', () => {
   it('an unknown offer name throws and names the allowed ones, never falls back', () => {
     expect(() => parseRelationshipItem('{}', 'v2' as never)).toThrow(/legacyV0.*v1Candidate/);
     expect(() => parseRelationshipItem('{}', 'toString' as never)).toThrow(/legacyV0/);
+  });
+});
+
+describe('parse.evidenceOverflow', () => {
+  it('the shipped contract says clip', () => {
+    expect(RELATIONSHIP_CONTRACT.parse.evidenceOverflow).toBe('clip');
+  });
+
+  it('a missing value is a problem', () => {
+    const c = fixture((x) => { delete x.parse.evidenceOverflow; });
+    expect(contractProblems(c).join('\n')).toMatch(/evidenceOverflow/);
+  });
+
+  it('any value other than clip is a problem (two examples)', () => {
+    for (const v of ['reject', 'truncate']) {
+      const c = fixture((x) => { x.parse.evidenceOverflow = v; });
+      expect(contractProblems(c).join('\n')).toMatch(/evidenceOverflow.*"clip"/);
+    }
   });
 });
 
