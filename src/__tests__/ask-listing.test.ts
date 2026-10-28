@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allWeak, excerptOf, isWeak, WEAK_MATCH_BELOW, withoutTitle } from '../lib/ask-listing.js';
+import { allWeak, excerptBody, excerptOf, isWeak, WEAK_MATCH_BELOW, withoutTitle, withoutTrailers } from '../lib/ask-listing.js';
 
 describe('excerptOf', () => {
   const body40 = Array.from({ length: 40 }, (_, i) => `line${i} alpha beta gamma`).join('\n');
@@ -65,5 +65,57 @@ describe('withoutTitle', () => {
   it('leaves a summary that does not start with the title', () => {
     expect(withoutTitle('body only', 'fix: a thing')).toBe('body only');
     expect(withoutTitle('fix: a thingy body', 'fix: a thing')).toBe('fix: a thingy body');
+  });
+});
+
+describe('withoutTrailers', () => {
+  it('drops Signed-off-by and Co-authored-by lines', () => {
+    const body = 'Real text here\n\nSigned-off-by: A B <a@b.c>\nCo-authored-by: C D <c@d.e>';
+    expect(withoutTrailers(body)).toBe('Real text here');
+  });
+
+  it('drops the other trailer keys too (Reviewed-by, Acked-by, Tested-by, Reported-by, Change-Id)', () => {
+    const body = 'Why we did it\nReviewed-by: x\nAcked-by: y\nTested-by: z\nReported-by: w\nChange-Id: I123';
+    expect(withoutTrailers(body)).toBe('Why we did it');
+  });
+
+  it('drops the dashed separator a squash merge adds', () => {
+    expect(withoutTrailers('Body\n\n---------\n\nSigned-off-by: A <a@b.c>')).toBe('Body');
+    expect(withoutTrailers('Body\n-----\nCo-authored-by: A <a@b.c>')).toBe('Body');
+  });
+
+  it('keeps real text that sits next to trailers', () => {
+    const body = 'First paragraph.\n\nSecond paragraph.\n\nSigned-off-by: A <a@b.c>';
+    expect(withoutTrailers(body)).toBe('First paragraph.\n\nSecond paragraph.');
+  });
+
+  it('keeps a line that only mentions signed-off-by mid-sentence', () => {
+    const body = 'We now require a signed-off-by line on every commit.\nThe DCO bot checks Signed-off-by: presence.';
+    expect(withoutTrailers(body)).toBe(body);
+  });
+});
+
+describe('excerptBody', () => {
+  const title = 'fix: clamp error statusCode between 400 and 599 with 500 fallback (#7089)';
+  const meta = '\n\nAuthor: A\n\nDate: 2026-10-15T15:01:35+05:30\n\nURL: https://example.test/c/1';
+
+  it('falls back to the subject when the body is only trailers', () => {
+    const summary = `${title}\n\n---------\n\nSigned-off-by: A <a@b.c>\nCo-authored-by: B <b@c.d>${meta}`;
+    expect(excerptBody(summary, title)).toBe(title);
+  });
+
+  it('falls back to the subject for a second, different trailer-only body', () => {
+    const summary = `fix: other\n\nReviewed-by: Q\nChange-Id: I1${meta}`;
+    expect(excerptBody(summary, 'fix: other')).toBe('fix: other');
+  });
+
+  it('keeps the real text and drops the trailers', () => {
+    const summary = `${title}\n\nThe handler crashed on 700 because the range was unchecked.\n\n---------\n\nSigned-off-by: A <a@b.c>${meta}`;
+    expect(excerptBody(summary, title)).toBe('The handler crashed on 700 because the range was unchecked.');
+  });
+
+  it('keeps a mid-sentence mention of signed-off-by', () => {
+    const summary = `${title}\n\nWe require a signed-off-by line now.${meta}`;
+    expect(excerptBody(summary, title)).toBe('We require a signed-off-by line now.');
   });
 });

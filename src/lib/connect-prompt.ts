@@ -128,3 +128,19 @@ export function askTrailingLine(
   }
   return null;
 }
+
+/**
+ * The gap hint for a whole `align ask` result set, printed once after the rows rather than
+ * under each one. One line per distinct gap, each with how many rows carry it.
+ */
+export function askGapHints(
+  rows: Array<{ refs: Array<{ platform: string }> }>,
+  isConnected: (connectorId: string) => boolean,
+): string[] {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const line = askTrailingLine(row.refs, isConnected);
+    if (line) counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  return [...counts].map(([line, n]) => `${n} of these ${n === 1 ? line : line.replace(/^cites /, 'cite ')}`);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { askTrailingLine, setupSummaryLine, statusGapLine, unresolvedGaps } from '../lib/connect-prompt.js';
+import { askGapHints, askTrailingLine, setupSummaryLine, statusGapLine, unresolvedGaps } from '../lib/connect-prompt.js';
 
 // The graph names its own gaps - a ref whose platform has no connected
 // source. `unresolvedGaps` is the pure resolver: refs x connected-sources -> counts.
@@ -109,5 +109,32 @@ describe('askTrailingLine', () => {
   it('keeps "a" before a consonant-starting label', () => {
     const line = askTrailingLine([{ platform: 'tracker' }], () => false);
     expect(line).toBe("cites a ticket-tracker ref I can't read - align connect jira or align connect linear");
+  });
+});
+
+describe('askGapHints', () => {
+  const code = { refs: [{ platform: 'code' }] };
+
+  it('prints one line for N affected rows, with the count', () => {
+    const hints = askGapHints([code, code, { refs: [] }, code, code, code], () => false);
+    expect(hints).toEqual(["5 of these cite an issue-tracker ref I can't read - align connect github or align connect gitlab"]);
+  });
+
+  it('uses the singular for one row', () => {
+    expect(askGapHints([code, { refs: [] }], () => false)).toEqual([
+      "1 of these cites an issue-tracker ref I can't read - align connect github or align connect gitlab",
+    ]);
+  });
+
+  it('prints nothing when no row has a gap or the connector is connected', () => {
+    expect(askGapHints([{ refs: [] }], () => false)).toEqual([]);
+    expect(askGapHints([code, code], () => true)).toEqual([]);
+  });
+
+  it('prints one line per distinct gap, each counted separately', () => {
+    const hints = askGapHints([code, { refs: [{ platform: 'jira' }] }, code], () => false);
+    expect(hints).toHaveLength(2);
+    expect(hints[0]).toContain('2 of these cite an issue-tracker ref');
+    expect(hints[1]).toContain('1 of these cites a Jira ref');
   });
 });

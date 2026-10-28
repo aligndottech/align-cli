@@ -259,3 +259,34 @@ describe('stated reason in the no-answer list', () => {
     expect(out).not.toContain('Why:');
   });
 });
+
+describe('trailers and the gap hint in the printed list', () => {
+  const TRAILERS = '\n\n---------\n\nSigned-off-by: Ann Dev <ann@example.test>\nCo-authored-by: Bob Dev <bob@example.test>';
+  const withRef = (h: ReturnType<typeof hit>) => ({ ...h, external_references: [{ platform: 'code' }] });
+
+  it('quotes the body, not the trailers, when a body is followed by trailers', async () => {
+    respond([hit(1, 0.6, `Decision 1\n\nClamp the status code into the valid range.${TRAILERS}`)]);
+    const out = await ask();
+    expect(out).toContain('"Clamp the status code into the valid range."');
+    expect(out).not.toContain('Signed-off-by');
+    expect(out).not.toContain('Co-authored-by');
+    expect(out).not.toContain('---------');
+  });
+  it('falls back to the subject when the body is only trailers', async () => {
+    respond([hit(1, 0.6, `Decision 1${TRAILERS}`)]);
+    const out = await ask();
+    expect(out).toContain('"Decision 1"');
+    expect(out).not.toContain('Signed-off-by');
+  });
+  it('prints the unreadable-ref hint once after 3 affected rows, with the count', async () => {
+    respond([1, 2, 3, 4].map((n) => (n === 4 ? hit(n, 0.6, 's') : withRef(hit(n, 0.6, `s${n}`)))));
+    const out = await ask();
+    expect(out.match(/I can't read/g)).toHaveLength(1);
+    expect(out).toContain("3 of these cite an issue-tracker ref I can't read - align connect github or align connect gitlab");
+    expect(out.indexOf("I can't read")).toBeGreaterThan(out.indexOf('Decision 4'));
+  });
+  it('prints no hint when no row has a gap', async () => {
+    respond([hit(1, 0.6, 's1'), hit(2, 0.6, 's2')]);
+    expect(await ask()).not.toContain("I can't read");
+  });
+});

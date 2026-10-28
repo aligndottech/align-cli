@@ -14,11 +14,11 @@ import { renderAnswer } from '../lib/answer-render.js';
 import { recordFunnelStage } from '../lib/usage-telemetry.js';
 import { formatWhen } from '../lib/format-date.js';
 import { resolveScopeOpts } from '../lib/repo-identity.js';
-import { askTrailingLine } from '../lib/connect-prompt.js';
+import { askGapHints } from '../lib/connect-prompt.js';
 import { getGitIdentities, hasOtherCommitters } from '../lib/git.js';
 import { answeredBySomeoneElse, inviteNudgeLine } from '../lib/invite-prompt.js';
-import { extractReason, stripImporterMetadata, withReasons } from '../lib/reason-extract.js';
-import { allWeak, excerptOf, isWeak, LIST_DISPLAY_CAP, matchNoun, withoutTitle } from '../lib/ask-listing.js';
+import { extractReason, withReasons } from '../lib/reason-extract.js';
+import { allWeak, excerptBody, excerptOf, isWeak, LIST_DISPLAY_CAP, matchNoun } from '../lib/ask-listing.js';
 
 function wrapText(text: string, indent: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -106,14 +106,15 @@ function sourceLink(d: SearchHit): string | null {
 }
 
 /**
- * The trailing gap line under a source: only when this decision's own refs
- * carry something the graph cannot read yet. Absent for a cloud result, which carries
- * no external_references (the hosted gateway does not store decision_refs yet).
+ * The gap hint, once, after the rows: how many of them cite something the graph cannot
+ * read yet, and the command that fixes it. Printed per row it was the same sentence five
+ * times. Absent for a cloud result, which carries no external_references (the hosted
+ * gateway does not store decision_refs yet).
  */
-function gapLine(d: SearchHit, isConnected: (connectorId: string) => boolean): string | null {
-  if (!d.external_references?.length) return null;
-  const line = askTrailingLine(d.external_references, isConnected);
-  return line ? chalk.dim(`      ${line}`) : null;
+function printGapHints(rows: SearchHit[], isConnected: (connectorId: string) => boolean): void {
+  const hints = askGapHints(rows.map((d) => ({ refs: d.external_references ?? [] })), isConnected);
+  for (const h of hints) console.log(chalk.dim(`  ${h}`));
+  if (hints.length) console.log('');
 }
 
 /**
@@ -394,9 +395,8 @@ export function registerAskCommand(program: Command): void {
               console.log(sourceLine(d));
               const link = sourceLink(d);
               if (link) console.log(link);
-              const gap = gapLine(d, isConnected);
-              if (gap) console.log(gap);
             }
+            printGapHints(shown, isConnected);
             console.log('');
             // The invite nudge's clearest moment - the graph just answered from a
             // decision someone else made. Replaces the old "5+ results" heuristic, which
@@ -513,7 +513,7 @@ export function registerAskCommand(program: Command): void {
           if (why) {
             for (const line of wrapText(`Why: ${why}`, '  ', wrapWidth)) console.log(line);
           } else if (d.summary) {
-            const summaryLines = wrapText(`"${excerptOf(withoutTitle(stripImporterMetadata(d.summary), d.title))}"`, '  ', wrapWidth);
+            const summaryLines = wrapText(`"${excerptOf(excerptBody(d.summary, d.title))}"`, '  ', wrapWidth);
             for (const line of summaryLines) {
               console.log(chalk.dim(line));
             }
@@ -538,12 +538,12 @@ export function registerAskCommand(program: Command): void {
           // - it is not a place anyone can open, so nothing should print it as one.
           const sourceUrl = navigableSourceUrl(d.source_url);
           if (sourceUrl) console.log(chalk.dim(`  ${sourceUrl}`));
-          const gap = gapLine(d, isConnected);
-          if (gap) console.log(gap);
           // Who to talk to.
           if (d.author?.name) console.log(chalk.cyan(`  talk to: ${d.author.name}`));
           console.log('');
         }
+
+        printGapHints(listed, isConnected);
 
         if (listed.length < results.results.length) {
           console.log(chalk.dim(`  ... and ${results.results.length - listed.length} more (use --limit ${results.results.length})`));

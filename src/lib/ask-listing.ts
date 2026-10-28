@@ -7,6 +7,7 @@
  * trailers. Printed whole, one `ask` on a 4,906-commit repo was 516 lines. The list is for
  * scanning: title, a short excerpt, where it came from.
  */
+import { stripImporterMetadata } from './reason-extract.js';
 import { RELATES_THRESHOLD } from './local-thresholds.js';
 
 /** Characters of summary shown per match. A display choice, not a calibrated number. */
@@ -63,4 +64,31 @@ export function withoutTitle(summary: string, title: string): string {
   const flat = summary.replace(/\s+/g, ' ').trim();
   const t = title.replace(/\s+/g, ' ').trim();
   return t && flat.startsWith(`${t} `) ? flat.slice(t.length + 1) : flat;
+}
+
+// A git trailer at the START of a line, plus the dashed rule a squash merge puts above them.
+// Anchored to the line start so a sentence that merely mentions "signed-off-by" is kept.
+const TRAILER_LINE = /^\s*(?:(?:signed-off-by|co-authored-by|reviewed-by|acked-by|tested-by|reported-by|change-id)\s*:|-{3,}\s*$)/i;
+
+/**
+ * A commit body without its git trailers (Signed-off-by, Co-authored-by, Reviewed-by,
+ * Acked-by, Tested-by, Reported-by, Change-Id) and the `---------` rule squash merges add.
+ * Line-based, so it must run BEFORE whitespace is flattened. Display only: the stored
+ * summary keeps its trailers, which are provenance and still feed search.
+ */
+export function withoutTrailers(summary: string): string {
+  return summary
+    .split('\n')
+    .filter((line) => !TRAILER_LINE.test(line))
+    .join('\n')
+    .trim();
+}
+
+/**
+ * What a ranked-list row quotes under its title: the body with importer metadata, trailers
+ * and the echoed title removed, or the subject itself when nothing else is left.
+ */
+export function excerptBody(summary: string, title: string): string {
+  const body = withoutTitle(withoutTrailers(stripImporterMetadata(summary)), title);
+  return body || title.replace(/\s+/g, ' ').trim();
 }
