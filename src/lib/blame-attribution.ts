@@ -101,7 +101,7 @@ export async function findLineWriters(
 
     const timeout = opts.timeoutMs ?? BLAME_TIMEOUT_MS;
     const run = (args: string[]) => execa('git', args, { cwd: path.dirname(file), timeout, reject: true, stdin: 'ignore' });
-    const blame = await run(['blame', '--porcelain', ...ranges.flatMap(([s, e]) => ['-L', `${s},${e}`]), '--', path.basename(file)]);
+    const blame = await run(['blame', '-w', '-M', '--porcelain', ...ranges.flatMap(([s, e]) => ['-L', `${s},${e}`]), '--', path.basename(file)]);
 
     const subjects = new Map<string, string>();
     let sha: string | null = null;
@@ -130,13 +130,14 @@ export async function findLineWriters(
   }
 }
 
-const ROUTINE_TYPES = /^(docs|style|test|chore|ci|build|release)(\([^)]*\))?!?:/i;
+const ROUTINE_TYPES = /^(docs|style|test|chore|ci|build|release|refactor)(\([^)]*\))?!?:/i;
 
 /**
  * Whether a decision may be shown as "the decision that wrote these lines". Routine conventional-commit
- * types (docs, style, test, chore, ci, build, release) decide nothing an edit could violate, and
- * naming them would fire on most routine edits and teach people to ignore the hook. They stay
- * eligible for the content-search related list. fix, feat, perf, refactor and untyped titles qualify.
+ * types (docs, style, test, chore, ci, build, release) decide nothing an edit could violate, and a
+ * refactor rewrites lines without deciding what they do, so naming it would hide the real writer.
+ * Naming any of them would fire on most routine edits and teach people to ignore the hook. They stay
+ * eligible for the content-search related list. fix, feat, perf and untyped titles qualify.
  */
 export function isWriterTitle(title: string): boolean {
   return !ROUTINE_TYPES.test(title.trim());

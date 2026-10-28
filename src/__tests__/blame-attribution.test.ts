@@ -116,15 +116,35 @@ describe('findLineWriters', () => {
 
 type HookInput = NonNullable<Parameters<typeof findLineWriters>[0]>;
 
+describe('whitespace-only changes', () => {
+  it('a line that was only re-indented is still attributed to the commit that wrote its content', async () => {
+    const d = mkdtempSync(path.join(tmpdir(), 'align-blame-ws-'));
+    try {
+      const g = (...a: string[]): string => execFileSync('git', a, { cwd: d, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
+      g('init', '-q', '-b', 'main');
+      writeFileSync(path.join(d, 'c.js'), 'if (x) {\nclamp(y)\n}\n');
+      g('add', 'c.js');
+      g('commit', '-q', '-m', 'fix: clamp (#1)');
+      const writer = g('rev-parse', 'HEAD');
+      writeFileSync(path.join(d, 'c.js'), 'if (x) {\n    clamp(y)\n}\n');
+      g('commit', '-q', '-am', 'style: indent');
+      const got = await findLineWriters({ file_path: 'c.js', old_string: '    clamp(y)', new_string: 'x' }, d);
+      expect(got?.commitShas).toEqual([writer]);
+    } finally {
+      rmSync(d, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('isWriterTitle', () => {
   it('excludes docs, style, test, chore, ci, build and release subjects, scoped or not, any case, with or without "!"', () => {
-    for (const t of ['docs: x', 'docs(readme): move table (#4722)', 'Style(css): x', 'test: x', 'chore(deps): bump', 'ci: x', 'build!: x', 'RELEASE: 1.0']) {
+    for (const t of ['docs: x', 'docs(readme): move table (#4722)', 'Style(css): x', 'test: x', 'chore(deps): bump', 'ci: x', 'build!: x', 'RELEASE: 1.0', 'refactor: split module', 'Refactor(core): x']) {
       expect(isWriterTitle(t), t).toBe(false);
     }
   });
 
   it('keeps fix, feat, perf, refactor and untyped subjects, and words that merely start with a type', () => {
-    for (const t of ['fix: clamp (#7089)', 'feat(core): x', 'perf: x', 'refactor: x', 'Add contributing.md', 'docs are great', 'testing: x', 'builder: x']) {
+    for (const t of ['fix: clamp (#7089)', 'feat(core): x', 'perf: x', 'Add contributing.md', 'docs are great', 'testing: x', 'builder: x']) {
       expect(isWriterTitle(t), t).toBe(true);
     }
   });

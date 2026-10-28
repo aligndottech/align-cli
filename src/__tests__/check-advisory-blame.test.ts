@@ -146,6 +146,15 @@ describe('only decisions worth honouring count as writers', () => {
     expect(out).toContain(DOCS.title);
   });
 
+  it('a refactor-type writer is not a writer either (it rewrote the lines without deciding what they do)', async () => {
+    const REFACTOR = { id: 'f1', title: 'refactor(core): split error handling', summary: 's' };
+    mockBySourceRefs.mockReturnValue([REFACTOR]);
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', relevant_decisions: [REFACTOR], conflicts: [] });
+    const out = await run();
+    expect(out).not.toContain('written by a prior decision');
+    expect(out).toContain(REFACTOR.title);
+  });
+
   it('a docs-type writer alone, with nothing related, prints nothing', async () => {
     mockBySourceRefs.mockReturnValue([DOCS]);
     mockCheckAlignment.mockResolvedValue({ status: 'retrieved', relevant_decisions: [], conflicts: [] });
