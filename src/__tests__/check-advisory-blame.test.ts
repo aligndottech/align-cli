@@ -1,5 +1,5 @@
 /**
- * Test list (ALI-1749), advisory hook level:
+ * Test list, advisory hook level:
  *  1. Pre edit whose lines were written by a decision: that decision is listed FIRST under a label
  *     naming it as the writer of the lines, then the related list, without duplicates.
  *  2. Attributed decision and nothing related: still emitted (blame alone is an answer).

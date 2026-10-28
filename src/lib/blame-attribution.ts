@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { HookToolInput } from './hook-payload.js';
 
 /**
- * The decisions that WROTE the lines an agent is about to change (ALI-1749).
+ * The decisions that WROTE the lines an agent is about to change.
  *
  * Content search finds decisions on the same subject; it cannot say which decision put these
  * exact lines here. `git blame` can, deterministically and locally, so the advisory hook asks

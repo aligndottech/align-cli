@@ -1,5 +1,5 @@
 /**
- * Test list (ALI-1749): the decisions that wrote the lines an edit is about to change.
+ * Test list: the decisions that wrote the lines an edit is about to change.
  *
  *  1. Edit: the commit that wrote old_string's lines is returned (positive control), and a
  *     line from a DIFFERENT commit in the same file is not (negative control).
