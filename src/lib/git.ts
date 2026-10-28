@@ -1,6 +1,6 @@
 import { execa } from 'execa';
 import os from 'node:os';
-import { MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS } from './commit-shape.js';
+import { isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS } from './commit-shape.js';
 
 export interface GitCommit {
   sha: string;
@@ -208,7 +208,7 @@ export function isDecisionCommit(subject: string): boolean {
   // length floor could be cleared by whitespace alone (Copilot on #240).
   const trimmed = subject.trim();
   if (trimmed.length < MIN_DECISION_SUBJECT_CHARS) return false;
-  return !MECHANICAL_SUBJECT_RE.test(trimmed);
+  return !MECHANICAL_SUBJECT_RE.test(trimmed) && !isReleaseOrBumpSubject(trimmed);
 }
 
 // A line that IS a git trailer (key: value at the start of the line), not merely a

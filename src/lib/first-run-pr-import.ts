@@ -19,6 +19,7 @@
  * and a re-run does not duplicate it. A squash commit whose PR was imported is dropped from the
  * commit import (dropCoveredCommits) so the change is not listed twice.
  */
+import { isReleaseOrBumpSubject } from './commit-shape.js';
 import type { PersonalImportItem } from './personal-import.js';
 import { extractReason } from './reason-extract.js';
 import { CLI_TOKEN_SOURCES, detectVerifiedCliToken } from './setup-ux.js';
@@ -52,13 +53,15 @@ export interface FirstRunPrOutcome {
   scanned: number;
   /** PRs kept: the ones whose body states a reason. */
   imported: number;
+  /** Merged PRs skipped by title: a release or version bump has no decision in it, whatever its notes say. */
+  housekeeping: number;
   /** The one line to show when GitHub stopped the read; absent otherwise. */
   note?: string;
   numbers: ReadonlySet<number>;
   shas: ReadonlySet<string>;
 }
 
-const EMPTY: FirstRunPrOutcome = { items: [], scanned: 0, imported: 0, numbers: new Set(), shas: new Set() };
+const EMPTY: FirstRunPrOutcome = { items: [], scanned: 0, housekeeping: 0, imported: 0, numbers: new Set(), shas: new Set() };
 
 export interface FirstRunPrDeps {
   fetchFn?: typeof fetch;
@@ -94,6 +97,7 @@ async function read(repo: string, token: string | undefined, fetchFn: typeof fet
   const numbers = new Set<number>();
   const shas = new Set<string>();
   let scanned = 0;
+  let housekeeping = 0;
   let limited = false;
   for (let page = 1; page <= limits.pages && scanned < limits.prs; page += 1) {
     let res: Response;
@@ -118,6 +122,7 @@ async function read(repo: string, token: string | undefined, fetchFn: typeof fet
       if (scanned >= limits.prs) break;
       if (!p.merged_at || !p.html_url || !p.title || typeof p.number !== 'number' || isBot(p.user) || Number.isNaN(new Date(p.merged_at).getTime())) continue;
       scanned += 1;
+      if (isReleaseOrBumpSubject(p.title)) { housekeeping += 1; continue; }
       if (!extractReason(p.title, p.body)) continue;
       items.push(toItem(p, repo));
       numbers.add(p.number);
@@ -127,7 +132,7 @@ async function read(repo: string, token: string | undefined, fetchFn: typeof fet
     if (rows.length < PAGE_SIZE || res.headers.get('x-ratelimit-remaining') === '0') break;
   }
   const note = limited ? (items.length === 0 ? RATE_LIMIT_LINE : partialRateLimitLine(items.length)) : undefined;
-  return { items, scanned, imported: items.length, ...(note ? { note } : {}), numbers, shas };
+  return { items, scanned, housekeeping, imported: items.length, ...(note ? { note } : {}), numbers, shas };
 }
 
 /** Never rejects. Resolves to no PRs for any origin that is not a github.com repo. */

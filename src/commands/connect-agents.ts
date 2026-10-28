@@ -57,15 +57,17 @@ export async function connectDetectedAgents(
     // keeps the portable bare `align` - which is exactly the command a Windows client cannot
     // spawn. So on Windows those two clients need the per-machine entry as well, and this is
     // the one place a user with no global agent config is told anything at all.
-    const projectCovers = process.platform === 'win32'
-      ? 'The project\'s .mcp.json (written above) keeps the portable `align` command so it works ' +
-        'for the whole team, and Windows cannot spawn that one - so on this machine Claude Code ' +
-        'and pi need the per-machine entry below too. '
-      : 'Claude Code and pi already read the project\'s .mcp.json (written above), so those need ' +
-        'nothing further. ';
+    const win = process.platform === 'win32';
+    // On POSIX the project file connects Claude Code and pi, and "Your agent is connected" prints
+    // right after this, so leading with "No agent found" contradicts it. The snippet is for the rest.
+    const lead = win
+      ? 'No agent found a GLOBAL config to connect to. The project\'s .mcp.json (written above) keeps the portable ' +
+        '`align` command so it works for the whole team, and Windows cannot spawn that one - so on this machine ' +
+        'Claude Code and pi need the per-machine entry below too. Other MCP-capable agents'
+      : 'Claude Code and pi are connected through the project\'s .mcp.json (written above), so they need nothing ' +
+        'further. The snippet below is only for other agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...)';
     p.log.info(
-      `No agent found a GLOBAL config to connect to. ${projectCovers}Other MCP-capable ` +
-      'agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...) work too - add this to ' +
+      `${lead}${win ? ' (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...) work too' : ''} - add this to ` +
       `their config (or re-run ${chalk.bold(`align mcp --setup${envSuffix}`)} once installed):\n\n` +
       `  { "mcpServers": { "align": ${entry} } }`,
     );

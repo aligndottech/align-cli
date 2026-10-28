@@ -681,7 +681,10 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
       if (prs.items.length) {
         const prCs = capture.add(toCaptureSource(PR_DESCRIPTIONS_SOURCE, {
           items: prs.items,
-          report: { scanned: prs.scanned, skips: prs.scanned > prs.imported ? [{ count: prs.scanned - prs.imported, detail: 'merged PRs whose description states no reason, not imported' }] : [] },
+          report: { scanned: prs.scanned, skips: [
+            ...(prs.housekeeping > 0 ? [{ count: prs.housekeeping, detail: 'merged PRs that are a release or version bump, not imported' }] : []),
+            ...(prs.scanned > prs.imported + prs.housekeeping ? [{ count: prs.scanned - prs.imported - prs.housekeeping, detail: 'merged PRs whose description states no reason, not imported' }] : []),
+          ] },
         }));
         await runPersonalImport(prs.items, localClient, {
           result: prCs, label: 'GitHub PR descriptions', approve: true, appUrl: resolveAppUrl(localEnv), local: true, quiet: true,

@@ -346,6 +346,30 @@ describe('starterPrompts', () => {
     ]);
   });
 
+  it('never reverses release housekeeping: the reversal names the decision with a reason', () => {
+    const prompts = starterPrompts({ titles: ['Bumped v5.9.0', 'fix: clamp error statusCode between 400 and 599 with 500 fallback (#7089)'] });
+    expect(prompts[1]).toBe('Plan a change that reverses "clamp error statusCode between 400 and 599 with 500 fallback". Check it with Align before writing anything.');
+    expect(prompts.join('\n')).not.toMatch(/Bumped/);
+  });
+
+  it('with only housekeeping to name, falls back to the generic prompts instead of quoting it', () => {
+    const prompts = starterPrompts({ titles: ['Bumped v5.9.0', 'v5.9.1'] });
+    expect(prompts).toEqual([
+      'what decisions exist in this codebase?',
+      'Pick a decision Align has on record here and plan a change that reverses it. Check it with Align before writing anything.',
+    ]);
+  });
+
+  it('does not quote a title the graph cut mid-word at 80 characters', () => {
+    const cut = 'refactor(types)!: remove deprecated FastifyRequestContext and FastifyReplyContex'.slice(0, 80);
+    expect(cut).toHaveLength(80);
+    const prompts = starterPrompts({ titles: [cut, 'feat: switch to postgres (#3)'] });
+    expect(prompts).toEqual([
+      'why did we switch to postgres?',
+      'Plan a change that reverses "switch to postgres". Check it with Align before writing anything.',
+    ]);
+  });
+
   it('names no CLI verb - the prompts are typed into the agent', () => {
     expect(starterPrompts({ titles: ['use postgres'], hotFile: 'a.ts' }).join('\n')).not.toMatch(CLI_VERB);
   });

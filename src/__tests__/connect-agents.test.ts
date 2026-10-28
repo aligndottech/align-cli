@@ -288,6 +288,16 @@ describe("connectDetectedAgents - the zero-editors message", () => {
     expect(all).toContain(".mcp.json");
     expect(all).toMatch(/claude code|pi/i);
   });
+
+  it("does not lead with 'No agent found' when the project config already connects Claude Code and pi", () => {
+    // Printed directly above "Your agent is connected: Claude Code." in the same run, it read as a contradiction.
+    detectEditors.mockReturnValue([]);
+    connectDetectedAgents("local");
+    const all = logged.join("\n");
+    expect(all).not.toMatch(/no agent found/i);
+    expect(all).toMatch(/^Claude Code and pi (?:read|are connected)/);
+    expect(all).toContain("only for other agents");
+  });
 });
 
 // mcp_wired is a funnel stage - the emitter fires from inside

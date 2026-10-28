@@ -224,3 +224,31 @@ describe('renderFoundSummary: PR descriptions', () => {
     expect(renderFoundSummary(s)).not.toContain('PR descriptions');
   });
 });
+
+describe('buildFoundSummary release and bump subjects', () => {
+  it('never leads the sample with a release bump, even when it is the newest', () => {
+    const s = buildFoundSummary(db({ rows: titled([
+      'Bumped v5.9.0',
+      'fix: clamp error statusCode between 400 and 599 with 500 fallback (#7089)',
+      'fix: do not trust forwarded host/proto when socket is missing',
+    ]) }));
+    expect(s.recent.map((d) => d.title)).toEqual([
+      'fix: clamp error statusCode between 400 and 599 with 500 fallback (#7089)',
+      'fix: do not trust forwarded host/proto when socket is missing',
+      'Bumped v5.9.0',
+    ]);
+  });
+
+  it('demotes a version-only title and a bumps-from-to title as well', () => {
+    const s = buildFoundSummary(db({ rows: titled(['v6.0.0', 'Bumps pino from 9 to 10', 'feat: switch to postgres for the queue']) }));
+    expect(s.recent[0]?.title).toBe('feat: switch to postgres for the queue');
+  });
+});
+
+describe('buildFoundSummary cut titles', () => {
+  it('shows a title the graph cut at 80 characters after the ones that read whole', () => {
+    const cut = `refactor(types)!: remove deprecated FastifyRequestContext and FastifyReplyContex`.padEnd(80, 'x').slice(0, 80);
+    const s = buildFoundSummary(db({ rows: titled([cut, 'fix: clamp error statusCode between 400 and 599']) }));
+    expect(s.recent.map((d) => d.title)).toEqual(['fix: clamp error statusCode between 400 and 599', cut]);
+  });
+});
