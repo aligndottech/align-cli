@@ -69,3 +69,14 @@ export const TITLE_CUT_AT = 80;
 export function isCutTitle(title: string): boolean {
   return title.trim().length >= TITLE_CUT_AT;
 }
+
+const NON_BEHAVIOURAL_TYPE = /^(?:docs|style|test|chore|ci|build|release|refactor)(?:\([^)]*\))?!?:/i;
+
+/**
+ * A conventional-commit TYPE whose commits do not decide what the lines they touch do: docs, style,
+ * test, chore, ci, build, release and refactor. Separate from `isHousekeepingTitle` on purpose: that one
+ * feeds the first-run box and starter prompts and must not start hiding refactors there.
+ */
+export function isNonBehaviouralType(title: string): boolean {
+  return NON_BEHAVIOURAL_TYPE.test(title.trim());
+}
