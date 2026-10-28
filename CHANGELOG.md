@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.65.2](https://github.com/aligndottech/align-cli/compare/cli-v0.65.1...cli-v0.65.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **check:** skip blame for prose and lockfiles, and use blame in the MCP pre-edit check ([#495](https://github.com/aligndottech/align-cli/issues/495)) ([ccbff9b](https://github.com/aligndottech/align-cli/commit/ccbff9bff5603132f5e7899c9ccd5ed2ac68d974))
+* **detector:** clip an over-long evidence quote instead of discarding the verdict ([#497](https://github.com/aligndottech/align-cli/issues/497)) ([063a5dc](https://github.com/aligndottech/align-cli/commit/063a5dcd68f1e72c6ea795012f8a9ee2512c851d))
+
 ## [0.65.1](https://github.com/aligndottech/align-cli/compare/cli-v0.65.0...cli-v0.65.1) (2026-10-28)
 
 
