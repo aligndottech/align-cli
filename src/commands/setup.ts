@@ -656,7 +656,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
       const dedup = dropCoveredCommits(scanned.items, prs);
       const fetched: CaptureFetchResult = dedup.covered === 0 ? scanned : {
         items: dedup.items,
-        report: { ...scanned.report, skips: [...scanned.report.skips, { count: dedup.covered, detail: 'commits that are the squash of an imported PR, listed once as the PR' }] },
+        report: { ...scanned.report, skips: [...scanned.report.skips, { count: dedup.covered, detail: `${dedup.covered === 1 ? 'commit that is' : 'commits that are'} the squash of an imported PR, listed once as the PR` }] },
       };
       const gitCs = capture.add(toCaptureSource(gitSource, fetched));
       const { items } = fetched;
@@ -682,8 +682,8 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         const prCs = capture.add(toCaptureSource(PR_DESCRIPTIONS_SOURCE, {
           items: prs.items,
           report: { scanned: prs.scanned, skips: [
-            ...(prs.housekeeping > 0 ? [{ count: prs.housekeeping, detail: 'merged PRs that are a release or version bump, not imported' }] : []),
-            ...(prs.scanned > prs.imported + prs.housekeeping ? [{ count: prs.scanned - prs.imported - prs.housekeeping, detail: 'merged PRs whose description states no reason, not imported' }] : []),
+            ...(prs.housekeeping > 0 ? [{ count: prs.housekeeping, detail: `merged ${prs.housekeeping === 1 ? 'PR that is a release or version bump' : 'PRs that are a release or version bump'}, not imported` }] : []),
+            ...(prs.scanned > prs.imported + prs.housekeeping ? [{ count: prs.scanned - prs.imported - prs.housekeeping, detail: `merged ${prs.scanned - prs.imported - prs.housekeeping === 1 ? 'PR' : 'PRs'} whose description states no reason, not imported` }] : []),
           ] },
         }));
         await runPersonalImport(prs.items, localClient, {
