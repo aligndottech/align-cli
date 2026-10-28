@@ -95,6 +95,21 @@ describe('withoutTrailers', () => {
     expect(withoutTrailers(body)).toBe('Intro.\n\nCc: mid-body note\n\n---\n\nMore text.');
   });
 
+  it('keeps a body that is a single "Issue: <reason>" line', () => {
+    expect(withoutTrailers('Issue: users get a 500 when the token expires')).toBe('Issue: users get a 500 when the token expires');
+    expect(withoutTrailers('Bug: crash on empty input')).toBe('Bug: crash on empty input');
+  });
+
+  it('keeps the opening Bug: paragraph and strips the sign-off block under it', () => {
+    expect(withoutTrailers('Bug: crash on empty input\n\nSigned-off-by: x')).toBe('Bug: crash on empty input');
+    expect(withoutTrailers('Issue: tokens expire early\n\nCc: a@b.c\nSigned-off-by: y')).toBe('Issue: tokens expire early');
+  });
+
+  it('strips a separator-led trailer block that has no text above it', () => {
+    expect(withoutTrailers('---------\n\nSigned-off-by: A <a@b.c>\nCo-authored-by: B <b@c.d>')).toBe('');
+    expect(withoutTrailers('-----\nCo-authored-by: B <b@c.d>')).toBe('');
+  });
+
   it('strips fastify-style squash tails whole', () => {
     const body = 'Subject line\n\n---------\n\nSigned-off-by: A <a@b.c>\nCo-authored-by: B <b@c.d>\nCo-authored-by: C <c@d.e>';
     expect(withoutTrailers(body)).toBe('Subject line');
@@ -123,6 +138,10 @@ describe('excerptBody', () => {
   it('is empty when the body is only trailers', () => {
     const summary = `${title}\n\n---------\n\nSigned-off-by: A <a@b.c>\nCo-authored-by: B <b@c.d>${meta}`;
     expect(excerptBody(summary, title)).toBe('');
+  });
+
+  it('is empty for a separator-and-trailers-only summary', () => {
+    expect(excerptBody('---------\n\nSigned-off-by: A <a@b.c>', 'Some title')).toBe('');
   });
 
   it('is empty for a second, different trailer-only body', () => {

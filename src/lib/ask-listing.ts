@@ -82,7 +82,14 @@ export function withoutTrailers(summary: string): string {
   let end = lines.length;
   // Walk up from the end over trailer lines, blanks and dashed rules; the first other line ends the block.
   while (end > 0 && (TRAILER.test(lines[end - 1]) || SEPARATOR_LINE.test(lines[end - 1]) || !lines[end - 1].trim())) end -= 1;
-  return lines.slice(0, end).join('\n').trim();
+  if (end > 0) return lines.slice(0, end).join('\n').trim();
+  // The walk reached the top: the whole body looks like trailers. A dashed rule marks a squash
+  // tail, so cut at the first one. Otherwise the first paragraph is the body ("Issue: <reason>"
+  // is the reason, not a trailer) and only what follows the first blank line is the block.
+  const rule = lines.findIndex((l) => SEPARATOR_LINE.test(l));
+  if (rule >= 0) return lines.slice(0, rule).join('\n').trim();
+  const blank = lines.findIndex((l, i) => i > 0 && !l.trim());
+  return (blank < 0 ? lines : lines.slice(0, blank)).join('\n').trim();
 }
 
 const normTitle = (t: string): string =>
