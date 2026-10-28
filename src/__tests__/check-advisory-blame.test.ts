@@ -11,6 +11,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
+import type * as BlameModule from '../lib/blame-attribution.js';
 import { registerCheckCommand } from '../commands/check.js';
 
 const mockCheckAlignment = vi.fn();
@@ -36,7 +37,7 @@ vi.mock('../lib/gateway-client.js', () => ({
   createGatewayClient: vi.fn(() => ({ checkAlignment: mockCheckAlignment, ...(clientHasLookup ? { decisionsBySourceRefs: mockBySourceRefs } : {}) })),
 }));
 vi.mock('../lib/advisory-dedup.js', () => ({ recentlySurfaced: () => mockRecently(), markSurfaced: (...a: unknown[]) => mockMark(...a) }));
-vi.mock('../lib/blame-attribution.js', () => ({ findLineWriters: (...a: unknown[]) => mockFindLineWriters(...a) }));
+vi.mock('../lib/blame-attribution.js', async (orig) => ({ ...(await orig<typeof BlameModule>()), findLineWriters: (...a: unknown[]) => mockFindLineWriters(...a) }));
 
 const pre = { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'lib/error-status.js', old_string: 'x >= 400', new_string: 'x >= 100' } };
 const WRITER = { id: 'w1', title: 'fix: clamp error statusCode between 400 and 599 (#7089)', summary: 's' };
@@ -120,5 +121,32 @@ describe('advisory blame attribution', () => {
     const out = await run();
     expect(out).not.toContain(WRITER.title);
     expect(out).toContain(RELATED.title);
+  });
+});
+
+describe('only decisions worth honouring count as writers', () => {
+  const DOCS = { id: 'd1', title: 'docs(readme): move table of contents (#4722)', summary: 's' };
+
+  it('a docs-type writer is not a writer, but stays in the related list when retrieval finds it', async () => {
+    mockBySourceRefs.mockReturnValue([DOCS]);
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', relevant_decisions: [DOCS], conflicts: [] });
+    const out = await run();
+    expect(out).not.toContain('written by a prior decision');
+    expect(out).toContain(DOCS.title);
+  });
+
+  it('a docs-type writer alone, with nothing related, prints nothing', async () => {
+    mockBySourceRefs.mockReturnValue([DOCS]);
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', relevant_decisions: [], conflicts: [] });
+    expect(await run()).toBe('');
+  });
+
+  it('a fix-type writer on the same edit still shows beside an excluded docs writer', async () => {
+    mockBySourceRefs.mockReturnValue([DOCS, WRITER]);
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', relevant_decisions: [], conflicts: [] });
+    const out = await run();
+    expect(out).toContain('written by a prior decision');
+    expect(out).toContain(WRITER.title);
+    expect(out).not.toContain(DOCS.title);
   });
 });

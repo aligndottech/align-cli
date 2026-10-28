@@ -129,3 +129,15 @@ export async function findLineWriters(
     return null;
   }
 }
+
+const ROUTINE_TYPES = /^(docs|style|test|chore|ci|build|release)(\([^)]*\))?!?:/i;
+
+/**
+ * Whether a decision may be shown as "the decision that wrote these lines". Routine conventional-commit
+ * types (docs, style, test, chore, ci, build, release) decide nothing an edit could violate, and
+ * naming them would fire on most routine edits and teach people to ignore the hook. They stay
+ * eligible for the content-search related list. fix, feat, perf, refactor and untyped titles qualify.
+ */
+export function isWriterTitle(title: string): boolean {
+  return !ROUTINE_TYPES.test(title.trim());
+}

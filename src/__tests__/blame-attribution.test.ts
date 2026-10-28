@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { findLineWriters } from '../lib/blame-attribution.js';
+import { findLineWriters, isWriterTitle } from '../lib/blame-attribution.js';
 
 let dir: string;
 const git = (...args: string[]): string =>
@@ -115,3 +115,17 @@ describe('findLineWriters', () => {
 });
 
 type HookInput = NonNullable<Parameters<typeof findLineWriters>[0]>;
+
+describe('isWriterTitle', () => {
+  it('excludes docs, style, test, chore, ci, build and release subjects, scoped or not, any case, with or without "!"', () => {
+    for (const t of ['docs: x', 'docs(readme): move table (#4722)', 'Style(css): x', 'test: x', 'chore(deps): bump', 'ci: x', 'build!: x', 'RELEASE: 1.0']) {
+      expect(isWriterTitle(t), t).toBe(false);
+    }
+  });
+
+  it('keeps fix, feat, perf, refactor and untyped subjects, and words that merely start with a type', () => {
+    for (const t of ['fix: clamp (#7089)', 'feat(core): x', 'perf: x', 'refactor: x', 'Add contributing.md', 'docs are great', 'testing: x', 'builder: x']) {
+      expect(isWriterTitle(t), t).toBe(true);
+    }
+  });
+});

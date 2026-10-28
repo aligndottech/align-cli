@@ -9,7 +9,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
-import { findLineWriters } from '../lib/blame-attribution.js';
+import { findLineWriters, isWriterTitle } from '../lib/blame-attribution.js';
 import { markHookContext } from '../lib/hook-context.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 import {
@@ -711,7 +711,7 @@ async function decisionsThatWroteTheseLines(client: unknown, input: HookToolInpu
     if (typeof lookup !== 'function') return [];
     const writers = await findLineWriters(input, cwd);
     if (!writers) return [];
-    return lookup.call(client, writers.commitShas, writers.prUrls).slice(0, 5);
+    return lookup.call(client, writers.commitShas, writers.prUrls).filter((d) => isWriterTitle(d.title)).slice(0, 5);
   } catch {
     return [];
   }
