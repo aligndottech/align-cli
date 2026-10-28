@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.65.1](https://github.com/aligndottech/align-cli/compare/cli-v0.65.0...cli-v0.65.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **ask:** drop git trailers from excerpts and print the unreadable-ref hint once ([#489](https://github.com/aligndottech/align-cli/issues/489)) ([5ff0bbc](https://github.com/aligndottech/align-cli/commit/5ff0bbcb6f95a82073dec4b6c96ac7fca99b322b))
+* **check:** name the decision that wrote the lines an edit changes ([#490](https://github.com/aligndottech/align-cli/issues/490)) ([89f4973](https://github.com/aligndottech/align-cli/commit/89f49731144e6f96c55ca1fc5916bc434b8b5e70))
+* **setup:** keep release bumps out of the first-run box and starter prompts ([#491](https://github.com/aligndottech/align-cli/issues/491)) ([7a96f4a](https://github.com/aligndottech/align-cli/commit/7a96f4a37763f82beadbc5305fe96a633e80de7c))
+
 ## [0.65.0](https://github.com/aligndottech/align-cli/compare/cli-v0.64.1...cli-v0.65.0) (2026-10-25)
 
 
