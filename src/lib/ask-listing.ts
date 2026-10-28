@@ -7,6 +7,7 @@
  * trailers. Printed whole, one `ask` on a 4,906-commit repo was 516 lines. The list is for
  * scanning: title, a short excerpt, where it came from.
  */
+import { stripImporterMetadata, TRAILER } from './reason-extract.js';
 import { RELATES_THRESHOLD } from './local-thresholds.js';
 
 /** Characters of summary shown per match. A display choice, not a calibrated number. */
@@ -63,4 +64,43 @@ export function withoutTitle(summary: string, title: string): string {
   const flat = summary.replace(/\s+/g, ' ').trim();
   const t = title.replace(/\s+/g, ' ').trim();
   return t && flat.startsWith(`${t} `) ? flat.slice(t.length + 1) : flat;
+}
+
+// The dashed rule a squash merge puts above its trailers. The trailer keys themselves come from
+// reason-extract's TRAILER, the one list, anchored to the line start.
+const SEPARATOR_LINE = /^\s*-{3,}\s*$/;
+
+/**
+ * A commit body without its TRAILING block of git trailers (reason-extract's TRAILER list) and
+ * the `---------` rule squash merges add above them. Only the end is stripped, as git defines
+ * trailers: a mid-body or opening "Issue: ..." line, or a markdown rule, stays. Line-based, so
+ * it must run BEFORE whitespace is flattened. Display only: the stored summary keeps its
+ * trailers, which are provenance and still feed search.
+ */
+export function withoutTrailers(summary: string): string {
+  const lines = summary.split('\n');
+  let end = lines.length;
+  // Walk up from the end over trailer lines, blanks and dashed rules; the first other line ends the block.
+  while (end > 0 && (TRAILER.test(lines[end - 1]) || SEPARATOR_LINE.test(lines[end - 1]) || !lines[end - 1].trim())) end -= 1;
+  if (end > 0) return lines.slice(0, end).join('\n').trim();
+  // The walk reached the top: the whole body looks like trailers. A dashed rule marks a squash
+  // tail, so cut at the first one. Otherwise the first paragraph is the body ("Issue: <reason>"
+  // is the reason, not a trailer) and only what follows the first blank line is the block.
+  const rule = lines.findIndex((l) => SEPARATOR_LINE.test(l));
+  if (rule >= 0) return lines.slice(0, rule).join('\n').trim();
+  const blank = lines.findIndex((l, i) => i > 0 && !l.trim());
+  return (blank < 0 ? lines : lines.slice(0, blank)).join('\n').trim();
+}
+
+const normTitle = (t: string): string =>
+  t.replace(/\s+/g, ' ').trim().toLowerCase().replace(/\s*\(#\d+\)$/, '');
+
+/**
+ * What a ranked-list row quotes under its title: the body with importer metadata, trailers
+ * and the echoed title removed. Empty when nothing is left, or what is left only repeats the
+ * title (whitespace, case and a trailing "(#123)" ignored): the caller then prints no quote.
+ */
+export function excerptBody(summary: string, title: string): string {
+  const body = withoutTitle(withoutTrailers(stripImporterMetadata(summary)), title);
+  return normTitle(body) === normTitle(title) ? '' : body;
 }

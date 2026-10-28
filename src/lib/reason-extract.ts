@@ -33,7 +33,7 @@ export function stripImporterMetadata(text: string): string {
   return text.replace(/\r\n?/g, '\n').replace(IMPORTER_METADATA, '');
 }
 
-const TRAILER = /^\s*(?:co-authored-by|signed-off-by|reviewed-by|reviewed-on|acked-by|tested-by|reported-by|suggested-by|helped-by|change-id|pr-url|cc|bug|jira|issue)\s*:/i;
+export const TRAILER = /^\s*(?:co-authored-by|signed-off-by|reviewed-by|reviewed-on|acked-by|tested-by|reported-by|suggested-by|helped-by|change-id|pr-url|cc|bug|jira|issue)\s*:/i;
 const ISSUE_REF = '(?:#\\d+|gh-\\d+|[\\w.-]+\\/[\\w.-]+#\\d+|https?:\\/\\/\\S+)';
 const FIXES_ONLY = new RegExp(`^\\s*(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?|refs?|see|related to|part of)\\b:?\\s*${ISSUE_REF}(?:[\\s,;&]+(?:and\\s+)?${ISSUE_REF})*\\s*[.]?\\s*$`, 'i');
 
