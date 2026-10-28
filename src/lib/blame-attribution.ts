@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { isHousekeepingTitle, isNonBehaviouralType } from './commit-shape.js';
 import type { HookToolInput } from './hook-payload.js';
 
 /**
@@ -130,15 +131,15 @@ export async function findLineWriters(
   }
 }
 
-const ROUTINE_TYPES = /^(docs|style|test|chore|ci|build|release|refactor)(\([^)]*\))?!?:/i;
-
 /**
  * Whether a decision may be shown as "the decision that wrote these lines". Routine conventional-commit
  * types (docs, style, test, chore, ci, build, release) decide nothing an edit could violate, and a
  * refactor rewrites lines without deciding what they do, so naming it would hide the real writer.
  * Naming any of them would fire on most routine edits and teach people to ignore the hook. They stay
  * eligible for the content-search related list. fix, feat, perf and untyped titles qualify.
+ * The shapes come from commit-shape.ts (non-behavioural types, plus the housekeeping shapes: merges,
+ * drafts, backports, version bumps), so there is one list of what a mechanical subject looks like.
  */
 export function isWriterTitle(title: string): boolean {
-  return !ROUTINE_TYPES.test(title.trim());
+  return !isNonBehaviouralType(title) && !isHousekeepingTitle(title);
 }

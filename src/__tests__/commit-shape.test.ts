@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCutTitle, isHousekeepingTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex } from '../lib/commit-shape.js';
+import { isCutTitle, isHousekeepingTitle, isNonBehaviouralType, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex } from '../lib/commit-shape.js';
 
 /**
  * Copilot on align-cli#240 (suppressed comment, landed after the merge): the predicate
@@ -100,5 +100,27 @@ describe('isCutTitle', () => {
     expect(isCutTitle('x'.repeat(80))).toBe(true);
     expect(isCutTitle('x'.repeat(81))).toBe(true);
     expect(isCutTitle('x'.repeat(79))).toBe(false);
+  });
+});
+
+describe('isNonBehaviouralType', () => {
+  it('matches docs, style, test, chore, ci, build, release and refactor types, scoped or not, any case, optional "!"', () => {
+    for (const t of ['docs: x', 'docs(readme): x (#1)', 'Style(css): x', 'test: x', 'chore(deps): x', 'ci: x', 'build!: x', 'RELEASE: x', 'refactor: x', 'Refactor(core): x']) {
+      expect(isNonBehaviouralType(t), t).toBe(true);
+    }
+  });
+
+  it('does not match behavioural types, untyped subjects, or words that merely start with a type', () => {
+    for (const t of ['fix: x', 'feat(core): x', 'perf: x', 'Add contributing.md', 'docs are great', 'testing: x', 'builder: x', 'refactoring the module']) {
+      expect(isNonBehaviouralType(t), t).toBe(false);
+    }
+  });
+
+  it('leaves isHousekeepingTitle exactly as it was: refactor and release-with-a-reason are still not housekeeping', () => {
+    expect(isHousekeepingTitle('refactor: split error handling')).toBe(false);
+    expect(isHousekeepingTitle('release: publish with provenance')).toBe(false);
+    for (const t of ['docs: x', 'chore: x', 'style: x', 'test: x', 'build: x', 'ci: x', 'Merge pull request #3 from a/b', '[Backport v4] fix: x', 'Bump x from 1 to 2']) {
+      expect(isHousekeepingTitle(t), t).toBe(true);
+    }
   });
 });
