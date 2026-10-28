@@ -87,7 +87,7 @@ describe('first-run PR descriptions', () => {
     // fastify#6816 "Bumped v5.9.0" led the first-run sample box: its body (release notes) states a reason.
     const gh = fakeGitHub([[
       pr(6816, { title: 'Bumped v5.9.0' }),
-      pr(6010, { title: 'build(test/bundler/esbuild): bump esbuild' }),
+      pr(6010, { title: 'build(deps): bump esbuild from 0.25.12 to 0.28.1' }),
       pr(7089, { title: 'fix: clamp error statusCode between 400 and 599 with 500 fallback' }),
       pr(5, { body: null }),
     ]]);

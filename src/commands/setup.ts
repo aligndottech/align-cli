@@ -781,7 +781,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // entire pitch is an agent on your own machine reading a graph that never leaves it.
   console.log('');
   const localAgents = writesConfirmed
-    ? await connectDetectedAgents('local', { verbose: opts.verbose, editors })
+    ? await connectDetectedAgents('local', { verbose: opts.verbose, editors, projectMcpWritten: true })
     : { detected: 0, connected: 0, wired: [] as string[] };
 
   // Whenever ANY agent was wired - the project .mcp.json counts. This used to print

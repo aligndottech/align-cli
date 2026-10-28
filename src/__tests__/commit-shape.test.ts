@@ -37,13 +37,14 @@ describe('isReleaseOrBumpSubject', () => {
     'Bumps lodash from 4.17.20 to 4.17.21',
     'Release v5.9.0',
     'Released 5.11.2 with the fixes below',
-    'chore: release 5.9.0',
     'v5.9.0',
     '5.11.2',
     'Version 5.9.0',
     'chore(release): 5.9.0',
+    'Update dependency lodash to v3',
+    'Upgrade pino from 9 to 10',
+    'fix: bump lodash from 4.17.20 to 4.17.21',
     'build(deps): bump tiny-lru from 10.4.1 to 11.0.1 (#4694)',
-    'feat: bump ajv-compiler (#3687)',
   ])('is housekeeping: %s', (subject) => {
     expect(isReleaseOrBumpSubject(subject)).toBe(true);
   });
@@ -55,6 +56,21 @@ describe('isReleaseOrBumpSubject', () => {
     'feat: add support for version 2 of the schema',
     'Use release candidates only on the next branch',
     'fix: release the socket when the client aborts mid-request',
+    // a scope named release is a topic, not a version
+    'feat(release): publish with provenance attestations',
+    'fix(release): pin npm to 10 so the publish job stops failing',
+    // a bump that states why is a decision
+    'fix: bump timeout from 5s to 30s because the upstream is slow',
+    'feat: bump minimum Node to 20, drops 18',
+    'fix: bump lodash to 4.17.21 (CVE-2021-23337)',
+    'Update dependency lodash to v3 to avoid the prototype pollution',
+    'Release 2FA support for admin accounts',
+    'feat!: v6.0.0 drops Node 18',
+    'Revert "Bump x from 1 to 2"',
+    'feat: bump ajv-compiler (#3687)',
+    'Update documentation for listening to 0.0.0.0 (#5988)',
+    'docs: update all nodejs doc links to point to v14.x documentation (#3227)',
+    'Update @types/node to 15.3.0 and fix type definition (#3076)',
   ])('is a decision, not housekeeping: %s', (subject) => {
     expect(isReleaseOrBumpSubject(subject)).toBe(false);
   });

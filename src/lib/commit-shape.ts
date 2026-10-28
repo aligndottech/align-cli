@@ -25,25 +25,31 @@ export function mechanicalSubjectRegex(prefixes: readonly string[]): RegExp {
 
 const CONVENTIONAL_PREFIX = /^[a-z]+(?:\([^)]*\))?!?:\s*/i;
 const PR_REFERENCE = /\s*\(#\d+[^)]*\)/g;
-const RELEASE_SCOPE = /^[a-z]+\(release\)/i;
-// Bump, Bumps, Bumped ... as the first word once any `type(scope):` is gone; Release only when
-// it names a version or stands alone, so "fix: release the socket when the client aborts" stays a decision.
-const RELEASE_OR_BUMP_WORD = /^(?:bump\w*(?:\s|$)|releas\w*\s*$|releas\w*\s+v?\d)/i;
 // "v5.9.0", "5.11.2", "Version 6.0.0-alpha.1": a subject that is only a version.
 const VERSION_ONLY = /^(?:v(?:ersion)?\s*)?\d+\.\d+(?:\.\d+)?(?:[-+.][\w.-]+)?$/i;
+// "Bump", "Bumped v5.9.0", "Release 5.9.0": the word alone, or the word and a dotted version.
+const BARE_BUMP_OR_RELEASE = /^(?:bump\w*|releas\w*)(?:\s*$|\s+v?\d+\.\d)/i;
+// One package token moving to a version, and nothing else: "bump x from 1 to 2", "Update dependency x to v3". More words
+// after the version ("... and fix type definition"), or a sentence in between ("Update docs for listening to 0.0.0.0"), is prose.
+const DEPENDENCY_MOVE = /^(?:bump\w*|updat\w*|upgrad\w*)\s+(?:dependency\s+)?[@\w./-]+\s+(?:from\s+v?\d[\w.-]*\s+)?(?:to\s+v?\d[\w.-]*)(?:\s+in\s.*|\s*\(.*\))?[.]?$/i;
+// A subject that says why is a decision whatever its shape: "bump timeout ... because the upstream is slow",
+// "bump minimum Node to 20, drops 18", "bump lodash to 4.17.21 (CVE-2021-23337)".
+const STATED_WHY = /\b(?:because|so that|in order to|to avoid|to prevent|due to|since|cve-\d+|drops?|dropping|security|breaking)\b/i;
 
 /**
- * A release or version-bump subject: "Bumped v5.9.0", "Release v5.9.0", "v5.9.0",
- * "chore(release): 5.9.0", "build(deps): bump x from 1 to 2". The prefix list above only sees a
- * subject that STARTS with a word, so a scoped type ("build(deps): bump ...") slipped past it, and
- * a PR title never went through it at all. Dependency REPLACEMENTS ("build(deps): replace a with
- * b") are decisions and stay out: only the bump and release words count, not the `deps` scope.
+ * A release or version-bump subject with no stated reason. In words, after any `type(scope):` and
+ * `(#N)` are removed it is housekeeping when it is only a version ("v5.9.0"), or the word
+ * bump/release alone or followed by a dotted version ("Bumped v5.9.0", "Release 5.9.0"), or a
+ * bump/update/upgrade of something FROM a version or TO a version ("Bump x from 1 to 2", "Update
+ * dependency x to v3") - unless it also states why (because, to avoid, drops, a CVE ...). Its
+ * complement keeps: a `release` scope ("feat(release): publish with provenance"), a bump with a
+ * reason, "Release 2FA support", "feat!: v6.0.0 drops Node 18", and Revert "Bump x" (the prefix list handles that).
+ * Dependency REPLACEMENTS ("replace a with b") are decisions and never match.
  */
 export function isReleaseOrBumpSubject(subject: string): boolean {
-  const t = subject.trim();
-  if (RELEASE_SCOPE.test(t)) return true;
-  const body = t.replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
-  return RELEASE_OR_BUMP_WORD.test(body) || VERSION_ONLY.test(body);
+  const body = subject.trim().replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
+  if (STATED_WHY.test(body)) return false;
+  return VERSION_ONLY.test(body) || BARE_BUMP_OR_RELEASE.test(body) || DEPENDENCY_MOVE.test(body);
 }
 
 /**

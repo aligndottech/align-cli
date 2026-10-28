@@ -324,6 +324,16 @@ describe('fileQuestion', () => {
   });
 });
 
+describe('housekeeping never becomes a question', () => {
+  it('pickAskableTitle skips a renovate-style update title even though "update" is an askable verb', () => {
+    expect(pickAskableTitle(['Update dependency lodash to v3', 'use postgres'])).toBe('use postgres');
+  });
+  it('firstQuestion falls back to the generic question for one', () => {
+    expect(firstQuestion('Update dependency lodash to v3')).toBe('what decisions exist in this codebase?');
+    expect(firstQuestion('update the retry policy to back off')).toBe('why did we update the retry policy to back off?');
+  });
+});
+
 describe('starterPrompts', () => {
   it('learn the past, check a file, then watch the agent push back - on the same decision', () => {
     expect(starterPrompts({ titles: ['Improved docs', 'feat: switch to postgres (#3)'], hotFile: 'src/db.ts' })).toEqual([

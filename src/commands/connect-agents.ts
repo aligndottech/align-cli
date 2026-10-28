@@ -29,7 +29,8 @@ import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
  */
 export async function connectDetectedAgents(
   envName: EnvName,
-  opts: { verbose?: boolean; /** Already detected by the caller (setup lists their files before writing); one detection, one list. */ editors?: EditorTarget[] } = {},
+  opts: { verbose?: boolean; /** Already detected by the caller (setup lists their files before writing); one detection, one list. */ editors?: EditorTarget[];
+    /** The caller wrote the project .mcp.json just before this call (setup does; `align local start` does not). */ projectMcpWritten?: boolean } = {},
 ): Promise<{ detected: number; connected: number; wired: string[] }> {
   const editors = opts.editors ?? detectEditors();
   // writeMcpConfig takes undefined for prod: the default env needs no --env argument in the
@@ -58,16 +59,21 @@ export async function connectDetectedAgents(
     // spawn. So on Windows those two clients need the per-machine entry as well, and this is
     // the one place a user with no global agent config is told anything at all.
     const win = process.platform === 'win32';
+    const covered = !win && opts.projectMcpWritten === true;
     // On POSIX the project file connects Claude Code and pi, and "Your agent is connected" prints
     // right after this, so leading with "No agent found" contradicts it. The snippet is for the rest.
-    const lead = win
-      ? 'No agent found a GLOBAL config to connect to. The project\'s .mcp.json (written above) keeps the portable ' +
-        '`align` command so it works for the whole team, and Windows cannot spawn that one - so on this machine ' +
-        'Claude Code and pi need the per-machine entry below too. Other MCP-capable agents'
-      : 'Claude Code and pi are connected through the project\'s .mcp.json (written above), so they need nothing ' +
-        'further. The snippet below is only for other agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...)';
+    const others = 'Other MCP-capable agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...) work too';
+    const projectNote = win
+      ? 'The project\'s .mcp.json (written above) keeps the portable `align` command so it works for the whole ' +
+        'team, and Windows cannot spawn that one - so on this machine Claude Code and pi need the per-machine ' +
+        'entry below too. '
+      : 'Claude Code and pi already read the project\'s .mcp.json (written above), so those need nothing further. ';
+    const lead = covered
+      ? 'Claude Code and pi are connected through the project\'s .mcp.json (written above), so they need nothing ' +
+        'further. The snippet below is only for other agents (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...)'
+      : `No agent found a GLOBAL config to connect to. ${projectNote}${others}`;
     p.log.info(
-      `${lead}${win ? ' (Cursor, VS Code, Windsurf, Zed, Codex, Gemini CLI, ...) work too' : ''} - add this to ` +
+      `${lead} - add this to ` +
       `their config (or re-run ${chalk.bold(`align mcp --setup${envSuffix}`)} once installed):\n\n` +
       `  { "mcpServers": { "align": ${entry} } }`,
     );

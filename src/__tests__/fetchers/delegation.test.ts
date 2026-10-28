@@ -147,7 +147,7 @@ describe('CLI fetcher wrappers delegate to connector-core', () => {
         { count: 1, detail: 'skipped: commit message states no reason beyond the subject' },
         // 5 scanned - 1 kept - 1 rationale = 3, and never folded into the line above. The
         // parenthetical is the SAME list isDecisionCommit rejects on, by construction.
-        { count: 3, detail: `skipped as housekeeping: mechanical or too-short subject (${MECHANICAL_SUBJECT_PREFIXES.join(', ')})` },
+        { count: 3, detail: `skipped as housekeeping: mechanical or too-short subject (${MECHANICAL_SUBJECT_PREFIXES.join(', ')}; also version bumps and releases)` },
       ],
     });
     // Positive control on the derivation: the list has more than the four the first

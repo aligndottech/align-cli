@@ -78,7 +78,7 @@ const BASE_VERBS = new Set([
 
 /** The quotable phrase inside a commit subject or decision title, or undefined. */
 function askablePhrase(title: string | undefined): string | undefined {
-  if (!title || isCutTitle(title)) return undefined;
+  if (!title || isCutTitle(title) || isHousekeepingTitle(title)) return undefined;
   const phrase = title.trim().replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim().replace(/\.$/, '');
   if (phrase === '' || /[:?;#]/.test(phrase)) return undefined;
   const words = phrase.split(/\s+/);
@@ -90,7 +90,7 @@ function askablePhrase(title: string | undefined): string | undefined {
 
 /** The first title in the list that makes a grammatical question, as it was given. */
 export function pickAskableTitle(titles: readonly string[]): string | undefined {
-  return titles.find((t) => askablePhrase(t) !== undefined);
+  return titles.find((t) => !isHousekeepingTitle(t) && askablePhrase(t) !== undefined);
 }
 
 /**
