@@ -424,6 +424,20 @@ export function createLocalDb(dbPath: string) {
       return db.prepare(sql).all(...params) as unknown as DecisionRow[];
     },
 
+    /**
+     * The decisions whose source is one of these commits (a `/commit/<full sha>` url, any host)
+     * or one of these lower-cased PR urls. What `git blame` attribution maps onto; shas are
+     * matched in full, so a prefix never pulls in another commit.
+     */
+    findBySourceRefs(commitShas: string[], prUrls: string[]): DecisionRow[] {
+      const shas = [...new Set(commitShas)].filter((s) => /^[0-9a-f]{40}$/.test(s));
+      const prs = [...new Set(prUrls)];
+      if (!shas.length && !prs.length) return [];
+      const where = [...shas.map(() => `lower(source_url) LIKE '%/commit/' || ?`), ...prs.map(() => `lower(source_url) = ?`)];
+      return db.prepare(`SELECT ${DECISION_COLUMNS} FROM decisions WHERE ${where.join(' OR ')} ORDER BY created_at DESC, id`)
+        .all(...shas, ...prs) as unknown as DecisionRow[];
+    },
+
     getDecisionById(id: string): DecisionRow | null {
       return (db.prepare(
         `SELECT ${DECISION_COLUMNS} FROM decisions WHERE id = ?`

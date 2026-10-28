@@ -9,6 +9,7 @@ import { createGatewayClient } from '../lib/gateway-client.js';
 import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
 import { type HookPayload, type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
+import { findLineWriters, isWriterTitle } from '../lib/blame-attribution.js';
 import { markHookContext } from '../lib/hook-context.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 import {
@@ -483,6 +484,9 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // moves to a follow-up rather than timing out here and printing nothing. Nothing is lost:
     // the LLM runs whenever retrieval returns anything, so no tenant was getting a verdict
     // through the hook - the fast path measured 0.8s only because it was `no-context`.
+    // Runs beside retrieval, not before it: blame is local and bounded, so it adds nothing to the
+    // hook's wall clock. PRE only - a landed edit has no "lines about to change".
+    const writtenBy = pre ? decisionsThatWroteTheseLines(client, payload?.tool_input, cwd) : Promise.resolve<RelatedDecision[]>([]);
     let found: RelatedDecision[] | null = null;
     let markNotes: string[] = [];
     try {
@@ -499,17 +503,23 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       found = null;
     }
 
+    // Decisions the sibling hook already showed the agent moments ago are not repeated.
+    const seen = recentlySurfaced(cwd);
+    const wrote = (await writtenBy).filter((d) => !seen.has(d.id));
+
     if (found === null) {
-      // Never silent on a non-answer.
-      emit(buildUnknownOutput(renderOpts));
+      // Never silent on a non-answer. The writers are a deterministic answer in their own right.
+      if (wrote.length) markSurfaced(cwd, wrote.map((d) => d.id));
+      emit(wrote.length ? buildRelatedOutput([], renderOpts, wrote, true) : buildUnknownOutput(renderOpts));
       process.exit(0);
     }
 
     // LM: what a person's marks left out or an agent's marks changed, on stderr beside the hook JSON on stdout.
     for (const note of markNotes) process.stderr.write(`${note}\n`);
 
-    // Genuinely nothing related: a real answer, so staying quiet is honest here.
-    if (!found.length) process.exit(0);
+    // Genuinely nothing related: a real answer, so staying quiet is honest here - unless blame
+    // named the decision that wrote these lines.
+    if (!found.length && !wrote.length) process.exit(0);
 
     // Retrieval found decisions on this subject, so the proposed content is worth
     // the slow full check - AFTER this hook returns. Spawned detached and unref'd so the
@@ -528,12 +538,11 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       }
     }
 
-    // Drop decisions the sibling hook already showed the agent moments ago.
-    const seen = recentlySurfaced(cwd);
-    const fresh = found.filter((d) => !seen.has(d.id));
-    if (fresh.length) {
-      markSurfaced(cwd, fresh.map((d) => d.id));
-      emit(buildRelatedOutput(fresh, renderOpts));
+    const writerIds = new Set(wrote.map((d) => d.id));
+    const fresh = found.filter((d) => !seen.has(d.id) && !writerIds.has(d.id));
+    if (fresh.length || wrote.length) {
+      markSurfaced(cwd, [...wrote, ...fresh].map((d) => d.id));
+      emit(buildRelatedOutput(fresh, renderOpts, wrote));
     }
   } catch {
     // Fail open: swallow everything (gateway error, network, bad config).
@@ -662,16 +671,50 @@ type RelatedDecision = { id: string; title: string; summary?: string };
 // Retrieval finds decisions on the same SUBJECT. It does not encode opposition - a measurement
 // put the agreeing pair at cosine 0.38 against the contradicting pair at 0.31 - so this
 // wording must never assert a conflict. Saying "related" is the honest claim and the useful one.
-export function buildRelatedOutput(decisions: RelatedDecision[], opts: AdvisoryRenderOpts): unknown | null {
+export function buildRelatedOutput(decisions: RelatedDecision[], opts: AdvisoryRenderOpts, wrote: RelatedDecision[] = [], retrievalFailed = false): unknown | null {
   const lines = decisions.map((d) => `- ${d.title}`);
+  // `git blame` names these deterministically: they are not a guess about the subject, they put these exact lines here.
+  const writerBlock = wrote.length
+    ? [
+        `Align decision graph: the lines this edit changes were written by ${wrote.length > 1 ? `${wrote.length} prior decisions` : 'a prior decision'} (found with git blame, not content search):`,
+        ...wrote.map((d) => `- ${d.title}`),
+        'Check that this change still honours what they decided before continuing.',
+      ]
+    : [];
+  const related = decisions.length
+    ? [
+        `${wrote.length ? 'Also, ' : 'Align decision graph: '}${decisions.length} prior decision${decisions.length > 1 ? 's relate' : ' relates'} to this change:`,
+        ...lines,
+        'These are related by content search and have NOT been adjudicated. Check whether any of them opposes this change before continuing.',
+      ]
+    : [];
   const summary = [
-    `Align decision graph: ${decisions.length} prior decision${decisions.length > 1 ? 's relate' : ' relates'} to this change:`,
-    ...lines,
-    'These are related by content search and have NOT been adjudicated. Check whether any of them opposes this change before continuing.',
+    ...writerBlock,
+    ...related,
+    ...(retrievalFailed ? ['Align could not check this change against the rest of the decision graph (retrieval failed or timed out); treat the rest as UNVERIFIED.'] : []),
     // The model is the only reader of this text; without this line the user cannot tell the hook ran.
     'Tell the user in one line which of these you checked against and whether this change agrees with it.',
   ].join('\n');
   return renderForHost(summary, opts, false);
+}
+
+type DecisionLookup = { decisionsBySourceRefs?: (shas: string[], prUrls: string[]) => RelatedDecision[] };
+
+/**
+ * The decisions that wrote the lines this edit replaces: `git blame` the lines, then a keyed lookup
+ * of the blamed commits and PRs in the graph. Local mode only (the cloud client has no such lookup yet,
+ * so it is skipped). Fail-open: any problem returns [] and the hook behaves as it did before.
+ */
+async function decisionsThatWroteTheseLines(client: unknown, input: HookToolInput | undefined, cwd: string): Promise<RelatedDecision[]> {
+  try {
+    const lookup = (client as DecisionLookup).decisionsBySourceRefs;
+    if (typeof lookup !== 'function') return [];
+    const writers = await findLineWriters(input, cwd);
+    if (!writers) return [];
+    return lookup.call(client, writers.commitShas, writers.prUrls).filter((d) => isWriterTitle(d.title)).slice(0, 5);
+  } catch {
+    return [];
+  }
 }
 
 // A check that could not run is not a pass. Silence here would be
