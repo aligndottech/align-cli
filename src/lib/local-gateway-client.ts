@@ -693,6 +693,14 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       return { results, count: results.length, strategy: 'semantic', scope: effectiveRepo, ...(dropNotes.length ? { notes: dropNotes } : {}) };
     },
 
+    /**
+     * Decisions whose source is a commit or PR that `git blame` named as the writer of the lines an
+     * edit changes (blame-attribution.ts). A keyed lookup on `source_url`: no embedding, no model.
+     */
+    decisionsBySourceRefs(commitShas: string[], prUrls: string[]): Array<{ id: string; title: string; summary: string; url?: string }> {
+      return db.findBySourceRefs(commitShas, prUrls).map((r) => ({ id: r.id, title: r.title, summary: r.summary, ...(r.sourceUrl ? { url: r.sourceUrl } : {}) }));
+    },
+
     async checkAlignment(
       diff: string,
       _context?: string,
