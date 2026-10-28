@@ -497,11 +497,11 @@ export const TOOL_SCHEMAS = [
   {
     name: 'align_check_alignment',
     annotations: READS,
-    description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding. An "unknown" status means the check could not run and is NOT a pass: the decisions it returns are unchecked, so stop and ask the human rather than treating it as clear.',
+    description: 'BEFORE writing or changing significant code, call this with the proposed change to surface prior decisions across ALL the user\'s tools (Slack, Jira, GitHub, git) that it conflicts with or relates to. A "conflict" status means the change opposes a past decision - stop and confirm with the user before proceeding. An "unknown" status means the check could not run and is NOT a pass: the decisions it returns are unchecked, so stop and ask the human rather than treating it as clear. Pass a real unified diff when you have one, and name the files you intend to change: the decisions that wrote those lines are checked too (found_by: blame-lines or blame-file).',
     inputSchema: {
       type: 'object',
       properties: {
-        diff: { type: 'string', description: 'Git diff or description of proposed change' },
+        diff: { type: 'string', description: 'Unified diff of the proposed change if you have one, else a description that names the files to change' },
         context: { type: 'string', description: 'Additional context (branch name, PR title)' },
       },
       required: ['diff'],
