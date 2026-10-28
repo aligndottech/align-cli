@@ -84,6 +84,22 @@ describe('withoutTrailers', () => {
     expect(withoutTrailers('Body\nHelped-by: Z\nReviewed-on: https://x.test/1')).toBe('Body');
   });
 
+  it('strips a trailing "Issue: #123" after a blank line but keeps an opening "Issue: <reason>" line', () => {
+    const body = 'Issue: users get a 500 when the token expires\n\nThe handler now refreshes first.\n\nIssue: #123';
+    expect(withoutTrailers(body)).toBe('Issue: users get a 500 when the token expires\n\nThe handler now refreshes first.');
+    expect(withoutTrailers('Bug: crash on empty input\n\nFixed the guard.\n\nBug: #9')).toBe('Bug: crash on empty input\n\nFixed the guard.');
+  });
+
+  it('strips only the trailing block: a mid-body trailer-looking line and a mid-body rule survive', () => {
+    const body = 'Intro.\n\nCc: mid-body note\n\n---\n\nMore text.\n\nSigned-off-by: A <a@b.c>';
+    expect(withoutTrailers(body)).toBe('Intro.\n\nCc: mid-body note\n\n---\n\nMore text.');
+  });
+
+  it('strips fastify-style squash tails whole', () => {
+    const body = 'Subject line\n\n---------\n\nSigned-off-by: A <a@b.c>\nCo-authored-by: B <b@c.d>\nCo-authored-by: C <c@d.e>';
+    expect(withoutTrailers(body)).toBe('Subject line');
+  });
+
   it('drops the dashed separator a squash merge adds', () => {
     expect(withoutTrailers('Body\n\n---------\n\nSigned-off-by: A <a@b.c>')).toBe('Body');
     expect(withoutTrailers('Body\n-----\nCo-authored-by: A <a@b.c>')).toBe('Body');

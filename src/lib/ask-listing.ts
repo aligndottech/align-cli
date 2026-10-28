@@ -67,21 +67,22 @@ export function withoutTitle(summary: string, title: string): string {
 }
 
 // The dashed rule a squash merge puts above its trailers. The trailer keys themselves come from
-// reason-extract's TRAILER, the one list, anchored to the line start so a sentence that merely
-// mentions "signed-off-by" is kept.
+// reason-extract's TRAILER, the one list, anchored to the line start.
 const SEPARATOR_LINE = /^\s*-{3,}\s*$/;
 
 /**
- * A commit body without its git trailers (the shared TRAILER list in reason-extract) and the `---------` rule squash merges add.
- * Line-based, so it must run BEFORE whitespace is flattened. Display only: the stored
- * summary keeps its trailers, which are provenance and still feed search.
+ * A commit body without its TRAILING block of git trailers (reason-extract's TRAILER list) and
+ * the `---------` rule squash merges add above them. Only the end is stripped, as git defines
+ * trailers: a mid-body or opening "Issue: ..." line, or a markdown rule, stays. Line-based, so
+ * it must run BEFORE whitespace is flattened. Display only: the stored summary keeps its
+ * trailers, which are provenance and still feed search.
  */
 export function withoutTrailers(summary: string): string {
-  return summary
-    .split('\n')
-    .filter((line) => !TRAILER.test(line) && !SEPARATOR_LINE.test(line))
-    .join('\n')
-    .trim();
+  const lines = summary.split('\n');
+  let end = lines.length;
+  // Walk up from the end over trailer lines, blanks and dashed rules; the first other line ends the block.
+  while (end > 0 && (TRAILER.test(lines[end - 1]) || SEPARATOR_LINE.test(lines[end - 1]) || !lines[end - 1].trim())) end -= 1;
+  return lines.slice(0, end).join('\n').trim();
 }
 
 const normTitle = (t: string): string =>
