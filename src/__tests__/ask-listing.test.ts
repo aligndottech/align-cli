@@ -79,6 +79,11 @@ describe('withoutTrailers', () => {
     expect(withoutTrailers(body)).toBe('Why we did it');
   });
 
+  it('drops Cc and Suggested-by trailers too, from the one shared list', () => {
+    expect(withoutTrailers('Body\nCc: someone@example.test\nSuggested-by: Q <q@r.s>')).toBe('Body');
+    expect(withoutTrailers('Body\nHelped-by: Z\nReviewed-on: https://x.test/1')).toBe('Body');
+  });
+
   it('drops the dashed separator a squash merge adds', () => {
     expect(withoutTrailers('Body\n\n---------\n\nSigned-off-by: A <a@b.c>')).toBe('Body');
     expect(withoutTrailers('Body\n-----\nCo-authored-by: A <a@b.c>')).toBe('Body');

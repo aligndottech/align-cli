@@ -290,4 +290,13 @@ describe('trailers and the gap hint in the printed list', () => {
     respond([hit(1, 0.6, 's1'), hit(2, 0.6, 's2')]);
     expect(await ask()).not.toContain("I can't read");
   });
+  it('under a written answer: hint once, one blank line after it, never two', async () => {
+    synthesiseDetailed.mockResolvedValue({ ok: true, text: 'We chose Postgres.' });
+    respond([1, 2].map((n) => withRef(hit(n, 0.6, `s${n}`))));
+    const out = await ask();
+    expect(out.match(/I can't read/g)).toHaveLength(1);
+    expect(out).toContain("2 of these cite an issue-tracker ref I can't read");
+    // join('\n') of [hint, ''] ends in one newline; [hint, '', ''] would end in two.
+    expect(out).toMatch(/gitlab\n$/);
+  });
 });

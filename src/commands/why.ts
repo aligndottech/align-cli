@@ -111,10 +111,11 @@ function sourceLink(d: SearchHit): string | null {
  * times. Absent for a cloud result, which carries no external_references (the hosted
  * gateway does not store decision_refs yet).
  */
-function printGapHints(rows: SearchHit[], isConnected: (connectorId: string) => boolean): void {
+function printGapHints(rows: SearchHit[], isConnected: (connectorId: string) => boolean, trailingBlank: boolean): void {
   const hints = askGapHints(rows.map((d) => ({ refs: d.external_references ?? [] })), isConnected);
   for (const h of hints) console.log(chalk.dim(`  ${h}`));
-  if (hints.length) console.log('');
+  // The caller's own blank line follows when it has one; the list path does not.
+  if (hints.length && trailingBlank) console.log('');
 }
 
 /**
@@ -396,7 +397,7 @@ export function registerAskCommand(program: Command): void {
               const link = sourceLink(d);
               if (link) console.log(link);
             }
-            printGapHints(shown, isConnected);
+            printGapHints(shown, isConnected, false);
             console.log('');
             // The invite nudge's clearest moment - the graph just answered from a
             // decision someone else made. Replaces the old "5+ results" heuristic, which
@@ -543,7 +544,7 @@ export function registerAskCommand(program: Command): void {
           console.log('');
         }
 
-        printGapHints(listed, isConnected);
+        printGapHints(listed, isConnected, true);
 
         if (listed.length < results.results.length) {
           console.log(chalk.dim(`  ... and ${results.results.length - listed.length} more (use --limit ${results.results.length})`));
