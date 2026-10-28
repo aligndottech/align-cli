@@ -124,6 +124,17 @@ describe('advisory blame attribution', () => {
   });
 });
 
+describe('every related hit is also a writer', () => {
+  it('is still well formed: writers block, no empty related list, and the closing instruction', async () => {
+    mockCheckAlignment.mockResolvedValue({ status: 'retrieved', relevant_decisions: [WRITER], conflicts: [] });
+    const out = (await run()).trimEnd();
+    expect(out.startsWith('Align decision graph: the lines this edit changes were written by a prior decision')).toBe(true);
+    expect(out).not.toContain('relate to this change');
+    expect(out).not.toContain('NOT been adjudicated');
+    expect(out.split('\n').at(-1)).toBe('Tell the user in one line which of these you checked against and whether this change agrees with it.');
+  });
+});
+
 describe('only decisions worth honouring count as writers', () => {
   const DOCS = { id: 'd1', title: 'docs(readme): move table of contents (#4722)', summary: 's' };
 

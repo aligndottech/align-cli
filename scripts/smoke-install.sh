@@ -379,8 +379,12 @@ echo "$ADVISORY_OUT"
 # exactly its documented give-up path. Either condition alone leaves it a failure.
 if [ "$ADVISORY_RC" -ne 0 ]; then
   fail_step "advisory hook exited $ADVISORY_RC$([ "$ADVISORY_RC" -eq 124 ] && echo ' = TIMED OUT / HUNG')"
-elif printf '%s' "$ADVISORY_OUT" | grep -q "NOT been adjudicated"; then
-  echo "PASS: advisory hook surfaced related decisions, retrieval-only, with no provider key"
+elif printf '%s' "$ADVISORY_OUT" | grep -qE "NOT been adjudicated|found with git blame, not content search"; then
+  # Two shapes both mean "the hook reached the graph and returned decisions": the related list
+  # ("NOT been adjudicated"), or the writers block when blame names the very decisions retrieval
+  # found (they are listed once, as writers, so the related list is empty and absent). An empty
+  # result, an error or "could not check" matches neither and still falls through to a failure.
+  echo "PASS: advisory hook surfaced decisions from the graph, retrieval-only, with no provider key"
 elif [ "$MODEL_RATE_LIMITED" -eq 1 ] && printf '%s' "$ADVISORY_OUT" | grep -q "could not check this change"; then
   skip_upstream "advisory hook"
 else
