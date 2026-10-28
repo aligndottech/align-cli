@@ -1,10 +1,10 @@
 {
-  "revision": "2026-10-11 r2: adds relationship-prompt.v1.txt, the shared v1 base prompt (hosted ANALYSIS_RULES rules 0-3, the similar[] item schema and type list, no hosted-only extensions)",
+  "revision": "2026-10-28 r3: parse.evidenceOverflow = clip, so an over-long evidence quote is clipped to parse.evidenceMaxWords words instead of discarding the verdict",
   "files": {
-    "relationship-contract.v1.json": "deef10c22f5c2c9c6f3773fbbdcf2c555e0430adbf5e496830cb9d240ebcb04d",
-    "parse-vectors.json": "9633c9fe3730e3b88a879da7efb63c78f52f7858a193489c1540101036d692d3",
-    "relationship-contract.ts": "129a2908d1e8c4a8715aea68c41831a9f222393da219bf574539e7fda8b1d293",
-    "__tests__/relationship-contract.test.ts": "f9ab3211ecef5438916515180426817014fec28779d6f5872a7f9f1829f14840",
+    "relationship-contract.v1.json": "91cc8ef7a6eeba12871bbc277c83df3e9f81dd648a21c061f92c8c11836acbbe",
+    "parse-vectors.json": "f82ec8dd304628d2490dd3d2376e61bea6da8c2a4c09f2fc81d090e16059bdf5",
+    "relationship-contract.ts": "546c07ac934afdb5869eeeb184ac853720224b62a39b757fc3eff9556cf8305d",
+    "__tests__/relationship-contract.test.ts": "5b77ba04841ceae49a8e252b5a2977f426b08d43296babef6511d3af1979efa2",
     "relationship-prompt.v1.txt": "d7365313b61a2862fef3a0e397eda96b1ddebe769a6e5f99f4e155748665c896"
   }
 }

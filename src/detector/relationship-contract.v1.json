@@ -1,7 +1,7 @@
 {
   "contract": "align.relationship",
   "version": 1,
-  "revision": "2026-10-11 r2: adds relationship-prompt.v1.txt, the shared v1 base prompt (hosted ANALYSIS_RULES rules 0-3, the similar[] item schema and type list, no hosted-only extensions)",
+  "revision": "2026-10-28 r3: parse.evidenceOverflow = clip, so an over-long evidence quote is clipped to parse.evidenceMaxWords words instead of discarding the verdict",
   "types": [
     "blocks",
     "clarifies",
@@ -47,7 +47,8 @@
   "parse": {
     "confidenceDefault": 0.5,
     "confidenceClamp": [0, 1],
-    "evidenceMaxWords": 15
+    "evidenceMaxWords": 15,
+    "evidenceOverflow": "clip"
   },
   "temperature": 0
 }

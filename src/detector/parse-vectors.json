@@ -388,17 +388,59 @@
       }
     },
     {
-      "name": "evidence over the word cap on the new side is dropped",
+      "name": "evidence-16-words-clipped",
       "offer": "v1Candidate",
       "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15 n16\", \"existing_quote\": \"e1 e2 e3\"}}",
-      "expected": null,
-      "note": "16 words = parse.evidenceMaxWords + 1"
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "x",
+        "evidence": {
+          "new_quote": "n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15",
+          "existing_quote": "e1 e2 e3"
+        },
+        "replaced": null
+      },
+      "note": "16 words = parse.evidenceMaxWords + 1, clipped to the first 15 words"
     },
     {
-      "name": "evidence over the word cap on the existing side is dropped",
+      "name": "evidence-40-words-clipped",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15 n16 n17 n18 n19 n20 n21 n22 n23 n24 n25 n26 n27 n28 n29 n30 n31 n32 n33 n34 n35 n36 n37 n38 n39 n40\", \"existing_quote\": \"e1 e2 e3\"}}",
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "x",
+        "evidence": {
+          "new_quote": "n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15",
+          "existing_quote": "e1 e2 e3"
+        },
+        "replaced": null
+      },
+      "note": "40 words, clipped to the first 15 words (parse.evidenceOverflow = clip)"
+    },
+    {
+      "name": "evidence over the word cap on the existing side is clipped",
       "offer": "v1Candidate",
       "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"n1 n2 n3\", \"existing_quote\": \"e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 e15 e16\"}}",
-      "expected": null
+      "expected": {
+        "type": "incompatible",
+        "confidence": 0.8,
+        "reason": "x",
+        "evidence": {
+          "new_quote": "n1 n2 n3",
+          "existing_quote": "e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 e15"
+        },
+        "replaced": null
+      },
+      "note": "16 words on the existing side, clipped to the first 15 words"
+    },
+    {
+      "name": "evidence-empty-quote-rejected",
+      "offer": "v1Candidate",
+      "raw": "{\"type\": \"incompatible\", \"confidence\": 0.8, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"  \", \"existing_quote\": \"e1 e2 e3\"}}",
+      "expected": null,
+      "note": "a blank quote is absent evidence, never clipped to something"
     },
     {
       "name": "evidence at exactly the word cap is accepted",
@@ -449,16 +491,20 @@
       "note": "15 words split by a mix of space, tab and newline"
     },
     {
-      "name": "relates with evidence over the cap keeps the item and drops the evidence",
+      "name": "relates with evidence over the cap keeps the item and clips the evidence",
       "offer": "v1Candidate",
       "raw": "{\"type\": \"relates\", \"confidence\": 0.4, \"reason\": \"x\", \"evidence\": {\"new_quote\": \"n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15 n16\", \"existing_quote\": \"e1 e2 e3\"}}",
       "expected": {
         "type": "relates",
         "confidence": 0.4,
         "reason": "x",
-        "evidence": null,
+        "evidence": {
+          "new_quote": "n1 n2 n3 n4 n5 n6 n7 n8 n9 n10 n11 n12 n13 n14 n15",
+          "existing_quote": "e1 e2 e3"
+        },
         "replaced": null
-      }
+      },
+      "note": "16 words, clipped to the first 15 words"
     },
     {
       "name": "relates with null evidence keeps the item",

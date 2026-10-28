@@ -52,16 +52,22 @@ function wordCount(quote: string): number {
   return quote.split(/[ \t\n\r]+/).filter((w) => w !== '').length;
 }
 
-/** Both quotes present, non-blank and within the cap, or null. A half-populated pair reads as absent. */
+/**
+ * A quote over the cap is clipped (parse.evidenceOverflow = "clip") to its first maxWords words
+ * joined by single spaces; one within the cap is returned exactly as written.
+ */
+function clipQuote(quote: string, maxWords: number): string {
+  const words = quote.split(/[ \t\n\r]+/).filter((w) => w !== '');
+  return words.length > maxWords ? words.slice(0, maxWords).join(' ') : quote;
+}
+
+/** Both quotes present and non-blank, clipped to the cap, or null. A half-populated pair reads as absent. */
 function readEvidence(value: unknown, maxWords: number): ParsedRelationshipItem['evidence'] {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const { new_quote: newQuote, existing_quote: existingQuote } = value as Record<string, unknown>;
   if (typeof newQuote !== 'string' || typeof existingQuote !== 'string') return null;
-  for (const quote of [newQuote, existingQuote]) {
-    const words = wordCount(quote);
-    if (words === 0 || words > maxWords) return null;
-  }
-  return { new_quote: newQuote, existing_quote: existingQuote };
+  if (wordCount(newQuote) === 0 || wordCount(existingQuote) === 0) return null;
+  return { new_quote: clipQuote(newQuote, maxWords), existing_quote: clipQuote(existingQuote, maxWords) };
 }
 
 export function parseRelationshipItem(
@@ -102,6 +108,9 @@ export function parseRelationshipItem(
 /** What is wrong with the lists in a contract, one sentence each. Empty means they agree. */
 export function contractProblems(contract: RelationshipContract): string[] {
   const problems: string[] = [];
+  if (contract.parse.evidenceOverflow !== 'clip') {
+    problems.push('parse.evidenceOverflow must be "clip", the only allowed value');
+  }
   const types: readonly string[] = contract.types;
   const verdicts: readonly string[] = contract.verdictTypes;
   for (const t of new Set(types.filter((x, i) => types.indexOf(x) !== i))) {
