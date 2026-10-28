@@ -815,8 +815,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           // getter happened to hold by the time the loop finished.
           failure: outcome.ok ? undefined : outcome.failure,
           reason: rel?.reason,
-          // A decision found only by blame was not scored by search; say nothing rather than a 0 that reads as a measurement.
-          similarity: c.via === 'search' || c.score > 0 ? c.score : undefined,
+          similarity: c.score,
         });
       }
 

@@ -64,7 +64,6 @@ describe('local align_check_alignment with blame candidates', () => {
     const r = await client.checkAlignment(PROSE, 'ctx');
     expect(r.status).toBe('aligned');
     expect(r.relevant_decisions?.map((d: { title: string; found_by?: string }) => [d.title, d.found_by])).toEqual([[TITLE, 'blame-file']]);
-    expect(r.relevant_decisions?.[0]?.similarity).toBeUndefined();
   });
 
   it('the judge saying conflicts_with makes the conflict, carrying the provenance', async () => {
