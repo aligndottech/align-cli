@@ -1315,7 +1315,7 @@ describe('align setup', () => {
         raw_text: `fix: thing ${n} (#${n})\n\nThe router rebuilt its table because the cache key ignored the prefix.\n\nStatus: merged\nRepo: o/r`,
         created_at: '2026-03-08T10:00:00.000Z',
       });
-      const outcome = (over: Record<string, unknown> = {}) => ({ items: [prItem(7)], scanned: 40, imported: 1, numbers: new Set([7]), shas: new Set(['a'.repeat(40)]), ...over });
+      const outcome = (over: Record<string, unknown> = {}) => ({ items: [prItem(7)], scanned: 40, housekeeping: 0, imported: 1, numbers: new Set([7]), shas: new Set(['a'.repeat(40)]), ...over });
       const ingested = () => mockIngestBatch.mock.calls.flatMap((c) => c[0] as Array<{ title: string; source_url: string; platform: string }>);
 
       it('imports the PR row and not the squash commit that carries the same change', async () => {
@@ -1334,8 +1334,25 @@ describe('align setup', () => {
         expect(rows.some((r) => r.title === 'feat: unrelated change (#99)' && r.platform === 'git')).toBe(true);
         // and the report says where the dropped commit went, so its count still adds up
         const printed = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
-        expect(printed).toContain('1 commits that are the squash of an imported PR, listed once as the PR');
+        expect(printed).toContain('1 commit that is the squash of an imported PR, listed once as the PR');
         expect(mockFetchFirstRunPrs).toHaveBeenCalledWith('github.com/o/r');
+      });
+
+      it('reports release and version-bump PRs on their own line, not as "no reason"', async () => {
+        mockFetchFirstRunPrs.mockResolvedValue(outcome({ housekeeping: 3 }));
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        const printed = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+        expect(printed).toMatch(/3 merged PRs that are a release or version bump, not imported/);
+        expect(printed).toMatch(/36 merged PRs whose description states no reason, not imported/);
+      });
+
+      it('says "1 PR" and "1 PR" in the singular, never "1 merged PRs"', async () => {
+        mockFetchFirstRunPrs.mockResolvedValue(outcome({ scanned: 3, housekeeping: 1, imported: 1 }));
+        await makeProgram().parseAsync(['node', 'align', '--local']);
+        const printed = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
+        expect(printed).toMatch(/\b1 merged PR that is a release or version bump, not imported/);
+        expect(printed).toMatch(/\b1 merged PR whose description states no reason, not imported/);
+        expect(printed).not.toMatch(/\b1 merged PRs/);
       });
 
       it('names the PR descriptions in the capture report and the found box', async () => {

@@ -288,6 +288,35 @@ describe("connectDetectedAgents - the zero-editors message", () => {
     expect(all).toContain(".mcp.json");
     expect(all).toMatch(/claude code|pi/i);
   });
+
+  it("setup's caller (project .mcp.json just written): no 'No agent found' lead, Claude Code and pi are connected", () => {
+    // Printed directly above "Your agent is connected: Claude Code." in the same run, it read as a contradiction.
+    setPlatform("linux");
+    detectEditors.mockReturnValue([]);
+    connectDetectedAgents("local", { projectMcpWritten: true });
+    const all = logged.join("\n");
+    expect(all).not.toMatch(/no agent found/i);
+    expect(all).toMatch(/^Claude Code and pi are connected through the project's \.mcp\.json/);
+    expect(all).toContain("only for other agents");
+  });
+
+  it("other callers (align local start writes no .mcp.json) keep the conditional wording", () => {
+    setPlatform("linux");
+    detectEditors.mockReturnValue([]);
+    connectDetectedAgents("local");
+    const all = logged.join("\n");
+    expect(all).toMatch(/^No agent found a GLOBAL config/);
+    expect(all).not.toMatch(/are connected through/);
+  });
+
+  it("on Windows the project file is not enough, so even setup's caller says per-machine entry is needed", () => {
+    setPlatform("win32");
+    detectEditors.mockReturnValue([]);
+    connectDetectedAgents("local", { projectMcpWritten: true });
+    const all = logged.join("\n");
+    expect(all).toMatch(/^No agent found a GLOBAL config/);
+    expect(all).toContain("per-machine entry");
+  });
 });
 
 // mcp_wired is a funnel stage - the emitter fires from inside

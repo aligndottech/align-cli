@@ -132,6 +132,11 @@ describe('isDecisionCommit rejects every listed mechanical prefix (one writer)',
 });
 
 describe('isDecisionCommit', () => {
+  it('rejects a long dependency-bump subject under a scope the prefix list cannot see', () => {
+    expect(isDecisionCommit('build(deps): bump tiny-lru from 10.4.1 to 11.0.1 (#4694)')).toBe(false);
+    expect(isDecisionCommit('build(deps): replace `proxy-addr` with `@fastify/proxy-addr` (#5913)')).toBe(true);
+  });
+
   it('rejects subjects shorter than 20 chars', () => {
     expect(isDecisionCommit('fix typo')).toBe(false);
   });

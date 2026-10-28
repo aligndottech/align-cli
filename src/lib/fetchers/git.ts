@@ -26,7 +26,7 @@ export function gitCaptureSkips(counts: { scanned: number; kept: number; rejecte
           count: mechanical,
           // The list is the one the predicate is built from, so the line cannot name a
           // different set than the one that did the rejecting.
-          detail: `skipped as housekeeping: mechanical or too-short subject (${MECHANICAL_SUBJECT_PREFIXES.join(', ')})`,
+          detail: `skipped as housekeeping: mechanical or too-short subject (${MECHANICAL_SUBJECT_PREFIXES.join(', ')}; also version bumps and releases)`,
         }]
       : []),
   ];

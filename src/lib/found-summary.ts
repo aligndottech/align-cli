@@ -12,6 +12,7 @@
  * value-rollup.ts's renderValueReadout).
  */
 import { localCitationFor } from './commit-cite.js';
+import { isCutTitle, isHousekeepingTitle } from './commit-shape.js';
 
 /** How many decisions the summary names. Five fits a terminal without scrolling. */
 export const FOUND_SUMMARY_MAX = 5;
@@ -37,14 +38,6 @@ export interface FoundSummaryDb {
   listLinks(filter?: { relation?: string }): Array<{ sourceId: string; targetId: string }>;
 }
 
-/**
- * Subjects that read as housekeeping, not as a choice. The importer keeps them (a
- * docs commit can state a reason), so this only decides what the first-run box SHOWS first.
- * Conventional `type:` / `type(scope):` shapes only, so prose like "document the retry
- * policy" is not demoted; plus git's own Merge subjects (not prose like "Merge the two workers") and a `[DRAFT` / `[WIP` marker.
- */
-const HOUSEKEEPING_SUBJECT = /^(?:(?:docs|chore|ci|test|style|build)(?:\([^)]*\))?!?:|merge\s+(?:pull request|branch|remote-tracking|tag)\b|\[(?:draft|wip)\b)/i;
-
 export function buildFoundSummary(db: FoundSummaryDb): FoundSummary {
   // The graph total comes from the db's COUNT, never from the length of the page
   // below - those differ by two orders of magnitude on a real repo, and reporting
@@ -63,12 +56,13 @@ export function buildFoundSummary(db: FoundSummaryDb): FoundSummary {
   // listDecisions() is already ordered created_at DESC, so the head of it is the
   // recent page. The cap is applied here rather than in the renderer so a caller
   // reading `recent.length` gets the number that will actually be printed.
-  // Housekeeping subjects sort after the rest (stable, so db order holds inside each group)
+  // Titles the graph cut at 80 characters, then housekeeping subjects, sort after the rest (stable, so db order holds inside each group)
   // and still fill the sample when too few real changes exist.
   const rows = db.listDecisions();
   const ranked = [
-    ...rows.filter((r) => !HOUSEKEEPING_SUBJECT.test(r.title)),
-    ...rows.filter((r) => HOUSEKEEPING_SUBJECT.test(r.title)),
+    ...rows.filter((r) => !isHousekeepingTitle(r.title) && !isCutTitle(r.title)),
+    ...rows.filter((r) => !isHousekeepingTitle(r.title) && isCutTitle(r.title)),
+    ...rows.filter((r) => isHousekeepingTitle(r.title)),
   ];
   const recent = ranked.slice(0, FOUND_SUMMARY_MAX).map((row) => {
     const cite = localCitationFor(row.sourceUrl);

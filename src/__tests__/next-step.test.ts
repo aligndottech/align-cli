@@ -324,6 +324,16 @@ describe('fileQuestion', () => {
   });
 });
 
+describe('housekeeping never becomes a question', () => {
+  it('pickAskableTitle skips a renovate-style update title even though "update" is an askable verb', () => {
+    expect(pickAskableTitle(['Update dependency lodash to v3', 'use postgres'])).toBe('use postgres');
+  });
+  it('firstQuestion falls back to the generic question for one', () => {
+    expect(firstQuestion('Update dependency lodash to v3')).toBe('what decisions exist in this codebase?');
+    expect(firstQuestion('update the retry policy to back off')).toBe('why did we update the retry policy to back off?');
+  });
+});
+
 describe('starterPrompts', () => {
   it('learn the past, check a file, then watch the agent push back - on the same decision', () => {
     expect(starterPrompts({ titles: ['Improved docs', 'feat: switch to postgres (#3)'], hotFile: 'src/db.ts' })).toEqual([
@@ -343,6 +353,30 @@ describe('starterPrompts', () => {
     expect(starterPrompts({ titles: ['All PRs must pass CI'] })).toEqual([
       'what decisions exist in this codebase?',
       'Plan a change that reverses "All PRs must pass CI". Check it with Align before writing anything.',
+    ]);
+  });
+
+  it('never reverses release housekeeping: the reversal names the decision with a reason', () => {
+    const prompts = starterPrompts({ titles: ['Bumped v5.9.0', 'fix: clamp error statusCode between 400 and 599 with 500 fallback (#7089)'] });
+    expect(prompts[1]).toBe('Plan a change that reverses "clamp error statusCode between 400 and 599 with 500 fallback". Check it with Align before writing anything.');
+    expect(prompts.join('\n')).not.toMatch(/Bumped/);
+  });
+
+  it('with only housekeeping to name, falls back to the generic prompts instead of quoting it', () => {
+    const prompts = starterPrompts({ titles: ['Bumped v5.9.0', 'v5.9.1'] });
+    expect(prompts).toEqual([
+      'what decisions exist in this codebase?',
+      'Pick a decision Align has on record here and plan a change that reverses it. Check it with Align before writing anything.',
+    ]);
+  });
+
+  it('does not quote a title the graph cut mid-word at 80 characters', () => {
+    const cut = 'refactor(types)!: remove deprecated FastifyRequestContext and FastifyReplyContex'.slice(0, 80);
+    expect(cut).toHaveLength(80);
+    const prompts = starterPrompts({ titles: [cut, 'feat: switch to postgres (#3)'] });
+    expect(prompts).toEqual([
+      'why did we switch to postgres?',
+      'Plan a change that reverses "switch to postgres". Check it with Align before writing anything.',
     ]);
   });
 

@@ -1,4 +1,5 @@
 import type { EnvName } from './config.js';
+import { isCutTitle, isHousekeepingTitle } from './commit-shape.js';
 import { envFlag } from './destination-name.js';
 
 /**
@@ -77,7 +78,7 @@ const BASE_VERBS = new Set([
 
 /** The quotable phrase inside a commit subject or decision title, or undefined. */
 function askablePhrase(title: string | undefined): string | undefined {
-  if (!title) return undefined;
+  if (!title || isCutTitle(title) || isHousekeepingTitle(title)) return undefined;
   const phrase = title.trim().replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim().replace(/\.$/, '');
   if (phrase === '' || /[:?;#]/.test(phrase)) return undefined;
   const words = phrase.split(/\s+/);
@@ -89,7 +90,7 @@ function askablePhrase(title: string | undefined): string | undefined {
 
 /** The first title in the list that makes a grammatical question, as it was given. */
 export function pickAskableTitle(titles: readonly string[]): string | undefined {
-  return titles.find((t) => askablePhrase(t) !== undefined);
+  return titles.find((t) => !isHousekeepingTitle(t) && askablePhrase(t) !== undefined);
 }
 
 /**
@@ -114,7 +115,7 @@ const MAX_QUOTED_WORDS = 14;
 const CHECK_FIRST = 'Check it with Align before writing anything.';
 
 function quotableTitle(title: string | undefined): string | undefined {
-  if (!title) return undefined;
+  if (!title || isCutTitle(title)) return undefined;
   const t = title.replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').replace(/\s+/g, ' ').trim().replace(/\.$/, '');
   if (t === '' || t.split(' ').length > MAX_QUOTED_WORDS) return undefined;
   return t.replace(/"/g, "'");
@@ -138,8 +139,9 @@ export function fileQuestion(file: string): string {
  * `hotFile` is optional - the graph records no file per decision, so it comes from git.
  */
 export function starterPrompts(opts: { titles: readonly string[]; hotFile?: string }): string[] {
+  // A release or docs subject has no reason to reverse: the demo must name a real decision.
   const askable = pickAskableTitle(opts.titles);
-  const reversible = askable ?? opts.titles.find((t) => quotableTitle(t) !== undefined);
+  const reversible = askable ?? opts.titles.find((t) => !isHousekeepingTitle(t) && quotableTitle(t) !== undefined);
   return [
     firstQuestion(askable),
     ...(opts.hotFile ? [fileQuestion(opts.hotFile)] : []),

@@ -656,7 +656,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
       const dedup = dropCoveredCommits(scanned.items, prs);
       const fetched: CaptureFetchResult = dedup.covered === 0 ? scanned : {
         items: dedup.items,
-        report: { ...scanned.report, skips: [...scanned.report.skips, { count: dedup.covered, detail: 'commits that are the squash of an imported PR, listed once as the PR' }] },
+        report: { ...scanned.report, skips: [...scanned.report.skips, { count: dedup.covered, detail: `${dedup.covered === 1 ? 'commit that is' : 'commits that are'} the squash of an imported PR, listed once as the PR` }] },
       };
       const gitCs = capture.add(toCaptureSource(gitSource, fetched));
       const { items } = fetched;
@@ -681,7 +681,10 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
       if (prs.items.length) {
         const prCs = capture.add(toCaptureSource(PR_DESCRIPTIONS_SOURCE, {
           items: prs.items,
-          report: { scanned: prs.scanned, skips: prs.scanned > prs.imported ? [{ count: prs.scanned - prs.imported, detail: 'merged PRs whose description states no reason, not imported' }] : [] },
+          report: { scanned: prs.scanned, skips: [
+            ...(prs.housekeeping > 0 ? [{ count: prs.housekeeping, detail: `merged ${prs.housekeeping === 1 ? 'PR that is a release or version bump' : 'PRs that are a release or version bump'}, not imported` }] : []),
+            ...(prs.scanned > prs.imported + prs.housekeeping ? [{ count: prs.scanned - prs.imported - prs.housekeeping, detail: `merged ${prs.scanned - prs.imported - prs.housekeeping === 1 ? 'PR' : 'PRs'} whose description states no reason, not imported` }] : []),
+          ] },
         }));
         await runPersonalImport(prs.items, localClient, {
           result: prCs, label: 'GitHub PR descriptions', approve: true, appUrl: resolveAppUrl(localEnv), local: true, quiet: true,
@@ -778,7 +781,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // entire pitch is an agent on your own machine reading a graph that never leaves it.
   console.log('');
   const localAgents = writesConfirmed
-    ? await connectDetectedAgents('local', { verbose: opts.verbose, editors })
+    ? await connectDetectedAgents('local', { verbose: opts.verbose, editors, projectMcpWritten: true })
     : { detected: 0, connected: 0, wired: [] as string[] };
 
   // Whenever ANY agent was wired - the project .mcp.json counts. This used to print

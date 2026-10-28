@@ -83,6 +83,20 @@ describe('first-run PR descriptions', () => {
     expect(out.items.map((i) => i.source_url)).toEqual(['https://github.com/acme/widgets/pull/4']);
   });
 
+  it('does not import a release or version-bump PR, and counts it apart from "no reason" PRs', async () => {
+    // fastify#6816 "Bumped v5.9.0" led the first-run sample box: its body (release notes) states a reason.
+    const gh = fakeGitHub([[
+      pr(6816, { title: 'Bumped v5.9.0' }),
+      pr(6010, { title: 'build(deps): bump esbuild from 0.25.12 to 0.28.1' }),
+      pr(7089, { title: 'fix: clamp error statusCode between 400 and 599 with 500 fallback' }),
+      pr(5, { body: null }),
+    ]]);
+    const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
+    expect(out.items.map((i) => i.title)).toEqual(['fix: clamp error statusCode between 400 and 599 with 500 fallback']);
+    expect(out.housekeeping).toBe(2);
+    expect(out.scanned).toBe(4);
+  });
+
   it('keeps the PR title as written even when it is a squash subject with (#N)', async () => {
     const gh = fakeGitHub([[pr(9, { title: 'fix: cache (#9)' })]]);
     const out = await fetchFirstRunPrs(REPO, { fetchFn: gh.fetchFn, detectToken: none });
