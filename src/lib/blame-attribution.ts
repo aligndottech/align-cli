@@ -26,7 +26,7 @@ export const BLAME_TIMEOUT_MS = 1500;
 const MAX_BLAME_LINES = 400;
 const MAX_OCCURRENCES = 3;
 
-type Range = [start: number, end: number];
+export type Range = [start: number, end: number];
 
 const lineOf = (text: string, index: number): number => {
   let n = 1;
@@ -102,14 +102,63 @@ export function isProseOrGeneratedFile(file: string): boolean {
   return PROSE_BASENAME.test(base) && !CODE_EXTENSION.test(base);
 }
 
+export interface BlameOpts {
+  timeoutMs?: number;
+  /** Test seam: runs one git command. Defaults to the real git; the budget is enforced around it either way. */
+  runGit?: (args: string[], cwd: string, timeoutMs: number) => Promise<{ stdout: string }>;
+}
+
+export type GitRun = (args: string[]) => Promise<{ stdout: string }>;
+
+/** One git runner whose budget holds for any underlying runner, not only execa's own kill. */
+export function makeGitRunner(opts: BlameOpts, cwd: string): GitRun {
+  const timeout = opts.timeoutMs ?? BLAME_TIMEOUT_MS;
+  const runGit = opts.runGit ?? ((args, dir, ms) => execa('git', args, { cwd: dir, timeout: ms, reject: true, stdin: 'ignore' }));
+  return (args) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('blame budget exceeded')), timeout); });
+    return Promise.race([runGit(args, cwd, timeout), expired]).finally(() => clearTimeout(timer));
+  };
+}
+
+export interface BlamedCommit {
+  sha: string;
+  subject: string;
+  /** Committer time, epoch seconds (0 when git did not say). */
+  time: number;
+}
+
+/** `git blame -w -M --porcelain` over the given 1-based line ranges; commits in first-seen order, uncommitted lines dropped. */
+export async function blameCommits(file: string, ranges: Range[], run: GitRun): Promise<BlamedCommit[]> {
+  const blame = await run(['blame', '-w', '-M', '--porcelain', ...ranges.flatMap(([s, e]) => ['-L', `${s},${e}`]), '--', path.basename(file)]);
+  const commits = new Map<string, BlamedCommit>();
+  let current: BlamedCommit | null = null;
+  for (const line of blame.stdout.split('\n')) {
+    const head = /^([0-9a-f]{40}) \d+ \d+/.exec(line);
+    if (head) {
+      current = /^0+$/.test(head[1]) ? null : (commits.get(head[1]) ?? { sha: head[1], subject: '', time: 0 });
+      if (current) commits.set(current.sha, current);
+    } else if (current && line.startsWith('summary ')) {
+      current.subject = line.slice('summary '.length);
+    } else if (current && line.startsWith('committer-time ')) {
+      current.time = Number(line.slice('committer-time '.length)) || 0;
+    }
+  }
+  return [...commits.values()];
+}
+
+/** PR urls for squash-merged commits, from "(#N)" / "Merge pull request #N" subjects and the origin remote. No origin only costs the mapping. */
+export async function prUrlsFor(commits: BlamedCommit[], run: GitRun): Promise<string[]> {
+  const prNumbers = new Set(commits.flatMap((c) => prNumberOf(c.subject) ?? []));
+  if (!prNumbers.size) return [];
+  const repo = githubRepoOf(await run(['remote', 'get-url', 'origin']).then((r) => r.stdout, () => ''));
+  return repo ? [...prNumbers].map((n) => `https://github.com/${repo}/pull/${n}`) : [];
+}
+
 export async function findLineWriters(
   input: HookToolInput | undefined,
   cwd: string,
-  opts: {
-    timeoutMs?: number;
-    /** Test seam: runs one git command. Defaults to the real git; the budget below is enforced around it either way. */
-    runGit?: (args: string[], cwd: string, timeoutMs: number) => Promise<{ stdout: string }>;
-  } = {},
+  opts: BlameOpts = {},
 ): Promise<LineWriters | null> {
   try {
     if (!input || typeof input.file_path !== 'string' || !input.file_path) return null;
@@ -127,38 +176,10 @@ export async function findLineWriters(
     ranges = capped(ranges);
     if (!ranges.length) return null;
 
-    const timeout = opts.timeoutMs ?? BLAME_TIMEOUT_MS;
-    const runGit = opts.runGit ?? ((args, cwd, ms) => execa('git', args, { cwd, timeout: ms, reject: true, stdin: 'ignore' }));
-    // The budget is enforced here too, not only by execa's own kill, so it holds for any runner.
-    const run = (args: string[]) => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const expired = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('blame budget exceeded')), timeout); });
-      return Promise.race([runGit(args, path.dirname(file), timeout), expired]).finally(() => clearTimeout(timer));
-    };
-    const blame = await run(['blame', '-w', '-M', '--porcelain', ...ranges.flatMap(([s, e]) => ['-L', `${s},${e}`]), '--', path.basename(file)]);
-
-    const subjects = new Map<string, string>();
-    let sha: string | null = null;
-    for (const line of blame.stdout.split('\n')) {
-      const head = /^([0-9a-f]{40}) \d+ \d+/.exec(line);
-      if (head) {
-        sha = /^0+$/.test(head[1]) ? null : head[1];
-        if (sha && !subjects.has(sha)) subjects.set(sha, '');
-      } else if (sha && line.startsWith('summary ')) {
-        subjects.set(sha, line.slice('summary '.length));
-      }
-    }
-    if (!subjects.size) return null;
-
-    const prNumbers = new Set([...subjects.values()].flatMap((s) => prNumberOf(s) ?? []));
-    const prUrls: string[] = [];
-    if (prNumbers.size) {
-      // No origin (or a non-GitHub one) only costs the PR mapping; the SHAs still stand.
-      const remote = await run(['remote', 'get-url', 'origin']).then((r) => r.stdout, () => '');
-      const repo = githubRepoOf(remote);
-      if (repo) for (const n of prNumbers) prUrls.push(`https://github.com/${repo}/pull/${n}`);
-    }
-    return { commitShas: [...subjects.keys()], prUrls };
+    const run = makeGitRunner(opts, path.dirname(file));
+    const commits = await blameCommits(file, ranges, run);
+    if (!commits.length) return null;
+    return { commitShas: commits.map((c) => c.sha), prUrls: await prUrlsFor(commits, run) };
   } catch {
     return null;
   }

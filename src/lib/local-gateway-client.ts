@@ -1,3 +1,4 @@
+import { blameCandidates, type BlameVia } from './blame-candidates.js';
 import { createLocalDb, identifyingSourceUrl, type LinkRow, normaliseDecidedAt } from './local-db.js';
 import { deriveDeciderKind } from './decider-kind.js';
 import { provenanceOf } from './local-provenance.js';
@@ -38,6 +39,9 @@ export {
   RETRIEVAL_RELATES_THRESHOLD, SEARCH_THRESHOLD, SIMILARITY_THRESHOLD,
 };
 export { CAPTURE_CLASSIFY_TOP_K } from './local-ingest.js';
+
+/** Writers found with blame that join the judge's candidates; the search candidates (up to 5) are on top of these. */
+const MAX_BLAME_CANDIDATES = 4;
 
 type CheckOpts = { depth?: CheckDepth; title?: string };
 
@@ -723,12 +727,23 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
       const hidden = judge ? notADecisionMarks(dbPath, judge) : new Map();
       const retrieved = splitRetrieved(await findSimilar(embedding, 5 + hidden.size, threshold), hidden, 5, (id) => db.getDecisionById(id)?.title);
       const similar = retrieved.kept;
-      const candidates = similar
+      const searched = similar
         .map(s => {
           const row = db.getDecisionById(s.decisionId);
           return row ? { ...row, score: s.score } : null;
         })
         .filter((d): d is NonNullable<typeof d> => d !== null);
+      // The decisions that wrote the code this change touches (blame-candidates.ts), found before the judge so
+      // it sees them. Not for the edit hook (depth 'related'), which names writers itself. They are only
+      // candidates: provenance never makes a conflict, the classifier below still decides.
+      const blamed = opts.depth === 'related' ? [] : (await blameCandidates(diff, clientOpts.cwd ?? process.cwd(), db)).slice(0, MAX_BLAME_CANDIDATES);
+      const searchScore = new Map(searched.map(c => [c.id, c.score]));
+      const blamedIds = new Set(blamed.map(b => b.row.id));
+      type Found = typeof searched[number] & { via: BlameVia | 'search' };
+      const candidates: Found[] = [
+        ...blamed.map((b): Found => ({ ...b.row, score: searchScore.get(b.row.id) ?? 0, via: b.via })),
+        ...searched.filter(c => !blamedIds.has(c.id)).map((c): Found => ({ ...c, via: 'search' })),
+      ];
 
       if (!candidates.length) {
         return emptyCheck(retrieved);
@@ -793,6 +808,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           relationship: rel?.type ?? 'relates', // canonical (was 'relates_to')
           confidence: rel?.confidence ?? c.score,
           typed: rel !== null,
+          found_by: c.via,
           failureReason: outcome.ok ? undefined : outcome.reason,
           // The diagnosis travels WITH the candidate it describes, so the hint below
           // names the model that failed on this one rather than whatever a module
@@ -808,7 +824,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
         const r = relationFieldsFor(id);
         return r.status === 'superseded' ? { status: r.status, successor: r.successor } : {};
       };
-      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, ...t.provenance, ...replacedBy(t.id) }));
+      const relevant_decisions = typed.map(t => ({ id: t.id, title: t.title, summary: t.summary, similarity: t.similarity, url: t.url, found_by: t.found_by, ...t.provenance, ...replacedBy(t.id) }));
       const rawConflicts = typed
         .filter(t => t.relationship === 'conflicts_with' || t.relationship === 'contradicts')
         .map(t => ({
@@ -816,6 +832,7 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
           title: t.title,
           summary: t.summary,
           url: t.url,
+          found_by: t.found_by,
           ...t.provenance,
           reason: t.reason ?? 'Conflicts with an existing decision in your local graph',
           severity: (t.confidence >= 0.8 ? 'critical' : 'warning') as 'critical' | 'warning',
