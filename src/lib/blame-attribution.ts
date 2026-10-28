@@ -83,7 +83,11 @@ const prNumberOf = (subject: string): string | null =>
 export async function findLineWriters(
   input: HookToolInput | undefined,
   cwd: string,
-  opts: { timeoutMs?: number } = {},
+  opts: {
+    timeoutMs?: number;
+    /** Test seam: runs one git command. Defaults to the real git; the budget below is enforced around it either way. */
+    runGit?: (args: string[], cwd: string, timeoutMs: number) => Promise<{ stdout: string }>;
+  } = {},
 ): Promise<LineWriters | null> {
   try {
     if (!input || typeof input.file_path !== 'string' || !input.file_path) return null;
@@ -101,7 +105,13 @@ export async function findLineWriters(
     if (!ranges.length) return null;
 
     const timeout = opts.timeoutMs ?? BLAME_TIMEOUT_MS;
-    const run = (args: string[]) => execa('git', args, { cwd: path.dirname(file), timeout, reject: true, stdin: 'ignore' });
+    const runGit = opts.runGit ?? ((args, cwd, ms) => execa('git', args, { cwd, timeout: ms, reject: true, stdin: 'ignore' }));
+    // The budget is enforced here too, not only by execa's own kill, so it holds for any runner.
+    const run = (args: string[]) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('blame budget exceeded')), timeout); });
+      return Promise.race([runGit(args, path.dirname(file), timeout), expired]).finally(() => clearTimeout(timer));
+    };
     const blame = await run(['blame', '-w', '-M', '--porcelain', ...ranges.flatMap(([s, e]) => ['-L', `${s},${e}`]), '--', path.basename(file)]);
 
     const subjects = new Map<string, string>();

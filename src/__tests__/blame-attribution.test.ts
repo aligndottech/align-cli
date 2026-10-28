@@ -106,11 +106,20 @@ describe('findLineWriters', () => {
     expect(await findLineWriters({ file_path: 'sub/wip.js', old_string: 'wip', new_string: 'x' }, dir)).toBeNull();
   });
 
-  it('gives up (null) when the blame exceeds its budget, instead of hanging the hook', async () => {
+  it('gives up (null) when blame never answers within its budget, whatever the machine speed', async () => {
+    const hangs = (): Promise<{ stdout: string }> => new Promise(() => {});
     const t0 = Date.now();
-    const got = await findLineWriters({ file_path: 'a.js', old_string: 'line one', new_string: 'x' }, dir, { timeoutMs: 1 });
+    const got = await findLineWriters({ file_path: 'a.js', old_string: 'line one', new_string: 'x' }, dir, { timeoutMs: 20, runGit: hangs });
     expect(got).toBeNull();
     expect(Date.now() - t0).toBeLessThan(1500);
+  });
+
+  it('positive control: a blame that answers inside the budget returns its writers', async () => {
+    const sha = 'b'.repeat(40);
+    const answers = (args: string[]): Promise<{ stdout: string }> =>
+      Promise.resolve({ stdout: args[0] === 'blame' ? `${sha} 1 1 1\nsummary fix: something\n\tline one\n` : '' });
+    const got = await findLineWriters({ file_path: 'a.js', old_string: 'line one', new_string: 'x' }, dir, { timeoutMs: 5000, runGit: answers });
+    expect(got).toEqual({ commitShas: [sha], prUrls: [] });
   });
 });
 
