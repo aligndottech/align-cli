@@ -272,11 +272,12 @@ describe('trailers and the gap hint in the printed list', () => {
     expect(out).not.toContain('Co-authored-by');
     expect(out).not.toContain('---------');
   });
-  it('falls back to the subject when the body is only trailers', async () => {
+  it('prints no quote line when the body is only trailers', async () => {
     respond([hit(1, 0.6, `Decision 1${TRAILERS}`)]);
     const out = await ask();
-    expect(out).toContain('"Decision 1"');
+    expect(out).not.toContain('"Decision 1"');
     expect(out).not.toContain('Signed-off-by');
+    expect(out).toContain('Decision 1');
   });
   it('prints the unreadable-ref hint once after 3 affected rows, with the count', async () => {
     respond([1, 2, 3, 4].map((n) => (n === 4 ? hit(n, 0.6, 's') : withRef(hit(n, 0.6, `s${n}`)))));

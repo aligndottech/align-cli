@@ -513,9 +513,9 @@ export function registerAskCommand(program: Command): void {
           if (why) {
             for (const line of wrapText(`Why: ${why}`, '  ', wrapWidth)) console.log(line);
           } else if (d.summary) {
-            const summaryLines = wrapText(`"${excerptOf(excerptBody(d.summary, d.title))}"`, '  ', wrapWidth);
-            for (const line of summaryLines) {
-              console.log(chalk.dim(line));
+            const excerpt = excerptOf(excerptBody(d.summary, d.title));
+            if (excerpt) {
+              for (const line of wrapText(`"${excerpt}"`, '  ', wrapWidth)) console.log(chalk.dim(line));
             }
           }
 

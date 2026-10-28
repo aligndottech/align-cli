@@ -99,14 +99,18 @@ describe('excerptBody', () => {
   const title = 'fix: clamp error statusCode between 400 and 599 with 500 fallback (#7089)';
   const meta = '\n\nAuthor: A\n\nDate: 2026-10-15T15:01:35+05:30\n\nURL: https://example.test/c/1';
 
-  it('falls back to the subject when the body is only trailers', () => {
+  it('is empty when the body is only trailers', () => {
     const summary = `${title}\n\n---------\n\nSigned-off-by: A <a@b.c>\nCo-authored-by: B <b@c.d>${meta}`;
-    expect(excerptBody(summary, title)).toBe(title);
+    expect(excerptBody(summary, title)).toBe('');
   });
 
-  it('falls back to the subject for a second, different trailer-only body', () => {
+  it('is empty for a second, different trailer-only body', () => {
     const summary = `fix: other\n\nReviewed-by: Q\nChange-Id: I1${meta}`;
-    expect(excerptBody(summary, 'fix: other')).toBe('fix: other');
+    expect(excerptBody(summary, 'fix: other')).toBe('');
+  });
+
+  it('is empty when the leftover only repeats the title, ignoring case, spacing and a PR ref', () => {
+    expect(excerptBody('fix: clamp the code (#12)', 'Fix: Clamp  the code (#7)')).toBe('');
   });
 
   it('keeps the real text and drops the trailers', () => {

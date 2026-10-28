@@ -84,11 +84,15 @@ export function withoutTrailers(summary: string): string {
     .trim();
 }
 
+const normTitle = (t: string): string =>
+  t.replace(/\s+/g, ' ').trim().toLowerCase().replace(/\s*\(#\d+\)$/, '');
+
 /**
  * What a ranked-list row quotes under its title: the body with importer metadata, trailers
- * and the echoed title removed, or the subject itself when nothing else is left.
+ * and the echoed title removed. Empty when nothing is left, or what is left only repeats the
+ * title (whitespace, case and a trailing "(#123)" ignored): the caller then prints no quote.
  */
 export function excerptBody(summary: string, title: string): string {
   const body = withoutTitle(withoutTrailers(stripImporterMetadata(summary)), title);
-  return body || title.replace(/\s+/g, ' ').trim();
+  return normTitle(body) === normTitle(title) ? '' : body;
 }
