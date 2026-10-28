@@ -80,6 +80,28 @@ function githubRepoOf(remote: string): string | null {
 const prNumberOf = (subject: string): string | null =>
   /\(#(\d+)\)\s*$/.exec(subject)?.[1] ?? /^Merge pull request #(\d+)\b/.exec(subject)?.[1] ?? null;
 
+const PROSE_EXTENSION = /\.(?:md|mdx|markdown|txt|rst|adoc)$/i;
+// LICENSE, LICENCE, CHANGELOG, CHANGES, AUTHORS, CONTRIBUTORS, NOTICE and their variants (LICENSE-MIT, LICENSE-APACHE-2.0).
+const PROSE_BASENAME = /^(?:licen[sc]e|changelog|changes|authors|contributors|notice)/i;
+// A real extension starts with a letter: ".js" is one, the ".0" of "LICENSE-APACHE-2.0" is not.
+const CODE_EXTENSION = /\.[a-z][a-z0-9]*$/i;
+const LOCKFILES = new Set(['package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'cargo.lock', 'gemfile.lock', 'poetry.lock', 'composer.lock', 'go.sum']);
+
+/**
+ * Files whose lines carry no decision an edit could violate: prose documents, licence and changelog
+ * style files, and generated lockfiles. On a repo whose history is not conventional-commit typed, a
+ * prose edit would otherwise be pinned on whatever untyped commit last touched the line. Checked before
+ * any git call, so these edits cost nothing and keep the content-search related list as it was.
+ * Its complement is everything else, still blamed: source, .json/.yaml/.toml config, .sql, Dockerfiles,
+ * extensionless scripts, and a code file that merely starts like a licence ("LICENSE-tool.js").
+ */
+export function isProseOrGeneratedFile(file: string): boolean {
+  const base = path.basename(file);
+  const lower = base.toLowerCase();
+  if (PROSE_EXTENSION.test(base) || LOCKFILES.has(lower) || lower.endsWith('.lock')) return true;
+  return PROSE_BASENAME.test(base) && !CODE_EXTENSION.test(base);
+}
+
 export async function findLineWriters(
   input: HookToolInput | undefined,
   cwd: string,
@@ -91,6 +113,7 @@ export async function findLineWriters(
 ): Promise<LineWriters | null> {
   try {
     if (!input || typeof input.file_path !== 'string' || !input.file_path) return null;
+    if (isProseOrGeneratedFile(input.file_path)) return null;
     const file = path.resolve(cwd, input.file_path);
     const current = await readFile(file, 'utf8');
 

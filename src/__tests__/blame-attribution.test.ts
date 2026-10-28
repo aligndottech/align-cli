@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { findLineWriters, isWriterTitle } from '../lib/blame-attribution.js';
+import { findLineWriters, isProseOrGeneratedFile, isWriterTitle } from '../lib/blame-attribution.js';
 
 let dir: string;
 const git = (...args: string[]): string =>
@@ -156,5 +156,47 @@ describe('isWriterTitle', () => {
     for (const t of ['fix: clamp (#7089)', 'feat(core): x', 'perf: x', 'Add contributing.md', 'docs are great', 'testing: x', 'builder: x']) {
       expect(isWriterTitle(t), t).toBe(true);
     }
+  });
+});
+
+describe('file class: prose and generated files are not blamed, everything else is', () => {
+  const FILES = [
+    'README.md', 'docs/guide.MD', 'notes.txt', 'a.mdx', 'b.markdown', 'c.rst', 'd.adoc',
+    'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE-2.0', 'CHANGELOG', 'CHANGES.md', 'AUTHORS', 'CONTRIBUTORS', 'NOTICE',
+    'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'Cargo.lock', 'Gemfile.lock', 'poetry.lock', 'composer.lock', 'go.sum', 'anything.lock',
+    'config.yaml', 'migrations/001.sql', 'LICENSE-tool.js', 'Dockerfile', 'scripts/deploy', 'package.json', 'Cargo.toml', 'lib/error-status.js', 'readme.js', 'NOTICE.ts',
+  ];
+  let repo: string;
+  const shas = new Map<string, string>();
+
+  beforeAll(() => {
+    repo = mkdtempSync(path.join(tmpdir(), 'align-blame-class-'));
+    const g = (...a: string[]): string => execFileSync('git', a, { cwd: repo, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
+    g('init', '-q', '-b', 'main');
+    for (const f of FILES) {
+      mkdirSync(path.dirname(path.join(repo, f)), { recursive: true });
+      writeFileSync(path.join(repo, f), 'the line\n');
+      g('add', f);
+      g('commit', '-q', '-m', `fix: write ${f}`);
+      shas.set(f, g('rev-parse', 'HEAD'));
+    }
+  });
+  afterAll(() => rmSync(repo, { recursive: true, force: true }));
+
+  const SKIPPED = FILES.slice(0, 26);
+  const BLAMED = FILES.slice(26);
+
+  it.each(SKIPPED)('%s is skipped: no writers, so no git call', async (f) => {
+    let calls = 0;
+    const got = await findLineWriters({ file_path: f, old_string: 'the line', new_string: 'x' }, repo, { runGit: () => { calls++; return Promise.resolve({ stdout: '' }); } });
+    expect(got).toBeNull();
+    expect(calls).toBe(0);
+    expect(isProseOrGeneratedFile(f)).toBe(true);
+  });
+
+  it.each(BLAMED)('%s is still blamed', async (f) => {
+    const got = await findLineWriters({ file_path: f, old_string: 'the line', new_string: 'x' }, repo);
+    expect(got?.commitShas).toEqual([shas.get(f)]);
+    expect(isProseOrGeneratedFile(f)).toBe(false);
   });
 });
