@@ -165,7 +165,7 @@ describe('the timeline trio is dispatched', () => {
 });
 
 describe('the published surface', () => {
-  it('registers 17 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4), align_mark (LM), align_share (L9) and align_share_status', () => {
+  it('registers 18 tools: the 8 that existed, the trio, align_backfill (L3), align_sync (L5), align_scope (L4), align_mark (LM), align_share (L9) and align_share_status and align_stale_code', () => {
     const names = TOOL_SCHEMAS.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
     expect([...names].sort()).toEqual(
@@ -186,6 +186,7 @@ describe('the published surface', () => {
         'align_search',
         'align_share',
         'align_share_status',
+        'align_stale_code',
         'align_sync',
       ].sort(),
     );

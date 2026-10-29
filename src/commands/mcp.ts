@@ -19,6 +19,7 @@ import { BACKFILL_TOOL, BACKFILL_TOOL_SCHEMA, runBackfill } from '../lib/mcp-bac
 import { runScopeTool, SCOPE_TOOL, SCOPE_TOOL_SCHEMA } from '../lib/mcp-scope.js';
 import { runSyncTool, SYNC_TOOL, SYNC_TOOL_SCHEMA } from '../lib/mcp-sync.js';
 import { runShareTool, SHARE_STATUS_TOOL, SHARE_TOOL, SHARE_TOOL_SCHEMA, type ShareToolContext } from '../lib/mcp/share-tool.js';
+import { runStale } from '../lib/stale-run.js';
 import { runShareStatusTool, SHARE_STATUS_TOOL_SCHEMA } from '../lib/mcp/share-status-tool.js';
 import { MARK_TOOL, MARK_TOOL_SCHEMA, type MarkToolContext, runMarkTool } from '../lib/mcp/mark-tool.js';
 import { agentIdFrom } from '../lib/mcp/tool-rules.js';
@@ -310,6 +311,8 @@ export async function dispatchTool(
     // Completes a request the gateway says the PERSON approved, once; otherwise read-only (share-status-tool.ts).
     case SHARE_STATUS_TOOL:
       return runShareStatusTool(args, env, toolCtx);
+    case 'align_stale_code':
+      return (await runStale(env, env.mode === 'local-embedded' ? null : (client as never), { cwd: process.cwd(), includeAi: args?.['include_ai'] === true })).result;
     case 'align_check_alignment': {
       // The gateway bounds retrieval by the cutoff; the filter stays as a backstop for a
       // gateway that predates the parameter. No cutoff keeps the two-argument call.
@@ -662,6 +665,16 @@ export const TOOL_SCHEMAS = [
   SHARE_TOOL_SCHEMA,
   // Appended after align_share.
   SHARE_STATUS_TOOL_SCHEMA,
+  // Appended last: the pre-flight check keeps the lead.
+  {
+    name: 'align_stale_code',
+    annotations: READS,
+    description: 'List code in the current repository still built on a decision that a later decision replaced, with line counts and ranges per file. Only links a person confirmed, unless include_ai is true. Run it inside the repository; needs full git history.',
+    inputSchema: {
+      type: 'object',
+      properties: { include_ai: { type: 'boolean', description: 'Also use AI-suggested supersedes links nobody confirmed (labelled in the result)' } },
+    },
+  },
 ];
 
 /**

@@ -351,6 +351,8 @@ export interface DecisionLink {
   from_decision: { id: string; title: string };
   to_decision: { id: string; title: string };
   confidence: number;
+  /** How the link was written: "ai" for a classifier, anything else for a person. Absent on an older gateway. */
+  detection_method?: string;
 }
 
 export interface DriftItem {

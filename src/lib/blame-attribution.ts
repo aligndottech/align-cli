@@ -72,7 +72,7 @@ function capped(ranges: Range[]): Range[] {
 }
 
 /** owner/repo from a GitHub remote url (https or ssh), lower-cased; null for anything else. */
-function githubRepoOf(remote: string): string | null {
+export function githubRepoOf(remote: string): string | null {
   const m = /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(remote.trim());
   return m ? `${m[1]}/${m[2]}`.toLowerCase() : null;
 }
