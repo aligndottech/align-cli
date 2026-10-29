@@ -16,6 +16,7 @@ import { registerDevCommands } from './dev/index.js';
 import { registerSpacesCommand } from './spaces.js';
 import { registerLinksCommand } from './links.js';
 import { registerDriftCommand } from './drift.js';
+import { registerStaleCommand } from './stale.js';
 import { registerStatusCommand } from './status.js';
 import { registerDoctorCommand } from './doctor.js';
 import { registerConfigCommand } from './config.js';
@@ -101,6 +102,7 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['export'], visible: false, summary: 'Export decisions as a brief or JSON', register: registerExportCommand },
   { names: ['spaces'], visible: false, summary: 'List spaces (cloud)', register: registerSpacesCommand },
   { names: ['links'], visible: false, summary: 'Cross-tool decision relationships', register: registerLinksCommand },
+  { names: ['stale'], visible: false, summary: 'Code still built on a replaced decision', register: registerStaleCommand },
   { names: ['drift'], visible: false, summary: 'Decisions that may be out of date (cloud)', register: registerDriftCommand },
   { names: ['config'], visible: false, summary: 'Change align settings (the detector)', register: registerConfigCommand },
   { names: ['status'], visible: false, summary: 'What your graph has done for you', register: registerStatusCommand },

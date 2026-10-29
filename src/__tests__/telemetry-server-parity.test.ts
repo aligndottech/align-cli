@@ -59,7 +59,10 @@ const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
  *
  * `glossary` (the read-only `align glossary review`) was on it until align-stack #3762 added it to the gateway's command enum.
  */
-const KNOWN_DRIFT: string[] = [];
+const KNOWN_DRIFT: string[] = [
+  // `align stale` is new in the CLI: the gateway's command enum does not list it yet, so its cli.command ping 400s silently like the others did. Remove it when the gateway adds it.
+  'stale',
+];
 
 const cliCommands = (): string[] => buildProgram({ internal: false }).commands.map((c) => c.name());
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();

@@ -167,6 +167,11 @@ align links                   Browse decision relationships and conflicts
 align links list              List decision links
                               flags: --env --relation --decision --json
 
+# Code still built on a replaced decision
+
+align stale                   List the code still built on a decision that a later decision replaced
+                              flags: --env --include-ai --max-files --budget-seconds --json
+
 # Decisions that may be out of date (cloud)
 
 align drift                   Show org-wide drift summary (decisions that may be out of date)
