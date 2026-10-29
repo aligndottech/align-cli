@@ -32,6 +32,27 @@ and refreshes connected sources in the background, at most every 15 minutes per 
 
 MIT, no account needed. Beta, pre-1.0.
 
+## Try it on a repo you didn't write
+
+Fastify decided its error handler only keeps status codes from 400 to 599 (PR #7089). Nothing
+in the code says why. Ask your agent to undo it and see what happens:
+
+```bash
+git clone https://github.com/fastify/fastify && cd fastify
+align                     # pick Claude Code; it builds the graph from git history
+```
+
+Then, in Claude Code:
+
+```text
+Errors with a 1xx-3xx statusCode currently fall back to 500.
+Change lib/error-status.js so they keep their status code.
+```
+
+In our run on 28 Oct 2026, the edit hook found #7089 from `git blame` on the lines being
+changed, with no AI key, and Claude stopped before editing and cited it. Models are not
+deterministic, so your run may word it differently.
+
 ## Install
 
 - **npm:** `npm install -g @aligndottech/cli` (Node 22.16+).
@@ -109,7 +130,7 @@ align mcp --setup                    # wire your agent to the graph
 ```
 
 `align --help` lists `ask`, `connect`, `check`, `share` (alias `push`), `mcp` and `agents`. The
-rest (`search`, `decisions`, `export`, `ratify`, `context`, ...) still work and are in
+rest (`search`, `decisions`, `stale`, `export`, `ratify`, `context`, ...) still work and are in
 [docs/commands.md](docs/commands.md).
 
 Something not working? `align doctor` checks Node, that `align` is on your PATH, that the gateway
@@ -172,6 +193,12 @@ One published study gave a coding agent the product decisions on record and saw 
 compliance go from 46% to 95%
 ([Dillon & Varanasi, arXiv:2605.08112](https://arxiv.org/abs/2605.08112)). It's a small vendor
 study, 8 tasks and 41 decision points, and it isn't our data.
+
+Our own benchmark is on our own repos: 29 decisions, every answer labelled by a person. With
+Align the agent followed the current decision in 139 of 145 runs, with read-only repo search 96
+of 145, and with no tools 34 of 145. Where the decision was never written in the code, it was 29
+of 30 against 5 of 30. It's dogfood, not customer data, and the product was tuned on these
+tasks. [Method and raw results](https://align.tech/benchmark).
 
 Wiring context into an agent is the easy part, and that's what this repo is. The hard part is
 keeping an accurate record of what your team actually decided, across every tool.
