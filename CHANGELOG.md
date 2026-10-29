@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.0](https://github.com/aligndottech/align-cli/compare/cli-v0.65.2...cli-v0.66.0) (2026-10-29)
+
+
+### Features
+
+* **stale:** list code still built on a replaced decision ([#498](https://github.com/aligndottech/align-cli/issues/498)) ([4b6cba0](https://github.com/aligndottech/align-cli/commit/4b6cba041282a50ee0c8078889e959aaa771dfb7))
+
 ## [0.65.2](https://github.com/aligndottech/align-cli/compare/cli-v0.65.1...cli-v0.65.2) (2026-10-28)
 
 
