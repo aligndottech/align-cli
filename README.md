@@ -126,12 +126,11 @@ align ask src/auth/session.ts        # decisions about a file
 align connect                        # pick a source to import: git, docs, jira, github, ...
 align connect jira --token ...       # import one source directly
 align check                          # check your staged diff against the graph
-align stale                          # code still built on a decision a later one replaced
 align mcp --setup                    # wire your agent to the graph
 ```
 
 `align --help` lists `ask`, `connect`, `check`, `share` (alias `push`), `mcp` and `agents`. The
-rest (`search`, `decisions`, `export`, `ratify`, `context`, ...) still work and are in
+rest (`search`, `decisions`, `stale`, `export`, `ratify`, `context`, ...) still work and are in
 [docs/commands.md](docs/commands.md).
 
 Something not working? `align doctor` checks Node, that `align` is on your PATH, that the gateway
