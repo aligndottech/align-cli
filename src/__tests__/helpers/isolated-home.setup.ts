@@ -45,4 +45,20 @@ if (process.platform === 'win32') {
 
 assertIsolatedHome();
 
+// No test may reach the hosted gateway: a test that ran the real install beacon with no sink sent
+// a fresh install id to production on every CI run (see tests-never-reach-hosted-gateway.test.ts).
+// The origins are literals because importing config.ts here loads it before the test file sets
+// up its own environment, which broke 83 tests; that test asserts the literal still matches
+// ALIGN_HOSTED_GATEWAY_URL. A test that stubs fetch replaces this wrapper, and
+// vi.unstubAllGlobals() restores it.
+const HOSTED_ORIGINS = ['https://api.align.tech', 'https://api.preview.align.tech'];
+const realFetch = globalThis.fetch;
+globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  if (HOSTED_ORIGINS.some((o) => url === o || url.startsWith(`${o}/`))) {
+    return Promise.reject(new TypeError(`the hosted gateway is blocked in tests: ${url}`));
+  }
+  return realFetch(input, init);
+}) as typeof fetch;
+
 afterAll(() => rmDir(home));
