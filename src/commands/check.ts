@@ -26,6 +26,7 @@ import { CHECK_DEPTHS, type CheckDepth } from '../lib/check-depth.js';
 import { gitHead, lastCheckFor, writeLastCheck } from '../lib/curation/last-check.js';
 import { quote } from '../lib/curation/text.js';
 import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } from '../lib/inline-rules.js';
+import { decisionLinkFor } from '../lib/decision-links.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
 // execFile timeout in the pi and OpenCode shims). Adjudication measured ~11s whenever
@@ -268,7 +269,8 @@ export function registerCheckCommand(program: Command): void {
               const snippet = d.summary.slice(0, 120).replace(/\n/g, ' ');
               console.log(chalk.dim(`    "${snippet}${d.summary.length > 120 ? '...' : ''}"`));
             }
-            if (d.url) console.log(chalk.dim(`    ${d.url}`));
+            const link = decisionLinkFor(d);
+            if (link) console.log(chalk.dim(`    ${link}`));
             console.log('');
           }
         } else if (result.status === 'conflicting') {
@@ -286,7 +288,8 @@ export function registerCheckCommand(program: Command): void {
             if (c.reason && c.reason !== 'Conflicts with an existing team decision') {
               console.log(`           ${chalk.yellow(c.reason)}`);
             }
-            if (c.url) console.log(chalk.dim(`           ${c.url}`));
+            const link = decisionLinkFor(c);
+            if (link) console.log(chalk.dim(`           ${link}`));
             console.log('');
           }
           if (opts.resolve) {
@@ -319,7 +322,8 @@ export function registerCheckCommand(program: Command): void {
               const snippet = d.summary.slice(0, 120).replace(/\n/g, ' ');
               console.log(chalk.dim(`    "${snippet}${d.summary.length > 120 ? '...' : ''}"`));
             }
-            if (d.url) console.log(chalk.dim(`    ${d.url}`));
+            const link = decisionLinkFor(d);
+            if (link) console.log(chalk.dim(`    ${link}`));
             console.log('');
           }
           // Pre-commit hook mode stays non-blocking (its contract is "only fail on
@@ -778,7 +782,8 @@ function proposedChangeText(input?: HookToolInput): string {
 function conflictContext(conflicts: AdvisoryConflict[], closing: string): string {
   const lines = conflicts.map((c) => {
     const reason = c.reason && c.reason !== 'Conflicts with an existing team decision' ? ` - ${c.reason}` : '';
-    const url = c.url ? ` (${c.url})` : '';
+    const link = decisionLinkFor(c);
+    const url = link ? ` (${link})` : '';
     return `- [${c.severity}] ${c.title}${reason}${url}`;
   });
   return [

@@ -57,6 +57,8 @@ export interface VerdictConflict {
   title: string;
   summary?: string;
   url?: string;
+  /** The link that opens the decision in Align: a seeded decision has no source url to print. */
+  decision_url?: string;
   reason: string;
   severity: 'critical' | 'warning';
 }
@@ -166,6 +168,7 @@ function toConflict(raw: unknown): VerdictConflict | null {
   };
   if (typeof r['summary'] === 'string') conflict.summary = clean(r['summary']);
   if (typeof r['url'] === 'string') conflict.url = clean(r['url']);
+  if (typeof r['decision_url'] === 'string') conflict.decision_url = clean(r['decision_url']);
   return conflict;
 }
 
