@@ -83,7 +83,7 @@ function track(cwd: string, envName = ENV): string {
   return cwd;
 }
 
-// ALI-2039: a seeded decision has no source url to print, so the link that opens (decision_url) has to survive the
+// A seeded decision has no source url to print, so the link that opens (decision_url) has to survive the
 // round trip through the store, or the advisory a later hook prints has no link.
 describe('a stored verdict keeps the decision link', () => {
   it('round-trips decision_url on a conflict', () => {

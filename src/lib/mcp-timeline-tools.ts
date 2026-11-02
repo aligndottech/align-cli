@@ -290,7 +290,7 @@ function sourceFields(
   // The agent is told the origin is unverified instead - an `align://` string handed over as
   // an origin gets either fetched or cited, and both are wrong. Only a claimed or unsourced identity
   // says that: a seeded or override identity (demo, starter, override-ask) is not a place either, but it is
-  // not a source that could not be verified, so the row carries nothing about its origin (ALI-2039).
+  // not a source that could not be verified, so the row carries nothing about its origin.
   return isSyntheticSource(sourceUrl) ? { source_unverified: true } : {};
 }
 

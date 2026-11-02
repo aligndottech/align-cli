@@ -57,7 +57,7 @@ export interface VerdictConflict {
   title: string;
   summary?: string;
   url?: string;
-  /** The link that opens the decision in Align: a seeded decision has no source url to print (ALI-2039). */
+  /** The link that opens the decision in Align: a seeded decision has no source url to print. */
   decision_url?: string;
   reason: string;
   severity: 'critical' | 'warning';

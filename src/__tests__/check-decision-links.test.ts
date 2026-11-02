@@ -1,4 +1,4 @@
-// ALI-2039: `align check` and the advisory text it hands an agent print a link per decision. A seeded decision has
+// `align check` and the advisory text it hands an agent print a link per decision. A seeded decision has
 // no source url that opens (the gateway no longer sends its align:// identity), so the link that opens
 // (decision_url) must be the one printed, and an align:// value must never be.
 import { beforeEach, describe, expect, it, vi } from 'vitest';

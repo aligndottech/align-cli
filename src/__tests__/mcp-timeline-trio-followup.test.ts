@@ -207,7 +207,7 @@ describe('R1: a synthetic align:// identity is never presented as a source', () 
     },
   );
 
-  // ALI-2039: seeded and override identities are not places either, but they are not a claim that could not be
+  // Seeded and override identities are not places either, but they are not a claim that could not be
   // verified, so the row says nothing about its origin rather than "unverified".
   it.each([['align://demo/pagewell-pay/engineering/retries-service-owns-retries'], ['align://starter-template/general/no-secrets'], ['align://override-ask/ask-1/abc']])(
     'emits neither source_url nor source_unverified for the seeded identity %s',

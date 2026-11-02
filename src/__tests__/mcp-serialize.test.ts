@@ -33,7 +33,7 @@ describe('serializeMcpResult', () => {
   });
 });
 
-// ALI-2039: every tool result leaves through serializeMcpResult, so it is the one place an align:// identity that
+// Every tool result leaves through serializeMcpResult, so it is the one place an align:// identity that
 // is not a place can be stopped before a model prints it as a link.
 describe('serializeMcpResult and sources that are not places', () => {
   it('never lets an align:// source reach the model, whichever tool result it came in', () => {

@@ -133,7 +133,7 @@ describe('SYNTHETIC_SOURCE_PREFIXES', () => {
   });
 });
 
-// ALI-2039: a seeded or minted align:// identity is not a place anyone can go. A model printed
+// A seeded or minted align:// identity is not a place anyone can go. A model printed
 // "Decision link: align://demo/..." in a demo, and the human commands did the same. The two kinds the CLI
 // already knew (claimed, unsourced) were hidden; the seeded and override kinds were not.
 describe('align:// identities that are not places', () => {
