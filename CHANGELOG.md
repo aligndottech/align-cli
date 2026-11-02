@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.1](https://github.com/aligndottech/align-cli/compare/cli-v0.66.0...cli-v0.66.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **mcp:** never hand a model an align:// source, and print a link that opens in align check (ALI-2039) ([#502](https://github.com/aligndottech/align-cli/issues/502)) ([1647382](https://github.com/aligndottech/align-cli/commit/16473820b9d04ec9732eb48a86ae85080971ff66))
+
 ## [0.66.0](https://github.com/aligndottech/align-cli/compare/cli-v0.65.2...cli-v0.66.0) (2026-10-29)
 
 
