@@ -285,6 +285,8 @@ export interface AlignmentResult {
   confidence: number;
   relevant_decisions: Array<{
     id: string; title: string; summary: string; similarity: number; url?: string;
+    /** The link that opens this decision in Align; the gateway sends it when it knows its app URL (ALI-2039). */
+    decision_url?: string;
     // Local mode always; cloud once it labels check output.
     decider_kind?: 'human' | 'agent' | 'unknown'; ratified?: boolean; ratified_at?: string | null; ratified_by?: string | null;
     /** LM, local only: a decision a person marked as replaced, with the one that replaces it. */
@@ -295,6 +297,8 @@ export interface AlignmentResult {
     title: string;
     summary?: string;
     url?: string;
+    /** The link that opens this decision in Align (ALI-2039). */
+    decision_url?: string;
     reason: string;
     reasons?: string[];
     severity: 'warning' | 'critical';

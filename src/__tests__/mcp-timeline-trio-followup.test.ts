@@ -207,6 +207,21 @@ describe('R1: a synthetic align:// identity is never presented as a source', () 
     },
   );
 
+  // ALI-2039: seeded and override identities are not places either, but they are not a claim that could not be
+  // verified, so the row says nothing about its origin rather than "unverified".
+  it.each([['align://demo/pagewell-pay/engineering/retries-service-owns-retries'], ['align://starter-template/general/no-secrets'], ['align://override-ask/ask-1/abc']])(
+    'emits neither source_url nor source_unverified for the seeded identity %s',
+    (seeded) => {
+      const shape = shaped({
+        decisions: [{ ...rows()[0], source_url: seeded }],
+        chain_ids: undefined,
+      });
+      const d = (shape['decisions'] as Record<string, unknown>[])[0]!;
+      expect(d['source_url']).toBeUndefined();
+      expect(d['source_unverified']).toBeUndefined();
+    },
+  );
+
   it('passes a real source_url through untouched', () => {
     // Positive control: the guard is a prefix test, not a blanket removal.
     const d = (shaped()['decisions'] as Record<string, unknown>[])[0]!;

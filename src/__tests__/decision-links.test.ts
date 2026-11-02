@@ -11,10 +11,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   citationFor,
+  decisionLinkFor,
   isSyntheticSource,
   navigableSourceUrl,
   repositoryOf,
   SYNTHETIC_SOURCE_PREFIXES,
+  withoutUnopenableSources,
 } from '../lib/decision-links.js';
 
 describe('citationFor', () => {
@@ -128,5 +130,111 @@ describe('SYNTHETIC_SOURCE_PREFIXES', () => {
     // A zero-match parse or a shrunk list would pass every test above vacuously - pin the
     // exact set rather than only exercising it indirectly.
     expect([...SYNTHETIC_SOURCE_PREFIXES].sort()).toEqual(['align://claimed/', 'align://unsourced/']);
+  });
+});
+
+// ALI-2039: a seeded or minted align:// identity is not a place anyone can go. A model printed
+// "Decision link: align://demo/..." in a demo, and the human commands did the same. The two kinds the CLI
+// already knew (claimed, unsourced) were hidden; the seeded and override kinds were not.
+describe('align:// identities that are not places', () => {
+  it.each([
+    'align://demo/pagewell-pay/engineering/retries-service-owns-retries',
+    'align://starter-template/general/no-secrets',
+    'align://starter-intent/win-rate',
+    'align://override-ask/ask-1/abc123',
+    'align://claimed/9f2c1e',
+    'align://unsourced/77aa',
+  ])('navigableSourceUrl hides %s', (src) => {
+    expect(navigableSourceUrl(src)).toBeUndefined();
+  });
+
+  it.each(['https://github.com/pagewell-uk/disputes/pull/7', 'http://localhost:3000/x', 'mailto:align://demo/x', 'https://example.com/align://demo/x'])(
+    'navigableSourceUrl keeps the real url %s',
+    (src) => {
+      expect(navigableSourceUrl(src)).toBe(src);
+    }
+  );
+});
+
+describe('decisionLinkFor', () => {
+  it('is the source url when there is a real one, even with a decision_url beside it', () => {
+    expect(decisionLinkFor({ url: 'https://github.com/o/r/pull/7', decision_url: 'https://app.test/decisions/d-1' })).toBe(
+      'https://github.com/o/r/pull/7'
+    );
+  });
+
+  it.each(['align://demo/x', 'align://starter-template/y/z'])('falls back to the decision_url when the url is %s', (src) => {
+    expect(decisionLinkFor({ url: src, decision_url: 'https://app.test/decisions/d-1' })).toBe('https://app.test/decisions/d-1');
+  });
+
+  it('uses the decision_url when there is no url at all', () => {
+    expect(decisionLinkFor({ decision_url: 'https://app.test/decisions/d-2' })).toBe('https://app.test/decisions/d-2');
+  });
+
+  it('is undefined when there is nothing that opens, never the align:// value', () => {
+    expect(decisionLinkFor({ url: 'align://demo/x' })).toBeUndefined();
+    expect(decisionLinkFor({})).toBeUndefined();
+  });
+});
+
+describe('withoutUnopenableSources', () => {
+  it('drops a seeded url and source_url, at any depth, and keeps the rest of the row', () => {
+    const out = withoutUnopenableSources({
+      relevant_decisions: [{ id: 'd-1', title: 't', url: 'align://demo/a', decision_url: 'https://app.test/decisions/d-1' }],
+      results: [{ id: 'd-2', source_url: 'align://starter-intent/b', later_on_topic: [{ id: 'd-3', source_url: 'align://override-ask/c' }] }],
+    }) as any;
+    expect(out.relevant_decisions[0]).toEqual({ id: 'd-1', title: 't', decision_url: 'https://app.test/decisions/d-1' });
+    expect(out.results[0]).not.toHaveProperty('source_url');
+    expect(out.results[0].later_on_topic[0]).not.toHaveProperty('source_url');
+    expect(out.results[0].later_on_topic[0].id).toBe('d-3');
+  });
+
+  it.each([
+    ['align://claimed/9f2c1e', 'claimed'],
+    ['align://unsourced/77aa', 'unsourced'],
+  ])('marks a %s identity unverified instead of printing it', (src) => {
+    const out = withoutUnopenableSources({ results: [{ id: 'd-1', source_url: src }] }) as any;
+    expect(out.results[0]).not.toHaveProperty('source_url');
+    expect(out.results[0].source_unverified).toBe(true);
+  });
+
+  it('carries the model claim, trimmed, when decision_json has one, and none when it is blank', () => {
+    const withClaim = withoutUnopenableSources({ r: [{ source_url: 'align://claimed/a', decision_json: { claimed_source: '  the Q3 planning doc ' } }] }) as any;
+    expect(withClaim.r[0].claimed_source).toBe('the Q3 planning doc');
+    const blank = withoutUnopenableSources({ r: [{ source_url: 'align://claimed/a', decision_json: { claimed_source: '   ' } }] }) as any;
+    expect(blank.r[0]).not.toHaveProperty('claimed_source');
+    expect(blank.r[0].source_unverified).toBe(true);
+  });
+
+  it('does not mark a seeded identity unverified: it is not a claim, only not a place', () => {
+    const out = withoutUnopenableSources({ r: [{ url: 'align://demo/x' }] }) as any;
+    expect(out.r[0]).not.toHaveProperty('source_unverified');
+    expect(out.r[0]).not.toHaveProperty('url');
+  });
+
+  it('leaves a real url, decision_url and review_url exactly as they were', () => {
+    const body = {
+      review_url: 'https://app.test/review/r-1',
+      relevant_decisions: [{ id: 'd-1', url: 'https://github.com/o/r/pull/7', decision_url: 'https://app.test/decisions/d-1' }],
+    };
+    expect(withoutUnopenableSources(body)).toEqual(body);
+  });
+
+  it('hands a Date, which is not a plain object, on unchanged', () => {
+    const at = new Date('2026-01-01T00:00:00.000Z');
+    const out = withoutUnopenableSources({ r: [{ id: 'd-1', created_at: at, url: 'align://demo/x' }] }) as any;
+    expect(out.r[0].created_at).toBe(at);
+    expect(out.r[0]).not.toHaveProperty('url');
+  });
+
+  it('does not change its input', () => {
+    const body = { r: [{ id: 'd-1', url: 'align://demo/x' }] };
+    const before = JSON.stringify(body);
+    withoutUnopenableSources(body);
+    expect(JSON.stringify(body)).toBe(before);
+  });
+
+  it.each([[null], [undefined], ['text'], [42], [[1, 'a', null]]])('passes %j through untouched', (v) => {
+    expect(withoutUnopenableSources(v)).toEqual(v);
   });
 });

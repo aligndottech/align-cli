@@ -83,6 +83,25 @@ function track(cwd: string, envName = ENV): string {
   return cwd;
 }
 
+// ALI-2039: a seeded decision has no source url to print, so the link that opens (decision_url) has to survive the
+// round trip through the store, or the advisory a later hook prints has no link.
+describe('a stored verdict keeps the decision link', () => {
+  it('round-trips decision_url on a conflict', () => {
+    const cwd = track(freshCwd());
+    recordVerdict(cwd, ENV, verdict({ conflicts: [{ decision_id: 'd-1', title: 't', reason: 'r', severity: 'critical', decision_url: 'https://app.test/decisions/d-1' }] }), T0);
+
+    const hit = blockableVerdictFor(cwd, ENV, HASH, FILE, T0 + 1_000);
+
+    expect(hit?.conflicts[0]?.decision_url).toBe('https://app.test/decisions/d-1');
+  });
+
+  it('has no decision_url when the gateway sent none', () => {
+    const cwd = track(freshCwd());
+    recordVerdict(cwd, ENV, verdict(), T0);
+    expect(blockableVerdictFor(cwd, ENV, HASH, FILE, T0 + 1_000)?.conflicts[0]).not.toHaveProperty('decision_url');
+  });
+});
+
 describe('blockable verdict lookup (change identity)', () => {
   it('returns a fresh verdict for exactly the adjudicated change', () => {
     const cwd = track(freshCwd());

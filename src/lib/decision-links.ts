@@ -118,5 +118,64 @@ export function isSyntheticSource(sourceUrl: string | undefined | null): boolean
  */
 export function navigableSourceUrl(sourceUrl: string | undefined | null): string | undefined {
   if (typeof sourceUrl !== 'string' || sourceUrl.length === 0) return undefined;
-  return isSyntheticSource(sourceUrl) ? undefined : sourceUrl;
+  // startsWith, never includes: a real page may carry the text in its path. Every align:// value is an id Align
+  // minted or seeded (claimed, unsourced, demo, starter-template, starter-intent, override-ask), never a place.
+  return sourceUrl.startsWith('align://') ? undefined : sourceUrl;
+}
+
+/**
+ * The link to print under a decision: where it was decided when that is somewhere a person can go, else the link
+ * that opens it in Align (`decision_url`). Never an align:// value. A seeded decision has no source to open, so
+ * without the fallback `align check` printed nothing under it.
+ */
+export function decisionLinkFor(row: { url?: string | null; decision_url?: string | null }): string | undefined {
+  return navigableSourceUrl(row.url) ?? (row.decision_url ? row.decision_url : undefined);
+}
+
+const SOURCE_URL_KEYS = ['url', 'source_url'] as const;
+
+/** The model's unverified claim, out of a payload that carries `decision_json`. */
+function claimedSourceOf(decisionJson: unknown): string | undefined {
+  const claim = (decisionJson as { claimed_source?: unknown } | null | undefined)?.claimed_source;
+  if (typeof claim !== 'string') return undefined;
+  const trimmed = claim.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  if (v === null || typeof v !== 'object') return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * The one guard between a tool result and the model that reads it. Every MCP result is the gateway's JSON,
+ * forwarded as it came, so an align:// value in `url` or `source_url` reached the agent and was printed as a link
+ * ("Decision link: align://demo/..."), and a claimed or unsourced identity was handed over as if it were the
+ * origin. This is the CLI's copy of the hosted connector's withSourceProvenance and withoutUnopenableUrl
+ * (align-stack connectors/mcp-align format.ts), applied at any depth because the url key differs per payload:
+ *
+ * - a claimed or unsourced identity is dropped and replaced by `source_unverified: true`, with the model's claim
+ *   as `claimed_source` when `decision_json` carries one (read here, before serializeMcpResult omits it);
+ * - any other align:// value (seeded demo and starter content, override asks) is dropped, nothing added: it is
+ *   not a claim, only not a place. The decision's `decision_url` is the link that opens.
+ *
+ * Only plain objects and arrays are walked, so a Date or a class instance reaches JSON.stringify unchanged.
+ */
+export function withoutUnopenableSources<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => withoutUnopenableSources(v)) as T;
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) out[k] = withoutUnopenableSources(v);
+  for (const key of SOURCE_URL_KEYS) {
+    const src = out[key];
+    if (typeof src !== 'string' || !src.startsWith('align://')) continue;
+    delete out[key];
+    if (isSyntheticSource(src)) {
+      out['source_unverified'] = true;
+      const claim = claimedSourceOf(value['decision_json']);
+      if (claim) out['claimed_source'] = claim;
+    }
+  }
+  return out as T;
 }

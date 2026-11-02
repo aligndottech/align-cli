@@ -26,6 +26,7 @@ import { agentIdFrom } from '../lib/mcp/tool-rules.js';
 import { appendChatTrace } from '../lib/llm-trace.js';
 import { withDecisionRelationContract } from '../lib/decision-relations.js';
 import { withReasons } from '../lib/reason-extract.js';
+import { withoutUnopenableSources } from '../lib/decision-links.js';
 import {
   createAsOfGuard,
   filterAlignmentAsOf,
@@ -190,7 +191,8 @@ export function toolSchemasFor(env: EnvironmentConfig): typeof TOOL_SCHEMAS {
 const OMIT_RESULT_KEYS = new Set(['embedding', 'embeddings', 'vector', 'decision_json', 'raw_text']);
 
 export function serializeMcpResult(result: unknown): string {
-  return JSON.stringify(result, (key, value) => (OMIT_RESULT_KEYS.has(key) ? undefined : value));
+  // withoutUnopenableSources first: it reads decision_json (the model's source claim) before the replacer omits it.
+  return JSON.stringify(withoutUnopenableSources(result), (key, value) => (OMIT_RESULT_KEYS.has(key) ? undefined : value));
 }
 
 // The MCP CallTool router: maps an agent's tool call to the gateway client. Exported

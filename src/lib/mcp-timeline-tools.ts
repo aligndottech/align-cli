@@ -1,4 +1,4 @@
-import { citationFor, navigableSourceUrl, repositoryOf } from './decision-links.js';
+import { citationFor, isSyntheticSource, navigableSourceUrl, repositoryOf } from './decision-links.js';
 
 /**
  * The "timeline trio", ported from the hosted connector so a customer's
@@ -288,8 +288,10 @@ function sourceFields(
   if (navigable) return { source_url: navigable };
   // A minted identity is not "where this was decided", so it is never emitted as source_url.
   // The agent is told the origin is unverified instead - an `align://` string handed over as
-  // an origin gets either fetched or cited, and both are wrong.
-  return { source_unverified: true };
+  // an origin gets either fetched or cited, and both are wrong. Only a claimed or unsourced identity
+  // says that: a seeded or override identity (demo, starter, override-ask) is not a place either, but it is
+  // not a source that could not be verified, so the row carries nothing about its origin (ALI-2039).
+  return isSyntheticSource(sourceUrl) ? { source_unverified: true } : {};
 }
 
 /**
