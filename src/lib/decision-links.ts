@@ -129,17 +129,25 @@ export function navigableSourceUrl(sourceUrl: string | undefined | null): string
  * without the fallback `align check` printed nothing under it.
  */
 export function decisionLinkFor(row: { url?: string | null; decision_url?: string | null }): string | undefined {
-  return navigableSourceUrl(row.url) ?? (row.decision_url ? row.decision_url : undefined);
+  // Only an http(s) decision_url is a link: it is printed into a coding agent's context, and a stored verdict file is
+  // one other processes can write.
+  const decisionUrl = typeof row.decision_url === 'string' && /^https?:\/\//i.test(row.decision_url) ? row.decision_url : undefined;
+  return navigableSourceUrl(row.url) ?? decisionUrl;
 }
 
 const SOURCE_URL_KEYS = ['url', 'source_url'] as const;
 
 /** The model's unverified claim, out of a payload that carries `decision_json`. */
+const MAX_CLAIM_CHARS = 200;
+
 function claimedSourceOf(decisionJson: unknown): string | undefined {
   const claim = (decisionJson as { claimed_source?: unknown } | null | undefined)?.claimed_source;
   if (typeof claim !== 'string') return undefined;
-  const trimmed = claim.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  // The model's own text about where a decision came from, captured from a conversation, and now handed to an agent
+  // (decision_json used to be omitted whole): one line, control characters gone, short.
+  // eslint-disable-next-line no-control-regex
+  const oneLine = claim.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return oneLine.length > 0 ? oneLine.slice(0, MAX_CLAIM_CHARS) : undefined;
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -165,8 +173,9 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 export function withoutUnopenableSources<T>(value: T): T {
   if (Array.isArray(value)) return value.map((v) => withoutUnopenableSources(v)) as T;
   if (!isPlainObject(value)) return value;
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value)) out[k] = withoutUnopenableSources(v);
+  // fromEntries defines own properties: assigning out['__proto__'] would set the prototype and drop a key that
+  // JSON.parse legitimately produced.
+  const out: Record<string, unknown> = Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withoutUnopenableSources(v)]));
   for (const key of SOURCE_URL_KEYS) {
     const src = out[key];
     if (typeof src !== 'string' || !src.startsWith('align://')) continue;
