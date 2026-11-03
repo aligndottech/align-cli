@@ -50,6 +50,18 @@ describe('renderMcpInstructions', () => {
 });
 
 describe('ALIGN_MCP_INSTRUCTIONS is the shared text rendered for the local server', () => {
+  it('says only an ownerVerdict clears a conflict, once, for that exact action', () => {
+    const conflictLine = ALIGN_MCP_INSTRUCTIONS.split('\n').find((l) => l.includes('STOP and confirm'));
+    expect(conflictLine).toContain('Only an ownerVerdict in the result clears it, once, for that exact action.');
+    expect(conflictLine).toContain('review_url');
+  });
+
+  it('dropped the two phrases that paid for the ownerVerdict sentence', () => {
+    expect(ALIGN_MCP_INSTRUCTIONS).not.toContain('(newer decisions on its topic)');
+    expect(ALIGN_MCP_INSTRUCTIONS).not.toContain('with its titles and source links');
+    expect(ALIGN_MCP_INSTRUCTIONS).toContain('later_on_topic');
+  });
+
   it('carries the directives the local text used to lack', () => {
     expect(ALIGN_MCP_INSTRUCTIONS.toLowerCase()).toMatch(/search the graph before reading the code/);
     expect(ALIGN_MCP_INSTRUCTIONS.toLowerCase()).toMatch(/own status|itself conflicted/);
