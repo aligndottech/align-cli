@@ -286,8 +286,9 @@ Default behaviour on every host is: surface the finding, never deny the edit. `-
 is the only path that denies, and only on a `critical` conflict, and never after the edit has
 already landed.
 
-How a deny can happen at all, given the hook is retrieval-only inside its window:
-with the flag set, a hook whose retrieval found related decisions also spawns a detached
+How a deny can happen at all: the hook asks for a verdict itself, but a model-backed one usually
+does not fit its window. With the flag set, a hook whose retrieval found related decisions, and
+whose verdict did not arrive in time, also spawns a detached
 adjudicator for that exact proposed change. The adjudicator runs the full check after the
 hook window closes and records a verdict, with a 15-minute expiry. A later PreToolUse
 proposing the same change is answered from that verdict - denied if it holds a critical
