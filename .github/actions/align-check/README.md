@@ -40,7 +40,8 @@ Point it at your own gateway. Nothing else changes.
 
 | Input | Default | Purpose |
 | -- | -- | -- |
-| `token` | - | Align API token. Store as a secret. |
+| `token` | - | Align API token. Store as a secret. Required unless `gateway-url` is set: with both empty the job fails with `ALIGN_TOKEN is empty`. |
+| `allow-unconfigured` | `false` | Set `true` to let the job pass with a warning when `token` and `gateway-url` are both empty. Leave it `false` on a required check: a missing or expired secret would otherwise pass every pull request with nothing verified. |
 | `tenant-id` | - | Only needed when the token does not identify the tenant. |
 | `gateway-url` | Align cloud | Your gateway's base URL, for self-hosting. |
 | `env` | `prod` | Align cloud environment, when `gateway-url` is unset. |
@@ -103,6 +104,18 @@ The policy is a small script, `decide.sh`, covered by a truth table in
 
 Set `fail-on: never` to report into the job summary without ever failing - a good way to
 watch the signal before you make the check required.
+
+### A missing token fails the job
+
+An empty `token` (for example, the `ALIGN_TOKEN` secret was never set, or expired and was
+removed) is a configuration error, not an outage, and re-running never fixes it. The action
+stops in its first step with `::error::ALIGN_TOKEN is empty ... Nothing was checked.` before
+it installs or runs anything. This applies whatever `fail-on` says, including `never`. A
+token that is set but rejected, or a gateway that times out, is still a could-not-check
+result and follows `fail-on` as described above.
+
+Setting `gateway-url` skips this check, because a self-hosted or local gateway may not
+authenticate.
 
 ### When a check will not clear by re-running
 

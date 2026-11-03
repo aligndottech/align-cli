@@ -35,6 +35,10 @@ inputs:
     description: 'Lowest conflict severity that fails the job: critical (default) or any. A conflict the graph rated a WARNING is a change of direction to review, not a wrong change - blocking on it means the gate that surfaces changes of direction is what stops you recording one. Absent or unrecognised severity always blocks, so an older CLI or a gateway that sends none behaves exactly as before.'
     required: false
     default: 'critical'
+  allow-unconfigured:
+    description: 'Set true to let the job PASS (with a warning) when `token` and `gateway-url` are both empty. Default false: a check with no credentials fails the job, because a missing or expired secret would otherwise make every pull request pass with nothing verified.'
+    required: false
+    default: 'false'
   cli-version:
     description: 'Version of @aligndottech/cli to run. Defaults to latest because --base (which this action requires) ships in the first release after 0.8.1; pin it to an exact version once that release is out, and for reproducible builds generally.'
     required: false
@@ -61,6 +65,17 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    # FIRST, before any git or npm work: no credentials is a configuration error that will never
+    # succeed on retry, so it must not reach the transient-incomplete path that passes.
+    - name: Require credentials
+      shell: bash
+      env:
+        ALIGN_TOKEN_INPUT: ${{ inputs.token }}
+        ALIGN_GATEWAY_URL_INPUT: ${{ inputs.gateway-url }}
+        ALLOW_UNCONFIGURED: ${{ inputs.allow-unconfigured }}
+      run: |
+        bash "${{ github.action_path }}/require-config.sh" "$ALIGN_TOKEN_INPUT" "$ALIGN_GATEWAY_URL_INPUT" "$ALLOW_UNCONFIGURED"
+
     # actions/checkout defaults to a shallow clone with a single commit, so the merge base
     # with the target branch is not present and `git diff base...HEAD` fails. Rather than
     # make every caller remember `fetch-depth: 0`, fetch what we need here.
