@@ -21,6 +21,7 @@ import {
   markAdjudicationPending,
   MAX_CONCURRENT_ADJUDICATIONS,
   recordVerdict,
+  type VerdictConflict,
 } from '../lib/advisory-verdict.js';
 import { CHECK_DEPTHS, type CheckDepth } from '../lib/check-depth.js';
 import { gitHead, lastCheckFor, writeLastCheck } from '../lib/curation/last-check.js';
@@ -33,6 +34,16 @@ import { decisionLinkFor } from '../lib/decision-links.js';
 // retrieval returns anything, so the old synchronous check timed out on exactly the edits it
 // existed for and printed nothing. Retrieval alone measured 0.4-2.4s, which fits.
 const RETRIEVAL_TIMEOUT_MS = 2500;
+
+// The hook asks for a verdict AFTER retrieval, and the whole hook answers by this deadline,
+// measured from when it started. Not 10s: the host's budget also has to cover node start-up,
+// the stdin read and the exit, and a hook killed at the host limit prints nothing at all,
+// which is worse than a titles-only answer. A verdict that does not fit degrades to
+// the titles with a line saying so (see buildRelatedOutput).
+const VERDICT_DEADLINE_MS = 7000;
+// Below this there is no point opening an adjudication request: only a cached or
+// deterministic answer returns that fast, and retrieval has already used the time.
+const MIN_VERDICT_WINDOW_MS = 500;
 
 // Exit codes. `unknown` gets its own code rather than reusing 1: "we found
 // a conflict" and "we could not look" call for different responses, and a caller that
@@ -97,7 +108,7 @@ export function registerCheckCommand(program: Command): void {
     .option('--json', 'Same output and exit codes as --ci: one JSON document on stdout')
     .option('--title <text>', 'The decision being proposed, in words (e.g. the PR title). Without it the gateway adjudicates on the first 200 characters of the diff, which is a file header and a few + lines')
     .option('--base <ref>', 'Diff against the merge base with <ref> (e.g. origin/main). Required in CI: a clean checkout has no staged or unstaged changes, so without it there is nothing to check and the command passes without looking')
-    .option('--depth <depth>', `How deep an answer to request: ${CHECK_DEPTHS.join(', ')} - related is retrieval only, full (the gateway default) adjudicates behind its similarity cost gate, exhaustive adjudicates whatever was retrieved (for strict CI gates whose fail-on treats unknown as failure). Ignored in --advisory mode, which is retrieval-only by design`)
+    .option('--depth <depth>', `How deep an answer to request: ${CHECK_DEPTHS.join(', ')} - related is retrieval only, full (the gateway default) adjudicates behind its similarity cost gate, exhaustive adjudicates whatever was retrieved (for strict CI gates whose fail-on treats unknown as failure). Ignored in --advisory mode, which sets its own: retrieval, then one full check inside the hook's time budget`)
     .option('--resolve <resolution>', 'Record resolution for a conflict: <decision_id>:<type> where type is honored|overridden|context_changed')
     .action(async (opts: { env: EnvName; all: boolean; hook: boolean; advisory: boolean; blockOnCritical: boolean; adjudicateDeferred?: string; format?: AdvisoryFormat; ci: boolean; json?: boolean; base?: string; title?: string; depth?: string; resolve?: string }) => {
       // `--json` is the machine contract `--ci` already is - same document, same exit
@@ -370,6 +381,7 @@ export function registerCheckCommand(program: Command): void {
 // Anything else (no repo, no diff, gateway down/slow, aligned) stays silent.
 // Fail-open is the whole point - a hook that blocks or errors on every edit gets disabled.
 async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; format?: AdvisoryFormat } = {}): Promise<void> {
+  const startedAt = Date.now();
   try {
     const payload = await readHookPayload();
     const pre = payload?.hook_event_name === 'PreToolUse';
@@ -484,10 +496,10 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
       }
     }
 
-    // RETRIEVAL ONLY. Adjudication is ~11s and does not fit any host's hook budget, so it
-    // moves to a follow-up rather than timing out here and printing nothing. Nothing is lost:
-    // the LLM runs whenever retrieval returns anything, so no tenant was getting a verdict
-    // through the hook - the fast path measured 0.8s only because it was `no-context`.
+    // Retrieval comes first and is what the hook always has to give: it is fast and it names
+    // the subject. A verdict (`depth: 'full'`, adjudicated) is requested only AFTER retrieval
+    // finds something, and only inside the deadline above - adjudication measures ~11s when it
+    // has to call the model, so it often will not fit, and then the titles go out as before.
     // Runs beside retrieval, not before it: blame is local and bounded, so it adds nothing to the
     // hook's wall clock. PRE only - a landed edit has no "lines about to change".
     const writtenBy = pre ? decisionsThatWroteTheseLines(client, payload?.tool_input, cwd) : Promise.resolve<RelatedDecision[]>([]);
@@ -525,8 +537,35 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // named the decision that wrote these lines.
     if (!found.length && !wrote.length) process.exit(0);
 
-    // Retrieval found decisions on this subject, so the proposed content is worth
-    // the slow full check - AFTER this hook returns. Spawned detached and unref'd so the
+    const writerIds = new Set(wrote.map((d) => d.id));
+    const fresh = found.filter((d) => !seen.has(d.id) && !writerIds.has(d.id));
+
+    // The verdict. Only for decisions this hook is about to show: a sibling hook that already
+    // showed them has said its piece, and a blame-only answer is a deterministic one that
+    // needs no model. Not in local mode: there adjudication is the pipeline's only provider
+    // egress (#143 turned it off by default, deliberately), and this must not erode that.
+    let verdict: VerdictOutcome = { kind: 'not_requested' };
+    if (fresh.length && envName !== 'local') {
+      verdict = await requestVerdict(client, text, context, VERDICT_DEADLINE_MS - (Date.now() - startedAt));
+    }
+    const judged = verdict.kind === 'conflicting' || verdict.kind === 'aligned';
+
+    // Under `--block-on-critical` a verdict in hand is stored for the RETRY, as the background
+    // adjudicator would have stored it. The flag keeps its meaning: it denies a retry of a
+    // change already judged critical, never the first attempt (the render below is
+    // non-blocking). The same record stops the next edit of this content adjudicating again.
+    if (pre && opts.blockOnCritical && contentHash && judged) {
+      recordVerdict(cwd, envName, {
+        ts: Date.now(),
+        filePath: identity.filePath,
+        contentHash,
+        adjudicated: true,
+        conflicts: verdict.kind === 'conflicting' ? verdict.conflicts : [],
+      });
+    }
+
+    // When the verdict did not fit the window, the proposed content is still worth the slow
+    // full check - AFTER this hook returns. Spawned detached and unref'd so the
     // hook's exit is never coupled to the adjudicator's lifetime. PRE only: the proposed
     // text is the artefact a retry re-presents byte-for-byte, where the POST diff is already
     // landed and matches nothing an agent will propose again.
@@ -536,17 +575,15 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
     // different content every time and would otherwise spawn one adjudicator per edit. The
     // in-flight cap is what actually bounds the cost. Being over the cap loses a verdict,
     // never an edit, and the next hook invocation tries again.
-    if (pre && opts.blockOnCritical && contentHash && !adjudicationExistsFor(cwd, envName, contentHash)) {
+    if (pre && opts.blockOnCritical && contentHash && !judged && !adjudicationExistsFor(cwd, envName, contentHash)) {
       if (inFlightAdjudications(cwd, envName) < MAX_CONCURRENT_ADJUDICATIONS) {
         spawnDeferredAdjudication({ identity, context, cwd, contentHash }, envName);
       }
     }
 
-    const writerIds = new Set(wrote.map((d) => d.id));
-    const fresh = found.filter((d) => !seen.has(d.id) && !writerIds.has(d.id));
     if (fresh.length || wrote.length) {
       markSurfaced(cwd, [...wrote, ...fresh].map((d) => d.id));
-      emit(buildRelatedOutput(fresh, renderOpts, wrote));
+      emit(buildRelatedOutput(fresh, renderOpts, wrote, false, verdict));
     }
   } catch {
     // Fail open: swallow everything (gateway error, network, bad config).
@@ -555,6 +592,46 @@ async function runAdvisory(env: EnvName, opts: { blockOnCritical?: boolean; form
 }
 
 class LocalSkip extends Error {}
+
+/**
+ * What asking for a verdict came back with. `timeout` and `no_verdict` are both "could not
+ * check" and must never render as a pass: `unknown` is not aligned, and neither is silence.
+ */
+type VerdictOutcome =
+  | { kind: 'not_requested' }
+  | { kind: 'aligned'; checked: number }
+  | { kind: 'conflicting'; conflicts: VerdictConflict[] }
+  | { kind: 'timeout' }
+  | { kind: 'no_verdict' };
+
+/**
+ * One adjudicated check, bounded by `budgetMs`. Never throws: every way of not getting an
+ * answer is a named outcome the renderer words honestly. A request that outlives the budget
+ * is abandoned, not awaited - the hook exits and the process takes it down.
+ */
+async function requestVerdict(
+  client: ReturnType<typeof createGatewayClient>,
+  text: string,
+  context: string,
+  budgetMs: number,
+): Promise<VerdictOutcome> {
+  if (budgetMs < MIN_VERDICT_WINDOW_MS) return { kind: 'timeout' };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      client.checkAlignment(text, context, { depth: 'full' }),
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), budgetMs); }),
+    ]);
+    if (result === null) return { kind: 'timeout' };
+    if (result.status === 'conflicting' && result.conflicts?.length) return { kind: 'conflicting', conflicts: result.conflicts };
+    if (result.status === 'aligned') return { kind: 'aligned', checked: result.relevant_decisions?.length ?? 0 };
+    return { kind: 'no_verdict' };
+  } catch {
+    return { kind: 'no_verdict' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 type AdvisoryConflict = NonNullable<AlignmentResult['conflicts']>[number];
 
@@ -675,7 +752,13 @@ type RelatedDecision = { id: string; title: string; summary?: string };
 // Retrieval finds decisions on the same SUBJECT. It does not encode opposition - a measurement
 // put the agreeing pair at cosine 0.38 against the contradicting pair at 0.31 - so this
 // wording must never assert a conflict. Saying "related" is the honest claim and the useful one.
-export function buildRelatedOutput(decisions: RelatedDecision[], opts: AdvisoryRenderOpts, wrote: RelatedDecision[] = [], retrievalFailed = false): unknown | null {
+export function buildRelatedOutput(
+  decisions: RelatedDecision[],
+  opts: AdvisoryRenderOpts,
+  wrote: RelatedDecision[] = [],
+  retrievalFailed = false,
+  verdict: VerdictOutcome = { kind: 'not_requested' },
+): unknown | null {
   const lines = decisions.map((d) => `- ${d.title}`);
   // `git blame` names these deterministically: they are not a guess about the subject, they put these exact lines here.
   const writerBlock = wrote.length
@@ -685,7 +768,19 @@ export function buildRelatedOutput(decisions: RelatedDecision[], opts: AdvisoryR
         'Check that this change still honours what they decided before continuing.',
       ]
     : [];
-  const related = decisions.length
+  const closing = opts.pre
+    ? 'Reconcile with these decisions or confirm with the user before writing this change.'
+    : 'Reconcile with these decisions or confirm with the user before continuing.';
+  // An adjudicated answer replaces the "related, not adjudicated" block: it says more.
+  const verdictBlock =
+    verdict.kind === 'conflicting'
+      ? [conflictContext(verdict.conflicts, closing)]
+      : verdict.kind === 'aligned'
+        ? [`Align decision graph: checked this change against ${verdict.checked || 'the'} related decision${verdict.checked === 1 ? '' : 's'} and found no conflict.`]
+        : [];
+  const related = verdictBlock.length
+    ? verdictBlock
+    : decisions.length
     ? [
         `${wrote.length ? 'Also, ' : 'Align decision graph: '}${decisions.length} prior decision${decisions.length > 1 ? 's relate' : ' relates'} to this change:`,
         ...lines,
@@ -695,6 +790,12 @@ export function buildRelatedOutput(decisions: RelatedDecision[], opts: AdvisoryR
   const summary = [
     ...writerBlock,
     ...related,
+    // Titles with no verdict: say why, and never let it read as a pass.
+    ...(verdict.kind === 'timeout'
+      ? ['Align could not check this change in time, so there is no verdict and the change is UNVERIFIED.']
+      : verdict.kind === 'no_verdict'
+        ? ['Align could not reach a verdict on this change, so it is UNVERIFIED.']
+        : []),
     ...(retrievalFailed ? ['Align could not check this change against the rest of the decision graph (retrieval failed or timed out); treat the rest as UNVERIFIED.'] : []),
     // The model is the only reader of this text; without this line the user cannot tell the hook ran.
     'Tell the user in one line which of these you checked against and whether this change agrees with it.',

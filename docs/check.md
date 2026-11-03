@@ -25,7 +25,7 @@ repository also exits `1`.
 |------|----------|
 | (default) | Human-readable output. Exits `1` on any conflict. |
 | `--hook` | Pre-commit mode. Silent when there's no context, only fails on **critical** conflicts. |
-| `--advisory` | Agent hook mode. **Always exits 0**, emits related unadjudicated decisions, or an explicit "could not check" notice, in the host's hook shape (<code>--format claude&#124;gemini&#124;pi&#124;opencode&#124;text</code>). Fail-open. |
+| `--advisory` | Agent hook mode. **Always exits 0**, emits a verdict when one arrives in time (a conflict names the decision and its link), the related decisions with a "could not check in time" line when it does not, or an explicit "could not check" notice, in the host's hook shape (<code>--format claude&#124;gemini&#124;pi&#124;opencode&#124;text</code>). Fail-open. |
 | `--advisory --block-on-critical` | Opt-in deferred adjudication. See below. |
 | `--ci` | JSON to stdout, and the exit contract above. **Pass `--base`** or there is nothing to diff. |
 
@@ -49,8 +49,9 @@ critical conflict, lets a warning through, and never blocks when the check could
 
 ### What `--block-on-critical` changes
 
-When retrieval finds related decisions, the hook additionally spawns a background full check,
-and a **retry of a change already judged a critical conflict is denied** (Claude Code
+When retrieval finds related decisions and the verdict does not arrive in the hook's window, the
+hook additionally spawns a background full check (a verdict that does arrive is stored for the
+retry instead), and a **retry of a change already judged a critical conflict is denied** (Claude Code
 `permissionDecision: "deny"`). The verdict expires after 15 minutes.
 
 It's keyed on the tool, the target file and the text together, so a different file or an
@@ -68,8 +69,11 @@ In local mode it calls **your own AI provider**, which the default hook never do
 | `--depth related\|full\|exhaustive` | How deep an answer to request |
 
 `related` is retrieval only. `exhaustive` adjudicates everything retrieved, for a strict CI gate
-whose `fail-on` treats unknown as a failure. `--depth` is ignored under `--advisory`, which is
-retrieval only by design.
+whose `fail-on` treats unknown as a failure. `--depth` is ignored under `--advisory`, which sets its own:
+retrieval first, then, when something related was found, one `full` check that must answer within
+about 7 seconds of the hook starting. A timeout falls back to the related decisions with a line
+saying the change could not be checked in time; it is never reported as aligned. Local mode skips
+the `full` check, because there it calls your own AI provider.
 
 ## In CI
 
