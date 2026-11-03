@@ -1,5 +1,5 @@
 /**
- * The advisory hook asks for a verdict (ALI-2051).
+ * The advisory hook asks for a verdict.
  *
  * The hook used to send `depth: 'related'` only: retrieval, no adjudication, so it could list
  * decisions and never say whether the edit opposed one. It now follows a non-empty retrieval
