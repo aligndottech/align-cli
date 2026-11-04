@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.67.0](https://github.com/aligndottech/align-cli/compare/cli-v0.66.1...cli-v0.67.0) (2026-11-04)
+
+
+### Features
+
+* **check:** co-change rules, checked from the changed-file list with no model ([#510](https://github.com/aligndottech/align-cli/issues/510)) ([187851d](https://github.com/aligndottech/align-cli/commit/187851d3f05f1511743a003f1546c0b03d57437e))
+* **check:** the advisory hook asks for a verdict ([eaf5102](https://github.com/aligndottech/align-cli/commit/eaf51028d154240fa22ff3434b9a95540912cbe6))
+* **import:** docs import stores the co-change rules it finds ([#511](https://github.com/aligndottech/align-cli/issues/511)) ([e04dbb3](https://github.com/aligndottech/align-cli/commit/e04dbb3ee20f645b1e9335508eec3b983865e499))
+* **import:** docs import stores the co-change rules it finds ([#511](https://github.com/aligndottech/align-cli/issues/511)) ([adb1377](https://github.com/aligndottech/align-cli/commit/adb1377377ad865470d950d924c25a7f25e2f3cb))
+
+
+### Bug Fixes
+
+* **action:** fail when the check is not configured instead of passing (fail-open) ([#508](https://github.com/aligndottech/align-cli/issues/508)) ([9d7e217](https://github.com/aligndottech/align-cli/commit/9d7e217401c41f41e589bf4eafd5fcaab6b18f57))
+* **import:** read README/CONTRIBUTING/changelog rules; drop reasonless squash-merge noise ([#509](https://github.com/aligndottech/align-cli/issues/509)) ([8969755](https://github.com/aligndottech/align-cli/commit/8969755f2e70cc83e9ecf5e048213e5441005e59))
+* **mcp:** say only an ownerVerdict clears a conflict, once, for that exact action ([#504](https://github.com/aligndottech/align-cli/issues/504)) ([d9d180e](https://github.com/aligndottech/align-cli/commit/d9d180ea9b217d6a40f59a762af9d28de3676809))
+
 ## [0.66.1](https://github.com/aligndottech/align-cli/compare/cli-v0.66.0...cli-v0.66.1) (2026-11-02)
 
 

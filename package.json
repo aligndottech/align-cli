@@ -1,6 +1,6 @@
 {
   "name": "@aligndottech/cli",
-  "version": "0.66.1",
+  "version": "0.67.0",
   "mcpName": "io.github.aligndottech/cli",
   "type": "module",
   "description": "Align CLI - capture decisions, check alignment, and manage connectors",
