@@ -110,13 +110,19 @@ export function readPiState(cwd: string, home: string, opts: { localIsDefault: b
   const trusted = projectTrusted(cwd, agentDir);
   const globalExt = extensionReadsLocal(readText(path.join(agentDir, 'extensions', 'align.ts')), localIsDefault);
   const projectExt = trusted && dirs.some((d) => extensionReadsLocal(readText(path.join(d, '.pi', 'extensions', 'align.ts')), localIsDefault));
-  // pi-mcp-adapter reads the agent-dir file and the project's .mcp.json (agent-rules.ts).
-  const servers = [mcpFile, path.join(cwd, '.mcp.json')].map((f) => readJson(f)?.['mcpServers'] as Json | undefined);
+  // pi-mcp-adapter reads the agent-dir file and the project's .mcp.json (agent-rules.ts), but it blocks the
+  // project's servers until the project is trusted (or its settings allow them), and a blocked project server
+  // also hides a user server of the same name (ALI-2064). Count only what pi will actually load.
+  const user = readJson(mcpFile)?.['mcpServers'] as Json | undefined;
+  const project = readJson(path.join(cwd, '.mcp.json'))?.['mcpServers'] as Json | undefined;
+  const adapterSettings = readJson(path.join(agentDir, 'mcp-adapter.json'))?.['settings'] as Json | undefined;
+  const projectLoads = trusted || adapterSettings?.['projectServers'] === 'allow';
+  const loaded = (name: string) => (project?.[name] !== undefined ? (projectLoads ? project[name] : undefined) : user?.[name]);
   const contextFiles = [...dirs.map(contextFile), contextFile(agentDir)].filter((f): f is string => f !== null);
   const settings = [readJson(path.join(agentDir, 'settings.json')), ...(trusted ? [readJson(path.join(cwd, '.pi', 'settings.json'))] : [])];
   return {
     projectHasExtension: globalExt || projectExt,
-    projectHasMcp: servers.some((s) => s?.['align-local'] !== undefined || isLocalAlignServer(s?.['align'], localIsDefault)),
+    projectHasMcp: loaded('align-local') !== undefined || isLocalAlignServer(loaded('align'), localIsDefault),
     projectHasBlock: contextFiles.some((f) => readText(f)?.includes(ALIGN_NUDGE_START) ?? false),
     mcpAdapterInstalled: settings.some((s) => packageSources(s).some((p) => p.includes('pi-mcp-adapter'))),
     mcpFile,
