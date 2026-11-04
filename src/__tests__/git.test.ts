@@ -193,6 +193,19 @@ describe('hasStatedRationale', () => {
     expect(hasStatedRationale('fix: correct null check', 'Co-authored-by: Ada <ada@align.tech>')).toBe(false);
   });
 
+  // fastify #7089, the README example: a bare `fix:` title with a bound in it, and a squash body of
+  // only a separator and sign-off trailers. Kept by accident until separators stopped counting.
+  it('keeps a title that states a numeric bound even when the body is only a separator and trailers', () => {
+    const body = '---------\n\nSigned-off-by: Ada <ada@align.tech>\nCo-authored-by: Bo <bo@align.tech>';
+    expect(hasStatedRationale('fix: clamp error statusCode between 400 and 599 with 500 fallback (#7089)', body)).toBe(true);
+    expect(hasStatedRationale('fix: cap retries at no more than 5 per job', '')).toBe(true);
+  });
+
+  it('still rejects a title with a number but no bound, on a separator-and-trailers body', () => {
+    const body = '---------\n\nSigned-off-by: Ada <ada@align.tech>';
+    expect(hasStatedRationale('fix: handle the 500 page in the router', body)).toBe(false);
+  });
+
   it('rejects a body that is only a Signed-off-by trailer', () => {
     expect(hasStatedRationale('fix: correct null check', 'Signed-off-by: Ada <ada@align.tech>')).toBe(false);
   });

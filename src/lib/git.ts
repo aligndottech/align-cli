@@ -1,6 +1,6 @@
 import { execa } from 'execa';
 import os from 'node:os';
-import { CONVENTIONAL_PREFIX, isOneOffChangeTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY } from './commit-shape.js';
+import { CONVENTIONAL_PREFIX, isOneOffChangeTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY, statesNumericBound } from './commit-shape.js';
 
 export interface GitCommit {
   sha: string;
@@ -238,6 +238,8 @@ function normalizeForEcho(s: string): string {
  * original measurement itself used to produce its headline numbers, made executable.
  */
 export function hasStatedRationale(subject: string, body: string): boolean {
+  // A title that states a bound ("between 400 and 599") is a rule on its own, with or without a body.
+  if (statesNumericBound(subject)) return true;
   if (!body.trim()) return false;
   const subjectNorm = normalizeForEcho(subject);
   const remaining = body

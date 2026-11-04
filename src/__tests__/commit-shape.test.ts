@@ -188,4 +188,24 @@ describe('isOneOffChangeTitle', () => {
   ])('a one-off lead is rescued by a stated purpose, modal or quantifier: %s', (title) => {
     expect(isOneOffChangeTitle(title)).toBe(false);
   });
+
+  // A numeric bound is a rule, not a change note: fastify #7089, the README example, is a bare `fix:` title
+  // with only sign-off trailers for a body, and it was dropped as noise on main until this rescue.
+  it.each([
+    'fix: clamp error statusCode between 400 and 599 with 500 fallback (#7089)',
+    'fix: cap retries at no more than 5 per job',
+    'Fix the upload limit: at most 10 MB per file',
+    'fix: reject payloads over 1048576 bytes',
+  ])('a one-off lead is rescued by a numeric bound: %s', (title) => {
+    expect(isOneOffChangeTitle(title)).toBe(false);
+  });
+
+  // Control: a number alone is not a bound, so these stay dropped (the rescue is not "contains a digit").
+  it.each([
+    'fix: handle the 500 page in the router',
+    'Update the base image to node 22',
+    'fix: typo in section 4 heading',
+  ])('a number without a bound word is still one-off: %s', (title) => {
+    expect(isOneOffChangeTitle(title)).toBe(true);
+  });
 });
