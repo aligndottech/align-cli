@@ -7,7 +7,7 @@
 
 * drop private ticket ids that [#514](https://github.com/aligndottech/align-cli/issues/514) and [#515](https://github.com/aligndottech/align-cli/issues/515) put in a public repo ([#517](https://github.com/aligndottech/align-cli/issues/517)) ([73019aa](https://github.com/aligndottech/align-cli/commit/73019aa69e54a2415187b78caf49e6fe10940b0b))
 * **import:** keep a commit whose title states a numeric bound, so fastify [#7089](https://github.com/aligndottech/align-cli/issues/7089) is not dropped as noise ([#518](https://github.com/aligndottech/align-cli/issues/518)) ([de0958b](https://github.com/aligndottech/align-cli/commit/de0958b7531348c30370d401bd2549a569f987c3))
-* **pi:** count only the MCP servers pi will load, so an untrusted project does not hide Align's tools (ALI-2064) ([#515](https://github.com/aligndottech/align-cli/issues/515)) ([7e3c889](https://github.com/aligndottech/align-cli/commit/7e3c889a73a0b964914b4eb96939873ab86148e5))
+* **pi:** count only the MCP servers pi will load, so an untrusted project does not hide Align's tools ([#515](https://github.com/aligndottech/align-cli/issues/515)) ([7e3c889](https://github.com/aligndottech/align-cli/commit/7e3c889a73a0b964914b4eb96939873ab86148e5))
 
 ## [0.67.0](https://github.com/aligndottech/align-cli/compare/cli-v0.66.1...cli-v0.67.0) (2026-11-04)
 
