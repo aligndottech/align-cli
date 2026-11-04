@@ -241,6 +241,66 @@ describe('hasStatedRationale', () => {
   });
 });
 
+describe('isDecisionCommit - bare file-action subjects', () => {
+  it('rejects a subject that only names a file action (Recart "Added docs/Recart-on-site-methods.md")', () => {
+    expect(isDecisionCommit('Added docs/Recart-on-site-methods.md')).toBe(false);
+    expect(isDecisionCommit('Deleted docs/installation/Standard-Theme-Guide.md (#41)')).toBe(false);
+  });
+
+  it('keeps a subject that adds a file for a stated purpose', () => {
+    expect(isDecisionCommit('Add docs/changelog.md so every API change is recorded')).toBe(true);
+  });
+});
+
+// Measured on recart/openapi (90 commits, 21 kept, 20 of them bare subjects): squash-merge
+// bodies are bullet lists of the PR's own commit subjects, file-action lines and a dash
+// separator. None of that is a reason, and each used to count as "a body that says more".
+describe('hasStatedRationale - squash-merge noise', () => {
+  it('rejects a body of file-action bullets and a separator (Recart "Soma modified 2 files")', () => {
+    expect(hasStatedRationale(
+      'Soma modified 2 files (#39)',
+      '* Added docs/Integrate-Recart-with-Shopify-on-Standard-Theme-Installation-Guide.md\n\n* Added 2 files\n\n* Modified 2 files\n\n---------\n\nCo-authored-by: soma@recart.com <soma@recart.com>',
+    )).toBe(false);
+  });
+
+  it('rejects a bare file-action line, with or without a bullet', () => {
+    expect(hasStatedRationale('Deleted the old install guide (#41)', 'Deleted docs/installation/Old-Guide.md')).toBe(false);
+    expect(hasStatedRationale('Tidy the guides up a bit (#41)', 'Renamed 3 files')).toBe(false);
+  });
+
+  it('rejects a body of short squash bullets that are just the PR commit subjects', () => {
+    expect(hasStatedRationale(
+      'extend abandonment with browse abandonment (#34)',
+      '* fix spec problems\n\n* change wording',
+    )).toBe(false);
+  });
+
+  it('rejects a bullet that is a conventional-commit subject with no reason', () => {
+    expect(hasStatedRationale(
+      'add changelog (#45)',
+      '* add changelog\n\n* feat(api): deprecate shopperId field across the whole public surface',
+    )).toBe(false);
+  });
+
+  it('accepts a prose paragraph under squash bullets (Recart #44)', () => {
+    expect(hasStatedRationale(
+      'feat(subscribers): add PATCH subscribers endpoint with custom attributes (#44)',
+      '* feat(subscribers): add PATCH subscribers endpoint with custom attributes\n\nAdd PATCH /subscribers (by phoneNumber) with a strict customAttributes\nmap (max 30 keys, typed values, reserved recart_ prefix) and merge\nsemantics.\n\n* refactor(subscribers): enforce recart_ prefix in key pattern, drop redundant maxLength',
+    )).toBe(true);
+  });
+
+  it('accepts a short bullet that states a reason', () => {
+    expect(hasStatedRationale('fix: retry the upload (#9)', '* retry because the CDN drops the first request')).toBe(true);
+  });
+
+  it('accepts a long bullet written as prose', () => {
+    expect(hasStatedRationale(
+      'fix: retry the upload (#9)',
+      '* the CDN drops the first request after an idle period so we retry once',
+    )).toBe(true);
+  });
+});
+
 describe('formatCommitAsText', () => {
   const commit: GitCommit = {
     sha: 'abc123',

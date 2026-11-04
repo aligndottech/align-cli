@@ -5,9 +5,13 @@ import { ALIGN_NUDGE_END, ALIGN_NUDGE_START } from '../agent-rules.js';
 import { ALIGN_IMPORT_LINE } from '../decisions-context.js';
 import type { PersonalImportItem } from '../personal-import.js';
 import type { CaptureFetchResult } from './capture.js';
+import type { CoChangeRule } from '../co-change-rule.js';
+import {
+  CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, README_FILES,
+} from './docs-conventions.js';
 
 /**
- * Read what the repo already wrote down, credential-free. Two sources:
+ * Read what the repo already wrote down, credential-free. Three sources:
  *
  *  - ADR directories, the common naming conventions. ADRs are decision-shaped by
  *    construction (title, status, context, decision) - highest precision, lowest
@@ -15,8 +19,10 @@ import type { CaptureFetchResult } from './capture.js';
  *  - CLAUDE.md / AGENTS.md content the user wrote themselves, minus the block and
  *    import line Align itself put there (align-cli#116: Align owns `.align/`
  *    outright and must never re-ingest its own output - that is a feedback loop).
+ *  - The rule-bearing sections of README.md, CONTRIBUTING.md and the changelog's policy
+ *    sections (docs-conventions.ts). Never a changelog's release entries: those are history.
  *
- * Both are filed under platform: 'docs', a value distinct from 'git'. a measurement of
+ * All are filed under platform: 'docs', a value distinct from 'git'. a measurement of
  * a git-only import at 1,484 rows of "what changed and almost no why"; an ADR is exactly
  * the "why" a commit subject cannot carry, and collapsing the two under one platform
  * would destroy the only cheap way to select on that distinction later.
@@ -178,13 +184,74 @@ async function readAgentRulesItems(
   return { items, droppedShort };
 }
 
+
+const CONVENTION_SOURCES: Array<{ kind: DocKind; files: string[] }> = [
+  { kind: 'readme', files: README_FILES },
+  { kind: 'contributing', files: CONTRIBUTING_FILES },
+  { kind: 'changelog', files: CHANGELOG_FILES },
+];
+
+/** An imported doc item, plus the structured co-change rule when its text states one. */
+export type DocsItem = PersonalImportItem & { co_change_rule?: CoChangeRule };
+
+/**
+ * README / CONTRIBUTING / changelog: only the sections that state a rule (see
+ * docs-conventions.ts). A headed section that does not is counted, so the capture report can
+ * say how many were left out; the headingless preamble is not, as in readAgentRulesItems.
+ */
+async function readConventionItems(
+  repoRoot: string,
+  remoteUrl: string | null,
+  branch: string,
+): Promise<{ items: DocsItem[]; droppedNonRule: number; droppedShort: number }> {
+  const items: DocsItem[] = [];
+  let droppedNonRule = 0;
+  let droppedShort = 0;
+  const seenFiles = new Set<string>();
+  for (const { kind, files } of CONVENTION_SOURCES) {
+    for (const file of files) {
+      // A case-insensitive filesystem answers CHANGELOG.md and changelog.md with one file.
+      const key = file.toLowerCase();
+      if (seenFiles.has(key)) continue;
+      let raw: string;
+      try {
+        raw = await readFile(path.join(repoRoot, file), 'utf8');
+      } catch {
+        continue;
+      }
+      seenFiles.add(key);
+      const seenSlugs = new Map<string, number>();
+      for (const section of splitIntoSections(stripAlignOwnedContent(raw))) {
+        if (!section.heading) continue;
+        const body = section.body.replace(/\n+---+\s*$/, '').trim();
+        if (!isRuleSection(kind, section.heading, body)) { droppedNonRule++; continue; }
+        if (body.length < MIN_CHUNK_CHARS) { droppedShort++; continue; }
+        const slug = slugify(section.heading);
+        const seen = seenSlugs.get(slug) ?? 0;
+        seenSlugs.set(slug, seen + 1);
+        const rule = await inferCoChangeRule(body, repoRoot);
+        items.push({
+          source_url: `${buildBlobUrl(remoteUrl, branch, file)}#${slug}${seen > 0 ? `-${seen + 1}` : ''}`,
+          platform: 'docs',
+          raw_text: body,
+          title: section.heading,
+          ...(rule ? { co_change_rule: rule } : {}),
+        });
+      }
+    }
+  }
+  return { items, droppedNonRule, droppedShort };
+}
+
 async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
-  items: PersonalImportItem[];
+  items: DocsItem[];
   /** Every ADR file and every headed section seen, kept or dropped. */
   scanned: number;
   /** Whether the limit left something unread or unreturned. */
   capped: boolean;
   droppedShort: number;
+  /** README/CONTRIBUTING/changelog sections that state no rule. */
+  droppedNonRule: number;
 }> {
   const repoRoot = opts.cwd ?? process.cwd();
   const gitOpts = opts.cwd ? { cwd: opts.cwd } : undefined;
@@ -203,17 +270,19 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
   const remaining = opts.limit - adrItems.length;
   // Capped even at exact equality: the agent-rules files were never opened BECAUSE the
   // limit was already full, so something may have been left out and nobody counted it.
-  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0 };
+  if (remaining <= 0) return { items: adrItems, scanned: adrFiles.length, capped: true, droppedShort: 0, droppedNonRule: 0 };
 
   const { items: agentRulesItems, droppedShort } = await readAgentRulesItems(repoRoot, remoteUrl, branch);
-  const candidates = adrFiles.length + agentRulesItems.length;
+  const conventions = await readConventionItems(repoRoot, remoteUrl, branch);
+  const candidates = adrFiles.length + agentRulesItems.length + conventions.items.length;
   return {
-    items: [...adrItems, ...agentRulesItems].slice(0, opts.limit),
-    scanned: candidates + droppedShort,
+    items: [...adrItems, ...agentRulesItems, ...conventions.items].slice(0, opts.limit),
+    scanned: candidates + droppedShort + conventions.droppedShort + conventions.droppedNonRule,
     // Strictly more than the limit: everything was read, so the cap bound the read only
     // if the slice actually cut something.
     capped: candidates > opts.limit,
-    droppedShort,
+    droppedShort: droppedShort + conventions.droppedShort,
+    droppedNonRule: conventions.droppedNonRule,
   };
 }
 
@@ -228,15 +297,20 @@ async function readDocsItems(opts: { limit: number; cwd?: string }): Promise<{
  * ADRs alone fill the limit, so no count is invented for it.
  */
 export async function fetchDocsItems(opts: { limit: number; cwd?: string }): Promise<CaptureFetchResult> {
-  const { items, scanned, capped, droppedShort } = await readDocsItems(opts);
+  const { items, scanned, capped, droppedShort, droppedNonRule } = await readDocsItems(opts);
   return {
     items,
     report: {
       scanned,
       ...(capped ? { requested: opts.limit } : {}),
-      skips: droppedShort > 0
-        ? [{ count: droppedShort, detail: `sections under ${MIN_CHUNK_CHARS} characters (a bare heading or a one-line pointer)` }]
-        : [],
+      skips: [
+        ...(droppedShort > 0
+          ? [{ count: droppedShort, detail: `sections under ${MIN_CHUNK_CHARS} characters (a bare heading or a one-line pointer)` }]
+          : []),
+        ...(droppedNonRule > 0
+          ? [{ count: droppedNonRule, detail: 'README, CONTRIBUTING and changelog sections that state no rule (install steps, release entries)' }]
+          : []),
+      ],
     },
   };
 }

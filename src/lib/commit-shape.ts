@@ -23,7 +23,7 @@ export function mechanicalSubjectRegex(prefixes: readonly string[]): RegExp {
   return new RegExp(`^(${escaped.join('|')})`, 'i');
 }
 
-const CONVENTIONAL_PREFIX = /^[a-z]+(?:\([^)]*\))?!?:\s*/i;
+export const CONVENTIONAL_PREFIX = /^[a-z]+(?:\([^)]*\))?!?:\s*/i;
 const PR_REFERENCE = /\s*\(#\d+[^)]*\)/g;
 // "v5.9.0", "5.11.2", "Version 6.0.0-alpha.1": a subject that is only a version.
 const VERSION_ONLY = /^(?:v(?:ersion)?\s*)?\d+\.\d+(?:\.\d+)?(?:[-+.][\w.-]+)?$/i;
@@ -34,7 +34,7 @@ const BARE_BUMP_OR_RELEASE = /^(?:bump\w*|releas\w*)(?:\s*$|\s+v?\d+\.\d)/i;
 const DEPENDENCY_MOVE = /^(?:bump\w*|updat\w*|upgrad\w*)\s+(?:dependency\s+)?[@\w./-]+\s+(?:from\s+v?\d[\w.-]*\s+)?(?:to\s+v?\d[\w.-]*)(?:\s+in\s.*|\s*\(.*\))?[.]?$/i;
 // A subject that says why is a decision whatever its shape: "bump timeout ... because the upstream is slow",
 // "bump minimum Node to 20, drops 18", "bump lodash to 4.17.21 (CVE-2021-23337)".
-const STATED_WHY = /\b(?:because|so that|in order to|to avoid|to prevent|due to|since|cve-\d+|drops?|dropping|security|breaking)\b/i;
+export const STATED_WHY = /\b(?:because|so that|in order to|to avoid|to prevent|due to|since|cve-\d+|drops?|dropping|security|breaking)\b/i;
 
 /**
  * A release or version-bump subject with no stated reason. In words, after any `type(scope):` and
