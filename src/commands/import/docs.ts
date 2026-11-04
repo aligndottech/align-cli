@@ -21,7 +21,7 @@ interface DocsImportOpts {
 export function registerImportDocsCommand(importCmd: Command): void {
   importCmd
     .command('docs')
-    .description('Import ADRs and your CLAUDE.md/AGENTS.md content (no auth required)')
+    .description('Import ADRs, CLAUDE.md/AGENTS.md, and the rules in README, CONTRIBUTING and the changelog (no auth required)')
     .option('--limit <n>', 'Max items to import', String(SYNC_CEILINGS.docs))
     .option('--approve', 'Skip confirmation prompt')
     .option('--env <env>', 'Environment')
@@ -36,7 +36,7 @@ export function registerImportDocsCommand(importCmd: Command): void {
       p.intro(commandIntro('align connect docs'));
 
       const spinner = p.spinner();
-      spinner.start('Reading ADRs and CLAUDE.md/AGENTS.md...');
+      spinner.start('Reading ADRs, CLAUDE.md/AGENTS.md, README and CONTRIBUTING rules...');
       const fetched = await fetchDocsItems({ limit: parseInt(opts.limit, 10) });
       const { items } = fetched;
       spinner.stop(`Found ${items.length} item(s) worth importing`);

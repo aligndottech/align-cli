@@ -1,6 +1,6 @@
 import { execa } from 'execa';
 import os from 'node:os';
-import { isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS } from './commit-shape.js';
+import { CONVENTIONAL_PREFIX, isOneOffChangeTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY } from './commit-shape.js';
 
 export interface GitCommit {
   sha: string;
@@ -107,14 +107,15 @@ export async function getCommitHistoryDetailed(opts: {
     scanned++;
     const shaped = resolveCommitShape(subject, bodyLines.join('\n').trimEnd());
     if (!isDecisionCommit(shaped.subject)) return;
-    // A promoted merge already cleared an extra bar: its subject came from the
-    // body's own first line via isDecisionCommit, and its body always retains the original
-    // "Merge pull request #N from x/y" line for the PR ref - so it never needs to ALSO
-    // clear the rationale bar below. A plain commit gets no such head start: its subject
-    // is unvetted prose, so the body has to state why, or it is pure "what changed"
-    // (the whole complaint this filter exists to answer).
+    // A promoted merge's subject is the PR title, and its body always starts with the original
+    // "Merge pull request #N from x/y" line for the PR ref. That line is not a reason, so it is
+    // left out of the rationale check. The PR is kept when the rest of the body states a reason,
+    // or when the title is not a one-off change note (a title names a change, not why).
     const wasPromotedMerge = shaped.subject !== subject;
-    if (!wasPromotedMerge && !hasStatedRationale(shaped.subject, shaped.body)) {
+    const bodyForRationale = wasPromotedMerge
+      ? shaped.body.split('\n').filter(l => !/^merge (?:pull request|branch)\b/i.test(l.trim())).join('\n')
+      : shaped.body;
+    if (!hasStatedRationale(shaped.subject, bodyForRationale) && !(wasPromotedMerge && !isOneOffChangeTitle(shaped.subject))) {
       rejectedByRationale++;
       return;
     }
@@ -208,7 +209,8 @@ export function isDecisionCommit(subject: string): boolean {
   // length floor could be cleared by whitespace alone (Copilot on #240).
   const trimmed = subject.trim();
   if (trimmed.length < MIN_DECISION_SUBJECT_CHARS) return false;
-  return !MECHANICAL_SUBJECT_RE.test(trimmed) && !isReleaseOrBumpSubject(trimmed);
+  return !MECHANICAL_SUBJECT_RE.test(trimmed) && !isReleaseOrBumpSubject(trimmed)
+    && !FILE_ACTION_LINE_RE.test(trimmed.replace(/\s*\(#\d+\)\s*$/, ''));
 }
 
 // A line that IS a git trailer (key: value at the start of the line), not merely a
@@ -243,8 +245,31 @@ export function hasStatedRationale(subject: string, body: string): boolean {
     .map(l => l.trim())
     .filter(Boolean)
     .filter(l => !TRAILER_LINE_RE.test(l) && !GENERATED_WITH_RE.test(l))
-    .filter(l => normalizeForEcho(l) !== subjectNorm);
+    .filter(l => normalizeForEcho(l) !== subjectNorm)
+    .filter(l => !SEPARATOR_LINE_RE.test(l) && !FILE_ACTION_LINE_RE.test(l))
+    .filter(isReasonBearingLine);
   return remaining.length > 0;
+}
+
+// GitHub's squash-merge body is the PR's own commit list: a bullet per commit subject,
+// a `---------` rule before the trailers, and (for web-editor commits) lines like
+// "Modified 2 files". All of it says WHAT changed; none of it is a reason.
+const SEPARATOR_LINE_RE = /^-{3,}$/;
+const FILE_ACTION_LINE_RE = /^(?:[*-]\s+)?(?:added|modified|deleted|renamed|removed)\s+(?:\d+\s+files?|\S*[/.]\S*)\s*$/i;
+const BULLET_RE = /^[*-]\s+(.*)$/;
+/** A bullet with no stated why only counts as prose from this many words up. */
+const MIN_BULLET_WORDS = 8;
+
+/** A plain line is evidence of a reason. A squash bullet is evidence only when it says why
+ *  ("because", "to avoid", ...) or is long enough to be a sentence rather than a commit
+ *  subject; a bullet in `type(scope): ...` form is a subject however long it is. */
+function isReasonBearingLine(line: string): boolean {
+  const bullet = line.match(BULLET_RE);
+  if (!bullet) return true;
+  const text = bullet[1];
+  if (STATED_WHY.test(text)) return true;
+  if (CONVENTIONAL_PREFIX.test(text)) return false;
+  return text.split(/\s+/).length >= MIN_BULLET_WORDS;
 }
 
 export async function getRemoteUrl(opts: { cwd?: string } = {}): Promise<string | null> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCutTitle, isHousekeepingTitle, isNonBehaviouralType, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex } from '../lib/commit-shape.js';
+import { isCutTitle, isHousekeepingTitle, isNonBehaviouralType, isOneOffChangeTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex } from '../lib/commit-shape.js';
 
 /**
  * Copilot on align-cli#240 (suppressed comment, landed after the merge): the predicate
@@ -122,5 +122,70 @@ describe('isNonBehaviouralType', () => {
     for (const t of ['docs: x', 'chore: x', 'style: x', 'test: x', 'build: x', 'ci: x', 'Merge pull request #3 from a/b', '[Backport v4] fix: x', 'Bump x from 1 to 2']) {
       expect(isHousekeepingTitle(t), t).toBe(true);
     }
+  });
+});
+
+describe('isOneOffChangeTitle', () => {
+  // Dropped: leads with a one-off verb or a one-off conventional type, and carries no rescue.
+  it.each([
+    'rename abandonment endpoint',
+    'fix required properties',
+    'add SMSUnsubscription webhook',
+    'Add list phonenumber handling',
+    'add createdAt and updatedAt to orderSchema',
+    'Update actions/deploy-pages action to v5.0.1',
+    'Tidy the release scripts',
+    'extend outgoing messages properties',
+    'post/put order endpoint',
+    'Modify the order schema',
+    'Put the retry helper in its own file',
+    'Document the retry endpoint',
+    '2052-epochs.md: typo',
+    'refactor(llm): delete the unreachable explicit-provider branch',
+    'docs: reword the install section',
+    'chore: sort the imports in the cli',
+  ])('is one-off: %s', (title) => {
+    expect(isOneOffChangeTitle(title)).toBe(true);
+  });
+
+  // Kept: a decision verb, a feat, an RFC, a non-English title - or a rescue on a one-off lead.
+  it.each([
+    'Use Postgres for the events store',
+    'Switch from REST to gRPC for internal services',
+    'Migrate to pnpm',
+    'Replace Redis with Valkey',
+    'Drop support for Node 16',
+    'Stop using moment.js',
+    'Move auth to JWT',
+    'Make the cache write-through',
+    'Change `i686-pc-windows-msvc` from Tier 1 to Tier 2',
+    'RFC: Refactor the libs team',
+    'RFC: Cargo feature descriptions',
+    'feat(check): a human can answer a check that declined to rule',
+    'feat!: remove v1 API',
+    'Utiliser Postgres pour le store d\'evenements',
+    'Alle Endpunkte muessen authentifiziert werden',
+    'Adopt token-bucket rate limiting on all public endpoints',
+    'Require a ticket reference on every commit',
+    'Never log request bodies',
+  ])('is kept (not one-off): %s', (title) => {
+    expect(isOneOffChangeTitle(title)).toBe(false);
+  });
+
+  it.each([
+    'Reject unsigned webhooks so forged events cannot enter',
+    'fix(action): a WARNING conflict should not block a merge',
+    'Add retries to the queue consumer to keep jobs alive across restarts',
+    'Remove every unused feature flag',
+    'Add rate limiting to all public endpoints',
+    'Fix race in all handlers',
+    'Update the schema so that clients can pin a version',
+    'Remove the legacy path: do not call it again',
+    "Remove x, don't re-add it",
+    'Add a lint rule, it should run in CI',
+    'Only add endpoints through the registry',
+    'Extend every webhook payload with a version field',
+  ])('a one-off lead is rescued by a stated purpose, modal or quantifier: %s', (title) => {
+    expect(isOneOffChangeTitle(title)).toBe(false);
   });
 });
