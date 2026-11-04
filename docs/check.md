@@ -75,6 +75,36 @@ about 7 seconds of the hook starting. A timeout falls back to the related decisi
 saying the change could not be checked in time; it is never reported as aligned. Local mode skips
 the `full` check, because there it calls your own AI provider.
 
+## Co-change rules
+
+Some rules are about which files a PR touches, not what the diff says: "every notable API change adds
+an entry to `docs/changelog.md` in the same PR". A missing file is not in a diff, so the judge cannot
+see it. A co-change rule is checked from the changed-file list instead, with no model call:
+
+```
+align rule add "Every notable API change adds a changelog entry" \
+  --when "openapi/**" --require docs/changelog.md
+```
+
+`align check` flags a change that touches any `--when` path and none of the `--require` paths. The
+flag is a critical conflict that cites the rule's decision, names the files that triggered it and the
+file that is missing. It runs beside the judge, so it still flags when the judge is down or cannot
+parse its answer. The file list is the same change the diff came from (`--base <ref>`, staged, or
+the working tree), and a rename counts as touching both the old path and the new one.
+
+A rule belongs to the repo you were in when you added it, so it does not fire in your other
+checkouts (a rule added outside a git repo applies everywhere). Globs support `*`, `**` and `?`
+only: `{a,b}`, `[abc]`, `!` and backslash are refused when you add the rule, because they would
+otherwise never match. Write one path per alternative. `align rule remove <id>` (the id is in
+`align rule list`) deletes a wrong rule and keeps its decision.
+
+A rule conflict has no per-PR waiver. It is computed, so there is no judge to overrule and no
+mark that hides it. To let one PR through, remove the rule or add the file it asks for.
+
+Local mode only for now. The pre-commit `--hook` and the agent `--advisory` hooks do not evaluate
+these rules: they see one commit or one edit, and a same-PR rule cannot be judged from either.
+`align rule list` shows what is stored.
+
 ## In CI
 
 Always pass `--base`. A clean checkout has no staged diff, and a check with nothing to diff

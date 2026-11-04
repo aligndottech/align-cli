@@ -837,7 +837,7 @@ export function createLocalDb(dbPath: string) {
       // so the schema's ON DELETE CASCADE never fires (same fact the v2 migration
       // documents above).
       bumpRowSetEpoch(db);
-      db.exec(`DELETE FROM decision_refs; DELETE FROM decision_links; DELETE FROM decision_embeddings; DELETE FROM decisions;`);
+      db.exec(`DELETE FROM decision_refs; DELETE FROM decision_links; DELETE FROM decision_embeddings; DELETE FROM co_change_rules; DELETE FROM decisions;`);
     },
 
     /**

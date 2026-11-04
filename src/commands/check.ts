@@ -28,6 +28,8 @@ import { gitHead, lastCheckFor, writeLastCheck } from '../lib/curation/last-chec
 import { quote } from '../lib/curation/text.js';
 import { detectDeterministicHits, ratifiedDeterministicRules, ruleDenyReason } from '../lib/inline-rules.js';
 import { decisionLinkFor } from '../lib/decision-links.js';
+import type { ChangeSource } from '../lib/co-change-check.js';
+import type { CoChangeViolation } from '../lib/co-change.js';
 
 // The hook budget on EVERY host is <=10s (Claude Code HOOK_TIMEOUT_SECONDS, and the 10s
 // execFile timeout in the pi and OpenCode shims). Adjudication measured ~11s whenever
@@ -177,6 +179,8 @@ export function registerCheckCommand(program: Command): void {
 
       let diff: string;
       let autoBase: string | null = null;
+      // Where the file list for a co-change rule comes from: the same source the diff came from.
+      let changeSource: ChangeSource = opts.base ? { kind: 'base', ref: opts.base } : { kind: 'staged' };
       if (opts.base) {
         // An unresolvable base (a typo, a shallow clone with no history, a deleted branch)
         // must NOT fall through to the empty-diff path below: "I could not look" and "there
@@ -195,7 +199,11 @@ export function registerCheckCommand(program: Command): void {
         }
       } else {
         diff = await getStagedDiff();
-        if (!diff.trim() || opts.all) diff = await getHeadDiff();
+        const useHead = !diff.trim() || opts.all;
+        if (useHead) {
+          diff = await getHeadDiff();
+          changeSource = { kind: 'head' };
+        }
 
         // Nothing staged and nothing uncommitted. Until now that printed "No changes to check"
         // and exited 0 - on a CLEAN branch with commits, which is the normal state when you
@@ -220,6 +228,7 @@ export function registerCheckCommand(program: Command): void {
             if (branchDiff.trim()) {
               diff = branchDiff;
               autoBase = detected;
+              changeSource = { kind: 'base', ref: detected };
             }
           }
         }
@@ -239,9 +248,34 @@ export function registerCheckCommand(program: Command): void {
       // request cannot silently diverge field by field.
       const checkOpts = { title: opts.title, depth, ...ciIdentityFromEnv(process.env) };
 
+      // Co-change rules ("a PR touching X must also touch Y") are a question about which files changed,
+      // so they are computed here from the file list and need no model. Not in --hook: that runs on one
+      // commit, and a same-PR rule cannot be judged from one commit of a PR.
+      let violations: CoChangeViolation[] = [];
+      if (!opts.hook) {
+        const envConfig = config.getEnvironment(envName);
+        if (envConfig.mode === 'local-embedded') {
+          try {
+            violations = await (await import('../lib/co-change-check.js')).coChangeViolations(envConfig, changeSource);
+          } catch (err) {
+            const message = `Could not evaluate co-change rules: ${(err as Error).message}`;
+            if (opts.ci) {
+              process.stdout.write(`${JSON.stringify({ status: 'unknown', reason: 'co_change_unavailable', message })}\n`);
+            } else {
+              console.error(chalk.red(message));
+            }
+            process.exit(EXIT_UNKNOWN);
+          }
+        }
+      }
+      const judge = async (): Promise<AlignmentResult> => {
+        const call = () => client.checkAlignment(diff, branch, checkOpts);
+        return violations.length === 0 ? call() : (await import('../lib/co-change-check.js')).judgeWithCoChange(call, violations);
+      };
+
       if (opts.ci) {
         try {
-          const result = await client.checkAlignment(diff, branch, checkOpts);
+          const result = await judge();
           // LM: stdout is the machine contract (notes ride in the JSON); a person reading the CI log sees them on stderr.
           for (const note of result.notes ?? []) process.stderr.write(`${note}\n`);
           process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -266,7 +300,7 @@ export function registerCheckCommand(program: Command): void {
 
       const spinner = ora('Checking alignment...').start();
       try {
-        const result = await client.checkAlignment(diff, branch, checkOpts);
+        const result = await judge();
         spinner.stop();
         // LM: what this person's marks did to the result, and the file set `align mark check` defaults to.
         for (const note of result.notes ?? []) console.log(chalk.dim(`  ${note}`));
