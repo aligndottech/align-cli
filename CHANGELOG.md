@@ -7,7 +7,6 @@
 
 * **check:** co-change rules, checked from the changed-file list with no model ([#510](https://github.com/aligndottech/align-cli/issues/510)) ([187851d](https://github.com/aligndottech/align-cli/commit/187851d3f05f1511743a003f1546c0b03d57437e))
 * **check:** the advisory hook asks for a verdict ([eaf5102](https://github.com/aligndottech/align-cli/commit/eaf51028d154240fa22ff3434b9a95540912cbe6))
-* **import:** docs import stores the co-change rules it finds ([#511](https://github.com/aligndottech/align-cli/issues/511)) ([e04dbb3](https://github.com/aligndottech/align-cli/commit/e04dbb3ee20f645b1e9335508eec3b983865e499))
 * **import:** docs import stores the co-change rules it finds ([#511](https://github.com/aligndottech/align-cli/issues/511)) ([adb1377](https://github.com/aligndottech/align-cli/commit/adb1377377ad865470d950d924c25a7f25e2f3cb))
 
 
