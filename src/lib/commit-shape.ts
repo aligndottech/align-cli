@@ -34,7 +34,7 @@ const BARE_BUMP_OR_RELEASE = /^(?:bump\w*|releas\w*)(?:\s*$|\s+v?\d+\.\d)/i;
 const DEPENDENCY_MOVE = /^(?:bump\w*|updat\w*|upgrad\w*)\s+(?:dependency\s+)?[@\w./-]+\s+(?:from\s+v?\d[\w.-]*\s+)?(?:to\s+v?\d[\w.-]*)(?:\s+in\s.*|\s*\(.*\))?[.]?$/i;
 // A subject that says why is a decision whatever its shape: "bump timeout ... because the upstream is slow",
 // "bump minimum Node to 20, drops 18", "bump lodash to 4.17.21 (CVE-2021-23337)".
-export const STATED_WHY = /\b(?:because|so that|in order to|to avoid|to prevent|due to|since|cve-\d+|drops?|dropping|security|breaking)\b/i;
+export const STATED_WHY = /\b(?:because|so that|so we|so it|in order to|to keep|to avoid|to prevent|to ensure|to make sure|due to|since|cve-\d+|drops?|dropping|security|breaking)\b/i;
 
 /**
  * A release or version-bump subject with no stated reason. In words, after any `type(scope):` and
@@ -81,20 +81,33 @@ export function isNonBehaviouralType(title: string): boolean {
   return NON_BEHAVIOURAL_TYPE.test(title.trim());
 }
 
-const POLICY_WORD = /\b(?:adopt|require[sd]?|standardi[sz]e[sd]?|enforce[sd]?|mandate[sd]?|deprecate[sd]?|always|never|must|only|all|every|no longer)\b/i;
-const ONE_OFF_LEAD = /^(?:add|fix|rename|update|remove|bump|refactor|document)\b/i;
+const POLICY_WORD = /\b(?:adopt|requires?|standardi[sz]e[sd]?|enforce[sd]?|mandate[sd]?|deprecate[sd]?|always|never|must|only|all|every|no longer|should(?: not)?|should(?:n't)?|do not|don't)\b/i;
+const ONE_OFF_VERBS = /^(?:add|fix|rename|update|remove|bump|refactor|document|typo|tidy)\b/i;
+const ONE_OFF_TYPES = new Set(['fix', 'test', 'refactor', 'chore', 'ci', 'docs', 'style', 'build']);
+const TYPO = /\btypos?\b/i;
 const SWEEPING_QUANTIFIER = /\b(?:all|every)\b/i;
+const TYPE_PREFIX = /^([a-z]+)(?:\([^)]*\))?!?:\s*/i;
 
 /**
- * Does this title state a standing rule rather than a one-off change? A PR title taken from a
- * merge commit has no body to say why, so it is kept only if it reads as policy: it carries a
- * policy verb or quantifier (adopt, require, never, all, every ...) and does not lead with a
- * one-off change verb (add, fix, rename ...) - unless "all"/"every" follows, as in "Remove every
- * unused flag". "Adopt token-bucket rate limiting on all public endpoints" is policy; "rename
- * abandonment endpoint" is a change.
+ * Is this a title-only change note: it leads with a one-off verb (add, fix, rename, update,
+ * remove, bump, refactor, document, typo, tidy), or a one-off conventional type (fix, test,
+ * refactor, chore, ci, docs, style, build), and carries nothing that makes it a decision? A PR
+ * title taken from a merge commit has no body to say why, so this is the only thing standing
+ * between a "rename abandonment endpoint" and the graph.
+ *
+ * Anything that does not lead like that is NOT one-off: decision verbs (use, switch, migrate,
+ * replace, drop, stop, move, change, make), `feat`, an `RFC:` prefix, and any title in a language
+ * whose verbs this list does not know. A one-off lead is rescued by a stated purpose
+ * (STATED_WHY: "so that", "to keep", "because" ...), a policy word or modal (adopt, require,
+ * never, should not ...), or a sweeping quantifier (all, every).
  */
-export function isPolicyShapedTitle(title: string): boolean {
-  const t = title.trim().replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
-  if (!POLICY_WORD.test(t)) return false;
-  return !ONE_OFF_LEAD.test(t) || SWEEPING_QUANTIFIER.test(t);
+export function isOneOffChangeTitle(title: string): boolean {
+  const t = title.trim().replace(PR_REFERENCE, '').trim();
+  const prefix = t.match(TYPE_PREFIX);
+  let oneOff: boolean;
+  if (prefix) oneOff = ONE_OFF_TYPES.has(prefix[1].toLowerCase()) || TYPO.test(t);
+  else oneOff = ONE_OFF_VERBS.test(t) || TYPO.test(t);
+  if (!oneOff) return false;
+  const body = prefix ? t.slice(prefix[0].length) : t;
+  return !(STATED_WHY.test(body) || POLICY_WORD.test(body) || SWEEPING_QUANTIFIER.test(body));
 }

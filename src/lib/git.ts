@@ -1,6 +1,6 @@
 import { execa } from 'execa';
 import os from 'node:os';
-import { CONVENTIONAL_PREFIX, isPolicyShapedTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY } from './commit-shape.js';
+import { CONVENTIONAL_PREFIX, isOneOffChangeTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY } from './commit-shape.js';
 
 export interface GitCommit {
   sha: string;
@@ -110,12 +110,12 @@ export async function getCommitHistoryDetailed(opts: {
     // A promoted merge's subject is the PR title, and its body always starts with the original
     // "Merge pull request #N from x/y" line for the PR ref. That line is not a reason, so it is
     // left out of the rationale check. The PR is kept when the rest of the body states a reason,
-    // or when the title itself states a standing rule (a title names a change, not why).
+    // or when the title is not a one-off change note (a title names a change, not why).
     const wasPromotedMerge = shaped.subject !== subject;
     const bodyForRationale = wasPromotedMerge
       ? shaped.body.split('\n').filter(l => !/^merge (?:pull request|branch)\b/i.test(l.trim())).join('\n')
       : shaped.body;
-    if (!hasStatedRationale(shaped.subject, bodyForRationale) && !(wasPromotedMerge && isPolicyShapedTitle(shaped.subject))) {
+    if (!hasStatedRationale(shaped.subject, bodyForRationale) && !(wasPromotedMerge && !isOneOffChangeTitle(shaped.subject))) {
       rejectedByRationale++;
       return;
     }

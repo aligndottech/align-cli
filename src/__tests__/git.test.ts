@@ -416,7 +416,11 @@ describe('getCommitHistory (body, merges, refs survive)', () => {
   it.each([
     ['Require a ticket reference on every commit'],
     ['Never log request bodies in production'],
-  ])('keeps a policy-shaped promoted merge title: %s', async (title) => {
+    ['Use Postgres for the events store'],
+    ['Drop support for Node 16'],
+    ['RFC: Refactor the libs team'],
+    ['Reject unsigned webhooks so forged events cannot enter'],
+  ])('keeps a promoted merge title that is not a one-off change: %s', async (title) => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
       `COMMIT${SEP}${SHA1}${SEP}Merge pull request #9 from align/x${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${title}`,
@@ -430,6 +434,7 @@ describe('getCommitHistory (body, merges, refs survive)', () => {
     ['fix required properties'],
     ['add SMSUnsubscription webhook'],
     ['Add list phonenumber handling'],
+    ['Update actions/deploy-pages action to v5.0.1'],
   ])('drops a one-off promoted merge title with no body: %s', async (title) => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([

@@ -133,6 +133,35 @@ describe('fetchDocsItems - README, CONTRIBUTING and changelog conventions', () =
     expect(items).toEqual([]);
   });
 
+  it('imports a README Development section that says "Do not commit directly to main"', async () => {
+    fresh();
+    write('README.md', '# x\n\n## Development\n\nDo not commit directly to main. Open a branch.\n\n## Installation\n\nRun npm install. You must have Node 20 installed first.\n\n## Usage\n\nCall the client with your key. Do not share it.\n');
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    expect(items.map((i) => i.title)).toEqual(['Development']);
+  });
+
+  it('requires a rule marker in CONTRIBUTING.md too: a section with no obligation is left out', async () => {
+    fresh();
+    write('CONTRIBUTING.md', '## Welcome\n\nWe are glad you stopped by to look around the project today.\n');
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    expect(items).toEqual([]);
+  });
+
+  it('does not import a "## Deprecated" category under a "# <version>" release heading', async () => {
+    fresh();
+    write('CHANGELOG.md', '# Changelog\n\n## Versioning\n\nBreaking changes create a new major version of the package.\n\n# 1.2.0\n\n## Deprecated\n\n- The old endpoint must not be used any more.\n\n## Removed\n\n- Never call v0.\n');
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    expect(items.map((i) => i.title)).toEqual(['Versioning']);
+    expect(items[0].raw_text).not.toContain('1.2.0');
+  });
+
+  it('still imports a real deprecation POLICY heading in a changelog', async () => {
+    fresh();
+    write('CHANGELOG.md', '## Deprecation policy\n\nA feature is deprecated for two releases before it is removed.\n');
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    expect(items.map((i) => i.title)).toEqual(['Deprecation policy']);
+  });
+
   it('counts the sections it left out in the capture report', async () => {
     fresh();
     write('README.md', `${RECART_README}\n## Installation\n\nRun npm install. You must have Node 20 installed first.\n`);
@@ -178,6 +207,42 @@ describe('fetchDocsItems - co-change rule shape', () => {
       require_paths: ['CHANGELOG.md'],
       scope: 'same_pr',
     });
+  });
+
+  it('emits no rule for an rspec spec/ dir: that is tests, not an API spec', async () => {
+    fresh();
+    writeFileSync(join(repo, 'README.md'), RECART_README);
+    mkdirSync(join(repo, 'spec'));
+    writeFileSync(join(repo, 'spec', 'api_spec.rb'), 'describe "api" do\nend\n');
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    expect(items).toHaveLength(1);
+    expect(items[0]).not.toHaveProperty('co_change_rule');
+  });
+
+  it('emits no rule when an api/ dir holds no openapi or swagger file', async () => {
+    fresh();
+    writeFileSync(join(repo, 'README.md'), RECART_README);
+    mkdirSync(join(repo, 'api'));
+    writeFileSync(join(repo, 'api', 'server.ts'), 'export {};\n');
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    expect(items[0]).not.toHaveProperty('co_change_rule');
+  });
+
+  it('uses an api/ dir that holds a swagger file (named for it)', async () => {
+    fresh();
+    writeFileSync(join(repo, 'README.md'), RECART_README);
+    mkdirSync(join(repo, 'api'));
+    writeFileSync(join(repo, 'api', 'swagger.json'), '{}');
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    expect((items[0] as { co_change_rule?: { when_paths: string[] } }).co_change_rule?.when_paths).toEqual(['api/**']);
+  });
+
+  it('ignores a backticked dir that is not in the same sentence as the same-PR clause', async () => {
+    fresh();
+    writeFileSync(join(repo, 'CONTRIBUTING.md'), '## Changelog\n\nKeep examples in `docs/` current. Always add an entry to CHANGELOG.md in the same PR.\n');
+    const { items } = await fetchDocsItems({ limit: 100, cwd: repo });
+    expect(items).toHaveLength(1);
+    expect(items[0]).not.toHaveProperty('co_change_rule');
   });
 
   it('emits no structured rule when it cannot tell what triggers it (the text is still imported)', async () => {

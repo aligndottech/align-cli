@@ -7,7 +7,7 @@ import type { PersonalImportItem } from '../personal-import.js';
 import type { CaptureFetchResult } from './capture.js';
 import type { CoChangeRule } from '../co-change-rule.js';
 import {
-  CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, README_FILES,
+  CHANGELOG_FILES, CONTRIBUTING_FILES, type DocKind, inferCoChangeRule, isRuleSection, README_FILES, sectionBody,
 } from './docs-conventions.js';
 
 /**
@@ -223,7 +223,7 @@ async function readConventionItems(
       const seenSlugs = new Map<string, number>();
       for (const section of splitIntoSections(stripAlignOwnedContent(raw))) {
         if (!section.heading) continue;
-        const body = section.body.replace(/\n+---+\s*$/, '').trim();
+        const body = sectionBody(kind, section.body).replace(/\n+---+\s*$/, '').trim();
         if (!isRuleSection(kind, section.heading, body)) { droppedNonRule++; continue; }
         if (body.length < MIN_CHUNK_CHARS) { droppedShort++; continue; }
         const slug = slugify(section.heading);
