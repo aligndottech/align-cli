@@ -138,6 +138,7 @@ align mark [args]             Record your judgement on what the guardrail shows:
 align rule                    Co-change rules: a PR touching some files must also touch another, checked by file list with no model (local)
 align rule add [title]        Record a rule: a change touching --when must also touch one of --require in the same PR
                               flags: --when --require --summary
+align rule remove [id]        Remove a co-change rule by the id `align rule list` prints. Its decision stays
 align rule list               Show the co-change rules in your local graph
 
 # Removed in 0.40.0 - use align connect

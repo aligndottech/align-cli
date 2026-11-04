@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { type CoChangeRule, evaluateCoChange, parseCoChangeRule, pathMatches, type StoredCoChangeRule } from '../co-change.js';
 
 const stored = (rule: Partial<CoChangeRule> = {}, id = 'd1'): StoredCoChangeRule => ({
+  ruleId: `r-${id}`,
+  repo: null,
   decisionId: id,
   title: 'Every notable API change adds a changelog entry',
   summary: 'README: add an entry to docs/changelog.md in the same PR',
@@ -59,6 +61,29 @@ describe('pathMatches: glob edge cases', () => {
   });
 });
 
+describe('pathMatches is linear: a hostile glob cannot hang a check', () => {
+  const time = (fn: () => unknown): number => { const t = performance.now(); fn(); return performance.now() - t; };
+  it("'**a' x8 + '**b' against 60 a's (backtracks for ~79s as a regex) finishes in under 50ms, and does not match", () => {
+    const glob = `${'**a'.repeat(8)}**b`;
+    const path = 'a'.repeat(60);
+    let result = true;
+    expect(time(() => { result = pathMatches(glob, path); })).toBeLessThan(50);
+    expect(result).toBe(false);
+  });
+  it('the same shape with a match available still finishes fast and matches (control: the matcher can say yes)', () => {
+    const glob = `${'**a'.repeat(8)}**b`;
+    let result = false;
+    expect(time(() => { result = pathMatches(glob, `${'a'.repeat(60)}b`); })).toBeLessThan(50);
+    expect(result).toBe(true);
+  });
+  it('mixed * and ** pile-ups are fast too', () => {
+    const glob = `${'*a'.repeat(12)}*/**/*b`;
+    let result = true;
+    expect(time(() => { result = pathMatches(glob, 'a'.repeat(80)); })).toBeLessThan(50);
+    expect(result).toBe(false);
+  });
+});
+
 describe('evaluateCoChange', () => {
   it('flags a PR that touches a when path and none of the require paths, naming both sides', () => {
     const v = evaluateCoChange([stored()], ['openapi/2023-12.yaml', 'README.md']);
@@ -108,6 +133,15 @@ describe('evaluateCoChange', () => {
 });
 
 describe('parseCoChangeRule', () => {
+  it.each([['{'], ['}'], ['['], [']'], ['!'], ['\\']])('rejects unsupported glob syntax %s in when_paths, naming it', (ch) => {
+    expect(() => parseCoChangeRule({ when_paths: [`src/a${ch}b/**`], require_paths: ['docs/changelog.md'], scope: 'same_pr' })).toThrow(/when_paths.*not supported/);
+  });
+  it.each([['{'], ['}'], ['['], [']'], ['!'], ['\\']])('rejects unsupported glob syntax %s in require_paths, naming it', (ch) => {
+    expect(() => parseCoChangeRule({ when_paths: ['src/**'], require_paths: [`docs/a${ch}b.md`], scope: 'same_pr' })).toThrow(/require_paths.*not supported/);
+  });
+  it('still accepts every supported form: *, **, ?, dots, dashes, a trailing slash', () => {
+    expect(() => parseCoChangeRule({ when_paths: ['src/**/*.ts', 'v?/a-b_c.d/', './x'], require_paths: ['docs/*.md'], scope: 'same_pr' })).not.toThrow();
+  });
   it('accepts the shared shape', () => {
     expect(parseCoChangeRule({ when_paths: ['a/**'], require_paths: ['b.md'], scope: 'same_pr' })).toEqual({ when_paths: ['a/**'], require_paths: ['b.md'], scope: 'same_pr' });
   });

@@ -92,6 +92,15 @@ file that is missing. It runs beside the judge, so it still flags when the judge
 parse its answer. The file list is the same change the diff came from (`--base <ref>`, staged, or
 the working tree), and a rename counts as touching both the old path and the new one.
 
+A rule belongs to the repo you were in when you added it, so it does not fire in your other
+checkouts (a rule added outside a git repo applies everywhere). Globs support `*`, `**` and `?`
+only: `{a,b}`, `[abc]`, `!` and backslash are refused when you add the rule, because they would
+otherwise never match. Write one path per alternative. `align rule remove <id>` (the id is in
+`align rule list`) deletes a wrong rule and keeps its decision.
+
+A rule conflict has no per-PR waiver. It is computed, so there is no judge to overrule and no
+mark that hides it. To let one PR through, remove the rule or add the file it asks for.
+
 Local mode only for now. The pre-commit `--hook` and the agent `--advisory` hooks do not evaluate
 these rules: they see one commit or one edit, and a same-PR rule cannot be judged from either.
 `align rule list` shows what is stored.

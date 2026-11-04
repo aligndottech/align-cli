@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type RuleCommandDeps, runRuleAdd, runRuleList } from '../commands/rule.js';
+import { type RuleCommandDeps, runRuleAdd, runRuleList, runRuleRemove } from '../commands/rule.js';
 import { listCoChangeRules } from '../lib/co-change-store.js';
 
 let dir: string;
@@ -17,7 +17,7 @@ let dbPath: string;
 let out: string[];
 let err: string[];
 const deps = (graph: string | undefined = undefined): RuleCommandDeps => ({
-  out: (l) => out.push(l), err: (l) => err.push(l), graphPath: () => graph ?? dbPath,
+  out: (l) => out.push(l), err: (l) => err.push(l), graphPath: () => graph ?? dbPath, repo: async () => 'github.com/acme/a',
 });
 
 beforeEach(() => {
@@ -36,6 +36,23 @@ describe('align rule add', () => {
     expect(stored?.title).toBe('Every notable API change adds a changelog entry');
     expect(out.join('\n')).toMatch(/openapi\/\*\*/);
     expect(out.join('\n')).toMatch(/docs\/changelog\.md/);
+  });
+
+  it('stamps the rule with the current repo identity', async () => {
+    await runRuleAdd('T', { when: ['a/**'], require: ['x.md'] }, deps());
+    expect(listCoChangeRules(dbPath)[0]?.repo).toBe('github.com/acme/a');
+  });
+
+  it('refuses unsupported glob syntax with a message naming it, and stores nothing', async () => {
+    expect(await runRuleAdd('T', { when: ['src/{a,b}/**'], require: ['x.md'] }, deps())).toBe(2);
+    expect(err.join('\n')).toMatch(/not supported/);
+    expect(listCoChangeRules(dbPath)).toEqual([]);
+  });
+
+  it('a missing title with other words swallowed by --require explains that, instead of only asking for a title', async () => {
+    // commander hands `--require b "my title"` over as require ['b', 'my title'] and no title
+    expect(await runRuleAdd(undefined, { when: ['a'], require: ['b', 'my title'] }, deps())).toBe(2);
+    expect(err.join('\n')).toMatch(/title first|quote/i);
   });
 
   it('takes several globs on each side', async () => {
@@ -63,7 +80,7 @@ describe('align rule add', () => {
   });
 
   it('refuses when local mode is not set up, naming the command that sets it up', async () => {
-    const d: RuleCommandDeps = { out: (l) => out.push(l), err: (l) => err.push(l), graphPath: () => undefined };
+    const d: RuleCommandDeps = { out: (l) => out.push(l), err: (l) => err.push(l), graphPath: () => undefined, repo: async () => null };
     expect(await runRuleAdd('T', { when: ['a'], require: ['b'] }, d)).toBe(1);
     expect(err.join('\n')).toMatch(/align setup --local|align local start/);
   });
@@ -78,10 +95,34 @@ describe('align rule list', () => {
     expect(text).toContain('Changelog rule');
     expect(text).toContain('openapi/**');
     expect(text).toContain('docs/changelog.md');
+    expect(text).toContain('github.com/acme/a');
+    expect(text).toContain(listCoChangeRules(dbPath)[0]!.ruleId);
   });
 
   it('says so when there are none', async () => {
     expect(await runRuleList(deps())).toBe(0);
     expect(out.join('\n')).toMatch(/no co-change rules/i);
+  });
+});
+
+describe('align rule remove', () => {
+  it('removes the rule by its id and says the decision stays', async () => {
+    await runRuleAdd('T', { when: ['a/**'], require: ['x.md'] }, deps());
+    const id = listCoChangeRules(dbPath)[0]!.ruleId;
+    out = [];
+    expect(await runRuleRemove(id, deps())).toBe(0);
+    expect(listCoChangeRules(dbPath)).toEqual([]);
+    expect(out.join('\n')).toMatch(/decision.*stays|kept/i);
+  });
+
+  it('an unknown id is exit 1 and removes nothing', async () => {
+    await runRuleAdd('T', { when: ['a/**'], require: ['x.md'] }, deps());
+    expect(await runRuleRemove('nope', deps())).toBe(1);
+    expect(err.join('\n')).toMatch(/no rule/i);
+    expect(listCoChangeRules(dbPath)).toHaveLength(1);
+  });
+
+  it('no id is a usage error (exit 2)', async () => {
+    expect(await runRuleRemove(undefined, deps())).toBe(2);
   });
 });

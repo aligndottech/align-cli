@@ -80,10 +80,12 @@ export function mergeCoChange(llm: AlignmentResult | null, llmError: unknown, vi
  */
 export async function coChangeViolations(env: { mode: string; localDbPath?: string }, source: ChangeSource): Promise<CoChangeViolation[]> {
   if (env.mode !== 'local-embedded') return [];
-  const [{ listCoChangeRules }, { evaluateCoChange }, { getLocalDbPath }] = await Promise.all([
-    import('./co-change-store.js'), import('./co-change.js'), import('./local-mode.js'),
+  const [{ listCoChangeRules }, { evaluateCoChange }, { getLocalDbPath }, { currentRepoIdentity }] = await Promise.all([
+    import('./co-change-store.js'), import('./co-change.js'), import('./local-mode.js'), import('./repo-identity.js'),
   ]);
-  const rules = listCoChangeRules(env.localDbPath ?? getLocalDbPath());
+  // Rules belong to the repo they were added in (the identity decisions.repo carries): one machine-wide
+  // graph must not make a rule from repo A fire in repo B.
+  const rules = listCoChangeRules(env.localDbPath ?? getLocalDbPath(), { repo: await currentRepoIdentity() });
   if (rules.length === 0) return [];
   return evaluateCoChange(rules, await changedFiles(source));
 }

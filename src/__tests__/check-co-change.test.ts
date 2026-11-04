@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerCheckCommand } from '../commands/check.js';
 import { addCoChangeRule } from '../lib/co-change-store.js';
+import { currentRepoIdentity } from '../lib/repo-identity.js';
 
 const mockCheckAlignment = vi.fn();
 let envMode: 'local-embedded' | 'auth' = 'local-embedded';
@@ -38,21 +39,23 @@ const commit = (files: Record<string, string>, msg: string) => {
   git('add', '.'); git('commit', '-q', '-m', msg);
 };
 
-async function runCheck(args: string[]): Promise<{ exitCode: number | undefined; json: any }> {
+async function runCheck(args: string[]): Promise<{ exitCode: number | undefined; json: any; log: string }> {
   const program = new Command();
   registerCheckCommand(program);
   let exitCode: number | undefined;
   let out = '';
   const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((c?: number) => { if (exitCode === undefined) exitCode = c; throw new Error('__exit__'); }) as never);
   const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((s: string) => { out += s; return true; }) as never);
+  let log = '';
+  const logSpy = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { log += `${a.join(' ')}\n`; });
   const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   try { await program.parseAsync(['node', 'align', 'check', ...args]); } catch { /* exit spy */ }
-  finally { exitSpy.mockRestore(); writeSpy.mockRestore(); errSpy.mockRestore(); }
+  finally { exitSpy.mockRestore(); writeSpy.mockRestore(); errSpy.mockRestore(); logSpy.mockRestore(); }
   const line = out.trim().split('\n').filter(Boolean)[0];
-  return { exitCode, json: line ? JSON.parse(line) : undefined };
+  return { exitCode, json: line ? JSON.parse(line) : undefined, log };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   envMode = 'local-embedded';
   cwd0 = process.cwd();
@@ -64,7 +67,7 @@ beforeEach(() => {
   git('checkout', '-q', '-b', 'pr');
   process.chdir(repo);
   mockCheckAlignment.mockResolvedValue(ALIGNED);
-  addCoChangeRule(dbPath, { title: 'Every notable API change adds a changelog entry', summary: 'README: docs/changelog.md in the same PR', rule: { when_paths: ['openapi/**'], require_paths: ['docs/changelog.md'], scope: 'same_pr' } });
+  addCoChangeRule(dbPath, { title: 'Every notable API change adds a changelog entry', summary: 'README: docs/changelog.md in the same PR', repo: await currentRepoIdentity({ cwd: repo }), rule: { when_paths: ['openapi/**'], require_paths: ['docs/changelog.md'], scope: 'same_pr' } });
 });
 afterEach(() => {
   process.chdir(cwd0);
@@ -149,11 +152,14 @@ describe('align check: co-change rules', () => {
     expect(json, JSON.stringify(json)).toEqual(ALIGNED);
   });
 
-  it('the pre-commit hook does not evaluate a PR-scoped rule against one commit', async () => {
+  it('the pre-commit hook does not evaluate a PR-scoped rule against one commit: the judge answered aligned, so it neither exits nor prints the rule', async () => {
     fs.writeFileSync(path.join(repo, 'openapi/2023-12.yaml'), 'a: 3\n');
     git('add', '.');
-    const { exitCode } = await runCheck(['--hook']);
-    expect(exitCode).not.toBe(1);
+    const { exitCode, log } = await runCheck(['--hook']);
+    expect(mockCheckAlignment).toHaveBeenCalledTimes(1);
+    expect(exitCode).toBeUndefined(); // an aligned hook run falls off the end: no process.exit at all
+    expect(log).not.toContain('Every notable API change');
+    expect(log).not.toMatch(/file rule/i);
   });
 
   it('a staged-only check (no --base) sees the staged files', async () => {
@@ -162,5 +168,60 @@ describe('align check: co-change rules', () => {
     const { exitCode, json } = await runCheck(['--ci']);
     expect(exitCode).toBe(1);
     expect(json.conflicts[0].reason).toContain('openapi/2023-12.yaml');
+  });
+
+  it('plain `align check` (no --ci) sees an unstaged edit under openapi/ and flags it, printing the rule', async () => {
+    fs.writeFileSync(path.join(repo, 'openapi/2023-12.yaml'), 'a: 9\n'); // tracked, edited, not staged
+    const { exitCode, log } = await runCheck([]);
+    expect(exitCode).toBe(1);
+    expect(log).toContain('Every notable API change adds a changelog entry');
+    expect(log).toContain('openapi/2023-12.yaml');
+  });
+
+  it('...and the same unstaged edit with an unstaged changelog edit beside it is satisfied', async () => {
+    fs.writeFileSync(path.join(repo, 'openapi/2023-12.yaml'), 'a: 9\n');
+    fs.writeFileSync(path.join(repo, 'docs/changelog.md'), 'v9\n');
+    expect((await runCheck([])).exitCode).not.toBe(1);
+  });
+
+  it('a clean branch with commits falls back to its auto-detected base, and the rule is checked against that branch diff', async () => {
+    commit({ 'openapi/2023-12.yaml': 'a: 2\n' }, 'spec'); // committed: nothing staged, nothing uncommitted
+    const { exitCode, log } = await runCheck([]);
+    expect(log).toMatch(/reviewing this branch against main/);
+    expect(exitCode).toBe(1);
+    expect(log).toContain('openapi/2023-12.yaml');
+  });
+
+  it('...and a clean branch whose commits include the changelog is not flagged', async () => {
+    commit({ 'openapi/2023-12.yaml': 'a: 2\n', 'docs/changelog.md': 'v2\n' }, 'spec + changelog');
+    const { exitCode, log } = await runCheck([]);
+    expect(log).toMatch(/reviewing this branch against main/);
+    expect(exitCode).not.toBe(1);
+  });
+
+  it('a rule added in repo A does not fire in an unrelated repo B, and still fires in A', async () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'align-cochange-other-'));
+    try {
+      const gitB = (...a: string[]) => execFileSync('git', a, { cwd: other, stdio: 'pipe' }).toString();
+      gitB('init', '-q', '-b', 'main');
+      gitB('config', 'user.email', 't@example.test'); gitB('config', 'user.name', 't'); gitB('config', 'commit.gpgsign', 'false');
+      fs.mkdirSync(path.join(other, 'openapi'));
+      fs.writeFileSync(path.join(other, 'openapi/x.yaml'), 'a: 1\n');
+      gitB('add', '.'); gitB('commit', '-q', '-m', 'base');
+      gitB('checkout', '-q', '-b', 'pr');
+      fs.writeFileSync(path.join(other, 'openapi/x.yaml'), 'a: 2\n'); // openapi/ touched, no changelog anywhere
+      gitB('add', '.'); gitB('commit', '-q', '-m', 'spec');
+
+      commit({ 'openapi/2023-12.yaml': 'a: 2\n' }, 'spec'); // repo A violates its own rule
+      expect((await runCheck(['--ci', '--base', 'main'])).exitCode).toBe(1); // positive control: the rule fires where it was added
+
+      process.chdir(other);
+      const b = await runCheck(['--ci', '--base', 'main']);
+      expect(b.exitCode).toBe(0);
+      expect(b.json).toEqual(ALIGNED);
+    } finally {
+      process.chdir(repo);
+      fs.rmSync(other, { recursive: true, force: true });
+    }
   });
 });
