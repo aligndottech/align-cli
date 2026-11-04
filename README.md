@@ -50,8 +50,10 @@ Change lib/error-status.js so they keep their status code.
 ```
 
 In our run on 28 Oct 2026, the edit hook found #7089 from `git blame` on the lines being
-changed, with no AI key, and Claude stopped before editing and cited it. Models are not
-deterministic, so your run may word it differently.
+changed, with no AI key, and Claude stopped before editing and cited it. On 4 Nov 2026, on
+0.66.1, Claude asked Align over MCP before it tried an edit, so the hook never fired. It cited
+#7089 and #601 (2018: "do not allow set status code to lower than 400"), changed nothing, and
+asked what to do. Models are not deterministic, so your run may word it differently.
 
 ## Install
 
