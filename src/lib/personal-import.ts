@@ -182,6 +182,10 @@ export async function runPersonalImport(
 
   if (opts.result) { opts.result.stored = total; opts.result.failedBatches = failures.length; }
 
+  // ALI-2069: nothing landed and something failed, so this was not an import. Exit non-zero so a
+  // script, an agent or CI reading the exit code never mistakes an empty graph for a success.
+  if (total === 0 && failures.length > 0) process.exitCode = 1;
+
   // Ingest ran (the empty-items case returned above), so the funnel stage
   // fires whichever rendering branch follows. Consent gating lives in the emitter.
   // No await (Copilot on #215): never-throws, and the completion line must not wait

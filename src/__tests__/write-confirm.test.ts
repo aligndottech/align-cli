@@ -5,7 +5,7 @@ import path from 'node:path';
 import { planAgentAlignment, setupAgentAlignment } from '../lib/agent-rules.js';
 import { setWriteRecorder, undoWrittenConfigs, type WrittenConfig } from '../lib/safe-config-write.js';
 import { type EditorTarget, mcpConfigFiles, writeMcpConfig } from '../lib/mcp-setup.js';
-import { confirmWrites, homeDisplay, planSetupWrites, renderWritePlan, WRITE_CONFIRM_QUESTION, WRITE_PLAN_HEADING, WRITE_UNDO_LINE } from '../lib/write-confirm.js';
+import { confirmWrites, homeDisplay, planSetupWrites, renderWritePlan, USER_WIDE_HEADING, WRITE_CONFIRM_QUESTION, WRITE_NOT_APPROVED_LINE, WRITE_PLAN_HEADING, WRITE_UNDO_LINE } from '../lib/write-confirm.js';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), 'align-write-confirm-')); });
@@ -47,6 +47,34 @@ describe('the list is the plan the writer runs', () => {
     expect(writeMcpConfig(target, 'local')).toEqual(mcpConfigFiles(target));
   });
 
+  it('marks the project\'s own files "project" and an agent\'s config under home "user" (ALI-2069)', () => {
+    const home = path.join(dir, 'home');
+    const repo = path.join(dir, 'repo');
+    mkdirSync(path.join(home, '.codex'), { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    const target: EditorTarget = {
+      name: 'Codex',
+      configPath: path.join(home, '.codex', 'config.toml'),
+      format: 'codex',
+      hooks: { host: 'codex', path: path.join(home, '.codex', 'hooks.json') },
+    };
+    const plan = planSetupWrites({ cwd: repo, editors: [target], home });
+    const scopeOf = Object.fromEntries(plan.map((p) => [p.display, p.scope]));
+    expect(scopeOf['~/.codex/hooks.json']).toBe('user');
+    expect(scopeOf['~/.codex/config.toml']).toBe('user');
+    const projectRows = plan.filter((p) => p.scope === 'project');
+    expect(projectRows.length).toBeGreaterThan(0); // positive control: the project rows exist
+    for (const p of projectRows) expect(p.file.startsWith(repo)).toBe(true);
+  });
+
+  it('an agent config file inside the project (a workspace .mcp.json) stays "project"', () => {
+    const repo = path.join(dir, 'repo');
+    mkdirSync(repo, { recursive: true });
+    const t: EditorTarget = { name: 'VS Code', configPath: path.join(repo, '.vscode', 'mcp.json'), format: 'mcpServers' };
+    const plan = planSetupWrites({ cwd: repo, editors: [t], home: path.join(dir, 'home') });
+    expect(plan.find((p) => p.file === t.configPath)?.scope).toBe('project');
+  });
+
   it('lists a path once even when two sources name it', () => {
     const t: EditorTarget = { name: 'A', configPath: path.join(dir, 'a.json'), format: 'mcpServers' };
     const plan = planSetupWrites({ cwd: dir, editors: [t, { ...t, name: 'B' }], home: dir });
@@ -65,6 +93,20 @@ describe('renderWritePlan', () => {
       '  modify  CLAUDE.md',
       '  create  .mcp.json',
     ]);
+  });
+
+  it('puts user-wide files under their own heading that says they affect every project (ALI-2069)', () => {
+    const text = renderWritePlan([
+      { file: '/h/.codex/hooks.json', display: '~/.codex/hooks.json', action: 'create', scope: 'user' },
+      { file: '/r/CLAUDE.md', display: 'CLAUDE.md', action: 'modify', scope: 'project' },
+    ]);
+    expect(text.split('\n')).toEqual([
+      'Align may create or change these files:',
+      '  modify  CLAUDE.md',
+      USER_WIDE_HEADING,
+      '  create  ~/.codex/hooks.json',
+    ]);
+    expect(USER_WIDE_HEADING).toContain('every project');
   });
 });
 
@@ -101,11 +143,22 @@ describe('confirmWrites', () => {
     expect(print).toHaveBeenCalledTimes(1);
   });
 
-  it('with no terminal: prints the list, never asks, goes ahead', async () => {
-    const { ok, print, ask } = await run({ interactive: false, answer: false });
+  // ALI-2069: an agent running `align` in its own shell has no terminal. Nobody said yes, so
+  // nothing is written; the list still prints, with the flag that would allow it.
+  it('with no terminal and no --approve: prints the list, never asks, writes nothing, names --approve', async () => {
+    const { ok, print, ask } = await run({ interactive: false, answer: true });
+    expect(ok).toBe(false);
+    expect(ask).not.toHaveBeenCalled();
+    const shown = print.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(shown).toContain('create  .mcp.json');
+    expect(shown).toContain(WRITE_NOT_APPROVED_LINE);
+    expect(WRITE_NOT_APPROVED_LINE).toContain('--approve');
+  });
+
+  it('with no terminal but --approve: goes ahead, the flag is the yes', async () => {
+    const { ok, ask } = await run({ interactive: false, approve: true, answer: false });
     expect(ok).toBe(true);
     expect(ask).not.toHaveBeenCalled();
-    expect(print).toHaveBeenCalledTimes(1);
   });
 
   it('has nothing to ask about when no file would be written', async () => {

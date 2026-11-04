@@ -10,6 +10,9 @@ export interface PlannedWrite {
   file: string;
   display: string;
   action: 'create' | 'modify';
+  /** ALI-2069: 'user' is a file outside the project that every project on this machine reads
+   *  (an agent's own config or user-level hook file). Listed under its own heading. Absent = project. */
+  scope?: 'project' | 'user';
 }
 
 /**
@@ -30,15 +33,16 @@ export function planSetupWrites(opts: { cwd: string; editors: EditorTarget[]; ho
   const home = opts.home ?? os.homedir();
   const out: PlannedWrite[] = [];
   const seen = new Set<string>();
-  const add = (abs: string, display: string, action: 'create' | 'modify') => {
+  const add = (abs: string, display: string, action: 'create' | 'modify', scope: 'project' | 'user') => {
     if (seen.has(abs)) return;
     seen.add(abs);
-    out.push({ file: abs, display, action });
+    out.push({ file: abs, display, action, scope });
   };
-  for (const { file, action } of planAgentAlignment(opts.cwd)) add(path.join(opts.cwd, file), file, action);
+  const inProject = (abs: string) => !path.relative(opts.cwd, abs).startsWith('..') && !path.isAbsolute(path.relative(opts.cwd, abs));
+  for (const { file, action } of planAgentAlignment(opts.cwd)) add(path.join(opts.cwd, file), file, action, 'project');
   for (const editor of opts.editors) {
     for (const file of mcpConfigFiles(editor)) {
-      add(file, homeDisplay(file, home), existsSync(file) ? 'modify' : 'create');
+      add(file, homeDisplay(file, home), existsSync(file) ? 'modify' : 'create', inProject(file) ? 'project' : 'user');
     }
   }
   return out;
@@ -51,10 +55,17 @@ export function planSetupWrites(opts: { cwd: string; editors: EditorTarget[]; ho
  */
 export const WRITE_PLAN_HEADING = 'Align may create or change these files:';
 
-/** The list, one file per line. Plain text so the same lines print on a terminal and in a log. */
+/** ALI-2069: a change outside the project is said to be one, so nobody finds it later by surprise. */
+export const USER_WIDE_HEADING = 'Outside this project (user-wide, read by every project on this machine):';
+
+/** The list, one file per line, project files first and user-wide files under their own heading.
+ *  Plain text so the same lines print on a terminal and in a log. */
 export function renderWritePlan(files: PlannedWrite[]): string {
   const width = Math.max(...files.map((f) => f.action.length));
-  return [WRITE_PLAN_HEADING, ...files.map((f) => `  ${f.action.padEnd(width)}  ${f.display}`)].join('\n');
+  const line = (f: PlannedWrite) => `  ${f.action.padEnd(width)}  ${f.display}`;
+  const project = files.filter((f) => f.scope !== 'user');
+  const user = files.filter((f) => f.scope === 'user');
+  return [WRITE_PLAN_HEADING, ...project.map(line), ...(user.length ? [USER_WIDE_HEADING, ...user.map(line)] : [])].join('\n');
 }
 
 /**
@@ -66,11 +77,15 @@ export const WRITE_UNDO_LINE = 'The first copy of any file that already exists i
 
 export const WRITE_CONFIRM_QUESTION = 'Continue?';
 
+/** ALI-2069: printed instead of writing when nobody could be asked (no terminal) and nobody passed the flag. */
+export const WRITE_NOT_APPROVED_LINE = 'Nothing written: there is no terminal to ask in. Run align in a terminal, or pass --approve to allow these files.';
+
 /**
  * Show the list, then ask. The list prints on EVERY run, so a scripted run leaves a record of
- * what it touched. The question is asked only with a person at a terminal and without
- * --approve; otherwise the run goes ahead, as it did before the prompt existed.
- * Returns false only when the person says no (or cancels).
+ * what it touched. With a person at a terminal the question is asked; --approve is the yes for a
+ * scripted run. With no terminal and no --approve nobody said yes, so nothing is written
+ * (ALI-2069: an agent running align in its own shell must not edit agent config unasked).
+ * Returns false when the person says no, cancels, or could not be asked.
  */
 export async function confirmWrites(opts: {
   files: PlannedWrite[];
@@ -82,6 +97,10 @@ export async function confirmWrites(opts: {
 }): Promise<boolean> {
   if (opts.files.length === 0) return true;
   opts.print(`${renderWritePlan(opts.files)}\n${WRITE_UNDO_LINE}`);
-  if (!opts.interactive || opts.approve) return true;
+  if (opts.approve) return true;
+  if (!opts.interactive) {
+    opts.print(WRITE_NOT_APPROVED_LINE);
+    return false;
+  }
   return (await opts.ask(WRITE_CONFIRM_QUESTION)) === true;
 }

@@ -426,7 +426,8 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
 /**
  * Before setup writes anything: show the exact files it will create or modify, then ask
  * (default yes). Covers the project's agent files and each detected agent's own config, the
- * two writers below. Non-TTY or --approve prints the list and goes ahead. False means the
+ * two writers below. --approve prints the list and goes ahead; no terminal and no --approve
+ * prints the list and writes nothing (ALI-2069). False means the
  * person declined: the caller writes nothing.
  */
 async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
@@ -1430,8 +1431,8 @@ async function runCloudSetup(ctx: {
   //
   // It wires every detected agent and discloses each file it touched, with `align mcp --remove`
   // as the undo. Since the confirmation below it asks first, once, for the whole run: the list
-  // of files, then Continue? (default yes). --approve or no terminal prints the list and goes
-  // on. This block used to write without a word when exactly one editor was detected and
+  // of files, then Continue? (default yes). --approve prints the list and goes on; no terminal
+  // and no --approve writes nothing (ALI-2069). This block used to write without a word when exactly one editor was detected and
   // prompt only at two or more, and that multiselect was unguarded, so `align setup --approve`
   // with two agents installed hung.
   const { confirmed: writesConfirmed, editors } = await confirmAgentWrites({
