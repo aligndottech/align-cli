@@ -87,6 +87,8 @@ const ONE_OFF_TYPES = new Set(['fix', 'test', 'refactor', 'chore', 'ci', 'docs',
 const TYPO = /\btypos?\b/i;
 const SWEEPING_QUANTIFIER = /\b(?:all|every)\b/i;
 const TYPE_PREFIX = /^([a-z]+)(?:\([^)]*\))?!?:\s*/i;
+// A stated numeric bound ("between 400 and 599", "no more than 5", "over 1048576") is a rule, not a change note.
+const NUMERIC_BOUND = /\b(?:between\s+\d+\s+and\s+\d+|(?:at least|at most|no more than|no less than|up to|more than|less than|over|under|above|below)\s+\d+)\b/i;
 
 /**
  * Is this a title-only change note: it leads with a one-off verb (add, fix, rename, update,
@@ -99,8 +101,13 @@ const TYPE_PREFIX = /^([a-z]+)(?:\([^)]*\))?!?:\s*/i;
  * replace, drop, stop, move, change, make), `feat`, an `RFC:` prefix, and any title in a language
  * whose verbs this list does not know. A one-off lead is rescued by a stated purpose
  * (STATED_WHY: "so that", "to keep", "because" ...), a policy word or modal (adopt, require,
- * never, should not ...), or a sweeping quantifier (all, every).
+ * never, should not ...), a sweeping quantifier (all, every), or a numeric bound (between 400 and 599).
  */
+/** Does the title state a numeric bound? Shared so a title-only rule is kept by every filter, not only this one. */
+export function statesNumericBound(title: string): boolean {
+  return NUMERIC_BOUND.test(title);
+}
+
 export function isOneOffChangeTitle(title: string): boolean {
   const t = title.trim().replace(PR_REFERENCE, '').trim();
   const prefix = t.match(TYPE_PREFIX);
@@ -109,5 +116,5 @@ export function isOneOffChangeTitle(title: string): boolean {
   else oneOff = ONE_OFF_VERBS.test(t) || TYPO.test(t);
   if (!oneOff) return false;
   const body = prefix ? t.slice(prefix[0].length) : t;
-  return !(STATED_WHY.test(body) || POLICY_WORD.test(body) || SWEEPING_QUANTIFIER.test(body));
+  return !(STATED_WHY.test(body) || POLICY_WORD.test(body) || SWEEPING_QUANTIFIER.test(body) || statesNumericBound(body));
 }
