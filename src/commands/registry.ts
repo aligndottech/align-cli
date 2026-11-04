@@ -32,6 +32,7 @@ import { registerAgentsCommand } from './agents.js';
 import { registerAiCommand } from './ai.js';
 import { registerSyncCommand } from './sync.js';
 import { registerMarkCommand } from './mark.js';
+import { registerRuleCommand } from './rule.js';
 
 /**
  * The one list of top-level commands. `align --help` shows the `visible` ones and
@@ -79,6 +80,8 @@ export const COMMAND_REGISTRY: readonly CommandEntry[] = [
   { names: ['sync'], visible: false, summary: 'Bring connected sources up to date in your local graph', register: registerSyncCommand },
   // LM: judge what the guardrail shows. Hidden until the help surface is decided (C8), like sync and capture.
   { names: ['mark'], visible: false, summary: 'Mark a conflict real or false, a replacement, or not a decision (local)', register: registerMarkCommand },
+  // Co-change rules: written by hand until the importers emit them. Hidden like mark: a power-user verb.
+  { names: ['rule'], visible: false, summary: 'Record a co-change rule: a PR touching some files must also touch another (local)', register: registerRuleCommand },
   {
     names: ['connect'],
     visible: true,

@@ -133,6 +133,13 @@ align sync [sources]          Bring connected sources up to date in your local g
 align mark [args]             Record your judgement on what the guardrail shows: a conflict real or false, a replacement, "not a decision", a note. Stays on this machine.
                               flags: --files --undo --force --list
 
+# Record a co-change rule: a PR touching some files must also touch another (local)
+
+align rule                    Co-change rules: a PR touching some files must also touch another, checked by file list with no model (local)
+align rule add [title]        Record a rule: a change touching --when must also touch one of --require in the same PR
+                              flags: --when --require --summary
+align rule list               Show the co-change rules in your local graph
+
 # Removed in 0.40.0 - use align connect
 
 align import [args]           removed in 0.40.0 - use align connect

@@ -12,6 +12,7 @@ import { migrateV9 } from './local-db-v9.js';
 import { migrateV10, repairPromotions } from './local-db-v10.js';
 import { migrateV11 } from './local-db-v11.js';
 import { hasDetectorVersion, migrateV12 } from './local-db-v12.js';
+import { hasCoChangeTable, migrateCoChange } from './local-db-cochange.js';
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS decisions (
@@ -166,6 +167,8 @@ export function deleteDecisionWithDependents(db: DatabaseSync, id: string): void
   db.prepare('DELETE FROM decision_refs WHERE decision_id = ?').run(id);
   db.prepare('DELETE FROM decision_embeddings WHERE decision_id = ?').run(id);
   db.prepare('DELETE FROM decision_audit WHERE decision_id = ?').run(id);
+  // Absent in a graph still on its way through migrate() (the v4 tombstone step calls this).
+  try { db.prepare('DELETE FROM co_change_rules WHERE decision_id = ?').run(id); } catch { /* no table yet */ }
   db.prepare('DELETE FROM decisions WHERE id = ?').run(id);
   // The lexical index (lexical-store.ts) holds terms derived from this decision's text. Its tables exist
   // only after a first search, so their absence is normal.
@@ -505,6 +508,17 @@ export function migrate(db: DatabaseSync): void {
     db.exec('BEGIN IMMEDIATE');
     try {
       migrateV12(db); // re-checks the column inside the lock
+      db.exec('COMMIT');
+    } catch (err) {
+      if (db.isTransaction) db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+  // Additive too: a table nothing older reads. See local-db-cochange.ts.
+  if (!hasCoChangeTable(db)) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      migrateCoChange(db);
       db.exec('COMMIT');
     } catch (err) {
       if (db.isTransaction) db.exec('ROLLBACK');
