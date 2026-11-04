@@ -82,7 +82,7 @@ export function isNonBehaviouralType(title: string): boolean {
 }
 
 const POLICY_WORD = /\b(?:adopt|requires?|standardi[sz]e[sd]?|enforce[sd]?|mandate[sd]?|deprecate[sd]?|always|never|must|only|all|every|no longer|should(?: not)?|should(?:n't)?|do not|don't)\b/i;
-const ONE_OFF_VERBS = /^(?:add|fix|rename|update|remove|bump|refactor|document|typo|tidy)\b/i;
+const ONE_OFF_VERBS = /^(?:add|fix|rename|update|remove|bump|refactor|document|extend|post|put|modify|typo|tidy)\b/i;
 const ONE_OFF_TYPES = new Set(['fix', 'test', 'refactor', 'chore', 'ci', 'docs', 'style', 'build']);
 const TYPO = /\btypos?\b/i;
 const SWEEPING_QUANTIFIER = /\b(?:all|every)\b/i;

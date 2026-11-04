@@ -135,6 +135,10 @@ describe('isOneOffChangeTitle', () => {
     'add createdAt and updatedAt to orderSchema',
     'Update actions/deploy-pages action to v5.0.1',
     'Tidy the release scripts',
+    'extend outgoing messages properties',
+    'post/put order endpoint',
+    'Modify the order schema',
+    'Put the retry helper in its own file',
     'Document the retry endpoint',
     '2052-epochs.md: typo',
     'refactor(llm): delete the unreachable explicit-provider branch',
@@ -180,6 +184,7 @@ describe('isOneOffChangeTitle', () => {
     "Remove x, don't re-add it",
     'Add a lint rule, it should run in CI',
     'Only add endpoints through the registry',
+    'Extend every webhook payload with a version field',
   ])('a one-off lead is rescued by a stated purpose, modal or quantifier: %s', (title) => {
     expect(isOneOffChangeTitle(title)).toBe(false);
   });
