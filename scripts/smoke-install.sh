@@ -251,8 +251,10 @@ skip_upstream() { # <name>
 # trusting a count written here, which goes stale the first time someone adds a step.
 #
 # Output is captured rather than streamed because the exit code alone cannot classify these:
-# `align --local` and `align connect git` both report a failed batch as a WARNING and
-# exit 0, which is how the run reported PASS for both while importing nothing.
+# `align --local` and `align connect git` used to report a failed batch as a WARNING and
+# exit 0, which is how the run reported PASS for both while importing nothing. Since ALI-2069
+# an import that stored nothing because every batch failed exits 1; a partial failure still
+# exits 0 with a warning, which assert_import_complete below catches.
 # classify_step_result therefore reads the 429 before the exit code (see smoke-model.sh).
 STEP_OUT=""
 STEP_RESULT=""
@@ -289,7 +291,8 @@ step "align --version"          30  align --version
 step "align --help"             30  align --help
 # setup --local: the no-account path. stdin is closed by the timeout runner, so
 # this also asserts the connector multiselect cancels cleanly instead of hanging
-# (it has no --approve bypass). It also runs the FIRST git import, which is where
+# (it has no --approve bypass). With no terminal and no --approve it lists the agent files it
+# would write and writes none (ALI-2069); later steps do not need them. It also runs the FIRST git import, which is where
 # the ~23MB embedding model is downloaded - the long timeout is that download, not
 # the work. (It said ~90MB, quoting the fp32 file the q8 pin exists to avoid; the
 # figure local-embeddings.ts already carries is the right one.)

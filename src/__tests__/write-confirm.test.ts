@@ -75,6 +75,14 @@ describe('the list is the plan the writer runs', () => {
     expect(plan.find((p) => p.file === t.configPath)?.scope).toBe('project');
   });
 
+  it('run from home itself, an agent\'s own config is still "user" (ALI-2069 review)', () => {
+    const home = path.join(dir, 'home');
+    mkdirSync(path.join(home, '.codex'), { recursive: true });
+    const target: EditorTarget = { name: 'Codex', configPath: path.join(home, '.codex', 'config.toml'), format: 'codex' };
+    const plan = planSetupWrites({ cwd: home, editors: [target], home });
+    expect(plan.find((p) => p.file === target.configPath)?.scope).toBe('user');
+  });
+
   it('lists a path once even when two sources name it', () => {
     const t: EditorTarget = { name: 'A', configPath: path.join(dir, 'a.json'), format: 'mcpServers' };
     const plan = planSetupWrites({ cwd: dir, editors: [t, { ...t, name: 'B' }], home: dir });

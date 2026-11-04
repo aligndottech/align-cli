@@ -38,11 +38,16 @@ export function planSetupWrites(opts: { cwd: string; editors: EditorTarget[]; ho
     seen.add(abs);
     out.push({ file: abs, display, action, scope });
   };
-  const inProject = (abs: string) => !path.relative(opts.cwd, abs).startsWith('..') && !path.isAbsolute(path.relative(opts.cwd, abs));
+  const inProject = (abs: string) => {
+    const rel = path.relative(opts.cwd, abs);
+    return rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+  };
+  // Run from home itself, every agent's own config sits "inside" the cwd and is still user-wide.
+  const atHome = path.resolve(opts.cwd) === path.resolve(home);
   for (const { file, action } of planAgentAlignment(opts.cwd)) add(path.join(opts.cwd, file), file, action, 'project');
   for (const editor of opts.editors) {
     for (const file of mcpConfigFiles(editor)) {
-      add(file, homeDisplay(file, home), existsSync(file) ? 'modify' : 'create', inProject(file) ? 'project' : 'user');
+      add(file, homeDisplay(file, home), existsSync(file) ? 'modify' : 'create', !atHome && inProject(file) ? 'project' : 'user');
     }
   }
   return out;

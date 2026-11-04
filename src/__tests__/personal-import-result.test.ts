@@ -62,6 +62,16 @@ describe('runPersonalImport fills the result it was given', () => {
     } finally { process.exitCode = undefined; }
   });
 
+  it('every batch fails but the caller opted out (setup, many sources): exit code left alone', async () => {
+    process.exitCode = undefined;
+    try {
+      const result: { stored?: number; failedBatches?: number } = {};
+      await runPersonalImport(items(40), { ingestBatch: async () => { throw new Error('down'); } } as never, { label: 'x', approve: true, appUrl: 'x', quiet: true, silent: true, result, exitOnTotalFailure: false });
+      expect(result.failedBatches).toBe(2); // positive control: the failure really happened
+      expect(process.exitCode).toBeUndefined();
+    } finally { process.exitCode = undefined; }
+  });
+
   it('no items: stored 0, no failures, and the caller\'s object is still filled', async () => {
     const result: { stored?: number; failedBatches?: number } = {};
     await runPersonalImport([], {} as never, { label: 'x', approve: true, appUrl: 'x', silent: true, result });

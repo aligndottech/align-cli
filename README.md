@@ -84,6 +84,10 @@ More in [docs/installation.md](docs/installation.md).
 | **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
 | **Shared `.mcp.json`** | One committed file sets up the whole team |
 
+Before writing anything, setup lists every file it will create or change, with files outside your
+project (an agent's own config, user-level hooks) under their own heading, and asks. With no
+terminal to ask in (an agent's shell, CI) it writes nothing unless you pass `--approve`.
+
 To undo everything align wrote, run `align use --undo`.
 
 The hook never blocks on a model's judgement unless you turn blocking on, and that needs an AI
