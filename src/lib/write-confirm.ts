@@ -69,7 +69,7 @@ export const WRITE_CONFIRM_QUESTION = 'Continue?';
 /**
  * Show the list, then ask. The list prints on EVERY run, so a scripted run leaves a record of
  * what it touched. The question is asked only with a person at a terminal and without
- * --approve; otherwise the run goes ahead, as it did before the prompt existed.
+ * --approve; otherwise non-interactive runs must not write anything.
  * Returns false only when the person says no (or cancels).
  */
 export async function confirmWrites(opts: {
@@ -77,11 +77,12 @@ export async function confirmWrites(opts: {
   approve?: boolean;
   interactive: boolean;
   print: (text: string) => void;
-  /** The yes/no prompt. Default yes. Resolves to undefined when the person cancels. */
+  /** The yes/no prompt. Must default to no. Resolves to undefined on cancellation. */
   ask: (message: string) => Promise<boolean | undefined>;
 }): Promise<boolean> {
   if (opts.files.length === 0) return true;
   opts.print(`${renderWritePlan(opts.files)}\n${WRITE_UNDO_LINE}`);
-  if (!opts.interactive || opts.approve) return true;
+  if (opts.approve) return true;
+  if (!opts.interactive) return false;
   return (await opts.ask(WRITE_CONFIRM_QUESTION)) === true;
 }
