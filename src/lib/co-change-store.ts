@@ -85,6 +85,11 @@ export function syncImportedCoChangeRule(dbPath: string, decisionId: string, rep
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA busy_timeout = 30000');
+    const stored = db.prepare('SELECT repo, when_paths AS w, require_paths AS r, scope FROM co_change_rules WHERE decision_id = ?')
+      .all(decisionId) as Array<{ repo: string | null; w: string; r: string; scope: string }>;
+    // The same rule imported again keeps its row, so its id (what `align rule remove` takes) is stable.
+    if (rule !== undefined && stored.length === 1 && stored[0].repo === repo && stored[0].w === JSON.stringify(rule.when_paths)
+      && stored[0].r === JSON.stringify(rule.require_paths) && stored[0].scope === rule.scope) return true;
     db.prepare('DELETE FROM co_change_rules WHERE decision_id = ?').run(decisionId);
     if (rule === undefined) return false;
     db.prepare(`INSERT INTO co_change_rules (id, decision_id, repo, when_paths, require_paths, scope) VALUES (?, ?, ?, ?, ?, ?)`)

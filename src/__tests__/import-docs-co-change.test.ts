@@ -11,7 +11,12 @@
  * 2. importing the same item again leaves one rule
  * 3. re-importing the section without the rule (the README dropped it) removes the imported rule,
  *    and a rule added by hand survives
- * 4. a rule that does not parse is skipped, and its decision is still imported
+ * 4. a rule that does not parse is skipped, and its decision is still imported; one that
+ *    replaces a stored rule removes it (the section no longer states a usable rule)
+ * 5. a re-import keeps the rule's id, so `align rule remove <id>` names a stable row
+ * 6. outside a repo, a rule stored earlier from inside it is left alone
+ * 7. only docs items carry rules: a git item with the field stores nothing
+ * 8. a graph that cannot take the rule (in memory) warns and the import still finishes
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
@@ -93,5 +98,41 @@ describe('docs import stores the co-change rules it found', () => {
     await ingest([item(CHANGELOG, 'Updating the changelog', { when_paths: [], require_paths: ['docs/changelog.md'], scope: 'same_pr' })]);
     expect(decisionFor(CHANGELOG)).toBeDefined();
     expect(listCoChangeRules(dbPath)).toHaveLength(0);
+  });
+
+  it('an unparseable rule replacing a stored one removes it', async () => {
+    await ingest([item(CHANGELOG, 'Updating the changelog', RULE)]);
+    expect(listCoChangeRules(dbPath)).toHaveLength(1);
+    await ingest([item(CHANGELOG, 'Updating the changelog', { when_paths: [], require_paths: ['x'], scope: 'same_pr' })]);
+    expect(listCoChangeRules(dbPath)).toHaveLength(0);
+  });
+
+  it('a re-import keeps the rule id', async () => {
+    await ingest([item(CHANGELOG, 'Updating the changelog', RULE)]);
+    const before = listCoChangeRules(dbPath)[0].ruleId;
+    await ingest([item(CHANGELOG, 'Updating the changelog', RULE)]);
+    expect(listCoChangeRules(dbPath).map((r) => r.ruleId)).toEqual([before]);
+  });
+
+  it('outside a repo, a rule stored from inside it stays', async () => {
+    await ingest([item(CHANGELOG, 'Updating the changelog', RULE)]);
+    await ingest([item(CHANGELOG, 'Updating the changelog')], dir);
+    expect(listCoChangeRules(dbPath)).toHaveLength(1);
+  });
+
+  it('a non-docs item carrying the field stores no rule', async () => {
+    await ingest([{ ...item(CHANGELOG, 'Updating the changelog', RULE), platform: 'git' }]);
+    expect(decisionFor(CHANGELOG)).toBeDefined();
+    expect(listCoChangeRules(dbPath)).toHaveLength(0);
+  });
+
+  it('an in-memory graph warns about the rule and still imports every item', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const c = createLocalGatewayClient(':memory:');
+    try {
+      const res = await c.ingestBatch([item(CHANGELOG, 'Updating the changelog', RULE), item(VERSIONING, 'Versioning')] as never, { classify: false, keyed: true });
+      expect(res.snapshots).toHaveLength(2);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Updating the changelog'));
+    } finally { c.close(); warn.mockRestore(); }
   });
 });
