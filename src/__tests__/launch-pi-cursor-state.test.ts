@@ -87,10 +87,36 @@ describe('readPiState', () => {
     put(path.join(agentDefault(), 'mcp.json'), JSON.stringify({ mcpServers: { 'align-local': { command: 'x' } } }));
     expect(read().projectHasMcp).toBe(true);
     rmSync(path.join(home, '.pi'), { recursive: true });
+    trust(agentDefault(), { [cwd]: true });
     put(path.join(cwd, '.mcp.json'), server(['mcp', '--env', 'local']));
     expect(read().projectHasMcp).toBe(true);
     put(path.join(cwd, '.mcp.json'), server(['mcp']));
     expect(read().projectHasMcp).toBe(false);
+  });
+
+  // ALI-2064: pi-mcp-adapter blocks a project's .mcp.json servers until the project is trusted, and a
+  // blocked project `align` also hides a user-level `align` of the same name. Counting either as loaded
+  // made the launcher skip align-local, so pi started with no Align tools and said nothing.
+  it('does not count an untrusted project .mcp.json server, which pi blocks', () => {
+    put(path.join(cwd, '.mcp.json'), server(['mcp', '--env', 'local']));
+    expect(read().projectHasMcp).toBe(false);
+    trust(agentDefault(), { [cwd]: false });
+    expect(read().projectHasMcp).toBe(false);
+  });
+
+  it('does not count a user-level align that an untrusted project align hides', () => {
+    put(path.join(agentDefault(), 'mcp.json'), server(['mcp', '--env', 'local']));
+    expect(read().projectHasMcp).toBe(true);
+    put(path.join(cwd, '.mcp.json'), server(['mcp', '--env', 'local']));
+    expect(read().projectHasMcp).toBe(false);
+    trust(agentDefault(), { [cwd]: true });
+    expect(read().projectHasMcp).toBe(true);
+  });
+
+  it('counts an untrusted project server when pi-mcp-adapter is told to allow project servers', () => {
+    put(path.join(cwd, '.mcp.json'), server(['mcp', '--env', 'local']));
+    put(path.join(agentDefault(), 'mcp-adapter.json'), JSON.stringify({ settings: { projectServers: 'allow' } }));
+    expect(read().projectHasMcp).toBe(true);
   });
 
   it('pi-mcp-adapter counts as installed from the user settings, as a string or a {source}, and not otherwise', () => {
