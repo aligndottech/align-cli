@@ -17,6 +17,7 @@ import { linkPass } from './local-link-pass.js';
 import { redactSecrets } from './share/secret-scan.js';
 import { noteRedacted } from './redaction-notice.js';
 import { EmbeddingMatrix, MATRIX_MAX_ROWS, type Ranker } from './similarity/embedding-matrix.js';
+import { syncImportedCoChangeRule } from './co-change-store.js';
 import { captureFieldsForUrl, type IngestOptions, type IngestResult, type IngestSession, ingestStep, type LocalBatchItem, type LocalBatchOptions } from './local-ingest.js';
 // Type-only import (erased at runtime, so no cycle with gateway-client.ts): the
 // local client returns the SAME shapes as the cloud client, so the CLI commands
@@ -415,6 +416,16 @@ export function createLocalGatewayClient(dbPath: string, clientOpts: { cwd?: str
             createdAt: item.created_at,
             classify: opts.classify, keyed: opts.keyed, detailPending: item.detail_pending,
           }, session);
+          // A docs section is the whole source of its rule, so every docs item re-syncs it, with or
+          // without one: the absence of the field is how a README that dropped the rule says so.
+          // Stamped with the repo the import runs in (the docs fetcher reads only that one), which
+          // is what `align check` compares. A docs decision's own repo is NULL (a blob URL names
+          // no repo to repoFromSourceUrl), and NULL on a rule means "every repo": with no repo to
+          // stamp, the rule is not stored at all.
+          if ((item.platform ?? 'cli') === 'docs') {
+            const repo = db.getDecisionById(r.id)?.repo ?? await getCurrentRepo();
+            syncImportedCoChangeRule(dbPath, r.id, repo, repo === null ? undefined : item.co_change_rule);
+          }
           out.push({
             id: r.id,
             created: r.created,

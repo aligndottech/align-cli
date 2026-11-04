@@ -68,6 +68,33 @@ export function addCoChangeRule(dbPath: string, input: { title: string; summary?
   }
 }
 
+/**
+ * The docs import's writer: the rules on `decisionId` become exactly `raw` (one rule, or none).
+ * Replacing rather than adding is what lets a README that drops a rule drop it here too. Only the
+ * imported decision's own rules are touched; a hand-added rule lives on its own decision
+ * (addCoChangeRule). A rule that does not parse is skipped, never thrown: one bad section must not
+ * fail the import of every other one. True when a rule was stored.
+ */
+export function syncImportedCoChangeRule(dbPath: string, decisionId: string, repo: string | null, raw: unknown): boolean {
+  let rule: CoChangeRule | undefined;
+  try {
+    rule = raw === undefined ? undefined : parseCoChangeRule(raw);
+  } catch {
+    rule = undefined;
+  }
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec('PRAGMA busy_timeout = 30000');
+    db.prepare('DELETE FROM co_change_rules WHERE decision_id = ?').run(decisionId);
+    if (rule === undefined) return false;
+    db.prepare(`INSERT INTO co_change_rules (id, decision_id, repo, when_paths, require_paths, scope) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(randomUUID(), decisionId, repo, JSON.stringify(rule.when_paths), JSON.stringify(rule.require_paths), rule.scope);
+    return true;
+  } finally {
+    db.close();
+  }
+}
+
 /** Every rule whose decision still exists. A missing graph, or one that predates the table, lists nothing. */
 export function listCoChangeRules(dbPath: string, scope: { repo?: string | null } = {}): StoredCoChangeRule[] {
   if (dbPath === '' || !fs.existsSync(dbPath)) return [];

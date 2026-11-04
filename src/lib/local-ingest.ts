@@ -48,6 +48,8 @@ export interface IngestSession {
 export interface LocalBatchItem {
   source_url?: string; platform?: string; raw_text: string; title?: string; created_at?: string;
   detail_pending?: boolean;
+  /** A docs item's structured co-change rule (fetchers/docs.ts); ingestBatch stores it on the item's decision. */
+  co_change_rule?: unknown;
 }
 
 /** `classify`: see IngestOptions. `deferEnrichment` is the cloud gateway's option and is
