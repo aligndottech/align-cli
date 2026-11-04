@@ -440,7 +440,7 @@ async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }
     interactive: o.interactive,
     print: (text) => p.log.info(text),
     ask: async (message) => {
-      const answer = await p.confirm({ message, initialValue: true });
+      const answer = await p.confirm({ message, initialValue: false });
       return p.isCancel(answer) ? undefined : answer;
     },
   });
