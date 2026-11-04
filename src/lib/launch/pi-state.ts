@@ -112,7 +112,7 @@ export function readPiState(cwd: string, home: string, opts: { localIsDefault: b
   const projectExt = trusted && dirs.some((d) => extensionReadsLocal(readText(path.join(d, '.pi', 'extensions', 'align.ts')), localIsDefault));
   // pi-mcp-adapter reads the agent-dir file and the project's .mcp.json (agent-rules.ts), but it blocks the
   // project's servers until the project is trusted (or its settings allow them), and a blocked project server
-  // also hides a user server of the same name (ALI-2064). Count only what pi will actually load.
+  // also hides a user server of the same name. Count only what pi will actually load.
   const user = readJson(mcpFile)?.['mcpServers'] as Json | undefined;
   const project = readJson(path.join(cwd, '.mcp.json'))?.['mcpServers'] as Json | undefined;
   const adapterSettings = readJson(path.join(agentDir, 'mcp-adapter.json'))?.['settings'] as Json | undefined;

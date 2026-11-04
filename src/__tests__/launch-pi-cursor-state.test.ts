@@ -94,7 +94,7 @@ describe('readPiState', () => {
     expect(read().projectHasMcp).toBe(false);
   });
 
-  // ALI-2064: pi-mcp-adapter blocks a project's .mcp.json servers until the project is trusted, and a
+  // pi-mcp-adapter blocks a project's .mcp.json servers until the project is trusted, and a
   // blocked project `align` also hides a user-level `align` of the same name. Counting either as loaded
   // made the launcher skip align-local, so pi started with no Align tools and said nothing.
   it('does not count an untrusted project .mcp.json server, which pi blocks', () => {
