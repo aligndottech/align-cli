@@ -1,6 +1,6 @@
 import { execa } from 'execa';
 import os from 'node:os';
-import { CONVENTIONAL_PREFIX, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY } from './commit-shape.js';
+import { CONVENTIONAL_PREFIX, isPolicyShapedTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex, MIN_DECISION_SUBJECT_CHARS, STATED_WHY } from './commit-shape.js';
 
 export interface GitCommit {
   sha: string;
@@ -107,14 +107,15 @@ export async function getCommitHistoryDetailed(opts: {
     scanned++;
     const shaped = resolveCommitShape(subject, bodyLines.join('\n').trimEnd());
     if (!isDecisionCommit(shaped.subject)) return;
-    // A promoted merge already cleared an extra bar: its subject came from the
-    // body's own first line via isDecisionCommit, and its body always retains the original
-    // "Merge pull request #N from x/y" line for the PR ref - so it never needs to ALSO
-    // clear the rationale bar below. A plain commit gets no such head start: its subject
-    // is unvetted prose, so the body has to state why, or it is pure "what changed"
-    // (the whole complaint this filter exists to answer).
+    // A promoted merge's subject is the PR title, and its body always starts with the original
+    // "Merge pull request #N from x/y" line for the PR ref. That line is not a reason, so it is
+    // left out of the rationale check. The PR is kept when the rest of the body states a reason,
+    // or when the title itself states a standing rule (a title names a change, not why).
     const wasPromotedMerge = shaped.subject !== subject;
-    if (!wasPromotedMerge && !hasStatedRationale(shaped.subject, shaped.body)) {
+    const bodyForRationale = wasPromotedMerge
+      ? shaped.body.split('\n').filter(l => !/^merge (?:pull request|branch)\b/i.test(l.trim())).join('\n')
+      : shaped.body;
+    if (!hasStatedRationale(shaped.subject, bodyForRationale) && !(wasPromotedMerge && isPolicyShapedTitle(shaped.subject))) {
       rejectedByRationale++;
       return;
     }

@@ -80,3 +80,21 @@ const NON_BEHAVIOURAL_TYPE = /^(?:docs|style|test|chore|ci|build|release|refacto
 export function isNonBehaviouralType(title: string): boolean {
   return NON_BEHAVIOURAL_TYPE.test(title.trim());
 }
+
+const POLICY_WORD = /\b(?:adopt|require[sd]?|standardi[sz]e[sd]?|enforce[sd]?|mandate[sd]?|deprecate[sd]?|always|never|must|only|all|every|no longer)\b/i;
+const ONE_OFF_LEAD = /^(?:add|fix|rename|update|remove|bump|refactor|document)\b/i;
+const SWEEPING_QUANTIFIER = /\b(?:all|every)\b/i;
+
+/**
+ * Does this title state a standing rule rather than a one-off change? A PR title taken from a
+ * merge commit has no body to say why, so it is kept only if it reads as policy: it carries a
+ * policy verb or quantifier (adopt, require, never, all, every ...) and does not lead with a
+ * one-off change verb (add, fix, rename ...) - unless "all"/"every" follows, as in "Remove every
+ * unused flag". "Adopt token-bucket rate limiting on all public endpoints" is policy; "rename
+ * abandonment endpoint" is a change.
+ */
+export function isPolicyShapedTitle(title: string): boolean {
+  const t = title.trim().replace(CONVENTIONAL_PREFIX, '').replace(PR_REFERENCE, '').trim();
+  if (!POLICY_WORD.test(t)) return false;
+  return !ONE_OFF_LEAD.test(t) || SWEEPING_QUANTIFIER.test(t);
+}

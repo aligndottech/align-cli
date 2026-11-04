@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCutTitle, isHousekeepingTitle, isNonBehaviouralType, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex } from '../lib/commit-shape.js';
+import { isCutTitle, isHousekeepingTitle, isNonBehaviouralType, isPolicyShapedTitle, isReleaseOrBumpSubject, MECHANICAL_SUBJECT_PREFIXES, mechanicalSubjectRegex } from '../lib/commit-shape.js';
 
 /**
  * Copilot on align-cli#240 (suppressed comment, landed after the merge): the predicate
@@ -122,5 +122,37 @@ describe('isNonBehaviouralType', () => {
     for (const t of ['docs: x', 'chore: x', 'style: x', 'test: x', 'build: x', 'ci: x', 'Merge pull request #3 from a/b', '[Backport v4] fix: x', 'Bump x from 1 to 2']) {
       expect(isHousekeepingTitle(t), t).toBe(true);
     }
+  });
+});
+
+describe('isPolicyShapedTitle', () => {
+  it.each([
+    'Adopt token-bucket rate limiting on all public endpoints',
+    'Require a ticket reference on every commit',
+    'Never log request bodies',
+    'Standardise error responses across services',
+    'Enforce review before merge',
+    'Deprecate the v1 webhook format',
+    'Add rate limiting to all public endpoints',
+    'Remove every unused feature flag',
+  ])('is policy: %s', (title) => {
+    expect(isPolicyShapedTitle(title)).toBe(true);
+  });
+
+  it.each([
+    'rename abandonment endpoint',
+    'fix required properties',
+    'add SMSUnsubscription webhook',
+    'Add list phonenumber handling',
+    'add createdAt and updatedAt to orderSchema',
+    'Update the order schema',
+    'Document the retry endpoint',
+  ])('is a one-off change: %s', (title) => {
+    expect(isPolicyShapedTitle(title)).toBe(false);
+  });
+
+  it('judges a title after its conventional-commit prefix', () => {
+    expect(isPolicyShapedTitle('feat(api): require an API key on every request')).toBe(true);
+    expect(isPolicyShapedTitle('fix(api): fix required properties')).toBe(false);
   });
 });

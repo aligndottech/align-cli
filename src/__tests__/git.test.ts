@@ -411,6 +411,45 @@ describe('getCommitHistory (body, merges, refs survive)', () => {
     expect(commits).toHaveLength(0);
   });
 
+  // A promoted merge is the PR title, which names a change. It is kept when it states a
+  // standing rule, or when the PR body beyond the title states a reason - and not otherwise.
+  it.each([
+    ['Require a ticket reference on every commit'],
+    ['Never log request bodies in production'],
+  ])('keeps a policy-shaped promoted merge title: %s', async (title) => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}${SHA1}${SEP}Merge pull request #9 from align/x${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${title}`,
+      `${SEP}END`,
+    ]));
+    expect(await getCommitHistory({})).toHaveLength(1);
+  });
+
+  it.each([
+    ['rename abandonment endpoint'],
+    ['fix required properties'],
+    ['add SMSUnsubscription webhook'],
+    ['Add list phonenumber handling'],
+  ])('drops a one-off promoted merge title with no body: %s', async (title) => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}${SHA1}${SEP}Merge pull request #9 from align/x${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}${title}`,
+      `${SEP}END`,
+    ]));
+    expect(await getCommitHistory({})).toHaveLength(0);
+  });
+
+  it('keeps a one-off promoted merge title when the PR body states a reason', async () => {
+    const { getCommitHistory } = await import('../lib/git.js');
+    mockLog(stdoutOf([
+      `COMMIT${SEP}${SHA1}${SEP}Merge pull request #9 from align/x${SEP}Tom${SEP}2026-05-01T10:00:00Z${SEP}rename abandonment endpoint`,
+      '',
+      'The old name clashed with the browse-abandonment endpoint, so clients called the wrong one.',
+      `${SEP}END`,
+    ]));
+    expect(await getCommitHistory({})).toHaveLength(1);
+  });
+
   it('excludes a merge whose body first line is itself boilerplate-short', async () => {
     const { getCommitHistory } = await import('../lib/git.js');
     mockLog(stdoutOf([
