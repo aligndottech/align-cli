@@ -7,25 +7,9 @@ import { envFlag } from '../lib/destination-name.js';
 import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
 
 /**
- * Connect the agents installed on this machine to Align.
- *
- * WHY THIS DOES NOT ASK
- * ---------------------
- * An earlier version of this asked once, default yes, on the grounds that a global editor
- * config is a user-level file and editing one silently is rude. Two facts moved it:
- *
- *   1. The write is ADDITIVE. writeJsonConfig reads the existing file, adds one key named
- *      `align` under mcpServers, and preserves everything else - and throws rather than
- *      overwriting if the JSON is invalid. It is not the intrusion it sounds like.
- *   2. An agent reading your decision graph IS the product. A prompt costs every user a
- *      keystroke so that a few can decline the one thing that makes Align do anything, and
- *      a default-yes confirm that everyone Enters through is not consent, it is ceremony.
- *
- * So it does it, says exactly which files it touched, and names the one command that undoes
- * it. Disclosure plus a real undo beats a question nobody reads.
- *
- * Project files (.mcp.json, CLAUDE.md, the hook configs) are written elsewhere and are not in
- * question: they live in the repo the user ran us in, show up in a diff, and can be deleted.
+ * Connect detected agents only after explicit, host-specific consent.
+ * A repository setup is not permission to modify every installed agent's user-wide
+ * configuration or register hooks that execute in unrelated repositories.
  */
 export async function connectDetectedAgents(
   envName: EnvName,
@@ -85,7 +69,23 @@ export async function connectDetectedAgents(
   const wired: string[] = [];
   const skipped: string[] = [];
   const keptAgents: string[] = [];
+  const interactive = Boolean(process.stdin.isTTY && process.stderr.isTTY);
   for (const target of editors) {
+    // Never infer consent from an installed agent, a previous setup prompt, or a
+    // non-interactive invocation. The project-local wiring is handled separately.
+    if (!interactive) {
+      p.log.info(`Skipped ${target.name} user configuration (non-interactive; explicit opt-in required).`);
+      continue;
+    }
+    const filesToChange = [target.configPath, ...(target.hooks ? [target.hooks.path] : [])];
+    const consent = await p.confirm({
+      message: `Allow Align to configure ${target.name}? This changes user-wide settings and may run hooks in ALL projects: ${filesToChange.join(', ')}`,
+      initialValue: false,
+    });
+    if (p.isCancel(consent) || consent !== true) {
+      p.log.info(`Skipped ${target.name}; no user-wide configuration changed.`);
+      continue;
+    }
     try {
       // The MCP entry, plus the user-level pre-edit hook on the hosts that have one
       // (Codex, Cursor, Copilot CLI) - the writer reports every file it wrote.
