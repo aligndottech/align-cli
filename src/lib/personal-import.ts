@@ -83,7 +83,7 @@ export async function runPersonalImport(
     label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean; local?: boolean;
     /** (`align connect --json`): with quiet, print nothing at all - the caller owns stdout. */
     silent?: boolean;
-    /** ALI-2069: set process.exitCode = 1 when every batch failed and nothing was stored. Default
+    /** set process.exitCode = 1 when every batch failed and nothing was stored. Default
      *  true, for the one-source import commands. A multi-source run (setup) passes false and decides
      *  over all its sources, so one failing connector does not fail a run where git imported fine. */
     exitOnTotalFailure?: boolean;
@@ -186,7 +186,7 @@ export async function runPersonalImport(
 
   if (opts.result) { opts.result.stored = total; opts.result.failedBatches = failures.length; }
 
-  // ALI-2069: nothing landed and something failed, so this was not an import. Exit non-zero so a
+  // nothing landed and something failed, so this was not an import. Exit non-zero so a
   // script, an agent or CI reading the exit code never mistakes an empty graph for a success.
   if (total === 0 && failures.length > 0 && opts.exitOnTotalFailure !== false) process.exitCode = 1;
 

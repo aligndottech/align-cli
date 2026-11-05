@@ -10,7 +10,7 @@ export interface PlannedWrite {
   file: string;
   display: string;
   action: 'create' | 'modify';
-  /** ALI-2069: 'user' is a file outside the project that every project on this machine reads
+  /** 'user' is a file outside the project that every project on this machine reads
    *  (an agent's own config or user-level hook file). Listed under its own heading. Absent = project. */
   scope?: 'project' | 'user';
 }
@@ -60,7 +60,7 @@ export function planSetupWrites(opts: { cwd: string; editors: EditorTarget[]; ho
  */
 export const WRITE_PLAN_HEADING = 'Align may create or change these files:';
 
-/** ALI-2069: a change outside the project is said to be one, so nobody finds it later by surprise. */
+/** a change outside the project is said to be one, so nobody finds it later by surprise. */
 export const USER_WIDE_HEADING = 'Outside this project (user-wide, read by every project on this machine):';
 
 /** The list, one file per line, project files first and user-wide files under their own heading.
@@ -82,14 +82,14 @@ export const WRITE_UNDO_LINE = 'The first copy of any file that already exists i
 
 export const WRITE_CONFIRM_QUESTION = 'Continue?';
 
-/** ALI-2069: printed instead of writing when nobody could be asked (no terminal) and nobody passed the flag. */
+/** printed instead of writing when nobody could be asked (no terminal) and nobody passed the flag. */
 export const WRITE_NOT_APPROVED_LINE = 'Nothing written: there is no terminal to ask in. Run align in a terminal, or pass --approve to allow these files.';
 
 /**
  * Show the list, then ask. The list prints on EVERY run, so a scripted run leaves a record of
  * what it touched. With a person at a terminal the question is asked; --approve is the yes for a
  * scripted run. With no terminal and no --approve nobody said yes, so nothing is written
- * (ALI-2069: an agent running align in its own shell must not edit agent config unasked).
+ * (an agent running align in its own shell must not edit agent config unasked).
  * Returns false when the person says no, cancels, or could not be asked.
  */
 export async function confirmWrites(opts: {

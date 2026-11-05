@@ -427,7 +427,7 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
  * Before setup writes anything: show the exact files it will create or modify, then ask
  * (default yes). Covers the project's agent files and each detected agent's own config, the
  * two writers below. --approve prints the list and goes ahead; no terminal and no --approve
- * prints the list and writes nothing (ALI-2069). False means the
+ * prints the list and writes nothing. False means the
  * person declined: the caller writes nothing.
  */
 async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
@@ -695,7 +695,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         prStored = prCs.stored ?? prs.items.length;
         prFailed = prCs.failedBatches ?? 0;
       }
-      // ALI-2069: history had decisions and every batch failed, so the graph is empty. Say why
+      // history had decisions and every batch failed, so the graph is empty. Say why
       // and exit non-zero; one source failing beside another that landed stays a warning.
       if ((items.length || prs.items.length) && (gitCs.stored ?? 0) + prStored === 0 && (gitCs.failedBatches ?? 0) + prFailed > 0) {
         p.log.error('Nothing was imported: every batch failed. If the on-device embedding model could not download (a proxy or firewall blocking huggingface.co is the usual cause), run: align doctor');
@@ -1440,7 +1440,7 @@ async function runCloudSetup(ctx: {
   // It wires every detected agent and discloses each file it touched, with `align mcp --remove`
   // as the undo. Since the confirmation below it asks first, once, for the whole run: the list
   // of files, then Continue? (default yes). --approve prints the list and goes on; no terminal
-  // and no --approve writes nothing (ALI-2069). This block used to write without a word when exactly one editor was detected and
+  // and no --approve writes nothing. This block used to write without a word when exactly one editor was detected and
   // prompt only at two or more, and that multiselect was unguarded, so `align setup --approve`
   // with two agents installed hung.
   const { confirmed: writesConfirmed, editors } = await confirmAgentWrites({

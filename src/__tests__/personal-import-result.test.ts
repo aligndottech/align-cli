@@ -43,7 +43,7 @@ describe('runPersonalImport fills the result it was given', () => {
     expect(result.stored).toBe(15);
   });
 
-  // ALI-2069: when every batch fails nothing was imported, so the process must not exit 0.
+  // when every batch fails nothing was imported, so the process must not exit 0.
   // Seen live: the on-device model could not download, 38 of 38 batches failed, exit 0, empty graph.
   it('every batch fails: the process exit code becomes 1', async () => {
     process.exitCode = undefined;

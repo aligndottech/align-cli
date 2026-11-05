@@ -47,7 +47,7 @@ describe('the list is the plan the writer runs', () => {
     expect(writeMcpConfig(target, 'local')).toEqual(mcpConfigFiles(target));
   });
 
-  it('marks the project\'s own files "project" and an agent\'s config under home "user" (ALI-2069)', () => {
+  it('marks the project\'s own files "project" and an agent\'s config under home "user"', () => {
     const home = path.join(dir, 'home');
     const repo = path.join(dir, 'repo');
     mkdirSync(path.join(home, '.codex'), { recursive: true });
@@ -75,7 +75,7 @@ describe('the list is the plan the writer runs', () => {
     expect(plan.find((p) => p.file === t.configPath)?.scope).toBe('project');
   });
 
-  it('run from home itself, an agent\'s own config is still "user" (ALI-2069 review)', () => {
+  it('run from home itself, an agent\'s own config is still "user"', () => {
     const home = path.join(dir, 'home');
     mkdirSync(path.join(home, '.codex'), { recursive: true });
     const target: EditorTarget = { name: 'Codex', configPath: path.join(home, '.codex', 'config.toml'), format: 'codex' };
@@ -103,7 +103,7 @@ describe('renderWritePlan', () => {
     ]);
   });
 
-  it('puts user-wide files under their own heading that says they affect every project (ALI-2069)', () => {
+  it('puts user-wide files under their own heading that says they affect every project', () => {
     const text = renderWritePlan([
       { file: '/h/.codex/hooks.json', display: '~/.codex/hooks.json', action: 'create', scope: 'user' },
       { file: '/r/CLAUDE.md', display: 'CLAUDE.md', action: 'modify', scope: 'project' },
@@ -151,7 +151,7 @@ describe('confirmWrites', () => {
     expect(print).toHaveBeenCalledTimes(1);
   });
 
-  // ALI-2069: an agent running `align` in its own shell has no terminal. Nobody said yes, so
+  // an agent running `align` in its own shell has no terminal. Nobody said yes, so
   // nothing is written; the list still prints, with the flag that would allow it.
   it('with no terminal and no --approve: prints the list, never asks, writes nothing, names --approve', async () => {
     const { ok, print, ask } = await run({ interactive: false, answer: true });
