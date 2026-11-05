@@ -83,6 +83,10 @@ export async function runPersonalImport(
     label: string; approve?: boolean; appUrl: string; quiet?: boolean; deferEnrichment?: boolean; local?: boolean;
     /** (`align connect --json`): with quiet, print nothing at all - the caller owns stdout. */
     silent?: boolean;
+    /** set process.exitCode = 1 when every batch failed and nothing was stored. Default
+     *  true, for the one-source import commands. A multi-source run (setup) passes false and decides
+     *  over all its sources, so one failing connector does not fail a run where git imported fine. */
+    exitOnTotalFailure?: boolean;
     /** Inside the setup wizard: the outro owns the next step, so the footer's own is left out. */
     noFooter?: boolean;
     /** When present, emit the import_completed funnel stage after ingest.
@@ -181,6 +185,10 @@ export async function runPersonalImport(
   }
 
   if (opts.result) { opts.result.stored = total; opts.result.failedBatches = failures.length; }
+
+  // nothing landed and something failed, so this was not an import. Exit non-zero so a
+  // script, an agent or CI reading the exit code never mistakes an empty graph for a success.
+  if (total === 0 && failures.length > 0 && opts.exitOnTotalFailure !== false) process.exitCode = 1;
 
   // Ingest ran (the empty-items case returned above), so the funnel stage
   // fires whichever rendering branch follows. Consent gating lives in the emitter.
