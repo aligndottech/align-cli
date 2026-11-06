@@ -44,6 +44,8 @@ vi.mock('../lib/config.js', () => ({
     getInstallId: vi.fn().mockReturnValue('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
     wasFunnelStageRecorded: (stage: string) => recorded.has(stage),
     markFunnelStageRecorded: (stage: string) => { recorded.add(stage); },
+    getAgentActiveDay: () => undefined,
+    setAgentActiveDay: () => {},
   })),
   ALIGN_HOSTED_GATEWAY_URL: 'https://api.align.tech',
 }));
@@ -120,14 +122,17 @@ describe('first_useful_decision is once per install across `align ask` and the M
     try {
       await handler({ params: { name: 'align_ask', arguments: { question: 'why postgres' } } });
       await handler({ params: { name: 'align_ask', arguments: { question: 'why postgres' } } });
-      await new Promise((r) => setImmediate(r));
+      // Two fire-and-forget emitters now run per call (agent_active as well), so one macrotask is not enough.
+      await new Promise((r) => setTimeout(r, 50));
     } finally {
       vi.mocked(createConfigStore).mockReset();
     }
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(String(mockFetch.mock.calls[0]?.[0])).toBe('https://api.align.tech/telemetry/anonymous');
-    const body = JSON.parse(String((mockFetch.mock.calls[0]?.[1] as { body: string }).body)) as Record<string, unknown>;
-    expect(body).toMatchObject({ command: 'mcp', stage: 'first_useful_decision', installId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+    // every tool call also offers agent_active, so this looks at first_useful_decision alone.
+    const bodies = mockFetch.mock.calls.map((c) => JSON.parse(String((c[1] as { body: string }).body)) as Record<string, unknown>);
+    const useful = mockFetch.mock.calls.filter((_, i) => bodies[i]?.['stage'] === 'first_useful_decision');
+    expect(useful).toHaveLength(1);
+    expect(String(useful[0]?.[0])).toBe('https://api.align.tech/telemetry/anonymous');
+    expect(bodies.find((b) => b['stage'] === 'first_useful_decision')).toMatchObject({ command: 'mcp', stage: 'first_useful_decision', installId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
   });
 
   // Positive control for the fixture: with nothing recorded yet, each path alone does send.

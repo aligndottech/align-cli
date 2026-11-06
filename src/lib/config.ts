@@ -154,6 +154,7 @@ export function createConfigStore() {
     refusedWrites?: string[];
     writtenConfigs?: Record<string, WrittenConfig>;
     funnelStagesRecorded?: string[];
+    agentActiveDay?: string;
     providerKeys?: Partial<Record<GuidedProviderKey, string>>;
     llm?: LlmPreference;
     askKeyOfferDismissed?: boolean;
@@ -637,6 +638,14 @@ export function createConfigStore() {
       if (!existing.includes(stage)) return false;
       store.set('funnelStagesRecorded', existing.filter((s) => s !== stage));
       return true;
+    },
+    // the UTC day (YYYY-MM-DD) the `agent_active` stage last went out. A day, not a
+    // once-ever mark: the stage says "an agent used Align today", so it repeats daily.
+    getAgentActiveDay(): string | undefined {
+      return store.get('agentActiveDay');
+    },
+    setAgentActiveDay(day: string): void {
+      store.set('agentActiveDay', day);
     },
     markFunnelStageRecorded(stage: string): void {
       const existing = store.get('funnelStagesRecorded') ?? [];
