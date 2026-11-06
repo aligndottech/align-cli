@@ -10,7 +10,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { HookToolInput } from '../../hook-payload.js';
 import type { GraphToolSpec } from '../graph-tools.js';
-import type { AgentEngine, AgentUiEvent, BrokerVerdict, ToolAsk, ToolKind } from '../types.js';
+import type { AgentEngine, AgentUiEvent, BrokerVerdict, ToolAsk } from '../types.js';
 import type { ResolvedPiModel } from './pi-models.js';
 
 /**
@@ -77,8 +77,8 @@ function toToolAsk(id: string, tool: string, input: Rec, cwd: string): ToolAsk {
   }
   if (tool === 'bash' || tool === 'powershell') return { id, tool, kind: 'command', command: str(input['command']) ?? '' };
   // Align's own graph tools (all named align_*) only read the local graph, so they never interrupt.
-  const kind: ToolKind = READ_TOOLS.has(tool) || tool.startsWith('align_') ? 'read' : 'other';
-  return { id, tool, kind };
+  if (READ_TOOLS.has(tool) || tool.startsWith('align_')) return { id, tool, kind: 'read' };
+  return { id, tool, kind: 'other', detail: JSON.stringify(input) };
 }
 
 type BrokerFn = (ask: ToolAsk) => Promise<BrokerVerdict>;

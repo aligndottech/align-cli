@@ -57,25 +57,28 @@ export async function gateEdit(ask: ToolAsk, deps: GateDeps): Promise<GateOutcom
   const text = proposedChangeText(ask.edit);
   const noRelated = Promise.resolve({ relevant_decisions: [] } as unknown as AlignmentResult);
 
-  const found = await within(deps.retrievalMs ?? RETRIEVAL_MS, Promise.all([
-    text.trim() ? deps.client.checkAlignment(text, filePath, { depth: 'related' }) : noRelated,
-    deps.blame(ask.edit, deps.cwd),
-  ])).catch((): typeof TIMED_OUT => TIMED_OUT);
-  if (found === TIMED_OUT) return { kind: 'allow', cards: [], note: 'not-checked' };
+  // Separate budgets: a failed or slow retrieval must not throw away a blame hit, which is the
+  // stronger signal and the one that asks the person.
+  const ms = deps.retrievalMs ?? RETRIEVAL_MS;
+  const settle = <T>(work: Promise<T>) => within(ms, work).catch((): typeof TIMED_OUT => TIMED_OUT);
+  const [related, wrote] = await Promise.all([
+    settle(text.trim() ? deps.client.checkAlignment(text, filePath, { depth: 'related' }) : noRelated),
+    settle(deps.blame(ask.edit, deps.cwd)),
+  ]);
 
-  const [related, wrote] = found;
-  const blameCards: GateDecision[] = wrote.map((d) => ({ id: d.id, title: d.title, via: 'blame' }));
+  const blameCards: GateDecision[] = (wrote === TIMED_OUT ? [] : wrote).map((d) => ({ id: d.id, title: d.title, via: 'blame' }));
   const seen = new Set(blameCards.map((c) => c.id));
-  const retrievalCards: GateDecision[] = (related.relevant_decisions ?? [])
+  const retrievalCards: GateDecision[] = (related === TIMED_OUT ? [] : related.relevant_decisions ?? [])
     .filter((d) => !seen.has(d.id))
     .map((d) => ({ id: d.id, title: d.title, why: shortWhy(d.summary), url: decisionLinkFor(d), via: 'retrieval' }));
-  if (!blameCards.length && !retrievalCards.length) return { kind: 'allow', cards: [] };
-
   // A blame hit always reaches the person, and no model verdict can clear it: that the edit
   // rewrites lines a decision wrote is a fact from git, a verdict is a guess about a fragment
   // (measured on fastify #7089, 6 Nov: "not a conflict" let the reversal through). So no model
   // call is spent here either.
   if (blameCards.length) return { kind: 'ask', reason: 'rewrites-decided-lines', cards: [...blameCards, ...retrievalCards] };
+  // No blame hit and a check that did not finish: say so rather than reading as a pass.
+  if (related === TIMED_OUT || wrote === TIMED_OUT) return { kind: 'allow', cards: [], note: 'not-checked' };
+  if (!retrievalCards.length) return { kind: 'allow', cards: [] };
 
   // Retrieval alone only finds what is similar. A model may escalate that to a question; it
   // never turns a question into a silent pass, because there is none to clear.

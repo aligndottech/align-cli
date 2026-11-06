@@ -69,6 +69,7 @@ function toAsk(id: string, tool: string, input: Raw): ToolAsk {
   const ask: ToolAsk = { id, tool, kind };
   if (kind === 'edit') ask.edit = toEdit(input);
   if (kind === 'command') ask.command = str(input['command']) ?? '';
+  if (kind === 'other') ask.detail = JSON.stringify(input);
   return ask;
 }
 

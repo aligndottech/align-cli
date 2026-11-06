@@ -200,3 +200,12 @@ describe('tool_call gate: Align\'s own graph tools', () => {
     expect(asks.map((a) => a.kind)).toEqual(['read', 'read']);
   });
 });
+
+describe('tool_call gate: unknown tools carry their input', () => {
+  it('puts the input on the ask, so a person approves what will run', async () => {
+    const asks: ToolAsk[] = [];
+    const handler = toolCallHandler(createToolGate(() => async (ask) => { asks.push(ask); return allow; }, CWD));
+    await handler({ type: 'tool_call', toolCallId: 'x1', toolName: 'fetch_url', input: { url: 'https://a.example' } }, {});
+    expect(asks[0]).toMatchObject({ kind: 'other', detail: '{"url":"https://a.example"}' });
+  });
+});

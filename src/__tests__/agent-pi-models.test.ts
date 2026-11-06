@@ -106,3 +106,23 @@ describe('resolvePiModel', () => {
     expect(await resolvePiModel({ probeOllama: noOllama })).toBeUndefined();
   });
 });
+
+describe('resolvePiModel: Ollama when the user chose it', () => {
+  const qwen = async (): Promise<string | null> => 'qwen2.5:7b';
+  it('ALIGN_AGENT_MODEL=ollama/<model> runs that local model, with no key', async () => {
+    vi.stubEnv('ALIGN_AGENT_MODEL', 'ollama/qwen2.5-coder:7b');
+    expect(await resolvePiModel({ probeOllama: noOllama })).toMatchObject({ provider: 'ollama', modelId: 'qwen2.5-coder:7b', baseUrl: 'http://localhost:11434/v1' });
+  });
+  it('a saved Ollama preference wins over an exported API key, so a local choice never goes to a paid API', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test-one');
+    expect(await resolvePiModel({ saved: { keys: {}, provider: 'ollama' }, probeOllama: qwen })).toMatchObject({ provider: 'ollama', modelId: 'qwen2.5:7b' });
+  });
+  it('control: with no preference the exported key still wins', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test-one');
+    expect(await resolvePiModel({ probeOllama: qwen })).toMatchObject({ provider: 'anthropic' });
+  });
+  it('a preferred Ollama that is not running falls back to the key', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-test-one');
+    expect(await resolvePiModel({ saved: { keys: {}, provider: 'ollama' }, probeOllama: noOllama })).toMatchObject({ provider: 'anthropic' });
+  });
+});

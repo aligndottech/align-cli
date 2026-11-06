@@ -72,6 +72,12 @@ function keyFor(alignId: NamedProviderId, saved: SavedLlmConfig, preferred: stri
   return saveKey;
 }
 
+/** A local Ollama model. `||`, not `??`: OLLAMA_HOST='' must not make a relative URL (local-llm's ollamaHost says why). */
+function ollamaModel(model: string): ResolvedPiModel {
+  const host = (process.env['OLLAMA_HOST'] || 'http://localhost:11434').replace(/\/+$/, '');
+  return { provider: 'ollama', modelId: model, apiKey: 'ollama', baseUrl: `${host}/v1`, label: `Ollama ${model}` };
+}
+
 export async function resolvePiModel(opts: ResolvePiModelOptions = {}): Promise<ResolvedPiModel | undefined> {
   const saved = opts.saved ?? { keys: {} };
   const preferred = preferredProvider(saved);
@@ -84,6 +90,8 @@ export async function resolvePiModel(opts: ResolvePiModelOptions = {}): Promise<
     }
     const provider = override.slice(0, slash);
     const modelId = override.slice(slash + 1);
+    // Ollama needs no key: the override names the local model to run.
+    if (provider === 'ollama') return ollamaModel(modelId);
     if (SUBSCRIPTION_PROVIDERS.has(provider)) {
       throw new Error(`ALIGN_AGENT_MODEL names ${provider}, which signs in with a subscription. Align runs on API keys only: use a provider you have a key for.`);
     }
@@ -91,6 +99,14 @@ export async function resolvePiModel(opts: ResolvePiModelOptions = {}): Promise<
     const apiKey = namedProvider(alignId) ? keyFor(alignId as NamedProviderId, saved, preferred) : undefined;
     if (!apiKey) throw new Error(`ALIGN_AGENT_MODEL names ${provider}, but there is no key for it. Export its key or run align ai.`);
     return { provider, modelId, apiKey, label: label(alignId, modelId) };
+  }
+
+  const probe = opts.probeOllama ?? probeLocalOllama;
+  // A user who chose Ollama gets Ollama when it runs, before any exported key: a local choice must
+  // not quietly become a paid API call.
+  if (preferred === 'ollama') {
+    const local = await probe();
+    if (local) return ollamaModel(local);
   }
 
   // The preference goes first, then the fixed provider order, so the answer does not depend on which
@@ -102,11 +118,7 @@ export async function resolvePiModel(opts: ResolvePiModelOptions = {}): Promise<
     if (def && apiKey) return { provider: def.provider, modelId: def.modelId, apiKey, label: label(alignId, def.modelId) };
   }
 
-  const model = await (opts.probeOllama ?? probeLocalOllama)();
-  if (model) {
-    // `||`, not `??`: OLLAMA_HOST='' must not make a relative URL (local-llm's ollamaHost says why).
-    const host = (process.env['OLLAMA_HOST'] || 'http://localhost:11434').replace(/\/+$/, '');
-    return { provider: 'ollama', modelId: model, apiKey: 'ollama', baseUrl: `${host}/v1`, label: `Ollama ${model}` };
-  }
-  return undefined;
+  if (preferred === 'ollama') return undefined; // already probed above, and it is not running
+  const model = await probe();
+  return model ? ollamaModel(model) : undefined;
 }

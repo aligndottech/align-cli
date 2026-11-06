@@ -124,3 +124,19 @@ describe('broker: tools it does not know', () => {
     expect(askHuman).toHaveBeenCalledTimes(1);
   });
 });
+
+// CodeRabbit: a session yes for WebFetch covered any URL, and the prompt showed only the name.
+describe('broker: unknown tools are approved for their input, not their name', () => {
+  it('shows the input in the question', async () => {
+    const { broker, asked } = setup({ kind: 'allow', cards: [] }, ['allow']);
+    await broker({ id: 'w1', tool: 'WebFetch', kind: 'other', detail: '{"url":"https://a.example"}' });
+    expect(asked[0]).toMatchObject({ kind: 'command', command: 'WebFetch {"url":"https://a.example"}' });
+  });
+  it('asks again for the same tool with different input', async () => {
+    const { broker, askHuman } = setup({ kind: 'allow', cards: [] }, ['allow-session', 'stop']);
+    await broker({ id: 'w1', tool: 'WebFetch', kind: 'other', detail: '{"url":"https://a.example"}' });
+    expect(await broker({ id: 'w2', tool: 'WebFetch', kind: 'other', detail: '{"url":"https://a.example"}' })).toEqual({ allow: true });
+    expect((await broker({ id: 'w3', tool: 'WebFetch', kind: 'other', detail: '{"url":"https://evil.example"}' })).allow).toBe(false);
+    expect(askHuman).toHaveBeenCalledTimes(2);
+  });
+});

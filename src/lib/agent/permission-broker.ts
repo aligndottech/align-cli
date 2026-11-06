@@ -48,14 +48,15 @@ export function createBroker(deps: BrokerDeps): (ask: ToolAsk) => Promise<Broker
       return allows(answer) ? { allow: true } : { allow: false, message: stopMessage(outcome) };
     }
     // A command, or a tool this code does not know (WebFetch, an MCP tool, a subagent): a person decides.
-    const label = ask.kind === 'command' ? (ask.command ?? '') : ask.tool;
-    const key = `${ask.kind}:${label}`;
+    // An unknown tool is approved for its input, not its name: a yes to one URL is not a yes to all.
+    const label = ask.kind === 'command' ? (ask.command ?? '') : [ask.tool, ask.detail?.slice(0, 200)].filter(Boolean).join(' ');
+    const key = ask.kind === 'command' ? `command:${label}` : `other:${ask.tool}:${ask.detail ?? ''}`;
     if (sessionAllowed.has(key)) return { allow: true };
     const answer = await deps.askHuman({ kind: 'command', command: label, ask });
     if (!allows(answer)) {
       return { allow: false, message: ask.kind === 'command'
         ? `Align: the person declined to run \`${label}\`. Ask them before trying another way.`
-        : `Align: the person declined the ${label} tool. Ask them before trying another way.` };
+        : `Align: the person declined the ${ask.tool} tool. Ask them before trying another way.` };
     }
     if (answer === 'allow-session') sessionAllowed.add(key);
     return { allow: true };

@@ -115,3 +115,9 @@ describe('security and error fixes', () => {
     expect(parseLine(j({ type: 'result', subtype: 'success', is_error: false, result: 'done' })).events).toEqual([{ type: 'turn-end' }]);
   });
 });
+
+describe('unknown tools carry their input', () => {
+  it('puts the input on the ask, so a person approves what will run', () => {
+    expect(perm('WebFetch', { url: 'https://a.example' }).permission?.ask).toMatchObject({ kind: 'other', detail: '{"url":"https://a.example"}' });
+  });
+});

@@ -19,6 +19,8 @@ export interface ToolAsk {
   edit?: HookToolInput;
   /** For kind 'command': the command line. */
   command?: string;
+  /** For kind 'other': the tool's input as JSON, so a person approves what will actually run. */
+  detail?: string;
 }
 
 /** A decision shown to the human on a gate card. */

@@ -189,3 +189,14 @@ describe('gateEdit: the check itself fails', () => {
     expect(await gateEdit(editAsk(), deps(client({ slow: true, related: [NEARBY] }), { retrievalMs: 20 }))).toEqual({ kind: 'allow', cards: [], note: 'not-checked' });
   });
 });
+
+// CodeRabbit: retrieval failing used to discard a blame hit and allow the edit unasked.
+describe('gateEdit: blame survives a retrieval failure', () => {
+  const blamed = { blame: async () => [{ id: REVERSED.id, title: REVERSED.title }] };
+  it('asks on a blame hit when retrieval throws', async () => {
+    expect(await gateEdit(editAsk(), deps(client({ throws: true }), blamed))).toEqual({ kind: 'ask', reason: 'rewrites-decided-lines', cards: [{ id: REVERSED.id, title: REVERSED.title, via: 'blame' }] });
+  });
+  it('asks on a blame hit when retrieval is too slow', async () => {
+    expect(await gateEdit(editAsk(), deps(client({ slow: true, related: [NEARBY] }), { ...blamed, retrievalMs: 20 }))).toMatchObject({ kind: 'ask', reason: 'rewrites-decided-lines' });
+  });
+});
