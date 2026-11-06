@@ -78,7 +78,7 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
     // chosen: with none installed the real launcher prints its own "no agent" error and returns
     // exit 1, which would turn a finished wizard into a failed command. The wizard already
     // said what to install, so a clean exit 0 is the right end.
-    // ALI-2085: the wizard's last step is Align's own agent, over the graph it just built. Gated on
+    // The wizard's last step is Align's own agent, over the graph it just built. Gated on
     // launchesAfterWizard, the predicate the wizard's outro reads to say "Opening Align", so the
     // line and what happens next cannot disagree.
     const after = createConfigStore();
@@ -94,7 +94,7 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
   // imports on the card path only), so the launch costs one config read and a PATH scan.
   // process.exit rather than return: the child's exit code is the command's, and Commander's
   // postAction telemetry must not run after a whole agent session.
-  // ALI-2085: in a terminal, `align` is Align's own agent, whatever engine runs behind it. The
+  // In a terminal, `align` is Align's own agent, whatever engine runs behind it. The
   // old launcher stays reachable through the explicit pass-through `align -- <args>`. Inside an
   // agent Align already started (ALIGN_WRAPPED) neither opens: the card prints instead.
   if (hasLocal) {

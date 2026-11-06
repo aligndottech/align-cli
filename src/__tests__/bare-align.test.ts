@@ -35,7 +35,7 @@ vi.mock('../lib/launch/launch.js', async (importOriginal) => ({
   launchIfChosen,
 }));
 
-// ALI-2085: bare `align` opens Align's own agent; the session is mocked at its boundary too.
+// Bare `align` opens Align's own agent; the session is mocked at its boundary too.
 const runAgentSession = vi.hoisted(() => vi.fn().mockResolvedValue(0));
 vi.mock('../lib/agent/run-agent-session.js', () => ({ runAgentSession }));
 
@@ -449,7 +449,7 @@ describe('bare `align`', () => {
     const cloudOnly = () => getEnvironment.mockImplementation((n: string) =>
       n === 'local' ? { mode: 'demo' } : { mode: 'auth', authToken: 'tok' });
 
-    // ALI-2085: bare `align` in a terminal is Align's own agent now (agent-default-action.test.ts);
+    // Bare `align` in a terminal is Align's own agent now (agent-default-action.test.ts);
     // the launcher is reached through the explicit pass-through, and keeps this contract there.
     it('`align -- <args>`: exits with the launcher\'s code and never draws the card when it handled the run', async () => {
       localOnly();

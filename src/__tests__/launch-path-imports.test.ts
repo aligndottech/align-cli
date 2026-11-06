@@ -119,7 +119,7 @@ describe('what the process loads at startup (from index.ts)', () => {
     expect(rel).toContain('lib/local-embeddings.ts');
     expect(readFileSync(path.join(SRC, 'lib/local-embeddings.ts'), 'utf8')).toMatch(/await import\('\.\/local-embeddings-native\.js'\)/);
   });
-  it('ALI-2085: no Pi package (agent engine or TUI) is statically reachable, so no command pays for it', () => {
+  it('no Pi package (agent engine or TUI) is statically reachable, so no command pays for it', () => {
     expect([...external].filter((e) => e.startsWith('@earendil-works/'))).toEqual([]);
     expect(rel).not.toContain('lib/agent/run-agent-session.ts');
   });

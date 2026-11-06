@@ -109,6 +109,22 @@ describe('gateEdit: the adjudicator cannot answer', () => {
   });
 });
 
+describe('gateEdit: what a card says', () => {
+  // A git-imported summary is the whole commit body (measured on fastify: author, date, files
+  // changed, URL). A card is read mid-task, and the stop message is read by the model.
+  it('keeps the why to the first line of the summary', async () => {
+    const long = { ...NEARBY, summary: 'Now allowing only numbers in range between 100 and 600\n\n* adds provided status code\n\nFiles changed:\nlib/errors.js' };
+    const out = await gateEdit(editAsk(), deps(client({ related: [long] })));
+    expect(out.cards[0]?.why).toBe('Now allowing only numbers in range between 100 and 600');
+  });
+  it('cuts a long first line at 160 characters', async () => {
+    const long = { ...NEARBY, summary: `${'word '.repeat(60)}end` };
+    const out = await gateEdit(editAsk(), deps(client({ related: [long] })));
+    expect(out.cards[0]?.why?.length).toBeLessThanOrEqual(160);
+    expect(out.cards[0]?.why?.endsWith('...')).toBe(true);
+  });
+});
+
 describe('gateEdit: the same decision found twice', () => {
   it('shows a decision once, as the blame card, when retrieval also finds it', async () => {
     const out = await gateEdit(editAsk(), deps(client({ related: [REVERSED, NEARBY] }), { blame: async () => [{ id: REVERSED.id, title: REVERSED.title }] }));
@@ -116,12 +132,29 @@ describe('gateEdit: the same decision found twice', () => {
   });
 });
 
-describe('gateEdit: verdicts that settle a blame hit', () => {
-  it('allows a blame hit the model judged unrelated (no-context)', async () => {
+// A model verdict never clears a blame hit. Measured on the fastify #7089 run (6 Nov): with
+// adjudication on, the model judged the edit that widened the 400-599 clamp "not a conflict", the
+// gate allowed it and the file changed; on the next edit it called a conflict against the wrong
+// decision. That the edit rewrites lines a decision wrote is a fact from git; the verdict is a
+// guess about a fragment. So the person always sees a blame hit.
+describe('gateEdit: a model verdict cannot clear a blame hit', () => {
+  it('still asks when the model judged the blamed decision unrelated (no-context)', async () => {
     const out = await gateEdit(editAsk(), deps(client({ related: [], verdict: 'no-context' }), {
       canAdjudicate: () => true, blame: async () => [{ id: REVERSED.id, title: REVERSED.title }],
     }));
-    expect(out).toEqual({ kind: 'allow', cards: [{ id: REVERSED.id, title: REVERSED.title, via: 'blame' }] });
+    expect(out).toEqual({ kind: 'ask', reason: 'rewrites-decided-lines', cards: [{ id: REVERSED.id, title: REVERSED.title, via: 'blame' }] });
+  });
+  it('still asks when the model judged the edit aligned', async () => {
+    const out = await gateEdit(editAsk(), deps(client({ related: [NEARBY], verdict: 'aligned' }), {
+      canAdjudicate: () => true, blame: async () => [{ id: REVERSED.id, title: REVERSED.title }],
+    }));
+    expect(out).toMatchObject({ kind: 'ask', reason: 'rewrites-decided-lines' });
+    expect(out.cards.map((c) => c.id)).toEqual([REVERSED.id, NEARBY.id]);
+  });
+  it('does not spend a model call on a blame hit, since no verdict can change the answer', async () => {
+    const c = client({ related: [NEARBY], verdict: 'aligned' });
+    await gateEdit(editAsk(), deps(c, { canAdjudicate: () => true, blame: async () => [{ id: REVERSED.id, title: REVERSED.title }] }));
+    expect(c.calls).toEqual(['related']);
   });
   it('still asks on a blame hit when adjudication throws', async () => {
     const c = client({ related: [], verdict: 'aligned' });

@@ -155,7 +155,7 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // The setup flags (hidden) ride on the bare command: `align --reset`, `align --local --approve`.
   // Extra words on the bare command are an operand of the root action, not a subcommand: `align setup` (removed)
   // would otherwise run the launcher and exit 0. Name the replacement and fail.
-  // ALI-2085: which engine runs behind Align's own agent. Remembered once chosen.
+  // Which engine runs behind Align's own agent. Remembered once chosen.
   addSetupOptions(program)
     .addOption(new Option('--engine <engine>', 'What runs behind Align: align (your API key or Ollama) or claude (your own Claude Code)').choices(['align', 'claude']))
     .action((opts: Record<string, unknown>, cmd: Command) => {

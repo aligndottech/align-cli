@@ -33,6 +33,14 @@ export interface GateDeps {
 const RETRIEVAL_MS = 2500;
 const ADJUDICATE_MS = 15_000;
 
+/** A card's why is one short line: a git-imported summary is the whole commit body. */
+const WHY_MAX = 160;
+function shortWhy(summary: string | undefined): string | undefined {
+  const first = summary?.split('\n').map((l) => l.trim()).find(Boolean);
+  if (!first) return undefined;
+  return first.length > WHY_MAX ? `${first.slice(0, WHY_MAX - 3).trimEnd()}...` : first;
+}
+
 const TIMED_OUT = Symbol('timed-out');
 function within<T>(ms: number, work: Promise<T>): Promise<T | typeof TIMED_OUT> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -56,20 +64,23 @@ export async function gateEdit(ask: ToolAsk, deps: GateDeps): Promise<GateOutcom
   const seen = new Set(blameCards.map((c) => c.id));
   const retrievalCards: GateDecision[] = (related.relevant_decisions ?? [])
     .filter((d) => !seen.has(d.id))
-    .map((d) => ({ id: d.id, title: d.title, why: d.summary, url: decisionLinkFor(d), via: 'retrieval' }));
+    .map((d) => ({ id: d.id, title: d.title, why: shortWhy(d.summary), url: decisionLinkFor(d), via: 'retrieval' }));
   if (!blameCards.length && !retrievalCards.length) return { kind: 'allow', cards: [] };
 
+  // A blame hit always reaches the person, and no model verdict can clear it: that the edit
+  // rewrites lines a decision wrote is a fact from git, a verdict is a guess about a fragment
+  // (measured on fastify #7089, 6 Nov: "not a conflict" let the reversal through). So no model
+  // call is spent here either.
+  if (blameCards.length) return { kind: 'ask', reason: 'rewrites-decided-lines', cards: [...blameCards, ...retrievalCards] };
+
+  // Retrieval alone only finds what is similar. A model may escalate that to a question; it
+  // never turns a question into a silent pass, because there is none to clear.
   if (deps.canAdjudicate()) {
     const verdict = await within(deps.adjudicateMs ?? ADJUDICATE_MS, deps.client.checkAlignment(text, filePath, { depth: 'full' })).catch((): typeof TIMED_OUT => TIMED_OUT);
     if (verdict !== TIMED_OUT && verdict.status === 'conflicting') {
       const cards: GateDecision[] = (verdict.conflicts ?? []).map((c) => ({ id: c.decision_id, title: c.title, why: c.reason, url: decisionLinkFor(c), via: 'verdict' }));
       return { kind: 'ask', reason: 'conflict', cards };
     }
-    if (verdict !== TIMED_OUT && (verdict.status === 'aligned' || verdict.status === 'no-context')) {
-      return { kind: 'allow', cards: [...blameCards, ...retrievalCards] };
-    }
   }
-
-  if (blameCards.length) return { kind: 'ask', reason: 'rewrites-decided-lines', cards: [...blameCards, ...retrievalCards] };
   return { kind: 'allow', cards: retrievalCards };
 }
