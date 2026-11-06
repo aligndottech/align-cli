@@ -1786,7 +1786,7 @@ describe('align setup', () => {
           mockPickAgent.mockResolvedValueOnce('claude-code');
           await makeProgram().parseAsync(['node', 'align']);
           const text = await outroText();
-          expect(text).toContain('Run align to open Claude Code with your graph.');
+          expect(text).toContain('Run align to open Align with your graph.');
           expect(text).not.toMatch(/pricing|align\.tech|https?:/i);
         });
 
@@ -1798,8 +1798,8 @@ describe('align setup', () => {
           mockLocalDb.getStats = () => ({ decisions: 1 });
           await makeProgram().parseAsync(['node', 'align']);
           const text = await outroText();
-          expect(text).toMatch(/Run align to open Claude Code with your graph, then try:\n\s+1\. /);
-          expect(text.match(/open Claude Code/gi)).toHaveLength(1);
+          expect(text).toMatch(/Run align to open Align with your graph, then try:\n\s+1\. /);
+          expect(text.match(/open Align/gi)).toHaveLength(1);
         });
 
         it('when the agent opens right after (bare align), the run-align line is dropped', async () => {
@@ -1820,17 +1820,17 @@ describe('align setup', () => {
           mockLocalDb.getStats = () => ({ decisions: 1 });
           await runSetup({ launchNext: true });
           const text = await outroText();
-          expect(text).toMatch(/Opening Claude Code\. Try these in it:\n\s+1\. (what decisions exist in this codebase\?|why did we .+\?)/);
+          expect(text).toMatch(/Opening Align\. Try these in it:\n\s+1\. (what decisions exist in this codebase\?|why did we .+\?)/);
           expect(text).not.toContain('Open Claude Code in this repo');
         });
 
-        it('names whichever agent is opening (a second agent)', async () => {
+        it('opens Align whichever agent the wizard picked (a second agent)', async () => {
           await mockNoLogin();
           mockPickAgent.mockResolvedValueOnce('codex');
           const { runSetup } = await import('../commands/setup.js');
           mockLocalDb.getStats = () => ({ decisions: 1 });
           await runSetup({ launchNext: true });
-          expect(await outroText()).toMatch(/Opening Codex\. Try these in it:/);
+          expect(await outroText()).toMatch(/Opening Align\. Try these in it:/);
         });
 
         it('ALIGN_NO_LAUNCH means nothing opens, so the outro keeps the run-align instruction', async () => {
@@ -1841,8 +1841,8 @@ describe('align setup', () => {
           await runSetup({ launchNext: true });
           const text = await outroText();
           vi.unstubAllEnvs();
-          expect(text).not.toContain('Opening Claude Code');
-          expect(text).toContain('Run align to open Claude Code with your graph.');
+          expect(text).not.toContain('Opening Align');
+          expect(text).toContain('Run align to open Align with your graph.');
         });
 
         it('`align setup` (nothing launches after it) never says "Opening"', async () => {
@@ -2402,7 +2402,7 @@ describe('align setup', () => {
       await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       const tail = await outroTail(4);
       expect(tail).toBe([
-        'Run align to open Claude Code with your graph, then try:',
+        'Run align to open Align with your graph, then try:',
         '  1. why did we switch to postgres?',
         '  2. what was decided about src/db.ts?',
         '  3. Plan a change that reverses "switch to postgres". Check it with Align before writing anything.',
@@ -2444,7 +2444,7 @@ describe('align setup', () => {
       mockLocalDb.getStats = () => ({ decisions: 1 });
       await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       const tail = await outroTail(4);
-      expect(tail.split('\n')[0]).toBe('Run align to open Claude Code with your graph, then try:');
+      expect(tail.split('\n')[0]).toBe('Run align to open Align with your graph, then try:');
       expect(tail).not.toMatch(/align mcp/);
     });
 

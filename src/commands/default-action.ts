@@ -4,7 +4,7 @@ import pkg from '../../package.json' with { type: 'json' };
 import { printBanner } from '../lib/brand.js';
 import { detectWiredEditors, projectMcpAgents } from '../lib/mcp-setup.js';
 import { cardLabel, type CardValue, orderAgents, renderSecondRunCard } from '../lib/next-step.js';
-import { launchesAfterWizard, launchIfChosen } from '../lib/launch/launch.js';
+import { launchesAfterWizard, launchIfChosen, launchSuppressed } from '../lib/launch/launch.js';
 import { agentByName } from '../lib/launch/agents.js';
 
 /**
@@ -78,10 +78,13 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
     // chosen: with none installed the real launcher prints its own "no agent" error and returns
     // exit 1, which would turn a finished wizard into a failed command. The wizard already
     // said what to install, so a clean exit 0 is the right end.
+    // ALI-2085: the wizard's last step is Align's own agent, over the graph it just built. Gated on
+    // launchesAfterWizard, the predicate the wizard's outro reads to say "Opening Align", so the
+    // line and what happens next cannot disagree.
     const after = createConfigStore();
     if (launchesAfterWizard({ localGraph: after.getEnvironment('local').mode === 'local-embedded', agent: after.getAgent(), isTTY: tty })) {
-      const launch = await launchIfChosen();
-      if (launch.handled) process.exit(launch.code);
+      const { runAgentSession } = await import('../lib/agent/run-agent-session.js');
+      process.exit(await runAgentSession({ engine: opts['engine'] as 'align' | 'claude' | undefined }));
     }
     return;
   }
@@ -91,9 +94,17 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
   // imports on the card path only), so the launch costs one config read and a PATH scan.
   // process.exit rather than return: the child's exit code is the command's, and Commander's
   // postAction telemetry must not run after a whole agent session.
+  // ALI-2085: in a terminal, `align` is Align's own agent, whatever engine runs behind it. The
+  // old launcher stays reachable through the explicit pass-through `align -- <args>`. Inside an
+  // agent Align already started (ALIGN_WRAPPED) neither opens: the card prints instead.
   if (hasLocal) {
-    const launch = await launchIfChosen();
-    if (launch.handled) process.exit(launch.code);
+    if (process.argv.slice(2).includes('--')) {
+      const launch = await launchIfChosen();
+      if (launch.handled) process.exit(launch.code);
+    } else if (tty && !launchSuppressed()) {
+      const { runAgentSession } = await import('../lib/agent/run-agent-session.js');
+      process.exit(await runAgentSession({ engine: opts['engine'] as 'align' | 'claude' | undefined }));
+    }
   }
 
   // Typing the bare tool name is the other first-contact moment, so it gets the

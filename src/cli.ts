@@ -1,4 +1,4 @@
-import { Command, Help } from 'commander';
+import { Command, Help, Option } from 'commander';
 import pkg from '../package.json' with { type: 'json' };
 import { COMMAND_REGISTRY, ROOT_SUMMARY, visibleEntries } from './commands/registry.js';
 import { runDefaultAction } from './commands/default-action.js';
@@ -155,7 +155,10 @@ export function buildProgram(options: BuildProgramOptions = {}): Command {
   // The setup flags (hidden) ride on the bare command: `align --reset`, `align --local --approve`.
   // Extra words on the bare command are an operand of the root action, not a subcommand: `align setup` (removed)
   // would otherwise run the launcher and exit 0. Name the replacement and fail.
-  addSetupOptions(program).action((opts: Record<string, unknown>, cmd: Command) => {
+  // ALI-2085: which engine runs behind Align's own agent. Remembered once chosen.
+  addSetupOptions(program)
+    .addOption(new Option('--engine <engine>', 'What runs behind Align: align (your API key or Ollama) or claude (your own Claude Code)').choices(['align', 'claude']))
+    .action((opts: Record<string, unknown>, cmd: Command) => {
     if (cmd.args.length > 0) {
       console.error(`align ${cmd.args[0]} is not a command. The setup wizard is the bare command now: run align. (align --help lists the rest.)`);
       process.exit(1);

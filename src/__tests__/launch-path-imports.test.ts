@@ -119,6 +119,15 @@ describe('what the process loads at startup (from index.ts)', () => {
     expect(rel).toContain('lib/local-embeddings.ts');
     expect(readFileSync(path.join(SRC, 'lib/local-embeddings.ts'), 'utf8')).toMatch(/await import\('\.\/local-embeddings-native\.js'\)/);
   });
+  it('ALI-2085: no Pi package (agent engine or TUI) is statically reachable, so no command pays for it', () => {
+    expect([...external].filter((e) => e.startsWith('@earendil-works/'))).toEqual([]);
+    expect(rel).not.toContain('lib/agent/run-agent-session.ts');
+  });
+  it('control for the line above: the walk DOES see Pi from the engine and the UI that use it', () => {
+    expect(externalImports(reachable(path.join(SRC, 'lib/agent/engines/pi.ts'))).has('@earendil-works/pi-coding-agent')).toBe(true);
+    expect(externalImports(reachable(path.join(SRC, 'lib/agent/run-agent-session.ts'))).has('@earendil-works/pi-tui')).toBe(true);
+    expect(readFileSync(path.join(SRC, 'commands/default-action.ts'), 'utf8')).toMatch(/await import\('\.\.\/lib\/agent\/run-agent-session\.js'\)/);
+  });
   it('KNOWN GAP, pinned so it cannot change silently: node:sqlite is loaded eagerly via the registry', () => {
     expect(external.has('node:sqlite')).toBe(true);
     // When the registry becomes lazy this flips; replace it with `.toBe(false)` then.
