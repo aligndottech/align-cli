@@ -1,0 +1,100 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createBroker, type HumanQuestion } from '../lib/agent/permission-broker.js';
+import type { GateOutcome, HumanAnswer, ToolAsk } from '../lib/agent/types.js';
+
+const RULE = { id: 'd-7089', title: 'Error handler keeps only status codes 400-599', why: 'Codes below 400 fall back to 500', url: 'https://github.com/fastify/fastify/pull/7089', via: 'verdict' as const };
+const OLD = { id: 'd-601', title: 'Do not allow a status code lower than 400', via: 'blame' as const };
+
+const edit: ToolAsk = { id: 'e1', tool: 'Edit', kind: 'edit', edit: { file_path: 'lib/error-status.js', new_string: 'x' } };
+const cmd = (command: string): ToolAsk => ({ id: `c-${command}`, tool: 'Bash', kind: 'command', command });
+
+function setup(outcome: GateOutcome, answers: HumanAnswer[] = []) {
+  const asked: HumanQuestion[] = [];
+  const askHuman = vi.fn(async (q: HumanQuestion) => { asked.push(q); return answers.shift() ?? 'stop'; });
+  const gate = vi.fn(async () => outcome);
+  const onGate = vi.fn();
+  return { broker: createBroker({ gate, askHuman, onGate }), asked, askHuman, gate, onGate };
+}
+
+describe('broker: an edit the gate wants a person to see', () => {
+  it('denies on stop, and the message names the decision and its link for the model', async () => {
+    const { broker, asked } = setup({ kind: 'ask', reason: 'conflict', cards: [RULE] }, ['stop']);
+    const v = await broker(edit);
+    expect(asked).toHaveLength(1);
+    expect(v.allow).toBe(false);
+    const msg = (v as { message: string }).message;
+    expect(msg).toContain(RULE.title);
+    expect(msg).toContain(RULE.url);
+    expect(msg).toContain(RULE.why);
+  });
+  it('names every decision on stop when there are two', async () => {
+    const { broker } = setup({ kind: 'ask', reason: 'rewrites-decided-lines', cards: [RULE, OLD] }, ['stop']);
+    const v = await broker(edit);
+    expect((v as { message: string }).message).toContain(OLD.title);
+    expect((v as { message: string }).message).toContain(RULE.title);
+    // The reason is part of what the model is told: rewriting decided lines is not the same claim as a conflict.
+    expect((v as { message: string }).message).toContain('changes lines written by a recorded decision');
+    expect((v as { message: string }).message).not.toContain('conflicts with');
+  });
+  it('allows on allow', async () => {
+    const { broker } = setup({ kind: 'ask', reason: 'conflict', cards: [RULE] }, ['allow']);
+    expect(await broker(edit)).toEqual({ allow: true });
+  });
+  it('asks again for the next edit: allow-once is not remembered', async () => {
+    const { broker, askHuman } = setup({ kind: 'ask', reason: 'conflict', cards: [RULE] }, ['allow', 'allow']);
+    await broker(edit);
+    await broker(edit);
+    expect(askHuman).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('broker: an edit the gate allows', () => {
+  it('allows without asking, and still hands the cards to the UI', async () => {
+    const outcome: GateOutcome = { kind: 'allow', cards: [OLD] };
+    const { broker, askHuman, onGate } = setup(outcome);
+    expect(await broker(edit)).toEqual({ allow: true });
+    expect(askHuman).not.toHaveBeenCalled();
+    expect(onGate).toHaveBeenCalledWith(outcome, edit);
+  });
+  it('hands a not-checked outcome to the UI too, so it is never silent', async () => {
+    const outcome: GateOutcome = { kind: 'allow', cards: [], note: 'not-checked' };
+    const { broker, onGate } = setup(outcome);
+    await broker(edit);
+    expect(onGate).toHaveBeenCalledWith(outcome, edit);
+  });
+});
+
+describe('broker: commands', () => {
+  it('remembers allow-session for the same command prefix', async () => {
+    const { broker, askHuman } = setup({ kind: 'allow', cards: [] }, ['allow-session']);
+    expect(await broker(cmd('npm test'))).toEqual({ allow: true });
+    expect(await broker(cmd('npm test -- -t gate'))).toEqual({ allow: true });
+    expect(askHuman).toHaveBeenCalledTimes(1);
+  });
+  it('does not stretch a session allow to another command', async () => {
+    const { broker, askHuman } = setup({ kind: 'allow', cards: [] }, ['allow-session', 'stop']);
+    await broker(cmd('git status'));
+    const v = await broker(cmd('git push --force'));
+    expect(askHuman).toHaveBeenCalledTimes(2);
+    expect(v.allow).toBe(false);
+    expect((v as { message: string }).message).toContain('git push --force');
+  });
+  it('never sends a command to the gate', async () => {
+    const { broker, gate } = setup({ kind: 'allow', cards: [] }, ['allow']);
+    await broker(cmd('rm -rf build'));
+    expect(gate).not.toHaveBeenCalled();
+  });
+});
+
+describe('broker: reads and other tools', () => {
+  it.each([
+    { id: 'r1', tool: 'Read', kind: 'read' },
+    { id: 'r2', tool: 'read', kind: 'read' },
+    { id: 'o1', tool: 'TodoWrite', kind: 'other' },
+  ] as ToolAsk[])('allows $tool without asking or gating', async (ask) => {
+    const { broker, askHuman, gate } = setup({ kind: 'ask', reason: 'conflict', cards: [RULE] });
+    expect(await broker(ask)).toEqual({ allow: true });
+    expect(askHuman).not.toHaveBeenCalled();
+    expect(gate).not.toHaveBeenCalled();
+  });
+});
