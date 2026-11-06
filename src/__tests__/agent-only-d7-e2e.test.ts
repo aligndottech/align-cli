@@ -115,6 +115,21 @@ beforeEach(async () => {
     ALIGN_NO_LAUNCH: '1',
     PATH: process.env['PATH'] ?? '',
   };
+  // Windows ignores HOME and XDG_*: it reads the profile from USERPROFILE and config from %APPDATA%. Left
+  // alone, every scenario shared the runner's real profile instead of its own clean one.
+  // SystemRoot and friends are passed through: a Windows process started without them cannot use sockets.
+  if (process.platform === 'win32') {
+    Object.assign(baseEnv, {
+      USERPROFILE: home,
+      APPDATA: path.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
+    });
+    for (const k of ['SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP']) {
+      const v = process.env[k];
+      if (v !== undefined) baseEnv[k] = v;
+    }
+    fs.mkdirSync(baseEnv['APPDATA']!, { recursive: true });
+    fs.mkdirSync(baseEnv['LOCALAPPDATA']!, { recursive: true });
+  }
   for (const d of [baseEnv['XDG_CONFIG_HOME']!, baseEnv['XDG_DATA_HOME']!, baseEnv['XDG_STATE_HOME']!, baseEnv['XDG_CACHE_HOME']!]) fs.mkdirSync(d, { recursive: true });
   // The seed: local mode, the notice already shown (a terminal run would have shown it).
   fs.writeFileSync(path.join(dir, 'seed.mjs'), `
