@@ -64,12 +64,25 @@ describe('gateEdit: nothing related', () => {
   it('allows with no cards', async () => {
     expect(await gateEdit(editAsk(), deps(client()))).toEqual({ kind: 'allow', cards: [] });
   });
-  it('allows an empty edit without asking the graph at all', async () => {
+  // A deletion has no new text to search with, but it removes old lines, and blame reads those.
+  it('asks on a deletion of lines a decision wrote (empty new text)', async () => {
+    const out = await gateEdit(editAsk({ new_string: '' }), deps(client({ related: [NEARBY] }), { blame: async () => [{ id: REVERSED.id, title: REVERSED.title }] }));
+    expect(out).toMatchObject({ kind: 'ask', reason: 'rewrites-decided-lines' });
+    expect(out.cards.map((c) => c.id)).toEqual([REVERSED.id]);
+  });
+  it('allows a deletion of undecided lines without a retrieval call', async () => {
     const c = client({ related: [REVERSED] });
-    const blame = vi.fn(async () => []);
-    expect(await gateEdit(editAsk({ new_string: '' }), deps(c, { blame }))).toEqual({ kind: 'allow', cards: [] });
+    expect(await gateEdit(editAsk({ new_string: '' }), deps(c))).toEqual({ kind: 'allow', cards: [] });
     expect(c.calls).toEqual([]);
-    expect(blame).not.toHaveBeenCalled();
+  });
+});
+
+describe('gateEdit: an edit the gate cannot read', () => {
+  it('asks rather than allowing an edit with no file path (an engine shape the gate does not know)', async () => {
+    const c = client({ related: [REVERSED] });
+    const ask: ToolAsk = { id: 'n1', tool: 'NotebookEdit', kind: 'edit', edit: {} };
+    expect(await gateEdit(ask, deps(c))).toEqual({ kind: 'ask', reason: 'unchecked', cards: [] });
+    expect(c.calls).toEqual([]);
   });
 });
 

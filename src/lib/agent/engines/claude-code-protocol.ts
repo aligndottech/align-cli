@@ -23,7 +23,10 @@ const line = (o: unknown): string => `${JSON.stringify(o)}\n`;
 export function buildArgs(extra: string[] = []): string[] {
   return ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
     '--include-partial-messages', '--permission-mode', 'manual', '--permission-prompts', 'host',
-    '--permission-prompt-tool', 'stdio', ...extra];
+    '--permission-prompt-tool', 'stdio',
+    // The user's own settings only. A repo's .claude/settings.json could otherwise run its hooks and
+    // pre-approve tools before Align is asked, and headless claude shows no trust prompt for it.
+    '--setting-sources', 'user', ...extra];
 }
 
 export const initializeLine = (requestId: string): string =>
@@ -40,7 +43,7 @@ export function controlResponse(requestId: string, verdict: BrokerVerdict, input
 
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const COMMAND_TOOLS = new Set(['Bash', 'PowerShell']);
-const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS']);
+const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'TodoWrite']);
 
 function kindOf(tool: string): ToolKind {
   if (EDIT_TOOLS.has(tool)) return 'edit';
@@ -51,10 +54,12 @@ function kindOf(tool: string): ToolKind {
 /** Only the fields the hook check reads, so the gate sees the same shape from every engine. */
 function toEdit(input: Raw): HookToolInput {
   const out: HookToolInput = {};
-  if (str(input['file_path']) !== undefined) out.file_path = str(input['file_path']);
+  const path = str(input['file_path']) ?? str(input['notebook_path']);
+  if (path !== undefined) out.file_path = path;
   if (str(input['content']) !== undefined) out.content = str(input['content']);
   if (str(input['old_string']) !== undefined) out.old_string = str(input['old_string']);
-  if (str(input['new_string']) !== undefined) out.new_string = str(input['new_string']);
+  const next = str(input['new_string']) ?? str(input['new_source']);
+  if (next !== undefined) out.new_string = next;
   if (Array.isArray(input['edits'])) out.edits = input['edits'] as HookToolInput['edits'];
   return out;
 }
@@ -87,8 +92,11 @@ export function parseLine(raw: string): ParsedLine {
   switch (msg['type']) {
     case 'system':
       return msg['subtype'] === 'init' ? { events: [], init: true } : { events: [] };
-    case 'result':
-      return { events: [{ type: 'turn-end' }] };
+    case 'result': {
+      // An error result ("Not logged in", a refused request) must show, not read as an empty turn.
+      const failed = msg['is_error'] === true ? str(msg['result']) : undefined;
+      return { events: failed ? [{ type: 'error', message: failed }, { type: 'turn-end' }] : [{ type: 'turn-end' }] };
+    }
     case 'stream_event': {
       const delta = asRecord(asRecord(msg['event'])?.['delta']);
       const text = delta?.['type'] === 'text_delta' ? str(delta['text']) : undefined;

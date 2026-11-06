@@ -33,7 +33,8 @@ export interface GateDecision {
 
 export type GateOutcome =
   | { kind: 'allow'; cards: GateDecision[]; note?: 'not-checked' }
-  | { kind: 'ask'; reason: 'conflict' | 'rewrites-decided-lines'; cards: GateDecision[] };
+  /** unchecked: an edit whose shape the gate cannot read. It asks rather than passing unseen. */
+  | { kind: 'ask'; reason: 'conflict' | 'rewrites-decided-lines' | 'unchecked'; cards: GateDecision[] };
 
 export type HumanAnswer = 'allow' | 'allow-session' | 'stop';
 

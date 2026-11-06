@@ -76,7 +76,8 @@ function toToolAsk(id: string, tool: string, input: Rec, cwd: string): ToolAsk {
     return { id, tool, kind: 'edit', edit };
   }
   if (tool === 'bash' || tool === 'powershell') return { id, tool, kind: 'command', command: str(input['command']) ?? '' };
-  const kind: ToolKind = READ_TOOLS.has(tool) ? 'read' : 'other';
+  // Align's own graph tools (all named align_*) only read the local graph, so they never interrupt.
+  const kind: ToolKind = READ_TOOLS.has(tool) || tool.startsWith('align_') ? 'read' : 'other';
   return { id, tool, kind };
 }
 

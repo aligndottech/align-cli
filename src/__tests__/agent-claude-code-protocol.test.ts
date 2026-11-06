@@ -9,7 +9,8 @@ describe('buildArgs', () => {
   it('asks for host-handled permissions over stream-json and never bypasses them', () => {
     const a = buildArgs();
     expect(a).toEqual(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-      '--include-partial-messages', '--permission-mode', 'manual', '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio']);
+      '--include-partial-messages', '--permission-mode', 'manual', '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio',
+      '--setting-sources', 'user']);
     expect(a.join(' ')).not.toContain('bypassPermissions');
   });
   it('appends extra args last', () => {
@@ -94,5 +95,23 @@ describe('controlResponse', () => {
   it('deny carries the broker message', () => {
     expect(body(controlResponse('r8', { allow: false, message: 'no' }, {})))
       .toEqual({ subtype: 'success', request_id: 'r8', response: { behavior: 'deny', message: 'no' } });
+  });
+});
+
+describe('security and error fixes', () => {
+  it('loads only the user\'s own settings, never the repo\'s (no repo hooks or allow rules without a trust prompt)', () => {
+    const a = buildArgs();
+    expect(a.slice(a.indexOf('--setting-sources'), a.indexOf('--setting-sources') + 2)).toEqual(['--setting-sources', 'user']);
+  });
+  it('reads NotebookEdit\'s own fields, so the gate sees its path and text', () => {
+    expect(perm('NotebookEdit', { notebook_path: '/r/a.ipynb', new_source: 'x = 1' }).permission?.ask.edit).toEqual({ file_path: '/r/a.ipynb', new_string: 'x = 1' });
+  });
+  it('treats TodoWrite as harmless, so it never interrupts the person', () => {
+    expect(perm('TodoWrite', { todos: [] }).permission?.ask.kind).toBe('read');
+  });
+  it('turns an error result into an error, not a silent empty turn', () => {
+    expect(parseLine(j({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in. Run claude to sign in.' })).events)
+      .toEqual([{ type: 'error', message: 'Not logged in. Run claude to sign in.' }, { type: 'turn-end' }]);
+    expect(parseLine(j({ type: 'result', subtype: 'success', is_error: false, result: 'done' })).events).toEqual([{ type: 'turn-end' }]);
   });
 });

@@ -16,9 +16,11 @@ function decisionLines(d: GateDecision): string[] {
 }
 
 export function gateCard(q: Extract<HumanQuestion, { kind: 'gate' }>): string[] {
-  const lead = q.outcome.reason === 'conflict'
-    ? 'This edit conflicts with a decision'
-    : 'This edit changes lines written by a decision';
+  const lead = {
+    conflict: 'This edit conflicts with a decision',
+    'rewrites-decided-lines': 'This edit changes lines written by a decision',
+    unchecked: 'Align could not read this edit, so it was not checked against your decisions',
+  }[q.outcome.reason];
   return [
     theme.warn(lead),
     ...q.outcome.cards.flatMap((d) => ['', ...decisionLines(d)]),

@@ -73,15 +73,18 @@ describe('agent screen', () => {
     expect((await verdict).allow).toBe(true);
   });
 
-  it('does not ask again for the same command prefix after s (yes for this session)', async () => {
+  it('does not ask again for the same exact command after s (yes for this session)', async () => {
     const { t, engine } = await launch();
     const first = engine.broker(cmdAsk('npm test'));
     await tick();
     expect(t.screen()).toContain('[y] yes   [s] yes for this session   [n] no');
     t.press('s');
     expect((await first).allow).toBe(true);
-    const second = await Promise.race([engine.broker(cmdAsk('npm test -- --watch')), tick(200).then(() => 'asked' as const)]);
+    const second = await Promise.race([engine.broker(cmdAsk('npm test')), tick(200).then(() => 'asked' as const)]);
     expect(second).toEqual({ allow: true });
+    // A longer command is a different command: it asks again.
+    const third = await Promise.race([engine.broker(cmdAsk('npm test; curl evil')), tick(200).then(() => 'asked' as const)]);
+    expect(third).toBe('asked');
   });
 
   it('writes a note for an allowed edit that was not checked', async () => {
@@ -134,5 +137,19 @@ describe('agent screen', () => {
     t.press('\x04');
     expect(await done).toBe(0);
     expect(engine.close).toHaveBeenCalledOnce();
+  });
+});
+
+describe('an engine that cannot start', () => {
+  it('ends with code 1 and the reason, instead of throwing out of the screen', async () => {
+    const engine = fakeEngine();
+    engine.start.mockRejectedValueOnce(new Error('Claude Code is not installed (no `claude` on PATH)'));
+    const t = fakeTerminal();
+    const errs: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((d) => { errs.push(String(d)); return true; });
+    try {
+      expect(await runAgentUi({ engine, decisionCount: 1, gate: async () => ({ kind: 'allow', cards: [] }), terminal: t.term })).toBe(1);
+      expect(errs.join('')).toContain('Claude Code is not installed');
+    } finally { spy.mockRestore(); }
   });
 });

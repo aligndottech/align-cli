@@ -101,7 +101,7 @@ export async function runDefaultAction(opts: Record<string, unknown> = {}): Prom
     if (process.argv.slice(2).includes('--')) {
       const launch = await launchIfChosen();
       if (launch.handled) process.exit(launch.code);
-    } else if (tty && !launchSuppressed()) {
+    } else if (tty && !launchSuppressed() && !config.isLaunchOff()) {
       const { runAgentSession } = await import('../lib/agent/run-agent-session.js');
       process.exit(await runAgentSession({ engine: opts['engine'] as 'align' | 'claude' | undefined }));
     }

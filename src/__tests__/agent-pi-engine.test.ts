@@ -52,11 +52,11 @@ describe('tool_call gate', () => {
     expect(asks[0]).toMatchObject({ kind: 'edit', edit: { file_path: '/abs/new.ts', content: 'x' } });
   });
 
-  it('classifies the read tools as read and everything else as other', async () => {
+  it('classifies the read tools and the graph tools as read, and everything else as other', async () => {
     const kinds: string[] = [];
     const handler = toolCallHandler(createToolGate(() => async (ask) => { kinds.push(`${ask.tool}:${ask.kind}`); return allow; }, CWD));
-    for (const toolName of ['read', 'grep', 'find', 'ls', 'align_ask']) await handler({ type: 'tool_call', toolCallId: toolName, toolName, input: {} }, {});
-    expect(kinds).toEqual(['read:read', 'grep:read', 'find:read', 'ls:read', 'align_ask:other']);
+    for (const toolName of ['read', 'grep', 'find', 'ls', 'align_ask', 'fetch_url']) await handler({ type: 'tool_call', toolCallId: toolName, toolName, input: {} }, {});
+    expect(kinds).toEqual(['read:read', 'grep:read', 'find:read', 'ls:read', 'align_ask:read', 'fetch_url:other']);
   });
 
   it('fails closed: no broker yet, or a broker that throws, blocks the call', async () => {
@@ -187,5 +187,16 @@ describe('createPiEngine', () => {
     expect(fake.session.abort).toHaveBeenCalledTimes(1);
     await engine.close();
     expect(fake.session.dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('tool_call gate: Align\'s own graph tools', () => {
+  it('passes them to the broker as reads, so asking the graph never interrupts the person', async () => {
+    const asks: ToolAsk[] = [];
+    const broker = vi.fn(async (ask: ToolAsk): Promise<BrokerVerdict> => { asks.push(ask); return allow; });
+    const handler = toolCallHandler(createToolGate(() => broker, CWD));
+    await handler({ type: 'tool_call', toolCallId: 'g1', toolName: 'align_ask', input: { query: 'why 400-599' } }, {});
+    await handler({ type: 'tool_call', toolCallId: 'g2', toolName: 'align_get_topic_timeline', input: { topic: 'status codes' } }, {});
+    expect(asks.map((a) => a.kind)).toEqual(['read', 'read']);
   });
 });

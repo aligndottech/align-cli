@@ -49,12 +49,16 @@ function within<T>(ms: number, work: Promise<T>): Promise<T | typeof TIMED_OUT> 
 }
 
 export async function gateEdit(ask: ToolAsk, deps: GateDeps): Promise<GateOutcome> {
-  const text = proposedChangeText(ask.edit);
-  if (!text.trim()) return { kind: 'allow', cards: [] };
+  // An edit with no path is a shape this gate cannot read (an engine field it does not map).
+  // It asks rather than passing unseen.
   const filePath = ask.edit?.file_path ?? '';
+  if (!filePath) return { kind: 'ask', reason: 'unchecked', cards: [] };
+  // A deletion has no new text to search with, but blame still reads the lines it removes.
+  const text = proposedChangeText(ask.edit);
+  const noRelated = Promise.resolve({ relevant_decisions: [] } as unknown as AlignmentResult);
 
   const found = await within(deps.retrievalMs ?? RETRIEVAL_MS, Promise.all([
-    deps.client.checkAlignment(text, filePath, { depth: 'related' }),
+    text.trim() ? deps.client.checkAlignment(text, filePath, { depth: 'related' }) : noRelated,
     deps.blame(ask.edit, deps.cwd),
   ])).catch((): typeof TIMED_OUT => TIMED_OUT);
   if (found === TIMED_OUT) return { kind: 'allow', cards: [], note: 'not-checked' };

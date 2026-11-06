@@ -88,8 +88,11 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
   tui.addInputListener(onKey);
 
   const closed = new Promise<number>((resolve) => { finish = resolve; });
+  let failed: string | undefined;
   try {
     tui.start();
+    // An engine that cannot start (no `claude`, a bad key) ends the run with its reason, printed
+    // after the screen is restored, rather than throwing out of a cleared terminal.
     await engine.start((e) => {
       if (e.type === 'text') {
         if (!streaming) {
@@ -107,11 +110,15 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
         if (e.type === 'turn-end') endTurn();
       }
       tui.requestRender();
-    }, broker);
-    const code = await closed;
-    await engine.close();
-    return code;
+    }, broker).catch((err: unknown) => { failed = err instanceof Error ? err.message : String(err); });
+    if (failed === undefined) {
+      const code = await closed;
+      await engine.close();
+      return code;
+    }
   } finally {
     tui.stop();
   }
+  process.stderr.write(`${failed}\n`);
+  return 1;
 }

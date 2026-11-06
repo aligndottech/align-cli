@@ -6,8 +6,9 @@ vi.mock('../lib/brand.js', () => ({ printBanner: vi.fn() }));
 
 const getEnvironment = vi.hoisted(() => vi.fn());
 const getAgent = vi.hoisted(() => vi.fn().mockReturnValue(undefined));
+const isLaunchOff = vi.hoisted(() => vi.fn().mockReturnValue(false));
 vi.mock('../lib/config.js', () => ({
-  createConfigStore: vi.fn(() => ({ getEnvironment, getDefaultEnv: () => 'prod', getAgent })),
+  createConfigStore: vi.fn(() => ({ getEnvironment, getDefaultEnv: () => 'prod', getAgent, isLaunchOff })),
 }));
 vi.mock('../lib/gateway-client.js', () => ({ createGatewayClient: vi.fn(() => ({ listDecisions: vi.fn().mockResolvedValue([]) })) }));
 vi.mock('../lib/mcp-setup.js', () => ({ detectWiredEditors: () => [], projectMcpAgents: () => [] }));
@@ -38,6 +39,7 @@ describe('bare `align` on a set-up local graph', () => {
     vi.stubEnv('ALIGN_NO_LAUNCH', undefined);
     getEnvironment.mockImplementation((n: string) => (n === 'local' ? LOCAL : { mode: 'cloud' }));
     getAgent.mockReset().mockReturnValue(undefined);
+    isLaunchOff.mockReset().mockReturnValue(false);
     // Reset with their values, every test: restoreAllMocks below also clears a hoisted mock's
     // implementation, which would leave the next test reading `undefined.handled`.
     launchIfChosen.mockReset().mockResolvedValue({ handled: true, code: 7 });
@@ -81,6 +83,11 @@ describe('bare `align` on a set-up local graph', () => {
   });
   it('opens nothing inside an agent Align already started', async () => {
     vi.stubEnv('ALIGN_WRAPPED', '1');
+    await runDefaultAction({});
+    expect(runAgentSession).not.toHaveBeenCalled();
+  });
+  it('opens nothing after `align use --undo` turned launching off: the card prints instead', async () => {
+    isLaunchOff.mockReturnValue(true);
     await runDefaultAction({});
     expect(runAgentSession).not.toHaveBeenCalled();
   });

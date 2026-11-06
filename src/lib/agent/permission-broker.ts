@@ -17,44 +17,47 @@ export interface BrokerDeps {
   onGate: (outcome: GateOutcome, ask: ToolAsk) => void;
 }
 
-/** Tools whose second word is the real command (`npm test` vs `npm publish`). */
-const TWO_WORD = new Set(['npm', 'pnpm', 'yarn', 'git', 'npx']);
-
-function commandPrefix(command: string): string {
-  const words = command.trim().split(/\s+/);
-  return TWO_WORD.has(words[0] ?? '') ? words.slice(0, 2).join(' ') : (words[0] ?? '');
-}
+/** Only an explicit yes allows. An answer this code does not know (a future key, a cancel) is a stop. */
+const allows = (a: HumanAnswer): boolean => a === 'allow' || a === 'allow-session';
 
 function decisionLine(d: GateDecision): string {
   return [`- ${d.title}`, d.why ? ` - ${d.why}` : '', d.url ? ` (${d.url})` : ''].join('');
 }
 
 function stopMessage(outcome: Extract<GateOutcome, { kind: 'ask' }>): string {
-  const lead = outcome.reason === 'conflict'
-    ? 'Align: the person stopped this edit. It conflicts with a recorded decision:'
-    : 'Align: the person stopped this edit. It changes lines written by a recorded decision:';
+  const lead = {
+    conflict: 'Align: the person stopped this edit. It conflicts with a recorded decision:',
+    'rewrites-decided-lines': 'Align: the person stopped this edit. It changes lines written by a recorded decision:',
+    unchecked: 'Align: the person stopped this edit. Align could not read it to check it against the decisions.',
+  }[outcome.reason];
   return [lead, ...outcome.cards.map(decisionLine), 'Do not retry this edit. Ask the person how they want to proceed.'].join('\n');
 }
 
 export function createBroker(deps: BrokerDeps): (ask: ToolAsk) => Promise<BrokerVerdict> {
+  // "Yes for this session" remembers the EXACT command, or the tool by name. A prefix match let
+  // an allowed `git status` approve `git status; rm -rf ~` (security review).
   const sessionAllowed = new Set<string>();
 
   return async (ask) => {
+    if (ask.kind === 'read') return { allow: true };
     if (ask.kind === 'edit') {
       const outcome = await deps.gate(ask);
       deps.onGate(outcome, ask);
       if (outcome.kind === 'allow') return { allow: true };
       const answer = await deps.askHuman({ kind: 'gate', outcome, ask });
-      return answer === 'stop' ? { allow: false, message: stopMessage(outcome) } : { allow: true };
+      return allows(answer) ? { allow: true } : { allow: false, message: stopMessage(outcome) };
     }
-    if (ask.kind === 'command') {
-      const command = ask.command ?? '';
-      if (sessionAllowed.has(commandPrefix(command))) return { allow: true };
-      const answer = await deps.askHuman({ kind: 'command', command, ask });
-      if (answer === 'stop') return { allow: false, message: `Align: the person declined to run \`${command}\`. Ask them before trying another way.` };
-      if (answer === 'allow-session') sessionAllowed.add(commandPrefix(command));
-      return { allow: true };
+    // A command, or a tool this code does not know (WebFetch, an MCP tool, a subagent): a person decides.
+    const label = ask.kind === 'command' ? (ask.command ?? '') : ask.tool;
+    const key = `${ask.kind}:${label}`;
+    if (sessionAllowed.has(key)) return { allow: true };
+    const answer = await deps.askHuman({ kind: 'command', command: label, ask });
+    if (!allows(answer)) {
+      return { allow: false, message: ask.kind === 'command'
+        ? `Align: the person declined to run \`${label}\`. Ask them before trying another way.`
+        : `Align: the person declined the ${label} tool. Ask them before trying another way.` };
     }
+    if (answer === 'allow-session') sessionAllowed.add(key);
     return { allow: true };
   };
 }
