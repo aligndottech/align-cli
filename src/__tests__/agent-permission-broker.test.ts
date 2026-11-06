@@ -140,3 +140,13 @@ describe('broker: unknown tools are approved for their input, not their name', (
     expect(askHuman).toHaveBeenCalledTimes(2);
   });
 });
+
+// CodeRabbit: approval covers the whole input, so the question shows the whole input.
+describe('broker: the question shows everything the person approves', () => {
+  it('does not cut a long tool input', async () => {
+    const detail = JSON.stringify({ url: 'https://a.example', note: 'x'.repeat(300), extra: 'rm -rf ~' });
+    const { broker, asked } = setup({ kind: 'allow', cards: [] }, ['stop']);
+    await broker({ id: 'w1', tool: 'WebFetch', kind: 'other', detail });
+    expect(asked[0]).toMatchObject({ command: `WebFetch ${detail}` });
+  });
+});

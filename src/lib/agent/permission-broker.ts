@@ -49,7 +49,8 @@ export function createBroker(deps: BrokerDeps): (ask: ToolAsk) => Promise<Broker
     }
     // A command, or a tool this code does not know (WebFetch, an MCP tool, a subagent): a person decides.
     // An unknown tool is approved for its input, not its name: a yes to one URL is not a yes to all.
-    const label = ask.kind === 'command' ? (ask.command ?? '') : [ask.tool, ask.detail?.slice(0, 200)].filter(Boolean).join(' ');
+    // The question shows the WHOLE input: approval covers all of it, so none may hide past a cut.
+    const label = ask.kind === 'command' ? (ask.command ?? '') : [ask.tool, ask.detail].filter(Boolean).join(' ');
     const key = ask.kind === 'command' ? `command:${label}` : `other:${ask.tool}:${ask.detail ?? ''}`;
     if (sessionAllowed.has(key)) return { allow: true };
     const answer = await deps.askHuman({ kind: 'command', command: label, ask });

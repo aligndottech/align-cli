@@ -76,9 +76,10 @@ export async function gateEdit(ask: ToolAsk, deps: GateDeps): Promise<GateOutcom
   // (measured on fastify #7089, 6 Nov: "not a conflict" let the reversal through). So no model
   // call is spent here either.
   if (blameCards.length) return { kind: 'ask', reason: 'rewrites-decided-lines', cards: [...blameCards, ...retrievalCards] };
-  // No blame hit and a check that did not finish: say so rather than reading as a pass.
-  if (related === TIMED_OUT || wrote === TIMED_OUT) return { kind: 'allow', cards: [], note: 'not-checked' };
-  if (!retrievalCards.length) return { kind: 'allow', cards: [] };
+  // No blame hit. A half that did not finish makes the result "not checked", but what the other
+  // half found is still used: retrieval hits are still adjudicated and shown when blame timed out.
+  const unfinished = related === TIMED_OUT || wrote === TIMED_OUT;
+  if (!retrievalCards.length) return unfinished ? { kind: 'allow', cards: [], note: 'not-checked' } : { kind: 'allow', cards: [] };
 
   // Retrieval alone only finds what is similar. A model may escalate that to a question; it
   // never turns a question into a silent pass, because there is none to clear.
@@ -91,5 +92,5 @@ export async function gateEdit(ask: ToolAsk, deps: GateDeps): Promise<GateOutcom
     // A verdict that never came is not a verdict: keep the cards, and say it was not checked.
     if (verdict === TIMED_OUT || verdict.status === 'unknown') return { kind: 'allow', cards: retrievalCards, note: 'not-checked' };
   }
-  return { kind: 'allow', cards: retrievalCards };
+  return unfinished ? { kind: 'allow', cards: retrievalCards, note: 'not-checked' } : { kind: 'allow', cards: retrievalCards };
 }

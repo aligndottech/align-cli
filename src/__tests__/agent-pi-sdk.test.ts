@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import pkg from '../../package.json' with { type: 'json' };
-import { loadPiSdk, PI_ENGINE_PACKAGES, type PiSdkDeps } from '../lib/agent/engines/pi-sdk.js';
+import { loadPiSdk, npmCommand, PI_ENGINE_PACKAGES, PI_ENGINE_VERSION, type PiSdkDeps } from '../lib/agent/engines/pi-sdk.js';
 
 // The engine is ~110 MB of provider SDKs, so it is not in the npm install (install-smoke caps that
 // at 100 MB). It is bundled where it can be (the compiled binary, a dev checkout), and otherwise
@@ -24,7 +24,7 @@ function deps(over: Partial<PiSdkDeps> = {}) {
 
 describe('loadPiSdk', () => {
   it('uses the bundled engine when there is one, and downloads nothing', async () => {
-    const { d } = deps({ importBundled: async () => SDK });
+    const { d } = deps({ importBundled: async () => ({ sdk: SDK, version: PI_ENGINE_VERSION }) });
     expect(await loadPiSdk(d)).toBe(SDK);
     expect(d.confirm).not.toHaveBeenCalled();
     expect(d.runNpm).not.toHaveBeenCalled();
@@ -60,5 +60,25 @@ describe('loadPiSdk', () => {
   it('pins every engine package exactly in devDependencies, so the download matches what was tested', () => {
     for (const name of PI_ENGINE_PACKAGES) expect((pkg.devDependencies as Record<string, string>)[name]).toMatch(/^\d+\.\d+\.\d+$/);
     expect(Object.keys(pkg.dependencies)).not.toEqual(expect.arrayContaining([...PI_ENGINE_PACKAGES]));
+  });
+});
+
+describe('loadPiSdk: a different Pi on the machine', () => {
+  it('ignores a bundled Pi of another version and uses the pinned download', async () => {
+    const pinnedSdk = { pinned: true } as never;
+    const { d } = deps({ importBundled: async () => ({ sdk: { old: true } as never, version: '0.74.0' }), importInstalled: async () => pinnedSdk });
+    expect(await loadPiSdk(d)).toBe(pinnedSdk);
+  });
+});
+
+describe('npmCommand', () => {
+  const dir = 'C:\\Users\\Jo Smith\\.align\\engine\\1.5.0';
+  it('quotes a path with a space for cmd.exe on Windows', () => {
+    const c = npmCommand('win32', ['install', '--prefix', dir]);
+    expect(c).toMatchObject({ cmd: 'npm.cmd', shell: true });
+    expect(c.args).toEqual(['install', '--prefix', `"${dir}"`]);
+  });
+  it('passes arguments untouched elsewhere, with no shell', () => {
+    expect(npmCommand('linux', ['install', '--prefix', '/home/jo smith/.align'])).toEqual({ cmd: 'npm', args: ['install', '--prefix', '/home/jo smith/.align'], shell: false });
   });
 });

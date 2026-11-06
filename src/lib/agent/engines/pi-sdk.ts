@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import pkg from '../../../../package.json' with { type: 'json' };
 import type { PiSdk } from './pi.js';
 
@@ -27,19 +27,25 @@ export const PI_ENGINE_VERSION = pinned(PI_ENGINE_PACKAGES[0]);
 
 export interface PiSdkDeps {
   engineDir: string;
-  importBundled: () => Promise<PiSdk>;
+  /** The engine bundled with this build, and its version when it can be read. */
+  importBundled: () => Promise<{ sdk: PiSdk; version?: string }>;
   importInstalled: (engineDir: string) => Promise<PiSdk>;
   confirm: (message: string) => Promise<boolean>;
   runNpm: (args: string[]) => Promise<number>;
   out: (line: string) => void;
 }
 
-const attempt = async (load: () => Promise<PiSdk>): Promise<PiSdk | undefined> => {
+const attempt = async <T>(load: () => Promise<T>): Promise<T | undefined> => {
   try { return await load(); } catch { return undefined; }
 };
 
 export async function loadPiSdk(deps: PiSdkDeps): Promise<PiSdk> {
-  const ready = (await attempt(deps.importBundled)) ?? (await attempt(() => deps.importInstalled(deps.engineDir)));
+  // A bundled Pi of another version (one installed beside Align, say) may lack what the engine
+  // uses, so only the pinned version counts. A build that cannot report its version (the compiled
+  // binary) counts when it has the API, so binary users are not sent to download what they have.
+  const bundled = await attempt(deps.importBundled);
+  const usable = bundled && (bundled.version === PI_ENGINE_VERSION || (bundled.version === undefined && typeof bundled.sdk.ModelRuntime === 'function'));
+  const ready = (usable ? bundled.sdk : undefined) ?? (await attempt(() => deps.importInstalled(deps.engineDir)));
   if (ready) return ready;
 
   const yes = await deps.confirm('Align\'s own engine is a one-time download, about 110 MB. Download it now?');
@@ -63,15 +69,40 @@ function installedEntry(engineDir: string, name: string): string {
   return join(dir, file);
 }
 
+/** The version of the bundled engine, read from its package.json; undefined when it cannot be found. */
+function bundledVersion(): string | undefined {
+  try {
+    let dir = dirname(fileURLToPath(import.meta.resolve(PI_ENGINE_PACKAGES[0])));
+    for (let i = 0; i < 6; i++) {
+      try {
+        const m = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name?: string; version?: string };
+        if (m.name === PI_ENGINE_PACKAGES[0]) return m.version;
+      } catch { /* keep walking up */ }
+      dir = dirname(dir);
+    }
+  } catch { /* not resolvable here */ }
+  return undefined;
+}
+
+/**
+ * How to run npm. On Windows npm is npm.cmd, which needs a shell, and cmd.exe splits an unquoted
+ * argument at a space - a home directory like "Jo Smith" would break the install path.
+ */
+export function npmCommand(platform: string, args: string[]): { cmd: string; args: string[]; shell: boolean } {
+  if (platform !== 'win32') return { cmd: 'npm', args, shell: false };
+  return { cmd: 'npm.cmd', args: args.map((a) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a)), shell: true };
+}
+
 export function defaultPiSdkDeps(o: { engineDir: string; confirm: (message: string) => Promise<boolean> }): PiSdkDeps {
   return {
     engineDir: o.engineDir,
     // A literal specifier, so the compiled binary bundles the engine and never downloads it.
-    importBundled: () => import('@earendil-works/pi-coding-agent'),
+    importBundled: async () => ({ sdk: await import('@earendil-works/pi-coding-agent'), version: bundledVersion() }),
     importInstalled: async (dir) => (await import(pathToFileURL(installedEntry(dir, PI_ENGINE_PACKAGES[0])).href)) as PiSdk,
     confirm: o.confirm,
     runNpm: (args) => new Promise((resolve) => {
-      const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, { stdio: 'inherit', shell: process.platform === 'win32' });
+      const npm = npmCommand(process.platform, args);
+      const child = spawn(npm.cmd, npm.args, { stdio: 'inherit', shell: npm.shell });
       child.on('error', () => resolve(127));
       child.on('exit', (code) => resolve(code ?? 1));
     }),

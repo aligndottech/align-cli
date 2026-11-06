@@ -212,3 +212,17 @@ describe('gateEdit: a verdict that never came', () => {
     expect(await gateEdit(editAsk(), deps(client({ related: [NEARBY], verdict: 'hang' }), { canAdjudicate: () => true }))).toMatchObject({ kind: 'allow', note: 'not-checked' });
   });
 });
+
+// CodeRabbit: a blame timeout used to drop what retrieval found, and with it the chance to ask.
+describe('gateEdit: blame does not finish, retrieval does', () => {
+  const slowBlame = { blame: () => new Promise<never[]>((r) => setTimeout(() => r([]), 200)), retrievalMs: 30 };
+  it('still adjudicates what retrieval found, and asks on a conflict', async () => {
+    const out = await gateEdit(editAsk(), deps(client({ related: [REVERSED], verdict: 'conflicting' }), { ...slowBlame, canAdjudicate: () => true }));
+    expect(out).toMatchObject({ kind: 'ask', reason: 'conflict' });
+  });
+  it('without a model, shows what retrieval found and says the check did not finish', async () => {
+    const out = await gateEdit(editAsk(), deps(client({ related: [NEARBY] }), slowBlame));
+    expect(out).toMatchObject({ kind: 'allow', note: 'not-checked' });
+    expect(out.cards.map((c) => c.id)).toEqual([NEARBY.id]);
+  });
+});
