@@ -243,3 +243,16 @@ describe('a claude that dies mid-write', () => {
     expect(() => child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))).not.toThrow();
   });
 });
+
+// CodeRabbit (align-stack#4176): a claude that never starts must not leave the turn hanging.
+describe('a claude that never starts', () => {
+  it('ends the turn with an error, stops the child, and refuses later prompts', async () => {
+    const { child, engine, events, started } = setup({ firstEventTimeoutMs: 20 });
+    await started;
+    const p = engine.prompt('hello');
+    await expect(p).rejects.toThrow(/did not start/);
+    expect(child.kill).toHaveBeenCalled();
+    expect(events.some((e) => e.type === 'error')).toBe(true);
+    await expect(engine.prompt('again')).rejects.toThrow(/did not start/);
+  });
+});

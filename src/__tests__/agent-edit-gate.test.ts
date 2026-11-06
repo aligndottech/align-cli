@@ -200,3 +200,15 @@ describe('gateEdit: blame survives a retrieval failure', () => {
     expect(await gateEdit(editAsk(), deps(client({ slow: true, related: [NEARBY] }), { ...blamed, retrievalMs: 20 }))).toMatchObject({ kind: 'ask', reason: 'rewrites-decided-lines' });
   });
 });
+
+// CodeRabbit (align-stack#4176): an adjudicator that could not decide must not read as "checked".
+describe('gateEdit: a verdict that never came', () => {
+  it('keeps the related decisions and says not checked when the verdict is unknown', async () => {
+    const out = await gateEdit(editAsk(), deps(client({ related: [NEARBY], verdict: 'unknown' }), { canAdjudicate: () => true }));
+    expect(out).toMatchObject({ kind: 'allow', note: 'not-checked' });
+    expect(out.cards.map((c) => c.id)).toEqual([NEARBY.id]);
+  });
+  it('says not checked when the verdict does not arrive in time', async () => {
+    expect(await gateEdit(editAsk(), deps(client({ related: [NEARBY], verdict: 'hang' }), { canAdjudicate: () => true }))).toMatchObject({ kind: 'allow', note: 'not-checked' });
+  });
+});

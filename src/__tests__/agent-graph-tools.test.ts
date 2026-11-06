@@ -19,12 +19,13 @@ vi.mock('../lib/usage-telemetry.js', () => ({ recordFunnelStage }));
 import { createGraphTools } from '../lib/agent/graph-tools.js';
 
 const env: EnvironmentConfig = { gatewayUrl: 'http://localhost:8080', authToken: null, tenantId: null, mode: 'local-embedded' };
+const cloudEnv: EnvironmentConfig = { gatewayUrl: 'https://api.align.tech', authToken: 'tok', tenantId: 't1', mode: 'auth' } as EnvironmentConfig;
 const client = { tag: 'client' } as never;
 const HIT = { id: 'd1', title: 'Chose Postgres', status: 'active' };
 const firstUseful = (): unknown[][] => recordFunnelStage.mock.calls.filter((c) => c[1] === 'first_useful_decision');
 
-function tool(name: string) {
-  const t = createGraphTools({ client, env }).find((x) => x.name === name);
+function tool(name: string, e: EnvironmentConfig = env) {
+  const t = createGraphTools({ client, env: e }).find((x) => x.name === name);
   if (!t) throw new Error(`no graph tool named ${name}`);
   return t;
 }
@@ -35,8 +36,14 @@ describe('graph tools', () => {
     recordFunnelStage.mockReset().mockResolvedValue(true);
   });
 
-  it('offers exactly the four read tools, each with the MCP schema as its parameters', async () => {
-    const tools = createGraphTools({ client, env });
+  // The local graph has no topic timeline (the local client cannot serve it), so the local engine
+  // is not offered a tool that would only fail.
+  it('offers the three tools the local graph can serve', () => {
+    expect(createGraphTools({ client, env }).map((t) => t.name)).toEqual(['align_ask', 'align_search', 'align_get_related_decisions']);
+  });
+
+  it('offers all four on a hosted graph, each with the MCP schema as its parameters', async () => {
+    const tools = createGraphTools({ client, env: cloudEnv });
     expect(tools.map((t) => t.name)).toEqual([
       'align_ask', 'align_search', 'align_get_topic_timeline', 'align_get_related_decisions',
     ]);
@@ -57,8 +64,8 @@ describe('graph tools', () => {
 
   it('align_get_topic_timeline routes under its own name', async () => {
     dispatchTool.mockResolvedValue({ decisions: [] });
-    await tool('align_get_topic_timeline').run({ topic: 'connection pooling', limit: 5 });
-    expect(dispatchTool).toHaveBeenCalledWith('align_get_topic_timeline', { topic: 'connection pooling', limit: 5 }, client, env);
+    await tool('align_get_topic_timeline', cloudEnv).run({ topic: 'connection pooling', limit: 5 });
+    expect(dispatchTool).toHaveBeenCalledWith('align_get_topic_timeline', { topic: 'connection pooling', limit: 5 }, client, cloudEnv);
   });
 
   it('a dispatch failure reaches the model as a rejection, not a swallowed string', async () => {
@@ -80,7 +87,21 @@ describe('graph tools', () => {
 
   it('does not record it for a result that is not a real answer (a timeline is a follow-up)', async () => {
     dispatchTool.mockResolvedValue({ decisions: [HIT] });
-    await tool('align_get_topic_timeline').run({ topic: 'x' });
+    await tool('align_get_topic_timeline', cloudEnv).run({ topic: 'x' });
     expect(firstUseful()).toHaveLength(0);
+  });
+});
+
+// Same as the MCP handler: any successful graph call is use, once a day (recordFunnelStage guards the day).
+describe('graph tools: daily activity', () => {
+  beforeEach(() => { dispatchTool.mockReset().mockResolvedValue({ results: [HIT] }); recordFunnelStage.mockReset().mockResolvedValue(true); });
+  it('records agent_active after a successful call', async () => {
+    await tool('align_ask').run({ question: 'why postgres' });
+    expect(recordFunnelStage).toHaveBeenCalledWith(env, 'agent_active', 'mcp');
+  });
+  it('records nothing for a call that failed', async () => {
+    dispatchTool.mockRejectedValue(new Error('boom'));
+    await expect(tool('align_ask').run({ question: 'x' })).rejects.toThrow('boom');
+    expect(recordFunnelStage).not.toHaveBeenCalledWith(env, 'agent_active', 'mcp');
   });
 });

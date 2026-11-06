@@ -88,6 +88,8 @@ export async function gateEdit(ask: ToolAsk, deps: GateDeps): Promise<GateOutcom
       const cards: GateDecision[] = (verdict.conflicts ?? []).map((c) => ({ id: c.decision_id, title: c.title, why: c.reason, url: decisionLinkFor(c), via: 'verdict' }));
       return { kind: 'ask', reason: 'conflict', cards };
     }
+    // A verdict that never came is not a verdict: keep the cards, and say it was not checked.
+    if (verdict === TIMED_OUT || verdict.status === 'unknown') return { kind: 'allow', cards: retrievalCards, note: 'not-checked' };
   }
   return { kind: 'allow', cards: retrievalCards };
 }

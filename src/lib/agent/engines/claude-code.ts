@@ -88,7 +88,15 @@ export function createClaudeCodeEngine(opts: ClaudeCodeOpts): AgentEngine {
         });
         c.once('spawn', () => {
           send(initializeLine(`init-${Date.now()}`));
-          initTimer = setTimeout(() => emit({ type: 'error', message: `Claude Code did not start within ${Math.round(firstEventTimeoutMs / 1000)}s. Run \`claude --version\` to check it works.` }), firstEventTimeoutMs);
+          // A claude that never starts ends the run: the waiting turn fails, the child is stopped,
+          // and later prompts are refused with the same reason, so the screen never hangs.
+          initTimer = setTimeout(() => {
+            exitMessage = `Claude Code did not start within ${Math.round(firstEventTimeoutMs / 1000)}s. Run \`claude --version\` to check it works.`;
+            emit({ type: 'error', message: exitMessage });
+            pending?.reject(new Error(exitMessage));
+            pending = undefined;
+            c.kill();
+          }, firstEventTimeoutMs);
           resolve();
         });
       });

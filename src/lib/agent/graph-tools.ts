@@ -30,7 +30,10 @@ export function createGraphTools({ client, env }: GraphToolDeps): GraphToolSpec[
   // One flag per tool set, so first_useful_decision is offered once per session. The
   // once-per-install guard is recordFunnelStage's; this only stops a chatty session re-offering.
   let recordedFirstUseful = false;
-  return GRAPH_TOOL_NAMES.map((name) => {
+  // The local graph has no topic timeline (the local client cannot serve it), so the local
+  // engine is not offered a tool that would only fail.
+  const names = GRAPH_TOOL_NAMES.filter((n) => !(env.mode === 'local-embedded' && n === 'align_get_topic_timeline'));
+  return names.map((name) => {
     const schema = TOOL_SCHEMAS.find((s) => s.name === name);
     if (!schema) throw new Error(`graph tool ${name} is not in TOOL_SCHEMAS`);
     return {
@@ -44,6 +47,8 @@ export function createGraphTools({ client, env }: GraphToolDeps): GraphToolSpec[
           // Not awaited: a tool response never waits on telemetry (same as createCallToolHandler).
           void recordFunnelStage(env, 'first_useful_decision', 'mcp');
         }
+        // Any successful graph call is use, as in the MCP handler; recordFunnelStage keeps it to once a day.
+        void recordFunnelStage(env, 'agent_active', 'mcp');
         return serializeMcpResult(result);
       },
     };
