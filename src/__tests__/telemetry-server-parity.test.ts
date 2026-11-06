@@ -31,7 +31,7 @@ const SERVER_COMMANDS = [
   // 'config' is pinned here after align-stack #3141 added it to the gateway list (the gateway lands first).
   'adjudicate', 'agents', 'ai', 'align', 'ask', 'capture', 'check', 'config', 'connect', 'context', 'decisions', 'drift',
   'env', 'export', 'glossary', 'import', 'invite', 'join', 'links', 'login', 'logout', 'mark', 'mcp', 'push',
-  'ratify', 'search', 'setup', 'share', 'spaces', 'status', 'sync', 'telemetry', 'use', 'whoami',
+  'ratify', 'rule', 'search', 'setup', 'share', 'spaces', 'stale', 'status', 'sync', 'telemetry', 'use', 'whoami',
 ];
 const SERVER_SUBCOMMAND_PARENTS = ['connect', 'context', 'decisions', 'env', 'import', 'links', 'spaces', 'telemetry'];
 const SERVER_STAGES = [
@@ -49,22 +49,13 @@ const SERVER_TRIGGERS = ['connect', 'background', 'manual', 'mcp'];
 const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
 
 /**
- * Found by this test on its first run (2026-10-10): `ai` and `agents` are registered here and are
- * not on the gateway's list, so their `cli.command` pings 400 silently today. Not fixed by L7 (the
- * fix is a gateway change, outside this slice). Listed exactly, so the day the gateway adds them
- * this test fails until they are removed from here: it can only shrink.
- *
- * `join` was on this list until align-stack #3101 added it to the gateway's command enum, and
- * `ai` and `agents` until align-stack #3582 did. Empty again now.
- *
- * `glossary` (the read-only `align glossary review`) was on it until align-stack #3762 added it to the gateway's command enum.
+ * There is deliberately NO allowlist of commands the gateway rejects. The old
+ * KNOWN_DRIFT list said "remove it when the gateway adds it", and that is how `ai`, `agents`,
+ * `rule` and `stale` each shipped with a silently 400'd ping. A CLI command the gateway does not
+ * accept now fails this test in CI. The fix is a gateway change first, then the pin below.
+ * SERVER_COMMANDS is the same list align-stack's telemetryAnonymousRoutes.test.ts asserts the
+ * route accepts, so the two repos cannot drift apart without one CI going red.
  */
-const KNOWN_DRIFT: string[] = [
-  // `align rule` is new in the CLI: the gateway's command enum does not list it yet, so its cli.command ping 400s silently like `stale`'s. Remove it when the gateway adds it.
-  'rule',
-  // `align stale` is new in the CLI: the gateway's command enum does not list it yet, so its cli.command ping 400s silently like the others did. Remove it when the gateway adds it.
-  'stale',
-];
 
 const cliCommands = (): string[] => buildProgram({ internal: false }).commands.map((c) => c.name());
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();
@@ -79,11 +70,11 @@ describe('the CLI mirror of the gateway telemetry contract (pinned)', () => {
     expect(sorted(SYNC_SCOPES)).toEqual(sorted(SERVER_SCOPES));
     for (const t of SYNC_TRIGGERS) expect(SERVER_TRIGGERS).toContain(t);
   });
-  it('every command the CLI registers is on the gateway\'s list, bar the four it leaves out on purpose', () => {
+  it('every command the CLI registers is on the gateway\'s list, bar the four it leaves out on purpose (no allowlist of rejected commands)', () => {
     const names = cliCommands();
     expect(names.length).toBeGreaterThan(10); // positive control: the tree was actually read
     const missing = names.filter((n) => !NOT_SENT.has(n) && !SERVER_COMMANDS.includes(n));
-    expect(sorted(missing)).toEqual(KNOWN_DRIFT);
+    expect(missing).toEqual([]);
   });
   it('the command groups that may carry a second word are exactly the gateway\'s (connect included: v0.46.0 accepts it)', () => {
     expect(sorted([...SUBCOMMAND_PARENTS])).toEqual(sorted(SERVER_SUBCOMMAND_PARENTS));
@@ -136,6 +127,6 @@ describe.skipIf(!other.ok)(`the CLI mirror against ${THERE} on ${ref} (live)`, (
     expect(sorted(listOf(src, 'FUNNEL_STAGES'))).toEqual(sorted([...FUNNEL_STAGES, 'install']));
     for (const t of SYNC_TRIGGERS) expect(listOf(src, 'SYNC_TRIGGER_VALUES')).toContain(t);
     const known = listOf(src, 'KNOWN_COMMANDS');
-    expect(sorted(cliCommands().filter((n) => !NOT_SENT.has(n) && !known.includes(n)))).toEqual(KNOWN_DRIFT);
+    expect(cliCommands().filter((n) => !NOT_SENT.has(n) && !known.includes(n))).toEqual([]);
   });
 });
