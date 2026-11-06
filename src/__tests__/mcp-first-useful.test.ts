@@ -30,6 +30,9 @@ function client(over: Partial<Record<'searchDecisions' | 'checkAlignment' | 'get
   } as unknown as Client;
 }
 
+/** ALI-2076: every tool call also offers agent_active, so these assertions look at first_useful_decision alone. */
+const firstUseful = (): unknown[][] => recordFunnelStage.mock.calls.filter((c) => c[1] === 'first_useful_decision');
+
 async function call(c: Client, name: string, args: Record<string, unknown>): Promise<void> {
   const handler = createCallToolHandler(c, env);
   await handler({ params: { name, arguments: args } });
@@ -43,13 +46,13 @@ describe('MCP first_useful_decision', () => {
   it('align_ask with a non-empty answer records the stage, attributed to mcp', async () => {
     const c = client({ searchDecisions: vi.fn().mockResolvedValue({ results: [HIT], count: 1, strategy: 'semantic' }) });
     await call(c, 'align_ask', { question: 'why postgres' });
-    expect(recordFunnelStage).toHaveBeenCalledTimes(1);
+    expect(firstUseful()).toHaveLength(1);
     expect(recordFunnelStage).toHaveBeenCalledWith(env, 'first_useful_decision', 'mcp');
   });
 
   it('align_ask with no results records nothing', async () => {
     await call(client(), 'align_ask', { question: 'why postgres' });
-    expect(recordFunnelStage).not.toHaveBeenCalled();
+    expect(firstUseful()).toEqual([]);
   });
 
   it('align_search with a hit records the stage', async () => {
@@ -60,7 +63,7 @@ describe('MCP first_useful_decision', () => {
 
   it('align_search with no hits records nothing', async () => {
     await call(client(), 'align_search', { query: 'postgres' });
-    expect(recordFunnelStage).not.toHaveBeenCalled();
+    expect(firstUseful()).toEqual([]);
   });
 
   it.each(['aligned', 'conflicting', 'retrieved'] as const)(
@@ -76,14 +79,14 @@ describe('MCP first_useful_decision', () => {
   it.each(['no-context', 'unknown'] as const)('align_check_alignment with status %s records nothing', async (status) => {
     const c = client({ checkAlignment: vi.fn().mockResolvedValue({ status, confidence: 0, relevant_decisions: [], message: '' }) });
     await call(c, 'align_check_alignment', { diff: '+ x' });
-    expect(recordFunnelStage).not.toHaveBeenCalled();
+    expect(firstUseful()).toEqual([]);
   });
 
   // Negative control on the tool set: a non-empty result from a tool that is not one of
   // the three "the agent got an answer" tools must not count.
   it('a non-empty align_get_conflicts records nothing', async () => {
     await call(client(), 'align_get_conflicts', {});
-    expect(recordFunnelStage).not.toHaveBeenCalled();
+    expect(firstUseful()).toEqual([]);
   });
 
   it('still returns the serialized tool result', async () => {

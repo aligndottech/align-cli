@@ -455,6 +455,8 @@ export function createCallToolHandler(
     if (isFirstUsefulToolResult(name, result)) {
       void recordFunnelStage(env, 'first_useful_decision', 'mcp');
     }
+    // ALI-2076: any successful tool call is use. Once a day per install, the once-a-day guard is recordFunnelStage's.
+    void recordFunnelStage(env, 'agent_active', 'mcp');
     const text = serializeMcpResult(result);
     appendChatTrace({
       kind: 'mcp_call', tool: name, args, client: clientInfo ?? null, ok: true, result: text,

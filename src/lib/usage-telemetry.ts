@@ -312,6 +312,10 @@ export const FUNNEL_STAGES = [
   'agent_launched',
   // L7: one per source per completed sync. Carries a count and four closed enums (SyncMeasurement).
   'source_synced',
+  // ALI-2076: once per UTC day, from the first tool call an agent makes over `align mcp` that day.
+  // `align mcp` sends one `cli.command mcp` per SERVER start, so an editor window left open for a
+  // week showed one ping on day 0 and nothing after. Carries no field beyond the stage itself.
+  'agent_active',
 ] as const;
 
 /**
@@ -431,9 +435,15 @@ export async function recordFunnelStage(
     const syncMeasured = stage === 'source_synced' ? syncFields(measurement) : undefined;
     if (stage === 'source_synced' && (syncMeasured === undefined || env.mode !== 'local-embedded')) return false;
 
+    // ALI-2076: local only. A cloud install already has the server-side `mcp.tool_invoked` for every
+    // tool call, so a client event would be a second writer of that fact.
+    if (stage === 'agent_active' && env.mode !== 'local-embedded') return false;
+
     const { createConfigStore } = await import('./config.js');
     const config = createConfigStore();
     if (stage === 'first_useful_decision' && config.wasFunnelStageRecorded(stage)) return false;
+    const today = new Date().toISOString().slice(0, 10);
+    if (stage === 'agent_active' && config.getAgentActiveDay() === today) return false;
 
     // Whether this call CAN send, checked before the once-mark (Copilot on #215):
     // marking an unsendable call permanently burned the stage for exactly the opt-in
@@ -447,6 +457,9 @@ export async function recordFunnelStage(
       : Boolean(env.authToken && env.tenantId) && !storedAnswerForbidsSending(config.getTelemetryConsent());
     if (!canSend) return false;
     if (stage === 'first_useful_decision') config.markFunnelStageRecorded(stage);
+    // Marked before the send, for the same reason: a lost ping undercounts one day, where marking
+    // after would re-send on every tool call from a machine that cannot reach the gateway.
+    if (stage === 'agent_active') config.setAgentActiveDay(today);
 
     const commandPath = commandPathOf(command);
 
