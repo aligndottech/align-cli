@@ -560,7 +560,7 @@ function willLaunchAgent(agent: LaunchAgentId | null, launchNext: boolean): bool
  */
 function nextStepLine(agent: LaunchAgentId | null, launching: boolean, agents: string[]): string | null {
   const label = agent ? agentByName(agent)?.label : undefined;
-  if (label) return launching ? null : `Run ${chalk.bold('align')} to open ${label} with your graph.`;
+  if (label) return launching ? null : `Run ${chalk.bold('align')} to open Align with your graph.`;
   // Said once, and only when it is true. With a configured agent the ask line below names it.
   if (agents.length > 0) return null;
   return `No coding agent was found, so none is connected. Install one from the list above, then run ${chalk.bold('align')}.`;
@@ -1159,7 +1159,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   await runModelStep({ interactive });
   // Declined writes: the agent has no align MCP or hook, so opening it "with your graph" would be false.
   const launching = !ctx.writesDeclined && willLaunchAgent(agent, Boolean(opts.launchNext));
-  const launchLabel = launching && agent ? agentByName(agent)?.label : undefined;
+  const launchLabel = launching && agent ? 'Align' : undefined;
   // Three prompts, not one: learn the past, ask before touching a file, and watch the agent
   // stop when a plan reverses a decision. Printed, never sent into the agent. An empty graph
   // gets none - the sparse hint above is the next step, and a prompt about nothing is noise.
@@ -1172,7 +1172,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   const tryLead = launchLabel
     ? `Opening ${launchLabel}. Try these in it:`
     : leadsIntoPrompts
-      ? `Run align to open ${chosenLabel} with your graph, then try:`
+      ? 'Run align to open Align with your graph, then try:'
       : agents.length === 0 && agent === null
       ? 'Once one is installed, open it in this repo and try:'
       : agentTryLead({ agents, chosen: chosenLabel, inRepo: true, envName: 'local' });

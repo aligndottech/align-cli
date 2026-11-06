@@ -1,0 +1,48 @@
+import type { HumanQuestion } from '../permission-broker.js';
+import type { AgentUiEvent, GateDecision, GateOutcome } from '../types.js';
+import { theme } from './theme.js';
+
+export function headerLine(o: { label: string; decisionCount: number }): string {
+  const n = `${o.decisionCount} ${o.decisionCount === 1 ? 'decision' : 'decisions'}`;
+  return [theme.brand('Align'), o.label, n].join(theme.dim(' · '));
+}
+
+function decisionLines(d: GateDecision): string[] {
+  return [
+    `  ${theme.title(d.title)}`,
+    ...(d.why ? [`  ${d.why}`] : []),
+    ...(d.url ? [`  ${theme.link(d.url)}`] : []),
+  ];
+}
+
+export function gateCard(q: Extract<HumanQuestion, { kind: 'gate' }>): string[] {
+  const lead = {
+    conflict: 'This edit conflicts with a decision',
+    'rewrites-decided-lines': 'This edit changes lines written by a decision',
+    unchecked: 'Align could not read this edit, so it was not checked against your decisions',
+  }[q.outcome.reason];
+  return [
+    theme.warn(lead),
+    ...q.outcome.cards.flatMap((d) => ['', ...decisionLines(d)]),
+    '',
+    theme.key('[a] allow once   [s] stop'),
+  ];
+}
+
+export function commandCard(q: Extract<HumanQuestion, { kind: 'command' }>): string[] {
+  return [theme.warn('Run this command?'), `  ${q.command}`, '', theme.key('[y] yes   [s] yes for this session   [n] no')];
+}
+
+/** What an allowed edit leaves in the transcript. Never silent when the gate could not check. */
+export function gateNote(outcome: GateOutcome): string[] {
+  if (outcome.kind !== 'allow') return [];
+  if (outcome.note === 'not-checked') return [theme.dim('not checked against the decision graph')];
+  if (outcome.cards.length === 0) return [];
+  return [theme.dim(`checked against: ${outcome.cards.map((d) => d.title).join(', ')}`)];
+}
+
+export function toolLine(e: AgentUiEvent): string[] {
+  if (e.type === 'tool-start') return [`${theme.dim('•')} ${theme.title(e.tool)} ${theme.dim(e.summary)}`];
+  if (e.type === 'tool-end' && !e.ok) return [theme.error('  that tool call failed')];
+  return [];
+}
