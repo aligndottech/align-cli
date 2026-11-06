@@ -5,7 +5,7 @@
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import * as piSdk from '@earendil-works/pi-coding-agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphToolSpec } from '../lib/agent/graph-tools.js';
@@ -34,7 +34,7 @@ describe('tool_call gate', () => {
     expect(result).toEqual({ block: true, reason: 'Stopped: decision #7089 says no.' });
     expect(asks[0]).toMatchObject({
       id: 't1', tool: 'edit', kind: 'edit',
-      edit: { file_path: '/work/repo/src/a.ts', edits: [{ old_string: 'a', new_string: 'b' }] },
+      edit: { file_path: resolve(CWD, 'src/a.ts'), edits: [{ old_string: 'a', new_string: 'b' }] },
     });
   });
 
@@ -50,7 +50,7 @@ describe('tool_call gate', () => {
     const asks: ToolAsk[] = [];
     const handler = toolCallHandler(createToolGate(() => async (ask) => { asks.push(ask); return allow; }, CWD));
     await handler({ type: 'tool_call', toolCallId: 't3', toolName: 'write', input: { path: '/abs/new.ts', content: 'x' } }, {});
-    expect(asks[0]).toMatchObject({ kind: 'edit', edit: { file_path: '/abs/new.ts', content: 'x' } });
+    expect(asks[0]).toMatchObject({ kind: 'edit', edit: { file_path: resolve('/abs/new.ts'), content: 'x' } });
   });
 
   it('classifies the read tools and the graph tools as read, and everything else as other', async () => {
