@@ -13,7 +13,7 @@ const client = (over: Record<string, unknown> = {}): Client =>
   ({ getConflicts: vi.fn().mockResolvedValue({ links: [], conflict_count: 0 }), ...over }) as unknown as Client;
 
 async function call(c: Client, name: string): Promise<void> {
-  await createCallToolHandler(c, env)({ params: { name, arguments: {} } });
+  await createCallToolHandler(c, env)({ params: { name, arguments: { question: 'why postgres' } } });
   await new Promise((r) => setImmediate(r));
 }
 const activeCalls = (): unknown[][] => recordFunnelStage.mock.calls.filter((c) => c[1] === 'agent_active');
@@ -21,8 +21,8 @@ const activeCalls = (): unknown[][] => recordFunnelStage.mock.calls.filter((c) =
 describe('MCP agent_active', () => {
   beforeEach(() => recordFunnelStage.mockReset().mockResolvedValue(true));
 
-  it.each(['align_get_conflicts', 'align_stale_code'])('a %s call offers agent_active, attributed to mcp', async (name) => {
-    await call(client({ staleCode: vi.fn().mockResolvedValue({}) }), name);
+  it.each(['align_get_conflicts', 'align_ask'])('a %s call offers agent_active, attributed to mcp', async (name) => {
+    await call(client({ searchDecisions: vi.fn().mockResolvedValue({ results: [], count: 0, strategy: 'semantic' }) }), name);
     expect(activeCalls()).toEqual([[env, 'agent_active', 'mcp']]);
   });
 

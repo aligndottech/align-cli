@@ -155,9 +155,10 @@ async function terminalCommand(day: number, args: string[]): Promise<void> {
   await settle();
 }
 
+// Tools that need neither an on-device embedding model nor a full git history, so the run works offline and in a shallow CI clone.
 const CALLS = [
   { name: 'align_get_conflicts', arguments: {} },
-  { name: 'align_stale_code', arguments: {} },
+  { name: 'align_get_conflicts', arguments: {} },
 ];
 
 async function connect(day: number, extra: Record<string, string> = {}): Promise<Client> {
@@ -170,7 +171,7 @@ async function connect(day: number, extra: Record<string, string> = {}): Promise
 /** Day N: the person types nothing. Their agent starts a fresh `align mcp` and calls tools. */
 async function agentSession(day: number, extra: Record<string, string> = {}): Promise<void> {
   currentDay = day;
-  currentVia = `agent MCP, new server: ${CALLS.map((c) => c.name).join(', ')}`;
+  currentVia = `agent MCP, new server: ${[...new Set(CALLS.map((c) => c.name))].join(', ')}`;
   const client = await connect(day, extra);
   try {
     for (const c of CALLS) await client.callTool(c);

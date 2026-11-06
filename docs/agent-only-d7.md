@@ -29,8 +29,8 @@ sessions.
 - Day 0 is one terminal command (`align status`) standing in for install and setup. The setup
   wizard is interactive, and its own pings (`setup_completed`, `mcp_wired`) are day-0 one-offs
   that cannot carry day 7 either way. From day 1 the person types nothing: the agent starts
-  `align mcp` and calls `align_get_conflicts` and `align_stale_code` (tools that need no
-  on-device embedding model, so the run works offline).
+  `align mcp` and calls `align_get_conflicts` twice (a tool that needs neither the on-device
+  embedding model nor a full git history, so the run works offline and in a shallow CI clone).
 - Cloud mode is not simulated. Per the ticket, the gateway records `mcp.tool_invoked`
   server-side for every cloud tool call, so cloud agent use is already visible, and
   `agent_active` is local-only for that reason.
@@ -47,19 +47,19 @@ day | event_name | command | sent by
 --- | --- | --- | ---
 0 | cli.funnel.install | align | terminal: align status
 0 | cli.command | status | terminal: align status
-1 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-2 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-3 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-4 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-5 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-6 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-7 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
+1 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+2 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+3 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+4 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+5 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+6 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+7 | cli.command | mcp | agent MCP, new server: align_get_conflicts
 
 days with a cli.command ping (the D7 definition in the ticket): [0, 1, 2, 3, 4, 5, 6, 7]
 days with a cli.command ping other than mcp (a person typed it): [0]
 days with cli.funnel.agent_active (a tool call): []
 
-#### B: the person types one command on day 0; the agent starts ONE server and calls tools on days 1 to 7
+#### B: the person types one command on day 0; the agent starts ONE server on day 1 and calls tools on days 1 to 7
 
 day | event_name | command | sent by
 --- | --- | --- | ---
@@ -93,20 +93,20 @@ day | event_name | command | sent by
 --- | --- | --- | ---
 0 | cli.funnel.install | align | terminal: align status
 0 | cli.command | status | terminal: align status
-1 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-1 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-2 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-2 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-3 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-3 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-4 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-4 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-5 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-5 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-6 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-6 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-7 | cli.command | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
-7 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts, align_stale_code
+1 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+1 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts
+2 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+2 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts
+3 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+3 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts
+4 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+4 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts
+5 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+5 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts
+6 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+6 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts
+7 | cli.command | mcp | agent MCP, new server: align_get_conflicts
+7 | cli.funnel.agent_active | mcp | agent MCP, new server: align_get_conflicts
 
 days with a cli.command ping (the D7 definition in the ticket): [0, 1, 2, 3, 4, 5, 6, 7]
 days with a cli.command ping other than mcp (a person typed it): [0]
