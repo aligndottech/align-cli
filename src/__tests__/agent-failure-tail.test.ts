@@ -19,4 +19,17 @@ describe('failureTail', () => {
   it.each([[undefined], [''], ['\n  \n'], [{}], [[]], [42]])('says nothing when there is no text (%j)', (v) => {
     expect(failureTail(v)).toBeUndefined();
   });
+  it('removes terminal escape sequences and control characters, keeping line breaks', () => {
+    const out = failureTail('before\u001b[2Jafter\u001b]0;evil title\u0007\r\nbell\u0007 and \u0000nul\nlast')!;
+    expect(out).not.toContain('\u001b');
+    expect(out).not.toContain('\u0007');
+    expect(out).not.toContain('\u0000');
+    expect(out).not.toContain('evil title');
+    expect(out.split('\n')).toEqual(['beforeafter', 'bell and nul', 'last']);
+  });
+  it('strips controls before the cut, so an escape cannot be split by the length limit', () => {
+    const out = failureTail(`${'x'.repeat(190)}\u001b[2J${'y'.repeat(30)}`)!;
+    expect(out).not.toContain('\u001b');
+    expect(out.length).toBe(200);
+  });
 });

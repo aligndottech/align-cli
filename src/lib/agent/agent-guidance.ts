@@ -5,4 +5,4 @@
  * wording finds the same decisions and costs the person the wait.
  */
 export const ASK_ONCE_GUIDANCE =
-  'Ask the decision graph once per question. If align_ask returns decisions, read any later_on_topic on them, answer from what they say, and stop. Do not repeat it with new wording, and do not read the code or git history to re-derive what it said unless you are about to change behaviour.';
+  'Ask the decision graph once per question. If align_ask returns decisions, read any later_on_topic on them. If a later entry could change the answer and its details are missing, read that decision with an available tool before answering; if no tool is available, say the details are unavailable. Answer from the decisions and stop. Do not repeat align_ask with new wording, and do not read the code or git history to re-derive what it said unless you are about to change behaviour.';

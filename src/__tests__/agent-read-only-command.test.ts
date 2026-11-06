@@ -16,6 +16,10 @@ describe('read-only commands pass without asking', () => {
     'node --version',
     'test -d node_modules && echo dependencies-installed',
     'git status --short; ls examples | head -20; command -v align || true',
+    // A quoted separator is part of the argument, not the end of the command.
+    "git log --grep='a;b'",
+    'git log --grep="a|b" --oneline',
+    'grep -rn "trailer stream" lib',
   ])('allows %s', (c) => expect(isReadOnlyCommand(c)).toBe(true));
 });
 
@@ -38,6 +42,13 @@ describe('anything that can write, run or chain something else still asks', () =
     ['a git subcommand that writes', 'git checkout main'],
     ['an environment prefix', 'FOO=1 ls'],
     ['node running code', 'node -e "1"'],
+    // The shell joins quoted pieces, so a quote in the middle of a flag cannot hide it.
+    ['find -delete split by quotes', 'find . -d""elete'],
+    ['git --output split by quotes', 'git log --out""put=x'],
+    ['git --output with the value quoted', 'git log --output"=x"'],
+    ['an abbreviated git --output', 'git log --outp=x'],
+    ['a chain after a quoted separator', "grep 'a;b' f; rm x"],
+    ['an unbalanced quote', "grep 'a f"],
     ['an empty command', ''],
     ['an unknown command', 'curl https://example.com'],
   ])('asks for %s', (_name, c) => expect(isReadOnlyCommand(c)).toBe(false));
