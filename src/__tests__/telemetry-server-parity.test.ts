@@ -49,7 +49,7 @@ const SERVER_TRIGGERS = ['connect', 'background', 'manual', 'mcp'];
 const NOT_SENT = new Set(['local', 'dev', 'connector', 'doctor']);
 
 /**
- * There is deliberately NO allowlist of commands the gateway rejects (ALI-2077). The old
+ * There is deliberately NO allowlist of commands the gateway rejects. The old
  * KNOWN_DRIFT list said "remove it when the gateway adds it", and that is how `ai`, `agents`,
  * `rule` and `stale` each shipped with a silently 400'd ping. A CLI command the gateway does not
  * accept now fails this test in CI. The fix is a gateway change first, then the pin below.
