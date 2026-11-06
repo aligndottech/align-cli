@@ -1,5 +1,5 @@
 /**
- * ALI-2076: does using Align ONLY through an agent's MCP tools count toward D7?
+ * does using Align ONLY through an agent's MCP tools count toward D7?
  *
  * A recorded run with real processes and no mocks. A fresh HOME stands in for a clean machine. A
  * preload offsets the clock of every spawned process by a whole number of days, so "day 7" is a
@@ -222,7 +222,7 @@ function record(title: string, rows: Row[], lines: string[]): void {
   console.log(report);
 }
 
-describe('ALI-2076: agent-only use over a week, real processes, a day-shifted clock', () => {
+describe('agent-only use over a week, real processes, a day-shifted clock', () => {
   it('A: a new agent session each day (the editor is restarted daily)', async () => {
     await seed(true);
     await terminalCommand(0, ['status']);

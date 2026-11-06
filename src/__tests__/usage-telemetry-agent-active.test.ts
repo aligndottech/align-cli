@@ -1,5 +1,5 @@
 /**
- * ALI-2076: `agent_active`, the once-a-day signal that an agent used Align through its MCP tools.
+ * `agent_active`, the once-a-day signal that an agent used Align through its MCP tools.
  * `align mcp` sends one `cli.command mcp` when the SERVER starts, so an agent that keeps one server
  * running for a week (an editor window left open) was invisible after day 0.
  */

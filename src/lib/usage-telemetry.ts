@@ -312,7 +312,7 @@ export const FUNNEL_STAGES = [
   'agent_launched',
   // L7: one per source per completed sync. Carries a count and four closed enums (SyncMeasurement).
   'source_synced',
-  // ALI-2076: once per UTC day, from the first tool call an agent makes over `align mcp` that day.
+  // once per UTC day, from the first tool call an agent makes over `align mcp` that day.
   // `align mcp` sends one `cli.command mcp` per SERVER start, so an editor window left open for a
   // week showed one ping on day 0 and nothing after. Carries no field beyond the stage itself.
   'agent_active',
@@ -435,7 +435,7 @@ export async function recordFunnelStage(
     const syncMeasured = stage === 'source_synced' ? syncFields(measurement) : undefined;
     if (stage === 'source_synced' && (syncMeasured === undefined || env.mode !== 'local-embedded')) return false;
 
-    // ALI-2076: local only. A cloud install already has the server-side `mcp.tool_invoked` for every
+    // local only. A cloud install already has the server-side `mcp.tool_invoked` for every
     // tool call, so a client event would be a second writer of that fact.
     if (stage === 'agent_active' && env.mode !== 'local-embedded') return false;
 

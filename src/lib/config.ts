@@ -639,7 +639,7 @@ export function createConfigStore() {
       store.set('funnelStagesRecorded', existing.filter((s) => s !== stage));
       return true;
     },
-    // ALI-2076: the UTC day (YYYY-MM-DD) the `agent_active` stage last went out. A day, not a
+    // the UTC day (YYYY-MM-DD) the `agent_active` stage last went out. A day, not a
     // once-ever mark: the stage says "an agent used Align today", so it repeats daily.
     getAgentActiveDay(): string | undefined {
       return store.get('agentActiveDay');

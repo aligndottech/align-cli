@@ -1,4 +1,4 @@
-# Does agent-only use count toward D7? A recorded run (ALI-2076)
+# Does agent-only use count toward D7? A recorded run
 
 **Short answer.** Mostly yes, with one real gap that this change closes.
 

@@ -1,4 +1,4 @@
-/** ALI-2076: every tool call an agent makes through `align mcp` offers the once-a-day agent_active stage. */
+/** every tool call an agent makes through `align mcp` offers the once-a-day agent_active stage. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnvironmentConfig } from '../lib/config.js';
 

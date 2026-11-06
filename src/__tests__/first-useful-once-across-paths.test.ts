@@ -127,7 +127,7 @@ describe('first_useful_decision is once per install across `align ask` and the M
     } finally {
       vi.mocked(createConfigStore).mockReset();
     }
-    // ALI-2076: every tool call also offers agent_active, so this looks at first_useful_decision alone.
+    // every tool call also offers agent_active, so this looks at first_useful_decision alone.
     const bodies = mockFetch.mock.calls.map((c) => JSON.parse(String((c[1] as { body: string }).body)) as Record<string, unknown>);
     const useful = mockFetch.mock.calls.filter((_, i) => bodies[i]?.['stage'] === 'first_useful_decision');
     expect(useful).toHaveLength(1);

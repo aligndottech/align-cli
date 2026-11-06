@@ -30,7 +30,7 @@ function client(over: Partial<Record<'searchDecisions' | 'checkAlignment' | 'get
   } as unknown as Client;
 }
 
-/** ALI-2076: every tool call also offers agent_active, so these assertions look at first_useful_decision alone. */
+/** every tool call also offers agent_active, so these assertions look at first_useful_decision alone. */
 const firstUseful = (): unknown[][] => recordFunnelStage.mock.calls.filter((c) => c[1] === 'first_useful_decision');
 
 async function call(c: Client, name: string, args: Record<string, unknown>): Promise<void> {
