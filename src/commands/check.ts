@@ -8,8 +8,8 @@ import { resolveEnv } from '../lib/resolve-env.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { getBaseDiff, getCurrentBranch, getHeadDiff, getStagedDiff, isGitRepo, listBranchNames, pickBaseRef } from '../lib/git.js';
 import type { AlignmentResult } from '../lib/gateway-client.js';
-import { type HookPayload, type HookToolInput, readHookPayload } from '../lib/hook-payload.js';
-import { findLineWriters, isWriterTitle } from '../lib/blame-attribution.js';
+import { type HookPayload, readHookPayload } from '../lib/hook-payload.js';
+import { decisionsThatWroteTheseLines, proposedChangeText, type RelatedDecision } from '../lib/agent/edit-text.js';
 import { markHookContext } from '../lib/hook-context.js';
 import { markSurfaced, recentlySurfaced } from '../lib/advisory-dedup.js';
 import {
@@ -781,7 +781,6 @@ async function runDeferredAdjudication(payloadFile: string, env: EnvName): Promi
   }
 }
 
-type RelatedDecision = { id: string; title: string; summary?: string };
 
 // Retrieval finds decisions on the same SUBJECT. It does not encode opposition - a measurement
 // put the agreeing pair at cosine 0.38 against the contradicting pair at 0.31 - so this
@@ -837,25 +836,6 @@ export function buildRelatedOutput(
   return renderForHost(summary, opts, false);
 }
 
-type DecisionLookup = { decisionsBySourceRefs?: (shas: string[], prUrls: string[]) => RelatedDecision[] };
-
-/**
- * The decisions that wrote the lines this edit replaces: `git blame` the lines, then a keyed lookup
- * of the blamed commits and PRs in the graph. Local mode only (the cloud client has no such lookup yet,
- * so it is skipped). Fail-open: any problem returns [] and the hook behaves as it did before.
- */
-async function decisionsThatWroteTheseLines(client: unknown, input: HookToolInput | undefined, cwd: string): Promise<RelatedDecision[]> {
-  try {
-    const lookup = (client as DecisionLookup).decisionsBySourceRefs;
-    if (typeof lookup !== 'function') return [];
-    const writers = await findLineWriters(input, cwd);
-    if (!writers) return [];
-    return lookup.call(client, writers.commitShas, writers.prUrls).filter((d) => isWriterTitle(d.title)).slice(0, 5);
-  } catch {
-    return [];
-  }
-}
-
 // A check that could not run is not a pass. Silence here would be
 // indistinguishable from "nothing found", which is the exact fail-open both tickets closed.
 export function buildUnknownOutput(opts: AdvisoryRenderOpts): unknown | null {
@@ -901,16 +881,6 @@ function changeIdentityOf(payload: HookPayload | null): ChangeIdentity {
  */
 function identityHashOf(id: ChangeIdentity): string {
   return contentHashOf([id.toolName, id.filePath, id.oldString, id.text].join('\0'));
-}
-
-// The proposed change from a PreToolUse payload: Write sends the full content, Edit a
-// new_string, MultiEdit a list of edits. We check the new text against the graph.
-function proposedChangeText(input?: HookToolInput): string {
-  if (!input) return '';
-  if (typeof input.content === 'string') return input.content;
-  if (Array.isArray(input.edits)) return input.edits.map((e) => e.new_string ?? '').join('\n');
-  if (typeof input.new_string === 'string') return input.new_string;
-  return '';
 }
 
 // Render conflicts as a concise, actionable nudge for the agent's context.
