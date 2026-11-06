@@ -141,7 +141,8 @@ One per command you run.
 ### `cli.funnel.<stage>` (local mode)
 
 Milestone pings, one of `setup_started`, `import_completed`, `mcp_wired`,
-`first_useful_decision` (once per install, the first non-empty answer, from `align ask` or
+`first_capture` (once per install, the first time you capture a decision with `align capture`; it
+carries the command name and nothing about what was captured), `first_useful_decision` (once per install, the first non-empty answer, from `align ask` or
 from an agent over MCP), `teammate_requested`, and the four session-import stages:
 `sessions_scanned`, `candidates_found`, `candidates_confirmed` and `decisions_ratified`, and
 `agent_launched` (bare `align` opened your coding agent) and `agent_active` (your agent used an

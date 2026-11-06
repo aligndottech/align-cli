@@ -36,7 +36,7 @@ const SERVER_COMMANDS = [
 const SERVER_SUBCOMMAND_PARENTS = ['connect', 'context', 'decisions', 'env', 'import', 'links', 'spaces', 'telemetry'];
 const SERVER_STAGES = [
   'install', 'setup_started', 'setup_completed', 'import_completed', 'mcp_wired',
-  'first_useful_decision', 'teammate_requested', 'agent_launched',
+  'first_capture', 'first_useful_decision', 'teammate_requested', 'agent_launched',
   'sessions_scanned', 'candidates_found', 'candidates_confirmed', 'decisions_ratified',
   'source_synced', 'agent_active',
 ];

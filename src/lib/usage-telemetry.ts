@@ -303,6 +303,7 @@ export const FUNNEL_STAGES = [
   'setup_completed',
   'import_completed',
   'mcp_wired',
+  'first_capture',
   'first_useful_decision',
   'teammate_requested',
   // The gateway's own FUNNEL_STAGES must list these too or every ping 400s; that half
@@ -380,6 +381,9 @@ export interface AgentMeasurement {
 }
 export type FunnelStage = (typeof FUNNEL_STAGES)[number];
 
+/** The stages that fire once per install, guarded in recordFunnelStage (the one enforcement point). */
+const ONCE_PER_INSTALL_STAGES: ReadonlySet<FunnelStage> = new Set(['first_useful_decision', 'first_capture']);
+
 /**
  * The two stages that send BY DEFAULT in local mode, with no consent - the
  * denominator of the funnel. `install` goes through recordInstallBeacon; `setup_completed`
@@ -441,7 +445,7 @@ export async function recordFunnelStage(
 
     const { createConfigStore } = await import('./config.js');
     const config = createConfigStore();
-    if (stage === 'first_useful_decision' && config.wasFunnelStageRecorded(stage)) return false;
+    if (ONCE_PER_INSTALL_STAGES.has(stage) && config.wasFunnelStageRecorded(stage)) return false;
     const today = new Date().toISOString().slice(0, 10);
     if (stage === 'agent_active' && config.getAgentActiveDay() === today) return false;
 
@@ -456,7 +460,7 @@ export async function recordFunnelStage(
       ? localTierAllows(config.getTelemetryConsent(), stage, noticeShownOn(config))
       : Boolean(env.authToken && env.tenantId) && !storedAnswerForbidsSending(config.getTelemetryConsent());
     if (!canSend) return false;
-    if (stage === 'first_useful_decision') config.markFunnelStageRecorded(stage);
+    if (ONCE_PER_INSTALL_STAGES.has(stage)) config.markFunnelStageRecorded(stage);
     // Marked before the send, for the same reason: a lost ping undercounts one day, where marking
     // after would re-send on every tool call from a machine that cannot reach the gateway.
     if (stage === 'agent_active') config.setAgentActiveDay(today);

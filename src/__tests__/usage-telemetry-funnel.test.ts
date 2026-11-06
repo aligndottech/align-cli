@@ -241,6 +241,40 @@ describe('recordFunnelStage', () => {
   // first_useful_decision is the activation event: the funnel counts an install once,
   // and the moment fires on every successful ask forever after - so the guard lives in
   // the emitter, the single enforcement point, not in N call sites.
+  // first_capture marks the step between setup and the first answer: the first time this
+  // install captures a decision. Once per install, content-free (a command name and nothing else).
+  describe('first_capture fires once per install', () => {
+    it('emits and marks on the first call', async () => {
+      getTelemetryConsent.mockReturnValue('granted');
+
+      await recordFunnelStage(localEnv, 'first_capture', 'capture');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((mockFetch.mock.calls[0] as [string, { body: string }])[1].body) as Record<string, unknown>;
+      expect(body['stage']).toBe('first_capture');
+      expect(body['command']).toBe('capture');
+      expect(markFunnelStageRecorded).toHaveBeenCalledWith('first_capture');
+    });
+
+    it('emits nothing once already recorded', async () => {
+      getTelemetryConsent.mockReturnValue('granted');
+      wasFunnelStageRecorded.mockImplementation((s: string) => s === 'first_capture');
+
+      await recordFunnelStage(localEnv, 'first_capture', 'capture');
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('is not blocked by first_useful_decision having been recorded (one mark per stage)', async () => {
+      getTelemetryConsent.mockReturnValue('granted');
+      wasFunnelStageRecorded.mockImplementation((s: string) => s === 'first_useful_decision');
+
+      await recordFunnelStage(localEnv, 'first_capture', 'capture');
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('first_useful_decision fires once per install', () => {
     it('emits and marks on the first call', async () => {
       getTelemetryConsent.mockReturnValue('granted');
