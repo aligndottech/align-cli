@@ -37,6 +37,9 @@
   "dependencies": {
     "@aligndottech/connector-core": "^0.10.1",
     "@clack/prompts": "^1.7.0",
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
+    "@earendil-works/pi-tui": "1.5.0",
     "@huggingface/tokenizers": "0.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chalk": "^5.3.0",
@@ -80,7 +83,7 @@
     "onnxruntime-node": "1.30.0"
   },
   "engines": {
-    "node": ">=22.16"
+    "node": ">=22.19"
   },
   "publishConfig": {
     "access": "public"

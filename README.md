@@ -57,7 +57,7 @@ asked what to do. Models are not deterministic, so your run may word it differen
 
 ## Install
 
-- **npm:** `npm install -g @aligndottech/cli` (Node 22.16+).
+- **npm:** `npm install -g @aligndottech/cli` (Node 22.19+).
 - **macOS / Linux, no Node:** `curl -fsSL https://align.tech/install.sh | sh` installs a
   standalone binary and checks it against the release checksums. Read [install.sh](install.sh)
   first if you like.

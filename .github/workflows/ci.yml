@@ -39,9 +39,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           # The floor from package.json engines, not the newest runtime: this is the
-          # version a user on the oldest supported Node actually gets. 22.16 is where
-          # node:sqlite is unflagged AND DatabaseSync.isTransaction exists.
-          node-version: '22.16'
+          # version a user on the oldest supported Node actually gets. 22.19 is what the
+          # agent engine (@earendil-works/pi-*) requires; node:sqlite needs only 22.16.
+          node-version: '22.19'
           cache: 'npm'
 
       - run: npm ci
@@ -156,7 +156,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.16'
+          node-version: '22.19'
           cache: 'npm'
 
       - run: npm ci
@@ -232,7 +232,7 @@ jobs:
       - if: steps.scope.outputs.touched == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '22.16'
+          node-version: '22.19'
           cache: 'npm'
 
       - if: steps.scope.outputs.touched == 'true'
@@ -282,7 +282,7 @@ jobs:
           fi
           exit $status
 
-  # Same gate on the newest Node (not a required context). 22.16 is the floor and the
+  # Same gate on the newest Node (not a required context). 22.19 is the floor and the
   # required `test` job covers it, so the value here is the OTHER end of the range.
   test-node24:
     if: github.event_name != 'workflow_dispatch'
@@ -331,7 +331,7 @@ jobs:
       # it, so the schema assertions do not trust the writer.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.16'
+          node-version: '22.19'
 
       - uses: oven-sh/setup-bun@v2
         with:

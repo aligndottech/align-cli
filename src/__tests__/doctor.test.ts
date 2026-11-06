@@ -4,7 +4,7 @@
  * real loopback gateway.
  *
  * Test list (each rule has two examples, the boundary included):
- *  node:     22.16.0 passes, 22.15.9 fails, 24.1.0 passes, 20.0.0 fails
+ *  node:     22.19.0 passes, 22.18.9 fails, 24.1.0 passes, 20.0.0 fails
  *  path:     found passes and names the path; missing fails and names the install command
  *  gateway:  answered passes; unreachable fails and names the URL
  *  whoami:   accepted passes; 401 fails naming `align login`; no token fails; unreachable fails
@@ -24,7 +24,7 @@ class Boom extends Error {
 
 function deps(over: Partial<DoctorDeps> = {}): DoctorDeps {
   return {
-    nodeVersion: '22.16.0',
+    nodeVersion: '22.19.0',
     envName: 'prod',
     mode: 'auth',
     gatewayUrl: 'https://api.example.test',
@@ -40,15 +40,15 @@ function deps(over: Partial<DoctorDeps> = {}): DoctorDeps {
 const byId = (checks: Awaited<ReturnType<typeof runDoctor>>, id: string) => checks.find((c) => c.id === id)!;
 
 describe('node version', () => {
-  it('the floor is 22.16', () => expect(MIN_NODE).toBe('22.16.0'));
-  it.each(['22.16.0', '22.16.1', '24.1.0'])('%s passes', (v) => expect(nodeMeetsFloor(v)).toBe(true));
-  it.each(['22.15.9', '22.0.0', '20.19.0'])('%s fails', (v) => expect(nodeMeetsFloor(v)).toBe(false));
+  it('the floor is 22.19', () => expect(MIN_NODE).toBe('22.19.0'));
+  it.each(['22.19.0', '22.19.1', '24.1.0'])('%s passes', (v) => expect(nodeMeetsFloor(v)).toBe(true));
+  it.each(['22.18.9', '22.0.0', '20.19.0'])('%s fails', (v) => expect(nodeMeetsFloor(v)).toBe(false));
 
   it('a too-old Node fails the check and says what to install', async () => {
     const c = byId(await runDoctor(deps({ nodeVersion: '20.11.0' })), 'node');
     expect(c.status).toBe('fail');
     expect(c.detail).toContain('20.11.0');
-    expect(c.next).toMatch(/Node 22\.16 or newer/);
+    expect(c.next).toMatch(/Node 22\.19 or newer/);
   });
   it('a new enough Node passes and shows the version', async () => {
     const c = byId(await runDoctor(deps({ nodeVersion: '24.1.0' })), 'node');

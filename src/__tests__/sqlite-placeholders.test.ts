@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * Node 22.16 (the CI floor) binds numbered SQLite placeholders (?1, ?2) wrongly: the statement fails with
+ * Node 22.16 (the CI floor until the agent engine raised it to 22.19) binds numbered SQLite placeholders (?1, ?2) wrongly: the statement fails with
  * "column index out of range" where Node 24 accepts it. A suite on one Node cannot see that, so this test reads
  * the source instead: no SQL string under src/lib or src/commands may use one. Use `?` and bind each value.
  */

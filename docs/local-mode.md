@@ -224,7 +224,7 @@ Two ways to install, and local-only mode works fully in both.
 
 | | Standalone binary (`install.sh`) | npm (`npm i -g @aligndottech/cli`) |
 |---|---|---|
-| Needs Node on your machine | no | yes, 22.16+ |
+| Needs Node on your machine | no | yes, 22.19+ |
 | Cloud mode | yes | yes |
 | Local graph, capture, `local status`, `context sync` | yes | yes |
 | On-device embeddings, so `ask`/`search`/`check` in local mode | yes | yes |
