@@ -22,6 +22,7 @@ function deps(over: Partial<SessionDeps> = {}) {
     findClaude: () => '/usr/local/bin/claude',
     projectState: () => ({ projectHasMcp: false, projectHasBlock: false }),
     makeGate: () => async () => ({ kind: 'allow', cards: [] }),
+    gitRunsPrograms: async () => false,
     graphTools: () => [],
     countDecisions: () => 749,
     loadPiEngine: async () => ({ createPiEngine: vi.fn(async () => piEngine) }),

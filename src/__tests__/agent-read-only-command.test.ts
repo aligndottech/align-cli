@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isReadOnlyCommand } from '../lib/agent/read-only-command.js';
+import { commandUsesGit, isReadOnlyCommand } from '../lib/agent/read-only-command.js';
 
 describe('read-only commands pass without asking', () => {
   it.each([
@@ -48,8 +48,15 @@ describe('anything that can write, run or chain something else still asks', () =
     ['git --output with the value quoted', 'git log --output"=x"'],
     ['an abbreviated git --output', 'git log --outp=x'],
     ['a chain after a quoted separator', "grep 'a;b' f; rm x"],
+    ['a quoted separator that hides a flag', "find . -name '*; echo' -o -delete"],
     ['an unbalanced quote', "grep 'a f"],
     ['an empty command', ''],
     ['an unknown command', 'curl https://example.com'],
   ])('asks for %s', (_name, c) => expect(isReadOnlyCommand(c)).toBe(false));
+});
+
+describe('commandUsesGit', () => {
+  it.each([['git status', true], ['ls | git log', true], ['ls examples', false], ["grep 'git' f", false]])('%s -> %s', (c, want) => {
+    expect(commandUsesGit(c)).toBe(want);
+  });
 });

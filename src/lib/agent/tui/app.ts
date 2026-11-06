@@ -11,6 +11,7 @@ export interface AgentUiOptions {
   engine: AgentEngine;
   decisionCount: number;
   gate: (ask: ToolAsk) => Promise<GateOutcome>;
+  gitRunsPrograms?: () => Promise<boolean>;
   terminal?: Terminal;
 }
 
@@ -47,7 +48,7 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     controller.beginAsk();
     return new Promise((resolve) => { pending = { kind: q.kind, resolve }; });
   };
-  const broker = createBroker({ gate: opts.gate, askHuman, onGate: (outcome) => addLines(gateNote(outcome)) });
+  const broker = createBroker({ gate: opts.gate, gitRunsPrograms: opts.gitRunsPrograms, askHuman, onGate: (outcome) => addLines(gateNote(outcome)) });
 
   const onKey = (data: string): { consume: true } | undefined => {
     if (matchesKey(data, 'ctrl+c')) {

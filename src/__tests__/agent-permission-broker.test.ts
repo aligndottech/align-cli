@@ -8,12 +8,12 @@ const OLD = { id: 'd-601', title: 'Do not allow a status code lower than 400', v
 const edit: ToolAsk = { id: 'e1', tool: 'Edit', kind: 'edit', edit: { file_path: 'lib/error-status.js', new_string: 'x' } };
 const cmd = (command: string): ToolAsk => ({ id: `c-${command}`, tool: 'Bash', kind: 'command', command });
 
-function setup(outcome: GateOutcome, answers: HumanAnswer[] = []) {
+function setup(outcome: GateOutcome, answers: HumanAnswer[] = [], gitRunsPrograms?: () => Promise<boolean>) {
   const asked: HumanQuestion[] = [];
   const askHuman = vi.fn(async (q: HumanQuestion) => { asked.push(q); return answers.shift() ?? 'stop'; });
   const gate = vi.fn(async () => outcome);
   const onGate = vi.fn();
-  return { broker: createBroker({ gate, askHuman, onGate }), asked, askHuman, gate, onGate };
+  return { broker: createBroker({ gate, askHuman, onGate, gitRunsPrograms }), asked, askHuman, gate, onGate };
 }
 
 describe('broker: an edit the gate wants a person to see', () => {
@@ -154,8 +154,27 @@ describe('broker: the question shows everything the person approves', () => {
 describe('broker: read-only commands', () => {
   it('lets a read-only command through without asking', async () => {
     const { broker, askHuman } = setup({ kind: 'allow', cards: [] });
+    expect(await broker(cmd('ls examples | head -30'))).toEqual({ allow: true });
+    expect(askHuman).not.toHaveBeenCalled();
+  });
+  it('lets a git read through when the repo config names no program', async () => {
+    const { broker, askHuman } = setup({ kind: 'allow', cards: [] }, [], async () => false);
     expect(await broker(cmd('git log --oneline | head -30'))).toEqual({ allow: true });
     expect(askHuman).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['the repo config names a program', async () => true],
+    ['the check was not wired', undefined],
+  ])('asks for a git read when %s', async (_n, check) => {
+    const { broker, askHuman } = setup({ kind: 'allow', cards: [] }, ['stop'], check);
+    expect((await broker(cmd('git diff'))).allow).toBe(false);
+    expect(askHuman).toHaveBeenCalledTimes(1);
+  });
+  it('does not run the git check for a command that is not git', async () => {
+    const check = vi.fn(async () => true);
+    const { broker } = setup({ kind: 'allow', cards: [] }, [], check);
+    expect(await broker(cmd('ls'))).toEqual({ allow: true });
+    expect(check).not.toHaveBeenCalled();
   });
   it('still asks when a read-only command is chained to one that writes', async () => {
     const { broker, askHuman } = setup({ kind: 'allow', cards: [] }, ['stop']);

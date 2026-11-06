@@ -78,6 +78,12 @@ function segmentIsReadOnly(segment: string): boolean {
   return false;
 }
 
+/** True when any segment of the line runs git, which can run programs the repo's config names. */
+export function commandUsesGit(command: string): boolean {
+  const segments = splitOutsideQuotes(command) ?? [];
+  return segments.some((s) => unquote(s.trim().split(/\s+/)[0] ?? '') === 'git');
+}
+
 /** True only when every segment of the line is a known read-only command. */
 export function isReadOnlyCommand(command: string): boolean {
   if (command.trim() === '' || SHELL_SYNTAX.test(command)) return false;
