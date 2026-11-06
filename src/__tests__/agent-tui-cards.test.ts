@@ -90,4 +90,10 @@ describe('tool line', () => {
     expect(plain(toolLine({ type: 'tool-end', id: 't', ok: false }))).toContain('failed');
     expect(toolLine({ type: 'tool-end', id: 't', ok: true })).toEqual([]);
   });
+  it('shows why a tool failed when it said', () => {
+    const text = plain(toolLine({ type: 'tool-end', id: 't', ok: false, detail: 'Exit code 1\nCannot find module avvio' }));
+    expect(text).toContain('failed');
+    expect(text).toContain('Exit code 1');
+    expect(text).toContain('Cannot find module avvio');
+  });
 });

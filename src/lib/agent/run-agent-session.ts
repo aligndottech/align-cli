@@ -13,6 +13,7 @@ import { hasConfiguredProvider, probeOllama } from '../local-llm.js';
 import { alignConfigDir } from '../private-files.js';
 import { STARTUP_ENV } from '../startup-env.js';
 import { launchAlignEntry } from '../trusted-align-bin.js';
+import { ASK_ONCE_GUIDANCE } from './agent-guidance.js';
 import { gateEdit } from './edit-gate.js';
 import { decisionsThatWroteTheseLines } from './edit-text.js';
 import { type ClaudeCodeOpts, createClaudeCodeEngine } from './engines/claude-code.js';
@@ -59,7 +60,7 @@ const CANNOT_RUN: Record<EngineName, string> = {
 
 function claudeArgs(state: { projectHasMcp: boolean; projectHasBlock: boolean }): string[] {
   const args: string[] = [];
-  if (!state.projectHasBlock) args.push('--append-system-prompt', alignNudgeBody());
+  args.push('--append-system-prompt', [...(state.projectHasBlock ? [] : [alignNudgeBody()]), ASK_ONCE_GUIDANCE].join('\n\n'));
   // Last, because claude's --mcp-config is variadic. Named align-local so it never replaces a
   // server the user configured as `align` (see adapters/claude-code.ts).
   if (!state.projectHasMcp) args.push('--mcp-config', JSON.stringify({ mcpServers: { 'align-local': launchAlignEntry('mcpServers') } }));

@@ -60,6 +60,11 @@ describe('parseLine events', () => {
     expect(parseLine(msg(false)).events).toEqual([{ type: 'tool-end', id: 't9', ok: true }]);
     expect(parseLine(msg(true)).events).toEqual([{ type: 'tool-end', id: 't9', ok: false }]);
   });
+  it('carries what a failed tool said, and nothing for a success', () => {
+    const msg = (is_error: boolean) => j({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't9', is_error, content: 'Exit code 1\nCannot find module avvio' }] } });
+    expect(parseLine(msg(true)).events).toEqual([{ type: 'tool-end', id: 't9', ok: false, detail: 'Exit code 1\nCannot find module avvio' }]);
+    expect(parseLine(msg(false)).events).toEqual([{ type: 'tool-end', id: 't9', ok: true }]);
+  });
 });
 
 describe('parseLine can_use_tool', () => {

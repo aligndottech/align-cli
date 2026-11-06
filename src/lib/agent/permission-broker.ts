@@ -1,3 +1,4 @@
+import { isReadOnlyCommand } from './read-only-command.js';
 import type { BrokerVerdict, GateDecision, GateOutcome, HumanAnswer, ToolAsk } from './types.js';
 
 /**
@@ -47,6 +48,8 @@ export function createBroker(deps: BrokerDeps): (ask: ToolAsk) => Promise<Broker
       const answer = await deps.askHuman({ kind: 'gate', outcome, ask });
       return allows(answer) ? { allow: true } : { allow: false, message: stopMessage(outcome) };
     }
+    // A command that can only read passes; anything chained, redirected or unknown still asks.
+    if (ask.kind === 'command' && isReadOnlyCommand(ask.command ?? '')) return { allow: true };
     // A command, or a tool this code does not know (WebFetch, an MCP tool, a subagent): a person decides.
     // An unknown tool is approved for its input, not its name: a yes to one URL is not a yes to all.
     // The question shows the WHOLE input: approval covers all of it, so none may hide past a cut.

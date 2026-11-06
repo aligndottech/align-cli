@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path';
 import type * as PiCodingAgent from '@earendil-works/pi-coding-agent';
 import type { DefaultResourceLoader, ExtensionFactory, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { HookToolInput } from '../../hook-payload.js';
+import { ASK_ONCE_GUIDANCE } from '../agent-guidance.js';
+import { failureTail } from '../failure-tail.js';
 import type { GraphToolSpec } from '../graph-tools.js';
 import type { AgentEngine, AgentUiEvent, BrokerVerdict, ToolAsk } from '../types.js';
 import type { ResolvedPiModel } from './pi-models.js';
@@ -17,6 +19,7 @@ const ALIGN_AGENT_SYSTEM_PROMPT = [
   "You are Align's coding agent. You work in the user's repository with read, bash, edit, write, grep, find and ls.",
   'You also have tools that read the team\'s decision graph: align_ask, align_search, align_get_topic_timeline and align_get_related_decisions.',
   'Ask the graph before you change behaviour a past decision may cover. Quote a decision by its title when it matters.',
+  ASK_ONCE_GUIDANCE,
   'Every edit is checked against the graph before it is written. If an edit is stopped, read the reason, say what it means, and change course. Do not retry the same edit.',
   'Follow the repository\'s own notes (AGENTS.md, CLAUDE.md). Keep answers short and plain.',
 ].join('\n');
@@ -195,7 +198,8 @@ export async function createPiEngine(
         } else if (e.type === 'tool_execution_start') {
           onEvent({ type: 'tool-start', id: e.toolCallId, tool: e.toolName, summary: summaryOf(e.args as Rec) });
         } else if (e.type === 'tool_execution_end') {
-          onEvent({ type: 'tool-end', id: e.toolCallId, ok: !e.isError });
+          const detail = e.isError ? failureTail((e as { result?: unknown }).result) : undefined;
+          onEvent({ type: 'tool-end', id: e.toolCallId, ok: !e.isError, ...(detail === undefined ? {} : { detail }) });
         } else if (e.type === 'agent_end' && !e.willRetry) {
           // A provider failure (bad key, no credit) arrives as a message that ended in error, and
           // without this it would read as an empty turn.
