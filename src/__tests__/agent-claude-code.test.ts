@@ -235,3 +235,11 @@ describe('close', () => {
     await c;
   });
 });
+
+describe('a claude that dies mid-write', () => {
+  it('does not crash Align on a broken pipe: the exit reports the death', async () => {
+    const { child, started } = setup();
+    await started;
+    expect(() => child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))).not.toThrow();
+  });
+});

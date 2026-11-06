@@ -69,6 +69,9 @@ export function createClaudeCodeEngine(opts: ClaudeCodeOpts): AgentEngine {
           while ((i = buffer.indexOf('\n')) >= 0) { const l = buffer.slice(0, i); buffer = buffer.slice(i + 1); onLine(l); }
         });
         c.stderr.on('data', (d: Buffer) => { stderrTail = (stderrTail + String(d)).slice(-500); });
+        // A claude that died mid-write breaks the pipe. The 'exit' handler reports the death;
+        // an unhandled stream error here would crash Align instead.
+        c.stdin.on('error', () => {});
         c.once('error', (err: Error & { code?: string }) => {
           const message = err.code === 'ENOENT' ? NOT_INSTALLED : err.message;
           emit({ type: 'error', message });
