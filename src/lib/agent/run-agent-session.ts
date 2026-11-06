@@ -1,4 +1,6 @@
 import os from 'node:os';
+import path from 'node:path';
+import { confirm, isCancel } from '@clack/prompts';
 import { alignNudgeBody } from '../agent-rules.js';
 import { createConfigStore, savedLlmConfig } from '../config.js';
 import { createGatewayClient } from '../gateway-client.js';
@@ -133,7 +135,17 @@ export function defaultSessionDeps(): SessionDeps {
       const db = createLocalDb(localEnv.localDbPath);
       try { return db.getStats().decisions; } finally { db.close(); }
     },
-    loadPiEngine: () => import('./engines/pi.js'),
+    // The engine is a one-time download on first use (pi-sdk.ts says why), asked for here, before
+    // the screen opens. A no or a failure falls back like any engine that cannot start.
+    loadPiEngine: async () => {
+      const { defaultPiSdkDeps, loadPiSdk, PI_ENGINE_VERSION } = await import('./engines/pi-sdk.js');
+      const sdk = await loadPiSdk(defaultPiSdkDeps({
+        engineDir: path.join(alignConfigDir(), 'engine', PI_ENGINE_VERSION),
+        confirm: async (message) => { const yes = await confirm({ message, initialValue: true }); return !isCancel(yes) && yes === true; },
+      }));
+      const { createPiEngine } = await import('./engines/pi.js');
+      return { createPiEngine: (o) => createPiEngine(o, { sdk }) };
+    },
     createClaudeCodeEngine,
     runAgentUi,
     record: (agent) => {

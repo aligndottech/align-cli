@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as piSdk from '@earendil-works/pi-coding-agent';
 import { DefaultResourceLoader } from '@earendil-works/pi-coding-agent';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAlignResourceLoader } from '../lib/agent/engines/pi.js';
@@ -57,7 +58,7 @@ describe('hostile repo', () => {
   });
 
   it("Align's loader never loads the repo extension or skill, even when the project is trusted", async () => {
-    const loader = createAlignResourceLoader({ cwd, agentDir });
+    const loader = createAlignResourceLoader({ sdk: piSdk, cwd, agentDir });
     await loader.reload({ resolveProjectTrust: async () => true });
     expect(existsSync(sentinel)).toBe(false);
     expect(existsSync(settingsSentinel)).toBe(false);
@@ -66,14 +67,14 @@ describe('hostile repo', () => {
   });
 
   it('keeps AGENTS.md, because it is text', async () => {
-    const loader = createAlignResourceLoader({ cwd, agentDir });
+    const loader = createAlignResourceLoader({ sdk: piSdk, cwd, agentDir });
     await loader.reload();
     expect(loader.getAgentsFiles().agentsFiles.map((f) => f.path).join('\n')).toContain('AGENTS.md');
   });
 
   it('still loads the inline extension it was given', async () => {
     let loaded = 0;
-    const loader = createAlignResourceLoader({ cwd, agentDir, extensionFactories: [() => { loaded += 1; }] });
+    const loader = createAlignResourceLoader({ sdk: piSdk, cwd, agentDir, extensionFactories: [() => { loaded += 1; }] });
     await loader.reload();
     expect(loaded).toBe(1);
   });

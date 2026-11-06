@@ -37,8 +37,6 @@
   "dependencies": {
     "@aligndottech/connector-core": "^0.10.1",
     "@clack/prompts": "^1.7.0",
-    "@earendil-works/pi-ai": "1.5.0",
-    "@earendil-works/pi-coding-agent": "1.5.0",
     "@earendil-works/pi-tui": "1.5.0",
     "@huggingface/tokenizers": "0.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -56,6 +54,8 @@
     "uqr": "0.1.3"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
     "@eslint/js": "^9.0.0",
     "@huggingface/transformers": "^4.2.0",
     "@types/eventsource": "^1.1.15",

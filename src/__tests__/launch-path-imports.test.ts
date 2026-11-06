@@ -124,7 +124,10 @@ describe('what the process loads at startup (from index.ts)', () => {
     expect(rel).not.toContain('lib/agent/run-agent-session.ts');
   });
   it('control for the line above: the walk DOES see Pi from the engine and the UI that use it', () => {
-    expect(externalImports(reachable(path.join(SRC, 'lib/agent/engines/pi.ts'))).has('@earendil-works/pi-coding-agent')).toBe(true);
+    // The engine loads only through pi-sdk.ts, by a literal specifier, so the compiled binary
+    // bundles it; pi.ts itself imports types only.
+    expect(readFileSync(path.join(SRC, 'lib/agent/engines/pi-sdk.ts'), 'utf8')).toMatch(/import\('@earendil-works\/pi-coding-agent'\)/);
+    expect(externalImports(reachable(path.join(SRC, 'lib/agent/engines/pi.ts'))).has('@earendil-works/pi-coding-agent')).toBe(false);
     expect(externalImports(reachable(path.join(SRC, 'lib/agent/run-agent-session.ts'))).has('@earendil-works/pi-tui')).toBe(true);
     expect(readFileSync(path.join(SRC, 'commands/default-action.ts'), 'utf8')).toMatch(/await import\('\.\.\/lib\/agent\/run-agent-session\.js'\)/);
   });

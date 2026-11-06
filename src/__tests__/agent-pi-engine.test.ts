@@ -6,6 +6,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as piSdk from '@earendil-works/pi-coding-agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphToolSpec } from '../lib/agent/graph-tools.js';
 import { createPiEngine, createToolGate } from '../lib/agent/engines/pi.js';
@@ -96,7 +97,7 @@ afterEach(() => rmSync(stateDir, { recursive: true, force: true }));
 async function build(model = { provider: 'anthropic', modelId: 'claude-sonnet-5-5', apiKey: 'sk-ant-test', label: 'Anthropic claude-sonnet-5-5' }) {
   const fake = fakeSession();
   const create = vi.fn(async (_o: Record<string, unknown>) => ({ session: fake.session }));
-  const engine = await createPiEngine({ cwd: stateDir, stateDir, model, tools: [graphTool] }, { createAgentSession: create as never });
+  const engine = await createPiEngine({ cwd: stateDir, stateDir, model, tools: [graphTool] }, { sdk: piSdk, createAgentSession: create as never });
   const events: AgentUiEvent[] = [];
   return { fake, create, engine, events, options: () => create.mock.calls[0]![0] as Record<string, any> };
 }

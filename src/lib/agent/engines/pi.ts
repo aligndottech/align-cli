@@ -1,13 +1,8 @@
 import { join, resolve } from 'node:path';
-import {
-  DefaultResourceLoader,
-  type ExtensionFactory,
-  ModelRuntime,
-  createAgentSession as piCreateAgentSession,
-  SessionManager,
-  SettingsManager,
-  type ToolDefinition,
-} from '@earendil-works/pi-coding-agent';
+// Types only. The engine ships outside the npm install (a one-time download on first use, see
+// pi-sdk.ts), so nothing here may load it at import time; the SDK is handed in instead.
+import type * as PiCodingAgent from '@earendil-works/pi-coding-agent';
+import type { DefaultResourceLoader, ExtensionFactory, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { HookToolInput } from '../../hook-payload.js';
 import type { GraphToolSpec } from '../graph-tools.js';
 import type { AgentEngine, AgentUiEvent, BrokerVerdict, ToolAsk } from '../types.js';
@@ -38,16 +33,20 @@ const READ_TOOLS = new Set(['read', 'grep', 'find', 'ls']);
  * lock). Context files (AGENTS.md, CLAUDE.md) stay on: they are text, and the agent should
  * follow a repo's own notes.
  */
+/** The parts of Pi's SDK the engine uses. */
+export type PiSdk = Pick<typeof PiCodingAgent, 'DefaultResourceLoader' | 'ModelRuntime' | 'createAgentSession' | 'SessionManager' | 'SettingsManager'>;
+
 export function createAlignResourceLoader(o: {
+  sdk: PiSdk;
   cwd: string;
   agentDir: string;
   systemPrompt?: string;
   extensionFactories?: ExtensionFactory[];
 }): DefaultResourceLoader {
-  return new DefaultResourceLoader({
+  return new o.sdk.DefaultResourceLoader({
     cwd: o.cwd,
     agentDir: o.agentDir,
-    settingsManager: SettingsManager.inMemory(),
+    settingsManager: o.sdk.SettingsManager.inMemory(),
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
@@ -121,22 +120,24 @@ function graphToolDefinition(spec: GraphToolSpec): ToolDefinition {
 const summaryOf = (args: Rec | undefined): string => str(args?.['command']) ?? str(args?.['path']) ?? str(args?.['file_path']) ?? '';
 
 export interface PiEngineDeps {
+  sdk: PiSdk;
   /** The module boundary tests inject, so nothing calls a provider. */
-  createAgentSession?: typeof piCreateAgentSession;
+  createAgentSession?: PiSdk['createAgentSession'];
 }
 
 export async function createPiEngine(
   opts: { cwd: string; stateDir: string; model: ResolvedPiModel; tools: GraphToolSpec[] },
-  deps: PiEngineDeps = {},
+  deps: PiEngineDeps,
 ): Promise<AgentEngine> {
-  const create = deps.createAgentSession ?? piCreateAgentSession;
+  const { sdk } = deps;
+  const create = deps.createAgentSession ?? sdk.createAgentSession;
   const agentDir = join(opts.stateDir, 'agent');
   let broker: BrokerFn | undefined;
   let onEvent: (e: AgentUiEvent) => void = () => {};
 
   // No network at startup, and no login: the key is set in-process from what the user gave Align.
   // Pi's login is never called, so no subscription sign-in is reachable from here.
-  const modelRuntime = await ModelRuntime.create({
+  const modelRuntime = await sdk.ModelRuntime.create({
     authPath: join(agentDir, 'auth.json'),
     modelsPath: join(agentDir, 'models.json'),
     refreshOnCreate: false,
@@ -160,6 +161,7 @@ export async function createPiEngine(
   if (!model) throw new Error(`Pi does not know the model ${provider}/${modelId}.`);
 
   const resourceLoader = createAlignResourceLoader({
+    sdk,
     cwd: opts.cwd,
     agentDir,
     systemPrompt: ALIGN_AGENT_SYSTEM_PROMPT,
@@ -173,8 +175,8 @@ export async function createPiEngine(
     model,
     modelRuntime,
     resourceLoader,
-    settingsManager: SettingsManager.inMemory(),
-    sessionManager: SessionManager.inMemory(opts.cwd),
+    settingsManager: sdk.SettingsManager.inMemory(),
+    sessionManager: sdk.SessionManager.inMemory(opts.cwd),
     tools: [...BUILTIN_TOOLS, ...opts.tools.map((t) => t.name)],
     customTools: opts.tools.map(graphToolDefinition),
   });
