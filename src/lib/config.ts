@@ -145,6 +145,8 @@ export function createConfigStore() {
     telemetryOffVia?: string;
     telemetryOffAt?: string;
     agent?: string;
+    /** ALI-2085: the engine behind Align's own agent, 'align' or 'claude', as last chosen with --engine. */
+    agentEngine?: string;
     /** Which local relationship detector to run when ALIGN_DETECTOR is unset: 'v0' or 'v1'. */
     detector?: string;
     launchOff?: boolean;
@@ -445,6 +447,15 @@ export function createConfigStore() {
       store.set('agent', agent);
       // Choosing an agent is the way back on after `align use --undo`.
       store.delete('launchOff');
+    },
+    // ALI-2085: the engine behind Align's own agent. Validated on read, like `agent`, so a value
+    // a newer CLI wrote is ignored rather than trusted.
+    getAgentEngine(): 'align' | 'claude' | undefined {
+      const v = store.get('agentEngine');
+      return v === 'align' || v === 'claude' ? v : undefined;
+    },
+    setAgentEngine(engine: 'align' | 'claude') {
+      store.set('agentEngine', engine);
     },
     // C4: set by `align use --undo` so bare `align` stops opening an agent (and re-adding the
     // configs just restored) until the user picks one again.
