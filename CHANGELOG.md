@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.68.1](https://github.com/aligndottech/align-cli/compare/cli-v0.68.0...cli-v0.68.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **agent:** read-only commands pass, failed tools say why, ask the graph once ([#528](https://github.com/aligndottech/align-cli/issues/528)) ([13635d5](https://github.com/aligndottech/align-cli/commit/13635d5869fb33094c5062f19c4f84e65948e87f))
+* **setup:** ask before touching any agent's user-wide config; every question defaults to connecting the agent, and nothing is written without a terminal ([7676092](https://github.com/aligndottech/align-cli/commit/7676092ff31db8d2a02ddb97ebb5451e7a6b57c5))
+
 ## [0.68.0](https://github.com/aligndottech/align-cli/compare/cli-v0.67.1...cli-v0.68.0) (2026-11-06)
 
 
