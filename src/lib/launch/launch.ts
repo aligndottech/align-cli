@@ -5,7 +5,7 @@ import { createConfigStore } from '../config.js';
 import { resolveEnv } from '../resolve-env.js';
 import { agentByName, byPriority, type LaunchAgent, resolveAgentBin, supportedAgents } from './agents.js';
 import type { LaunchSpec } from './adapters/claude-code.js';
-import { applyConfigWrite, type ConfigWrite } from './config-writes.js';
+import { applyConfigWrite, type ConfigWrite, configWriteWouldChange } from './config-writes.js';
 import { type CodexProjectState, readCodexState } from './codex-state.js';
 import { type CopilotProjectState, readCopilotState } from './copilot-state.js';
 import { type CursorProjectState, readCursorState } from './cursor-state.js';
@@ -86,6 +86,8 @@ export interface LaunchDeps {
   readClineState?(cwd: string, home: string, env: Record<string, string | undefined>, platform: string, passthrough: string[]): ClineProjectState;
   /** Add to a file in the user's own agent config, once (C4). Lines go to `note`. */
   applyConfigWrite(w: ConfigWrite, note: (line: string) => void): void;
+  /** Whether that write would change the file. Asked first: no question when the entry is already there. */
+  configWriteWouldChange(w: ConfigWrite): boolean;
   cacheDir(env: Record<string, string | undefined>): string;
   writeIfChanged(dir: string, name: string, content: string, opts?: { mode?: number }): boolean;
   /** Tidy launch files from earlier launches without removing one a concurrent session uses. */
@@ -171,6 +173,7 @@ function defaultDeps(): LaunchDeps {
     readContinueState: (cwd, home, env, platform, passthrough) => readContinueState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     readClineState: (cwd, home, env, platform, passthrough) => readClineState(cwd, home, { localIsDefault: isLocalDefault() }, env, platform, passthrough),
     applyConfigWrite: (w, note) => applyConfigWrite(w, note, { has: (f) => config.wasWriteRefused(f), add: (f) => config.markWriteRefused(f), remove: (f) => config.unmarkWriteRefused(f) }),
+    configWriteWouldChange: (w) => configWriteWouldChange(w),
     cacheDir: launchCacheDir,
     writeIfChanged,
     pruneLaunchFiles,
@@ -343,11 +346,16 @@ export async function launchIfChosen(overrides: Partial<LaunchDeps> = {}): Promi
   }
 
   if (!stored) d.config.setAgent(agent!.name);
-  // Written-once agents (pi, Cursor): the one place align adds to the user's own config. Not
-  // fatal: the session still opens, just without that piece.
-  for (const w of spec.writes ?? []) {
+  // Written-once agents (pi, Cursor): the one place align adds to the user's own config. That
+  // config is read in every project on the machine, so it needs a yes (default no), and with no
+  // terminal it is left alone. Not fatal either way: the session opens, just without Align's tools.
+  const pending = (spec.writes ?? []).map((w) => ({ ...w, root: d.home })).filter((w) => d.configWriteWouldChange(w));
+  const allowWrites = pending.length > 0 && d.isTTY &&
+    (await d.confirm(`Add Align's MCP server to ${agent!.label}'s own config? It is read in every project on this machine: ${pending.map((w) => w.file).join(', ')}`)) === true;
+  if (pending.length > 0 && !allowWrites) d.err(`Left ${agent!.label}'s config alone, so it opens without Align's tools. Run this in a terminal and answer yes to add them.`);
+  for (const w of allowWrites ? pending : []) {
     try {
-      d.applyConfigWrite({ ...w, root: d.home }, d.err);
+      d.applyConfigWrite(w, d.err);
     } catch (e) {
       d.err(`Could not update ${w.file} (${(e as Error).message}). Opening ${agent!.label} without it.`);
     }

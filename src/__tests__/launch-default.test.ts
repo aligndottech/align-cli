@@ -32,6 +32,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: Record<
     readCopilotState: () => ({ present: false, overridden: [] }),
     pruneLaunchFiles: vi.fn(),
     applyConfigWrite: vi.fn(),
+    configWriteWouldChange: () => true,
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content) => { written.push([name, content]); return true; },
     runAgent,
@@ -320,7 +321,7 @@ describe('launchIfChosen: written-once agents (C4)', () => {
 
   it('launches pi with -e and the instructions, and applies the MCP write once, through err', async () => {
     const applyConfigWrite = vi.fn();
-    const h = harness({ stored: 'pi', onPath: { pi: PI }, applyConfigWrite });
+    const h = harness({ stored: 'pi', onPath: { pi: PI }, applyConfigWrite, confirm: vi.fn(async () => true) });
     expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
     const spec = h.runAgent.mock.calls[0]![0];
     expect(spec.bin).toBe('/usr/bin/pi');
@@ -334,7 +335,7 @@ describe('launchIfChosen: written-once agents (C4)', () => {
 
   it('launches cursor-agent with only the user\'s args and applies the one MCP write', async () => {
     const applyConfigWrite = vi.fn();
-    const h = harness({ stored: 'cursor', onPath: { 'cursor-agent': CURSOR }, applyConfigWrite, argv: ['node', 'align', '--', 'fix it'] });
+    const h = harness({ stored: 'cursor', onPath: { 'cursor-agent': CURSOR }, applyConfigWrite, argv: ['node', 'align', '--', 'fix it'], confirm: vi.fn(async () => true) });
     await launchIfChosen(h.deps);
     expect(h.runAgent.mock.calls[0]![0].args).toEqual(['fix it']);
     expect(applyConfigWrite.mock.calls.map((c) => c[0].kind)).toEqual(['mcp-entry']);
@@ -361,12 +362,51 @@ describe('launchIfChosen: written-once agents (C4)', () => {
 
   it('a write that throws is reported with the file and the session still opens (two failures)', async () => {
     for (const message of ['changed by another program', 'invalid JSON']) {
-      const h = harness({ stored: 'pi', onPath: { pi: PI }, applyConfigWrite: () => { throw new Error(message); } });
+      const h = harness({ stored: 'pi', onPath: { pi: PI }, applyConfigWrite: () => { throw new Error(message); }, confirm: vi.fn(async () => true) });
       expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
       expect(h.err.join('\n')).toContain('/home/u/.pi/agent/mcp.json');
       expect(h.err.join('\n')).toContain(message);
       expect(h.runAgent).toHaveBeenCalledOnce();
     }
+  });
+
+  // The agent's own config is read in every project on the machine: a yes first, default no.
+  it('asks before writing, naming the file; on no it writes nothing, says so, and still opens', async () => {
+    const applyConfigWrite = vi.fn();
+    const confirm = vi.fn(async () => false);
+    const h = harness({ stored: 'pi', onPath: { pi: PI }, applyConfigWrite, confirm });
+    expect(await launchIfChosen(h.deps)).toEqual({ handled: true, code: 0 });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect((confirm.mock.calls[0] as unknown as [string])[0]).toContain('/home/u/.pi/agent/mcp.json');
+    expect(applyConfigWrite).not.toHaveBeenCalled();
+    expect(h.err.join('\n')).toContain("Left pi's config alone");
+    expect(h.runAgent).toHaveBeenCalledOnce();
+  });
+
+  it('Ctrl-C at the question is a no', async () => {
+    const applyConfigWrite = vi.fn();
+    const h = harness({ stored: 'pi', onPath: { pi: PI }, applyConfigWrite, confirm: vi.fn(async () => null) });
+    await launchIfChosen(h.deps);
+    expect(applyConfigWrite).not.toHaveBeenCalled();
+  });
+
+  it('with no terminal (an explicit align -- from a pipe) it neither asks nor writes', async () => {
+    const applyConfigWrite = vi.fn();
+    const confirm = vi.fn(async () => true);
+    const h = harness({ stored: 'pi', onPath: { pi: PI }, applyConfigWrite, confirm, isTTY: false, argv: ['node', 'align', '--', 'hi'] });
+    await launchIfChosen(h.deps);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(applyConfigWrite).not.toHaveBeenCalled();
+    expect(h.runAgent).toHaveBeenCalledOnce();
+  });
+
+  it('asks nothing when the entry is already there', async () => {
+    const applyConfigWrite = vi.fn();
+    const confirm = vi.fn(async () => true);
+    const h = harness({ stored: 'pi', onPath: { pi: PI }, applyConfigWrite, confirm, configWriteWouldChange: () => false });
+    await launchIfChosen(h.deps);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(applyConfigWrite).not.toHaveBeenCalled();
   });
 
   it('ALIGN_WRAPPED stops the launch before any write', async () => {

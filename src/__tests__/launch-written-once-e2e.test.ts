@@ -50,7 +50,7 @@ afterEach(() => { setWriteRecorder(undefined); vi.unstubAllEnvs(); rmSync(root, 
 
 const run = (agent: string, argv: string[] = ['node', 'align', '--'], env: Record<string, string | undefined> = {}) =>
   launchIfChosen({
-    env: { ...process.env, ...env }, argv, cwd, home, platform: process.platform, isTTY: true,
+    env: { ...process.env, ...env }, argv, cwd, home, platform: process.platform, isTTY: true, confirm: async () => true,
     config: { getAgent: () => agent, setAgent: () => {} },
     findOnPath,
     readProjectState: (c, h) => readProjectState(c, h, { localIsDefault: true }),

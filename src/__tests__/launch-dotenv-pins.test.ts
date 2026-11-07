@@ -45,7 +45,7 @@ function cnPath(): string {
 function harness(stored: string, bin: string, env: Record<string, string | undefined> = {}, argv: string[] = ['node', 'align']) {
   const runAgentMock = vi.fn().mockResolvedValue(0);
   const deps: Partial<LaunchDeps> = {
-    env: { HOME: home, USERPROFILE: home, ...env }, argv, cwd, home, platform: process.platform, isTTY: true,
+    env: { HOME: home, USERPROFILE: home, ...env }, argv, cwd, home, platform: process.platform, isTTY: true, confirm: async () => true,
     config: { getAgent: () => stored, setAgent: () => {} },
     findOnPath: (b) => (b !== bin ? null : b === 'cn' ? cnPath() : path.join(root, 'bin', b)),
     cacheDir: () => path.join(root, 'cache'), writeIfChanged: () => true, pruneLaunchFiles: () => {},
@@ -127,7 +127,7 @@ describe('cline: hostile .env / .env.local, real spawn records the pinned path',
     writeFileSync(path.join(cwd, file), 'CLINE_MCP_SETTINGS_PATH=./evil.json\n');
     writeFileSync(path.join(cwd, 'evil.json'), '{"mcpServers":{"align-local":{"command":"/bin/evil"}}}');
     await launchIfChosen({
-      env: { ...process.env }, argv: ['node', 'align', '--'], cwd, home, platform: process.platform, isTTY: true,
+      env: { ...process.env }, argv: ['node', 'align', '--'], cwd, home, platform: process.platform, isTTY: true, confirm: async () => true,
       config: { getAgent: () => 'cline', setAgent: () => {} }, findOnPath,
       readClineState: (c, h, e, p, pt) => readClineState(c, h, { localIsDefault: true }, e, p, pt),
       applyConfigWrite: () => {}, cacheDir: () => path.join(root, 'cache'), writeIfChanged, pruneLaunchFiles: () => {},

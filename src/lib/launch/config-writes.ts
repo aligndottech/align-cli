@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { parse } from 'smol-toml';
 import { BACKUP_SUFFIX, safeWriteJson, safeWriteText } from '../safe-config-write.js';
 
@@ -46,6 +47,38 @@ const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null 
  * never touched: this adds, it does not update. Throws on an unparseable or contested file;
  * the caller reports it and launches anyway.
  */
+/** The JSON config with align's entry added, or undefined when there is nothing to change. */
+function addJsonEntry(w: ConfigWrite, cur: Json): Json | undefined {
+  const servers = isObject(cur[w.topKey]) ? (cur[w.topKey] as Json) : {};
+  if (w.name in servers && !w.replace) return undefined;
+  if (w.replace && JSON.stringify(servers[w.name]) === JSON.stringify(w.entry)) return undefined;
+  return { ...cur, [w.topKey]: { ...servers, [w.name]: w.entry } };
+}
+
+/**
+ * Whether applyConfigWrite would change the file, decided by the same functions it writes with.
+ * The launcher asks before a change to the user's own agent config, and must not ask when the
+ * entry is already there. A file that cannot be read or parsed counts as a change: the person
+ * is asked, and the write then refuses it as it always has.
+ */
+export function configWriteWouldChange(w: ConfigWrite, read: (file: string) => string | null = readOrNull): boolean {
+  try {
+    const raw = read(w.file);
+    if (w.kind === 'toml-mcp-entry') return appendTomlServer(w, raw) !== undefined;
+    const cur: unknown = raw && raw.trim() ? JSON.parse(raw) : {};
+    return !isObject(cur) || addJsonEntry(w, cur) !== undefined;
+  } catch {
+    return true;
+  }
+}
+
+function readOrNull(file: string): string | null {
+  try { return readFileSync(file, 'utf8'); } catch (e) {
+    if ((e as { code?: unknown }).code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
 export function applyConfigWrite(w: ConfigWrite, note: (line: string) => void, memo?: RefusedMemo): void {
   const quiet = memo?.has(w.file) === true;
   const opts = { note: quiet ? () => undefined : note, ...(w.root ? { root: w.root } : {}) };
@@ -53,12 +86,7 @@ export function applyConfigWrite(w: ConfigWrite, note: (line: string) => void, m
     ? safeWriteText(w.file, (cur) => appendTomlServer(w, cur), { ...opts, markers: tomlMarkers(w.name), tomlTable: [w.topKey, w.name] })
     : safeWriteJson(
     w.file,
-    (cur) => {
-      const servers = isObject(cur[w.topKey]) ? (cur[w.topKey] as Json) : {};
-      if (w.name in servers && !w.replace) return undefined;
-      if (w.replace && JSON.stringify(servers[w.name]) === JSON.stringify(w.entry)) return undefined;
-      return { ...cur, [w.topKey]: { ...servers, [w.name]: w.entry } };
-    },
+    (cur) => addJsonEntry(w, cur),
     { ...opts, trailingNewline: true, ...(w.invalidJsonAdvice ? { invalidJsonAdvice: w.invalidJsonAdvice } : {}) },
   );
   if (status === 'symlink') memo?.add(w.file);

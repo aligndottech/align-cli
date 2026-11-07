@@ -58,6 +58,20 @@ describe('connectDetectedAgents without a prior yes', () => {
     expect(r).toEqual({ detected: 2, connected: 1, wired: ['Cursor'] });
   });
 
+  it('Ctrl-C stops asking: no later agent is asked or written', async () => {
+    const { isCancel } = await import('@clack/prompts');
+    const CANCEL = Symbol('cancel');
+    vi.mocked(isCancel).mockImplementation((v) => v === CANCEL);
+    try {
+      detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+      confirm.mockResolvedValueOnce(CANCEL).mockResolvedValueOnce(true);
+      const r = await connectDetectedAgents('local', { interactive: true });
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(writeMcpConfig).not.toHaveBeenCalled();
+      expect(r.wired).toEqual([]);
+    } finally { vi.mocked(isCancel).mockReturnValue(false); }
+  });
+
   it('names the hook file in the question when the agent has one', async () => {
     const CODEX = { ...CURSOR, name: 'Codex', hooks: { path: '/home/d/.codex/hooks.json' } };
     detectEditors.mockReturnValue([CODEX]);

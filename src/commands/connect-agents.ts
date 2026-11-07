@@ -20,7 +20,7 @@ export async function connectDetectedAgents(
   opts: { verbose?: boolean; /** Already detected by the caller (setup lists their files before writing); one detection, one list. */ editors?: EditorTarget[];
     /** The caller wrote the project .mcp.json just before this call (setup does; `align local start` does not). */ projectMcpWritten?: boolean;
     /** The caller already showed these files and the person said yes (setup's confirmation). */ approved?: boolean;
-    /** A person is at a terminal to ask. Defaults to both stdin and stderr being a TTY. */ interactive?: boolean } = {},
+    /** A person is at a terminal to ask. Defaults to stdin and stdout being a TTY, as setup checks: the prompt draws on stdout. */ interactive?: boolean } = {},
 ): Promise<{ detected: number; connected: number; wired: string[] }> {
   const editors = opts.editors ?? detectEditors();
   // writeMcpConfig takes undefined for prod: the default env needs no --env argument in the
@@ -75,7 +75,7 @@ export async function connectDetectedAgents(
   const wired: string[] = [];
   const skipped: string[] = [];
   const keptAgents: string[] = [];
-  const interactive = opts.interactive ?? Boolean(process.stdin.isTTY && process.stderr.isTTY);
+  const interactive = opts.interactive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!opts.approved && !interactive) {
     p.log.info(`Left ${editors.map((e) => e.name).join(', ')} alone: changing an agent's user-wide config needs a yes, and there is no terminal to ask in. Run ${chalk.bold(`align mcp --setup${envSuffix}`)} in a terminal to connect one.`);
     return { detected: editors.length, connected: 0, wired: [] };
@@ -87,7 +87,12 @@ export async function connectDetectedAgents(
         message: `Connect ${target.name} to Align? This changes user-wide config, used in every project on this machine: ${files.join(', ')}`,
         initialValue: false,
       });
-      if (p.isCancel(yes) || yes !== true) {
+      // Ctrl-C means stop asking, not "no to this one, next please".
+      if (p.isCancel(yes)) {
+        p.log.info(`Left ${target.name} and any agent after it alone.`);
+        break;
+      }
+      if (yes !== true) {
         p.log.info(`Left ${target.name} alone.`);
         continue;
       }
