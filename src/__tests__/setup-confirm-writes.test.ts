@@ -77,13 +77,23 @@ describe.skipIf(!canPty)('setup confirms the files it will write', () => {
     } finally { r.close(); }
   });
 
-  it('answering yes (the default) writes every file the list named', async () => {
+  it('answering yes writes every file the list named', async () => {
     const r = rig();
     try {
-      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', '\r'], SKIP_CONNECTORS]);
+      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', 'y\r'], SKIP_CONNECTORS]);
       const listed = AGENT_FILES.filter((f) => out.includes(f === '.claude' ? '.claude/settings.json' : f));
       expect(listed.length).toBe(AGENT_FILES.length);
       expect(r.entries()).toEqual([...AGENT_FILES].sort());
+    } finally { r.close(); }
+  });
+
+  // The files include agent config used in every project on the machine, so Enter alone is no.
+  it('pressing Enter (the default) writes nothing', async () => {
+    const r = rig();
+    try {
+      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', '\r'], SKIP_CONNECTORS]);
+      expect(out).toContain('Left your agent config alone');
+      expect(r.entries()).toEqual([]);
     } finally { r.close(); }
   });
 
@@ -98,8 +108,10 @@ describe.skipIf(!canPty)('setup confirms the files it will write', () => {
   });
 });
 
+// an agent running `align` in its own shell has no terminal. Nobody said yes, so the
+// list prints and nothing is written; --approve is the scripted yes.
 describe('with no terminal', () => {
-  it('prints the list, does not ask, and writes', async () => {
+  it('without --approve: prints the list, does not ask, writes nothing, and names --approve', async () => {
     const r = rig();
     try {
       const { code, out } = await plain(r, ['--local']);
@@ -107,6 +119,18 @@ describe('with no terminal', () => {
       expect(out).toContain('Align may create or change these files:');
       expect(out).toContain('create  .mcp.json');
       expect(out).not.toContain('Continue?');
+      expect(out).toContain('pass --approve');
+      expect(r.entries()).toEqual([]);
+    } finally { r.close(); }
+  });
+
+  it('with --approve: prints the list, does not ask, and writes every file it named', async () => {
+    const r = rig();
+    try {
+      const { code, out } = await plain(r, ['--local', '--approve']);
+      expect(code).toBe(0);
+      expect(out).not.toContain('Continue?');
+      expect(AGENT_FILES.length).toBeGreaterThan(0); // positive control for the empty case above
       expect(r.entries()).toEqual([...AGENT_FILES].sort());
     } finally { r.close(); }
   });

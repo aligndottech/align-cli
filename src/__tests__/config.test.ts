@@ -49,6 +49,22 @@ describe('config store', () => {
     expect(c.getAgent()).toBeUndefined();
   });
 
+  it('stores and reads the engine behind Align\'s own agent, separately from the launch agent', () => {
+    const c = createConfigStore();
+    expect(c.getAgentEngine()).toBeUndefined();
+    c.setAgentEngine('claude');
+    expect(c.getAgentEngine()).toBe('claude');
+    c.setAgentEngine('align');
+    expect(c.getAgentEngine()).toBe('align');
+    expect(c.getAgent()).toBeUndefined();
+  });
+
+  it('ignores an engine name this CLI does not know (a newer CLI may have written it)', () => {
+    const c = createConfigStore();
+    c.setAgentEngine('codex' as never);
+    expect(c.getAgentEngine()).toBeUndefined();
+  });
+
   const entry = (over = {}) => ({ created: false, sha256: 'a', firstSha256: 'a', backup: 'made' as const, ...over });
 
   it('records written configs by path (dots in the path are not key separators) and drops only the finished ones', () => {

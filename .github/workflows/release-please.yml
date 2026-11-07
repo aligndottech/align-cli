@@ -61,7 +61,7 @@ jobs:
         with:
           # The floor from package.json engines. Publishing from a Node older than the
           # package supports would typecheck and test against a runtime no user has.
-          node-version: '22.16'
+          node-version: '22.19'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
@@ -116,7 +116,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.16'
+          node-version: '22.19'
           cache: 'npm'
 
       - run: npm ci

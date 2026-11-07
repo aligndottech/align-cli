@@ -13,15 +13,15 @@ const root = resolve(here, '..', '..');
 
 describe('nodeFloorMessage', () => {
   it('is null on the floor itself and above it', () => {
-    expect(nodeFloorMessage('22.16.0')).toBeNull();
+    expect(nodeFloorMessage('22.19.0')).toBeNull();
     expect(nodeFloorMessage('24.20.0')).toBeNull();
   });
 
   it('names the version in use, the floor, and a way out, below the floor', () => {
-    for (const v of ['20.19.0', '22.15.9', '18.0.0']) {
+    for (const v of ['20.19.0', '22.18.9', '18.0.0']) {
       const msg = nodeFloorMessage(v);
       expect(msg).toContain(`Node ${v}`);
-      expect(msg).toContain('22.16');
+      expect(msg).toContain('22.19');
       expect(msg).toContain('https://nodejs.org');
       expect(msg).toContain('curl -fsSL https://align.tech/install.sh | sh');
     }

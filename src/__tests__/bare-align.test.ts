@@ -35,6 +35,10 @@ vi.mock('../lib/launch/launch.js', async (importOriginal) => ({
   launchIfChosen,
 }));
 
+// Bare `align` opens Align's own agent; the session is mocked at its boundary too.
+const runAgentSession = vi.hoisted(() => vi.fn().mockResolvedValue(0));
+vi.mock('../lib/agent/run-agent-session.js', () => ({ runAgentSession }));
+
 const output: string[] = [];
 vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { output.push(a.join(' ')); });
 
@@ -305,26 +309,27 @@ describe('bare `align`', () => {
     };
     const exitSpy = () => vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
 
-    it('hands off to the agent when the wizard finishes: exits with the launcher\'s code', async () => {
+    it('hands off to Align\'s own agent when the wizard finishes: exits with the session\'s code', async () => {
       wizardBuildsLocal();
-      launchIfChosen.mockClear().mockResolvedValueOnce({ handled: true, code: 4 });
+      runAgentSession.mockClear().mockResolvedValueOnce(4);
+      launchIfChosen.mockClear();
       const exit = exitSpy();
       try {
         await withTty(async () => { await expect(bare()).rejects.toThrow('exit'); });
         expect(runSetup).toHaveBeenCalledTimes(1);
-        expect(launchIfChosen).toHaveBeenCalledTimes(1);
+        expect(runAgentSession).toHaveBeenCalledTimes(1);
+        expect(launchIfChosen).not.toHaveBeenCalled();
         expect(exit).toHaveBeenCalledWith(4);
       } finally { exit.mockRestore(); }
     });
 
-    it('returns quietly when the launcher declines (no agent installed, ALIGN_NO_LAUNCH)', async () => {
+    it('exits with the session\'s code when nothing can run behind Align (no model, no Claude Code)', async () => {
       wizardBuildsLocal();
-      launchIfChosen.mockClear().mockResolvedValueOnce({ handled: false });
-      const exit = exitSpy();
+      runAgentSession.mockClear().mockResolvedValueOnce(1);
+      const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
       try {
         await withTty(async () => { await bare(); });
-        expect(launchIfChosen).toHaveBeenCalledTimes(1);
-        expect(exit).not.toHaveBeenCalled();
+        expect(exit).toHaveBeenCalledWith(1);
       } finally { exit.mockRestore(); }
     });
 
@@ -333,19 +338,23 @@ describe('bare `align`', () => {
     it('does not call the launcher under ALIGN_NO_LAUNCH, the case the outro does not say "Opening" for', async () => {
       wizardBuildsLocal();
       launchIfChosen.mockClear();
+      runAgentSession.mockClear();
       vi.stubEnv('ALIGN_NO_LAUNCH', '1');
       try {
         await withTty(async () => { await bare(); });
       } finally { vi.unstubAllEnvs(); }
       expect(launchIfChosen).not.toHaveBeenCalled();
+      expect(runAgentSession).not.toHaveBeenCalled();
     });
 
     it('does not launch when the wizard ended without a local graph (cancelled)', async () => {
       getEnvironment.mockImplementation(() => ({ mode: 'demo' }));
       launchIfChosen.mockClear();
+      runAgentSession.mockClear();
       await withTty(async () => { await bare(); });
       expect(runSetup).toHaveBeenCalledTimes(1);
       expect(launchIfChosen).not.toHaveBeenCalled();
+      expect(runAgentSession).not.toHaveBeenCalled();
     });
 
     it('does not launch the agent when the person declined the config writes (it has no align MCP or hook)', async () => {
@@ -356,29 +365,35 @@ describe('bare `align`', () => {
         n === 'local' ? (localReady ? { mode: 'local-embedded' } : { mode: 'demo' }) : { mode: 'auth' });
       runSetup.mockImplementationOnce(async () => { localReady = true; return { writesDeclined: true }; });
       launchIfChosen.mockClear();
+      runAgentSession.mockClear();
       const exit = exitSpy();
       try {
         await withTty(async () => { await bare(); });
         expect(runSetup).toHaveBeenCalledTimes(1); // positive control: the wizard ran, so skipping the launch was a decision
         expect(launchIfChosen).not.toHaveBeenCalled();
+      expect(runAgentSession).not.toHaveBeenCalled();
         expect(exit).not.toHaveBeenCalled();
       } finally { exit.mockRestore(); runSetup.mockReset().mockResolvedValue(undefined); }
     });
 
     it('tells the wizard the agent opens next, so its outro drops the "run align" line', async () => {
       wizardBuildsLocal();
-      launchIfChosen.mockClear().mockResolvedValueOnce({ handled: false });
-      await withTty(async () => { await bare(); });
-      expect(runSetup).toHaveBeenCalledWith({ launchNext: true });
+      const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+      try {
+        await withTty(async () => { await bare(); });
+        expect(runSetup).toHaveBeenCalledWith({ launchNext: true });
+      } finally { exit.mockRestore(); }
     });
 
     it('with no agent chosen the wizard is the whole command: no launcher call, and no exit', async () => {
       wizardBuildsLocal(null);
       launchIfChosen.mockClear();
+      runAgentSession.mockClear();
       const exit = exitSpy();
       try {
         await withTty(async () => { await bare(); });
         expect(launchIfChosen).not.toHaveBeenCalled();
+      expect(runAgentSession).not.toHaveBeenCalled();
         expect(exit).not.toHaveBeenCalled();
       } finally { exit.mockRestore(); }
     });
@@ -434,15 +449,19 @@ describe('bare `align`', () => {
     const cloudOnly = () => getEnvironment.mockImplementation((n: string) =>
       n === 'local' ? { mode: 'demo' } : { mode: 'auth', authToken: 'tok' });
 
-    it('exits with the launcher\'s code and never draws the card when it handled the run', async () => {
+    // Bare `align` in a terminal is Align's own agent now (agent-default-action.test.ts);
+    // the launcher is reached through the explicit pass-through, and keeps this contract there.
+    it('`align -- <args>`: exits with the launcher\'s code and never draws the card when it handled the run', async () => {
       localOnly();
       launchIfChosen.mockResolvedValueOnce({ handled: true, code: 3 });
+      const argv = process.argv;
+      process.argv = ['node', 'align', '--', '--resume'];
       const exit = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exit'); }) as never);
       try {
         await expect(bare()).rejects.toThrow('exit');
         expect(exit).toHaveBeenCalledWith(3);
         expect(printBanner).not.toHaveBeenCalled();
-      } finally { exit.mockRestore(); }
+      } finally { exit.mockRestore(); process.argv = argv; }
     });
 
     it('shows the card as before when the launcher hands back', async () => {

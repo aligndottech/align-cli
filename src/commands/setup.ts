@@ -425,8 +425,9 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
 
 /**
  * Before setup writes anything: show the exact files it will create or modify, then ask
- * (default yes). Covers the project's agent files and each detected agent's own config, the
- * two writers below. Non-TTY or --approve prints the list and goes ahead. False means the
+ * (default no). Covers the project's agent files and each detected agent's own config, the
+ * two writers below. --approve prints the list and goes ahead; no terminal and no --approve
+ * prints the list and writes nothing. False means the
  * person declined: the caller writes nothing.
  */
 async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }): Promise<{ confirmed: boolean; editors: EditorTarget[] }> {
@@ -559,7 +560,7 @@ function willLaunchAgent(agent: LaunchAgentId | null, launchNext: boolean): bool
  */
 function nextStepLine(agent: LaunchAgentId | null, launching: boolean, agents: string[]): string | null {
   const label = agent ? agentByName(agent)?.label : undefined;
-  if (label) return launching ? null : `Run ${chalk.bold('align')} to open ${label} with your graph.`;
+  if (label) return launching ? null : `Run ${chalk.bold('align')} to open Align with your graph.`;
   // Said once, and only when it is true. With a configured agent the ask line below names it.
   if (agents.length > 0) return null;
   return `No coding agent was found, so none is connected. Install one from the list above, then run ${chalk.bold('align')}.`;
@@ -665,7 +666,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         // quiet: the found-summary box right below replaces the full table + tip block
         // runPersonalImport prints by default (component 2's whole point) - the one compact
         // line quiet mode DOES print is a fine progress marker while the summary is built.
-        await runPersonalImport(items, localClient, {
+        await runPersonalImport(items, localClient, { exitOnTotalFailure: false,
           result: gitCs,
           label: 'Git',
           approve: true,
@@ -678,6 +679,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
         gitSpinner.stop(prs.items.length > 0 ? `Found ${prs.items.length} PR descriptions worth importing` : 'No decisions found in git history');
       }
       let prStored = 0;
+      let prFailed = 0;
       if (prs.items.length) {
         const prCs = capture.add(toCaptureSource(PR_DESCRIPTIONS_SOURCE, {
           items: prs.items,
@@ -686,11 +688,18 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
             ...(prs.scanned > prs.imported + prs.housekeeping ? [{ count: prs.scanned - prs.imported - prs.housekeeping, detail: `merged ${prs.scanned - prs.imported - prs.housekeeping === 1 ? 'PR' : 'PRs'} whose description states no reason, not imported` }] : []),
           ] },
         }));
-        await runPersonalImport(prs.items, localClient, {
+        await runPersonalImport(prs.items, localClient, { exitOnTotalFailure: false,
           result: prCs, label: 'GitHub PR descriptions', approve: true, appUrl: resolveAppUrl(localEnv), local: true, quiet: true,
           funnel: { env: localEnv, source: 'github' },
         });
         prStored = prCs.stored ?? prs.items.length;
+        prFailed = prCs.failedBatches ?? 0;
+      }
+      // history had decisions and every batch failed, so the graph is empty. Say why
+      // and exit non-zero; one source failing beside another that landed stays a warning.
+      if ((items.length || prs.items.length) && (gitCs.stored ?? 0) + prStored === 0 && (gitCs.failedBatches ?? 0) + prFailed > 0) {
+        p.log.error('Nothing was imported: every batch failed. If the on-device embedding model could not download (a proxy or firewall blocking huggingface.co is the usual cause), run: align doctor');
+        process.exitCode = 1;
       }
       if (prs.note) p.log.info(chalk.dim(prs.note));
       if (items.length || prs.items.length) {
@@ -745,7 +754,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
     const docsItems = docs.items;
     if (docsItems.length) {
       localDocsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
-      await runPersonalImport(docsItems, localClient, {
+      await runPersonalImport(docsItems, localClient, { exitOnTotalFailure: false,
         result: docsCs,
         label: 'repo docs',
         approve: true,
@@ -781,7 +790,7 @@ async function runLocalValuePhase(opts: { approve?: boolean; reset?: boolean; la
   // entire pitch is an agent on your own machine reading a graph that never leaves it.
   console.log('');
   const localAgents = writesConfirmed
-    ? await connectDetectedAgents('local', { verbose: opts.verbose, editors, projectMcpWritten: true })
+    ? await connectDetectedAgents('local', { verbose: opts.verbose, editors, projectMcpWritten: true, approved: true })
     : { detected: 0, connected: 0, wired: [] as string[] };
 
   // Whenever ANY agent was wired - the project .mcp.json counts. This used to print
@@ -1049,7 +1058,7 @@ export async function connectLocalSources(o: ConnectLocalSourcesOptions): Promis
       spinner.stop(`Found ${items.length} items`);
       let imported = 0;
       if (items.length) {
-        imported = await runPersonalImport(items, localClient, {
+        imported = await runPersonalImport(items, localClient, { exitOnTotalFailure: false,
           result: sourceCs,
           label: source.label,
           approve: true,
@@ -1150,7 +1159,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   await runModelStep({ interactive });
   // Declined writes: the agent has no align MCP or hook, so opening it "with your graph" would be false.
   const launching = !ctx.writesDeclined && willLaunchAgent(agent, Boolean(opts.launchNext));
-  const launchLabel = launching && agent ? agentByName(agent)?.label : undefined;
+  const launchLabel = launching && agent ? 'Align' : undefined;
   // Three prompts, not one: learn the past, ask before touching a file, and watch the agent
   // stop when a plan reverses a decision. Printed, never sent into the agent. An empty graph
   // gets none - the sparse hint above is the next step, and a prompt about nothing is noise.
@@ -1163,7 +1172,7 @@ async function runLocalConnectorPhase(ctx: LocalValuePhaseResult): Promise<void>
   const tryLead = launchLabel
     ? `Opening ${launchLabel}. Try these in it:`
     : leadsIntoPrompts
-      ? `Run align to open ${chosenLabel} with your graph, then try:`
+      ? 'Run align to open Align with your graph, then try:'
       : agents.length === 0 && agent === null
       ? 'Once one is installed, open it in this repo and try:'
       : agentTryLead({ agents, chosen: chosenLabel, inRepo: true, envName: 'local' });
@@ -1430,8 +1439,8 @@ async function runCloudSetup(ctx: {
   //
   // It wires every detected agent and discloses each file it touched, with `align mcp --remove`
   // as the undo. Since the confirmation below it asks first, once, for the whole run: the list
-  // of files, then Continue? (default yes). --approve or no terminal prints the list and goes
-  // on. This block used to write without a word when exactly one editor was detected and
+  // of files, then Continue? (default no). --approve prints the list and goes on; no terminal
+  // and no --approve writes nothing. This block used to write without a word when exactly one editor was detected and
   // prompt only at two or more, and that multiselect was unguarded, so `align setup --approve`
   // with two agents installed hung.
   const { confirmed: writesConfirmed, editors } = await confirmAgentWrites({
@@ -1441,7 +1450,7 @@ async function runCloudSetup(ctx: {
   const writesDeclined = !writesConfirmed;
   if (!writesConfirmed) p.log.info('Left your agent config alone. Run align again when you want it connected.');
   const globalAgents = writesConfirmed
-    ? await connectDetectedAgents(envName, { verbose: ctx.opts.verbose, editors })
+    ? await connectDetectedAgents(envName, { verbose: ctx.opts.verbose, editors, approved: true })
     : { detected: 0, connected: 0, wired: [] as string[] };
 
   // ---- Step 5b: Deterministic auto-alignment files (hook + nudges) ----
@@ -1468,7 +1477,7 @@ async function runCloudSetup(ctx: {
       // progress spinner, and two animated spinners on one line flicker.
       if (items.length) {
         gitSpinner.stop(`Found ${items.length} commits worth importing`);
-        const ingested = await runPersonalImport(items, client, {
+        const ingested = await runPersonalImport(items, client, { exitOnTotalFailure: false,
           result: gitCs,
           label: 'Git',
           approve: true,
@@ -1497,7 +1506,7 @@ async function runCloudSetup(ctx: {
     const docsItems = docs.items;
     if (docsItems.length) {
       docsSpinner.stop(`Found ${docsItems.length} item(s) worth importing`);
-      const ingested = await runPersonalImport(docsItems, client, {
+      const ingested = await runPersonalImport(docsItems, client, { exitOnTotalFailure: false,
         result: docsCs,
         label: 'repo docs',
         approve: true,
@@ -1601,7 +1610,7 @@ async function runCloudSetup(ctx: {
     p.log.step(`Importing from ${ready.length} source${ready.length === 1 ? '' : 's'} in parallel...`);
     const importResults = await runWithConcurrency(
       ready.map(({ source, items, cs }) => async () => {
-        const total = await runPersonalImport(items, client, {
+        const total = await runPersonalImport(items, client, { exitOnTotalFailure: false,
           result: cs,
           label: source.label,
           approve: true,

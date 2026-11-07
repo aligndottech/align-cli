@@ -29,8 +29,8 @@ export function registerLocalCommand(program: Command): void {
       const { dbPath } = await initLocalMode();
       s.stop('Local graph ready');
 
-      // initLocalMode used to wire every detected agent's global MCP config from inside
-      // itself, without asking. This is the same wiring, asked for.
+      // Each agent's config is user-wide, so connectDetectedAgents asks per agent (default no)
+      // and writes nothing with no terminal.
       const { connectDetectedAgents } = await import('./connect-agents.js');
       await connectDetectedAgents('local');
 

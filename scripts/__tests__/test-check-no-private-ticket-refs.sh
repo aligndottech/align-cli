@@ -107,6 +107,21 @@ check "an empty repo fails rather than passing vacuously" "$r" 1 "examined nothi
 nogit="$(mktemp -d "$TMP/nogit.XXXXXX")"
 check "a directory that is not a git checkout fails" "$nogit" 1 "not a git checkout"
 
+# CHANGELOG.md is written by release-please from commit subjects, and the next release PR
+# regenerates it. A key in a subject lands there, and a hand edit is overwritten by the next push
+# to main. The refs still count everywhere else, so this must NOT clear a source file.
+r=$(new_repo); printf -- "- bare align opens its own agent (%s) (#525)\n" "$REF" > "$r/CHANGELOG.md"; git -C "$r" add -A
+check "a ref in the generated CHANGELOG.md is not flagged" "$r" 0 "ok:"
+
+r=$(new_repo); printf -- "- bare align opens its own agent (%s) (#525)\n" "$REF" > "$r/CHANGELOG.md"; printf "// %s: the reason\n" "$REF" > "$r/src/bad.ts"; git -C "$r" add -A
+check "control: the same ref in a source file still fails beside a CHANGELOG.md that has one" "$r" 1 "src/bad.ts:1:" "CHANGELOG.md:"
+
+r=$(new_repo); printf -- "- a ref (%s)\n" "$REF" > "$r/docs-CHANGELOG.md"; git -C "$r" add -A
+check "control: only the root CHANGELOG.md is skipped, not any file with that name inside" "$r" 1 "docs-CHANGELOG.md:1:"
+
+r=$(new_repo); mkdir -p "$r/docs"; printf -- "- a ref (%s)\n" "$REF" > "$r/docs/CHANGELOG.md"; git -C "$r" add -A
+check "control: a CHANGELOG.md in a subdirectory is still checked" "$r" 1 "docs/CHANGELOG.md:1:"
+
 # A git grep that ERRORS (exit >1) must fail, not read as "no match".
 fakebin="$(mktemp -d "$TMP/fakegit.XXXXXX")"; realgit="$(command -v git)"
 printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = grep ] && exit 128; done\nexec "%s" "$@"\n' "$realgit" > "$fakebin/git"; chmod +x "$fakebin/git"

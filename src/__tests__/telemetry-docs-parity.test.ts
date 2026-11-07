@@ -41,6 +41,8 @@ vi.mock('../lib/config.js', () => ({
       return true;
     },
     releaseFunnelStage: vi.fn(),
+    getAgentActiveDay: () => undefined,
+    setAgentActiveDay: vi.fn(),
     getEnvironment,
   }),
   ALIGN_HOSTED_GATEWAY_URL: HOSTED_URL,
@@ -128,6 +130,11 @@ describe('docs/telemetry.md matches what the CLI sends', () => {
   it('a local-mode consented funnel stage', async () => {
     getTelemetryConsent.mockReturnValue('granted');
     await recordFunnelStage(localEnv, 'first_useful_decision', 'ask');
+    expect(sentFields()).toEqual(documentedFields('`cli.funnel.<stage>` (local mode)'));
+  });
+
+  it('a local-mode agent_active ping carries exactly the stage table\'s four fields', async () => {
+    await recordFunnelStage(localEnv, 'agent_active', 'mcp');
     expect(sentFields()).toEqual(documentedFields('`cli.funnel.<stage>` (local mode)'));
   });
 

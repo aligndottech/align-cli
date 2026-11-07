@@ -13,7 +13,7 @@
  */
 import type { EnvironmentConfig } from './config.js';
 
-export const MIN_NODE = '22.16.0';
+export const MIN_NODE = '22.19.0';
 
 export type CheckStatus = 'pass' | 'fail' | 'skip';
 export type CheckId = 'node' | 'path' | 'gateway' | 'whoami' | 'embeddings' | 'ask';
@@ -112,7 +112,7 @@ export async function runDoctor(d: DoctorDeps): Promise<DoctorCheck[]> {
           label: 'Node version',
           status: 'fail',
           detail: `Node ${d.nodeVersion} is older than the ${MIN_NODE} Align needs`,
-          next: `Install Node 22.16 or newer from nodejs.org, open a new terminal, then run: align doctor`,
+          next: `Install Node 22.19 or newer from nodejs.org, open a new terminal, then run: align doctor`,
         },
   );
 

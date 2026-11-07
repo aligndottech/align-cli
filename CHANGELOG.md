@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.68.0](https://github.com/aligndottech/align-cli/compare/cli-v0.67.1...cli-v0.68.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* Node 22.19 or newer is now required.
+
+### Features
+
+* bare `align` opens Align's own coding agent; you pick what runs behind it (ALI-2085) ([#525](https://github.com/aligndottech/align-cli/issues/525)) ([a83e632](https://github.com/aligndottech/align-cli/commit/a83e63246355b943f1fbd52a65c2cddf6a2811d2))
+* **telemetry:** agent_active, so agent-only use counts toward D7 (ALI-2076) ([#523](https://github.com/aligndottech/align-cli/issues/523)) ([763a30e](https://github.com/aligndottech/align-cli/commit/763a30ecf44cf75869a8c5f7d743b1f01ba833ff))
+* **telemetry:** send the first_capture funnel stage once per install ([#524](https://github.com/aligndottech/align-cli/issues/524)) ([94ae8d9](https://github.com/aligndottech/align-cli/commit/94ae8d991f8b259dde080297e83d8d58b68a0615))
+
+
+### Bug Fixes
+
+* **ci:** let the generated CHANGELOG pass the ticket-ref guard; platform-independent Pi path tests ([#526](https://github.com/aligndottech/align-cli/issues/526)) ([372fa68](https://github.com/aligndottech/align-cli/commit/372fa6850bdf84edd602ca48b4fc888687760b52))
+* **setup:** never write agent config unasked, name user-wide files, fail an import that stored nothing (ALI-2069) ([#520](https://github.com/aligndottech/align-cli/issues/520)) ([ddd28fc](https://github.com/aligndottech/align-cli/commit/ddd28fc127f5d34e0c066d9fff220dcd2ad6bee7))
+
 ## [0.67.1](https://github.com/aligndottech/align-cli/compare/cli-v0.67.0...cli-v0.67.1) (2026-11-04)
 
 

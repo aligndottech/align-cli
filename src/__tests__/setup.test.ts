@@ -502,7 +502,7 @@ describe('align setup', () => {
     });
 
     it('writes the hook + nudge files in the local path too', async () => {
-      await makeProgram().parseAsync(['node', 'align', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       expect(mockSetupAgentAlignment).toHaveBeenCalled();
     });
 
@@ -1786,7 +1786,7 @@ describe('align setup', () => {
           mockPickAgent.mockResolvedValueOnce('claude-code');
           await makeProgram().parseAsync(['node', 'align']);
           const text = await outroText();
-          expect(text).toContain('Run align to open Claude Code with your graph.');
+          expect(text).toContain('Run align to open Align with your graph.');
           expect(text).not.toMatch(/pricing|align\.tech|https?:/i);
         });
 
@@ -1798,8 +1798,8 @@ describe('align setup', () => {
           mockLocalDb.getStats = () => ({ decisions: 1 });
           await makeProgram().parseAsync(['node', 'align']);
           const text = await outroText();
-          expect(text).toMatch(/Run align to open Claude Code with your graph, then try:\n\s+1\. /);
-          expect(text.match(/open Claude Code/gi)).toHaveLength(1);
+          expect(text).toMatch(/Run align to open Align with your graph, then try:\n\s+1\. /);
+          expect(text.match(/open Align/gi)).toHaveLength(1);
         });
 
         it('when the agent opens right after (bare align), the run-align line is dropped', async () => {
@@ -1820,17 +1820,17 @@ describe('align setup', () => {
           mockLocalDb.getStats = () => ({ decisions: 1 });
           await runSetup({ launchNext: true });
           const text = await outroText();
-          expect(text).toMatch(/Opening Claude Code\. Try these in it:\n\s+1\. (what decisions exist in this codebase\?|why did we .+\?)/);
+          expect(text).toMatch(/Opening Align\. Try these in it:\n\s+1\. (what decisions exist in this codebase\?|why did we .+\?)/);
           expect(text).not.toContain('Open Claude Code in this repo');
         });
 
-        it('names whichever agent is opening (a second agent)', async () => {
+        it('opens Align whichever agent the wizard picked (a second agent)', async () => {
           await mockNoLogin();
           mockPickAgent.mockResolvedValueOnce('codex');
           const { runSetup } = await import('../commands/setup.js');
           mockLocalDb.getStats = () => ({ decisions: 1 });
           await runSetup({ launchNext: true });
-          expect(await outroText()).toMatch(/Opening Codex\. Try these in it:/);
+          expect(await outroText()).toMatch(/Opening Align\. Try these in it:/);
         });
 
         it('ALIGN_NO_LAUNCH means nothing opens, so the outro keeps the run-align instruction', async () => {
@@ -1841,8 +1841,8 @@ describe('align setup', () => {
           await runSetup({ launchNext: true });
           const text = await outroText();
           vi.unstubAllEnvs();
-          expect(text).not.toContain('Opening Claude Code');
-          expect(text).toContain('Run align to open Claude Code with your graph.');
+          expect(text).not.toContain('Opening Align');
+          expect(text).toContain('Run align to open Align with your graph.');
         });
 
         it('`align setup` (nothing launches after it) never says "Opening"', async () => {
@@ -2339,7 +2339,7 @@ describe('align setup', () => {
 
     it('--local, wired only through the project .mcp.json: says the agent is connected and names it', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
-      await makeProgram().parseAsync(['node', 'align', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       expect(await infoLines()).toContain('Your agent is connected: Claude Code.');
     });
 
@@ -2359,7 +2359,7 @@ describe('align setup', () => {
         mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
         mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
         mockLocalDb.getStats = () => ({ decisions: 1 });
-        await makeProgram().parseAsync(['node', 'align', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
         const out = await fullOutro();
         expect(await infoLines()).not.toContain('Your agent is connected');
         expect(out).not.toMatch(/Open Claude Code/);
@@ -2373,7 +2373,7 @@ describe('align setup', () => {
         mockClaudePresent.mockReturnValue(true);
         mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
         mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
-        await makeProgram().parseAsync(['node', 'align', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
         expect(await infoLines()).toContain('Your agent is connected: Claude Code.');
         expect(await fullOutro()).not.toContain('No coding agent was found');
       });
@@ -2383,7 +2383,7 @@ describe('align setup', () => {
         mockClaudePresent.mockReturnValue(true);
         mockPickAgent.mockResolvedValue(null);
         mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
-        await makeProgram().parseAsync(['node', 'align', '--local']);
+        await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
         expect(await infoLines()).toContain('Your agent is connected: Claude Code.');
         expect(await fullOutro()).not.toContain('once a coding agent is installed');
       });
@@ -2391,7 +2391,7 @@ describe('align setup', () => {
 
     it('--local, nothing wired at all: does not claim a connection', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(['CLAUDE.md']);
-      await makeProgram().parseAsync(['node', 'align', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       expect(await infoLines()).not.toContain('Your agent is connected');
     });
 
@@ -2399,10 +2399,10 @@ describe('align setup', () => {
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
       mockLocalDb.getStats = () => ({ decisions: 1 });
-      await makeProgram().parseAsync(['node', 'align', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       const tail = await outroTail(4);
       expect(tail).toBe([
-        'Run align to open Claude Code with your graph, then try:',
+        'Run align to open Align with your graph, then try:',
         '  1. why did we switch to postgres?',
         '  2. what was decided about src/db.ts?',
         '  3. Plan a change that reverses "switch to postgres". Check it with Align before writing anything.',
@@ -2414,7 +2414,7 @@ describe('align setup', () => {
     it('--local outro on an empty graph hands over no prompt about a graph that has nothing in it', async () => {
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockLocalDb.getStats = () => ({ decisions: 0 });
-      await makeProgram().parseAsync(['node', 'align', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       const { outro } = await import('@clack/prompts');
       const text = ((outro as ReturnType<typeof vi.fn>).mock.calls[0][0] as string).replace(ANSI, '');
       expect(text).toContain('Your graph is empty');
@@ -2432,7 +2432,7 @@ describe('align setup', () => {
       mockSetupAgentAlignment.mockReturnValueOnce(WITH_PROJECT_MCP);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'adopt trunk-based development' }]);
       mockLocalDb.getStats = () => ({ decisions: 1 });
-      await makeProgram().parseAsync(['node', 'align', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       expect(await outroTail(3)).toContain('  1. why did we adopt trunk-based development?');
     });
 
@@ -2442,9 +2442,9 @@ describe('align setup', () => {
       mockSetupAgentAlignment.mockReturnValueOnce(['CLAUDE.md']);
       mockLocalDb.listDecisions.mockReturnValue([{ id: '1', title: 'switch to postgres' }]);
       mockLocalDb.getStats = () => ({ decisions: 1 });
-      await makeProgram().parseAsync(['node', 'align', '--local']);
+      await makeProgram().parseAsync(['node', 'align', '--local', '--approve']);
       const tail = await outroTail(4);
-      expect(tail.split('\n')[0]).toBe('Run align to open Claude Code with your graph, then try:');
+      expect(tail.split('\n')[0]).toBe('Run align to open Align with your graph, then try:');
       expect(tail).not.toMatch(/align mcp/);
     });
 

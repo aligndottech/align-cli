@@ -5,6 +5,7 @@ import ora from 'ora';
 import { createConfigStore, type EnvName } from '../lib/config.js';
 import { createGatewayClient } from '../lib/gateway-client.js';
 import { resolveAppUrl } from '../lib/env-resolver.js';
+import { recordFunnelStage } from '../lib/usage-telemetry.js';
 
 // Display label only - gateway's registry.resolveUrl() handles real detection
 function labelFromUrl(input: string): string {
@@ -46,6 +47,9 @@ export function registerCaptureCommand(program: Command): void {
       try {
         const decision = await client.captureDecision(input, platform);
         spinner.succeed(chalk.green('Decision captured'));
+        // The first capture on this install is a funnel stage. Once-per-install is guarded in the
+        // emitter; not awaited, so a slow gateway never delays the command's output.
+        void recordFunnelStage(env, 'first_capture', 'capture');
 
         console.log('');
         console.log(`  ${chalk.bold('ID:')}       ${decision.id}`);

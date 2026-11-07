@@ -25,10 +25,23 @@ copied from those runs and shortened. The GIF replays it, so it isn't a live ses
 Without Align the agent plans to skip signature checks; with it, the agent stops and cites the
 decision that ruled that out.*
 
-Run it in a git repo. The first run asks which agent you use, builds a graph from your commit
-history and wires the agent up. After that, `align` opens your agent with the graph connected
-and refreshes connected sources in the background, at most every 15 minutes per source
-(`align sync --off` turns that off).
+Run it in a git repo. The first run builds a graph from your commit history. After that, `align`
+opens Align's own coding agent over that graph, and refreshes connected sources in the
+background, at most every 15 minutes per source (`align sync --off` turns that off).
+
+You choose what runs behind it:
+
+- **Your own API key** (Anthropic, OpenAI, Gemini and others, set with `align ai`), or a local
+  model through Ollama.
+- **Your own Claude Code.** Anthropic does not let other apps use a Claude subscription, so with
+  no key Align drives your installed Claude Code and you stay on your plan. Align never sees your
+  Claude login.
+
+`align --engine align` or `align --engine claude` picks one, and Align remembers it. Every edit is
+checked against the graph before it is written. An edit that rewrites lines a decision wrote
+waits for you to allow it or stop it.
+
+Prefer your agent's own interface? `align -- <args>` still opens it with the graph connected.
 
 MIT, no account needed. Beta, pre-1.0.
 
@@ -39,10 +52,10 @@ in the code says why. Ask your agent to undo it and see what happens:
 
 ```bash
 git clone https://github.com/fastify/fastify && cd fastify
-align                     # pick Claude Code; it builds the graph from git history
+align                     # builds the graph from git history, then opens Align
 ```
 
-Then, in Claude Code:
+Then, in Align:
 
 ```text
 Errors with a 1xx-3xx statusCode currently fall back to 500.
@@ -55,9 +68,13 @@ changed, with no AI key, and Claude stopped before editing and cited it. On 4 No
 #7089 and #601 (2018: "do not allow set status code to lower than 400"), changed nothing, and
 asked what to do. Models are not deterministic, so your run may word it differently.
 
+On 6 Nov 2026 we ran the same prompt in Align's own agent, once on Claude Code and once on an
+OpenAI key. Both times the agent tried the edit, Align found #7089 from `git blame` and asked
+first, and after "stop" the agent cited #7089 and changed nothing.
+
 ## Install
 
-- **npm:** `npm install -g @aligndottech/cli` (Node 22.16+).
+- **npm:** `npm install -g @aligndottech/cli` (Node 22.19+).
 - **macOS / Linux, no Node:** `curl -fsSL https://align.tech/install.sh | sh` installs a
   standalone binary and checks it against the release checksums. Read [install.sh](install.sh)
   first if you like.
@@ -83,6 +100,10 @@ More in [docs/installation.md](docs/installation.md).
 | **Edit hooks** | Each edit is checked against the graph. Advisory by default. Claude Code, pi, Gemini CLI, OpenCode, Codex, Cursor, Copilot CLI |
 | **Editor rules** | A managed block in `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/align.md` |
 | **Shared `.mcp.json`** | One committed file sets up the whole team |
+
+Before writing anything, setup lists every file it will create or change, with files outside your
+project (an agent's own config, user-level hooks) under their own heading, and asks. With no
+terminal to ask in (an agent's shell, CI) it writes nothing unless you pass `--approve`.
 
 To undo everything align wrote, run `align use --undo`.
 

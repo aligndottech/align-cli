@@ -141,10 +141,12 @@ One per command you run.
 ### `cli.funnel.<stage>` (local mode)
 
 Milestone pings, one of `setup_started`, `import_completed`, `mcp_wired`,
-`first_useful_decision` (once per install, the first non-empty answer, from `align ask` or
+`first_capture` (once per install, the first time you capture a decision with `align capture`; it
+carries the command name and nothing about what was captured), `first_useful_decision` (once per install, the first non-empty answer, from `align ask` or
 from an agent over MCP), `teammate_requested`, and the four session-import stages:
 `sessions_scanned`, `candidates_found`, `candidates_confirmed` and `decisions_ratified`, and
-`agent_launched` (bare `align` opened your coding agent).
+`agent_launched` (bare `align` opened your coding agent) and `agent_active` (your agent used an
+Align tool, at most once a day).
 
 `agent_launched` carries one extra field, the `agent` name (for example `claude-code`), and no
 count. It is sent without waiting for it: starting your agent never depends on the network.
@@ -155,6 +157,13 @@ sessions for). Nothing about a session's content, a repo, a path or a file name 
 the counts are counts, and the agent is the name of a tool on your machine. `decisions_ratified`
 is sent by `align ratify` with no count and no agent, because a ratification is a person
 standing behind a claim rather than anything an agent did.
+
+`agent_active` is sent by `align mcp` on the first tool call your agent makes each UTC day, and
+only in local-only mode (cloud mode records tool calls on the server already). It carries the four
+fields in the table below and nothing else: no tool name, no count, no agent name, no arguments.
+It exists because `align mcp` sends one `cli.command` when the server starts, so an editor that
+keeps one server running for a week would show use on the first day only. Listing the tools or
+starting the server sends no `agent_active`; a call that fails sends none either.
 
 None of these, and no `cli.command`, is ever sent from inside an agent hook.
 

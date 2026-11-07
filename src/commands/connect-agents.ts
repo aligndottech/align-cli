@@ -7,14 +7,20 @@ import { envFlag } from '../lib/destination-name.js';
 import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
 
 /**
- * Connect detected agents only after explicit, host-specific consent.
- * A repository setup is not permission to modify every installed agent's user-wide
- * configuration or register hooks that execute in unrelated repositories.
+ * Connect the agents installed on this machine to Align, only with a person's yes.
+ *
+ * Each agent's config is user-wide: its MCP entry and pre-edit hook apply in every project on
+ * the machine, not just the repo align ran in. So running align in one repo is not consent to
+ * change them. Setup lists these files under their own heading and asks once (default no); it
+ * passes `approved` so nobody is asked twice. Any other caller (`align local start`) gets a
+ * question per agent here, default no, and with no terminal nothing is written.
  */
 export async function connectDetectedAgents(
   envName: EnvName,
   opts: { verbose?: boolean; /** Already detected by the caller (setup lists their files before writing); one detection, one list. */ editors?: EditorTarget[];
-    /** The caller wrote the project .mcp.json just before this call (setup does; `align local start` does not). */ projectMcpWritten?: boolean } = {},
+    /** The caller wrote the project .mcp.json just before this call (setup does; `align local start` does not). */ projectMcpWritten?: boolean;
+    /** The caller already showed these files and the person said yes (setup's confirmation). */ approved?: boolean;
+    /** A person is at a terminal to ask. Defaults to both stdin and stderr being a TTY. */ interactive?: boolean } = {},
 ): Promise<{ detected: number; connected: number; wired: string[] }> {
   const editors = opts.editors ?? detectEditors();
   // writeMcpConfig takes undefined for prod: the default env needs no --env argument in the
@@ -69,22 +75,22 @@ export async function connectDetectedAgents(
   const wired: string[] = [];
   const skipped: string[] = [];
   const keptAgents: string[] = [];
-  const interactive = Boolean(process.stdin.isTTY && process.stderr.isTTY);
+  const interactive = opts.interactive ?? Boolean(process.stdin.isTTY && process.stderr.isTTY);
+  if (!opts.approved && !interactive) {
+    p.log.info(`Left ${editors.map((e) => e.name).join(', ')} alone: changing an agent's user-wide config needs a yes, and there is no terminal to ask in. Run ${chalk.bold(`align mcp --setup${envSuffix}`)} in a terminal to connect one.`);
+    return { detected: editors.length, connected: 0, wired: [] };
+  }
   for (const target of editors) {
-    // Never infer consent from an installed agent, a previous setup prompt, or a
-    // non-interactive invocation. The project-local wiring is handled separately.
-    if (!interactive) {
-      p.log.info(`Skipped ${target.name} user configuration (non-interactive; explicit opt-in required).`);
-      continue;
-    }
-    const filesToChange = [target.configPath, ...(target.hooks ? [target.hooks.path] : [])];
-    const consent = await p.confirm({
-      message: `Allow Align to configure ${target.name}? This changes user-wide settings and may run hooks in ALL projects: ${filesToChange.join(', ')}`,
-      initialValue: false,
-    });
-    if (p.isCancel(consent) || consent !== true) {
-      p.log.info(`Skipped ${target.name}; no user-wide configuration changed.`);
-      continue;
+    if (!opts.approved) {
+      const files = [target.configPath, ...(target.hooks ? [target.hooks.path] : [])];
+      const yes = await p.confirm({
+        message: `Connect ${target.name} to Align? This changes user-wide config, used in every project on this machine: ${files.join(', ')}`,
+        initialValue: false,
+      });
+      if (p.isCancel(yes) || yes !== true) {
+        p.log.info(`Left ${target.name} alone.`);
+        continue;
+      }
     }
     try {
       // The MCP entry, plus the user-level pre-edit hook on the hosts that have one
