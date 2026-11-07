@@ -31,6 +31,12 @@ describe('controller: turns', () => {
     c.endAsk();
     expect(c.phase()).toBe('running');
   });
+  it('returns to idle after a question that opened with no turn running', () => {
+    const c = createController();
+    c.beginAsk();
+    c.endAsk();
+    expect(c.phase()).toBe('idle');
+  });
 });
 
 describe('controller: leaving', () => {

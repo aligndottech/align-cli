@@ -21,6 +21,8 @@ export interface Controller {
 
 export function createController(): Controller {
   let phase: Phase = 'idle';
+  // A question can open with no turn running (a late broker call); answering it must not invent one.
+  let beforeAsk: Phase = 'idle';
   let ctrlCs = 0;
   return {
     phase: () => phase,
@@ -31,8 +33,8 @@ export function createController(): Controller {
       return t;
     },
     turnEnded() { phase = 'idle'; },
-    beginAsk() { phase = 'awaiting-answer'; },
-    endAsk() { phase = 'running'; },
+    beginAsk() { if (phase !== 'awaiting-answer') beforeAsk = phase; phase = 'awaiting-answer'; },
+    endAsk() { phase = beforeAsk; },
     escape: () => (phase === 'running' ? 'abort' : 'none'),
     ctrlC() { ctrlCs += 1; return ctrlCs >= 2 ? 'exit' : 'hint'; },
     otherKey() { ctrlCs = 0; },

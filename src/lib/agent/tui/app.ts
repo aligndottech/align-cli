@@ -1,9 +1,10 @@
-import { Container, Editor, type EditorTheme, Markdown, type MarkdownTheme, matchesKey, ProcessTerminal, Spacer, type Terminal, Text, TuiMainScreen } from '@earendil-works/pi-tui';
+import { Container, Editor, type EditorTheme, Loader, Markdown, type MarkdownTheme, matchesKey, ProcessTerminal, Spacer, type Terminal, Text, TuiMainScreen } from '@earendil-works/pi-tui';
 import chalk from 'chalk';
 import { createBroker, type HumanQuestion } from '../permission-broker.js';
 import type { AgentEngine, GateOutcome, HumanAnswer, ToolAsk } from '../types.js';
 import { commandCard, gateCard, gateNote, headerLine, toolLine } from './cards.js';
 import { answerForKey, createController } from './controller.js';
+import { SPINNER_FRAMES, SPINNER_INTERVAL_MS, statusMessage, toolActivity, wordAt } from './status.js';
 import { theme } from './theme.js';
 
 /** The only file that names pi-tui, so a breaking change there stays in one place. */
@@ -36,14 +37,61 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
   let pending: { kind: 'gate' | 'command'; resolve: (a: HumanAnswer) => void } | undefined;
   let finish: (code: number) => void = () => {};
 
+  // The turn in progress, if any. Each submit gets a new id, so a late end for an older turn
+  // (the turn-end event, then prompt()'s own finally) cannot end the one after it.
+  let turn: { id: number; startedAt: number; seed: number } | undefined;
+  let turnIds = 0;
+  // Tools running now, by call id: parallel calls each keep their own words, and the newest shows.
+  const running = new Map<string, string | undefined>();
+
+  // The status line: on for the whole turn, off while a question card waits for the person.
+  // The spinner's own frame tick redraws it, and the message is computed at draw time, so the
+  // time and the word stay current with no second timer and no extra render.
+  const status = new Container();
+  let loader: Loader | undefined;
+  const currentStatus = (): string => {
+    const elapsedMs = turn ? Date.now() - turn.startedAt : 0;
+    const activity = [...running.values()].reverse().find((a) => a !== undefined);
+    return statusMessage({ word: activity ?? wordAt(turn?.seed ?? 0, elapsedMs), elapsedMs });
+  };
+  const showStatus = (): void => {
+    if (loader || !turn) return;
+    loader = new Loader(tui, theme.brand, () => theme.dim(currentStatus()), '', { frames: SPINNER_FRAMES, intervalMs: SPINNER_INTERVAL_MS });
+    status.addChild(loader);
+  };
+  const hideStatus = (): void => {
+    if (!loader) return;
+    loader.stop();
+    status.clear();
+    loader = undefined;
+    tui.requestRender();
+  };
+
   const addLines = (lines: string[]): void => {
     streaming = undefined;
     for (const l of lines) transcript.addChild(new Text(l, 1, 0));
     tui.requestRender();
   };
-  const endTurn = (): void => { controller.turnEnded(); editor.disableSubmit = false; tui.requestRender(); };
+  const endTurn = (id: number | undefined): void => {
+    if (!turn || turn.id !== id) return;
+    turn = undefined;
+    running.clear();
+    hideStatus();
+    // A card left open when its turn ended (an engine error, an abort) is answered no, so the
+    // tool call behind it is refused and the next key goes to the editor again.
+    if (pending) {
+      const { resolve } = pending;
+      pending = undefined;
+      controller.endAsk();
+      resolve('stop');
+    }
+    controller.turnEnded();
+    editor.disableSubmit = false;
+    tui.requestRender();
+  };
 
   const askHuman = (q: HumanQuestion): Promise<HumanAnswer> => {
+    hideStatus();
     addLines(['', ...(q.kind === 'gate' ? gateCard(q) : commandCard(q)), '']);
     controller.beginAsk();
     return new Promise((resolve) => { pending = { kind: q.kind, resolve }; });
@@ -64,6 +112,7 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
         const { resolve } = pending;
         pending = undefined;
         controller.endAsk();
+        showStatus();
         resolve(answer);
       }
       return { consume: true };
@@ -78,12 +127,17 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
     editor.setText('');
     editor.disableSubmit = true;
     addLines(['', `${theme.brand('>')} ${line}`]);
-    engine.prompt(line).catch((e: unknown) => addLines([theme.error(e instanceof Error ? e.message : String(e))])).finally(endTurn);
+    turnIds += 1;
+    const id = turnIds;
+    turn = { id, startedAt: Date.now(), seed: Math.floor(Math.random() * 1000) };
+    showStatus();
+    engine.prompt(line).catch((e: unknown) => addLines([theme.error(e instanceof Error ? e.message : String(e))])).finally(() => endTurn(id));
   };
 
   tui.addChild(new Text(headerLine({ label: engine.label, decisionCount: opts.decisionCount }), 1, 0));
   tui.addChild(new Spacer(1));
   tui.addChild(transcript);
+  tui.addChild(status);
   tui.addChild(editor);
   tui.setFocus(editor);
   tui.addInputListener(onKey);
@@ -107,17 +161,22 @@ export async function runAgentUi(opts: AgentUiOptions): Promise<number> {
       } else if (e.type === 'error') {
         addLines([theme.error(e.message)]);
       } else {
+        if (e.type === 'tool-start') { running.set(e.id, toolActivity(e.tool)); loader?.invalidate(); }
+        if (e.type === 'tool-end') { running.delete(e.id); loader?.invalidate(); }
         addLines(toolLine(e));
-        if (e.type === 'turn-end') endTurn();
+        if (e.type === 'turn-end') endTurn(turn?.id);
       }
       tui.requestRender();
     }, broker).catch((err: unknown) => { failed = err instanceof Error ? err.message : String(err); });
     if (failed === undefined) {
       const code = await closed;
+      // Stop drawing before the engine closes: a slow close must not leave the spinner going.
+      hideStatus();
       await engine.close();
       return code;
     }
   } finally {
+    hideStatus();
     tui.stop();
   }
   process.stderr.write(`${failed}\n`);
