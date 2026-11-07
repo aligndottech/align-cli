@@ -41,8 +41,11 @@ export function gateNote(outcome: GateOutcome): string[] {
   return [theme.dim(`checked against: ${outcome.cards.map((d) => d.title).join(', ')}`)];
 }
 
+/** The transcript line for a tool starting, or for one that failed (with why, when it said). */
 export function toolLine(e: AgentUiEvent): string[] {
   if (e.type === 'tool-start') return [`${theme.dim('•')} ${theme.title(e.tool)} ${theme.dim(e.summary)}`];
-  if (e.type === 'tool-end' && !e.ok) return [theme.error('  that tool call failed')];
+  if (e.type === 'tool-end' && !e.ok) {
+    return [theme.error('  that tool call failed'), ...(e.detail ?? '').split('\n').filter((l) => l !== '').map((l) => theme.dim(`    ${l}`))];
+  }
   return [];
 }

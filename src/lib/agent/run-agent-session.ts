@@ -13,8 +13,10 @@ import { hasConfiguredProvider, probeOllama } from '../local-llm.js';
 import { alignConfigDir } from '../private-files.js';
 import { STARTUP_ENV } from '../startup-env.js';
 import { launchAlignEntry } from '../trusted-align-bin.js';
+import { ASK_ONCE_GUIDANCE } from './agent-guidance.js';
 import { gateEdit } from './edit-gate.js';
 import { decisionsThatWroteTheseLines } from './edit-text.js';
+import { gitConfigRunsPrograms } from './git-runs-programs.js';
 import { type ClaudeCodeOpts, createClaudeCodeEngine } from './engines/claude-code.js';
 import { type ResolvedPiModel, resolvePiModel } from './engines/pi-models.js';
 import { createGraphTools, type GraphToolSpec } from './graph-tools.js';
@@ -38,6 +40,7 @@ export interface SessionDeps {
   findClaude: () => string | null;
   projectState: () => { projectHasMcp: boolean; projectHasBlock: boolean };
   makeGate: () => (ask: ToolAsk) => Promise<GateOutcome>;
+  gitRunsPrograms: () => Promise<boolean>;
   graphTools: () => GraphToolSpec[];
   countDecisions: () => number;
   loadPiEngine: () => Promise<{ createPiEngine: (o: { cwd: string; stateDir: string; model: ResolvedPiModel; tools: GraphToolSpec[] }) => Promise<AgentEngine> }>;
@@ -59,7 +62,7 @@ const CANNOT_RUN: Record<EngineName, string> = {
 
 function claudeArgs(state: { projectHasMcp: boolean; projectHasBlock: boolean }): string[] {
   const args: string[] = [];
-  if (!state.projectHasBlock) args.push('--append-system-prompt', alignNudgeBody());
+  args.push('--append-system-prompt', [...(state.projectHasBlock ? [] : [alignNudgeBody()]), ASK_ONCE_GUIDANCE].join('\n\n'));
   // Last, because claude's --mcp-config is variadic. Named align-local so it never replaces a
   // server the user configured as `align` (see adapters/claude-code.ts).
   if (!state.projectHasMcp) args.push('--mcp-config', JSON.stringify({ mcpServers: { 'align-local': launchAlignEntry('mcpServers') } }));
@@ -105,7 +108,7 @@ export async function runAgentSession(opts: { engine?: EngineName }, deps: Sessi
   }
 
   deps.record(agent);
-  return deps.runAgentUi({ engine, decisionCount: deps.countDecisions(), gate: deps.makeGate() });
+  return deps.runAgentUi({ engine, decisionCount: deps.countDecisions(), gate: deps.makeGate(), gitRunsPrograms: deps.gitRunsPrograms });
 }
 
 export function defaultSessionDeps(): SessionDeps {
@@ -129,6 +132,7 @@ export function defaultSessionDeps(): SessionDeps {
       canAdjudicate: () => hasConfiguredProvider(),
       blame: (input, at) => decisionsThatWroteTheseLines(client, input, at),
     }),
+    gitRunsPrograms: () => gitConfigRunsPrograms(cwd),
     graphTools: () => createGraphTools({ client, env: localEnv }),
     countDecisions: () => {
       if (!localEnv.localDbPath) return 0;

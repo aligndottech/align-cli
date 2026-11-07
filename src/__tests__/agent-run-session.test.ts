@@ -1,3 +1,4 @@
+import { ASK_ONCE_GUIDANCE } from '../lib/agent/agent-guidance.js';
 import { describe, expect, it, vi } from 'vitest';
 import { runAgentSession, type SessionDeps } from '../lib/agent/run-agent-session.js';
 import type { AgentEngine } from '../lib/agent/types.js';
@@ -21,6 +22,7 @@ function deps(over: Partial<SessionDeps> = {}) {
     findClaude: () => '/usr/local/bin/claude',
     projectState: () => ({ projectHasMcp: false, projectHasBlock: false }),
     makeGate: () => async () => ({ kind: 'allow', cards: [] }),
+    gitRunsPrograms: async () => false,
     graphTools: () => [],
     countDecisions: () => 749,
     loadPiEngine: async () => ({ createPiEngine: vi.fn(async () => piEngine) }),
@@ -94,7 +96,10 @@ describe('runAgentSession: the user\'s own Claude Code', () => {
 
     const wired = deps({ resolveModel: async () => undefined, projectState: () => ({ projectHasMcp: true, projectHasBlock: true }) });
     await runAgentSession({}, wired.d);
-    expect(vi.mocked(wired.d.createClaudeCodeEngine).mock.calls[0]![0].extraArgs ?? []).toEqual([]);
+    const wiredArgs = vi.mocked(wired.d.createClaudeCodeEngine).mock.calls[0]![0].extraArgs ?? [];
+    // Only the ask-once line: the project already carries Align's block and MCP server.
+    expect(wiredArgs).toEqual(['--append-system-prompt', ASK_ONCE_GUIDANCE]);
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toContain(ASK_ONCE_GUIDANCE);
   });
 });
 

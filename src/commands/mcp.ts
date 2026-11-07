@@ -591,12 +591,12 @@ export const TOOL_SCHEMAS = [
   {
     name: 'align_get_related_decisions',
     annotations: READS,
-    description: 'BEFORE editing a file or module, call this to learn what was already decided about it across all the user\'s connected tools (not just code) - surfacing the cross-tool context an agent would otherwise miss.',
+    description: 'BEFORE editing a file or module, call this to learn what was already decided about it across all the user\'s connected tools (not just code) - surfacing the cross-tool context an agent would otherwise miss. To answer a question about why something is the way it is, use align_ask instead.',
     inputSchema: {
       type: 'object',
       properties: {
         file_path: { type: 'string', description: 'File path or module name' },
-        context: { type: 'string', description: 'Additional code context' },
+        context: { type: 'string', description: 'What you are about to change, in plain words. Decisions are found by meaning, so a bare path finds little.' },
       },
       required: ['file_path'],
     },

@@ -1,4 +1,5 @@
 import type { HookToolInput } from '../../hook-payload.js';
+import { failureTail } from '../failure-tail.js';
 import type { AgentUiEvent, BrokerVerdict, ToolAsk, ToolKind } from '../types.js';
 
 /**
@@ -115,7 +116,10 @@ export function parseLine(raw: string): ParsedLine {
     case 'user': {
       const events: AgentUiEvent[] = [];
       for (const b of contentBlocks(msg)) {
-        if (b['type'] === 'tool_result') events.push({ type: 'tool-end', id: str(b['tool_use_id']) ?? '', ok: b['is_error'] !== true });
+        if (b['type'] !== 'tool_result') continue;
+        const ok = b['is_error'] !== true;
+        const detail = ok ? undefined : failureTail(b['content']);
+        events.push({ type: 'tool-end', id: str(b['tool_use_id']) ?? '', ok, ...(detail === undefined ? {} : { detail }) });
       }
       return { events };
     }

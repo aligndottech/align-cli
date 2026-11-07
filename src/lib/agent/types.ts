@@ -45,7 +45,8 @@ export type BrokerVerdict = { allow: true } | { allow: false; message: string };
 export type AgentUiEvent =
   | { type: 'text'; delta: string }
   | { type: 'tool-start'; id: string; tool: string; summary: string }
-  | { type: 'tool-end'; id: string; ok: boolean }
+  /** detail: the last lines the tool said, only on a failure and only when it said anything. */
+  | { type: 'tool-end'; id: string; ok: boolean; detail?: string }
   | { type: 'gate'; outcome: GateOutcome; filePath?: string }
   | { type: 'turn-end' }
   | { type: 'error'; message: string };

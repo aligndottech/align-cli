@@ -1,3 +1,4 @@
+import { commandUsesGit, isReadOnlyCommand } from './read-only-command.js';
 import type { BrokerVerdict, GateDecision, GateOutcome, HumanAnswer, ToolAsk } from './types.js';
 
 /**
@@ -15,6 +16,8 @@ export interface BrokerDeps {
   gate: (ask: ToolAsk) => Promise<GateOutcome>;
   askHuman: (q: HumanQuestion) => Promise<HumanAnswer>;
   onGate: (outcome: GateOutcome, ask: ToolAsk) => void;
+  /** True when the repo's git config names a program. Absent means unknown, and git then asks. */
+  gitRunsPrograms?: () => Promise<boolean>;
 }
 
 /** Only an explicit yes allows. An answer this code does not know (a future key, a cancel) is a stop. */
@@ -46,6 +49,12 @@ export function createBroker(deps: BrokerDeps): (ask: ToolAsk) => Promise<Broker
       if (outcome.kind === 'allow') return { allow: true };
       const answer = await deps.askHuman({ kind: 'gate', outcome, ask });
       return allows(answer) ? { allow: true } : { allow: false, message: stopMessage(outcome) };
+    }
+    // A command that can only read passes; anything chained, redirected or unknown still asks.
+    if (ask.kind === 'command' && isReadOnlyCommand(ask.command ?? '')) {
+      // git reads can still run a program the repo's config names, so those pass only once that is ruled out.
+      if (!commandUsesGit(ask.command ?? '')) return { allow: true };
+      if (deps.gitRunsPrograms && !(await deps.gitRunsPrograms())) return { allow: true };
     }
     // A command, or a tool this code does not know (WebFetch, an MCP tool, a subagent): a person decides.
     // An unknown tool is approved for its input, not its name: a yes to one URL is not a yes to all.
