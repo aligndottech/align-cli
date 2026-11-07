@@ -12,10 +12,12 @@ vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
 }));
 
 const confirm = vi.hoisted(() => vi.fn());
+const multiselect = vi.hoisted(() => vi.fn());
 const logged: string[] = [];
 const warnings: string[] = [];
 vi.mock('@clack/prompts', () => ({
   confirm,
+  multiselect,
   isCancel: vi.fn().mockReturnValue(false),
   log: {
     info: (m: string) => logged.push(m),
@@ -33,8 +35,8 @@ const CURSOR = { name: 'Cursor', configPath: '/home/d/.cursor/mcp.json', format:
 
 /**
  * Each agent's config is user-wide, so writing it needs a person's yes. Setup gets that yes
- * itself (the file list, then Continue?, default no) and passes `approved`; most cases below
- * are that path. The unapproved path asks per agent - see the block at the end.
+ * itself (the file list, then Continue?) and passes `approved`; most cases below are that path.
+ * Any other caller gets one checklist, every agent ticked, each row naming its files.
  * Disclosure and a real undo are asserted either way.
  */
 describe('connectDetectedAgents without a prior yes', () => {
@@ -43,47 +45,51 @@ describe('connectDetectedAgents without a prior yes', () => {
     detectEditors.mockReset();
     writeMcpConfig.mockReset().mockImplementation((t: { configPath: string }) => [t.configPath]);
     confirm.mockReset();
+    multiselect.mockReset();
   });
 
-  it('asks per agent, default no, and writes only the ones the person said yes to', async () => {
-    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-    confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  it('shows one checklist with every agent ticked, each naming its files; Enter connects them all', async () => {
+    const CODEX = { ...CURSOR, name: 'Codex', configPath: '/home/d/.codex/config.toml', hooks: { path: '/home/d/.codex/hooks.json' } };
+    detectEditors.mockReturnValue([CLAUDE, CODEX]);
+    multiselect.mockImplementationOnce(async (o: { initialValues: string[] }) => o.initialValues);
     const r = await connectDetectedAgents('local', { interactive: true });
-    expect(confirm).toHaveBeenCalledTimes(2);
-    expect(confirm.mock.calls[0]![0]).toMatchObject({ initialValue: false });
-    expect(confirm.mock.calls[0]![0].message).toContain(CLAUDE.configPath);
-    expect(confirm.mock.calls[0]![0].message).toContain('every project');
+    expect(multiselect).toHaveBeenCalledOnce();
+    const q = multiselect.mock.calls[0]![0] as { initialValues: string[]; message: string; options: { value: string; hint: string }[] };
+    expect(q.initialValues).toEqual(['Claude Desktop', 'Codex']);
+    expect(q.message).toContain('every project');
+    expect(q.options.find((o) => o.value === 'Codex')!.hint).toContain('/home/d/.codex/hooks.json');
+    expect(q.options.find((o) => o.value === 'Claude Desktop')!.hint).toContain(CLAUDE.configPath);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(r).toEqual({ detected: 2, connected: 2, wired: ['Claude Desktop', 'Codex'] });
+  });
+
+  it('an unticked agent is left alone and said so; the rest are written', async () => {
+    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+    multiselect.mockResolvedValueOnce(['Cursor']);
+    const r = await connectDetectedAgents('local', { interactive: true });
     expect(writeMcpConfig).toHaveBeenCalledTimes(1);
     expect(writeMcpConfig.mock.calls[0]![0]).toBe(CURSOR);
     expect(r).toEqual({ detected: 2, connected: 1, wired: ['Cursor'] });
+    expect(logged).toContain('Left Claude Desktop alone.');
   });
 
-  it('Ctrl-C stops asking: no later agent is asked or written', async () => {
+  it('Ctrl-C writes nothing', async () => {
     const { isCancel } = await import('@clack/prompts');
     const CANCEL = Symbol('cancel');
     vi.mocked(isCancel).mockImplementation((v) => v === CANCEL);
     try {
       detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-      confirm.mockResolvedValueOnce(CANCEL).mockResolvedValueOnce(true);
+      multiselect.mockResolvedValueOnce(CANCEL);
       const r = await connectDetectedAgents('local', { interactive: true });
-      expect(confirm).toHaveBeenCalledTimes(1);
       expect(writeMcpConfig).not.toHaveBeenCalled();
       expect(r.wired).toEqual([]);
     } finally { vi.mocked(isCancel).mockReturnValue(false); }
   });
 
-  it('names the hook file in the question when the agent has one', async () => {
-    const CODEX = { ...CURSOR, name: 'Codex', hooks: { path: '/home/d/.codex/hooks.json' } };
-    detectEditors.mockReturnValue([CODEX]);
-    confirm.mockResolvedValueOnce(false);
-    await connectDetectedAgents('local', { interactive: true });
-    expect(confirm.mock.calls[0]![0].message).toContain('/home/d/.codex/hooks.json');
-  });
-
   it('with no terminal writes nothing, asks nothing, and says how to connect one', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
     const r = await connectDetectedAgents('local', { interactive: false });
-    expect(confirm).not.toHaveBeenCalled();
+    expect(multiselect).not.toHaveBeenCalled();
     expect(writeMcpConfig).not.toHaveBeenCalled();
     expect(r).toEqual({ detected: 2, connected: 0, wired: [] });
     expect(logged.join('\n')).toContain('align mcp --setup --env local');
@@ -92,7 +98,7 @@ describe('connectDetectedAgents without a prior yes', () => {
   it('approved by the caller: no question, every agent written', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
     const r = await connectDetectedAgents('local', { interactive: false, approved: true });
-    expect(confirm).not.toHaveBeenCalled();
+    expect(multiselect).not.toHaveBeenCalled();
     expect(r.wired).toEqual(['Claude Desktop', 'Cursor']);
   });
 });

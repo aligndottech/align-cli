@@ -11,9 +11,9 @@ import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
  *
  * Each agent's config is user-wide: its MCP entry and pre-edit hook apply in every project on
  * the machine, not just the repo align ran in. So running align in one repo is not consent to
- * change them. Setup lists these files under their own heading and asks once (default no); it
- * passes `approved` so nobody is asked twice. Any other caller (`align local start`) gets a
- * question per agent here, default no, and with no terminal nothing is written.
+ * change them. Setup lists these files under their own heading and asks once (default yes); it
+ * passes `approved` so nobody is asked twice. Any other caller (`align local start`) gets one
+ * checklist here, every agent ticked, and with no terminal nothing is written.
  */
 export async function connectDetectedAgents(
   envName: EnvName,
@@ -80,23 +80,25 @@ export async function connectDetectedAgents(
     p.log.info(`Left ${editors.map((e) => e.name).join(', ')} alone: changing an agent's user-wide config needs a yes, and there is no terminal to ask in. Run ${chalk.bold(`align mcp --setup${envSuffix}`)} in a terminal to connect one.`);
     return { detected: editors.length, connected: 0, wired: [] };
   }
-  for (const target of editors) {
-    if (!opts.approved) {
-      const files = [target.configPath, ...(target.hooks ? [target.hooks.path] : [])];
-      const yes = await p.confirm({
-        message: `Connect ${target.name} to Align? This changes user-wide config, used in every project on this machine: ${files.join(', ')}`,
-        initialValue: false,
-      });
-      // Ctrl-C means stop asking, not "no to this one, next please".
-      if (p.isCancel(yes)) {
-        p.log.info(`Left ${target.name} and any agent after it alone.`);
-        break;
-      }
-      if (yes !== true) {
-        p.log.info(`Left ${target.name} alone.`);
-        continue;
-      }
+  // One checklist, every agent ticked: Enter connects them all, and any can be unticked. Each row
+  // names the files it changes, so the yes is to something specific.
+  let chosen = editors;
+  if (!opts.approved) {
+    const picked = await p.multiselect({
+      message: 'Connect these agents to Align? Each adds one entry to that agent\'s own config, used in every project on this machine. Space unticks, Enter confirms.',
+      options: editors.map((e) => ({ value: e.name, label: e.name, hint: [e.configPath, ...(e.hooks ? [e.hooks.path] : [])].join(', ') })),
+      initialValues: editors.map((e) => e.name),
+      required: false,
+    });
+    if (p.isCancel(picked)) {
+      p.log.info('Left every agent alone.');
+      return { detected: editors.length, connected: 0, wired: [] };
     }
+    const names = picked as string[];
+    chosen = editors.filter((e) => names.includes(e.name));
+    for (const e of editors) if (!names.includes(e.name)) p.log.info(`Left ${e.name} alone.`);
+  }
+  for (const target of chosen) {
     try {
       // The MCP entry, plus the user-level pre-edit hook on the hosts that have one
       // (Codex, Cursor, Copilot CLI) - the writer reports every file it wrote.

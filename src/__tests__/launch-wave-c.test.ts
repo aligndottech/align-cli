@@ -66,7 +66,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; bins?: Record<st
     cwd,
     home,
     platform: HOST,
-    isTTY: true, confirm: async () => true,
+    isTTY: true, askConfigWrite: async () => true,
     config: { getAgent: () => over.stored, setAgent: () => {} },
     findOnPath: (bin) => bins[bin] ?? null,
     cacheDir: () => path.join(root, 'cache'),
@@ -272,7 +272,7 @@ describe('written once, against FAKE auggie and cline binaries (real pipeline)',
   afterEach(() => { setWriteRecorder(undefined); vi.unstubAllEnvs(); });
   const memo: RefusedMemo = { has: (f) => refused.has(f), add: (f) => refused.add(f), remove: (f) => refused.delete(f) };
   const run = (agent: string, startupEnv: Record<string, string> = {}, args: string[] = ['hi']) => launchIfChosen({
-    env: { ...process.env }, argv: ['node', 'align', '--', ...args], cwd, home, platform: process.platform, isTTY: true, confirm: async () => true,
+    env: { ...process.env }, argv: ['node', 'align', '--', ...args], cwd, home, platform: process.platform, isTTY: true, askConfigWrite: async () => true,
     config: { getAgent: () => agent, setAgent: () => {} },
     findOnPath,
     readAuggieState: (c, h, e, p, pt) => readAuggieState(c, h, { localIsDefault: true }, e, p, pt),

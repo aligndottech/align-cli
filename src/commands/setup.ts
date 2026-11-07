@@ -425,7 +425,7 @@ export function importRetryHint(sourceId: string, envName: EnvName): string {
 
 /**
  * Before setup writes anything: show the exact files it will create or modify, then ask
- * (default no). Covers the project's agent files and each detected agent's own config, the
+ * (default yes). Covers the project's agent files and each detected agent's own config, the
  * two writers below. --approve prints the list and goes ahead; no terminal and no --approve
  * prints the list and writes nothing. False means the
  * person declined: the caller writes nothing.
@@ -441,7 +441,7 @@ async function confirmAgentWrites(o: { interactive: boolean; approve?: boolean }
     interactive: o.interactive,
     print: (text) => p.log.info(text),
     ask: async (message) => {
-      const answer = await p.confirm({ message, initialValue: false });
+      const answer = await p.confirm({ message, initialValue: true });
       return p.isCancel(answer) ? undefined : answer;
     },
   });
@@ -1439,7 +1439,7 @@ async function runCloudSetup(ctx: {
   //
   // It wires every detected agent and discloses each file it touched, with `align mcp --remove`
   // as the undo. Since the confirmation below it asks first, once, for the whole run: the list
-  // of files, then Continue? (default no). --approve prints the list and goes on; no terminal
+  // of files, then Continue? (default yes). --approve prints the list and goes on; no terminal
   // and no --approve writes nothing. This block used to write without a word when exactly one editor was detected and
   // prompt only at two or more, and that multiselect was unguarded, so `align setup --approve`
   // with two agents installed hung.

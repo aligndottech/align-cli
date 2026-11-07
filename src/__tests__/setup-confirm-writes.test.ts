@@ -77,21 +77,21 @@ describe.skipIf(!canPty)('setup confirms the files it will write', () => {
     } finally { r.close(); }
   });
 
-  it('answering yes writes every file the list named', async () => {
+  it('pressing Enter (the default, yes) writes every file the list named', async () => {
     const r = rig();
     try {
-      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', 'y\r'], SKIP_CONNECTORS]);
+      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', '\r'], SKIP_CONNECTORS]);
       const listed = AGENT_FILES.filter((f) => out.includes(f === '.claude' ? '.claude/settings.json' : f));
       expect(listed.length).toBe(AGENT_FILES.length);
       expect(r.entries()).toEqual([...AGENT_FILES].sort());
     } finally { r.close(); }
   });
 
-  // The files include agent config used in every project on the machine, so Enter alone is no.
-  it('pressing Enter (the default) writes nothing', async () => {
+  // The list is the disclosure and the question is real: no means nothing is written.
+  it('answering no writes nothing', async () => {
     const r = rig();
     try {
-      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', '\r'], SKIP_CONNECTORS]);
+      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', 'n\r'], SKIP_CONNECTORS]);
       expect(out).toContain('Left your agent config alone');
       expect(r.entries()).toEqual([]);
     } finally { r.close(); }

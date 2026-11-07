@@ -42,6 +42,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
     pruneLaunchFiles: (_d, prefix, opts) => { pruned.push({ prefix, keep: opts.keep, remove: opts.remove }); },
     applyConfigWrite: vi.fn(),
     configWriteWouldChange: () => true,
+    askConfigWrite: vi.fn(async () => true),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content, opts) => { written.push([name, content]); modes[name] = opts?.mode; return true; },
     runAgent,
@@ -141,7 +142,7 @@ describe('wave A: each launches with Align wired in', () => {
   });
   it('gemini: adds align-local once to the user settings, sets no system-tier env, and the trust line goes to stderr', async () => {
     const applyConfigWrite = vi.fn();
-    const h = harness({ stored: 'gemini-cli', onPath: ['gemini'], applyConfigWrite, confirm: vi.fn(async () => true) });
+    const h = harness({ stored: 'gemini-cli', onPath: ['gemini'], applyConfigWrite });
     await launchIfChosen(h.deps);
     expect(h.written).toEqual([]);
     expect(applyConfigWrite).toHaveBeenCalledOnce();

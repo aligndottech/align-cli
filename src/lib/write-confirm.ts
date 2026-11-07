@@ -97,7 +97,7 @@ export async function confirmWrites(opts: {
   approve?: boolean;
   interactive: boolean;
   print: (text: string) => void;
-  /** The yes/no prompt. Default no. Resolves to undefined when the person cancels. */
+  /** The yes/no prompt. Default yes: the list above it is the disclosure. Resolves to undefined when the person cancels. */
   ask: (message: string) => Promise<boolean | undefined>;
 }): Promise<boolean> {
   if (opts.files.length === 0) return true;

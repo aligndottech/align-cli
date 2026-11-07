@@ -51,7 +51,7 @@ function harness(opts: { summary?: SyncSummary | undefined; env?: Record<string,
     readCopilotState: () => ({ present: false, overridden: [] }),
     pruneLaunchFiles: vi.fn(), applyConfigWrite: vi.fn(), cacheDir: () => '/cache', writeIfChanged: () => true,
     runAgent: vi.fn(async () => { events.push('agent'); return 0; }),
-    record: vi.fn(), pick: vi.fn(async () => null), confirm: vi.fn(async () => false), spawnInstall: vi.fn(),
+    record: vi.fn(), pick: vi.fn(async () => null), confirm: vi.fn(async () => false), askConfigWrite: vi.fn(async () => true), spawnInstall: vi.fn(),
     err: (l) => { err.push(l); events.push(`err:${l.slice(0, 24)}`); },
     now: () => 42,
     backgroundSyncIo: {

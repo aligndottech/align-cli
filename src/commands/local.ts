@@ -29,7 +29,7 @@ export function registerLocalCommand(program: Command): void {
       const { dbPath } = await initLocalMode();
       s.stop('Local graph ready');
 
-      // Each agent's config is user-wide, so connectDetectedAgents asks per agent (default no)
+      // Each agent's config is user-wide, so connectDetectedAgents shows a checklist (all ticked)
       // and writes nothing with no terminal.
       const { connectDetectedAgents } = await import('./connect-agents.js');
       await connectDetectedAgents('local');
