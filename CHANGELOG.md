@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.69.0](https://github.com/aligndottech/align-cli/compare/cli-v0.68.1...cli-v0.69.0) (2026-11-07)
+
+
+### Features
+
+* **agent:** a live status line while it works; answers link every decision ([#530](https://github.com/aligndottech/align-cli/issues/530)) ([80dd536](https://github.com/aligndottech/align-cli/commit/80dd53654a10163dd9678a816c66e70c93b0d9f2))
+
 ## [0.68.1](https://github.com/aligndottech/align-cli/compare/cli-v0.68.0...cli-v0.68.1) (2026-11-07)
 
 
