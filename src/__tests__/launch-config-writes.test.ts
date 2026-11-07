@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { applyConfigWrite, type ConfigWrite } from '../lib/launch/config-writes.js';
+import { applyConfigWrite, type ConfigWrite, configWriteWouldChange } from '../lib/launch/config-writes.js';
 import { BACKUP_SUFFIX } from '../lib/safe-config-write.js';
 
 /*
@@ -137,5 +137,40 @@ describe('applyConfigWrite: hint, symlinked dirs, remembered refusals', () => {
     put(f, '{ nope');
     expect(() => applyConfigWrite(entryWrite(f), note)).toThrow(/then run align again/);
     expect(() => applyConfigWrite(entryWrite(f), note)).not.toThrow(/mcp --setup/);
+  });
+});
+
+// The launcher asks before this write, and must not ask when there is nothing to write.
+describe('configWriteWouldChange agrees with applyConfigWrite', () => {
+  it('a missing file would change; once written, it would not', () => {
+    const f = path.join(dir, 'mcp.json');
+    expect(configWriteWouldChange(entryWrite(f))).toBe(true);
+    applyConfigWrite(entryWrite(f), note);
+    expect(configWriteWouldChange(entryWrite(f))).toBe(false);
+  });
+  it('a file holding other servers but not ours would change', () => {
+    const f = path.join(dir, 'mcp.json');
+    put(f, JSON.stringify({ mcpServers: { other: { command: 'x' } } }));
+    expect(configWriteWouldChange(entryWrite(f))).toBe(true);
+  });
+  it('a file it cannot parse counts as a change, so the person is asked', () => {
+    const f = path.join(dir, 'mcp.json');
+    put(f, '{ not json');
+    expect(configWriteWouldChange(entryWrite(f))).toBe(true);
+  });
+  it('a replace write with an identical entry would not change; a different one would', () => {
+    const f = path.join(dir, 'mcp.json');
+    const w: ConfigWrite = { ...entryWrite(f), replace: true };
+    put(f, JSON.stringify({ mcpServers: { 'align-local': w.entry } }));
+    expect(configWriteWouldChange(w)).toBe(false);
+    expect(configWriteWouldChange({ ...w, entry: { command: 'align', args: ['mcp'] } })).toBe(true);
+  });
+  it('TOML: a missing table would change; once appended, it would not', () => {
+    const f = path.join(dir, 'config.toml');
+    put(f, '# mine\n');
+    const w: ConfigWrite = { kind: 'toml-mcp-entry', file: f, topKey: 'mcp_servers', name: 'align-local', entry: { command: 'align', args: ['mcp'] } };
+    expect(configWriteWouldChange(w)).toBe(true);
+    applyConfigWrite(w, note);
+    expect(configWriteWouldChange(w)).toBe(false);
   });
 });

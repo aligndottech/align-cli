@@ -12,10 +12,12 @@ vi.mock('../lib/mcp-setup.js', async (importOriginal) => ({
 }));
 
 const confirm = vi.hoisted(() => vi.fn());
+const multiselect = vi.hoisted(() => vi.fn());
 const logged: string[] = [];
 const warnings: string[] = [];
 vi.mock('@clack/prompts', () => ({
   confirm,
+  multiselect,
   isCancel: vi.fn().mockReturnValue(false),
   log: {
     info: (m: string) => logged.push(m),
@@ -32,16 +34,75 @@ const CLAUDE = { name: 'Claude Desktop', configPath: '/home/d/.config/Claude/x.j
 const CURSOR = { name: 'Cursor', configPath: '/home/d/.cursor/mcp.json', format: 'mcpServers' };
 
 /**
- * Setup wires the agents installed on this machine.
- *
- * An earlier version of this asked first, on the grounds that a global editor config is a
- * user-level file. Two facts moved it: the write is ADDITIVE (one `align` key, everything
- * else preserved, and it throws rather than overwriting a config it cannot parse), and an
- * agent reading your graph IS the product - so a prompt costs every user a keystroke in
- * order to let a few decline the only thing that makes Align do anything.
- *
- * The trade only holds with disclosure and a real undo, so both are asserted here.
+ * Each agent's config is user-wide, so writing it needs a person's yes. Setup gets that yes
+ * itself (the file list, then Continue?) and passes `approved`; most cases below are that path.
+ * Any other caller gets one checklist, every agent ticked, each row naming its files.
+ * Disclosure and a real undo are asserted either way.
  */
+describe('connectDetectedAgents without a prior yes', () => {
+  beforeEach(() => {
+    logged.length = 0;
+    detectEditors.mockReset();
+    writeMcpConfig.mockReset().mockImplementation((t: { configPath: string }) => [t.configPath]);
+    confirm.mockReset();
+    multiselect.mockReset();
+  });
+
+  it('shows one checklist with every agent ticked, each naming its files; Enter connects them all', async () => {
+    const CODEX = { ...CURSOR, name: 'Codex', configPath: '/home/d/.codex/config.toml', hooks: { path: '/home/d/.codex/hooks.json' } };
+    detectEditors.mockReturnValue([CLAUDE, CODEX]);
+    multiselect.mockImplementationOnce(async (o: { initialValues: string[] }) => o.initialValues);
+    const r = await connectDetectedAgents('local', { interactive: true });
+    expect(multiselect).toHaveBeenCalledOnce();
+    const q = multiselect.mock.calls[0]![0] as { initialValues: string[]; message: string; options: { value: string; hint: string }[] };
+    expect(q.initialValues).toEqual(['Claude Desktop', 'Codex']);
+    expect(q.message).toContain('every project');
+    expect(q.options.find((o) => o.value === 'Codex')!.hint).toContain('/home/d/.codex/hooks.json');
+    expect(q.options.find((o) => o.value === 'Claude Desktop')!.hint).toContain(CLAUDE.configPath);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(r).toEqual({ detected: 2, connected: 2, wired: ['Claude Desktop', 'Codex'] });
+  });
+
+  it('an unticked agent is left alone and said so; the rest are written', async () => {
+    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+    multiselect.mockResolvedValueOnce(['Cursor']);
+    const r = await connectDetectedAgents('local', { interactive: true });
+    expect(writeMcpConfig).toHaveBeenCalledTimes(1);
+    expect(writeMcpConfig.mock.calls[0]![0]).toBe(CURSOR);
+    expect(r).toEqual({ detected: 2, connected: 1, wired: ['Cursor'] });
+    expect(logged).toContain('Left Claude Desktop alone.');
+  });
+
+  it('Ctrl-C writes nothing', async () => {
+    const { isCancel } = await import('@clack/prompts');
+    const CANCEL = Symbol('cancel');
+    vi.mocked(isCancel).mockImplementation((v) => v === CANCEL);
+    try {
+      detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+      multiselect.mockResolvedValueOnce(CANCEL);
+      const r = await connectDetectedAgents('local', { interactive: true });
+      expect(writeMcpConfig).not.toHaveBeenCalled();
+      expect(r.wired).toEqual([]);
+    } finally { vi.mocked(isCancel).mockReturnValue(false); }
+  });
+
+  it('with no terminal writes nothing, asks nothing, and says how to connect one', async () => {
+    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+    const r = await connectDetectedAgents('local', { interactive: false });
+    expect(multiselect).not.toHaveBeenCalled();
+    expect(writeMcpConfig).not.toHaveBeenCalled();
+    expect(r).toEqual({ detected: 2, connected: 0, wired: [] });
+    expect(logged.join('\n')).toContain('align mcp --setup --env local');
+  });
+
+  it('approved by the caller: no question, every agent written', async () => {
+    detectEditors.mockReturnValue([CLAUDE, CURSOR]);
+    const r = await connectDetectedAgents('local', { interactive: false, approved: true });
+    expect(multiselect).not.toHaveBeenCalled();
+    expect(r.wired).toEqual(['Claude Desktop', 'Cursor']);
+  });
+});
+
 describe('connectDetectedAgents', () => {
   beforeEach(() => {
     logged.length = 0;
@@ -53,9 +114,9 @@ describe('connectDetectedAgents', () => {
     confirm.mockReset();
   });
 
-  it('wires every detected agent without asking', async () => {
+  it('wires every detected agent without asking again once the caller has approved', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-    const r = await connectDetectedAgents('local');
+    const r = await connectDetectedAgents('local', { approved: true });
     expect(confirm).not.toHaveBeenCalled();
     expect(writeMcpConfig).toHaveBeenCalledTimes(2);
     expect(r).toEqual({ detected: 2, connected: 2, wired: ['Claude Desktop', 'Cursor'] });
@@ -63,13 +124,13 @@ describe('connectDetectedAgents', () => {
 
   it('threads the env, or a local user\'s agent reads the cloud graph', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, 'local', expect.any(Function), expect.any(Function));
   });
 
   it('passes undefined for prod, so the agent gets the default env', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
-    await connectDetectedAgents('prod');
+    await connectDetectedAgents('prod', { approved: true });
     expect(writeMcpConfig).toHaveBeenCalledWith(CLAUDE, undefined, expect.any(Function), expect.any(Function));
   });
 
@@ -92,7 +153,7 @@ describe('connectDetectedAgents', () => {
     it('prints ONE calm info line for five skips, naming agents and no files or warnings', async () => {
       detectEditors.mockReturnValue(five);
       skipAll();
-      await connectDetectedAgents('local');
+      await connectDetectedAgents('local', { approved: true });
       expect(keptLines()).toEqual([
         'Kept your existing Align connection in 5 agents (Claude Code, VS Code, Codex, pi, Gemini CLI). Agents opened with `align` also get the local graph.',
       ]);
@@ -104,7 +165,7 @@ describe('connectDetectedAgents', () => {
     it('is singular for one skip', async () => {
       detectEditors.mockReturnValue([CLAUDE, CURSOR]);
       skipClaude();
-      await connectDetectedAgents('local');
+      await connectDetectedAgents('local', { approved: true });
       expect(keptLines()).toEqual([
         'Kept your existing Align connection in Claude Desktop. Agents opened with `align` also get the local graph.',
       ]);
@@ -116,7 +177,7 @@ describe('connectDetectedAgents', () => {
       writeMcpConfig.mockImplementation((t: { configPath: string }, _e: string, onForeign: (f: string) => void) => {
         onForeign(t.configPath); onForeign('/home/d/.claude/hooks.json'); return [];
       });
-      await connectDetectedAgents('local');
+      await connectDetectedAgents('local', { approved: true });
       expect(keptLines()).toHaveLength(1);
       expect(keptLines()[0]).toContain('in Claude Desktop.');
     });
@@ -124,7 +185,7 @@ describe('connectDetectedAgents', () => {
     it('with verbose, adds one line per file with the switch command', async () => {
       detectEditors.mockReturnValue([CLAUDE, CURSOR]);
       skipAll();
-      await connectDetectedAgents('local', { verbose: true });
+      await connectDetectedAgents('local', { approved: true, verbose: true });
       const perFile = logged.filter((m) => m.includes('Left the existing align entry in'));
       expect(perFile).toHaveLength(2);
       expect(perFile[0]).toContain(CLAUDE.configPath);
@@ -137,18 +198,18 @@ describe('connectDetectedAgents', () => {
     it('the connected line counts only agents actually wired, never a skipped one', async () => {
       detectEditors.mockReturnValue(five);
       skipAll();
-      const none = await connectDetectedAgents('local');
+      const none = await connectDetectedAgents('local', { approved: true });
       expect(agentConnectedLine(none.wired)).toBeUndefined();
       detectEditors.mockReturnValue([CLAUDE, CURSOR]);
       skipClaude();
-      const one = await connectDetectedAgents('local');
+      const one = await connectDetectedAgents('local', { approved: true });
       expect(agentConnectedLine(one.wired)).toBe('Your agent is connected: Cursor.');
     });
 
     it('does not report a skipped agent as connected or wired, and does not claim its file', async () => {
       detectEditors.mockReturnValue([CLAUDE, CURSOR]);
       skipClaude();
-      const r = await connectDetectedAgents('local');
+      const r = await connectDetectedAgents('local', { approved: true });
       expect(logged.join('\n')).not.toContain(`${CLAUDE.name}: align MCP connected`);
       expect(logged.join('\n')).toContain(`${CURSOR.name}: align MCP connected`);
       expect(logged.join('\n')).toContain(CURSOR.configPath);
@@ -157,7 +218,7 @@ describe('connectDetectedAgents', () => {
 
     it('says nothing of the kind when nothing was skipped', async () => {
       detectEditors.mockReturnValue([CURSOR]);
-      await connectDetectedAgents('local');
+      await connectDetectedAgents('local', { approved: true });
       expect(warnings).toEqual([]);
       expect(logged.join('\n')).not.toContain('Kept your existing');
     });
@@ -170,7 +231,7 @@ describe('connectDetectedAgents', () => {
    */
   it('names the exact files it touched and how to undo it', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     const out = logged.join('\n');
     expect(out).toContain(CLAUDE.configPath);
     expect(out).toContain(CURSOR.configPath);
@@ -186,7 +247,7 @@ describe('connectDetectedAgents', () => {
     const hooksPath = '/home/d/.cursor/hooks.json';
     detectEditors.mockReturnValue([{ ...CURSOR, hooks: { host: 'cursor', path: hooksPath } }]);
     writeMcpConfig.mockImplementation((t: { configPath: string }) => [t.configPath, hooksPath]);
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     const out = logged.join('\n');
     expect(out).toContain(CURSOR.configPath);
     expect(out).toContain(hooksPath);
@@ -195,7 +256,7 @@ describe('connectDetectedAgents', () => {
 
   it('agrees in number when it touched exactly one file', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     const out = logged.join('\n');
     expect(out).toContain('this file');
     expect(out).toContain('Nothing else in it was changed');
@@ -204,14 +265,14 @@ describe('connectDetectedAgents', () => {
 
   it('says nothing about files when it wrote none', async () => {
     detectEditors.mockReturnValue([]);
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     expect(logged.join('\n')).not.toContain('align mcp --remove');
   });
 
   it('keeps going, and does not claim a file it failed to write', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
     writeMcpConfig.mockImplementationOnce(() => { throw new Error('permission denied'); });
-    const r = await connectDetectedAgents('local');
+    const r = await connectDetectedAgents('local', { approved: true });
     expect(writeMcpConfig).toHaveBeenCalledTimes(2);      // did not abort on the first
     expect(r).toEqual({ detected: 2, connected: 1, wired: ['Cursor'] });
     const out = logged.join('\n');
@@ -222,7 +283,7 @@ describe('connectDetectedAgents', () => {
 
   it('hands over a portable config when no agent is installed', async () => {
     detectEditors.mockReturnValue([]);
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     expect(writeMcpConfig).not.toHaveBeenCalled();
     expect(logged.join('\n')).toMatch(/mcpServers/);
   });
@@ -231,11 +292,11 @@ describe('connectDetectedAgents', () => {
   // would wire their agent to prod - the graph they did not just build.
   it('qualifies the manual command with the env', async () => {
     detectEditors.mockReturnValue([]);
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     expect(logged.join('\n')).toContain('align mcp --setup --env local');
 
     logged.length = 0;
-    await connectDetectedAgents('prod');
+    await connectDetectedAgents('prod', { approved: true });
     const out = logged.join('\n');
     expect(out).toContain('align mcp --setup');
     expect(out).not.toContain('--env');
@@ -244,12 +305,12 @@ describe('connectDetectedAgents', () => {
   it('a team destination is threaded to the writer and named in the manual command (join C6)', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
     writeMcpConfig.mockClear();
-    await connectDetectedAgents('acme' as never);
+    await connectDetectedAgents('acme' as never, { approved: true });
     expect(writeMcpConfig.mock.calls[0]![1]).toBe('acme');
 
     detectEditors.mockReturnValue([]);
     logged.length = 0;
-    await connectDetectedAgents('acme' as never);
+    await connectDetectedAgents('acme' as never, { approved: true });
     expect(logged.join('\n')).toContain('align mcp --setup --env acme');
     expect(logged.join('\n')).toContain('"--env","acme"');
   });
@@ -257,7 +318,7 @@ describe('connectDetectedAgents', () => {
   it('a name that is not shell-safe stops before anything is written or printed', async () => {
     detectEditors.mockReturnValue([CLAUDE]);
     writeMcpConfig.mockClear();
-    await expect(connectDetectedAgents('a;b' as never)).rejects.toThrow(/not a safe/);
+    await expect(connectDetectedAgents('a;b' as never, { approved: true })).rejects.toThrow(/not a safe/);
     expect(writeMcpConfig).not.toHaveBeenCalled();
   });
 });
@@ -283,7 +344,7 @@ describe("connectDetectedAgents - the zero-editors message", () => {
     // comment says Claude Code reads. The message needs to say that, not imply nothing
     // was wired.
     detectEditors.mockReturnValue([]);
-    connectDetectedAgents("local");
+    connectDetectedAgents("local", { approved: true });
     const all = logged.join("\n");
     expect(all).toContain(".mcp.json");
     expect(all).toMatch(/claude code|pi/i);
@@ -293,7 +354,7 @@ describe("connectDetectedAgents - the zero-editors message", () => {
     // Printed directly above "Your agent is connected: Claude Code." in the same run, it read as a contradiction.
     setPlatform("linux");
     detectEditors.mockReturnValue([]);
-    connectDetectedAgents("local", { projectMcpWritten: true });
+    connectDetectedAgents("local", { approved: true, projectMcpWritten: true });
     const all = logged.join("\n");
     expect(all).not.toMatch(/no agent found/i);
     expect(all).toMatch(/^Claude Code and pi are connected through the project's \.mcp\.json/);
@@ -303,7 +364,7 @@ describe("connectDetectedAgents - the zero-editors message", () => {
   it("other callers (align local start writes no .mcp.json) keep the conditional wording", () => {
     setPlatform("linux");
     detectEditors.mockReturnValue([]);
-    connectDetectedAgents("local");
+    connectDetectedAgents("local", { approved: true });
     const all = logged.join("\n");
     expect(all).toMatch(/^No agent found a GLOBAL config/);
     expect(all).not.toMatch(/are connected through/);
@@ -312,7 +373,7 @@ describe("connectDetectedAgents - the zero-editors message", () => {
   it("on Windows the project file is not enough, so even setup's caller says per-machine entry is needed", () => {
     setPlatform("win32");
     detectEditors.mockReturnValue([]);
-    connectDetectedAgents("local", { projectMcpWritten: true });
+    connectDetectedAgents("local", { approved: true, projectMcpWritten: true });
     const all = logged.join("\n");
     expect(all).toMatch(/^No agent found a GLOBAL config/);
     expect(all).toContain("per-machine entry");
@@ -337,14 +398,14 @@ describe('mcp_wired funnel stage', () => {
 
   it('emits once when at least one agent was wired', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     expect(recordFunnelStage).toHaveBeenCalledTimes(1);
     expect(recordFunnelStage).toHaveBeenCalledWith(expect.anything(), 'mcp_wired', 'mcp');
   });
 
   it('emits nothing when no agent was detected', async () => {
     detectEditors.mockReturnValue([]);
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     expect(recordFunnelStage).not.toHaveBeenCalled();
   });
 });
@@ -366,20 +427,20 @@ describe('connectDetectedAgents names what it wired', () => {
 
   it('returns the wired agents by name, in detection order', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
-    const r = await connectDetectedAgents('local');
+    const r = await connectDetectedAgents('local', { approved: true });
     expect(r.wired).toEqual(['Claude Desktop', 'Cursor']);
   });
 
   it('leaves out the one it failed to write - it is not connected, whatever was detected', async () => {
     detectEditors.mockReturnValue([CLAUDE, CURSOR]);
     writeMcpConfig.mockImplementationOnce(() => { throw new Error('permission denied'); });
-    const r = await connectDetectedAgents('local');
+    const r = await connectDetectedAgents('local', { approved: true });
     expect(r.wired).toEqual(['Cursor']);
   });
 
   it('is empty when nothing was detected', async () => {
     detectEditors.mockReturnValue([]);
-    const r = await connectDetectedAgents('local');
+    const r = await connectDetectedAgents('local', { approved: true });
     expect(r.wired).toEqual([]);
   });
 });
@@ -402,7 +463,7 @@ describe('connectDetectedAgents - the hand-over config is spawnable on the reade
 
   it('wraps the command for a Windows reader', async () => {
     setPlatform('win32');
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     const all = logged.join('\n');
     expect(all).toContain('"command":"cmd"');
     expect(all).toContain('"/c","align","mcp","--env","local"');
@@ -410,7 +471,7 @@ describe('connectDetectedAgents - the hand-over config is spawnable on the reade
 
   it('leaves it bare for a macOS or Linux reader', async () => {
     setPlatform('linux');
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     const all = logged.join('\n');
     expect(all).toContain('"command":"align"');
     expect(all).not.toContain('cmd');
@@ -433,7 +494,7 @@ describe('connectDetectedAgents - what it claims .mcp.json covers', () => {
 
   it('does not tell a Windows user that the project file is enough', async () => {
     setPlatform('win32');
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     const all = logged.join('\n');
     expect(all).not.toContain('need nothing further');
     expect(all).toMatch(/Windows cannot spawn/i);
@@ -442,7 +503,7 @@ describe('connectDetectedAgents - what it claims .mcp.json covers', () => {
 
   it('still says the project file covers them on macOS and Linux, where it does', async () => {
     setPlatform('darwin');
-    await connectDetectedAgents('local');
+    await connectDetectedAgents('local', { approved: true });
     expect(logged.join('\n')).toContain('need nothing further');
   });
 });

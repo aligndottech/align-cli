@@ -7,30 +7,20 @@ import { envFlag } from '../lib/destination-name.js';
 import { foreignNotice, keptConnectionNotice } from '../lib/foreign-env.js';
 
 /**
- * Connect the agents installed on this machine to Align.
+ * Connect the agents installed on this machine to Align, only with a person's yes.
  *
- * WHY THIS DOES NOT ASK
- * ---------------------
- * An earlier version of this asked once, default yes, on the grounds that a global editor
- * config is a user-level file and editing one silently is rude. Two facts moved it:
- *
- *   1. The write is ADDITIVE. writeJsonConfig reads the existing file, adds one key named
- *      `align` under mcpServers, and preserves everything else - and throws rather than
- *      overwriting if the JSON is invalid. It is not the intrusion it sounds like.
- *   2. An agent reading your decision graph IS the product. A prompt costs every user a
- *      keystroke so that a few can decline the one thing that makes Align do anything, and
- *      a default-yes confirm that everyone Enters through is not consent, it is ceremony.
- *
- * So it does it, says exactly which files it touched, and names the one command that undoes
- * it. Disclosure plus a real undo beats a question nobody reads.
- *
- * Project files (.mcp.json, CLAUDE.md, the hook configs) are written elsewhere and are not in
- * question: they live in the repo the user ran us in, show up in a diff, and can be deleted.
+ * Each agent's config is user-wide: its MCP entry and pre-edit hook apply in every project on
+ * the machine, not just the repo align ran in. So running align in one repo is not consent to
+ * change them. Setup lists these files under their own heading and asks once (default yes); it
+ * passes `approved` so nobody is asked twice. Any other caller (`align local start`) gets one
+ * checklist here, every agent ticked, and with no terminal nothing is written.
  */
 export async function connectDetectedAgents(
   envName: EnvName,
   opts: { verbose?: boolean; /** Already detected by the caller (setup lists their files before writing); one detection, one list. */ editors?: EditorTarget[];
-    /** The caller wrote the project .mcp.json just before this call (setup does; `align local start` does not). */ projectMcpWritten?: boolean } = {},
+    /** The caller wrote the project .mcp.json just before this call (setup does; `align local start` does not). */ projectMcpWritten?: boolean;
+    /** The caller already showed these files and the person said yes (setup's confirmation). */ approved?: boolean;
+    /** A person is at a terminal to ask. Defaults to stdin and stdout being a TTY, as setup checks: the prompt draws on stdout. */ interactive?: boolean } = {},
 ): Promise<{ detected: number; connected: number; wired: string[] }> {
   const editors = opts.editors ?? detectEditors();
   // writeMcpConfig takes undefined for prod: the default env needs no --env argument in the
@@ -85,7 +75,30 @@ export async function connectDetectedAgents(
   const wired: string[] = [];
   const skipped: string[] = [];
   const keptAgents: string[] = [];
-  for (const target of editors) {
+  const interactive = opts.interactive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  if (!opts.approved && !interactive) {
+    p.log.info(`Left ${editors.map((e) => e.name).join(', ')} alone: changing an agent's user-wide config needs a yes, and there is no terminal to ask in. Run ${chalk.bold(`align mcp --setup${envSuffix}`)} in a terminal to connect one.`);
+    return { detected: editors.length, connected: 0, wired: [] };
+  }
+  // One checklist, every agent ticked: Enter connects them all, and any can be unticked. Each row
+  // names the files it changes, so the yes is to something specific.
+  let chosen = editors;
+  if (!opts.approved) {
+    const picked = await p.multiselect({
+      message: 'Connect these agents to Align? Each adds one entry to that agent\'s own config, used in every project on this machine. Space unticks, Enter confirms.',
+      options: editors.map((e) => ({ value: e.name, label: e.name, hint: [e.configPath, ...(e.hooks ? [e.hooks.path] : [])].join(', ') })),
+      initialValues: editors.map((e) => e.name),
+      required: false,
+    });
+    if (p.isCancel(picked)) {
+      p.log.info('Left every agent alone.');
+      return { detected: editors.length, connected: 0, wired: [] };
+    }
+    const names = picked as string[];
+    chosen = editors.filter((e) => names.includes(e.name));
+    for (const e of editors) if (!names.includes(e.name)) p.log.info(`Left ${e.name} alone.`);
+  }
+  for (const target of chosen) {
     try {
       // The MCP entry, plus the user-level pre-edit hook on the hosts that have one
       // (Codex, Cursor, Copilot CLI) - the writer reports every file it wrote.

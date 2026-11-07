@@ -20,6 +20,18 @@ export async function selectAgent(options: PickerOption[], initial: LaunchAgentI
 }
 
 /**
+ * A yes/no question with Yes preselected, for a change the person came here to get (Align's tools
+ * in the agent they chose) and that the question itself describes. true only on yes, false on no,
+ * null on Ctrl-C.
+ */
+export async function confirmDefaultYes(message: string, output?: Writable): Promise<boolean | null> {
+  const clack = await import('@clack/prompts');
+  const answer = await clack.confirm({ message, initialValue: true, ...(output ? { output } : {}) });
+  if (clack.isCancel(answer)) return null;
+  return answer === true;
+}
+
+/**
  * A yes/no question with No preselected. true only on an explicit yes, false on anything else,
  * null on Ctrl-C (which the picker treats as leaving it, not as a No).
  */

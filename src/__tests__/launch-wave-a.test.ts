@@ -41,6 +41,8 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; onPath?: string[
     readCopilotState: () => ({ present: false, overridden: [] }),
     pruneLaunchFiles: (_d, prefix, opts) => { pruned.push({ prefix, keep: opts.keep, remove: opts.remove }); },
     applyConfigWrite: vi.fn(),
+    configWriteWouldChange: () => true,
+    askConfigWrite: vi.fn(async () => true),
     cacheDir: () => '/cache',
     writeIfChanged: (_d, name, content, opts) => { written.push([name, content]); modes[name] = opts?.mode; return true; },
     runAgent,

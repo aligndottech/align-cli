@@ -77,13 +77,23 @@ describe.skipIf(!canPty)('setup confirms the files it will write', () => {
     } finally { r.close(); }
   });
 
-  it('answering yes (the default) writes every file the list named', async () => {
+  it('pressing Enter (the default, yes) writes every file the list named', async () => {
     const r = rig();
     try {
       const { out } = await pty(r, ['--local'], [PICK, ['Continue?', '\r'], SKIP_CONNECTORS]);
       const listed = AGENT_FILES.filter((f) => out.includes(f === '.claude' ? '.claude/settings.json' : f));
       expect(listed.length).toBe(AGENT_FILES.length);
       expect(r.entries()).toEqual([...AGENT_FILES].sort());
+    } finally { r.close(); }
+  });
+
+  // The list is the disclosure and the question is real: no means nothing is written.
+  it('answering no writes nothing', async () => {
+    const r = rig();
+    try {
+      const { out } = await pty(r, ['--local'], [PICK, ['Continue?', 'n\r'], SKIP_CONNECTORS]);
+      expect(out).toContain('Left your agent config alone');
+      expect(r.entries()).toEqual([]);
     } finally { r.close(); }
   });
 

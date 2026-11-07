@@ -52,7 +52,7 @@ function harness(over: Partial<LaunchDeps> & { stored?: string; bins?: Record<st
     cwd,
     home,
     platform: HOST,
-    isTTY: true,
+    isTTY: true, askConfigWrite: async () => true,
     config: { getAgent: () => over.stored, setAgent: () => {} },
     findOnPath: (bin) => bins[bin] ?? null,
     cacheDir: () => path.join(root, 'cache'),
@@ -218,7 +218,7 @@ describe('written once, against FAKE kiro-cli and grok binaries (real pipeline)'
   });
   afterEach(() => { setWriteRecorder(undefined); vi.unstubAllEnvs(); });
   const run = (agent: string) => launchIfChosen({
-    env: { ...process.env }, argv: ['node', 'align', '--', 'hi'], cwd, home, platform: process.platform, isTTY: true,
+    env: { ...process.env }, argv: ['node', 'align', '--', 'hi'], cwd, home, platform: process.platform, isTTY: true, askConfigWrite: async () => true,
     config: { getAgent: () => agent, setAgent: () => {} },
     findOnPath,
     readKiroState: (c, h, e, p) => readKiroState(c, h, { localIsDefault: true }, e, p),
@@ -311,7 +311,7 @@ describe('wave B: a key align saved never reaches the new agents (#351 provider-
   });
   afterEach(() => vi.unstubAllEnvs());
   const run = (agent: string, startupEnv: Record<string, string>) => launchIfChosen({
-    env: { ...process.env }, argv: ['node', 'align', '--'], cwd, home, platform: process.platform, isTTY: true,
+    env: { ...process.env }, argv: ['node', 'align', '--'], cwd, home, platform: process.platform, isTTY: true, askConfigWrite: async () => true,
     config: { getAgent: () => agent, setAgent: () => {} },
     findOnPath,
     readQwenState: (c, h, e, p) => readQwenState(c, h, { localIsDefault: true }, e, p),
